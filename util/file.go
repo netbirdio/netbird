@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -25,7 +26,7 @@ func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []b
 		return fmt.Errorf("enforce permission: %w", err)
 	}
 
-	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+	return writeBytes(ctx, file, configDir, configFileName, bs)
 }
 
 // WriteJsonWithRestrictedPermission writes JSON config object to a file. Enforces permission on the parent directory
@@ -55,9 +56,9 @@ func WriteJson(ctx context.Context, file string, obj interface{}) error {
 }
 
 // DirectWriteJson writes JSON config object to a file creating parent directories if required without creating a temporary file
-func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
+func DirectWriteJson(ctx context.Context, file string, obj interface{}) (err error) {
 
-	_, _, err := prepareConfigFileDir(file)
+	_, _, err = prepareConfigFileDir(file)
 	if err != nil {
 		return err
 	}
@@ -67,11 +68,24 @@ func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 		return err
 	}
 
+	// Named return so a failed Close is reported rather than logged and
+	// swallowed: the write is only durable once the file closes cleanly, and a
+	// caller told "written" would carry on with data that never landed.
 	defer func() {
-		err = targetFile.Close()
-		if err != nil {
-			log.Errorf("failed to close file %s: %v", file, err)
+		cerr := targetFile.Close()
+		if cerr == nil {
+			return
 		}
+		if err == nil {
+			// Returned, not logged: the caller reports it once.
+			err = cerr
+			return
+		}
+		// The body already failed and that error is the one the caller gets, so
+		// it is the one that explains the failure. This is then the only place
+		// the close failure can surface — at debug, per the logging rules for
+		// close errors on writes.
+		log.Debugf("failed to close file %s after %v: %v", file, err, cerr)
 	}()
 
 	// make it pretty
@@ -105,10 +119,10 @@ func writeJson(ctx context.Context, file string, obj interface{}, configDir stri
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+	return writeBytes(ctx, file, configDir, configFileName, bs)
 }
 
-func writeBytes(ctx context.Context, file string, err error, configDir string, configFileName string, bs []byte) error {
+func writeBytes(ctx context.Context, file string, configDir string, configFileName string, bs []byte) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("write bytes start: %w", ctx.Err())
 	}
@@ -148,7 +162,7 @@ func writeBytes(ctx context.Context, file string, err error, configDir string, c
 		return fmt.Errorf("after temp file: %w", ctx.Err())
 	}
 
-	if err = os.Rename(tempFileName, file); err != nil {
+	if err = renameFile(tempFileName, file); err != nil {
 		return fmt.Errorf("move %s to %s: %w", tempFileName, file, err)
 	}
 
@@ -181,7 +195,7 @@ func openOrCreateFile(file string) (*os.File, error) {
 // ReadJson reads JSON config file and maps to a provided interface
 func ReadJson(file string, res interface{}) (interface{}, error) {
 
-	f, err := os.Open(file)
+	f, err := openRead(file)
 	if err != nil {
 		return nil, err
 	}
@@ -200,11 +214,41 @@ func ReadJson(file string, res interface{}) (interface{}, error) {
 	return res, nil
 }
 
+// RemoveJson removes the specified JSON file if it exists
+func RemoveJson(file string) error {
+	// Check if the file exists
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return nil // File does not exist, nothing to remove
+	}
+
+	// Attempt to remove the file
+	if err := os.Remove(file); err != nil {
+		return fmt.Errorf("failed to remove JSON file %s: %w", file, err)
+	}
+
+	return nil
+}
+
+// ListFiles returns the full paths of all files in dir that match pattern.
+// Pattern uses shell-style globbing (e.g. "*.json").
+func ListFiles(dir, pattern string) ([]string, error) {
+	// glob pattern like "/path/to/dir/*.json"
+	globPattern := filepath.Join(dir, pattern)
+
+	matches, err := filepath.Glob(globPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(matches)
+	return matches, nil
+}
+
 // ReadJsonWithEnvSub reads JSON config file and maps to a provided interface with environment variable substitution
 func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 	envVars := getEnvMap()
 
-	f, err := os.Open(file)
+	f, err := openRead(file)
 	if err != nil {
 		return nil, err
 	}

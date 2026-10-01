@@ -1,0 +1,146 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Q&A / Support
+
+        Use this category for questions about configuration, setup, self-hosted deployments, troubleshooting, and general NetBird usage.
+
+        This is community support and does not provide an SLA. For NetBird Cloud support, use the official support channel linked from the issue creation page. Please do not post secrets, tokens, private keys, internal hostnames, or public IPs unless you intentionally want them public.
+
+        If your question turns into a reproducible product defect, DevRel or a maintainer may ask you to open or move the conversation to Issue Triage.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched existing discussions and issues for similar questions.
+          required: true
+        - label: I reviewed the relevant NetBird documentation or troubleshooting guide.
+          required: true
+        - label: I removed or anonymized sensitive data from logs, screenshots, and configuration.
+          required: true
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      multiple: true
+      options:
+        - Getting started
+        - Self-hosting
+        - Client / Agent
+        - CLI
+        - Desktop UI
+        - Mobile app
+        - Dashboard / Admin UI
+        - DNS
+        - Routes / Exit nodes
+        - NetBird SSH
+        - Relay
+        - Access control policies
+        - Posture checks
+        - Identity provider / SSO
+        - API
+        - Kubernetes / Operator
+        - Terraform / Automation
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment type
+      options:
+        - NetBird Cloud
+        - Self-hosted - quickstart script
+        - Self-hosted - advanced/custom deployment
+        - Local development build
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system or environment
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Android
+        - iOS
+        - FreeBSD
+        - OpenWRT
+        - Docker
+        - Kubernetes
+        - Synology
+        - Browser
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: NetBird version
+      description: Run `netbird version` where applicable. For self-hosted deployments, include component versions if relevant.
+      placeholder: "Example: client 0.30.2, management 0.30.2"
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to understand or accomplish?
+      placeholder: Describe your question clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Desired outcome
+      description: What would a successful answer help you do?
+      placeholder: |
+        I want to configure ...
+        I expected ...
+        I need help deciding ...
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include commands, documentation links, configuration attempts, or troubleshooting steps already tried.
+      placeholder: |
+        - Read ...
+        - Ran ...
+        - Changed ...
+        - Observed ...
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Relevant environment details
+      description: Include redacted topology, IdP/provider, reverse proxy, firewall, DNS, route, policy, or self-hosted setup details that may affect the answer.
+      placeholder: |
+        - Deployment:
+        - Components involved:
+        - Network/topology:
+        - Related config:
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Optional. Include anonymized logs, command output, screenshots, or `netbird status -dA` if relevant.
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add links, diagrams, screenshots, or other details that may help the community answer.

@@ -1,0 +1,17 @@
+{
+  "id": "msg_abc",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello, world!"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 123,
+    "output_tokens": 45
+  }
+}

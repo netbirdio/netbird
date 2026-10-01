@@ -5,23 +5,36 @@ package configurer
 import (
 	"fmt"
 	"net"
+	"net/netip"
+	"slices"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/monotime"
 )
 
 type KernelConfigurer struct {
 	deviceName string
+	statsCache *statsCache
+	allowedIPs *allowedIPStore
 }
 
+// NewKernelConfigurer creates a configurer with an empty allowed IP mirror
+// and a statistics cache for the named kernel device.
 func NewKernelConfigurer(deviceName string) *KernelConfigurer {
-	return &KernelConfigurer{
+	c := &KernelConfigurer{
 		deviceName: deviceName,
+		allowedIPs: newAllowedIPStore(),
 	}
+	c.statsCache = newStatsCache(statsCacheTTL, c.fetchStats)
+	return c
 }
 
+// ConfigureInterface sets the device key, port and firewall mark, replacing all peers.
+// The allowed IP mirror is reset only after the device accepts the configuration.
 func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -40,10 +53,35 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	if err != nil {
 		return fmt.Errorf(`received error "%w" while configuring interface %s with port %d`, err, c.deviceName, port)
 	}
+
+	c.allowedIPs.reset()
 	return nil
 }
 
-func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates the existing peer; if false, creates or updates.
+func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
+	if err := c.configure(cfg); err != nil {
+		return err
+	}
+
+	// Without updateOnly this creates the peer when it is absent, so the store has to
+	// know about it even though no allowed IP was configured.
+	if !updateOnly {
+		c.allowedIPs.ensure(parsedPeerKey)
+	}
+	return nil
+}
+
+// UpdatePeer creates or updates a peer, merging allowed IPs with its existing set.
+// Prefixes assigned to this peer are transferred from their previous owners.
+func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -52,7 +90,7 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, ke
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		// don't replace allowed ips, wg will handle duplicated peer IP
-		AllowedIPs:                  allowedIps,
+		AllowedIPs:                  prefixesToIPNets(allowedIps),
 		PersistentKeepaliveInterval: &keepAlive,
 		Endpoint:                    endpoint,
 		PresharedKey:                preSharedKey,
@@ -65,9 +103,52 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, ke
 	if err != nil {
 		return fmt.Errorf(`received error "%w" while updating peer on interface %s with settings: allowed ips %s, endpoint %s`, err, c.deviceName, allowedIps, endpoint.String())
 	}
+
+	c.allowedIPs.add(peerKeyParsed, allowedIps)
 	return nil
 }
 
+// RemoveEndpointAddress clears the endpoint of a peer while keeping it configured.
+// Neither the netlink API nor the userspace one can clear an endpoint in place, so the peer
+// is removed and re-added with the allowed IPs it already had.
+func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	allowedIPs, err := c.peerAllowedIPs(peerKeyParsed)
+	if err != nil {
+		return err
+	}
+
+	removePeerCfg := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Remove:    true,
+	}
+
+	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{removePeerCfg}}); err != nil {
+		return fmt.Errorf("remove peer %s from interface %s: %w", peerKey, c.deviceName, err)
+	}
+
+	reAddPeerCfg := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		AllowedIPs:        prefixesToIPNets(allowedIPs),
+		ReplaceAllowedIPs: true,
+	}
+
+	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{reAddPeerCfg}}); err != nil {
+		c.allowedIPs.forget(peerKeyParsed)
+		return fmt.Errorf(
+			"re-add peer %s to interface %s with allowed IPs %v: %w",
+			peerKey, c.deviceName, allowedIPs, err,
+		)
+	}
+
+	return nil
+}
+
+// RemovePeer removes a peer and forgets its allowed IPs after a successful device write.
 func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -86,15 +167,13 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	if err != nil {
 		return fmt.Errorf(`received error "%w" while removing peer %s from interface %s`, err, peerKey, c.deviceName)
 	}
+
+	c.allowedIPs.forget(peerKeyParsed)
 	return nil
 }
 
-func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return err
-	}
-
+// AddAllowedIP adds a prefix to an existing peer; an absent peer is a silent no-op.
+func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -103,7 +182,7 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{*ipNet},
+		AllowedIPs:        prefixesToIPNets([]netip.Prefix{allowedIP}),
 	}
 
 	config := wgtypes.Config{
@@ -113,52 +192,69 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 	if err != nil {
 		return fmt.Errorf(`received error "%w" while adding allowed Ip to peer on interface %s with settings: allowed ips %s`, err, c.deviceName, allowedIP)
 	}
+
+	c.allowedIPs.addExisting(peerKeyParsed, []netip.Prefix{allowedIP})
 	return nil
 }
 
-func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return fmt.Errorf("parse allowed IP: %w", err)
-	}
-
+// RemoveAllowedIP removes a prefix while preserving the peer's other allowed IPs.
+// A prefix not assigned to the peer is a no-op.
+func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return fmt.Errorf("parse peer key: %w", err)
 	}
 
-	existingPeer, err := c.getPeer(c.deviceName, peerKey)
+	currentAllowedIPs, err := c.peerAllowedIPs(peerKeyParsed)
 	if err != nil {
-		return fmt.Errorf("get peer: %w", err)
+		return err
 	}
 
-	newAllowedIPs := existingPeer.AllowedIPs
-
-	for i, existingAllowedIP := range existingPeer.AllowedIPs {
-		if existingAllowedIP.String() == ipNet.String() {
-			newAllowedIPs = append(existingPeer.AllowedIPs[:i], existingPeer.AllowedIPs[i+1:]...) //nolint:gocritic
-			break
-		}
+	idx := slices.Index(currentAllowedIPs, normalizePrefix(allowedIP))
+	if idx < 0 {
+		return nil
 	}
+	newAllowedIPs := slices.Delete(currentAllowedIPs, idx, idx+1)
 
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: true,
-		AllowedIPs:        newAllowedIPs,
+		AllowedIPs:        prefixesToIPNets(newAllowedIPs),
 	}
 
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	err = c.configure(config)
-	if err != nil {
+	if err := c.configure(config); err != nil {
 		return fmt.Errorf("remove allowed IP %s on interface %s: %w", allowedIP, c.deviceName, err)
 	}
+
+	c.allowedIPs.set(peerKeyParsed, newAllowedIPs)
 	return nil
 }
 
-func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+// peerAllowedIPs returns the allowed IPs configured for a peer, reading them from the device
+// only for a peer the store has not seen. Dumping the device costs a netlink round trip
+// proportional to the whole network map, and this runs on every relay and ICE transition.
+func (c *KernelConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, error) {
+	if prefixes, ok := c.allowedIPs.get(peerKey); ok {
+		return prefixes, nil
+	}
+
+	existingPeer, err := c.getPeer(c.deviceName, peerKey)
+	if err != nil {
+		return nil, fmt.Errorf("get peer: %w", err)
+	}
+
+	prefixes := ipNetsToPrefixes(existingPeer.AllowedIPs)
+	c.allowedIPs.set(peerKey, prefixes)
+	return prefixes, nil
+}
+
+// getPeer scans the device for one peer. wgtypes.Key is an array, so the comparison is a
+// plain equality: Key.String would base64 encode into a fresh allocation for every peer.
+func (c *KernelConfigurer) getPeer(ifaceName string, peerPubKey wgtypes.Key) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return wgtypes.Peer{}, fmt.Errorf("wgctl: %w", err)
@@ -175,7 +271,7 @@ func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, 
 		return wgtypes.Peer{}, fmt.Errorf("get device %s: %w", ifaceName, err)
 	}
 	for _, peer := range wgDevice.Peers {
-		if peer.PublicKey.String() == peerPubKey {
+		if peer.PublicKey == peerPubKey {
 			return peer, nil
 		}
 	}
@@ -187,13 +283,11 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 	if err != nil {
 		return err
 	}
-	defer wg.Close()
-
-	// validate if device with name exists
-	_, err = wg.Device(c.deviceName)
-	if err != nil {
-		return err
-	}
+	defer func() {
+		if err := wg.Close(); err != nil {
+			log.Errorf("Failed to close wgctrl client: %v", err)
+		}
+	}()
 
 	return wg.ConfigureDevice(c.deviceName, config)
 }
@@ -201,14 +295,79 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 func (c *KernelConfigurer) Close() {
 }
 
-func (c *KernelConfigurer) GetStats(peerKey string) (WGStats, error) {
-	peer, err := c.getPeer(c.deviceName, peerKey)
+func (c *KernelConfigurer) FullStats() (*Stats, error) {
+	wg, err := wgctrl.New()
 	if err != nil {
-		return WGStats{}, fmt.Errorf("get wireguard stats: %w", err)
+		return nil, fmt.Errorf("wgctl: %w", err)
 	}
-	return WGStats{
-		LastHandshake: peer.LastHandshakeTime,
-		TxBytes:       peer.TransmitBytes,
-		RxBytes:       peer.ReceiveBytes,
-	}, nil
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("Got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(c.deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+	fullStats := &Stats{
+		DeviceName: wgDevice.Name,
+		PublicKey:  wgDevice.PublicKey.String(),
+		ListenPort: wgDevice.ListenPort,
+		FWMark:     wgDevice.FirewallMark,
+		Peers:      []Peer{},
+	}
+
+	for _, p := range wgDevice.Peers {
+		peer := Peer{
+			PublicKey:     p.PublicKey.String(),
+			AllowedIPs:    p.AllowedIPs,
+			TxBytes:       p.TransmitBytes,
+			RxBytes:       p.ReceiveBytes,
+			LastHandshake: p.LastHandshakeTime,
+			PresharedKey:  [32]byte(p.PresharedKey),
+		}
+		if p.Endpoint != nil {
+			peer.Endpoint = *p.Endpoint
+		}
+		fullStats.Peers = append(fullStats.Peers, peer)
+	}
+	return fullStats, nil
+}
+
+func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
+	return c.statsCache.get()
+}
+
+func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
+	return nil
+}
+
+func (c *KernelConfigurer) fetchStats() (map[string]WGStats, error) {
+	stats := make(map[string]WGStats)
+	wg, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("wgctl: %w", err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("Got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(c.deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+
+	for _, peer := range wgDevice.Peers {
+		stats[peer.PublicKey.String()] = WGStats{
+			LastHandshake: peer.LastHandshakeTime,
+			TxBytes:       peer.TransmitBytes,
+			RxBytes:       peer.ReceiveBytes,
+		}
+	}
+	return stats, nil
 }

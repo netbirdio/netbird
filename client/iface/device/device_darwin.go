@@ -13,23 +13,25 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type TunDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
-	mtu     int
+	mtu     uint16
 	iceBind *bind.ICEBind
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
@@ -41,7 +43,7 @@ func NewTunDevice(name string, address WGAddress, port int, key string, mtu int,
 }
 
 func (t *TunDevice) Create() (WGConfigurer, error) {
-	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
+	tunDevice, err := tun.CreateTUN(t.name, int(t.mtu))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
@@ -60,7 +62,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -70,7 +72,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -85,7 +87,7 @@ func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunDevice) UpdateAddr(address WGAddress) error {
+func (t *TunDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
@@ -106,8 +108,12 @@ func (t *TunDevice) Close() error {
 	return nil
 }
 
-func (t *TunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunDevice) DeviceName() string {
@@ -125,26 +131,40 @@ func (t *TunDevice) Device() *device.Device {
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (t *TunDevice) assignAddr() error {
-	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Errorf("adding address command '%v' failed with output: %s", cmd.String(), out)
-		return err
+	if out, err := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String()).CombinedOutput(); err != nil {
+		return fmt.Errorf("add v4 address: %s: %w", string(out), err)
 	}
 
-	// dummy ipv6 so routing works
-	cmd = exec.Command("ifconfig", t.name, "inet6", "fe80::/64")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Debugf("adding address command '%v' failed with output: %s", cmd.String(), out)
+	// Assign a dummy link-local so macOS enables IPv6 on the tun device.
+	// When a real overlay v6 is present, use that instead.
+	v6Addr := "fe80::/64"
+	if t.address.HasIPv6() {
+		v6Addr = t.address.IPv6String()
+	}
+	if out, err := exec.Command("ifconfig", t.name, "inet6", v6Addr).CombinedOutput(); err != nil {
+		log.Warnf("failed to assign IPv6 address %s, continuing v4-only: %s: %v", v6Addr, string(out), err)
+		t.address.ClearIPv6()
 	}
 
-	routeCmd := exec.Command("route", "add", "-net", t.address.Network.String(), "-interface", t.name)
-	if out, err := routeCmd.CombinedOutput(); err != nil {
-		log.Errorf("adding route command '%v' failed with output: %s", routeCmd.String(), out)
-		return err
+	if out, err := exec.Command("route", "add", "-net", t.address.Network.String(), "-interface", t.name).CombinedOutput(); err != nil {
+		return fmt.Errorf("add route %s via %s: %s: %w", t.address.Network, t.name, string(out), err)
 	}
+
+	if t.address.HasIPv6() {
+		if out, err := exec.Command("route", "add", "-inet6", "-net", t.address.IPv6Net.String(), "-interface", t.name).CombinedOutput(); err != nil {
+			log.Warnf("failed to add route %s via %s, continuing v4-only: %s: %v", t.address.IPv6Net, t.name, string(out), err)
+			t.address.ClearIPv6()
+		}
+	}
+
 	return nil
 }
 
 func (t *TunDevice) GetNet() *netstack.Net {
 	return nil
+}
+
+// GetICEBind returns the ICEBind instance
+func (t *TunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
 }

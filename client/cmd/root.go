@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -19,30 +20,32 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/anonymize"
+	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 const (
-	externalIPMapFlag       = "external-ip-map"
-	dnsResolverAddress      = "dns-resolver-address"
-	enableRosenpassFlag     = "enable-rosenpass"
-	rosenpassPermissiveFlag = "rosenpass-permissive"
-	preSharedKeyFlag        = "preshared-key"
-	interfaceNameFlag       = "interface-name"
-	wireguardPortFlag       = "wireguard-port"
-	networkMonitorFlag      = "network-monitor"
-	disableAutoConnectFlag  = "disable-auto-connect"
-	serverSSHAllowedFlag    = "allow-server-ssh"
-	extraIFaceBlackListFlag = "extra-iface-blacklist"
-	dnsRouteIntervalFlag    = "dns-router-interval"
-	systemInfoFlag          = "system-info"
-	blockLANAccessFlag      = "block-lan-access"
+	externalIPMapFlag        = "external-ip-map"
+	dnsResolverAddress       = "dns-resolver-address"
+	enableRosenpassFlag      = "enable-rosenpass"
+	rosenpassPermissiveFlag  = "rosenpass-permissive"
+	enableLocalMetricsFlag   = "enable-local-metrics"
+	localMetricsAddressFlag  = "local-metrics-address"
+	preSharedKeyFlag         = "preshared-key"
+	interfaceNameFlag        = "interface-name"
+	wireguardPortFlag        = "wireguard-port"
+	networkMonitorFlag       = "network-monitor"
+	disableAutoConnectFlag   = "disable-auto-connect"
+	extraIFaceBlackListFlag  = "extra-iface-blacklist"
+	dnsRouteIntervalFlag     = "dns-router-interval"
+	enableLazyConnectionFlag = "enable-lazy-connection"
+	mtuFlag                  = "mtu"
 )
 
 var (
-	configPath              string
 	defaultConfigPathDir    string
 	defaultConfigPath       string
 	oldDefaultConfigPathDir string
@@ -52,7 +55,7 @@ var (
 	defaultLogFile          string
 	oldDefaultLogFileDir    string
 	oldDefaultLogFile       string
-	logFile                 string
+	logFiles                []string
 	daemonAddr              string
 	managementURL           string
 	adminURL                string
@@ -64,31 +67,63 @@ var (
 	customDNSAddress        string
 	rosenpassEnabled        bool
 	rosenpassPermissive     bool
-	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
 	networkMonitor          bool
-	serviceName             string
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
-	debugSystemInfoFlag     bool
+	anonymizeLevelFlag      string
 	dnsRouteInterval        time.Duration
-	blockLANAccess          bool
+	// lazyConnEnabled is the parse target for the deprecated --enable-lazy-connection
+	// flag. The flag is inert; the value is no longer read (use NB_LAZY_CONN instead).
+	lazyConnEnabled        bool
+	mtu                    uint16
+	profilesDisabled       bool
+	updateSettingsDisabled bool
+	captureEnabled         bool
+	networksDisabled       bool
+	localMetricsEnabled    bool
+	localMetricsAddr       string
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars(cmd.Root())
+
+			// Don't resolve for service commands — they create the socket, not connect to it.
+			if !isServiceCmd(cmd) {
+				daemonAddr = daddr.ResolveUnixDaemonAddr(daemonAddr)
+				daemonAddr = daddr.ResolveDaemonAddr(daemonAddr)
+			}
+			return nil
+		},
 	}
 )
 
-// Execute executes the root command.
+// Execute runs the appropriate Cobra command for the CLI.
+// If the process is the update binary it delegates to updateCmd; otherwise it runs the root command.
+// It returns any error produced during command execution.
 func Execute() error {
+	if isUpdateBinary() {
+		return updateCmd.Execute()
+	}
 	return rootCmd.Execute()
 }
 
+// init initialises package-level defaults and configures the root
+// Cobra command tree. Sets platform-specific config / log directory
+// paths (including legacy Wiretrustee fallbacks) and a default daemon
+// address; registers persistent CLI flags (daemon address,
+// management / admin URLs, logging, setup key (file and inline,
+// mutually exclusive), preshared key, hostname, anonymise, config
+// path); attaches top-level and nested subcommands to the root
+// command; and registers `up`-specific persistent flags (external IP
+// maps, custom DNS resolver address, Rosenpass options, auto-connect
+// disabling, lazy connection).
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"
@@ -115,49 +150,59 @@ func init() {
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
-		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+		defaultDaemonAddr = daddr.WindowsPipeAddr
 	}
 
-	defaultServiceName := "netbird"
-	if runtime.GOOS == "windows" {
-		defaultServiceName = "Netbird"
-	}
-
-	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
-	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
-	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
-	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
+	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
+	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultAdminURL))
+	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
+	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets NetBird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
 	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
-	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
+	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
-	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
+	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
+	rootCmd.PersistentFlags().StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
 
-	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
 	rootCmd.AddCommand(networksCMD)
+	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
-
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(exposeCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
+
+	forwardingRulesCmd.AddCommand(forwardingRulesListCmd)
 
 	debugCmd.AddCommand(debugBundleCmd)
 	debugCmd.AddCommand(logCmd)
 	logCmd.AddCommand(logLevelCmd)
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
+	debugCmd.AddCommand(debugConfigCmd)
+
+	// kubernetes commands
+	rootCmd.AddCommand(kubernetesCmd)
+	kubernetesCmd.AddCommand(kubernetesListCmd)
+	kubernetesCmd.AddCommand(kubernetesWriteKubeconfigCmd)
+
+	// profile commands
+	profileCmd.AddCommand(profileListCmd)
+	profileCmd.AddCommand(profileAddCmd)
+	profileCmd.AddCommand(profileRenameCmd)
+	profileCmd.AddCommand(profileRemoveCmd)
+	profileCmd.AddCommand(profileSelectCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
@@ -174,10 +219,12 @@ func init() {
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
-	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
+	upCmd.PersistentFlags().BoolVar(&localMetricsEnabled, enableLocalMetricsFlag, false, "Enables a local Prometheus /metrics endpoint exposing connection state (peers, latency, P2P vs relay).")
+	upCmd.PersistentFlags().StringVar(&localMetricsAddr, localMetricsAddressFlag, localmetrics.DefaultListenAddress, "Listen address of the local Prometheus /metrics endpoint.")
+	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "Deprecated: no longer used. Lazy connections are controlled by the server and the NB_LAZY_CONN environment variable.")
+	_ = upCmd.PersistentFlags().MarkDeprecated(enableLazyConnectionFlag, "no longer used; lazy connections are controlled by the server and the NB_LAZY_CONN environment variable")
 
-	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", false, "Adds system information to the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -185,14 +232,13 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	termCh := make(chan os.Signal, 1)
 	signal.Notify(termCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		done := ctx.Done()
+		defer cancel()
 		select {
-		case <-done:
+		case <-ctx.Done():
 		case <-termCh:
 		}
 
 		log.Info("shutdown signal received")
-		cancel()
 	}()
 }
 
@@ -230,15 +276,13 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 
 // DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	return grpc.DialContext(
-		ctx,
-		strings.TrimPrefix(addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
+	target, opts := daddr.DialTarget(addr)
+	opts = append(opts, grpc.WithBlock())
+
+	return grpc.DialContext(ctx, target, opts...)
 }
 
 // WithBackOff execute function in backoff cycle.
@@ -259,6 +303,19 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	Clock:               backoff.SystemClock,
 }
 
+// effectiveAnonymize resolves the --anonymize and --anonymize-level flags:
+// setting a level implies anonymization, and an invalid level is rejected.
+func effectiveAnonymize() (bool, anonymize.Level, error) {
+	if anonymizeLevelFlag == "" {
+		return anonymizeFlag, anonymize.LevelDefault, nil
+	}
+	level := anonymize.ParseLevel(anonymizeLevelFlag)
+	if !strings.EqualFold(anonymizeLevelFlag, level.String()) {
+		return false, anonymize.LevelDefault, fmt.Errorf("invalid anonymize level %q: use %q or %q", anonymizeLevelFlag, anonymize.LevelDefault.String(), anonymize.LevelStrict.String())
+	}
+	return true, level, nil
+}
+
 func getSetupKey() (string, error) {
 	if setupKeyPath != "" && setupKey == "" {
 		return getSetupKeyFromFile(setupKeyPath)
@@ -276,7 +333,7 @@ func getSetupKeyFromFile(setupKeyPath string) (string, error) {
 
 func handleRebrand(cmd *cobra.Command) error {
 	var err error
-	if logFile == defaultLogFile {
+	if slices.Contains(logFiles, defaultLogFile) {
 		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
 			cmd.Printf("will copy Log dir %s and its content to %s\n", oldDefaultLogFileDir, defaultLogFileDir)
 			err = cpDir(oldDefaultLogFileDir, defaultLogFileDir)
@@ -285,15 +342,14 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if configPath == defaultConfigPath {
-		if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
-			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
-			err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
-			if err != nil {
-				return err
-			}
+	if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
+		cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
+		err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
+		if err != nil {
+			return err
 		}
 	}
+
 	return nil
 }
 
@@ -385,15 +441,25 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
-	SetFlagsFromEnvVars(rootCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
 	}
 
 	return conn, nil
+}
+
+// isServiceCmd returns true if cmd is the "service" command or a child of it.
+func isServiceCmd(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "service" {
+			return true
+		}
+	}
+	return false
 }

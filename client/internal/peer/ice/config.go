@@ -1,7 +1,7 @@
 package ice
 
 import (
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 )
 
 type Config struct {

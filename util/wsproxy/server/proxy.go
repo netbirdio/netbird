@@ -1,0 +1,112 @@
+package server
+
+import (
+	"net/http"
+	"sync/atomic"
+
+	"github.com/coder/websocket"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/http2"
+
+	"github.com/netbirdio/netbird/util/wsproxy"
+)
+
+// Config contains the configuration for the WebSocket proxy.
+type Config struct {
+	Handler         http.Handler
+	Path            string
+	MetricsRecorder MetricsRecorder
+}
+
+// Proxy handles WebSocket to gRPC handler proxying.
+type Proxy struct {
+	config  Config
+	metrics MetricsRecorder
+}
+
+// New creates a new WebSocket proxy instance with optional configuration
+func New(handler http.Handler, opts ...Option) *Proxy {
+	config := Config{
+		Handler:         handler,
+		Path:            wsproxy.ProxyPath,
+		MetricsRecorder: NoOpMetricsRecorder{}, // Default to no-op
+	}
+
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	return &Proxy{
+		config:  config,
+		metrics: config.MetricsRecorder,
+	}
+}
+
+// Handler returns an http.Handler that proxies WebSocket connections to the local gRPC server.
+func (p *Proxy) Handler() http.Handler {
+	return &proxyHandler{
+		metrics: p.config.MetricsRecorder,
+		handler: p.config.Handler,
+	}
+}
+
+type proxyHandler struct {
+	metrics MetricsRecorder
+	handler http.Handler
+	conn    atomic.Pointer[wsConnAdapter]
+}
+
+func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ph.metrics.RecordConnection(ctx)
+	defer ph.metrics.RecordDisconnection(ctx)
+
+	log.Debugf("WebSocket proxy handling connection from %s, forwarding to internal gRPC handler", r.RemoteAddr)
+	acceptOptions := &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	}
+
+	wsConn, err := websocket.Accept(w, r, acceptOptions)
+	if err != nil {
+		ph.metrics.RecordError(ctx, "websocket_accept_failed")
+		log.Errorf("WebSocket upgrade failed from %s: %v", r.RemoteAddr, err)
+		return
+	}
+	serverConn := (&wsConnAdapter{
+		ctx:        ctx,
+		conn:       wsConn,
+		metrics:    ph.metrics,
+		clientAddr: r.RemoteAddr,
+	})
+
+	defer func() {
+		_ = serverConn.Close()
+	}()
+
+	ph.conn.Store(serverConn) // used in tests only
+
+	log.Debugf("WebSocket proxy established: %s -> gRPC handler", r.RemoteAddr)
+
+	(&http2.Server{
+		// TODO (dmitri) we should limit the number of concurrent streams per connection (peer)
+		// and idle timeouts
+		// MaxConcurrentStreams: 20,
+		// IdleTimeout: 10 * time.Second,
+	}).ServeConn(serverConn, &http2.ServeConnOpts{
+		Context:    ctx,
+		Handler:    ph.handler,
+		BaseConfig: &http.Server{
+			// b/c we are wrapping a ws connection, read and write connection deadlines normally set
+			// via ReadTimeout and WriteTimeout http.Server fields aren't available to us. The ws
+			// library doesn't expose connection deadline timer config, and we ignore these calls in "wsConnAdapter".
+			//
+			// Another issue is that Server.ServeConn() call bypasses setting of connection deadlines altogether,
+			// ReadTimeout and Writetimeout set here would only apply to h2 streams, i.e. after a HEADERS frame
+			// arrival and processing, turning ReadTimeout into a request body read deadline, and WriteTimeout into
+			// a response deadline (the latter not useful for streaming requests).
+		},
+	})
+
+	log.Debugf("WebSocket proxy closing: %s -> gRPC handler", r.RemoteAddr)
+}

@@ -7,7 +7,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/netbird
-ExecStart=/usr/bin/netbird service run --log-file /var/log/netbird/client-%i.log --config /etc/netbird/%i.json --daemon-addr unix:///var/run/netbird/%i.sock $FLAGS
+ExecStart=/usr/bin/netbird service run --log-file /var/log/netbird/client-%i.log --daemon-addr unix:///var/run/netbird/%i.sock $FLAGS
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10

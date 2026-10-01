@@ -1,18 +1,20 @@
+//go:build privileged
+
 package routemanager
 
 import (
 	"context"
 	"fmt"
 	"net/netip"
-	"runtime"
 	"testing"
 
-	"github.com/pion/transport/v3/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/route"
 )
@@ -45,7 +47,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -72,7 +74,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("100.64.252.250/30"),
+					Network:     netip.MustParsePrefix("100.64.252.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -100,7 +102,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("100.64.30.250/30"),
+					Network:     netip.MustParsePrefix("100.64.30.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -128,7 +130,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("100.64.30.250/30"),
+					Network:     netip.MustParsePrefix("100.64.30.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -191,14 +193,15 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			name: "No Small Client Route Should Be Added",
 			inputRoutes: []*route.Route{
 				{
-					ID:          "a",
-					NetID:       "routeA",
-					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("0.0.0.0/0"),
-					NetworkType: route.IPv4Network,
-					Metric:      9999,
-					Masquerade:  false,
-					Enabled:     true,
+					ID:            "a",
+					NetID:         "routeA",
+					Peer:          remotePeerKey1,
+					Network:       netip.MustParsePrefix("0.0.0.0/0"),
+					NetworkType:   route.IPv4Network,
+					Metric:        9999,
+					Masquerade:    false,
+					Enabled:       true,
+					SkipAutoApply: false,
 				},
 			},
 			inputSerial:                          1,
@@ -212,7 +215,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -234,7 +237,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -251,7 +254,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -273,7 +276,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -283,7 +286,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "b",
 					NetID:       "routeA",
 					Peer:        remotePeerKey2,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -300,7 +303,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -328,7 +331,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "a",
 					NetID:       "routeA",
 					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -357,7 +360,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "l1",
 					NetID:       "routeA",
 					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -377,7 +380,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					ID:          "r1",
 					NetID:       "routeA",
 					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					Network:     netip.MustParsePrefix("100.64.251.248/30"),
 					NetworkType: route.IPv4Network,
 					Metric:      9999,
 					Masquerade:  false,
@@ -403,13 +406,13 @@ func TestManagerUpdateRoutes(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun43%d", n),
-				Address:      "100.65.65.2/24",
+				Address:      wgaddr.MustParseWGAddress("100.65.65.2/24"),
 				WGPort:       33100,
 				WGPrivKey:    peerPrivateKey.String(),
 				MTU:          iface.DefaultMTU,
@@ -431,7 +434,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				StatusRecorder: statusRecorder,
 			})
 
-			_, _, err = routeManager.Init()
+			err = routeManager.Init()
 
 			require.NoError(t, err, "should init route manager")
 			defer routeManager.Stop(nil)
@@ -440,12 +443,14 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				routeManager.serverRouter = nil
 			}
 
+			serverRoutes, clientRoutes := routeManager.ClassifyRoutes(testCase.inputRoutes)
+
 			if len(testCase.inputInitRoutes) > 0 {
-				_ = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes, false)
+				err = routeManager.UpdateRoutes(testCase.inputSerial, serverRoutes, clientRoutes, false)
 				require.NoError(t, err, "should update routes with init routes")
 			}
 
-			_ = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes, false)
+			err = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), serverRoutes, clientRoutes, false)
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
@@ -454,8 +459,8 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			}
 			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")
 
-			if runtime.GOOS == "linux" && routeManager.serverRouter != nil {
-				require.Len(t, routeManager.serverRouter.routes, testCase.serverRoutesExpected, "server networks size should match")
+			if routeManager.serverRouter != nil {
+				require.Equal(t, testCase.serverRoutesExpected, routeManager.serverRouter.RoutesCount(), "server networks size should match")
 			}
 		})
 	}

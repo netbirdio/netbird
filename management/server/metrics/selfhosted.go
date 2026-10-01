@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-version"
+	"github.com/netbirdio/netbird/idp/dex"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/store"
@@ -29,6 +31,7 @@ const (
 	defaultPushInterval = 12 * time.Hour
 	// requestTimeout http request timeout
 	requestTimeout = 45 * time.Second
+	EmbeddedType   = "embedded"
 )
 
 type getTokenResponse struct {
@@ -49,7 +52,10 @@ type properties map[string]interface{}
 // DataSource metric data source
 type DataSource interface {
 	GetAllAccounts(ctx context.Context) []*types.Account
-	GetStoreEngine() store.Engine
+	GetStoreEngine() types.Engine
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+	GetProxyMetrics(ctx context.Context) (store.ProxyMetrics, error)
+	GetAgentNetworkMetrics(ctx context.Context) (store.AgentNetworkMetrics, error)
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -185,7 +191,9 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		ephemeralPeersSKs         int
 		ephemeralPeersSKUsage     int
 		activePeersLastDay        int
+		activeUserPeersLastDay    int
 		osPeers                   map[string]int
+		activeUsersLastDay        map[string]struct{}
 		userPeers                 int
 		rules                     int
 		rulesProtocol             map[string]int
@@ -204,6 +212,26 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		version                   string
 		peerActiveVersions        []string
 		osUIClients               map[string]int
+		rosenpassEnabled          int
+		localUsers                int
+		idpUsers                  int
+		embeddedIdpTypes          map[string]int
+		services                  int
+		servicesEnabled           int
+		servicesTargets           int
+		servicesStatusActive      int
+		servicesStatusPending     int
+		servicesStatusError       int
+		servicesTargetType        map[rpservice.TargetType]int
+		servicesAuthPassword      int
+		servicesAuthPin           int
+		servicesAuthOIDC          int
+		// Private-service signals — track adoption of NetBird-only mode
+		// (services backed by an embedded proxy peer + access groups).
+		servicesPrivate                int
+		servicesPrivateWithGroups      int
+		servicesPrivateAccessGroupsSum int
+		servicesWithDirectUpstream     int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -211,9 +239,14 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	osUIClients = make(map[string]int)
 	rulesProtocol = make(map[string]int)
 	rulesDirection = make(map[string]int)
+	activeUsersLastDay = make(map[string]struct{})
+	embeddedIdpTypes = make(map[string]int)
+	servicesTargetType = make(map[rpservice.TargetType]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
+
+	customDomains, customDomainsValidated, _ := w.dataSource.GetCustomDomainsCounts(ctx)
 
 	for _, account := range w.dataSource.GetAllAccounts(ctx) {
 		accounts++
@@ -263,6 +296,18 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 				serviceUsers++
 			} else {
 				users++
+				if w.idpManager == EmbeddedType {
+					_, idpID, err := dex.DecodeDexUserID(user.Id)
+					if err == nil {
+						if idpID == "local" {
+							localUsers++
+						} else {
+							idpUsers++
+						}
+						idpType := extractIdpType(idpID)
+						embeddedIdpTypes[idpType]++
+					}
+				}
 			}
 			pats += len(user.PATs)
 		}
@@ -278,8 +323,12 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		for _, peer := range account.Peers {
 			peers++
 
-			if peer.SSHEnabled {
+			if peer.SSHEnabled || peer.Meta.Flags.ServerSSHAllowed {
 				peersSSHEnabled++
+			}
+
+			if peer.Meta.Flags.RosenpassEnabled {
+				rosenpassEnabled++
 			}
 
 			if peer.UserID != "" {
@@ -300,12 +349,76 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 			_, connected := connections[peer.ID]
 			if connected || peer.Status.LastSeen.After(w.lastRun) {
 				activePeersLastDay++
+				if peer.UserID != "" {
+					activeUserPeersLastDay++
+					activeUsersLastDay[peer.UserID] = struct{}{}
+				}
 				osActiveKey := osKey + "_active"
 				osActiveCount := osPeers[osActiveKey]
 				osPeers[osActiveKey] = osActiveCount + 1
 				peerActiveVersions = append(peerActiveVersions, peer.Meta.WtVersion)
 			}
 		}
+
+		for _, service := range account.Services {
+			services++
+			if service.Enabled {
+				servicesEnabled++
+			}
+			servicesTargets += len(service.Targets)
+
+			switch rpservice.Status(service.Meta.Status) {
+			case rpservice.StatusActive:
+				servicesStatusActive++
+			case rpservice.StatusPending:
+				servicesStatusPending++
+			case rpservice.StatusError, rpservice.StatusCertificateFailed, rpservice.StatusTunnelNotCreated:
+				servicesStatusError++
+			}
+
+			for _, target := range service.Targets {
+				servicesTargetType[target.TargetType]++
+			}
+
+			if service.Auth.PasswordAuth != nil && service.Auth.PasswordAuth.Enabled {
+				servicesAuthPassword++
+			}
+			if service.Auth.PinAuth != nil && service.Auth.PinAuth.Enabled {
+				servicesAuthPin++
+			}
+			if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled {
+				servicesAuthOIDC++
+			}
+
+			if service.Private {
+				servicesPrivate++
+				if len(service.AccessGroups) > 0 {
+					servicesPrivateWithGroups++
+				}
+				servicesPrivateAccessGroupsSum += len(service.AccessGroups)
+			}
+
+			for _, target := range service.Targets {
+				if target.Options.DirectUpstream {
+					servicesWithDirectUpstream++
+					break
+				}
+			}
+		}
+	}
+
+	// Proxy / BYOP cluster signals come from the proxies table aggregated
+	// across all accounts in a single store query; nil on FileStore.
+	proxyMetrics, err := w.dataSource.GetProxyMetrics(ctx)
+	if err != nil {
+		log.WithContext(ctx).Debugf("collect proxy metrics: %v", err)
+	}
+
+	// Agent-network adoption + usage, aggregated across all accounts in a few
+	// cheap queries; nil on FileStore.
+	agentNetworkMetrics, err := w.dataSource.GetAgentNetworkMetrics(ctx)
+	if err != nil {
+		log.WithContext(ctx).Debugf("collect agent network metrics: %v", err)
 	}
 
 	minActivePeerVersion, maxActivePeerVersion := getMinMaxVersion(peerActiveVersions)
@@ -321,6 +434,8 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["ephemeral_peers_setup_keys"] = ephemeralPeersSKs
 	metricsProperties["ephemeral_peers_setup_keys_usage"] = ephemeralPeersSKUsage
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
+	metricsProperties["active_user_peers_last_day"] = activeUserPeersLastDay
+	metricsProperties["active_users_last_day"] = len(activeUsersLastDay)
 	metricsProperties["user_peers"] = userPeers
 	metricsProperties["rules"] = rules
 	metricsProperties["rules_with_src_posture_checks"] = rulesWithSrcPostureChecks
@@ -339,6 +454,47 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["ui_clients"] = uiClient
 	metricsProperties["idp_manager"] = w.idpManager
 	metricsProperties["store_engine"] = w.dataSource.GetStoreEngine()
+	metricsProperties["rosenpass_enabled"] = rosenpassEnabled
+	metricsProperties["local_users_count"] = localUsers
+	metricsProperties["idp_users_count"] = idpUsers
+	metricsProperties["embedded_idp_count"] = len(embeddedIdpTypes)
+
+	metricsProperties["services"] = services
+	metricsProperties["services_enabled"] = servicesEnabled
+	metricsProperties["services_targets"] = servicesTargets
+	metricsProperties["services_status_active"] = servicesStatusActive
+	metricsProperties["services_status_pending"] = servicesStatusPending
+	metricsProperties["services_status_error"] = servicesStatusError
+	metricsProperties["services_auth_password"] = servicesAuthPassword
+	metricsProperties["services_auth_pin"] = servicesAuthPin
+	metricsProperties["services_auth_oidc"] = servicesAuthOIDC
+	metricsProperties["services_private"] = servicesPrivate
+	metricsProperties["services_private_with_access_groups"] = servicesPrivateWithGroups
+	metricsProperties["services_private_access_groups_sum"] = servicesPrivateAccessGroupsSum
+	metricsProperties["services_with_direct_upstream"] = servicesWithDirectUpstream
+	metricsProperties["proxy_clusters"] = proxyMetrics.Clusters
+	metricsProperties["proxy_clusters_byop"] = proxyMetrics.ClustersBYOP
+	metricsProperties["proxy_clusters_private"] = proxyMetrics.ClustersPrivate
+	metricsProperties["proxies"] = proxyMetrics.Proxies
+	metricsProperties["proxies_connected"] = proxyMetrics.ProxiesConnected
+	metricsProperties["custom_domains"] = customDomains
+	metricsProperties["custom_domains_validated"] = customDomainsValidated
+	metricsProperties["agent_network_accounts"] = agentNetworkMetrics.Accounts
+	metricsProperties["agent_network_providers"] = agentNetworkMetrics.Providers
+	metricsProperties["agent_network_policies"] = agentNetworkMetrics.Policies
+	metricsProperties["agent_network_budget_rules"] = agentNetworkMetrics.BudgetRules
+	metricsProperties["agent_network_log_collection_enabled"] = agentNetworkMetrics.LogCollectionEnabled
+	metricsProperties["agent_network_input_tokens"] = agentNetworkMetrics.InputTokens
+	metricsProperties["agent_network_output_tokens"] = agentNetworkMetrics.OutputTokens
+	metricsProperties["agent_network_cost_usd"] = agentNetworkMetrics.CostUSD
+
+	for targetType, count := range servicesTargetType {
+		metricsProperties["services_target_type_"+string(targetType)] = count
+	}
+
+	for idpType, count := range embeddedIdpTypes {
+		metricsProperties["embedded_idp_users_"+idpType] = count
+	}
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count
@@ -424,6 +580,20 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 	req.Header.Add("content-type", "application/json")
 
 	return req, cancel, nil
+}
+
+// extractIdpType extracts the IdP type from a Dex connector ID.
+// Connector IDs are formatted as "<type>-<xid>" (e.g., "okta-abc123", "zitadel-xyz").
+// Returns the type prefix, or "oidc" if no known prefix is found.
+func extractIdpType(connectorID string) string {
+	if connectorID == "local" {
+		return "local"
+	}
+	idx := strings.LastIndex(connectorID, "-")
+	if idx <= 0 {
+		return "oidc"
+	}
+	return strings.ToLower(connectorID[:idx])
 }
 
 func getMinMaxVersion(inputList []string) (string, string) {

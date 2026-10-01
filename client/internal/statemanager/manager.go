@@ -1,6 +1,7 @@
 package statemanager
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -96,17 +97,19 @@ func (m *Manager) Stop(ctx context.Context) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	cancel := m.cancel
+	done := m.done
+	m.mu.Unlock()
 
-	if m.cancel == nil {
+	if cancel == nil {
 		return nil
 	}
-	m.cancel()
+	cancel()
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-m.done:
+	case <-done:
 	}
 
 	return nil
@@ -295,7 +298,7 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 	data, err := os.ReadFile(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			log.Debug("state file does not exist")
+			log.Debugf("state file %s does not exist", m.filePath)
 			return nil, nil // nolint:nilnil
 		}
 		return nil, fmt.Errorf("read state file: %w", err)
@@ -303,6 +306,11 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 
 	var rawStates map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawStates); err != nil {
+		if len(bytes.TrimSpace(data)) == 0 {
+			log.Warnf("state file %s is empty (%d bytes)", m.filePath, len(data))
+		} else {
+			log.Warnf("state file %s has malformed content (%d bytes)", m.filePath, len(data))
+		}
 		m.handleCorruptedState(deleteCorrupt)
 		return nil, fmt.Errorf("unmarshal states: %w", err)
 	}

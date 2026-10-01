@@ -13,26 +13,28 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
 
 type TunDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
-	mtu     int
+	mtu     uint16
 	iceBind *bind.ICEBind
 
 	device          *device.Device
 	nativeTunDevice *tun.NativeTun
 	filteredDevice  *FilteredDevice
-	udpMux          *bind.UniversalUDPMuxDefault
+	udpMux          *udpmux.UniversalUDPMuxDefault
 	configurer      WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
@@ -58,7 +60,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, err
 	}
 	log.Info("create tun interface")
-	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, t.mtu)
+	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, int(t.mtu))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
@@ -85,7 +87,21 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	err = nbiface.Set()
 	if err != nil {
 		t.device.Close()
-		return nil, fmt.Errorf("got error when getting setting the interface mtu: %s", err)
+		return nil, fmt.Errorf("set IPv4 interface MTU: %s", err)
+	}
+
+	if t.address.HasIPv6() {
+		nbiface6, err := luid.IPInterface(windows.AF_INET6)
+		if err != nil {
+			log.Warnf("failed to get IPv6 interface for MTU, continuing v4-only: %v", err)
+			t.address.ClearIPv6()
+		} else {
+			nbiface6.NLMTU = uint32(t.mtu)
+			if err := nbiface6.Set(); err != nil {
+				log.Warnf("failed to set IPv6 interface MTU, continuing v4-only: %v", err)
+				t.address.ClearIPv6()
+			}
+		}
 	}
 	err = t.assignAddr()
 	if err != nil {
@@ -93,7 +109,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -103,7 +119,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -118,7 +134,7 @@ func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunDevice) UpdateAddr(address WGAddress) error {
+func (t *TunDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
@@ -139,8 +155,12 @@ func (t *TunDevice) Close() error {
 	}
 	return nil
 }
-func (t *TunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunDevice) DeviceName() string {
@@ -172,10 +192,28 @@ func (t *TunDevice) GetInterfaceGUIDString() (string, error) {
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (t *TunDevice) assignAddr() error {
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
-	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
-	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})
+
+	v4Prefix := t.address.Prefix()
+	if t.address.HasIPv6() {
+		v6Prefix := t.address.IPv6Prefix()
+		log.Debugf("adding addresses %s, %s to interface: %s", v4Prefix, v6Prefix, t.name)
+		if err := luid.SetIPAddresses([]netip.Prefix{v4Prefix, v6Prefix}); err != nil {
+			log.Warnf("failed to assign dual-stack addresses, retrying v4-only: %v", err)
+			t.address.ClearIPv6()
+			return luid.SetIPAddresses([]netip.Prefix{v4Prefix})
+		}
+		return nil
+	}
+
+	log.Debugf("adding address %s to interface: %s", v4Prefix, t.name)
+	return luid.SetIPAddresses([]netip.Prefix{v4Prefix})
 }
 
 func (t *TunDevice) GetNet() *netstack.Net {
 	return nil
+}
+
+// GetICEBind returns the ICEBind instance
+func (t *TunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
 }

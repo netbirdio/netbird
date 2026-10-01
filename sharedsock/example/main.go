@@ -5,15 +5,17 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/netbirdio/netbird/sharedsock"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/sharedsock"
 )
 
 func main() {
 
 	port := 51820
-	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter())
-	if err != nil {
+	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter(), iface.DefaultMTU) //nolint:staticcheck
+	if err != nil {                                                                               //nolint:staticcheck // always errors on non-Linux builds
 		panic(err)
 	}
 

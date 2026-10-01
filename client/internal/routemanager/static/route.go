@@ -6,6 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
 )
@@ -14,29 +15,37 @@ type Route struct {
 	route                *route.Route
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
+	// currentPeerKey is the routing peer this watcher currently has the prefix installed on
+	// (the HA winner elected by the watcher). It can differ from route.Peer and change on
+	// failover, so it is recorded on AddAllowedIPs and used on RemoveAllowedIPs to decrement
+	// the exact peer that was incremented.
+	currentPeerKey string
 }
 
-func NewRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *Route {
+func NewRoute(params common.HandlerParams) *Route {
 	return &Route{
-		route:                rt,
-		routeRefCounter:      routeRefCounter,
-		allowedIPsRefcounter: allowedIPsRefCounter,
+		route:                params.Route,
+		routeRefCounter:      params.RouteRefCounter,
+		allowedIPsRefcounter: params.AllowedIPsRefCounter,
 	}
 }
 
-// Route route methods
 func (r *Route) String() string {
 	return r.route.Network.String()
 }
 
 func (r *Route) AddRoute(context.Context) error {
-	_, err := r.routeRefCounter.Increment(r.route.Network, struct{}{})
-	return err
+	if _, err := r.routeRefCounter.Increment(r.route.Network, struct{}{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Route) RemoveRoute() error {
-	_, err := r.routeRefCounter.Decrement(r.route.Network)
-	return err
+	if _, err := r.routeRefCounter.Decrement(r.route.Network); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Route) AddAllowedIPs(peerKey string) error {
@@ -48,10 +57,15 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 			ref.Out,
 		)
 	}
+	r.currentPeerKey = peerKey
 	return nil
 }
 
 func (r *Route) RemoveAllowedIPs() error {
-	_, err := r.allowedIPsRefcounter.Decrement(r.route.Network)
+	var err error
+	if _, decErr := r.allowedIPsRefcounter.Decrement(r.route.Network, r.currentPeerKey); decErr != nil {
+		err = fmt.Errorf("remove allowed IP %s: %w", r.route.Network, decErr)
+	}
+	r.currentPeerKey = ""
 	return err
 }

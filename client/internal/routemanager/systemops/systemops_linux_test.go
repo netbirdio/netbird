@@ -1,13 +1,10 @@
-//go:build !android
+//go:build linux && !android && privileged
 
 package systemops
 
 import (
 	"errors"
-	"fmt"
 	"net"
-	"os"
-	"strings"
 	"syscall"
 	"testing"
 
@@ -18,84 +15,15 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 )
 
-var expectedVPNint = "wgtest0"
-var expectedLoopbackInt = "lo"
-var expectedExternalInt = "dummyext0"
-var expectedInternalInt = "dummyint0"
-
 func init() {
 	testCases = append(testCases, []testCase{
 		{
 			name:              "To more specific route without custom dialer via physical interface",
-			destination:       "10.10.0.2:53",
 			expectedInterface: expectedInternalInt,
 			dialer:            &net.Dialer{},
 			expectedPacket:    createPacketExpectation("192.168.1.1", 12345, "10.10.0.2", 53),
 		},
-		{
-			name:              "To more specific route (local) without custom dialer via physical interface",
-			destination:       "127.0.10.1:53",
-			expectedInterface: expectedLoopbackInt,
-			dialer:            &net.Dialer{},
-			expectedPacket:    createPacketExpectation("127.0.0.1", 12345, "127.0.10.1", 53),
-		},
 	}...)
-}
-
-func TestEntryExists(t *testing.T) {
-	tempDir := t.TempDir()
-	tempFilePath := fmt.Sprintf("%s/rt_tables", tempDir)
-
-	content := []string{
-		"1000 reserved",
-		fmt.Sprintf("%d %s", NetbirdVPNTableID, NetbirdVPNTableName),
-		"9999 other_table",
-	}
-	require.NoError(t, os.WriteFile(tempFilePath, []byte(strings.Join(content, "\n")), 0644))
-
-	file, err := os.Open(tempFilePath)
-	require.NoError(t, err)
-	defer func() {
-		assert.NoError(t, file.Close())
-	}()
-
-	tests := []struct {
-		name        string
-		id          int
-		shouldExist bool
-		err         error
-	}{
-		{
-			name:        "ExistsWithNetbirdPrefix",
-			id:          7120,
-			shouldExist: true,
-			err:         nil,
-		},
-		{
-			name:        "ExistsWithDifferentName",
-			id:          1000,
-			shouldExist: true,
-			err:         ErrTableIDExists,
-		},
-		{
-			name:        "DoesNotExist",
-			id:          1234,
-			shouldExist: false,
-			err:         nil,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			exists, err := entryExists(file, tc.id)
-			if tc.err != nil {
-				assert.ErrorIs(t, err, tc.err)
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.Equal(t, tc.shouldExist, exists)
-		})
-	}
 }
 
 func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR string) string {
@@ -134,6 +62,16 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	_, dstIPNet, err := net.ParseCIDR(dstCIDR)
 	require.NoError(t, err)
 
+	link, err := netlink.LinkByName(intf)
+	require.NoError(t, err)
+	linkIndex := link.Attrs().Index
+
+	route := &netlink.Route{
+		Dst:       dstIPNet,
+		Gw:        gw,
+		LinkIndex: linkIndex,
+	}
+
 	// Handle existing routes with metric 0
 	var originalNexthop net.IP
 	var originalLinkIndex int
@@ -145,32 +83,24 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 		}
 
 		if originalNexthop != nil {
+			// remove original route
 			err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0})
-			switch {
-			case err != nil && !errors.Is(err, syscall.ESRCH):
-				t.Logf("Failed to delete route: %v", err)
-			case err == nil:
-				t.Cleanup(func() {
-					err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
-					if err != nil && !errors.Is(err, syscall.EEXIST) {
-						t.Fatalf("Failed to add route: %v", err)
-					}
-				})
-			default:
-				t.Logf("Failed to delete route: %v", err)
-			}
+			assert.NoError(t, err)
+
+			// add new route
+			assert.NoError(t, netlink.RouteAdd(route))
+
+			t.Cleanup(func() {
+				// restore original route
+				assert.NoError(t, netlink.RouteDel(route))
+				err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
+				assert.NoError(t, err)
+			})
+
+			return
 		}
 	}
 
-	link, err := netlink.LinkByName(intf)
-	require.NoError(t, err)
-	linkIndex := link.Attrs().Index
-
-	route := &netlink.Route{
-		Dst:       dstIPNet,
-		Gw:        gw,
-		LinkIndex: linkIndex,
-	}
 	err = netlink.RouteDel(route)
 	if err != nil && !errors.Is(err, syscall.ESRCH) {
 		t.Logf("Failed to delete route: %v", err)
@@ -180,7 +110,6 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	if err != nil && !errors.Is(err, syscall.EEXIST) {
 		t.Fatalf("Failed to add route: %v", err)
 	}
-	require.NoError(t, err)
 }
 
 func fetchOriginalGateway(family int) (net.IP, int, error) {
@@ -190,7 +119,11 @@ func fetchOriginalGateway(family int) (net.IP, int, error) {
 	}
 
 	for _, route := range routes {
-		if route.Dst == nil && route.Priority == 0 {
+		ones := -1
+		if route.Dst != nil {
+			ones, _ = route.Dst.Mask.Size()
+		}
+		if route.Dst == nil || ones == 0 && route.Priority == 0 {
 			return route.Gw, route.LinkIndex, nil
 		}
 	}

@@ -3,44 +3,43 @@ package peer
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
 type RelayConnInfo struct {
-	relayedConn     net.Conn
+	relayedConn     *relayClient.Conn
 	rosenpassPubKey []byte
 	rosenpassAddr   string
 }
 
 type WorkerRelay struct {
+	peerCtx      context.Context
 	log          *log.Entry
 	isController bool
 	config       ConnConfig
 	conn         *Conn
-	relayManager relayClient.ManagerService
+	relayManager *relayClient.Manager
 
-	relayedConn net.Conn
+	relayedConn *relayClient.Conn
 	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
-
-	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
 	r := &WorkerRelay{
+		peerCtx:      ctx,
 		log:          log,
 		isController: ctrl,
 		config:       config,
 		conn:         conn,
 		relayManager: relayManager,
-		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key),
 	}
 	return r
 }
@@ -54,15 +53,19 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relaySupportedOnRemotePeer.Store(true)
 
 	// the relayManager will return with error in case if the connection has lost with relay server
-	currentRelayAddress, err := w.relayManager.RelayInstanceAddress()
+	currentRelayAddress, _, err := w.relayManager.RelayInstanceAddress()
 	if err != nil {
 		w.log.Errorf("failed to handle new offer: %s", err)
 		return
 	}
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
+	var serverIP netip.Addr
+	if srv == remoteOfferAnswer.RelaySrvAddress {
+		serverIP = remoteOfferAnswer.RelaySrvIP
+	}
 
-	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
+	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, serverIP)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")
@@ -76,12 +79,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
 
-	err = w.relayManager.AddCloseListener(srv, w.onRelayClientDisconnected)
-	if err != nil {
-		log.Errorf("failed to add close listener: %s", err)
-		_ = relayedConn.Close()
-		return
-	}
+	go w.watchRelayedConn(relayedConn)
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
 	go w.conn.onRelayConnectionIsReady(RelayConnInfo{
@@ -91,15 +89,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	})
 }
 
-func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
-	w.wgWatcher.EnableWgWatcher(ctx, w.onWGDisconnected)
-}
-
-func (w *WorkerRelay) DisableWgWatcher() {
-	w.wgWatcher.DisableWgWatcher()
-}
-
-func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
+func (w *WorkerRelay) RelayInstanceAddress() (string, netip.Addr, error) {
 	return w.relayManager.RelayInstanceAddress()
 }
 
@@ -113,22 +103,17 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 
 func (w *WorkerRelay) CloseConn() {
 	w.relayLock.Lock()
-	defer w.relayLock.Unlock()
-	if w.relayedConn == nil {
+	conn := w.relayedConn
+	w.relayedConn = nil
+	w.relayLock.Unlock()
+
+	if conn == nil {
 		return
 	}
 
-	if err := w.relayedConn.Close(); err != nil {
+	if err := conn.Close(); err != nil {
 		w.log.Warnf("failed to close relay connection: %v", err)
 	}
-}
-
-func (w *WorkerRelay) onWGDisconnected() {
-	w.relayLock.Lock()
-	_ = w.relayedConn.Close()
-	w.relayLock.Unlock()
-
-	w.conn.onRelayDisconnected()
 }
 
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
@@ -145,7 +130,8 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 	return remoteRelayAddress
 }
 
-func (w *WorkerRelay) onRelayClientDisconnected() {
-	w.wgWatcher.DisableWgWatcher()
-	go w.conn.onRelayDisconnected()
+func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
+	<-relayedConn.Context().Done()
+
+	w.conn.onRelayDisconnected(relayedConn)
 }

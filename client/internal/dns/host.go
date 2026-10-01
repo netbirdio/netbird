@@ -5,15 +5,10 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/miekg/dns"
+
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
-)
-
-var ErrRouteAllWithoutNameserverGroup = fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
-
-const (
-	ipv4ReverseZone = ".in-addr.arpa"
-	ipv6ReverseZone = ".ip6.arpa"
 )
 
 type hostManager interface {
@@ -21,18 +16,22 @@ type hostManager interface {
 	restoreHostDNS() error
 	supportCustomPort() bool
 	string() string
+	// getOriginalNameservers returns the OS-side resolvers used as PriorityFallback
+	// upstreams: pre-takeover snapshots on desktop, the OS-pushed list on Android,
+	// hardcoded Quad9 on iOS, nil for noop / mock.
+	getOriginalNameservers() []netip.Addr
 }
 
 type SystemDNSSettings struct {
 	Domains    []string
-	ServerIP   string
+	ServerIP   netip.Addr
 	ServerPort int
 }
 
 type HostDNSConfig struct {
 	Domains    []DomainConfig `json:"domains"`
 	RouteAll   bool           `json:"routeAll"`
-	ServerIP   string         `json:"serverIP"`
+	ServerIP   netip.Addr     `json:"serverIP"`
 	ServerPort int            `json:"serverPort"`
 }
 
@@ -87,7 +86,7 @@ func newNoopHostMocker() hostManager {
 	}
 }
 
-func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostDNSConfig {
+func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int) HostDNSConfig {
 	config := HostDNSConfig{
 		RouteAll:   false,
 		ServerIP:   ip,
@@ -103,17 +102,16 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 
 		for _, domain := range nsConfig.Domains {
 			config.Domains = append(config.Domains, DomainConfig{
-				Domain:    strings.TrimSuffix(domain, "."),
+				Domain:    strings.ToLower(dns.Fqdn(domain)),
 				MatchOnly: !nsConfig.SearchDomainsEnabled,
 			})
 		}
 	}
 
 	for _, customZone := range dnsConfig.CustomZones {
-		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
-			Domain:    strings.TrimSuffix(customZone.Domain, "."),
-			MatchOnly: matchOnly,
+			Domain:    strings.ToLower(dns.Fqdn(customZone.Domain)),
+			MatchOnly: customZone.SearchDomainDisabled,
 		})
 	}
 
@@ -136,4 +134,12 @@ func (n noopHostConfigurator) supportCustomPort() bool {
 
 func (n noopHostConfigurator) string() string {
 	return "noop"
+}
+
+func (n noopHostConfigurator) getOriginalNameservers() []netip.Addr {
+	return nil
+}
+
+func (m *mockHostConfigurator) getOriginalNameservers() []netip.Addr {
+	return nil
 }

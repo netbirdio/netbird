@@ -5,25 +5,26 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 
 	"github.com/netbirdio/netbird/client/firewall/manager"
 )
 
-type RuleID string
+// RuleID aliases manager.RuleID so existing nbid.RuleID references
+// keep working while the canonical type lives in the firewall package.
+type RuleID = manager.RuleID
 
-func (r RuleID) GetRuleID() string {
-	return string(r)
-}
-
-func GenerateRouteRuleKey(
+// GenerateRuleID returns a deterministic content hash identifying a filter rule.
+func GenerateRuleID(
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination manager.Network,
 	proto manager.Protocol,
 	sPort *manager.Port,
 	dPort *manager.Port,
 	action manager.Action,
 ) RuleID {
+	sources = slices.Clone(sources)
 	manager.SortPrefixes(sources)
 
 	h := sha256.New()

@@ -1,8 +1,11 @@
+//go:build ios
+
 package NetBirdSDK
 
 // PeerInfo describe information about the peers. It designed for the UI usage
 type PeerInfo struct {
 	IP                         string
+	IPv6                       string
 	FQDN                       string
 	LocalIceCandidateEndpoint  string
 	RemoteIceCandidateEndpoint string
@@ -19,6 +22,11 @@ type PeerInfo struct {
 	Relayed                    bool
 	RosenpassEnabled           bool
 	Routes                     RoutesDetails
+}
+
+// GetIPv6 returns the IPv6 address of the peer
+func (p PeerInfo) GetIPv6() string {
+	return p.IPv6
 }
 
 // GetRoutes return with RouteDetails
@@ -55,6 +63,7 @@ type StatusDetails struct {
 	items []PeerInfo
 	fqdn  string
 	ip    string
+	ipv6  string
 }
 
 // Add new PeerInfo to the collection
@@ -97,4 +106,9 @@ func (array StatusDetails) GetFQDN() string {
 // GetIP return with the IP of the local peer
 func (array StatusDetails) GetIP() string {
 	return array.ip
+}
+
+// GetIPv6 return with the IPv6 of the local peer
+func (array StatusDetails) GetIPv6() string {
+	return array.ipv6
 }

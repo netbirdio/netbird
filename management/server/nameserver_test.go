@@ -6,12 +6,23 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -771,7 +782,30 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+
+	permissionsManager := permissions.NewManager(store)
+	peersManager := peers.NewManager(store, permissionsManager)
+
+	ctx := context.Background()
+
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nil)
+
+	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
@@ -840,7 +874,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	userID := testUserID
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
@@ -862,11 +896,11 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 		return nil, err
 	}
 
-	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer1)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer2)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
 	if err != nil {
 		return nil, err
 	}
@@ -874,60 +908,51 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	return account, nil
 }
 
+// TestValidateDomain tests nameserver-specific domain validation.
+// Core domain validation is tested in shared/management/domain/validate_test.go.
+// This test only covers nameserver-specific behavior: wildcard rejection and unicode support.
 func TestValidateDomain(t *testing.T) {
 	testCases := []struct {
 		name    string
 		domain  string
 		errFunc require.ErrorAssertionFunc
 	}{
+		// Nameserver-specific: wildcards not allowed
 		{
-			name:    "Valid domain name with multiple labels",
-			domain:  "123.example.com",
+			name:    "Wildcard prefix rejected",
+			domain:  "*.example.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Wildcard in middle rejected",
+			domain:  "a.*.example.com",
+			errFunc: require.Error,
+		},
+		// Nameserver-specific: unicode converted to punycode
+		{
+			name:    "Unicode domain converted to punycode",
+			domain:  "münchen.de",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with hyphen",
-			domain:  "test-example.com",
+			name:    "Unicode domain all labels",
+			domain:  "中国.中国",
+			errFunc: require.NoError,
+		},
+		// Basic validation still works (delegates to shared validation)
+		{
+			name:    "Valid multi-label domain",
+			domain:  "example.com",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
-			errFunc: require.Error,
+			name:    "Valid single label",
+			domain:  "internal",
+			errFunc: require.NoError,
 		},
 		{
-			name:    "Invalid domain name with only one label",
-			domain:  "com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with a label exceeding 63 characters",
-			domain:  "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name starting with a hyphen",
+			name:    "Invalid leading hyphen",
 			domain:  "-example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name ending with a hyphen",
-			domain:  "example.com-",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with unicode",
-			domain:  "example?,.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with space before top-level domain",
-			domain:  "space .example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with trailing space",
-			domain:  "example.com ",
 			errFunc: require.Error,
 		},
 	}
@@ -941,28 +966,28 @@ func TestValidateDomain(t *testing.T) {
 }
 
 func TestNameServerAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		},
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{},
 	})
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupB",
+		Name:  "GroupB",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
+	assert.NoError(t, err)
+
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Creating a nameserver group with a distribution group no peers should not update account peers
@@ -1062,7 +1087,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1080,7 +1105,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

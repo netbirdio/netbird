@@ -7,22 +7,22 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // handler is a handler that returns groups of the account
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	groupsHandler := newHandler(accountManager)
 	router.HandleFunc("/groups", groupsHandler.getAllGroups).Methods("GET", "OPTIONS")
 	router.HandleFunc("/groups", groupsHandler.createGroup).Methods("POST", "OPTIONS")
@@ -32,7 +32,7 @@ func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
 }
 
 // newHandler creates a new groups handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}
@@ -48,13 +48,36 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
+	// Check if filtering by name
+	groupName := r.URL.Query().Get("name")
+	if groupName != "" {
+		// Get single group by name
+		group, err := h.accountManager.GetGroupByName(r.Context(), groupName, accountID, userID)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		// Return as array with single element to maintain API consistency
+		groupsResponse := []*api.Group{toGroupResponse(accountPeers, group)}
+		util.WriteJSONObject(r.Context(), w, groupsResponse)
+		return
+	}
+
+	// Get all groups
 	groups, err := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -95,7 +118,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID)
+	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -125,13 +148,10 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 
-	resources := make([]types.Resource, 0)
-	if req.Resources != nil {
-		for _, res := range *req.Resources {
-			resource := types.Resource{}
-			resource.FromAPIRequest(&res)
-			resources = append(resources, resource)
-		}
+	resources, err := resourcesFromAPIRequest(req.Resources)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
 
 	group := types.Group{
@@ -143,13 +163,13 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		IntegrationReference: existingGroup.IntegrationReference,
 	}
 
-	if err := h.accountManager.SaveGroup(r.Context(), accountID, userID, &group); err != nil {
+	if err := h.accountManager.UpdateGroup(r.Context(), accountID, userID, &group); err != nil {
 		log.WithContext(r.Context()).Errorf("failed updating group %s under account %s %v", groupID, accountID, err)
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -187,13 +207,10 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 
-	resources := make([]types.Resource, 0)
-	if req.Resources != nil {
-		for _, res := range *req.Resources {
-			resource := types.Resource{}
-			resource.FromAPIRequest(&res)
-			resources = append(resources, resource)
-		}
+	resources, err := resourcesFromAPIRequest(req.Resources)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
 
 	group := types.Group{
@@ -203,13 +220,13 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		Issued:    types.GroupIssuedAPI,
 	}
 
-	err = h.accountManager.SaveGroup(r.Context(), accountID, userID, &group)
+	err = h.accountManager.CreateGroup(r.Context(), accountID, userID, &group)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -270,7 +287,7 @@ func (h *handler) getGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -312,11 +329,30 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	gr.PeersCount = len(gr.Peers)
 
 	for _, res := range group.Resources {
-		resResp := res.ToAPIResponse()
-		gr.Resources = append(gr.Resources, *resResp)
+		if resResp := res.ToAPIResponse(); resResp != nil {
+			gr.Resources = append(gr.Resources, *resResp)
+		}
 	}
 
 	gr.ResourcesCount = len(gr.Resources)
 
 	return &gr
+}
+
+func resourcesFromAPIRequest(req *[]api.Resource) ([]types.Resource, error) {
+	resources := make([]types.Resource, 0)
+	if req == nil {
+		return resources, nil
+	}
+
+	for _, res := range *req {
+		if res.Id == "" || !types.ResourceType(res.Type).Valid() {
+			return nil, status.Errorf(status.InvalidArgument, "resource id shouldn't be empty and type must be one of: peer, domain, host, subnet")
+		}
+		resource := types.Resource{}
+		resource.FromAPIRequest(&res)
+		resources = append(resources, resource)
+	}
+
+	return resources, nil
 }

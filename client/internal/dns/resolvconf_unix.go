@@ -40,15 +40,15 @@ type resolvconf struct {
 	implType  resolvconfType
 
 	originalSearchDomains []string
-	originalNameServers   []string
+	originalNameServers   []netip.Addr
 	othersConfigs         []string
 }
 
 func detectResolvconfType() (resolvconfType, error) {
 	cmd := exec.Command(resolvconfCommand, "--version")
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return typeOpenresolv, fmt.Errorf("failed to determine resolvconf type: %w", err)
+		return typeOpenresolv, fmt.Errorf("determine resolvconf type: %w", err)
 	}
 
 	if strings.Contains(string(out), "openresolv") {
@@ -66,7 +66,7 @@ func newResolvConfConfigurator(wgInterface string) (*resolvconf, error) {
 	implType, err := detectResolvconfType()
 	if err != nil {
 		log.Warnf("failed to detect resolvconf type, defaulting to openresolv: %v", err)
-		implType = typeOpenresolv
+		implType = typeResolvconf
 	} else {
 		log.Infof("detected resolvconf type: %v", implType)
 	}
@@ -85,24 +85,14 @@ func (r *resolvconf) supportCustomPort() bool {
 }
 
 func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	var err error
-	if !config.RouteAll {
-		err = r.restoreHostDNS()
-		if err != nil {
-			log.Errorf("restore host dns: %s", err)
-		}
-		return ErrRouteAllWithoutNameserverGroup
-	}
-
 	searchDomainList := searchDomains(config)
 	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
-	options := prepareOptionsWithTimeout(r.othersConfigs, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
-
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.ServerIP}, r.originalNameServers...),
-		options)
+		[]string{config.ServerIP.String()},
+		r.othersConfigs,
+	)
 
 	state := &ShutdownState{
 		ManagerType: resolvConfManager,
@@ -112,13 +102,16 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *stateman
 		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
-	err = r.applyConfig(buf)
-	if err != nil {
+	if err := r.applyConfig(buf); err != nil {
 		return fmt.Errorf("apply config: %w", err)
 	}
 
 	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
 	return nil
+}
+
+func (r *resolvconf) getOriginalNameservers() []netip.Addr {
+	return r.originalNameServers
 }
 
 func (r *resolvconf) restoreHostDNS() error {
@@ -157,7 +150,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	}
 
 	cmd.Stdin = &content
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	log.Tracef("resolvconf output: %s", out)
 	if err != nil {
 		return fmt.Errorf("applying resolvconf configuration for %s interface: %w", r.ifaceName, err)
@@ -165,7 +158,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	return nil
 }
 
-func (r *resolvconf) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (r *resolvconf) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns for interface %s: %w", r.ifaceName, err)
 	}

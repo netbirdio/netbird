@@ -14,25 +14,27 @@ func TestGetResourceType(t *testing.T) {
 		expectedPrefix netip.Prefix
 	}{
 		// Valid host IPs
-		{"1.1.1.1", host, false, "", netip.MustParsePrefix("1.1.1.1/32")},
-		{"1.1.1.1/32", host, false, "", netip.MustParsePrefix("1.1.1.1/32")},
+		{"1.1.1.1", Host, false, "", netip.MustParsePrefix("1.1.1.1/32")},
+		{"1.1.1.1/32", Host, false, "", netip.MustParsePrefix("1.1.1.1/32")},
 		// Valid subnets
-		{"192.168.1.0/24", subnet, false, "", netip.MustParsePrefix("192.168.1.0/24")},
-		{"10.0.0.0/16", subnet, false, "", netip.MustParsePrefix("10.0.0.0/16")},
+		{"192.168.1.0/24", Subnet, false, "", netip.MustParsePrefix("192.168.1.0/24")},
+		{"10.0.0.0/16", Subnet, false, "", netip.MustParsePrefix("10.0.0.0/16")},
 		// Valid domains
-		{"example.com", domain, false, "example.com", netip.Prefix{}},
-		{"*.example.com", domain, false, "*.example.com", netip.Prefix{}},
-		{"sub.example.com", domain, false, "sub.example.com", netip.Prefix{}},
+		{"example.com", Domain, false, "example.com", netip.Prefix{}},
+		{"*.example.com", Domain, false, "*.example.com", netip.Prefix{}},
+		{"sub.example.com", Domain, false, "sub.example.com", netip.Prefix{}},
+		{"example.x", Domain, false, "example.x", netip.Prefix{}},
+		{"internal", Domain, false, "internal", netip.Prefix{}},
 		// Invalid inputs
-		{"invalid", "", true, "", netip.Prefix{}},
 		{"1.1.1.1/abc", "", true, "", netip.Prefix{}},
-		{"1234", "", true, "", netip.Prefix{}},
+		{"-invalid.com", "", true, "", netip.Prefix{}},
+		{"", "", true, "", netip.Prefix{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result, domain, prefix, err := GetResourceType(tt.input)
-      
+
 			if result != tt.expectedType {
 				t.Errorf("Expected type %v, got %v", tt.expectedType, result)
 			}

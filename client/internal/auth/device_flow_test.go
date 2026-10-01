@@ -3,15 +3,15 @@ package auth
 import (
 	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/client/internal"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 )
 
 type mockHTTPClient struct {
@@ -113,17 +113,18 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				err:     testCase.inputReqError,
 			}
 
-			deviceFlow := &DeviceAuthorizationFlow{
-				providerConfig: internal.DeviceAuthProviderConfig{
-					Audience:           expectedAudience,
-					ClientID:           expectedClientID,
-					Scope:              expectedScope,
-					TokenEndpoint:      "test.hosted.com/token",
-					DeviceAuthEndpoint: "test.hosted.com/device/auth",
-					UseIDToken:         false,
-				},
-				HTTPClient: &httpClient,
+			config := DeviceAuthProviderConfig{
+				Audience:           expectedAudience,
+				ClientID:           expectedClientID,
+				Scope:              expectedScope,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				UseIDToken:         false,
 			}
+
+			deviceFlow, err := NewDeviceAuthorizationFlow(config)
+			require.NoError(t, err, "creating device flow should not fail")
+			deviceFlow.HTTPClient = &httpClient
 
 			authInfo, err := deviceFlow.RequestAuthInfo(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
@@ -278,17 +279,18 @@ func TestHosted_WaitToken(t *testing.T) {
 				countResBody: testCase.inputCountResBody,
 			}
 
-			deviceFlow := DeviceAuthorizationFlow{
-				providerConfig: internal.DeviceAuthProviderConfig{
-					Audience:           testCase.inputAudience,
-					ClientID:           clientID,
-					TokenEndpoint:      "test.hosted.com/token",
-					DeviceAuthEndpoint: "test.hosted.com/device/auth",
-					Scope:              "openid",
-					UseIDToken:         false,
-				},
-				HTTPClient: &httpClient,
+			config := DeviceAuthProviderConfig{
+				Audience:           testCase.inputAudience,
+				ClientID:           clientID,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				Scope:              "openid",
+				UseIDToken:         false,
 			}
+
+			deviceFlow, err := NewDeviceAuthorizationFlow(config)
+			require.NoError(t, err, "creating device flow should not fail")
+			deviceFlow.HTTPClient = &httpClient
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
 			defer cancel()

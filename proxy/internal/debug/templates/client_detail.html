@@ -1,0 +1,19 @@
+{{define "clientDetail"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Client {{.AccountID}}</title>
+  <style>{{template "style"}}</style>
+</head>
+<body>
+  <h1>Client: {{.AccountID}}</h1>
+  <div class="nav">
+    <a href="/debug">&larr; Back</a>
+    <a href="/debug/clients/{{.AccountID}}/tools"{{if eq .ActiveTab "tools"}} class="active"{{end}}>Tools</a>
+    <a href="/debug/clients/{{.AccountID}}"{{if eq .ActiveTab "status"}} class="active"{{end}}>Status</a>
+    <a href="/debug/clients/{{.AccountID}}/syncresponse"{{if eq .ActiveTab "syncresponse"}} class="active"{{end}}>Sync Response</a>
+  </div>
+  <pre>{{.Content}}</pre>
+</body>
+</html>
+{{end}}

@@ -3,12 +3,15 @@ package types
 import (
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type Network struct {
-	ID          string `gorm:"index"`
-	AccountID   string `gorm:"index"`
+	ID        string `gorm:"primaryKey"`
+	AccountID string `gorm:"index"`
+
+	PublicID string `json:"-"`
+
 	Name        string
 	Description string
 }
@@ -41,11 +44,12 @@ func (n *Network) FromAPIRequest(req *api.NetworkRequest) {
 	}
 }
 
-// Copy returns a copy of a posture checks.
+// Copy returns a copy of a network.
 func (n *Network) Copy() *Network {
 	return &Network{
 		ID:          n.ID,
 		AccountID:   n.AccountID,
+		PublicID:    n.PublicID,
 		Name:        n.Name,
 		Description: n.Description,
 	}

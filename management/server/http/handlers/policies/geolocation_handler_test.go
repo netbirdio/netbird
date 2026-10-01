@@ -10,14 +10,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -41,6 +46,14 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 
+	ctrl := gomock.NewController(t)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	permissionsManagerMock.
+		EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), modules.Policies, operations.Read).
+		Return(true, context.Background(), nil).
+		AnyTimes()
+
 	return &geolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
@@ -48,6 +61,7 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 			},
 		},
 		geolocationManager: geo,
+		permissionsManager: permissionsManagerMock,
 	}
 }
 
@@ -100,7 +114,7 @@ func TestGetCitiesByCountry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -193,7 +207,7 @@ func TestGetAllCountries(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",

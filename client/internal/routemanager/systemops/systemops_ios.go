@@ -10,17 +10,16 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager, bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.prefixes = make(map[netip.Prefix]struct{})
-	return nil, nil, nil
+	return nil
 }
 
-func (r *SysOps) CleanupRouting(*statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(*statemanager.Manager, bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -59,8 +58,17 @@ func (r *SysOps) removeFromRouteTable(netip.Prefix, Nexthop) error {
 	return nil
 }
 
-func EnableIPForwarding() error {
-	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
+func EnableV4IPForwarding() error {
+	log.Infof("Enable IPv4 forwarding is not implemented on %s", runtime.GOOS)
+	return nil
+}
+
+func EnableV6IPForwarding(string) (map[string]int, error) {
+	log.Infof("Enable IPv6 forwarding is not implemented on %s", runtime.GOOS)
+	return map[string]int{}, nil
+}
+
+func DisableV6IPForwarding(map[string]int) error {
 	return nil
 }
 

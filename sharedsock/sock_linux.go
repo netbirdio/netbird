@@ -10,23 +10,21 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"sync"
+	"net/netip"
 	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/routing"
-	"github.com/libp2p/go-netroute"
 	"github.com/mdlayher/socket"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
-var ErrSharedSockStopped = fmt.Errorf("shared socked stopped")
+var ErrSharedSockStopped = fmt.Errorf("shared socket stopped")
 
 // SharedSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
 // by BPF instructions (e.g., IncomingSTUNFilter that checks and sends only STUN packets to the listeners (ReadFrom)).
@@ -35,9 +33,10 @@ type SharedSocket struct {
 	ctx         context.Context
 	conn4       *socket.Conn
 	conn6       *socket.Conn
+	probe4      *srcProbe
+	probe6      *srcProbe
 	port        int
-	routerMux   sync.RWMutex
-	router      routing.Router
+	mtu         uint16
 	packetDemux chan rcvdPacket
 	cancel      context.CancelFunc
 }
@@ -56,12 +55,19 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
+// Maximum overhead for IP + UDP headers on raw socket
+// IPv4: max 60 bytes (20 base + 40 options) + UDP 8 bytes = 68 bytes
+// IPv6: 40 bytes + UDP 8 bytes = 48 bytes
+// We use the maximum (68) for both IPv4 and IPv6
+const maxIPUDPOverhead = 68
+
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
-func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
+func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rawSock := &SharedSocket{
 		ctx:         ctx,
 		cancel:      cancel,
+		mtu:         mtu,
 		port:        port,
 		packetDemux: make(chan rcvdPacket),
 	}
@@ -74,27 +80,34 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 		}
 	}()
 
-	rawSock.router, err = netroute.New()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create raw socket router: %w", err)
-	}
-
 	rawSock.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ipv4 raw socket: %w", err)
 	}
 
 	if err = nbnet.SetSocketMark(rawSock.conn4); err != nil {
-		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %w", err)
+		return nil, fmt.Errorf("set SO_MARK on ipv4 socket: %w", err)
+	}
+
+	if rawSock.probe4, err = newSrcProbe(unix.AF_INET); err != nil {
+		return nil, err
 	}
 
 	var sockErr error
 	rawSock.conn6, sockErr = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if sockErr != nil {
-		log.Errorf("Failed to create ipv6 raw socket: %v", err)
+		log.Errorf("Failed to create ipv6 raw socket: %v", sockErr)
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
-			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
+			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
+		}
+		rawSock.probe6, sockErr = newSrcProbe(unix.AF_INET6)
+		if sockErr != nil {
+			log.Errorf("Failed to create ipv6 source probe, continuing without ipv6: %v", sockErr)
+			if closeErr := rawSock.conn6.Close(); closeErr != nil {
+				log.Debugf("failed to close ipv6 raw socket: %v", closeErr)
+			}
+			rawSock.conn6 = nil
 		}
 	}
 
@@ -119,36 +132,55 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 		go rawSock.read(rawSock.conn6.Recvfrom)
 	}
 
-	go rawSock.updateRouter()
-
 	return rawSock, nil
 }
 
-// updateRouter updates the listener routing table client
-// this is needed to avoid outdated information across different client networks
-func (s *SharedSocket) updateRouter() {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-			router, err := netroute.New()
-			if err != nil {
-				log.Errorf("Failed to create and update packet router for stunListener: %s", err)
-				continue
-			}
-			s.routerMux.Lock()
-			s.router = router
-			s.routerMux.Unlock()
-		}
+// sockaddr returns the raw send address for dst, carrying the scope of its zone.
+func (s *SharedSocket) sockaddr(dst netip.Addr) (unix.Sockaddr, error) {
+	if dst.Zone() == "" {
+		return rawSockaddr(dst, 0), nil
 	}
+	if s.conn6 == nil {
+		return nil, fmt.Errorf("no raw socket for %s", dst)
+	}
+	rc, err := s.conn6.SyscallConn()
+	if err != nil {
+		return nil, fmt.Errorf("ipv6 raw socket: %w", err)
+	}
+	scope, err := zoneIndex(rc, dst.Zone())
+	if err != nil {
+		return nil, err
+	}
+	return rawSockaddr(dst, scope), nil
 }
 
-// LocalAddr returns an IPv4 address using the supplied port
+// resolveSrc returns the source IP the kernel will pick for a packet sent to sa
+// by these raw sockets, mirroring the fwmark the kernel will see on send.
+func (s *SharedSocket) resolveSrc(dst netip.Addr, sa unix.Sockaddr) (netip.Addr, error) {
+	probe := s.probe4
+	if dst.Is6() {
+		probe = s.probe6
+	}
+	if probe == nil {
+		return netip.Addr{}, fmt.Errorf("no raw socket for %s", dst)
+	}
+	return probe.resolve(sa)
+}
+
+// LocalAddr returns the local address, preferring IPv4 for backward compatibility.
 func (s *SharedSocket) LocalAddr() net.Addr {
-	// todo check impact on ipv6 discovery
+	if s.conn4 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv4zero,
+			Port: s.port,
+		}
+	}
+	if s.conn6 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv6zero,
+			Port: s.port,
+		}
+	}
 	return &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: s.port,
@@ -217,13 +249,20 @@ func (s *SharedSocket) Close() error {
 	if s.conn6 != nil {
 		errGrp.Go(s.conn6.Close)
 	}
+
+	if s.probe4 != nil {
+		errGrp.Go(s.probe4.close)
+	}
+	if s.probe6 != nil {
+		errGrp.Go(s.probe6.close)
+	}
 	return errGrp.Wait()
 }
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
 func (s *SharedSocket) read(receiver receiver) {
 	for {
-		buf := make([]byte, 1500)
+		buf := make([]byte, s.mtu+maxIPUDPOverhead)
 		n, addr, err := receiver(s.ctx, buf, 0)
 		select {
 		case <-s.ctx.Done():
@@ -234,7 +273,7 @@ func (s *SharedSocket) read(receiver receiver) {
 }
 
 // ReadFrom reads packets received in the packetDemux channel
-func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (s *SharedSocket) ReadFrom(b []byte) (int, net.Addr, error) {
 	var pkt rcvdPacket
 	select {
 	case <-s.ctx.Done():
@@ -263,8 +302,7 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 	decodedLayers := make([]gopacket.LayerType, 0, 3)
 
-	err = parser.DecodeLayers(pkt.buf, &decodedLayers)
-	if err != nil {
+	if err := parser.DecodeLayers(pkt.buf, &decodedLayers); err != nil {
 		return 0, nil, err
 	}
 
@@ -273,8 +311,8 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 		Port: int(udp.SrcPort),
 	}
 
-	copy(b, payload)
-	return int(udp.Length), remoteAddr, nil
+	n := copy(b, payload)
+	return n, remoteAddr, nil
 }
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writer
@@ -292,15 +330,25 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		DstPort: layers.UDPPort(rUDPAddr.Port),
 	}
 
-	s.routerMux.RLock()
-	defer s.routerMux.RUnlock()
-
-	_, _, src, err := s.router.Route(rUDPAddr.IP)
-	if err != nil {
-		return 0, fmt.Errorf("got an error while checking route, err: %w", err)
+	dst := rUDPAddr.AddrPort().Addr().Unmap()
+	if !dst.IsValid() {
+		return 0, fmt.Errorf("invalid destination %s", rUDPAddr)
 	}
 
-	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
+	rSockAddr, err := s.sockaddr(dst)
+	if err != nil {
+		return 0, err
+	}
+
+	src, err := s.resolveSrc(dst, rSockAddr)
+	if err != nil {
+		return 0, fmt.Errorf("resolve source for %s: %w", dst, err)
+	}
+
+	conn, nwLayer := s.getWriterObjects(src, dst)
+	if conn == nil {
+		return 0, fmt.Errorf("no raw socket for %s", dst)
+	}
 
 	if err := udp.SetNetworkLayerForChecksum(nwLayer); err != nil {
 		return -1, fmt.Errorf("failed to set network layer for checksum: %w", err)
@@ -316,28 +364,23 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 }
 
 // getWriterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
-func (s *SharedSocket) getWriterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
-	if dest.To4() == nil {
-		sa = &unix.SockaddrInet6{}
-		copy(sa.(*unix.SockaddrInet6).Addr[:], dest.To16())
+func (s *SharedSocket) getWriterObjects(src, dest netip.Addr) (conn *socket.Conn, layer gopacket.NetworkLayer) {
+	if dest.Is6() {
 		conn = s.conn6
-
 		layer = &layers.IPv6{
-			SrcIP: src,
-			DstIP: dest,
+			SrcIP: src.AsSlice(),
+			DstIP: dest.AsSlice(),
 		}
 	} else {
-		sa = &unix.SockaddrInet4{}
-		copy(sa.(*unix.SockaddrInet4).Addr[:], dest.To4())
 		conn = s.conn4
 		layer = &layers.IPv4{
 			Version:  4,
 			TTL:      64,
 			Protocol: layers.IPProtocolUDP,
-			SrcIP:    src,
-			DstIP:    dest,
+			SrcIP:    src.AsSlice(),
+			DstIP:    dest.AsSlice(),
 		}
 	}
 
-	return sa, conn, layer
+	return conn, layer
 }

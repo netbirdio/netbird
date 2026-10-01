@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/go-version"
-	log "github.com/sirupsen/logrus"
-
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	nbversion "github.com/netbirdio/netbird/version"
 )
 
 type NBVersionCheck struct {
@@ -17,22 +15,14 @@ type NBVersionCheck struct {
 var _ Check = (*NBVersionCheck)(nil)
 
 func (n *NBVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
-	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
+	meetsMin, err := nbversion.MeetsMinVersion(n.MinVersion, peer.Meta.WtVersion)
 	if err != nil {
 		return false, err
 	}
 
-	constraints, err := version.NewConstraint(">= " + n.MinVersion)
-	if err != nil {
-		return false, err
-	}
-
-	if constraints.Check(peerNBVersion) {
+	if meetsMin {
 		return true, nil
 	}
-
-	log.WithContext(ctx).Debugf("peer %s NB version %s is older than minimum allowed version %s",
-		peer.ID, peer.Meta.WtVersion, n.MinVersion)
 
 	return false, nil
 }

@@ -5,111 +5,121 @@ import (
 	_ "embed"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
-	}
-
-	return am.Store.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policyID)
+	return am.Store.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
 // SavePolicy in the store
-func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	var isUpdate = policy.ID != ""
-	var updateAccountPeers bool
+	var existingPolicy *types.Policy
 	var action = activity.PolicyAdded
+	var unchanged bool
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err = validatePolicy(ctx, transaction, accountID, policy); err != nil {
-			return err
-		}
-
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, isUpdate)
+		existingPolicy, err = validatePolicy(ctx, transaction, accountID, policy)
 		if err != nil {
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if isUpdate {
+			if policy.Equal(existingPolicy) {
+				log.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
+				unchanged = true
+				return nil
+			}
+
+			action = activity.PolicyUpdated
+
+			policy.PublicID = existingPolicy.PublicID
+
+			if err = transaction.SavePolicy(ctx, policy); err != nil {
+				return err
+			}
+		} else {
+			policy.PublicID = xid.New().String()
+			if err = transaction.CreatePolicy(ctx, policy); err != nil {
+				return err
+			}
+		}
+
+		// On update carry both the old and new policy so peers losing access via a
+		// removed rule still refresh; on create there is no prior policy.
+		if isUpdate {
+			change = affectedpeers.Change{Policies: []*types.Policy{existingPolicy, policy}}
+		} else {
+			change = affectedpeers.Change{Policies: []*types.Policy{policy}}
+		}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
-		saveFunc := transaction.CreatePolicy
-		if isUpdate {
-			action = activity.PolicyUpdated
-			saveFunc = transaction.SavePolicy
-		}
-
-		return saveFunc(ctx, store.LockingStrengthUpdate, policy)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	if unchanged {
+		return policy, nil
+	}
+
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return policy, nil
 }
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var policy *types.Policy
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		policy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthUpdate, accountID, policyID)
@@ -117,16 +127,17 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, false)
-		if err != nil {
+		// Load before delete: pre-state still references the policy.
+		change = affectedpeers.Change{Policies: []*types.Policy{policy}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
 		}
 
-		return transaction.DeletePolicy(ctx, store.LockingStrengthUpdate, accountID, policyID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -134,76 +145,59 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
 
 // ListPolicies from the store.
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
-	}
-
-	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
-// arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
-func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy, isUpdate bool) (bool, error) {
-	if isUpdate {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policy.ID)
-		if err != nil {
-			return false, err
-		}
-
-		if !policy.Enabled && !existingPolicy.Enabled {
-			return false, nil
-		}
-
-		hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
-		if err != nil {
-			return false, err
-		}
-
-		if hasPeers {
-			return true, nil
-		}
-	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
-}
-
-// validatePolicy validates the policy and its rules.
-func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
+// validatePolicy validates the policy and its rules. For updates it returns
+// the existing policy loaded from the store so callers can avoid a second read.
+func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) (*types.Policy, error) {
+	var existingPolicy *types.Policy
 	if policy.ID != "" {
-		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policy.ID)
+		var err error
+		existingPolicy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
-			return err
+			return nil, err
+		}
+
+		// TODO: Refactor to support multiple rules per policy
+		existingRuleIDs := make(map[string]bool)
+		for _, rule := range existingPolicy.Rules {
+			existingRuleIDs[rule.ID] = true
+		}
+
+		for _, rule := range policy.Rules {
+			if rule.ID != "" && !existingRuleIDs[rule.ID] {
+				return nil, status.Errorf(status.InvalidArgument, "invalid rule ID: %s", rule.ID)
+			}
 		}
 	} else {
 		policy.ID = xid.New().String()
 		policy.AccountID = accountID
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, policy.RuleGroups())
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, policy.RuleGroups())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthShare, accountID, policy.SourcePostureChecks)
+	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, policy.SourcePostureChecks)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for i, rule := range policy.Rules {
@@ -222,7 +216,7 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		policy.SourcePostureChecks = getValidPostureCheckIDs(postureChecks, policy.SourcePostureChecks)
 	}
 
-	return nil
+	return existingPolicy, nil
 }
 
 // getValidPostureCheckIDs filters and returns only the valid posture check IDs from the provided list.
@@ -247,21 +241,4 @@ func getValidGroupIDs(groups map[string]*types.Group, groupIDs []string) []strin
 	}
 
 	return validIDs
-}
-
-// toProtocolFirewallRules converts the firewall rules to the protocol firewall rules.
-func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-
-		result[i] = &proto.FirewallRule{
-			PeerIP:    rule.PeerIP,
-			Direction: getProtoDirection(rule.Direction),
-			Action:    getProtoAction(rule.Action),
-			Protocol:  getProtoProtocol(rule.Protocol),
-			Port:      rule.Port,
-		}
-	}
-	return result
 }

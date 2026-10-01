@@ -3,13 +3,15 @@ package dns
 import (
 	"context"
 	"net"
+	"net/netip"
 	"syscall"
 	"time"
 
 	"github.com/miekg/dns"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type upstreamResolver struct {
@@ -22,14 +24,12 @@ type upstreamResolver struct {
 // first time, and we need to wait for a while to start to use again the proper DNS resolver.
 func newUpstreamResolver(
 	ctx context.Context,
-	_ string,
-	_ net.IP,
-	_ *net.IPNet,
+	_ WGIface,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
-	domain string,
+	d domain.Domain,
 ) (*upstreamResolver, error) {
-	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, d)
 	c := &upstreamResolver{
 		upstreamResolverBase: upstreamResolverBase,
 		hostsDNSHolder:       hostsDNSHolder,
@@ -49,13 +49,15 @@ func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns
 }
 
 func (u *upstreamResolver) exchangeWithinVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	upstreamExchangeClient := &dns.Client{}
-	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+	upstreamExchangeClient := &dns.Client{
+		Timeout: ClientTimeout,
+	}
+	return ExchangeWithFallback(ctx, upstreamExchangeClient, r, upstream)
 }
 
 // exchangeWithoutVPN protect the UDP socket by Android SDK to avoid to goes through the VPN
 func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	timeout := upstreamTimeout
+	timeout := UpstreamTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = time.Until(deadline)
 	}
@@ -71,15 +73,23 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 	}
 
 	upstreamExchangeClient := &dns.Client{
-		Dialer: dialer,
+		Dialer:  dialer,
+		Timeout: timeout,
 	}
 
-	return upstreamExchangeClient.Exchange(r, upstream)
+	return ExchangeWithFallback(ctx, upstreamExchangeClient, r, upstream)
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {
-	if u.hostsDNSHolder.isContain(upstream) {
-		return true
+	if addrPort, err := netip.ParseAddrPort(upstream); err == nil {
+		return u.hostsDNSHolder.contains(addrPort)
 	}
 	return false
+}
+
+func GetClientPrivate(_ privateClientIface, _ netip.Addr, dialTimeout time.Duration) (*dns.Client, error) {
+	return &dns.Client{
+		Timeout: dialTimeout,
+		Net:     "udp",
+	}, nil
 }

@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"
 	"goauthentik.io/api/v3"
 
@@ -48,15 +48,8 @@ type AuthentikCredentials struct {
 }
 
 // NewAuthentikManager creates a new instance of the AuthentikManager.
-func NewAuthentikManager(config AuthentikClientConfig,
-	appMetrics telemetry.AppMetrics) (*AuthentikManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
-
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httpTransport,
-	}
+func NewAuthentikManager(config AuthentikClientConfig, appMetrics telemetry.AppMetrics) (*AuthentikManager, error) {
+	httpClient := newHTTPClient()
 
 	helper := JsonParser{}
 
@@ -166,7 +159,7 @@ func (ac *AuthentikCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (
 		return jwtToken, fmt.Errorf("error while reading response body, expires_in: %d and access_token: %s", jwtToken.ExpiresIn, jwtToken.AccessToken)
 	}
 
-	data, err := jwt.DecodeSegment(strings.Split(jwtToken.AccessToken, ".")[1])
+	data, err := base64.RawURLEncoding.DecodeString(strings.Split(jwtToken.AccessToken, ".")[1])
 	if err != nil {
 		return jwtToken, err
 	}

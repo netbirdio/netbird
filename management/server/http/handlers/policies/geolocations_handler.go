@@ -6,12 +6,12 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 var (
@@ -20,31 +20,28 @@ var (
 
 // geolocationsHandler is a handler that returns locations.
 type geolocationsHandler struct {
-	accountManager     server.AccountManager
+	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
+	permissionsManager permissions.Manager
 }
 
-func addLocationsEndpoint(accountManager server.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
-	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager)
+func AddLocationsEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, permissionsManager permissions.Manager, router *mux.Router) {
+	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager, permissionsManager)
 	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
 	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler
-func newGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation) *geolocationsHandler {
+func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation, permissionsManager permissions.Manager) *geolocationsHandler {
 	return &geolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
+		permissionsManager: permissionsManager,
 	}
 }
 
 // getAllCountries retrieves a list of all countries
 func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Request) {
-	if err := l.authenticateUser(r); err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	if l.geolocationManager == nil {
 		// TODO: update error message to include geo db self hosted doc link when ready
 		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
@@ -66,11 +63,6 @@ func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Req
 
 // getCitiesByCountry retrieves a list of cities based on the given country code
 func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.Request) {
-	if err := l.authenticateUser(r); err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	vars := mux.Vars(r)
 	countryCode := vars["country"]
 	if !countryCodeRegex.MatchString(countryCode) {
@@ -95,25 +87,6 @@ func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.
 		cities = append(cities, toCityResponse(city))
 	}
 	util.WriteJSONObject(r.Context(), w, cities)
-}
-
-func (l *geolocationsHandler) authenticateUser(r *http.Request) error {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		return err
-	}
-
-	_, userID := userAuth.AccountId, userAuth.UserId
-
-	user, err := l.accountManager.GetUserByID(r.Context(), userID)
-	if err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "user is not allowed to perform this action")
-	}
-	return nil
 }
 
 func toCountryResponse(country geolocation.Country) api.Country {

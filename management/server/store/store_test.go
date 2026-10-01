@@ -16,7 +16,7 @@ type benchCase struct {
 
 var newSqlite = func(b *testing.B) Store {
 	b.Helper()
-	store, _ := NewSqliteStore(context.Background(), b.TempDir(), nil)
+	store, _ := NewSqliteStore(context.Background(), b.TempDir(), nil, false)
 	return store
 }
 

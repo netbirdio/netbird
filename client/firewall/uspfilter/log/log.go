@@ -1,10 +1,12 @@
-// Package logger provides a high-performance, non-blocking logger for userspace networking
+// Package log provides a high-performance, non-blocking logger for userspace networking
 package log
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,13 +15,21 @@ import (
 )
 
 const (
-	maxBatchSize         = 1024 * 16  // 16KB max batch size
-	maxMessageSize       = 1024 * 2   // 2KB per message
-	bufferSize           = 1024 * 256 // 256KB ring buffer
+	maxBatchSize         = 1024 * 16
+	maxMessageSize       = 1024 * 2
 	defaultFlushInterval = 2 * time.Second
+	defaultLogChanSize   = 1000
 )
 
-// Level represents log severity
+func getLogChannelSize() int {
+	if v := os.Getenv("NB_USPFILTER_LOG_BUFFER"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultLogChanSize
+}
+
 type Level uint32
 
 const (
@@ -42,32 +52,45 @@ var levelStrings = map[Level]string{
 	LevelTrace: "TRAC",
 }
 
-// Logger is a high-performance, non-blocking logger
-type Logger struct {
-	output    io.Writer
-	level     atomic.Uint32
-	buffer    *ringBuffer
-	shutdown  chan struct{}
-	closeOnce sync.Once
-	wg        sync.WaitGroup
-
-	// Reusable buffer pool for formatting messages
-	bufPool sync.Pool
+type logMessage struct {
+	level    Level
+	argCount uint8
+	format   string
+	arg1     any
+	arg2     any
+	arg3     any
+	arg4     any
+	arg5     any
+	arg6     any
+	arg7     any
+	arg8     any
 }
 
+// Logger is a high-performance, non-blocking logger
+type Logger struct {
+	output     io.Writer
+	level      atomic.Uint32
+	msgChannel chan logMessage
+	shutdown   chan struct{}
+	closeOnce  sync.Once
+	wg         sync.WaitGroup
+	bufPool    sync.Pool
+}
+
+// NewFromLogrus creates a new Logger that writes to the same output as the given logrus logger
 func NewFromLogrus(logrusLogger *log.Logger) *Logger {
 	l := &Logger{
-		output:   logrusLogger.Out,
-		buffer:   newRingBuffer(bufferSize),
-		shutdown: make(chan struct{}),
+		output:     logrusLogger.Out,
+		msgChannel: make(chan logMessage, getLogChannelSize()),
+		shutdown:   make(chan struct{}),
 		bufPool: sync.Pool{
-			New: func() interface{} {
-				// Pre-allocate buffer for message formatting
+			New: func() any {
 				b := make([]byte, 0, maxMessageSize)
 				return &b
 			},
 		},
 	}
+
 	logrusLevel := logrusLogger.GetLevel()
 	l.level.Store(uint32(logrusLevel))
 	level := levelStrings[Level(logrusLevel)]
@@ -79,97 +102,354 @@ func NewFromLogrus(logrusLogger *log.Logger) *Logger {
 	return l
 }
 
+// SetLevel sets the logging level
 func (l *Logger) SetLevel(level Level) {
 	l.level.Store(uint32(level))
-
 	log.Debugf("Set uspfilter logger loglevel to %v", levelStrings[level])
 }
 
-func (l *Logger) formatMessage(buf *[]byte, level Level, format string, args ...interface{}) {
-	*buf = (*buf)[:0]
+// Enabled reports whether the given level is currently logged. Callers on the
+// hot path should guard log sites with this to avoid boxing arguments into
+// any when the level is off.
+func (l *Logger) Enabled(level Level) bool {
+	return l.level.Load() >= uint32(level)
+}
 
-	// Timestamp
+func (l *Logger) Error(format string) {
+	if l.level.Load() >= uint32(LevelError) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelError, format: format}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn(format string) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, format: format}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Info(format string) {
+	if l.level.Load() >= uint32(LevelInfo) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelInfo, format: format}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Debug(format string) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, format: format}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace(format string) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Error1(format string, arg1 any) {
+	if l.level.Load() >= uint32(LevelError) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelError, argCount: 1, format: format, arg1: arg1}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Error2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelError) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelError, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, argCount: 3, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn4(format string, arg1, arg2, arg3, arg4 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, argCount: 4, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Debug1(format string, arg1 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, argCount: 1, format: format, arg1: arg1}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Debug2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Debug3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, argCount: 3, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+// Debugf is the variadic shape. Dispatches to Debug/Debug1/Debug2/Debug3
+// to avoid allocating an args slice on the fast path when the arg count is
+// known (0-3). Args beyond 3 land on the general variadic path; callers on
+// the hot path should prefer DebugN for known counts.
+func (l *Logger) Debugf(format string, args ...any) {
+	if l.level.Load() < uint32(LevelDebug) {
+		return
+	}
+	switch len(args) {
+	case 0:
+		l.Debug(format)
+	case 1:
+		l.Debug1(format, args[0])
+	case 2:
+		l.Debug2(format, args[0], args[1])
+	case 3:
+		l.Debug3(format, args[0], args[1], args[2])
+	default:
+		l.sendVariadic(LevelDebug, format, args)
+	}
+}
+
+// sendVariadic packs a slice of arguments into a logMessage and non-blocking
+// enqueues it. Used for arg counts beyond the fixed-arity fast paths. Args
+// beyond the 8-arg slot limit are dropped so callers don't produce silently
+// empty log lines via uint8 wraparound in argCount.
+func (l *Logger) sendVariadic(level Level, format string, args []any) {
+	const maxArgs = 8
+	n := len(args)
+	if n > maxArgs {
+		n = maxArgs
+	}
+	msg := logMessage{level: level, argCount: uint8(n), format: format}
+	slots := [maxArgs]*any{&msg.arg1, &msg.arg2, &msg.arg3, &msg.arg4, &msg.arg5, &msg.arg6, &msg.arg7, &msg.arg8}
+	for i := 0; i < n; i++ {
+		*slots[i] = args[i]
+	}
+	select {
+	case l.msgChannel <- msg:
+	default:
+	}
+}
+
+func (l *Logger) Trace1(format string, arg1 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 1, format: format, arg1: arg1}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 3, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace4(format string, arg1, arg2, arg3, arg4 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 4, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace5(format string, arg1, arg2, arg3, arg4, arg5 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 5, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace6(format string, arg1, arg2, arg3, arg4, arg5, arg6 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 6, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6}:
+		default:
+		}
+	}
+}
+
+// Trace8 logs a trace message with 8 arguments (8 placeholder in format string)
+func (l *Logger) Trace8(format string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 8, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6, arg7: arg7, arg8: arg8}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
+	*buf = (*buf)[:0]
 	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05-07:00")
 	*buf = append(*buf, ' ')
-
-	// Level
-	*buf = append(*buf, levelStrings[level]...)
+	*buf = append(*buf, levelStrings[msg.level]...)
 	*buf = append(*buf, ' ')
 
-	// Message
-	if len(args) > 0 {
-		*buf = append(*buf, fmt.Sprintf(format, args...)...)
-	} else {
-		*buf = append(*buf, format...)
+	var formatted string
+	switch msg.argCount {
+	case 0:
+		formatted = msg.format
+	case 1:
+		formatted = fmt.Sprintf(msg.format, msg.arg1)
+	case 2:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2)
+	case 3:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3)
+	case 4:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4)
+	case 5:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5)
+	case 6:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6)
+	case 7:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7)
+	case 8:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7, msg.arg8)
 	}
 
+	*buf = append(*buf, formatted...)
 	*buf = append(*buf, '\n')
+
+	if len(*buf) > maxMessageSize {
+		*buf = (*buf)[:maxMessageSize]
+	}
 }
 
-func (l *Logger) log(level Level, format string, args ...interface{}) {
+// processMessage handles a single log message and adds it to the buffer
+func (l *Logger) processMessage(msg logMessage, buffer *[]byte) {
 	bufp := l.bufPool.Get().(*[]byte)
-	l.formatMessage(bufp, level, format, args...)
+	defer l.bufPool.Put(bufp)
 
-	if len(*bufp) > maxMessageSize {
-		*bufp = (*bufp)[:maxMessageSize]
+	l.formatMessage(bufp, msg)
+
+	if len(*buffer)+len(*bufp) > maxBatchSize {
+		_, _ = l.output.Write(*buffer)
+		*buffer = (*buffer)[:0]
 	}
-	_, _ = l.buffer.Write(*bufp)
-
-	l.bufPool.Put(bufp)
+	*buffer = append(*buffer, *bufp...)
 }
 
-func (l *Logger) Error(format string, args ...interface{}) {
-	if l.level.Load() >= uint32(LevelError) {
-		l.log(LevelError, format, args...)
-	}
-}
-
-func (l *Logger) Warn(format string, args ...interface{}) {
-	if l.level.Load() >= uint32(LevelWarn) {
-		l.log(LevelWarn, format, args...)
+// flushBuffer writes the accumulated buffer to output
+func (l *Logger) flushBuffer(buffer *[]byte) {
+	if len(*buffer) > 0 {
+		_, _ = l.output.Write(*buffer)
+		*buffer = (*buffer)[:0]
 	}
 }
 
-func (l *Logger) Info(format string, args ...interface{}) {
-	if l.level.Load() >= uint32(LevelInfo) {
-		l.log(LevelInfo, format, args...)
+// processBatch processes as many messages as possible without blocking
+func (l *Logger) processBatch(buffer *[]byte) {
+	for len(*buffer) < maxBatchSize {
+		select {
+		case msg := <-l.msgChannel:
+			l.processMessage(msg, buffer)
+		default:
+			return
+		}
 	}
 }
 
-func (l *Logger) Debug(format string, args ...interface{}) {
-	if l.level.Load() >= uint32(LevelDebug) {
-		l.log(LevelDebug, format, args...)
+// handleShutdown manages the graceful shutdown sequence with timeout
+func (l *Logger) handleShutdown(buffer *[]byte) {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	for {
+		select {
+		case msg := <-l.msgChannel:
+			l.processMessage(msg, buffer)
+		case <-ctx.Done():
+			l.flushBuffer(buffer)
+			return
+		}
+
+		if len(l.msgChannel) == 0 {
+			l.flushBuffer(buffer)
+			return
+		}
 	}
 }
 
-func (l *Logger) Trace(format string, args ...interface{}) {
-	if l.level.Load() >= uint32(LevelTrace) {
-		l.log(LevelTrace, format, args...)
-	}
-}
-
-// worker periodically flushes the buffer
+// worker is the main goroutine that processes log messages
 func (l *Logger) worker() {
 	defer l.wg.Done()
 
 	ticker := time.NewTicker(defaultFlushInterval)
 	defer ticker.Stop()
 
-	buf := make([]byte, 0, maxBatchSize)
+	buffer := make([]byte, 0, maxBatchSize)
 
 	for {
 		select {
 		case <-l.shutdown:
+			l.handleShutdown(&buffer)
 			return
 		case <-ticker.C:
-			// Read accumulated messages
-			n, _ := l.buffer.Read(buf[:cap(buf)])
-			if n == 0 {
-				continue
-			}
-
-			// Write batch
-			_, _ = l.output.Write(buf[:n])
+			l.flushBuffer(&buffer)
+		case msg := <-l.msgChannel:
+			l.processMessage(msg, &buffer)
+			l.processBatch(&buffer)
 		}
 	}
 }

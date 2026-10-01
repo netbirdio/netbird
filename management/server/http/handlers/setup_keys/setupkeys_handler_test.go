@@ -15,10 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -134,6 +135,40 @@ func TestSetupKeysHandlers(t *testing.T) {
 			expectedSetupKey: expectedNewKey,
 		},
 		{
+			// A one-off key is used once. Asking for more used to be accepted
+			// and then quietly reduced to 1.
+			name:        "Create One-Off Setup Key With Conflicting Usage Limit",
+			requestType: http.MethodPost,
+			requestPath: "/api/setup-keys",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"one-off\",\"expires_in\":86400,\"usage_limit\":5}", newSetupKeyName))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			// 0 is what a caller sends when it has nothing to say about the
+			// usage limit, since the field is required and has no null, so it
+			// has to keep working.
+			name:        "Create One-Off Setup Key Without Usage Limit",
+			requestType: http.MethodPost,
+			requestPath: "/api/setup-keys",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"one-off\",\"expires_in\":86400,\"usage_limit\":0}", newSetupKeyName))),
+			expectedStatus: http.StatusOK,
+			expectedBody:   false,
+		},
+		{
+			// Only one-off keys are constrained; a reusable key means what it
+			// says.
+			name:        "Create Reusable Setup Key With Usage Limit",
+			requestType: http.MethodPost,
+			requestPath: "/api/setup-keys",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"reusable\",\"expires_in\":86400,\"usage_limit\":5}", newSetupKeyName))),
+			expectedStatus: http.StatusOK,
+			expectedBody:   false,
+		},
+		{
 			name:        "Update Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/" + defaultSetupKey.Id,
@@ -163,7 +198,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    adminUser.Id,
 				Domain:    "hotmail.com",
 				AccountId: "testAccountId",

@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -71,6 +72,24 @@ type UserData struct {
 	Name        string      `json:"name"`
 	ID          string      `json:"user_id"`
 	AppMetadata AppMetadata `json:"app_metadata"`
+	Password    string      `json:"-"` // Plain password, only set on user creation, excluded from JSON
+}
+
+func (u *UserData) MarshalBinary() (data []byte, err error) {
+	return json.Marshal(u)
+}
+
+func (u *UserData) UnmarshalBinary(data []byte) (err error) {
+	return json.Unmarshal(data, &u)
+}
+
+func (u *UserData) Marshal() (data string, err error) {
+	d, err := json.Marshal(u)
+	return string(d), err
+}
+
+func (u *UserData) Unmarshal(data []byte) (err error) {
+	return json.Unmarshal(data, &u)
 }
 
 // AppMetadata user app metadata to associate with a profile
@@ -155,34 +174,41 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 
 		return NewZitadelManager(*zitadelClientConfig, appMetrics)
 	case "authentik":
-		authentikConfig := AuthentikClientConfig{
+		return NewAuthentikManager(AuthentikClientConfig{
 			Issuer:        config.ClientConfig.Issuer,
 			ClientID:      config.ClientConfig.ClientID,
 			TokenEndpoint: config.ClientConfig.TokenEndpoint,
 			GrantType:     config.ClientConfig.GrantType,
 			Username:      config.ExtraConfig["Username"],
 			Password:      config.ExtraConfig["Password"],
-		}
-		return NewAuthentikManager(authentikConfig, appMetrics)
+		}, appMetrics)
 	case "okta":
-		oktaClientConfig := OktaClientConfig{
+		return NewOktaManager(OktaClientConfig{
 			Issuer:        config.ClientConfig.Issuer,
 			TokenEndpoint: config.ClientConfig.TokenEndpoint,
 			GrantType:     config.ClientConfig.GrantType,
 			APIToken:      config.ExtraConfig["ApiToken"],
-		}
-		return NewOktaManager(oktaClientConfig, appMetrics)
+		}, appMetrics)
 	case "google":
-		googleClientConfig := GoogleWorkspaceClientConfig{
+		return NewGoogleWorkspaceManager(ctx, GoogleWorkspaceClientConfig{
 			ServiceAccountKey: config.ExtraConfig["ServiceAccountKey"],
 			CustomerID:        config.ExtraConfig["CustomerId"],
-		}
-		return NewGoogleWorkspaceManager(ctx, googleClientConfig, appMetrics)
+		}, appMetrics)
 	case "jumpcloud":
-		jumpcloudConfig := JumpCloudClientConfig{
+		return NewJumpCloudManager(JumpCloudClientConfig{
 			APIToken: config.ExtraConfig["ApiToken"],
-		}
-		return NewJumpCloudManager(jumpcloudConfig, appMetrics)
+			ApiUrl:   config.ExtraConfig["ApiUrl"],
+		}, appMetrics)
+	case "pocketid":
+		return NewPocketIdManager(PocketIdClientConfig{
+			APIToken:           config.ExtraConfig["ApiToken"],
+			ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
+		}, appMetrics)
+	case "dex":
+		return NewDexManager(DexClientConfig{
+			GRPCAddr: config.ExtraConfig["GRPCAddr"],
+			Issuer:   config.ClientConfig.Issuer,
+		}, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}

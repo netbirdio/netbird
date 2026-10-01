@@ -1,7 +1,21 @@
 version: 2
-
+env:
+  - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
+  - SKIP_DOCKER_PUSH={{ if index .Env "SKIP_DOCKER_PUSH" }}{{ .Env.SKIP_DOCKER_PUSH }}{{ else }}false{{ end }}
 project_name: netbird
 builds:
+  - id: netbird-wasm
+    dir: client/wasm/cmd
+    binary: netbird
+    env: [GOOS=js, GOARCH=wasm, CGO_ENABLED=0]
+    goos:
+      - js
+    goarch:
+      - wasm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: netbird
     dir: client
     binary: netbird
@@ -17,8 +31,6 @@ builds:
       - 386
     ignore:
       - goos: windows
-        goarch: arm64
-      - goos: windows
         goarch: arm
       - goos: windows
         goarch: 386
@@ -27,6 +39,32 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     tags:
       - load_wgnt_from_rsrc
+
+  # Single-arch builds: nfpm provides is not templated, so the RPM splits per arch.
+  - &netbird_rpm_build
+    id: netbird-rpm-amd64
+    dir: client
+    binary: netbird
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64]
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - load_wgnt_from_rsrc
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-arm64
+    goarch: [arm64]
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-arm
+    goarch: [arm]
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-386
+    goarch: [386]
 
   - id: netbird-static
     dir: client
@@ -64,6 +102,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -78,6 +118,8 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -92,6 +134,84 @@ builds:
       - amd64
       - arm64
       - arm
+    goarm:
+      - 7
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-server
+    dir: combined
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-server
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-upload
+    dir: upload-server
+    env: [CGO_ENABLED=0]
+    binary: netbird-upload
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-proxy
+    dir: proxy/cmd/proxy
+    env: [CGO_ENABLED=0]
+    binary: netbird-proxy
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ldflags:
+      - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-idp-migrate
+    dir: tools/idp-migrate
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-idp-migrate
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -103,382 +223,356 @@ archives:
   - builds:
       - netbird
       - netbird-static
+  - id: netbird-wasm
+    builds:
+      - netbird-wasm
+    name_template: "{{ .ProjectName }}_{{ .Version }}"
+    format: binary
+  - id: netbird-idp-migrate
+    builds:
+      - netbird-idp-migrate
+    name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-deb
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_deb
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - deb
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
 
-  - maintainer: Netbird <dev@netbird.io>
+  - &netbird_rpm
+    maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-rpm
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_rpm_amd64
     bindir: /usr/bin
-    builds:
-      - netbird
+    ids:
+      - netbird-rpm-amd64
     formats:
       - rpm
-
+    # Red Hat certification (RPM Version Handling) requires rpmbuild's ISA
+    # provide, which nfpm does not emit. The version is filled in by the release job.
+    provides:
+      - "netbird(x86-64) = @RPM_EVR@"
+    # The client verifies TLS to management and signal against the system trust
+    # store. Red Hat software certification (RPM Dependency Tracking) also
+    # rejects packages that declare no dependencies at all.
+    dependencies:
+      - ca-certificates
+    # Generated in CI by chglog from git tags; Red Hat certification requires an
+    # RPM changelog (RPM Version Handling subtest).
+    changelog: changelog.yml
+    # License, documentation and a config file so the RPM Provenance subtest sees
+    # %license, %doc and %config entries instead of a bare binary.
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/netbird/LICENSE
+        type: license
+      - src: README.md
+        dst: /usr/share/doc/netbird/README.md
+        type: doc
+      - src: release_files/netbird.sysconfig
+        dst: /etc/sysconfig/netbird
+        type: config|noreplace
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
-dockers:
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-amd64
-    ids:
-      - netbird
-    goarch: amd64
-    use: buildx
-    dockerfile: client/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-    ids:
-      - netbird
-    goarch: arm64
-    use: buildx
-    dockerfile: client/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm
-    ids:
-      - netbird
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: client/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
+    rpm:
+      summary: NetBird client
+      group: Applications/Internet
+      packager: NetBird <dev@netbird.io>
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-amd64
+  - <<: *netbird_rpm
+    id: netbird_rpm_arm64
     ids:
-      - netbird
-    goarch: amd64
-    use: buildx
-    dockerfile: client/Dockerfile-rootless
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-    ids:
-      - netbird
-    goarch: arm64
-    use: buildx
-    dockerfile: client/Dockerfile-rootless
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm
-    ids:
-      - netbird
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: client/Dockerfile-rootless
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=maintainer=dev@netbird.io"
+      - netbird-rpm-arm64
+    provides:
+      - "netbird(aarch-64) = @RPM_EVR@"
 
-  - image_templates:
-      - netbirdio/relay:{{ .Version }}-amd64
+  - <<: *netbird_rpm
+    id: netbird_rpm_arm
     ids:
-      - netbird-relay
-    goarch: amd64
-    use: buildx
-    dockerfile: relay/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/relay:{{ .Version }}-arm64v8
-    ids:
-      - netbird-relay
-    goarch: arm64
-    use: buildx
-    dockerfile: relay/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/relay:{{ .Version }}-arm
-    ids:
-      - netbird-relay
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: relay/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-amd64
-    ids:
-      - netbird-signal
-    goarch: amd64
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-    ids:
-      - netbird-signal
-    goarch: arm64
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-arm
-    ids:
-      - netbird-signal
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-amd64
-    ids:
-      - netbird-mgmt
-    goarch: amd64
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-    ids:
-      - netbird-mgmt
-    goarch: arm64
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-arm
-    ids:
-      - netbird-mgmt
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-amd64
-    ids:
-      - netbird-mgmt
-    goarch: amd64
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-    ids:
-      - netbird-mgmt
-    goarch: arm64
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
+      - netbird-rpm-arm
+    provides:
+      - "netbird(armv6hl-32) = @RPM_EVR@"
 
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm
+  - <<: *netbird_rpm
+    id: netbird_rpm_386
     ids:
-      - netbird-mgmt
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-docker_manifests:
-  - name_template: netbirdio/netbird:{{ .Version }}
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird:latest
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird:{{ .Version }}-rootless
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - netbirdio/netbird:{{ .Version }}-rootless-arm
-      - netbirdio/netbird:{{ .Version }}-rootless-amd64
-
-  - name_template: netbirdio/netbird:rootless-latest
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
-      - netbirdio/netbird:{{ .Version }}-rootless-arm
-      - netbirdio/netbird:{{ .Version }}-rootless-amd64
-
-  - name_template: netbirdio/relay:{{ .Version }}
-    image_templates:
-      - netbirdio/relay:{{ .Version }}-arm64v8
-      - netbirdio/relay:{{ .Version }}-arm
-      - netbirdio/relay:{{ .Version }}-amd64
-
-  - name_template: netbirdio/relay:latest
-    image_templates:
-      - netbirdio/relay:{{ .Version }}-arm64v8
-      - netbirdio/relay:{{ .Version }}-arm
-      - netbirdio/relay:{{ .Version }}-amd64
-
-  - name_template: netbirdio/signal:{{ .Version }}
-    image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: netbirdio/signal:latest
-    image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:{{ .Version }}
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:debug-latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-      - netbirdio/management:{{ .Version }}-debug-arm
-      - netbirdio/management:{{ .Version }}-debug-amd64
+      - netbird-rpm-386
+    provides:
+      - "netbird(x86-32) = @RPM_EVR@"
+dockers_v2:
+   - id: netbird
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: client/Dockerfile
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm/6
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-rootless
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "{{ .Version }}-rootless"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-latest{{ end }}"
+     dockerfile: client/Dockerfile-rootless
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm/6
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-rootless-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "{{ .Version }}-rootless-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-ubi-latest{{ end }}"
+     dockerfile: client/Dockerfile-rootless.ubi
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: relay
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-relay
+     images:
+       - netbirdio/relay
+       - ghcr.io/netbirdio/relay
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: relay/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: signal
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-signal
+     images:
+       - netbirdio/signal
+       - ghcr.io/netbirdio/signal
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: signal/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: management
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-mgmt
+     images:
+       - netbirdio/management
+       - ghcr.io/netbirdio/management
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: management/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: upload
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-upload
+     images:
+       - netbirdio/upload
+       - ghcr.io/netbirdio/upload
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: upload-server/Dockerfile.release
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-server
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-server
+     images:
+       - netbirdio/netbird-server
+       - ghcr.io/netbirdio/netbird-server
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: combined/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-proxy
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-proxy
+     images:
+       - netbirdio/reverse-proxy
+       - ghcr.io/netbirdio/reverse-proxy
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: proxy/Dockerfile
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: proxy-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-proxy
+     images:
+       - netbirdio/reverse-proxy
+       - ghcr.io/netbirdio/reverse-proxy
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: proxy/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh proxy/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
 
 brews:
   - ids:
       - default
+    skip_upload: "{{ .Env.SKIP_PUBLISH }}"
     repository:
       owner: netbirdio
       name: homebrew-tap
@@ -495,16 +589,21 @@ brews:
 
 uploads:
   - name: debian
+    skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
-      - netbird-deb
+      - netbird_deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
     method: PUT
 
   - name: yum
+    skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
-      - netbird-rpm
+      - netbird_rpm_amd64
+      - netbird_rpm_arm64
+      - netbird_rpm_arm
+      - netbird_rpm_386
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
@@ -514,8 +613,21 @@ checksum:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
+    - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
+  # The signing pipeline (netbirdio/sign-pipelines, dispatched by
+  # trigger_signer) marks the release latest once the Windows and macOS
+  # artifacts are signed. Without this override goreleaser marks it latest
+  # at publish time, while those artifacts are still unsigned.
+  make_latest: false
+  # Mark x.y.z-rc.* and other prerelease tags as prereleases on GitHub.
+  prerelease: auto
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
+    - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh

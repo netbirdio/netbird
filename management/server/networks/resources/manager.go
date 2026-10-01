@@ -5,15 +5,22 @@ import (
 	"errors"
 	"fmt"
 
-	s "github.com/netbirdio/netbird/management/server"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -24,30 +31,32 @@ type Manager interface {
 	GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error)
 	UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error)
 	DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error
-	DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error)
+	DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) (*types.NetworkResource, []func(), error)
 }
 
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
 	groupsManager      groups.Manager
-	accountManager     s.AccountManager
+	accountManager     account.Manager
+	serviceManager     service.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager s.AccountManager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager, reverseproxyManager service.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
 		groupsManager:      groupsManager,
 		accountManager:     accountManager,
+		serviceManager:     reverseproxyManager,
 	}
 }
 
 func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -55,11 +64,11 @@ func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetNetworkResourcesByNetID(ctx, store.LockingStrengthShare, accountID, networkID)
+	return m.store.GetNetworkResourcesByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
 }
 
 func (m *managerImpl) GetAllResourcesInAccount(ctx context.Context, accountID, userID string) ([]*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -67,11 +76,11 @@ func (m *managerImpl) GetAllResourcesInAccount(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthShare, accountID)
+	return m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -79,7 +88,7 @@ func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID,
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resources, err := m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthShare, accountID)
+	resources, err := m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network resources: %w", err)
 	}
@@ -93,7 +102,7 @@ func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID,
 }
 
 func (m *managerImpl) CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, permissions.Networks, permissions.Write)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, modules.Networks, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -106,49 +115,13 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, resource.AccountID)
-	defer unlock()
-
 	var eventsToStore []func()
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{Resources: []*types.NetworkResource{resource}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
-		if err == nil {
-			return status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
-		}
-
-		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
-		if err != nil {
-			return fmt.Errorf("failed to get network: %w", err)
-		}
-
-		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
-		if err != nil {
-			return fmt.Errorf("failed to save network resource: %w", err)
-		}
-
-		event := func() {
-			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceCreated, resource.EventMeta(network))
-		}
-		eventsToStore = append(eventsToStore, event)
-
-		res := nbtypes.Resource{
-			ID:   resource.ID,
-			Type: resource.Type.String(),
-		}
-		for _, groupID := range resource.GroupIDs {
-			event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
-			if err != nil {
-				return fmt.Errorf("failed to add resource to group: %w", err)
-			}
-			eventsToStore = append(eventsToStore, event)
-		}
-
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
-		if err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
-		}
-
-		return nil
+		var txErr error
+		eventsToStore, snap, txErr = m.createResourceInTransaction(ctx, transaction, userID, resource, change)
+		return txErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network resource: %w", err)
@@ -158,13 +131,59 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
 
 	return resource, nil
 }
 
+func (m *managerImpl) createResourceInTransaction(ctx context.Context, transaction store.Store, userID string, resource *types.NetworkResource, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, error) {
+	_, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
+	if err == nil {
+		return nil, nil, status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
+	}
+
+	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
+	}
+
+	resource.PublicID = xid.New().String()
+
+	if err = transaction.SaveNetworkResource(ctx, resource); err != nil {
+		return nil, nil, fmt.Errorf("failed to save network resource: %w", err)
+	}
+
+	var eventsToStore []func()
+	eventsToStore = append(eventsToStore, func() {
+		m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceCreated, resource.EventMeta(network))
+	})
+
+	res := nbtypes.Resource{
+		ID:   resource.ID,
+		Type: nbtypes.ResourceType(resource.Type.String()),
+	}
+	for _, groupID := range resource.GroupIDs {
+		event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to add resource to group: %w", err)
+		}
+		eventsToStore = append(eventsToStore, event)
+	}
+
+	if err = transaction.IncrementNetworkSerial(ctx, resource.AccountID); err != nil {
+		return nil, nil, fmt.Errorf("failed to increment network serial: %w", err)
+	}
+
+	snap, err := affectedpeers.Load(ctx, transaction, resource.AccountID, change)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return eventsToStore, snap, nil
+}
+
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -172,7 +191,7 @@ func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networ
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resourceID)
+	resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network resource: %w", err)
 	}
@@ -185,7 +204,7 @@ func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networ
 }
 
 func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, permissions.Networks, permissions.Write)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, modules.Networks, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -202,10 +221,9 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	resource.Domain = domain
 	resource.Prefix = prefix
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, resource.AccountID)
-	defer unlock()
-
 	var eventsToStore []func()
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
 		if err != nil {
@@ -216,22 +234,31 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return status.NewResourceNotPartOfNetworkError(resource.ID, resource.NetworkID)
 		}
 
-		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
 
-		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
 		if err == nil && oldResource.ID != resource.ID {
 			return status.Errorf(status.InvalidArgument, "new resource name already exists")
 		}
 
-		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
+		resource.PublicID = oldResource.PublicID
 
-		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+		oldGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, resource.AccountID, resource.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get old resource groups: %w", err)
+		}
+		for _, g := range oldGroups {
+			oldResource.GroupIDs = append(oldResource.GroupIDs, g.ID)
+		}
+
+		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
 		}
@@ -246,7 +273,12 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
 		})
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
+		change = affectedpeers.Change{Resources: []*types.NetworkResource{oldResource, resource}}
+		if snap, err = affectedpeers.Load(ctx, transaction, resource.AccountID, change); err != nil {
+			return err
+		}
+
+		err = transaction.IncrementNetworkSerial(ctx, resource.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -261,7 +293,15 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
+	go func() {
+		err := m.serviceManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
+		}
+	}()
+
+	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
 
 	return resource, nil
 }
@@ -269,7 +309,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, userID string, newResource, oldResource *types.NetworkResource) ([]func(), error) {
 	res := nbtypes.Resource{
 		ID:   newResource.ID,
-		Type: newResource.Type.String(),
+		Type: nbtypes.ResourceType(newResource.Type.String()),
 	}
 
 	oldResourceGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, oldResource.AccountID, oldResource.ID)
@@ -305,7 +345,7 @@ func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction stor
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Write)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -313,17 +353,40 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
+	serviceID, err := m.serviceManager.GetServiceIDByTargetID(ctx, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to check if resource is used by service: %w", err)
+	}
+	if serviceID != "" {
+		return status.NewResourceInUseError(resourceID, serviceID)
+	}
 
 	var events []func()
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
+		existing, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to get network resource: %w", err)
+		}
+		oldGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, accountID, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to get resource groups: %w", err)
+		}
+		for _, g := range oldGroups {
+			existing.GroupIDs = append(existing.GroupIDs, g.ID)
+		}
+		change = affectedpeers.Change{Resources: []*types.NetworkResource{existing}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
+
+		_, events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
 		if err != nil {
 			return fmt.Errorf("failed to delete resource: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -338,51 +401,53 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
 
-func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
+func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) (*types.NetworkResource, []func(), error) {
 	resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network resource: %w", err)
+		return nil, nil, fmt.Errorf("failed to get network resource: %w", err)
 	}
 
 	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network: %w", err)
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
 	}
 
 	if resource.NetworkID != networkID {
-		return nil, errors.New("resource not part of network")
+		return nil, nil, errors.New("resource not part of network")
 	}
 
 	groups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, accountID, resourceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get resource groups: %w", err)
+		return nil, nil, fmt.Errorf("failed to get resource groups: %w", err)
 	}
 
 	var eventsToStore []func()
 
 	for _, group := range groups {
+		resource.GroupIDs = append(resource.GroupIDs, group.ID)
+
 		event, err := m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, accountID, userID, group.ID, resourceID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to remove resource from group: %w", err)
+			return nil, nil, fmt.Errorf("failed to remove resource from group: %w", err)
 		}
 		eventsToStore = append(eventsToStore, event)
 	}
 
-	err = transaction.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	err = transaction.DeleteNetworkResource(ctx, accountID, resourceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete network resource: %w", err)
+		return nil, nil, fmt.Errorf("failed to delete network resource: %w", err)
 	}
 
 	eventsToStore = append(eventsToStore, func() {
 		m.accountManager.StoreEvent(ctx, userID, resourceID, accountID, activity.NetworkResourceDeleted, resource.EventMeta(network))
 	})
 
-	return eventsToStore, nil
+	return resource, eventsToStore, nil
 }
 
 func NewManagerMock() Manager {
@@ -417,6 +482,6 @@ func (m *mockManager) DeleteResource(ctx context.Context, accountID, userID, net
 	return nil
 }
 
-func (m *mockManager) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
-	return []func(){}, nil
+func (m *mockManager) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) (*types.NetworkResource, []func(), error) {
+	return nil, []func(){}, nil
 }

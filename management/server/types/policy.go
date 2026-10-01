@@ -1,24 +1,6 @@
 package types
 
 const (
-	// PolicyTrafficActionAccept indicates that the traffic is accepted
-	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
-	// PolicyTrafficActionDrop indicates that the traffic is dropped
-	PolicyTrafficActionDrop = PolicyTrafficActionType("drop")
-)
-
-const (
-	// PolicyRuleProtocolALL type of traffic
-	PolicyRuleProtocolALL = PolicyRuleProtocolType("all")
-	// PolicyRuleProtocolTCP type of traffic
-	PolicyRuleProtocolTCP = PolicyRuleProtocolType("tcp")
-	// PolicyRuleProtocolUDP type of traffic
-	PolicyRuleProtocolUDP = PolicyRuleProtocolType("udp")
-	// PolicyRuleProtocolICMP type of traffic
-	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
-)
-
-const (
 	// PolicyRuleFlowDirect allows traffic from source to destination
 	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
 	// PolicyRuleFlowBidirect allows traffic to both directions
@@ -47,6 +29,8 @@ type Policy struct {
 	// ID of the policy'
 	ID string `gorm:"primaryKey"`
 
+	PublicID string `json:"-" gorm:"index"`
+
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
@@ -71,6 +55,7 @@ func (p *Policy) Copy() *Policy {
 	c := &Policy{
 		ID:                  p.ID,
 		AccountID:           p.AccountID,
+		PublicID:            p.PublicID,
 		Name:                p.Name,
 		Description:         p.Description,
 		Enabled:             p.Enabled,
@@ -82,6 +67,44 @@ func (p *Policy) Copy() *Policy {
 	}
 	copy(c.SourcePostureChecks, p.SourcePostureChecks)
 	return c
+}
+
+func (p *Policy) Equal(other *Policy) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+
+	if p.ID != other.ID ||
+		p.AccountID != other.AccountID ||
+		p.Name != other.Name ||
+		p.Description != other.Description ||
+		p.Enabled != other.Enabled {
+		return false
+	}
+
+	if !stringSlicesEqualUnordered(p.SourcePostureChecks, other.SourcePostureChecks) {
+		return false
+	}
+
+	if len(p.Rules) != len(other.Rules) {
+		return false
+	}
+
+	otherRules := make(map[string]*PolicyRule, len(other.Rules))
+	for _, r := range other.Rules {
+		otherRules[r.ID] = r
+	}
+	for _, r := range p.Rules {
+		otherRule, ok := otherRules[r.ID]
+		if !ok {
+			return false
+		}
+		if !r.Equal(otherRule) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // EventMeta returns activity event meta related to this policy

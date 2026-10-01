@@ -1,8 +1,6 @@
 package netstack
 
 import (
-	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"strconv"
@@ -15,8 +13,8 @@ import (
 const EnvSkipProxy = "NB_NETSTACK_SKIP_PROXY"
 
 type NetStackTun struct { //nolint:revive
-	address       net.IP
-	dnsAddress    net.IP
+	addresses     []netip.Addr
+	dnsAddress    netip.Addr
 	mtu           int
 	listenAddress string
 
@@ -24,9 +22,9 @@ type NetStackTun struct { //nolint:revive
 	tundev tun.Device
 }
 
-func NewNetStackTun(listenAddress string, address net.IP, dnsAddress net.IP, mtu int) *NetStackTun {
+func NewNetStackTun(listenAddress string, addresses []netip.Addr, dnsAddress netip.Addr, mtu int) *NetStackTun {
 	return &NetStackTun{
-		address:       address,
+		addresses:     addresses,
 		dnsAddress:    dnsAddress,
 		mtu:           mtu,
 		listenAddress: listenAddress,
@@ -34,28 +32,21 @@ func NewNetStackTun(listenAddress string, address net.IP, dnsAddress net.IP, mtu
 }
 
 func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
-	addr, ok := netip.AddrFromSlice(t.address)
-	if !ok {
-		return nil, nil, fmt.Errorf("convert address to netip.Addr: %v", t.address)
-	}
-
-	dnsAddr, ok := netip.AddrFromSlice(t.dnsAddress)
-	if !ok {
-		return nil, nil, fmt.Errorf("convert dns address to netip.Addr: %v", t.dnsAddress)
-	}
-
 	nsTunDev, tunNet, err := netstack.CreateNetTUN(
-		[]netip.Addr{addr.Unmap()},
-		[]netip.Addr{dnsAddr.Unmap()},
+		t.addresses,
+		[]netip.Addr{t.dnsAddress},
 		t.mtu)
 	if err != nil {
 		return nil, nil, err
 	}
 	t.tundev = nsTunDev
 
-	skipProxy, err := strconv.ParseBool(os.Getenv(EnvSkipProxy))
-	if err != nil {
-		log.Errorf("failed to parse NB_ETSTACK_SKIP_PROXY: %s", err)
+	var skipProxy bool
+	if val := os.Getenv(EnvSkipProxy); val != "" {
+		skipProxy, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Errorf("failed to parse %s: %s", EnvSkipProxy, err)
+		}
 	}
 	if skipProxy {
 		return nsTunDev, tunNet, nil
@@ -75,7 +66,7 @@ func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
 		}
 	}()
 
-	return nsTunDev, tunNet, nil
+	return t.tundev, tunNet, nil
 }
 
 func (t *NetStackTun) Close() error {

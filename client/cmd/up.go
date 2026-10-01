@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -12,15 +13,20 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
+
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -32,31 +38,47 @@ const (
 
 const (
 	dnsLabelsFlag = "extra-dns-labels"
+
+	noBrowserFlag = "no-browser"
+	noBrowserDesc = "do not open the browser for SSO login"
+
+	showQRFlag = "qr"
+	showQRDesc = "show QR code for the SSO login URL (useful for headless machines without browser access)"
+
+	profileNameFlag = "profile"
+	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
+
+var errDaemonActiveProfileUnsupported = errors.New("daemon does not support active profile lookup")
 
 var (
 	foregroundMode     bool
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
+	noBrowser          bool
+	showQR             bool
+	profileName        string
+	configPath         string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
-		Short: "install, login and start Netbird client",
+		Short: "Connect to the NetBird network",
+		Long:  "Connect to the NetBird network using the provided setup key or SSO auth. This command will bring up the WireGuard interface, connect to the management server, and establish peer-to-peer connections with other peers in the network if required.",
 		RunE:  upFunc,
 	}
 )
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
-	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
-	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
+	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
+	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
+	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
-		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux. `+
+		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
 			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
 	)
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
-	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false, "Block access to local networks (LAN) when using this peer as a router or exit node")
 
 	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
 		`Sets DNS labels`+
@@ -65,6 +87,12 @@ func init() {
 			`E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 `+
 			`or --extra-dns-labels ""`,
 	)
+
+	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
+	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
+	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
+
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -73,7 +101,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	cmd.SetOut(cmd.OutOrStdout())
 
-	err := util.InitLog(logLevel, "console")
+	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
@@ -95,13 +123,89 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 
-	if foregroundMode {
-		return runInForegroundMode(ctx, cmd)
+	pm := profilemanager.NewProfileManager()
+
+	username, err := profilemanager.InvokingUser()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
 	}
-	return runInDaemonMode(ctx, cmd)
+
+	var activeProf *profilemanager.Profile
+	var profileSwitched bool
+	// switch profile if provided
+	if profileName != "" {
+		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
+		if err != nil {
+			return fmt.Errorf("switch profile: %v", err)
+		}
+		profileSwitched = true
+	} else {
+		activeProf, err = pm.GetActiveProfile()
+		if err != nil {
+			return fmt.Errorf("get active profile: %v", err)
+		}
+	}
+
+	if foregroundMode {
+		return runInForegroundMode(ctx, cmd, activeProf)
+	}
+	return runInDaemonMode(ctx, cmd, pm, activeProf, profileSwitched)
 }
 
-func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
+// switchOrCreateProfile switches the active profile to the one identified by
+// handle, creating it first when it does not exist yet. This restores the
+// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
+// missing profile instead of failing. Returns the daemon-resolved profile so
+// callers act on it directly instead of re-reading the local state, which is
+// not updated under sudo.
+func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) (*profilemanager.Profile, error) {
+	resolvedID, err := switchProfile(ctx, handle, username)
+	if err != nil {
+		st, ok := gstatus.FromError(err)
+		if !ok || st.Code() != codes.NotFound {
+			return nil, err
+		}
+		// Don't fail immediately on a create error: a concurrent run may
+		// have created the profile between the NotFound above and this
+		// call, in which case the retried switch still succeeds. Only
+		// surface the create error if the switch also fails.
+		_, createErr := createProfile(ctx, handle, username)
+		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
+			if createErr != nil {
+				return nil, fmt.Errorf("create profile: %w", createErr)
+			}
+			return nil, err
+		}
+	}
+
+	if err := pm.SwitchProfile(resolvedID); err != nil {
+		return nil, err
+	}
+	return &profilemanager.Profile{ID: resolvedID}, nil
+}
+
+// createProfile dials the daemon and creates a new profile with the given
+// display name, returning its generated ID. Use addProfileOnDaemon directly
+// when a daemon client is already available to reuse the connection.
+func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	return addProfileOnDaemon(ctx, proto.NewDaemonServiceClient(conn), profileName, username)
+}
+
+func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+	// override the default profile filepath if provided
+	if configPath != "" {
+		_ = profilemanager.NewServiceManager(configPath)
+	}
+
 	err := handleRebrand(cmd)
 	if err != nil {
 		return err
@@ -112,10 +216,358 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	ic := internal.ConfigInput{
+	configFilePath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile file path: %v", err)
+	}
+
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configFilePath)
+	if err != nil {
+		return fmt.Errorf("setup config: %v", err)
+	}
+
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return err
+	}
+
+	config, err := profilemanager.UpdateOrCreateConfig(*ic)
+	if err != nil {
+		return fmt.Errorf("get config file: %v", err)
+	}
+	// CLI foreground path runs without the daemon Server: layer in the
+	// active MDM policy explicitly so a forced ManagementURL / PSK /
+	// other managed key actually takes effect on this run.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
+
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
+
+	// Restore residual state left by a previous run that did not shut down
+	// cleanly, mirroring what the daemon does before connecting: it recovers
+	// DNS config (a stale resolv.conf takeover can make the management
+	// hostname unresolvable), firewall rules, ssh config and legacy routing.
+	// Route cleanup itself happens at engine start; nbnet.Init() below lets
+	// the management dial bypass a leftover fwmark rule until then.
+	// Foreground mode is particularly exposed in containers: a crashed
+	// container restarts inside the same (pod) network namespace, so stale
+	// state survives while the process does not.
+	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configPath).GetStatePath()); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
+
+	// Enable advanced routing (as the daemon does on startup) so the
+	// management dial bypasses a leftover fwmark rule instead of being
+	// shunted into a stale routing table.
+	nbnet.Init()
+
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.ID)
+	if err != nil {
+		return fmt.Errorf("foreground login failed: %v", err)
+	}
+
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	SetupCloseHandler(ctx, cancel)
+
+	r := peer.NewRecorder(config.ManagementURL.String())
+	r.GetFullStatus()
+
+	connectClient := internal.NewConnectClient(ctx, config, r)
+	SetupDebugHandler(ctx, config, r, connectClient, "")
+
+	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
+}
+
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
+	// Check if deprecated config flag is set and show warning
+	if cmd.Flag("config").Changed && configPath != "" {
+		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+	}
+
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return fmt.Errorf("parse custom DNS address: %v", err)
+	}
+
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Warnf("failed closing daemon gRPC client connection %v", err)
+			return
+		}
+	}()
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	status, err := client.Status(ctx, &proto.StatusRequest{
+		WaitForReady: func() *bool { b := true; return &b }(),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to get daemon status: %v", err)
+	}
+
+	// Under sudo the invoking user's local active-profile mirror is never
+	// written (the SwitchProfile write is a no-op), and plain root has no
+	// invoking user at all — so the mirror read into activeProf above is stale
+	// or defaulted and must not drive the daemon. With no --profile to make the
+	// choice explicit, take the profile the daemon already holds for this user
+	// instead: it stays on the user's current profile rather than silently
+	// switching to the mirror's default, and refuses when the daemon is on
+	// another user's profile.
+	if profileName == "" && !profilemanager.MirrorIsAuthoritative() {
+		u, err := profilemanager.InvokingUser()
+		if err != nil {
+			return fmt.Errorf("get current user: %v", err)
+		}
+		resolved, err := daemonActiveProfileForUser(ctx, client, u.Username)
+		switch {
+		case errors.Is(err, errDaemonActiveProfileUnsupported):
+			log.Warnf("keeping the locally resolved profile: %v", err)
+		case err != nil:
+			return err
+		default:
+			activeProf = resolved
+		}
+	}
+
+	if status.Status == string(internal.StatusConnected) {
+		if !profileSwitched {
+			cmd.Println("Already connected")
+			return nil
+		}
+
+		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
+			log.Errorf("call service down method: %v", err)
+			return err
+		}
+	}
+
+	username, err := profilemanager.InvokingUser()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
+	// set the new config
+	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
+	if _, err := client.SetConfig(ctx, req); err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
+			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
+		} else {
+			return daemonCallError("call service setConfig method", err)
+		}
+	}
+
+	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, customDNSAddressConverted, username.Username); err != nil {
+		return fmt.Errorf("daemon up failed: %v", err)
+	}
+	cmd.Println("Connected")
+	return nil
+}
+
+func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, customDNSAddressConverted []byte, username string) error {
+
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return fmt.Errorf("get setup key: %v", err)
+	}
+
+	loginRequest, err := setupLoginRequest(providedSetupKey, customDNSAddressConverted, cmd)
+	if err != nil {
+		return fmt.Errorf("setup login request: %v", err)
+	}
+
+	profileID := activeProf.ID.String()
+	loginRequest.ProfileName = &profileID
+	loginRequest.Username = &username
+
+	profileState, err := pm.GetProfileState(activeProf.ID)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		loginRequest.Hint = &profileState.Email
+	}
+
+	var loginErr error
+	var loginResp *proto.LoginResponse
+
+	err = WithBackOff(func() error {
+		var backOffErr error
+		loginResp, backOffErr = client.Login(ctx, loginRequest)
+		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+			s.Code() == codes.PermissionDenied ||
+			s.Code() == codes.NotFound ||
+			s.Code() == codes.Unimplemented) {
+			loginErr = backOffErr
+			return nil
+		}
+		return backOffErr
+	})
+	if err != nil {
+		return fmt.Errorf("login backoff cycle failed: %v", err)
+	}
+
+	if loginErr != nil {
+		return daemonCallError("login failed", loginErr)
+	}
+
+	if loginResp.NeedsSSOLogin {
+		if err := handleSSOLogin(ctx, cmd, loginResp, client, pm); err != nil {
+			return fmt.Errorf("sso login failed: %v", err)
+		}
+	}
+
+	if _, err := client.Up(ctx, &proto.UpRequest{
+		ProfileName: &profileID,
+		Username:    &username,
+	}); err != nil {
+		return daemonCallError("call service up method", err)
+	}
+
+	return nil
+}
+
+// setBoolPtrIfChanged points dst at a copy of val when the named bool flag was
+// explicitly set on cmd. It collapses the repeated
+// "if cmd.Flag(x).Changed { field = &val }" pattern in the request builders into
+// a single call, keeping their cognitive complexity within bounds.
+func setBoolPtrIfChanged(cmd *cobra.Command, name string, dst **bool, val bool) {
+	if cmd.Flag(name).Changed {
+		dst2 := val
+		*dst = &dst2
+	}
+}
+
+// setSSHSetConfigFields copies the SSH server flags the user actually
+// passed into req, leaving the rest unset so the daemon keeps the
+// persisted values.
+func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		req.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		req.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		req.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+}
+
+func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
+	var req proto.SetConfigRequest
+	req.ProfileName = profileName
+	req.Username = username
+
+	req.ManagementUrl = managementURL
+	req.AdminURL = adminURL
+	req.NatExternalIPs = natExternalIPs
+	req.CustomDNSAddress = customDNSAddressConverted
+	req.ExtraIFaceBlacklist = extraIFaceBlackList
+	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
+	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
+	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		req.RosenpassEnabled = &rosenpassEnabled
+	}
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		req.RosenpassPermissive = &rosenpassPermissive
+	}
+	setSSHSetConfigFields(&req, cmd)
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &req.RemoteJobsAllowed, remoteJobsAllowed)
+
+	if cmd.Flag(interfaceNameFlag).Changed {
+		if err := parseInterfaceName(interfaceName); err != nil {
+			log.Errorf("parse interface name: %v", err)
+			return nil
+		}
+		req.InterfaceName = &interfaceName
+	}
+	if cmd.Flag(wireguardPortFlag).Changed {
+		p := int64(wireguardPort)
+		req.WireguardPort = &p
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		m := int64(mtu)
+		req.Mtu = &m
+	}
+
+	if cmd.Flag(networkMonitorFlag).Changed {
+		req.NetworkMonitor = &networkMonitor
+	}
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+		req.OptionalPreSharedKey = &preSharedKey
+	}
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		req.DisableAutoConnect = &autoConnectDisabled
+	}
+
+	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+		req.DnsRouteInterval = durationpb.New(dnsRouteInterval)
+	}
+
+	if cmd.Flag(disableClientRoutesFlag).Changed {
+		req.DisableClientRoutes = &disableClientRoutes
+	}
+
+	if cmd.Flag(disableServerRoutesFlag).Changed {
+		req.DisableServerRoutes = &disableServerRoutes
+	}
+
+	if cmd.Flag(disableDNSFlag).Changed {
+		req.DisableDns = &disableDNS
+	}
+
+	if cmd.Flag(disableFirewallFlag).Changed {
+		req.DisableFirewall = &disableFirewall
+	}
+
+	if cmd.Flag(blockLANAccessFlag).Changed {
+		req.BlockLanAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(blockInboundFlag).Changed {
+		req.BlockInbound = &blockInbound
+	}
+
+	if cmd.Flag(disableIPv6Flag).Changed {
+		req.DisableIpv6 = &disableIPv6
+	}
+
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		req.EnableLocalMetrics = &localMetricsEnabled
+	}
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		req.LocalMetricsAddress = &localMetricsAddr
+	}
+
+	return &req
+}
+
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {
+	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
-		AdminURL:            adminURL,
-		ConfigPath:          configPath,
+		ConfigPath:          configFilePath,
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
 		ExtraIFaceBlackList: extraIFaceBlackList,
@@ -133,10 +585,35 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &ic.RemoteJobsAllowed, remoteJobsAllowed)
+
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		ic.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		ic.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		ic.DisableSSHAuth = &disableSSHAuth
+	}
+
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
+	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
-			return err
+			return nil, err
 		}
 		ic.InterfaceName = &interfaceName
 	}
@@ -144,6 +621,13 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	if cmd.Flag(wireguardPortFlag).Changed {
 		p := int(wireguardPort)
 		ic.WireguardPort = &p
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
+		ic.MTU = &mtu
 	}
 
 	if cmd.Flag(networkMonitorFlag).Changed {
@@ -187,83 +671,65 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.BlockLANAccess = &blockLANAccess
 	}
 
-	providedSetupKey, err := getSetupKey()
-	if err != nil {
-		return err
+	if cmd.Flag(blockInboundFlag).Changed {
+		ic.BlockInbound = &blockInbound
 	}
 
-	config, err := internal.UpdateOrCreateConfig(ic)
-	if err != nil {
-		return fmt.Errorf("get config file: %v", err)
+	if cmd.Flag(disableIPv6Flag).Changed {
+		ic.DisableIPv6 = &disableIPv6
 	}
 
-	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
-
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
-	if err != nil {
-		return fmt.Errorf("foreground login failed: %v", err)
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		ic.LocalMetricsEnabled = &localMetricsEnabled
 	}
 
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	SetupCloseHandler(ctx, cancel)
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		ic.LocalMetricsAddress = &localMetricsAddr
+	}
 
-	r := peer.NewRecorder(config.ManagementURL.String())
-	r.GetFullStatus()
-
-	connectClient := internal.NewConnectClient(ctx, config, r)
-	return connectClient.Run(nil)
+	return &ic, nil
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
-	if err != nil {
-		return err
+// setSSHLoginFields copies the SSH server flags the user actually passed
+// into req, leaving the rest unset so the daemon keeps the persisted
+// values.
+func setSSHLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		req.ServerSSHAllowed = &serverSSHAllowed
 	}
-
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		req.EnableSSHRoot = &enableSSHRoot
 	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("failed closing daemon gRPC client connection %v", err)
-			return
-		}
-	}()
-
-	client := proto.NewDaemonServiceClient(conn)
-
-	status, err := client.Status(ctx, &proto.StatusRequest{})
-	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		req.EnableSSHSFTP = &enableSSHSFTP
 	}
-
-	if status.Status == string(internal.StatusConnected) {
-		cmd.Println("Already connected")
-		return nil
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
 	}
-
-	providedSetupKey, err := getSetupKey()
-	if err != nil {
-		return err
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+}
 
+func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
-		SetupKey:             providedSetupKey,
-		ManagementUrl:        managementURL,
-		AdminURL:             adminURL,
-		NatExternalIPs:       natExternalIPs,
-		CleanNATExternalIPs:  natExternalIPs != nil && len(natExternalIPs) == 0,
-		CustomDNSAddress:     customDNSAddressConverted,
-		IsLinuxDesktopClient: isLinuxRunningDesktop(),
-		Hostname:             hostName,
-		ExtraIFaceBlacklist:  extraIFaceBlackList,
-		DnsLabels:            dnsLabels,
-		CleanDNSLabels:       dnsLabels != nil && len(dnsLabels) == 0,
+		SetupKey:            providedSetupKey,
+		ManagementUrl:       managementURL,
+		NatExternalIPs:      natExternalIPs,
+		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+		CustomDNSAddress:    customDNSAddressConverted,
+		IsUnixDesktopClient: util.HasGraphicalSession(),
+		Hostname:            hostName,
+		ExtraIFaceBlacklist: extraIFaceBlackList,
+		DnsLabels:           dnsLabels,
+		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -278,17 +744,24 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		loginRequest.RosenpassPermissive = &rosenpassPermissive
 	}
 
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		loginRequest.ServerSSHAllowed = &serverSSHAllowed
-	}
+	setSSHLoginFields(&loginRequest, cmd)
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &loginRequest.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
 	}
 
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		loginRequest.EnableLocalMetrics = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		loginRequest.LocalMetricsAddress = &localMetricsAddr
+	}
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
-			return err
+			return nil, err
 		}
 		loginRequest.InterfaceName = &interfaceName
 	}
@@ -296,6 +769,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	if cmd.Flag(wireguardPortFlag).Changed {
 		wp := int64(wireguardPort)
 		loginRequest.WireguardPort = &wp
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
+		m := int64(mtu)
+		loginRequest.Mtu = &m
 	}
 
 	if cmd.Flag(networkMonitorFlag).Changed {
@@ -323,45 +804,15 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		loginRequest.BlockLanAccess = &blockLANAccess
 	}
 
-	var loginErr error
-
-	var loginResp *proto.LoginResponse
-
-	err = WithBackOff(func() error {
-		var backOffErr error
-		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
-			loginErr = backOffErr
-			return nil
-		}
-		return backOffErr
-	})
-	if err != nil {
-		return fmt.Errorf("login backoff cycle failed: %v", err)
+	if cmd.Flag(blockInboundFlag).Changed {
+		loginRequest.BlockInbound = &blockInbound
 	}
 
-	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
+	if cmd.Flag(disableIPv6Flag).Changed {
+		loginRequest.DisableIpv6 = &disableIPv6
 	}
 
-	if loginResp.NeedsSSOLogin {
-
-		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
-
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
-		if err != nil {
-			return fmt.Errorf("waiting sso login failed with: %v", err)
-		}
-	}
-
-	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
-		return fmt.Errorf("call service up method: %v", err)
-	}
-	cmd.Println("Connected")
-	return nil
+	return &loginRequest, nil
 }
 
 func validateNATExternalIPs(list []string) error {
@@ -445,7 +896,7 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 		if !isValidAddrPort(customDNSAddress) {
 			return nil, fmt.Errorf("%s is invalid, it should be formatted as IP:Port string or as an empty string like \"\"", customDNSAddress)
 		}
-		if customDNSAddress == "" && logFile != "console" {
+		if customDNSAddress == "" && util.FindFirstLogPath(logFiles) != "" {
 			parsed = []byte("empty")
 		} else {
 			parsed = []byte(customDNSAddress)
@@ -478,4 +929,32 @@ func isValidAddrPort(input string) bool {
 	}
 	_, err := netip.ParseAddrPort(input)
 	return err == nil
+}
+
+// daemonActiveProfileForUser returns the profile the daemon currently holds for
+// username, for the no --profile case where the local mirror is not
+// authoritative (sudo or plain root). It returns that profile when the daemon
+// owns it for this user or when the profile is unowned (empty username, as on a
+// fresh install), so the caller acts on the daemon's real state instead of the
+// stale mirror. It denies with a --profile hint when the daemon is on another
+// user's profile, when the lookup fails, or when the daemon reports no active
+// profile. Returns errDaemonActiveProfileUnsupported when the daemon predates
+// the RPC; the caller keeps the mirror-derived profile in that case.
+func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceClient, username string) (*profilemanager.Profile, error) {
+	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
+			return nil, fmt.Errorf("%w: %v", errDaemonActiveProfileUnsupported, err)
+		}
+		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon's active profile could not be verified: %v", err)
+	}
+	if active.GetId() == "" {
+		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon reported no active profile")
+	}
+	if active.GetUsername() != "" && active.GetUsername() != username {
+		return nil, fmt.Errorf(
+			"pass --profile to choose the profile explicitly: the daemon's active profile is %q (user %q) but this invocation runs for %q",
+			active.GetProfileName(), active.GetUsername(), username)
+	}
+	return &profilemanager.Profile{ID: profilemanager.ID(active.GetId())}, nil
 }

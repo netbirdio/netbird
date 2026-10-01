@@ -1,18 +1,25 @@
 package manager
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"sort"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
+
+// ErrIPv6NotInitialized is returned when an IPv6 address is passed to a firewall
+// method but the IPv6 firewall components were not initialized.
+var ErrIPv6NotInitialized = errors.New("IPv6 firewall not initialized")
+
+// ErrNoSources is returned when AddFilterRule is called with an empty
+// source list. "Match any source" must be expressed explicitly with a
+// /0 prefix; an empty list is a caller error and is rejected rather
+// than silently widening the rule to every source.
+var ErrNoSources = errors.New("rule has no sources")
 
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
@@ -21,13 +28,18 @@ const (
 	NatFormat              = "netbird-nat-%s-%t"
 )
 
+// RuleID identifies a firewall rule. It is a typed string so the
+// compiler catches accidental mixing with arbitrary string keys. It is
+// only an identifier and does not implement Rule.
+type RuleID string
+
 // Rule abstraction should be implemented by each firewall manager
 //
 // Each firewall type for different OS can use different type
 // of the properties to hold data of the created rule
 type Rule interface {
-	// GetRuleID returns the rule id
-	GetRuleID() string
+	// ID returns the rule id
+	ID() RuleID
 }
 
 // RuleDirection is the traffic direction which a rule is applied
@@ -43,12 +55,58 @@ const (
 // Action is the action to be taken on a rule
 type Action int
 
+// String returns the string representation of the action
+func (a Action) String() string {
+	switch a {
+	case ActionAccept:
+		return "accept"
+	case ActionDrop:
+		return "drop"
+	default:
+		return "unknown"
+	}
+}
+
 const (
 	// ActionAccept is the action to accept a packet
 	ActionAccept Action = iota
 	// ActionDrop is the action to drop a packet
 	ActionDrop
 )
+
+// Network is a rule destination, either a set or a prefix
+type Network struct {
+	Set    Set
+	Prefix netip.Prefix
+}
+
+// String returns the string representation of the destination
+func (d Network) String() string {
+	if d.Prefix.IsValid() {
+		return d.Prefix.String()
+	}
+	if d.IsSet() {
+		return d.Set.HashedName()
+	}
+	return "<invalid network>"
+}
+
+// IsSet returns true if the destination is a set
+func (d Network) IsSet() bool {
+	return d.Set != Set{}
+}
+
+// IsPrefix returns true if the destination is a valid prefix
+func (d Network) IsPrefix() bool {
+	return d.Prefix.IsValid()
+}
+
+// IsZero returns true if the network designates no destination, i.e. it
+// is the zero value. A zero Network is the peer-rule sentinel; a non-zero
+// one carries a prefix or set destination.
+func (d Network) IsZero() bool {
+	return !d.IsPrefix() && !d.IsSet()
+}
 
 // Manager is the high level abstraction of a firewall manager
 //
@@ -57,33 +115,41 @@ const (
 type Manager interface {
 	Init(stateManager *statemanager.Manager) error
 
-	// AllowNetbird allows netbird interface traffic
-	AllowNetbird() error
-
-	// AddPeerFiltering adds a rule to the firewall
+	// AddFilterRule adds a packet-filtering rule to the firewall.
 	//
-	// If comment argument is empty firewall manager should set
-	// rule ID as comment for the rule
-	AddPeerFiltering(
-		ip net.IP,
+	// If destination is the zero Network, the rule applies to traffic
+	// inbound to this node, i.e. peer ACL semantics, installed in
+	// the kernel's input chain. If destination is set (prefix or
+	// set), the rule applies to forwarded traffic with that
+	// destination, route ACL semantics, installed in the forward
+	// chain.
+	//
+	// sources must be a single address family; the caller splits mixed
+	// families and calls once per family. "Match any source" must be
+	// expressed with an explicit /0 prefix; an empty sources list is
+	// rejected with ErrNoSources so a zeroed list can never widen a
+	// rule to every source.
+	//
+	// Note: callers should call Flush() after adding rules.
+	AddFilterRule(
+		id []byte,
+		sources []netip.Prefix,
+		destination Network,
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
 		action Action,
-		ipsetName string,
-		comment string,
-	) ([]Rule, error)
+	) (Rule, error)
 
-	// DeletePeerRule from the firewall by rule definition
-	DeletePeerRule(rule Rule) error
+	// DeleteFilterRule removes a filtering rule previously added via
+	// AddFilterRule. The rule's own type identifies whether it lives
+	// in the peer (input) or route (forward) path.
+	DeleteFilterRule(rule Rule) error
 
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
-	AddRouteFiltering(source []netip.Prefix, destination netip.Prefix, proto Protocol, sPort *Port, dPort *Port, action Action) (Rule, error)
-
-	// DeleteRouteRule deletes a routing rule
-	DeleteRouteRule(rule Rule) error
+	IsStateful() bool
 
 	// AddNatRule inserts a routing NAT rule
 	AddNatRule(pair RouterPair) error
@@ -94,8 +160,8 @@ type Manager interface {
 	// SetLegacyManagement sets the legacy management mode
 	SetLegacyManagement(legacy bool) error
 
-	// Reset firewall to the default state
-	Reset(stateManager *statemanager.Manager) error
+	// Close closes the firewall manager
+	Close(stateManager *statemanager.Manager) error
 
 	// Flush the changes to firewall controller
 	Flush() error
@@ -105,10 +171,32 @@ type Manager interface {
 	EnableRouting() error
 
 	DisableRouting() error
+
+	// AddDNATRule adds outbound DNAT rule for forwarding external traffic to the NetBird network.
+	AddDNATRule(ForwardRule) (Rule, error)
+
+	// DeleteDNATRule deletes the outbound DNAT rule.
+	DeleteDNATRule(Rule) error
+
+	// UpdateSet updates the set with the given prefixes
+	UpdateSet(hash Set, prefixes []netip.Prefix) error
+
+	// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
+	AddInboundDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// RemoveInboundDNAT removes inbound DNAT rule
+	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+	AddOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
 }
 
-func GenKey(format string, pair RouterPair) string {
-	return fmt.Sprintf(format, pair.ID, pair.Inverse)
+// GenKey builds the rule id for this pair from the given format.
+func (p RouterPair) GenKey(format string) RuleID {
+	return RuleID(fmt.Sprintf(format, p.ID, p.Inverse))
 }
 
 // LegacyManager defines the interface for legacy management operations
@@ -139,22 +227,6 @@ func SetLegacyManagement(router LegacyManager, isLegacy bool) error {
 	return nil
 }
 
-// GenerateSetName generates a unique name for an ipset based on the given sources.
-func GenerateSetName(sources []netip.Prefix) string {
-	// sort for consistent naming
-	SortPrefixes(sources)
-
-	var sourcesStr strings.Builder
-	for _, src := range sources {
-		sourcesStr.WriteString(src.String())
-	}
-
-	hash := sha256.Sum256([]byte(sourcesStr.String()))
-	shortHash := hex.EncodeToString(hash[:])[:8]
-
-	return fmt.Sprintf("nb-%s", shortHash)
-}
-
 // MergeIPRanges merges overlapping IP ranges and returns a slice of non-overlapping netip.Prefix
 func MergeIPRanges(prefixes []netip.Prefix) []netip.Prefix {
 	if len(prefixes) == 0 {
@@ -178,6 +250,20 @@ func MergeIPRanges(prefixes []netip.Prefix) []netip.Prefix {
 	}
 
 	return merged
+}
+
+// UnmapPrefix normalizes a v4-mapped v6 prefix (::ffff:a.b.c.d) to its
+// plain v4 form, shifting the prefix length out of the 96-bit mapped
+// range. Other prefixes are returned unchanged. Keeping prefixes
+// unmapped ensures v4 rules match consistently and the match builders
+// read the correct address length.
+func UnmapPrefix(p netip.Prefix) netip.Prefix {
+	addr := p.Addr()
+	if !addr.Is4In6() {
+		return p
+	}
+	bits := max(p.Bits()-96, 0)
+	return netip.PrefixFrom(addr.Unmap(), bits)
 }
 
 // SortPrefixes sorts the given slice of netip.Prefix in place.

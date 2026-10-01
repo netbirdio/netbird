@@ -9,15 +9,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -106,7 +112,7 @@ func initUsersTestData() *handler {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
 
-				info, err := update.Copy().ToUserInfo(nil, &types.Settings{RegularUsersViewBlocked: false})
+				info, err := update.Copy().ToUserInfo(nil)
 				if err != nil {
 					return nil, err
 				}
@@ -122,6 +128,80 @@ func initUsersTestData() *handler {
 				}
 
 				return nil
+			},
+			GetCurrentUserInfoFunc: func(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error) {
+				switch userAuth.UserId {
+				case "not-found":
+					return nil, status.NewUserNotFoundError("not-found")
+				case "not-of-account":
+					return nil, status.NewUserNotPartOfAccountError()
+				case "blocked-user":
+					return nil, status.NewUserBlockedError()
+				case "service-user":
+					return nil, status.NewPermissionDeniedError()
+				case "owner":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "owner",
+							Name:          "",
+							Role:          "owner",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.Owner),
+					}, nil
+				case "regular-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "regular-user",
+							Name:          "",
+							Role:          "user",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.User),
+					}, nil
+
+				case "admin-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "admin-user",
+							Name:          "",
+							Role:          "admin",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							LastLogin:     time.Time{},
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.Admin),
+					}, nil
+				case "restricted-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "restricted-user",
+							Name:          "",
+							Role:          "user",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							LastLogin:     time.Time{},
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.User),
+						Restricted:  true,
+					}, nil
+				}
+
+				return nil, fmt.Errorf("user id %s not handled", userAuth.UserId)
 			},
 		},
 	}
@@ -146,7 +226,7 @@ func TestGetUsers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    existingUserID,
 				Domain:    testDomain,
 				AccountId: existingAccountID,
@@ -256,7 +336,7 @@ func TestUpdateUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    existingUserID,
 				Domain:    testDomain,
 				AccountId: existingAccountID,
@@ -353,7 +433,7 @@ func TestCreateUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 			rr := httptest.NewRecorder()
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    existingUserID,
 				Domain:    testDomain,
 				AccountId: existingAccountID,
@@ -402,7 +482,7 @@ func TestInviteUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 			req = mux.SetURLVars(req, tc.requestVars)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    existingUserID,
 				Domain:    testDomain,
 				AccountId: existingAccountID,
@@ -461,7 +541,7 @@ func TestDeleteUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 			req = mux.SetURLVars(req, tc.requestVars)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    existingUserID,
 				Domain:    testDomain,
 				AccountId: existingAccountID,
@@ -480,4 +560,414 @@ func TestDeleteUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCurrentUser(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestAuth    auth.UserAuth
+		expectedResult *api.User
+	}{
+		{
+			name:           "without auth",
+			expectedStatus: http.StatusInternalServerError,
+		},
+		{
+			name:           "user not found",
+			requestAuth:    auth.UserAuth{UserId: "not-found"},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "not of account",
+			requestAuth:    auth.UserAuth{UserId: "not-of-account"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "blocked user",
+			requestAuth:    auth.UserAuth{UserId: "blocked-user"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "service user",
+			requestAuth:    auth.UserAuth{UserId: "service-user"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "owner",
+			requestAuth:    auth.UserAuth{UserId: "owner"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "owner",
+				Role:          "owner",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Owner)),
+				},
+			},
+		},
+		{
+			name:           "regular user",
+			requestAuth:    auth.UserAuth{UserId: "regular-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "regular-user",
+				Role:          "user",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
+				},
+			},
+		},
+		{
+			name:           "admin user",
+			requestAuth:    auth.UserAuth{UserId: "admin-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "admin-user",
+				Role:          "admin",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Admin)),
+				},
+			},
+		},
+		{
+			name:           "restricted user",
+			requestAuth:    auth.UserAuth{UserId: "restricted-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "restricted-user",
+				Role:          "user",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					IsRestricted: true,
+					Modules:      stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
+				},
+			},
+		},
+	}
+
+	userHandler := initUsersTestData()
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/users/current", nil)
+			if tc.requestAuth.UserId != "" {
+				req = nbcontext.SetUserAuthInRequest(req, tc.requestAuth)
+			}
+
+			rr := httptest.NewRecorder()
+
+			userHandler.getCurrentUser(rr, req)
+
+			res := rr.Result()
+			defer res.Body.Close()
+
+			assert.Equal(t, tc.expectedStatus, rr.Code, "handler returned wrong status code")
+
+			if tc.expectedResult != nil {
+				var result api.User
+				require.NoError(t, json.NewDecoder(res.Body).Decode(&result))
+				assert.EqualValues(t, *tc.expectedResult, result)
+			}
+		})
+	}
+}
+
+func ptr[T any, PT *T](x T) PT {
+	return &x
+}
+
+func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := role.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = role.AutoAllowNew
+	}
+
+	return permissions
+}
+
+func stringifyPermissionsKeys(permissions roles.Permissions) map[string]map[string]bool {
+	modules := make(map[string]map[string]bool)
+	for module, operations := range permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
+		}
+	}
+	return modules
+}
+
+func TestApproveUserEndpoint(t *testing.T) {
+	adminUser := &types.User{
+		Id:         "admin-user",
+		Role:       types.UserRoleAdmin,
+		AccountID:  existingAccountID,
+		AutoGroups: []string{},
+	}
+
+	pendingUser := &types.User{
+		Id:              "pending-user",
+		Role:            types.UserRoleUser,
+		AccountID:       existingAccountID,
+		Blocked:         true,
+		PendingApproval: true,
+		AutoGroups:      []string{},
+	}
+
+	tt := []struct {
+		name           string
+		expectedStatus int
+		expectedBody   bool
+		requestingUser *types.User
+	}{
+		{
+			name:           "approve user as admin should return 200",
+			expectedStatus: 200,
+			expectedBody:   true,
+			requestingUser: adminUser,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			am := &mock_server.MockAccountManager{}
+			am.ApproveUserFunc = func(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
+				approvedUserInfo := &types.UserInfo{
+					ID:              pendingUser.Id,
+					Email:           "pending@example.com",
+					Name:            "Pending User",
+					Role:            string(pendingUser.Role),
+					AutoGroups:      []string{},
+					IsServiceUser:   false,
+					IsBlocked:       false,
+					PendingApproval: false,
+					LastLogin:       time.Now(),
+					Issued:          types.UserIssuedAPI,
+				}
+				return approvedUserInfo, nil
+			}
+
+			handler := newHandler(am)
+			router := mux.NewRouter()
+			router.HandleFunc("/users/{userId}/approve", handler.approveUser).Methods("POST")
+
+			req, err := http.NewRequest("POST", "/users/pending-user/approve", nil)
+			require.NoError(t, err)
+
+			userAuth := auth.UserAuth{
+				AccountId: existingAccountID,
+				UserId:    tc.requestingUser.Id,
+			}
+			ctx := nbcontext.SetUserAuthInContext(req.Context(), userAuth)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+
+			if tc.expectedBody {
+				var response api.User
+				err = json.Unmarshal(rr.Body.Bytes(), &response)
+				require.NoError(t, err)
+				assert.Equal(t, "pending-user", response.Id)
+				assert.False(t, response.IsBlocked)
+				assert.False(t, response.PendingApproval)
+			}
+		})
+	}
+}
+
+func TestRejectUserEndpoint(t *testing.T) {
+	adminUser := &types.User{
+		Id:         "admin-user",
+		Role:       types.UserRoleAdmin,
+		AccountID:  existingAccountID,
+		AutoGroups: []string{},
+	}
+
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestingUser *types.User
+	}{
+		{
+			name:           "reject user as admin should return 200",
+			expectedStatus: 200,
+			requestingUser: adminUser,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			am := &mock_server.MockAccountManager{}
+			am.RejectUserFunc = func(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
+				return nil
+			}
+
+			handler := newHandler(am)
+			router := mux.NewRouter()
+			router.HandleFunc("/users/{userId}/reject", handler.rejectUser).Methods("DELETE")
+
+			req, err := http.NewRequest("DELETE", "/users/pending-user/reject", nil)
+			require.NoError(t, err)
+
+			userAuth := auth.UserAuth{
+				AccountId: existingAccountID,
+				UserId:    tc.requestingUser.Id,
+			}
+			ctx := nbcontext.SetUserAuthInContext(req.Context(), userAuth)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+		})
+	}
+}
+
+func TestChangePasswordEndpoint(t *testing.T) {
+	tt := []struct {
+		name                string
+		expectedStatus      int
+		requestBody         string
+		targetUserID        string
+		currentUserID       string
+		mockError           error
+		expectMockNotCalled bool
+	}{
+		{
+			name:           "successful password change",
+			expectedStatus: http.StatusOK,
+			requestBody:    `{"old_password": "OldPass123!", "new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      nil,
+		},
+		{
+			name:           "missing old password",
+			expectedStatus: http.StatusUnprocessableEntity,
+			requestBody:    `{"new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.InvalidArgument, "old password is required"),
+		},
+		{
+			name:           "missing new password",
+			expectedStatus: http.StatusUnprocessableEntity,
+			requestBody:    `{"old_password": "OldPass123!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.InvalidArgument, "new password is required"),
+		},
+		{
+			name:           "wrong old password",
+			expectedStatus: http.StatusUnprocessableEntity,
+			requestBody:    `{"old_password": "WrongPass!", "new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.InvalidArgument, "invalid password"),
+		},
+		{
+			name:           "embedded IDP not enabled",
+			expectedStatus: http.StatusPreconditionFailed,
+			requestBody:    `{"old_password": "OldPass123!", "new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.PreconditionFailed, "password change is only available with embedded identity provider"),
+		},
+		{
+			name:                "invalid JSON request",
+			expectedStatus:      http.StatusBadRequest,
+			requestBody:         `{invalid json}`,
+			targetUserID:        existingUserID,
+			currentUserID:       existingUserID,
+			expectMockNotCalled: true,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			mockCalled := false
+			am := &mock_server.MockAccountManager{}
+			am.UpdateUserPasswordFunc = func(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+				mockCalled = true
+				return tc.mockError
+			}
+
+			handler := newHandler(am)
+			router := mux.NewRouter()
+			router.HandleFunc("/users/{userId}/password", handler.changePassword).Methods("PUT")
+
+			reqPath := "/users/" + tc.targetUserID + "/password"
+			req, err := http.NewRequest("PUT", reqPath, bytes.NewBufferString(tc.requestBody))
+			require.NoError(t, err)
+
+			userAuth := auth.UserAuth{
+				AccountId: existingAccountID,
+				UserId:    tc.currentUserID,
+			}
+			ctx := nbcontext.SetUserAuthInContext(req.Context(), userAuth)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+
+			if tc.expectMockNotCalled {
+				assert.False(t, mockCalled, "mock should not have been called")
+			}
+		})
+	}
+}
+
+func TestChangePasswordEndpoint_WrongMethod(t *testing.T) {
+	am := &mock_server.MockAccountManager{}
+	handler := newHandler(am)
+
+	req, err := http.NewRequest("POST", "/users/test-user/password", bytes.NewBufferString(`{}`))
+	require.NoError(t, err)
+
+	userAuth := auth.UserAuth{
+		AccountId: existingAccountID,
+		UserId:    existingUserID,
+	}
+	req = nbcontext.SetUserAuthInRequest(req, userAuth)
+
+	rr := httptest.NewRecorder()
+	handler.changePassword(rr, req)
+
+	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }

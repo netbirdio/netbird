@@ -7,20 +7,22 @@ import (
 	"fmt"
 	"hash/crc32"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/base62"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 var _ Manager = (*manager)(nil)
 
 type Manager interface {
-	ValidateAndParseToken(ctx context.Context, value string) (nbcontext.UserAuth, *jwt.Token, error)
-	EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error)
+	ValidateAndParseToken(ctx context.Context, value string) (auth.UserAuth, *jwt.Token, error)
+	EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error)
 	MarkPATUsed(ctx context.Context, tokenID string) error
 	GetPATInfo(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error)
 }
@@ -32,15 +34,20 @@ type manager struct {
 	extractor *nbjwt.ClaimsExtractor
 }
 
-func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim string, allAudiences []string, idpRefreshKeys bool) Manager {
-	// @note if invalid/missing parameters are sent the validator will instantiate
-	// but it will fail when validating and parsing the token
-	jwtValidator := nbjwt.NewValidator(
-		issuer,
-		allAudiences,
-		keysLocation,
-		idpRefreshKeys,
-	)
+func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim string, allAudiences []string, idpRefreshKeys bool, keyFetcher nbjwt.KeyFetcher) Manager {
+	var jwtValidator *nbjwt.Validator
+	if keyFetcher != nil {
+		jwtValidator = nbjwt.NewValidatorWithKeyFetcher(issuer, allAudiences, keyFetcher)
+	} else {
+		// @note if invalid/missing parameters are sent the validator will instantiate
+		// but it will fail when validating and parsing the token
+		jwtValidator = nbjwt.NewValidator(
+			issuer,
+			allAudiences,
+			keysLocation,
+			idpRefreshKeys,
+		)
+	}
 
 	claimsExtractor := nbjwt.NewClaimsExtractor(
 		nbjwt.WithAudience(audience),
@@ -48,32 +55,34 @@ func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim s
 	)
 
 	return &manager{
-		store: store,
-
+		store:     store,
 		validator: jwtValidator,
 		extractor: claimsExtractor,
 	}
 }
 
-func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (nbcontext.UserAuth, *jwt.Token, error) {
+func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (auth.UserAuth, *jwt.Token, error) {
 	token, err := m.validator.ValidateAndParse(ctx, value)
 	if err != nil {
-		return nbcontext.UserAuth{}, nil, err
+		return auth.UserAuth{}, nil, err
 	}
 
 	userAuth, err := m.extractor.ToUserAuth(token)
 	if err != nil {
-		return nbcontext.UserAuth{}, nil, err
+		return auth.UserAuth{}, nil, err
 	}
 	return userAuth, token, err
 }
 
-func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error) {
-	if userAuth.IsChild || userAuth.IsPAT {
+func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error) {
+	// Child accounts and PAT-authenticated requests do not use JWT group access checks.
+	// Embedded-Dex local users also skip them because local password authentication
+	// does not provide external IdP group claims.
+	if userAuth.IsChild || userAuth.IsPAT || dex.IsLocalUserID(userAuth.UserId) {
 		return userAuth, nil
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, userAuth.AccountId)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, userAuth.AccountId)
 	if err != nil {
 		return userAuth, err
 	}
@@ -94,7 +103,7 @@ func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbco
 
 // MarkPATUsed marks a personal access token as used
 func (am *manager) MarkPATUsed(ctx context.Context, tokenID string) error {
-	return am.store.MarkPATUsed(ctx, store.LockingStrengthUpdate, tokenID)
+	return am.store.MarkPATUsed(ctx, tokenID)
 }
 
 // GetPATInfo retrieves user, personal access token, domain, and category details from a personal access token.
@@ -104,7 +113,7 @@ func (am *manager) GetPATInfo(ctx context.Context, token string) (user *types.Us
 		return nil, nil, "", "", err
 	}
 
-	domain, category, err = am.store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, user.AccountID)
+	domain, category, err = am.store.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, user.AccountID)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
@@ -142,12 +151,12 @@ func (am *manager) extractPATFromToken(ctx context.Context, token string) (*type
 	var pat *types.PersonalAccessToken
 
 	err = am.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
+		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthNone, encodedHashedToken)
 		if err != nil {
 			return err
 		}
 
-		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthShare, pat.ID)
+		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthNone, pat.ID)
 		return err
 	})
 	if err != nil {

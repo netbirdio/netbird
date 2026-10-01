@@ -17,6 +17,9 @@ ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 SUDO=""
+# curl protocol set for --proto / --proto-redir: https and nothing else, so no
+# request and no redirect in a chain can fall back to plaintext.
+PROTO_HTTPS="=https"
 
 
 if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
@@ -25,9 +28,20 @@ elif command -v doas > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="doas"
 fi
 
+# Downloads are staged in a private directory instead of /tmp. Fixed names in a
+# shared directory can collide with entries created there beforehand, and the
+# paths staged here are consumed by the privileged install steps below.
+NB_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/netbird.XXXXXXXXXX")" || {
+    echo "Unable to create a temporary directory for the downloads"
+    exit 1
+}
+trap 'rm -rf "$NB_TMPDIR"' EXIT
+
 if [ -z ${NETBIRD_RELEASE+x} ]; then
     NETBIRD_RELEASE=latest
 fi
+
+TAG_NAME=""
 
 get_release() {
     local RELEASE=$1
@@ -38,17 +52,19 @@ get_release() {
         local TAG="tags/${RELEASE}"
         local URL="https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}"
     fi
+	OUTPUT=""
     if [ -n "$GITHUB_TOKEN" ]; then
-          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" \
-              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+          OUTPUT=$(curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}")
     else
-          curl -s "${URL}" \
-              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+          OUTPUT=$(curl -s "${URL}") 
     fi
+	TAG_NAME=$(echo ${OUTPUT} |  grep -Eo '\"tag_name\":\s*\"v([0-9]+\.){2}[0-9]+"' | tail -n 1)
+	echo "${TAG_NAME}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
 download_release_binary() {
     VERSION=$(get_release "$NETBIRD_RELEASE")
+	echo "Using the following tag name for binary installation: ${TAG_NAME}"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
@@ -69,10 +85,11 @@ download_release_binary() {
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
+    ARCHIVE_PATH="${NB_TMPDIR}/${BINARY_NAME}"
     if [ -n "$GITHUB_TOKEN" ]; then
-      cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
+      curl -H  "Authorization: token ${GITHUB_TOKEN}" -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" "$DOWNLOAD_URL"
     else
-      cd /tmp && curl -LO "$DOWNLOAD_URL" || curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      curl -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" "$DOWNLOAD_URL" || curl -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
@@ -85,12 +102,12 @@ download_release_binary() {
         fi
 
         # Unzip the app and move to INSTALL_DIR
-        unzip -q -o "$BINARY_NAME"
-        mv -v "netbird_ui_${OS_TYPE}/" "$INSTALL_DIR/" || mv -v "netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
+        unzip -q -o "$ARCHIVE_PATH" -d "$NB_TMPDIR"
+        mv -v "${NB_TMPDIR}/netbird_ui_${OS_TYPE}/" "$INSTALL_DIR/" || mv -v "${NB_TMPDIR}/netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
-        tar -xzvf "$BINARY_NAME"
-        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        tar -xzvf "$ARCHIVE_PATH" -C "$NB_TMPDIR"
+        ${SUDO} mv "${NB_TMPDIR}/${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
@@ -106,8 +123,11 @@ add_apt_repo() {
         /usr/share/keyrings/netbird-archive-keyring.gpg \
         /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
-    curl -sSL https://pkgs.netbird.io/debian/public.key \
+    curl -sSL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" https://pkgs.netbird.io/debian/public.key \
     | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
+
+    # Explicitly set the file permission
+    ${SUDO} chmod 0644 /usr/share/keyrings/netbird-archive-keyring.gpg
 
     echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
     | ${SUDO} tee /etc/apt/sources.list.d/netbird.list
@@ -121,38 +141,10 @@ cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
 enabled=1
-gpgcheck=0
+gpgcheck=1
 gpgkey=https://pkgs.netbird.io/yum/repodata/repomd.xml.key
 repo_gpgcheck=1
 EOF
-}
-
-add_aur_repo() {
-    INSTALL_PKGS="git base-devel go"
-    REMOVE_PKGS=""
-
-    # Check if dependencies are installed
-    for PKG in $INSTALL_PKGS; do
-        if ! pacman -Q "$PKG" > /dev/null 2>&1; then
-            # Install missing package(s)
-            ${SUDO} pacman -S "$PKG" --noconfirm
-
-            # Add installed package for clean up later
-            REMOVE_PKGS="$REMOVE_PKGS $PKG"
-        fi
-    done
-
-    # Build package from AUR
-    cd /tmp && git clone https://aur.archlinux.org/netbird.git
-    cd netbird && makepkg -sri --noconfirm
-
-    if ! $SKIP_UI_APP; then
-        cd /tmp && git clone https://aur.archlinux.org/netbird-ui.git
-        cd netbird-ui && makepkg -sri --noconfirm
-    fi
-
-    # Clean up the installed packages
-    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
 }
 
 prepare_tun_module() {
@@ -196,6 +188,20 @@ install_native_binaries() {
     fi
 }
 
+# Handle macOS .pkg installer
+install_pkg() {
+  case "$(uname -m)" in
+    x86_64) ARCH="amd64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *) echo "Unsupported macOS arch: $(uname -m)" >&2; exit 1 ;;
+  esac
+
+  PKG_URL=$(curl -sIL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
+  echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
+  curl -fsSL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "${NB_TMPDIR}/netbird.pkg" "${PKG_URL}"
+  ${SUDO} installer -pkg "${NB_TMPDIR}/netbird.pkg" -target /
+}
+
 check_use_bin_variable() {
     if [ "${USE_BIN_INSTALL}-x" = "true-x" ]; then
       echo "The installation will be performed using binary files"
@@ -206,16 +212,22 @@ check_use_bin_variable() {
 
 install_netbird() {
     if [ -x "$(command -v netbird)" ]; then
-        status_output=$(netbird status)
-        if echo "$status_output" | grep -q 'Management: Connected' && echo "$status_output" | grep -q 'Signal: Connected'; then
-            echo "NetBird service is running, please stop it before proceeding"
-            exit 1
-        fi
+      status_output="$(netbird status 2>&1 || true)"
 
-        if [ -n "$status_output" ]; then
-            echo "NetBird seems to be installed already, please remove it before proceeding"
-            exit 1
-        fi
+      if echo "$status_output" | grep -q 'failed to connect to daemon error: context deadline exceeded'; then
+          echo "Warning: could not reach NetBird daemon (timeout), proceeding anyway"
+      else
+          if echo "$status_output" | grep -q 'Management: Connected' && \
+              echo "$status_output" | grep -q 'Signal: Connected'; then
+              echo "NetBird service is running, please stop it before proceeding"
+              exit 1
+          fi
+
+          if [ -n "$status_output" ]; then
+              echo "NetBird seems to be installed already, please remove it before proceeding"
+              exit 1
+          fi
+      fi
     fi
 
     # Run the installation, if a desktop environment is not detected
@@ -238,13 +250,6 @@ install_netbird() {
     ;;
     dnf)
         add_rpm_repo
-        ${SUDO} dnf -y install dnf-plugin-config-manager
-        if [[ "$(dnf --version | head -n1 | cut -d. -f1)" > "4" ]];
-        then
-          ${SUDO} dnf config-manager addrepo --from-repofile=/etc/yum.repos.d/netbird.repo
-        else
-          ${SUDO} dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
-        fi
         ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
@@ -257,10 +262,19 @@ install_netbird() {
         if ! $SKIP_UI_APP; then
             ${SUDO} rpm-ostree -y install netbird-ui
         fi
+        # ensure the service is started after install
+         ${SUDO} netbird service install || true
+         ${SUDO} netbird service start || true
     ;;
-    pacman)
-        ${SUDO} pacman -Syy
-        add_aur_repo
+    pkg)
+        # Check if the package is already installed
+        if [ -f /Library/Receipts/netbird.pkg ]; then
+            echo "NetBird is already installed. Please remove it before proceeding."
+            exit 1
+        fi
+
+        # Install the package
+        install_pkg
     ;;
     brew)
         # Remove Netbird if it had been installed using Homebrew before
@@ -271,7 +285,7 @@ install_netbird() {
             netbird service stop
             netbird service uninstall
 
-            # Unlik the app
+            # Unlink the app
             brew unlink netbird
         fi
 
@@ -309,7 +323,7 @@ install_netbird() {
     echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
 
     # Load and start netbird service
-    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ]; then
+    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ] && [ "$PACKAGE_MANAGER" != "pkg" ]; then
         if ! ${SUDO} netbird service install 2>&1; then
             echo "NetBird service has already been loaded"
         fi
@@ -415,23 +429,34 @@ if type uname >/dev/null 2>&1; then
               # Check the availability of a compatible package manager
               if check_use_bin_variable; then
                   PACKAGE_MANAGER="bin"
+              elif [ -e /run/ostree-booted ]; then
+                  if [ -x "$(command -v rpm-ostree)" ]; then
+                      PACKAGE_MANAGER="rpm-ostree"
+                      echo "The installation will be performed using rpm-ostree package manager"
+                  elif [ -x "$(command -v bootc)" ]; then
+                      echo "Detected bootc system without rpm-ostree." >&2
+                      echo "NetBird cannot be installed via package manager on this system." >&2
+                      echo "Options:" >&2
+                      echo "  1. Install via Distrobox (instructions in the installation docs)" >&2
+                      echo "  2. Rebuild your base image with rpm-ostree included" >&2
+                      echo "  3. Bake NetBird into your Containerfile" >&2
+                      exit 1
+                  else
+                      echo "Detected ostree-booted system without rpm-ostree or bootc." >&2
+                      echo "NetBird cannot be installed automatically on this atomic system." >&2
+                      echo "Please install NetBird by rebuilding your base image or use a supported package manager." >&2
+                      exit 1
+                  fi
               elif [ -x "$(command -v apt-get)" ]; then
                   PACKAGE_MANAGER="apt"
                   echo "The installation will be performed using apt package manager"
               elif [ -x "$(command -v dnf)" ]; then
                   PACKAGE_MANAGER="dnf"
                   echo "The installation will be performed using dnf package manager"
-              elif [ -x "$(command -v rpm-ostree)" ]; then
-                  PACKAGE_MANAGER="rpm-ostree"
-                  echo "The installation will be performed using rpm-ostree package manager"
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"
-              elif [ -x "$(command -v pacman)" ]; then
-                  PACKAGE_MANAGER="pacman"
-                  echo "The installation will be performed using pacman package manager"
               fi
-
             else
               echo "Unable to determine OS type from /etc/os-release"
               exit 1
@@ -448,9 +473,8 @@ if type uname >/dev/null 2>&1; then
             # Check the availability of a compatible package manager
             if check_use_bin_variable; then
                 PACKAGE_MANAGER="bin"
-            elif [ -x "$(command -v brew)" ]; then
-                PACKAGE_MANAGER="brew"
-                echo "The installation will be performed using brew package manager"
+            else
+              PACKAGE_MANAGER="pkg"
             fi
 		;;
 	esac

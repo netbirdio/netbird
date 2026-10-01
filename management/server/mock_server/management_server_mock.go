@@ -6,14 +6,14 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type ManagementServiceServerMock struct {
 	proto.UnimplementedManagementServiceServer
 
 	LoginFunc                      func(context.Context, *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
-	SyncFunc                       func(*proto.EncryptedMessage, proto.ManagementService_SyncServer)
+	SyncFunc                       func(*proto.EncryptedMessage, proto.ManagementService_SyncServer) error
 	GetServerKeyFunc               func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error)
 	IsHealthyFunc                  func(context.Context, *proto.Empty) (*proto.Empty, error)
 	GetDeviceAuthorizationFlowFunc func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
@@ -30,7 +30,7 @@ func (m ManagementServiceServerMock) Login(ctx context.Context, req *proto.Encry
 
 func (m ManagementServiceServerMock) Sync(msg *proto.EncryptedMessage, sync proto.ManagementService_SyncServer) error {
 	if m.SyncFunc != nil {
-		return m.Sync(msg, sync)
+		return m.SyncFunc(msg, sync)
 	}
 	return status.Errorf(codes.Unimplemented, "method Sync not implemented")
 }

@@ -1,16 +1,21 @@
 //go:build ios
-// +build ios
 
 package testutil
 
-func CreatePostgresTestContainer() (func(), error) {
+func CreatePostgresTestContainer() (func(), string, error) {
 	return func() {
 		// Empty function for Postgres
-	}, nil
+	}, "", nil
 }
 
-func CreateMysqlTestContainer() (func(), error) {
+func CreateMysqlTestContainer() (func(), string, error) {
 	return func() {
 		// Empty function for MySQL
-	}, nil
+	}, "", nil
+}
+
+func CreateRedisTestContainer() (func(), string, error) {
+	return func() {
+		// Empty function for Redis
+	}, "", nil
 }

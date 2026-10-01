@@ -3,25 +3,28 @@ package dns
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // nameserversHandler is the nameserver group handler of the account
 type nameserversHandler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func addDNSNameserversEndpoint(accountManager server.AccountManager, router *mux.Router) {
+func addDNSNameserversEndpoint(accountManager account.Manager, router *mux.Router) {
 	nameserversHandler := newNameserversHandler(accountManager)
 	router.HandleFunc("/dns/nameservers", nameserversHandler.getAllNameservers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/dns/nameservers", nameserversHandler.createNameserverGroup).Methods("POST", "OPTIONS")
@@ -31,7 +34,7 @@ func addDNSNameserversEndpoint(accountManager server.AccountManager, router *mux
 }
 
 // newNameserversHandler returns a new instance of nameserversHandler handler
-func newNameserversHandler(accountManager server.AccountManager) *nameserversHandler {
+func newNameserversHandler(accountManager account.Manager) *nameserversHandler {
 	return &nameserversHandler{accountManager: accountManager}
 }
 
@@ -201,7 +204,11 @@ func (h *nameserversHandler) getNameserverGroup(w http.ResponseWriter, r *http.R
 func toServerNSList(apiNSList []api.Nameserver) ([]nbdns.NameServer, error) {
 	var nsList []nbdns.NameServer
 	for _, apiNS := range apiNSList {
-		parsed, err := nbdns.ParseNameServerURL(fmt.Sprintf("%s://%s:%d", apiNS.NsType, apiNS.Ip, apiNS.Port))
+		host, err := unwrapBracketedHost(apiNS.Ip)
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := nbdns.ParseNameServerURL(fmt.Sprintf("%s://%s", apiNS.NsType, net.JoinHostPort(host, strconv.Itoa(apiNS.Port))))
 		if err != nil {
 			return nil, err
 		}
@@ -209,6 +216,18 @@ func toServerNSList(apiNSList []api.Nameserver) ([]nbdns.NameServer, error) {
 	}
 
 	return nsList, nil
+}
+
+// unwrapBracketedHost returns ip with surrounding brackets stripped, rejecting
+// inputs with mismatched brackets.
+func unwrapBracketedHost(ip string) (string, error) {
+	if !strings.ContainsAny(ip, "[]") {
+		return ip, nil
+	}
+	if !strings.HasPrefix(ip, "[") || !strings.HasSuffix(ip, "]") {
+		return "", fmt.Errorf("malformed bracketed address: %s", ip)
+	}
+	return ip[1 : len(ip)-1], nil
 }
 
 func toNameserverGroupResponse(serverNSGroup *nbdns.NameServerGroup) *api.NameserverGroup {

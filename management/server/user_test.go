@@ -3,30 +3,37 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
-	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
-
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/util"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
+
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
+	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 )
 
 const (
@@ -53,16 +60,18 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = s.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(s)
 	am := DefaultAccountManager{
-		Store:      s,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
@@ -83,7 +92,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	user, err := am.Store.GetUserByPATID(context.Background(), store.LockingStrengthShare, tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), store.LockingStrengthNone, tokenID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
@@ -98,7 +107,7 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockTargetUserId] = &types.User{
 		Id:            mockTargetUserId,
 		IsServiceUser: false,
@@ -108,9 +117,11 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -124,7 +135,7 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockTargetUserId] = &types.User{
 		Id:            mockTargetUserId,
 		IsServiceUser: true,
@@ -134,9 +145,11 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -154,16 +167,18 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
@@ -177,16 +192,18 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
@@ -200,7 +217,7 @@ func TestUser_DeletePAT(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockUserID] = &types.User{
 		Id: mockUserID,
 		PATs: map[string]*types.PersonalAccessToken{
@@ -209,15 +226,18 @@ func TestUser_DeletePAT(t *testing.T) {
 				HashedToken: mockToken1,
 			},
 		},
+		Role: types.UserRoleAdmin,
 	}
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	err = am.DeletePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -240,7 +260,7 @@ func TestUser_GetPAT(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockUserID] = &types.User{
 		Id:        mockUserID,
 		AccountID: mockAccountID,
@@ -250,15 +270,18 @@ func TestUser_GetPAT(t *testing.T) {
 				HashedToken: mockToken1,
 			},
 		},
+		Role: types.UserRoleAdmin,
 	}
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	pat, err := am.GetPAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -277,7 +300,7 @@ func TestUser_GetAllPATs(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockUserID] = &types.User{
 		Id:        mockUserID,
 		AccountID: mockAccountID,
@@ -291,15 +314,18 @@ func TestUser_GetAllPATs(t *testing.T) {
 				HashedToken: mockToken2,
 			},
 		},
+		Role: types.UserRoleAdmin,
 	}
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	pats, err := am.GetAllPATs(context.Background(), mockAccountID, mockUserID, mockUserID)
@@ -308,6 +334,104 @@ func TestUser_GetAllPATs(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, len(pats))
+}
+
+func TestUser_PAT_CrossAccountProtection(t *testing.T) {
+	const (
+		accountAID     = "accountA"
+		accountBID     = "accountB"
+		userAID        = "userA"
+		adminBID       = "adminB"
+		serviceUserBID = "serviceUserB"
+		regularUserBID = "regularUserB"
+		tokenBID       = "tokenB1"
+		hashedTokenB   = "SoMeHaShEdToKeNB"
+	)
+
+	setupStore := func(t *testing.T) (*DefaultAccountManager, func()) {
+		t.Helper()
+
+		s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+		require.NoError(t, err, "creating store")
+
+		accountA := newAccountWithId(context.Background(), accountAID, userAID, "", "", "", false)
+		require.NoError(t, s.SaveAccount(context.Background(), accountA))
+
+		accountB := newAccountWithId(context.Background(), accountBID, adminBID, "", "", "", false)
+		accountB.Users[serviceUserBID] = &types.User{
+			Id:              serviceUserBID,
+			AccountID:       accountBID,
+			IsServiceUser:   true,
+			ServiceUserName: "svcB",
+			Role:            types.UserRoleAdmin,
+			PATs: map[string]*types.PersonalAccessToken{
+				tokenBID: {
+					ID:          tokenBID,
+					HashedToken: hashedTokenB,
+				},
+			},
+		}
+		accountB.Users[regularUserBID] = &types.User{
+			Id:        regularUserBID,
+			AccountID: accountBID,
+			Role:      types.UserRoleUser,
+		}
+		require.NoError(t, s.SaveAccount(context.Background(), accountB))
+
+		pm := permissions.NewManager(s)
+		am := &DefaultAccountManager{
+			Store:              s,
+			eventStore:         &activity.InMemoryEventStore{},
+			permissionsManager: pm,
+		}
+		return am, cleanup
+	}
+
+	t.Run("CreatePAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.CreatePAT(context.Background(), accountAID, userAID, serviceUserBID, "xss-token", 7)
+		require.Error(t, err, "cross-account CreatePAT must fail")
+
+		_, err = am.CreatePAT(context.Background(), accountAID, userAID, regularUserBID, "xss-token", 7)
+		require.Error(t, err, "cross-account CreatePAT for regular user must fail")
+
+		_, err = am.CreatePAT(context.Background(), accountBID, adminBID, serviceUserBID, "legit-token", 7)
+		require.NoError(t, err, "same-account CreatePAT should succeed")
+	})
+
+	t.Run("DeletePAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		err := am.DeletePAT(context.Background(), accountAID, userAID, serviceUserBID, tokenBID)
+		require.Error(t, err, "cross-account DeletePAT must fail")
+	})
+
+	t.Run("GetPAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.GetPAT(context.Background(), accountAID, userAID, serviceUserBID, tokenBID)
+		require.Error(t, err, "cross-account GetPAT must fail")
+	})
+
+	t.Run("GetAllPATs for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.GetAllPATs(context.Background(), accountAID, userAID, serviceUserBID)
+		require.Error(t, err, "cross-account GetAllPATs must fail")
+	})
+
+	t.Run("CreatePAT with forged accountID targeting foreign user is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.CreatePAT(context.Background(), accountAID, userAID, adminBID, "forged", 7)
+		require.Error(t, err, "forged accountID CreatePAT must fail")
+	})
 }
 
 func TestUser_Copy(t *testing.T) {
@@ -338,6 +462,8 @@ func TestUser_Copy(t *testing.T) {
 			ID:              0,
 			IntegrationType: "test",
 		},
+		Email: "whatever@gmail.com",
+		Name:  "John Doe",
 	}
 
 	err := validateStruct(user)
@@ -384,16 +510,18 @@ func TestUser_CreateServiceUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	user, err := am.createServiceUser(context.Background(), mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
@@ -429,16 +557,18 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	user, err := am.CreateUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{
@@ -475,16 +605,18 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	_, err = am.CreateUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{
@@ -504,22 +636,25 @@ func TestUser_InviteNewUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:        store,
-		eventStore:   &activity.InMemoryEventStore{},
-		cacheLoading: map[string]chan struct{}{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissionsManager,
 	}
 
-	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
+	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
+	require.NoError(t, err)
+
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cs)
 
 	mockData := []*idp.UserData{
 		{
@@ -608,7 +743,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 			}
 			t.Cleanup(cleanup)
 
-			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 			account.Users[mockServiceUserID] = tt.serviceUser
 
 			err = store.SaveAccount(context.Background(), account)
@@ -616,9 +751,11 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 				t.Fatalf("Error when saving account: %s", err)
 			}
 
+			permissionsManager := permissions.NewManager(store)
 			am := DefaultAccountManager{
-				Store:      store,
-				eventStore: &activity.InMemoryEventStore{},
+				Store:              store,
+				eventStore:         &activity.InMemoryEventStore{},
+				permissionsManager: permissionsManager,
 			}
 
 			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
@@ -645,21 +782,69 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockUserID)
 	if err == nil {
 		t.Fatalf("failed to prevent self deletion")
+	}
+}
+
+func TestUser_DeleteUser_OtherAccount(t *testing.T) {
+	testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	if err = testStore.SaveAccount(context.Background(), account); err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	otherAccount := newAccountWithId(context.Background(), "otherAccount", "otherOwner", "", "", "", false)
+	otherAccount.Users["otherRegularUser"] = &types.User{
+		Id:        "otherRegularUser",
+		AccountID: "otherAccount",
+		Role:      types.UserRoleUser,
+	}
+	otherAccount.Users["otherServiceUser"] = &types.User{
+		Id:              "otherServiceUser",
+		AccountID:       "otherAccount",
+		Role:            types.UserRoleUser,
+		IsServiceUser:   true,
+		ServiceUserName: "otherServiceUser",
+	}
+	if err = testStore.SaveAccount(context.Background(), otherAccount); err != nil {
+		t.Fatalf("Error when saving other account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:              testStore,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissions.NewManager(testStore),
+	}
+
+	for _, targetUserID := range []string{"otherRegularUser", "otherServiceUser"} {
+		t.Run(targetUserID, func(t *testing.T) {
+			err := am.DeleteUser(context.Background(), mockAccountID, mockUserID, targetUserID)
+			assert.Equal(t, status.NewUserNotFoundError(targetUserID), err)
+
+			_, err = testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
+			assert.NoError(t, err, "user of another account must not be deleted")
+		})
 	}
 }
 
@@ -670,7 +855,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	targetId := "user2"
 	account.Users[targetId] = &types.User{
@@ -704,10 +889,18 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:                   store,
-		eventStore:              &activity.InMemoryEventStore{},
-		integratedPeerValidator: MocIntegratedValidator{},
+		Store:                store,
+		eventStore:           &activity.InMemoryEventStore{},
+		permissionsManager:   permissionsManager,
+		networkMapController: networkMapControllerMock,
 	}
 
 	testCases := []struct {
@@ -749,6 +942,49 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 
 }
 
+func TestUser_deleteRegularUser_RejectsOwner(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Users[mockTargetUserId] = &types.User{
+		Id:     mockTargetUserId,
+		Issued: types.UserIssuedAPI,
+		Role:   types.UserRoleOwner,
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	am := DefaultAccountManager{Store: s}
+
+	_, err = am.deleteRegularUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{ID: mockTargetUserId})
+	assert.EqualError(t, err, status.NewOwnerDeletePermissionError().Error())
+}
+
+func TestUser_deleteRegularUser_InitiatorOwnerDeletesThemself(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	networkMapControllerMock := network_map.NewMockController(gomock.NewController(t))
+	networkMapControllerMock.EXPECT().OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	am := DefaultAccountManager{
+		Store:                s,
+		eventStore:           &activity.InMemoryEventStore{},
+		networkMapController: networkMapControllerMock,
+	}
+
+	_, err = am.deleteRegularUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{ID: mockUserID})
+	require.NoError(t, err)
+
+	_, err = s.GetUserByUserID(context.Background(), store.LockingStrengthNone, mockUserID)
+	assert.Equal(t, status.NewUserNotFoundError(mockUserID), err)
+}
+
 func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -756,7 +992,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	targetId := "user2"
 	account.Users[targetId] = &types.User{
@@ -812,10 +1048,20 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
-		integratedPeerValidator: MocIntegratedValidator{},
+		integratedPeerValidator: MockIntegratedValidator{},
+		permissionsManager:      permissionsManager,
+		networkMapController:    networkMapControllerMock,
 	}
 
 	testCases := []struct {
@@ -914,19 +1160,21 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
-	claims := nbcontext.UserAuth{
+	claims := auth.UserAuth{
 		UserId:    mockUserID,
 		AccountId: mockAccountID,
 	}
@@ -948,18 +1196,20 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users["normal_user1"] = types.NewRegularUser("normal_user1")
-	account.Users["normal_user2"] = types.NewRegularUser("normal_user2")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Users["normal_user1"] = types.NewRegularUser("normal_user1", "", "")
+	account.Users["normal_user2"] = types.NewRegularUser("normal_user2", "", "")
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	users, err := am.ListUsers(context.Background(), mockAccountID)
@@ -981,88 +1231,6 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	assert.Equal(t, 2, regular)
 }
 
-func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
-	testCases := []struct {
-		name                         string
-		role                         types.UserRole
-		limitedViewSettings          bool
-		expectedDashboardPermissions string
-	}{
-		{
-			name:                         "Regular user, no limited view settings",
-			role:                         types.UserRoleUser,
-			limitedViewSettings:          false,
-			expectedDashboardPermissions: "limited",
-		},
-		{
-			name:                         "Admin user, no limited view settings",
-			role:                         types.UserRoleAdmin,
-			limitedViewSettings:          false,
-			expectedDashboardPermissions: "full",
-		},
-		{
-			name:                         "Owner, no limited view settings",
-			role:                         types.UserRoleOwner,
-			limitedViewSettings:          false,
-			expectedDashboardPermissions: "full",
-		},
-		{
-			name:                         "Regular user, limited view settings",
-			role:                         types.UserRoleUser,
-			limitedViewSettings:          true,
-			expectedDashboardPermissions: "blocked",
-		},
-		{
-			name:                         "Admin user, limited view settings",
-			role:                         types.UserRoleAdmin,
-			limitedViewSettings:          true,
-			expectedDashboardPermissions: "full",
-		},
-		{
-			name:                         "Owner, limited view settings",
-			role:                         types.UserRoleOwner,
-			limitedViewSettings:          true,
-			expectedDashboardPermissions: "full",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-			if err != nil {
-				t.Fatalf("Error when creating store: %s", err)
-			}
-			t.Cleanup(cleanup)
-
-			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-			account.Users["normal_user1"] = types.NewUser("normal_user1", testCase.role, false, false, "", []string{}, types.UserIssuedAPI)
-			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
-			delete(account.Users, mockUserID)
-
-			err = store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Fatalf("Error when saving account: %s", err)
-			}
-
-			am := DefaultAccountManager{
-				Store:      store,
-				eventStore: &activity.InMemoryEventStore{},
-			}
-
-			users, err := am.ListUsers(context.Background(), mockAccountID)
-			if err != nil {
-				t.Fatalf("Error when checking user role: %s", err)
-			}
-
-			assert.Equal(t, 1, len(users))
-
-			userInfo, _ := users[0].ToUserInfo(nil, account.Settings)
-			assert.Equal(t, testCase.expectedDashboardPermissions, userInfo.Permissions.DashboardView)
-		})
-	}
-
-}
-
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -1070,7 +1238,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	externalUser := &types.User{
 		Id:     "externalUser",
 		Role:   types.UserRoleUser,
@@ -1087,26 +1255,30 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:        store,
-		eventStore:   &activity.InMemoryEventStore{},
-		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
-		cacheLoading: map[string]chan struct{}{},
-		cacheManager: cache.New[[]*idp.UserData](
-			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
-		),
-		externalCacheManager: cache.New[*idp.UserData](
-			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
-		),
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		idpManager:         &idp.GoogleWorkspaceManager{}, // empty manager
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissionsManager,
 	}
 
+	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
+	assert.NoError(t, err)
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 	// pretend that we receive mockUserID from IDP
-	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}})
+	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}}, time.Minute)
 	assert.NoError(t, err)
 
 	cacheManager := am.GetExternalCacheManager()
-	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
-	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
+	tud := &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"}
+	cacheKeyUser := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
+	err = cacheManager.Set(context.Background(), cacheKeyUser, tud, time.Minute)
+	assert.NoError(t, err)
+	cacheKeyAccount := externalUser.IntegrationReference.CacheKey(mockAccountID)
+	err = cacheManager.SetUsers(context.Background(), cacheKeyAccount, []*idp.UserData{tud}, time.Minute)
 	assert.NoError(t, err)
 
 	infos, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
@@ -1127,7 +1299,7 @@ func TestUser_IsAdmin(t *testing.T) {
 	user := types.NewAdminUser(mockUserID)
 	assert.True(t, user.HasAdminPower())
 
-	user = types.NewRegularUser(mockUserID)
+	user = types.NewRegularUser(mockUserID, "", "")
 	assert.False(t, user.HasAdminPower())
 }
 
@@ -1138,7 +1310,7 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockServiceUserID] = &types.User{
 		Id:            mockServiceUserID,
 		Role:          "user",
@@ -1150,9 +1322,11 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
@@ -1170,7 +1344,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
 	account.Users[mockServiceUserID] = &types.User{
 		Id:            mockServiceUserID,
 		Role:          "user",
@@ -1182,9 +1356,11 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
 	}
 
 	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockServiceUserID)
@@ -1197,7 +1373,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1339,13 +1515,13 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create an account and an admin user
-			account, err := manager.GetOrCreateAccountByUser(context.Background(), ownerUserID, "netbird.io")
+			account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: ownerUserID, Domain: "netbird.io"})
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			// create other users
-			account.Users[regularUserID] = types.NewRegularUser(regularUserID)
+			account.Users[regularUserID] = types.NewRegularUser(regularUserID, "", "")
 			account.Users[adminUserID] = types.NewAdminUser(adminUserID)
 			account.Users[serviceUserID] = &types.User{IsServiceUser: true, Id: serviceUserID, Role: types.UserRoleAdmin, ServiceUserName: "service"}
 			err = manager.Store.SaveAccount(context.Background(), account)
@@ -1369,9 +1545,9 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 
 func TestUserAccountPeersUpdate(t *testing.T) {
 	// account groups propagation is enabled
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -1390,19 +1566,19 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	require.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
-	// Creating a new regular user should not update account peers and not send peer update
+	// Creating a new regular user should send peer update (as users are not filtered yet)
 	t.Run("creating new regular user with no groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1421,11 +1597,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// updating user with no linked peers should not update account peers and not send peer update
+	// updating user with no linked peers should update account peers and send peer update (as users are not filtered yet)
 	t.Run("updating user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1443,6 +1619,9 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
+
+	// drain any buffered updates from previous subtests
+	drainPeerUpdates(updMsg)
 
 	// deleting user with no linked peers should not update account peers and not send peer update
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
@@ -1475,10 +1654,10 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, err := manager.AddPeer(context.Background(), "", "regularUser2", &nbpeer.Peer{
+	peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	// updating user with linked peers should update account peers and send peer update
@@ -1499,14 +1678,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
-	peer4UpdMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer4.ID)
+	peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID)
+		updateManager.CloseChannel(context.Background(), peer4.ID)
 	})
 
 	// deleting user with linked peers should update account peers and send peer update
@@ -1522,8 +1701,587 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
+	})
+}
+
+func TestSaveOrAddUser_PreventAccountSwitch(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account1 := newAccountWithId(context.Background(), "account1", "ownerAccount1", "", "", "", false)
+	targetId := "user2"
+	account1.Users[targetId] = &types.User{
+		Id:              targetId,
+		AccountID:       account1.Id,
+		ServiceUserName: "user2username",
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account1))
+
+	account2 := newAccountWithId(context.Background(), "account2", "ownerAccount2", "", "", "", false)
+	require.NoError(t, s.SaveAccount(context.Background(), account2))
+
+	permissionsManager := permissions.NewManager(s)
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	_, err = am.SaveOrAddUser(context.Background(), "account2", "ownerAccount2", account1.Users[targetId], true)
+	assert.Error(t, err, "update user to another account should fail")
+
+	user, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetId)
+	require.NoError(t, err)
+	assert.Equal(t, account1.Users[targetId].Id, user.Id)
+	assert.Equal(t, account1.Users[targetId].AccountID, user.AccountID)
+	assert.Equal(t, account1.Users[targetId].AutoGroups, user.AutoGroups)
+}
+
+func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account1 := newAccountWithId(context.Background(), "account1", "account1Owner", "", "", "", false)
+	account1.Settings.RegularUsersViewBlocked = false
+	account1.Users["blocked-user"] = &types.User{
+		Id:        "blocked-user",
+		AccountID: account1.Id,
+		Blocked:   true,
+	}
+	account1.Users["service-user"] = &types.User{
+		Id:              "service-user",
+		IsServiceUser:   true,
+		ServiceUserName: "service-user",
+	}
+	account1.Users["regular-user"] = &types.User{
+		Id:   "regular-user",
+		Role: types.UserRoleUser,
+	}
+	account1.Users["admin-user"] = &types.User{
+		Id:   "admin-user",
+		Role: types.UserRoleAdmin,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account1))
+
+	account2 := newAccountWithId(context.Background(), "account2", "account2Owner", "", "", "", false)
+	account2.Users["settings-blocked-user"] = &types.User{
+		Id:   "settings-blocked-user",
+		Role: types.UserRoleUser,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account2))
+
+	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
+	account3.Users["pending-user"] = &types.User{
+		Id:              "pending-user",
+		AccountID:       account3.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account3))
+
+	// The owner has no address to name, so the refusal falls back to the generic one.
+	account4 := newAccountWithId(context.Background(), "account4", "account4Owner", "", "", "", false)
+	account4.Users["pending-user-without-owner-email"] = &types.User{
+		Id:              "pending-user-without-owner-email",
+		AccountID:       account4.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account4))
+
+	// No user holds the owner role, so the owner lookup itself fails.
+	account5 := newAccountWithId(context.Background(), "account5", "account5Admin", "", "", "", false)
+	account5.Users["account5Admin"].Role = types.UserRoleAdmin
+	account5.Users["pending-user-without-owner"] = &types.User{
+		Id:              "pending-user-without-owner",
+		AccountID:       account5.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account5))
+
+	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	require.NoError(t, store.SaveAccount(context.Background(), account6))
+
+	permissionsManager := permissions.NewManager(store)
+	am := DefaultAccountManager{
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	tt := []struct {
+		name           string
+		userAuth       auth.UserAuth
+		expectedErr    error
+		expectedResult *users.UserInfoWithPermissions
+	}{
+		{
+			name:        "not found",
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "not-found"},
+			expectedErr: status.NewUserNotFoundError("not-found"),
+		},
+		{
+			name:        "not part of account",
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
+			expectedErr: status.NewUserNotPartOfAccountError(),
+		},
+		{
+			name:        "blocked",
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
+		},
+		{
+			name:        "service user",
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
+			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:        "pending approval names the owner",
+			userAuth:    auth.UserAuth{AccountId: account3.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "pending approval without an owner address",
+			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			name:        "pending approval without an owner",
+			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			// The account claim points at an account the caller is not in. The
+			// owner named has to be the one of the account holding the caller's
+			// own record, never the one the claim asks for.
+			name:        "pending approval ignores a mismatched account claim",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "blocked user answers before the account claim is validated",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
+		},
+		{
+			name:     "owner user",
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "account1Owner",
+					Name:                 "",
+					Role:                 "owner",
+					AutoGroups:           []string{},
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.Owner),
+			},
+		},
+		{
+			name:     "regular user",
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "regular-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.User),
+			},
+		},
+		{
+			name:     "admin user",
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "admin-user",
+					Name:                 "",
+					Role:                 "admin",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.Admin),
+			},
+		},
+		{
+			name:     "settings blocked regular user",
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "settings-blocked-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.User),
+				Restricted:  true,
+			},
+		},
+
+		{
+			name:     "settings blocked regular user child account",
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "settings-blocked-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.User),
+				Restricted:  false,
+			},
+		},
+		{
+			name:     "settings blocked owner user",
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "account2Owner",
+					Name:                 "",
+					Role:                 "owner",
+					AutoGroups:           []string{},
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.Owner),
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := am.GetCurrentUserInfo(context.Background(), tc.userAuth)
+
+			if tc.expectedErr != nil {
+				assert.Equal(t, err, tc.expectedErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.EqualValues(t, tc.expectedResult, result)
+		})
+	}
+}
+
+func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := role.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = role.AutoAllowNew
+	}
+
+	return permissions
+}
+
+func TestApproveUser(t *testing.T) {
+	manager, _, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account with admin and pending approval user
+	account := newAccountWithId(context.Background(), "account-1", "admin-user", "example.com", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create admin user
+	adminUser := types.NewAdminUser("admin-user")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	// Create user pending approval
+	pendingUser := types.NewRegularUser("pending-user", "", "")
+	pendingUser.AccountID = account.Id
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Test successful approval
+	approvedUser, err := manager.ApproveUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
+	require.NoError(t, err)
+	assert.False(t, approvedUser.IsBlocked)
+	assert.False(t, approvedUser.PendingApproval)
+
+	// Verify user is updated in store
+	updatedUser, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, pendingUser.Id)
+	require.NoError(t, err)
+	assert.False(t, updatedUser.Blocked)
+	assert.False(t, updatedUser.PendingApproval)
+
+	// Test approval of non-pending user should fail
+	_, err = manager.ApproveUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not pending approval")
+
+	// Test approval by non-admin should fail
+	regularUser := types.NewRegularUser("regular-user", "", "")
+	regularUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), regularUser)
+	require.NoError(t, err)
+
+	pendingUser2 := types.NewRegularUser("pending-user-2", "", "")
+	pendingUser2.AccountID = account.Id
+	pendingUser2.Blocked = true
+	pendingUser2.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser2)
+	require.NoError(t, err)
+
+	_, err = manager.ApproveUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
+	require.Error(t, err)
+}
+
+func TestRejectUser(t *testing.T) {
+	manager, _, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account with admin and pending approval user
+	account := newAccountWithId(context.Background(), "account-1", "admin-user", "example.com", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create admin user
+	adminUser := types.NewAdminUser("admin-user")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	// Create user pending approval
+	pendingUser := types.NewRegularUser("pending-user", "", "")
+	pendingUser.AccountID = account.Id
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Test successful rejection
+	err = manager.RejectUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
+	require.NoError(t, err)
+
+	// Verify user is deleted from store
+	_, err = manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, pendingUser.Id)
+	require.Error(t, err)
+
+	// Test rejection of non-pending user should fail
+	regularUser := types.NewRegularUser("regular-user", "", "")
+	regularUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), regularUser)
+	require.NoError(t, err)
+
+	err = manager.RejectUser(context.Background(), account.Id, adminUser.Id, regularUser.Id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not pending approval")
+
+	// Test rejection by non-admin should fail
+	pendingUser2 := types.NewRegularUser("pending-user-2", "", "")
+	pendingUser2.AccountID = account.Id
+	pendingUser2.Blocked = true
+	pendingUser2.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser2)
+	require.NoError(t, err)
+
+	err = manager.RejectUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
+	require.Error(t, err)
+}
+
+func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temporary directory for Dex
+	tmpDir := t.TempDir()
+	dexDataDir := tmpDir + "/dex"
+	require.NoError(t, os.MkdirAll(dexDataDir, 0700))
+
+	// Create embedded IDP config
+	embeddedIdPConfig := &idp.EmbeddedIdPConfig{
+		Enabled: true,
+		Issuer:  "http://localhost:5556/dex",
+		Storage: idp.EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: idp.EmbeddedStorageTypeConfig{
+				File: dexDataDir + "/dex.db",
+			},
+		},
+	}
+
+	// Create embedded IDP manager
+	embeddedIdp, err := idp.NewEmbeddedIdPManager(ctx, embeddedIdPConfig, nil)
+	require.NoError(t, err)
+	defer func() { _ = embeddedIdp.Stop(ctx) }()
+
+	// Create test store
+	testStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", tmpDir)
+	require.NoError(t, err)
+	defer cleanup()
+
+	// Create account with owner user
+	account := newAccountWithId(ctx, mockAccountID, mockUserID, "", "owner@test.com", "Owner User", false)
+	require.NoError(t, testStore.SaveAccount(ctx, account))
+
+	// Create mock network map controller
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
+	// Create account manager with embedded IDP
+	permissionsManager := permissions.NewManager(testStore)
+	am := DefaultAccountManager{
+		Store:                testStore,
+		eventStore:           &activity.InMemoryEventStore{},
+		permissionsManager:   permissionsManager,
+		idpManager:           embeddedIdp,
+		cacheLoading:         map[string]chan struct{}{},
+		networkMapController: networkMapControllerMock,
+	}
+
+	// Initialize cache manager
+	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
+	require.NoError(t, err)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
+
+	t.Run("create regular user returns password", func(t *testing.T) {
+		userInfo, err := am.CreateUser(ctx, mockAccountID, mockUserID, &types.UserInfo{
+			Email:         "newuser@test.com",
+			Name:          "New User",
+			Role:          "user",
+			AutoGroups:    []string{},
+			IsServiceUser: false,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, userInfo)
+
+		// Verify user data
+		assert.Equal(t, "newuser@test.com", userInfo.Email)
+		assert.Equal(t, "New User", userInfo.Name)
+		assert.Equal(t, "user", userInfo.Role)
+		assert.NotEmpty(t, userInfo.ID)
+
+		// IMPORTANT: Password should be returned for embedded IDP
+		assert.NotEmpty(t, userInfo.Password, "Password should be returned for embedded IDP user")
+		t.Logf("Created user: ID=%s, Email=%s, Password=%s", userInfo.ID, userInfo.Email, userInfo.Password)
+
+		// Verify user ID is in Dex encoded format
+		rawUserID, connectorID, err := dex.DecodeDexUserID(userInfo.ID)
+		require.NoError(t, err)
+		assert.NotEmpty(t, rawUserID)
+		assert.Equal(t, "local", connectorID)
+		t.Logf("Decoded user ID: rawUserID=%s, connectorID=%s", rawUserID, connectorID)
+
+		// Verify user exists in database with correct data
+		dbUser, err := testStore.GetUserByUserID(ctx, store.LockingStrengthNone, userInfo.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "newuser@test.com", dbUser.Email)
+		assert.Equal(t, "New User", dbUser.Name)
+
+		// Store user ID for delete test
+		createdUserID := userInfo.ID
+
+		t.Run("delete user works", func(t *testing.T) {
+			err := am.DeleteUser(ctx, mockAccountID, mockUserID, createdUserID)
+			require.NoError(t, err)
+
+			// Verify user is deleted from database
+			_, err = testStore.GetUserByUserID(ctx, store.LockingStrengthNone, createdUserID)
+			assert.Error(t, err, "User should be deleted from database")
+		})
+	})
+
+	t.Run("create service user does not return password", func(t *testing.T) {
+		userInfo, err := am.CreateUser(ctx, mockAccountID, mockUserID, &types.UserInfo{
+			Name:          "Service User",
+			Role:          "user",
+			AutoGroups:    []string{},
+			IsServiceUser: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, userInfo)
+
+		assert.True(t, userInfo.IsServiceUser)
+		assert.Equal(t, "Service User", userInfo.Name)
+		// Service users don't have passwords
+		assert.Empty(t, userInfo.Password, "Service users should not have passwords")
+	})
+
+	t.Run("duplicate email fails", func(t *testing.T) {
+		// Create first user
+		_, err := am.CreateUser(ctx, mockAccountID, mockUserID, &types.UserInfo{
+			Email:         "duplicate@test.com",
+			Name:          "First User",
+			Role:          "user",
+			AutoGroups:    []string{},
+			IsServiceUser: false,
+		})
+		require.NoError(t, err)
+
+		// Try to create second user with same email
+		_, err = am.CreateUser(ctx, mockAccountID, mockUserID, &types.UserInfo{
+			Email:         "duplicate@test.com",
+			Name:          "Second User",
+			Role:          "user",
+			AutoGroups:    []string{},
+			IsServiceUser: false,
+		})
+		assert.Error(t, err, "Creating user with duplicate email should fail")
+		t.Logf("Duplicate email error: %v", err)
 	})
 }

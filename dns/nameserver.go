@@ -53,6 +53,7 @@ type NameServerGroup struct {
 	ID string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
+	PublicID  string `json:"-"`
 	// Name group name
 	Name string
 	// Description group description
@@ -100,6 +101,11 @@ func (n *NameServer) IsEqual(other *NameServer) bool {
 	return other.IP == n.IP &&
 		other.NSType == n.NSType &&
 		other.Port == n.Port
+}
+
+// AddrPort returns the nameserver as a netip.AddrPort
+func (n *NameServer) AddrPort() netip.AddrPort {
+	return netip.AddrPortFrom(n.IP, uint16(n.Port))
 }
 
 // ParseNameServerURL parses a nameserver url in the format <type>://<ip>:<port>, e.g., udp://1.1.1.1:53

@@ -1,49 +1,33 @@
 package peer
 
 import (
-	"sync/atomic"
-
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	// StatusConnected indicate the peer is in connected state
-	StatusConnected ConnStatus = iota
+	// StatusIdle indicate the peer is in disconnected state
+	StatusIdle ConnStatus = iota
 	// StatusConnecting indicate the peer is in connecting state
 	StatusConnecting
-	// StatusDisconnected indicate the peer is in disconnected state
-	StatusDisconnected
+	// StatusConnected indicate the peer is in connected state
+	StatusConnected
 )
+
+// connStatusInputs is the primitive-valued snapshot of the state that drives the
+// tri-state connection classification. Extracted so the decision logic can be unit-tested
+// without constructing full Worker/Handshaker objects.
+type connStatusInputs struct {
+	forceRelay          bool // NB_FORCE_RELAY or JS/WASM
+	peerUsesRelay       bool // remote peer advertises relay support AND local has relay
+	relayConnected      bool // statusRelay reports Connected (independent of whether peer uses relay)
+	remoteSupportsICE   bool // remote peer sent ICE credentials
+	iceWorkerCreated    bool // local WorkerICE exists (false in force-relay mode)
+	iceStatusConnecting bool // statusICE is anything other than Disconnected
+	iceInProgress       bool // a negotiation is currently in flight
+}
 
 // ConnStatus describe the status of a peer's connection
 type ConnStatus int32
-
-// AtomicConnStatus is a thread-safe wrapper for ConnStatus
-type AtomicConnStatus struct {
-	status atomic.Int32
-}
-
-// NewAtomicConnStatus creates a new AtomicConnStatus with the given initial status
-func NewAtomicConnStatus() *AtomicConnStatus {
-	acs := &AtomicConnStatus{}
-	acs.Set(StatusDisconnected)
-	return acs
-}
-
-// Get returns the current connection status
-func (acs *AtomicConnStatus) Get() ConnStatus {
-	return ConnStatus(acs.status.Load())
-}
-
-// Set updates the connection status
-func (acs *AtomicConnStatus) Set(status ConnStatus) {
-	acs.status.Store(int32(status))
-}
-
-// String returns the string representation of the current status
-func (acs *AtomicConnStatus) String() string {
-	return acs.Get().String()
-}
 
 func (s ConnStatus) String() string {
 	switch s {
@@ -51,8 +35,8 @@ func (s ConnStatus) String() string {
 		return "Connecting"
 	case StatusConnected:
 		return "Connected"
-	case StatusDisconnected:
-		return "Disconnected"
+	case StatusIdle:
+		return "Idle"
 	default:
 		log.Errorf("unknown status: %d", s)
 		return "INVALID_PEER_CONNECTION_STATUS"

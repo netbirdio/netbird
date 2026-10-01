@@ -9,10 +9,16 @@ import (
 var (
 	versionCmd = &cobra.Command{
 		Use:   "version",
-		Short: "prints Netbird version",
+		Short: "Print the NetBird's client application version",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.SetOut(cmd.OutOrStdout())
-			cmd.Println(version.NetbirdVersion())
+			out := version.NetbirdVersion()
+			if version.IsDevelopmentVersion(out) {
+				if commit := version.NetbirdCommit(); commit != "" {
+					out += "-" + commit
+				}
+			}
+			cmd.Println(out)
 		},
 	}
 )

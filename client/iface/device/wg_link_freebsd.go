@@ -2,10 +2,12 @@ package device
 
 import (
 	"fmt"
+	"os/exec"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/freebsd"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type wgLink struct {
@@ -56,24 +58,32 @@ func (l *wgLink) up() error {
 	return nil
 }
 
-func (l *wgLink) assignAddr(address WGAddress) error {
+func (l *wgLink) assignAddr(address *wgaddr.Address) error {
 	link, err := freebsd.LinkByName(l.name)
 	if err != nil {
 		return fmt.Errorf("link by name: %w", err)
 	}
 
-	ip := address.IP.String()
-	mask := "0x" + address.Network.Mask.String()
+	prefixLen := address.Network.Bits()
+	maskBits := uint32(0xffffffff) << (32 - prefixLen)
+	mask := fmt.Sprintf("0x%08x", maskBits)
 
-	log.Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
+	log.Infof("assign addr %s mask %s to %s interface", address.IP, mask, l.name)
 
-	err = link.AssignAddr(ip, mask)
-	if err != nil {
+	if err := link.AssignAddr(address.IP.String(), mask); err != nil {
 		return fmt.Errorf("assign addr: %w", err)
 	}
 
-	err = link.Up()
-	if err != nil {
+	if address.HasIPv6() {
+		log.Infof("assign IPv6 addr %s to %s interface", address.IPv6String(), l.name)
+		cmd := exec.Command("ifconfig", l.name, "inet6", address.IPv6String())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warnf("failed to assign IPv6 address %s to %s, continuing v4-only: %s: %v", address.IPv6String(), l.name, string(out), err)
+			address.ClearIPv6()
+		}
+	}
+
+	if err := link.Up(); err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
 

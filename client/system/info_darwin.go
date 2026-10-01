@@ -1,5 +1,4 @@
 //go:build !ios
-// +build !ios
 
 package system
 
@@ -19,6 +18,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+func UpdateStaticInfoAsync() {
+	go updateStaticInfo()
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	utsname := unix.Utsname{}
@@ -29,7 +32,7 @@ func GetInfo(ctx context.Context) *Info {
 	sysName := string(bytes.Split(utsname.Sysname[:], []byte{0})[0])
 	machine := string(bytes.Split(utsname.Machine[:], []byte{0})[0])
 	release := string(bytes.Split(utsname.Release[:], []byte{0})[0])
-	swVersion, err := exec.Command("sw_vers", "-productVersion").Output()
+	swVersion, err := exec.CommandContext(ctx, "sw_vers", "-productVersion").Output()
 	if err != nil {
 		log.Warnf("got an error while retrieving macOS version with sw_vers, error: %s. Using darwin version instead.\n", err)
 		swVersion = []byte(release)
@@ -41,7 +44,7 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	start := time.Now()
-	si := updateStaticInfo()
+	si := getStaticInfo()
 	if time.Since(start) > 1*time.Second {
 		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}

@@ -21,6 +21,7 @@ var (
 // Update fetch the version info periodically and notify the onUpdateListener in case the UI version or the
 // daemon version are deprecated
 type Update struct {
+	httpAgent       string
 	uiVersion       *goversion.Version
 	daemonVersion   *goversion.Version
 	latestAvailable *goversion.Version
@@ -34,26 +35,34 @@ type Update struct {
 }
 
 // NewUpdate instantiate Update and start to fetch the new version information
-func NewUpdate() *Update {
+func NewUpdate(httpAgent string) *Update {
 	currentVersion, err := goversion.NewVersion(version)
 	if err != nil {
 		currentVersion, _ = goversion.NewVersion("0.0.0")
 	}
 
-	latestAvailable, _ := goversion.NewVersion("0.0.0")
-
 	u := &Update{
-		latestAvailable: latestAvailable,
-		uiVersion:       currentVersion,
-		fetchTicker:     time.NewTicker(fetchPeriod),
-		fetchDone:       make(chan struct{}),
+		httpAgent: httpAgent,
+		uiVersion: currentVersion,
+		fetchDone: make(chan struct{}),
 	}
-	go u.startFetcher()
+
+	return u
+}
+
+func NewUpdateAndStart(httpAgent string) *Update {
+	u := NewUpdate(httpAgent)
+	go u.StartFetcher()
+
 	return u
 }
 
 // StopWatch stop the version info fetch loop
 func (u *Update) StopWatch() {
+	if u.fetchTicker == nil {
+		return
+	}
+
 	u.fetchTicker.Stop()
 
 	select {
@@ -92,25 +101,46 @@ func (u *Update) SetOnUpdateListener(updateFn func()) {
 	}
 }
 
-func (u *Update) startFetcher() {
-	changed := u.fetchVersion()
-	if changed {
+func (u *Update) LatestVersion() *goversion.Version {
+	u.versionsLock.Lock()
+	defer u.versionsLock.Unlock()
+	return u.latestAvailable
+}
+
+func (u *Update) StartFetcher() {
+	if u.fetchTicker != nil {
+		return
+	}
+	u.fetchTicker = time.NewTicker(fetchPeriod)
+
+	if changed := u.fetchVersion(); changed {
 		u.checkUpdate()
 	}
 
-	select {
-	case <-u.fetchDone:
-		return
-	case <-u.fetchTicker.C:
-		changed := u.fetchVersion()
-		if changed {
-			u.checkUpdate()
+	for {
+		select {
+		case <-u.fetchDone:
+			return
+		case <-u.fetchTicker.C:
+			if changed := u.fetchVersion(); changed {
+				u.checkUpdate()
+			}
 		}
 	}
 }
 
 func (u *Update) fetchVersion() bool {
-	resp, err := http.Get(versionURL)
+	log.Debugf("fetching version info from %s", versionURL)
+
+	req, err := http.NewRequest("GET", versionURL, nil)
+	if err != nil {
+		log.Errorf("failed to create request for version info: %s", err)
+		return false
+	}
+
+	req.Header.Set("User-Agent", u.httpAgent)
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Errorf("failed to fetch version info: %s", err)
 		return false
@@ -168,6 +198,10 @@ func (u *Update) checkUpdate() bool {
 func (u *Update) isUpdateAvailable() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
+
+	if u.latestAvailable == nil {
+		return false
+	}
 
 	if u.latestAvailable.GreaterThan(u.uiVersion) {
 		return true

@@ -1,0 +1,4 @@
+{
+  "description": "An enabled resource with a healthy router but no policy granting access to it must produce nothing anywhere: no route for the client and none for the router either, since access to a resource is only ever created by a policy. The router also gets no route firewall rules despite being a routing peer for the network.",
+  "peers": ["peer-a", "peer-r"]
+}

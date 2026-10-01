@@ -6,15 +6,20 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
-	UserRoleOwner        UserRole = "owner"
-	UserRoleAdmin        UserRole = "admin"
-	UserRoleUser         UserRole = "user"
-	UserRoleUnknown      UserRole = "unknown"
-	UserRoleBillingAdmin UserRole = "billing_admin"
+	UserRoleOwner             UserRole = "owner"
+	UserRoleAdmin             UserRole = "admin"
+	UserRoleUser              UserRole = "user"
+	UserRoleUnknown           UserRole = "unknown"
+	UserRoleBillingAdmin      UserRole = "billing_admin"
+	UserRoleAuditor           UserRole = "auditor"
+	UserRoleNetworkAdmin      UserRole = "network_admin"
+	UserRoleAgentNetworkAdmin UserRole = "agent_network_admin"
+	UserRoleUsageViewer       UserRole = "usage_viewer"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -35,6 +40,14 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleUser
 	case "billing_admin":
 		return UserRoleBillingAdmin
+	case "auditor":
+		return UserRoleAuditor
+	case "network_admin":
+		return UserRoleNetworkAdmin
+	case "agent_network_admin":
+		return UserRoleAgentNetworkAdmin
+	case "usage_viewer":
+		return UserRoleUsageViewer
 	default:
 		return UserRoleUnknown
 	}
@@ -58,12 +71,12 @@ type UserInfo struct {
 	NonDeletable         bool                                       `json:"non_deletable"`
 	LastLogin            time.Time                                  `json:"last_login"`
 	Issued               string                                     `json:"issued"`
+	PendingApproval      bool                                       `json:"pending_approval"`
+	Password             string                                     `json:"password"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
-	Permissions          UserPermissions                            `json:"permissions"`
-}
-
-type UserPermissions struct {
-	DashboardView string `json:"dashboard_view"`
+	// IdPID is the identity provider ID (connector ID) extracted from the Dex-encoded user ID.
+	// This field is only populated when the user ID can be decoded from Dex's format.
+	IdPID string `json:"idp_id,omitempty"`
 }
 
 // User represents a user of the system
@@ -83,6 +96,8 @@ type User struct {
 	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
+	// PendingApproval indicates whether the user requires approval before being activated
+	PendingApproval bool
 	// LastLogin is the last time the user logged in to IdP
 	LastLogin *time.Time
 	// CreatedAt records the time the user was created
@@ -92,6 +107,9 @@ type User struct {
 	Issued string `gorm:"default:api"`
 
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
+
+	Name  string `gorm:"default:''"`
+	Email string `gorm:"default:''"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -126,36 +144,37 @@ func (u *User) IsRegularUser() bool {
 	return !u.HasAdminPower() && !u.IsServiceUser
 }
 
+// IsRestrictable checks whether a user is in a restrictable role.
+func (u *User) IsRestrictable() bool {
+	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin || u.Role == UserRoleUsageViewer
+}
+
 // ToUserInfo converts a User object to a UserInfo object.
-func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
+func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
 	}
 
-	dashboardViewPermissions := "full"
-	if !u.HasAdminPower() {
-		dashboardViewPermissions = "limited"
-		if settings.RegularUsersViewBlocked {
-			dashboardViewPermissions = "blocked"
-		}
-	}
-
 	if userData == nil {
+
+		name := u.Name
+		if u.IsServiceUser {
+			name = u.ServiceUserName
+		}
+
 		return &UserInfo{
-			ID:            u.Id,
-			Email:         "",
-			Name:          u.ServiceUserName,
-			Role:          string(u.Role),
-			AutoGroups:    u.AutoGroups,
-			Status:        string(UserStatusActive),
-			IsServiceUser: u.IsServiceUser,
-			IsBlocked:     u.Blocked,
-			LastLogin:     u.GetLastLogin(),
-			Issued:        u.Issued,
-			Permissions: UserPermissions{
-				DashboardView: dashboardViewPermissions,
-			},
+			ID:              u.Id,
+			Email:           u.Email,
+			Name:            name,
+			Role:            string(u.Role),
+			AutoGroups:      u.AutoGroups,
+			Status:          string(UserStatusActive),
+			IsServiceUser:   u.IsServiceUser,
+			IsBlocked:       u.Blocked,
+			LastLogin:       u.GetLastLogin(),
+			Issued:          u.Issued,
+			PendingApproval: u.PendingApproval,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -168,19 +187,18 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 	}
 
 	return &UserInfo{
-		ID:            u.Id,
-		Email:         userData.Email,
-		Name:          userData.Name,
-		Role:          string(u.Role),
-		AutoGroups:    autoGroups,
-		Status:        string(userStatus),
-		IsServiceUser: u.IsServiceUser,
-		IsBlocked:     u.Blocked,
-		LastLogin:     u.GetLastLogin(),
-		Issued:        u.Issued,
-		Permissions: UserPermissions{
-			DashboardView: dashboardViewPermissions,
-		},
+		ID:              u.Id,
+		Email:           userData.Email,
+		Name:            userData.Name,
+		Role:            string(u.Role),
+		AutoGroups:      autoGroups,
+		Status:          string(userStatus),
+		IsServiceUser:   u.IsServiceUser,
+		IsBlocked:       u.Blocked,
+		LastLogin:       u.GetLastLogin(),
+		Issued:          u.Issued,
+		PendingApproval: u.PendingApproval,
+		Password:        userData.Password,
 	}, nil
 }
 
@@ -202,15 +220,18 @@ func (u *User) Copy() *User {
 		ServiceUserName:      u.ServiceUserName,
 		PATs:                 pats,
 		Blocked:              u.Blocked,
+		PendingApproval:      u.PendingApproval,
 		LastLogin:            u.LastLogin,
 		CreatedAt:            u.CreatedAt,
 		Issued:               u.Issued,
 		IntegrationReference: u.IntegrationReference,
+		Email:                u.Email,
+		Name:                 u.Name,
 	}
 }
 
 // NewUser creates a new user
-func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string) *User {
+func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string, email string, name string) *User {
 	return &User{
 		Id:              id,
 		Role:            role,
@@ -220,20 +241,89 @@ func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, se
 		AutoGroups:      autoGroups,
 		Issued:          issued,
 		CreatedAt:       time.Now().UTC(),
+		Name:            name,
+		Email:           email,
 	}
 }
 
 // NewRegularUser creates a new user with role UserRoleUser
-func NewRegularUser(id string) *User {
-	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI)
+func NewRegularUser(id, email, name string) *User {
+	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI, email, name)
 }
 
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
-	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI)
+	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI, "", "")
 }
 
 // NewOwnerUser creates a new user with role UserRoleOwner
-func NewOwnerUser(id string) *User {
-	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI)
+func NewOwnerUser(id string, email string, name string) *User {
+	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI, email, name)
+}
+
+// EncryptSensitiveData encrypts the user's sensitive fields (Email and Name) in place.
+func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	if enc == nil {
+		return nil
+	}
+
+	var err error
+	if u.Email != "" {
+		u.Email, err = enc.Encrypt(u.Email)
+		if err != nil {
+			return fmt.Errorf("encrypt email: %w", err)
+		}
+	}
+
+	if u.Name != "" {
+		u.Name, err = enc.Encrypt(u.Name)
+		if err != nil {
+			return fmt.Errorf("encrypt name: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func MaskEmail(email string) string {
+	local, domain, found := strings.Cut(email, "@")
+	if !found || local == "" || domain == "" {
+		return ""
+	}
+
+	// Runes, not bytes, so a non-ASCII local part is not cut mid-character.
+	runes := []rune(local)
+
+	// Keeping the first two and the last needs a local part of at least four to
+	// hide anything at all: at three or fewer those are the whole of it, and the
+	// address would be recoverable in full from what is meant to conceal it.
+	if len(runes) < 4 {
+		return "****@" + domain
+	}
+
+	return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
+}
+
+// DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.
+func (u *User) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	if enc == nil {
+		return nil
+	}
+
+	var err error
+	if u.Email != "" {
+		u.Email, err = enc.Decrypt(u.Email)
+		if err != nil {
+			return fmt.Errorf("decrypt email: %w", err)
+		}
+	}
+
+	if u.Name != "" {
+		u.Name, err = enc.Decrypt(u.Name)
+		if err != nil {
+			return fmt.Errorf("decrypt name: %w", err)
+		}
+	}
+
+	return nil
 }

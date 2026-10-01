@@ -1,2 +1,2 @@
-#!/bin/bash
+#!/usr/bin/env bash
 protoc -I testprotos/ testprotos/testproto.proto --go_out=.

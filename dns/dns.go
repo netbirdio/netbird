@@ -19,6 +19,10 @@ const (
 	RootZone = "."
 	// DefaultClass is the class supported by the system
 	DefaultClass = "IN"
+	// ForwarderClientPort is the port clients connect to. DNAT rewrites packets from ForwarderClientPort to ForwarderServerPort.
+	ForwarderClientPort uint16 = 5353
+	// ForwarderServerPort is the port the DNS forwarder actually listens on. Packets to ForwarderClientPort are DNATed here.
+	ForwarderServerPort uint16 = 22054
 )
 
 const invalidHostLabel = "[^a-zA-Z0-9-]+"
@@ -31,6 +35,8 @@ type Config struct {
 	NameServerGroups []*NameServerGroup
 	// CustomZones contains a list of custom zone
 	CustomZones []CustomZone
+	// ForwarderPort is the port clients should connect to on routing peers for DNS forwarding
+	ForwarderPort uint16
 }
 
 // CustomZone represents a custom zone to be resolved by the dns server
@@ -39,6 +45,10 @@ type CustomZone struct {
 	Domain string
 	// Records custom zone records
 	Records []SimpleRecord
+	// SearchDomainDisabled indicates whether to add match domains to a search domains list or not
+	SearchDomainDisabled bool
+	// NonAuthoritative marks user-created zones
+	NonAuthoritative bool
 }
 
 // SimpleRecord provides a simple DNS record specification for CNAME, A and AAAA records
@@ -66,17 +76,17 @@ func (s SimpleRecord) String() string {
 func (s SimpleRecord) Len() uint16 {
 	emptyString := s.RData == ""
 	switch s.Type {
-	case 1:
+	case int(dns.TypeA):
 		if emptyString {
 			return 0
 		}
 		return net.IPv4len
-	case 5:
+	case int(dns.TypeCNAME):
 		if emptyString || s.RData == "." {
 			return 1
 		}
 		return uint16(len(s.RData) + 1)
-	case 28:
+	case int(dns.TypeAAAA):
 		if emptyString {
 			return 0
 		}
@@ -111,6 +121,5 @@ func GetParsedDomainLabel(name string) (string, error) {
 
 // NormalizeZone returns a normalized domain name without the wildcard prefix
 func NormalizeZone(domain string) string {
-	d, _ := strings.CutPrefix(domain, "*.")
-	return d
+	return strings.TrimPrefix(domain, "*.")
 }

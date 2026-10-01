@@ -1,0 +1,2 @@
+# Some files eg. management.json are being ignored by root .gitignore. Need to un-ignore all json dashboards here.
+!*.json

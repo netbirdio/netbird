@@ -18,6 +18,11 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// UpdateStaticInfoAsync is a no-op on Android as there is no static info to update
+func UpdateStaticInfoAsync() {
+	// do nothing
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	out := _getInfo()
@@ -38,18 +43,24 @@ func GetInfo(ctx context.Context) *Info {
 
 	systemHostname, _ := os.Hostname()
 
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+
 	return &Info{
-		GoOS:           runtime.GOOS,
-		Kernel:         osInfo[0],
-		Platform:       runtime.GOARCH,
-		OS:             osName,
-		OSVersion:      osVersion,
-		Hostname:       extractDeviceName(ctx, systemHostname),
-		CPUs:           runtime.NumCPU(),
-		NetbirdVersion: version.NetbirdVersion(),
-		UIVersion:      extractUserAgent(ctx),
-		KernelVersion:  osInfo[1],
-		Environment:    env,
+		GoOS:             runtime.GOOS,
+		Kernel:           osInfo[0],
+		Platform:         runtime.GOARCH,
+		OS:               osName,
+		OSVersion:        osVersion,
+		Hostname:         extractDeviceName(ctx, systemHostname),
+		CPUs:             runtime.NumCPU(),
+		NetbirdVersion:   version.NetbirdVersion(),
+		UIVersion:        extractUserAgent(ctx),
+		KernelVersion:    osInfo[1],
+		NetworkAddresses: addrs,
+		Environment:      env,
 	}
 }
 

@@ -1,6 +1,3 @@
-//go:build android
-// +build android
-
 package system
 
 import (
@@ -15,6 +12,11 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// UpdateStaticInfoAsync is a no-op on Android as there is no static info to update
+func UpdateStaticInfoAsync() {
+	// do nothing
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	kernel := "android"
@@ -28,6 +30,11 @@ func GetInfo(ctx context.Context) *Info {
 		kernelVersion = osInfo[2]
 	}
 
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("discover network addresses: %s", err)
+	}
+
 	gio := &Info{
 		GoOS:               runtime.GOOS,
 		Kernel:             kernel,
@@ -39,6 +46,7 @@ func GetInfo(ctx context.Context) *Info {
 		NetbirdVersion:     version.NetbirdVersion(),
 		UIVersion:          extractUIVersion(ctx),
 		KernelVersion:      kernelVersion,
+		NetworkAddresses:   addrs,
 		SystemSerialNumber: serial(),
 		SystemProductName:  productModel(),
 		SystemManufacturer: productManufacturer(),
@@ -48,7 +56,7 @@ func GetInfo(ctx context.Context) *Info {
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
-func checkFileAndProcess(paths []string) ([]File, error) {
+func checkFileAndProcess(_ context.Context, _ []string) ([]File, error) {
 	return []File{}, nil
 }
 

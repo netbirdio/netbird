@@ -1,4 +1,4 @@
-//go:build (linux && !android) || (darwin && !ios) || freebsd || openbsd || netbsd || dragonfly
+//go:build ((linux && !android) || (darwin && !ios) || freebsd || openbsd || netbsd || dragonfly) && privileged
 
 package systemops
 
@@ -17,72 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
-
-type PacketExpectation struct {
-	SrcIP   net.IP
-	DstIP   net.IP
-	SrcPort int
-	DstPort int
-	UDP     bool
-	TCP     bool
-}
-
-type testCase struct {
-	name              string
-	destination       string
-	expectedInterface string
-	dialer            dialer
-	expectedPacket    PacketExpectation
-}
-
-var testCases = []testCase{
-	{
-		name:              "To external host without custom dialer via vpn",
-		destination:       "192.0.2.1:53",
-		expectedInterface: expectedVPNint,
-		dialer:            &net.Dialer{},
-		expectedPacket:    createPacketExpectation("100.64.0.1", 12345, "192.0.2.1", 53),
-	},
-	{
-		name:              "To external host with custom dialer via physical interface",
-		destination:       "192.0.2.1:53",
-		expectedInterface: expectedExternalInt,
-		dialer:            nbnet.NewDialer(),
-		expectedPacket:    createPacketExpectation("192.168.0.1", 12345, "192.0.2.1", 53),
-	},
-
-	{
-		name:              "To duplicate internal route with custom dialer via physical interface",
-		destination:       "10.0.0.2:53",
-		expectedInterface: expectedInternalInt,
-		dialer:            nbnet.NewDialer(),
-		expectedPacket:    createPacketExpectation("192.168.1.1", 12345, "10.0.0.2", 53),
-	},
-	{
-		name:              "To duplicate internal route without custom dialer via physical interface", // local route takes precedence
-		destination:       "10.0.0.2:53",
-		expectedInterface: expectedInternalInt,
-		dialer:            &net.Dialer{},
-		expectedPacket:    createPacketExpectation("192.168.1.1", 12345, "10.0.0.2", 53),
-	},
-
-	{
-		name:              "To unique vpn route with custom dialer via physical interface",
-		destination:       "172.16.0.2:53",
-		expectedInterface: expectedExternalInt,
-		dialer:            nbnet.NewDialer(),
-		expectedPacket:    createPacketExpectation("192.168.0.1", 12345, "172.16.0.2", 53),
-	},
-	{
-		name:              "To unique vpn route without custom dialer via vpn",
-		destination:       "172.16.0.2:53",
-		expectedInterface: expectedVPNint,
-		dialer:            &net.Dialer{},
-		expectedPacket:    createPacketExpectation("100.64.0.1", 12345, "172.16.0.2", 53),
-	},
-}
 
 func TestRouting(t *testing.T) {
 	nbnet.Init()
@@ -94,10 +30,11 @@ func TestRouting(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			setupTestEnv(t)
 
-			filter := createBPFFilter(tc.destination)
+			dst := fmt.Sprintf("%s:%d", tc.expectedPacket.DstIP, tc.expectedPacket.DstPort)
+			filter := createBPFFilter(dst)
 			handle := startPacketCapture(t, tc.expectedInterface, filter)
 
-			sendTestPacket(t, tc.destination, tc.expectedPacket.SrcPort, tc.dialer)
+			sendTestPacket(t, dst, tc.expectedPacket.SrcPort, tc.dialer)
 
 			packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 			packet, err := packetSource.NextPacket()
@@ -105,16 +42,6 @@ func TestRouting(t *testing.T) {
 
 			verifyPacket(t, packet, tc.expectedPacket)
 		})
-	}
-}
-
-func createPacketExpectation(srcIP string, srcPort int, dstIP string, dstPort int) PacketExpectation {
-	return PacketExpectation{
-		SrcIP:   net.ParseIP(srcIP),
-		DstIP:   net.ParseIP(dstIP),
-		SrcPort: srcPort,
-		DstPort: dstPort,
-		UDP:     true,
 	}
 }
 

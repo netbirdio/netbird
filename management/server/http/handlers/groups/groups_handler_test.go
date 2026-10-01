@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -19,23 +19,24 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 var TestPeers = map[string]*nbpeer.Peer{
-	"A": {Key: "A", ID: "peer-A-ID", IP: net.ParseIP("100.100.100.100")},
-	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
+	"A": {Key: "A", ID: "peer-A-ID", IP: netip.MustParseAddr("100.100.100.100")},
+	"B": {Key: "B", ID: "peer-B-ID", IP: netip.MustParseAddr("200.200.200.200")},
 }
 
 func initGroupTestData(initGroups ...*types.Group) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group) error {
+			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group, create bool) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}
@@ -59,14 +60,25 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return group, nil
 			},
-			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*types.Group, error) {
+			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
+				groups := []*types.Group{
+					{ID: "id-jwt-group", Name: "From JWT", Issued: types.GroupIssuedJWT},
+					{ID: "id-existed", Name: "Existed", Peers: []string{"A", "B"}, Issued: types.GroupIssuedAPI},
+					{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI},
+				}
+
+				groups = append(groups, initGroups...)
+
+				return groups, nil
+			},
+			GetGroupByNameFunc: func(ctx context.Context, groupName, _, _ string) (*types.Group, error) {
 				if groupName == "All" {
 					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
 				}
 
-				return nil, fmt.Errorf("unknown group name")
+				return nil, status.Errorf(status.NotFound, "unknown group name")
 			},
-			GetPeersFunc: func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return maps.Values(TestPeers), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
@@ -122,7 +134,7 @@ func TestGetGroup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -197,6 +209,33 @@ func TestWriteGroup(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:        "Write Group POST Empty Resource",
+			requestType: http.MethodPost,
+			requestPath: "/api/groups",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":"With Resource","resources":[{}]}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PUT Empty Resource",
+			requestType: http.MethodPut,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":"With Resource","resources":[{"id":"","type":"host"}]}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group POST Unknown Resource Type",
+			requestType: http.MethodPost,
+			requestPath: "/api/groups",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":"With Resource","resources":[{"id":"res-1","type":"banana"}]}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:        "Write Group PUT OK",
 			requestType: http.MethodPut,
 			requestPath: "/api/groups/id-existed",
@@ -248,7 +287,7 @@ func TestWriteGroup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -284,6 +323,98 @@ func TestWriteGroup(t *testing.T) {
 			assert.Equal(t, got, tc.expectedGroup)
 		})
 	}
+}
+
+func TestGetAllGroups(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		expectedBody   bool
+		requestType    string
+		requestPath    string
+		expectedCount  int
+	}{
+		{
+			name:           "Get All Groups",
+			expectedBody:   true,
+			requestType:    http.MethodGet,
+			requestPath:    "/api/groups",
+			expectedStatus: http.StatusOK,
+			expectedCount:  3, // id-jwt-group, id-existed, id-all
+		},
+		{
+			name:           "Get Group By Name - Existing",
+			expectedBody:   true,
+			requestType:    http.MethodGet,
+			requestPath:    "/api/groups?name=All",
+			expectedStatus: http.StatusOK,
+			expectedCount:  1,
+		},
+		{
+			name:           "Get Group By Name - Not Found",
+			expectedBody:   false,
+			requestType:    http.MethodGet,
+			requestPath:    "/api/groups?name=NonExistent",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	p := initGroupTestData()
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/groups", p.getAllGroups).Methods("GET")
+			router.ServeHTTP(recorder, req)
+
+			res := recorder.Result()
+			defer res.Body.Close()
+
+			if status := recorder.Code; status != tc.expectedStatus {
+				t.Errorf("handler returned wrong status code: got %v want %v",
+					status, tc.expectedStatus)
+				return
+			}
+
+			if !tc.expectedBody {
+				return
+			}
+
+			content, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatalf("Failed to read response body: %v", err)
+			}
+
+			var groups []api.Group
+			if err = json.Unmarshal(content, &groups); err != nil {
+				t.Fatalf("Response is not in correct json format; %v", err)
+			}
+
+			assert.Equal(t, tc.expectedCount, len(groups))
+		})
+	}
+}
+
+func TestToGroupResponseSkipsEmptyResource(t *testing.T) {
+	group := &types.Group{
+		ID:        "id-resources",
+		Name:      "Resources",
+		Issued:    types.GroupIssuedAPI,
+		Resources: []types.Resource{{}, {ID: "res-1", Type: types.ResourceTypeHost}},
+	}
+
+	got := toGroupResponse(nil, group)
+
+	assert.Equal(t, 1, got.ResourcesCount)
+	assert.Equal(t, []api.Resource{{Id: "res-1", Type: api.ResourceType(types.ResourceTypeHost)}}, got.Resources)
 }
 
 func TestDeleteGroup(t *testing.T) {
@@ -330,7 +461,7 @@ func TestDeleteGroup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",

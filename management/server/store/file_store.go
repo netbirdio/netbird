@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	nbutil "github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 // storeFileName Store file name. Stored in the datadir
@@ -156,7 +157,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 
 		allGroup, err := account.GetGroupAll()
 		if err != nil {
-			log.WithContext(ctx).Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)
+			log.WithContext(ctx).Errorf("unable to find the All group, this should happen only when migratePreAuto from a version that didn't support groups. Error: %v", err)
 			// if the All group didn't exist we probably don't have routes to update
 			continue
 		}
@@ -260,6 +261,28 @@ func (s *FileStore) Close(ctx context.Context) error {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (s *FileStore) GetStoreEngine() Engine {
-	return FileStoreEngine
+func (s *FileStore) GetStoreEngine() types.Engine {
+	return types.FileStoreEngine
+}
+
+// SetFieldEncrypt is a no-op for FileStore as it doesn't support field encryption.
+func (s *FileStore) SetFieldEncrypt(_ *crypt.FieldEncrypt) {
+	// no-op: FileStore stores data in plaintext JSON; encryption is not supported
+}
+
+// GetCustomDomainsCounts is a no-op for FileStore as it doesn't support custom domains.
+func (s *FileStore) GetCustomDomainsCounts(_ context.Context) (int64, int64, error) {
+	return 0, 0, nil
+}
+
+// GetProxyMetrics is a no-op for FileStore — proxy/cluster state isn't
+// persisted in the JSON file format.
+func (s *FileStore) GetProxyMetrics(_ context.Context) (ProxyMetrics, error) {
+	return ProxyMetrics{}, nil
+}
+
+// GetAgentNetworkMetrics is a no-op for FileStore — agent-network state isn't
+// persisted in the JSON file format.
+func (s *FileStore) GetAgentNetworkMetrics(_ context.Context) (AgentNetworkMetrics, error) {
+	return AgentNetworkMetrics{}, nil
 }

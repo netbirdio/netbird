@@ -1,6 +1,7 @@
 package peerstore
 
 import (
+	"context"
 	"net/netip"
 	"sync"
 
@@ -77,6 +78,56 @@ func (s *Store) PeerConn(pubKey string) (*peer.Conn, bool) {
 		return nil, false
 	}
 	return p, true
+}
+
+func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	if err := p.Open(ctx); err != nil {
+		p.Log.Errorf("failed to open peer connection: %v", err)
+	}
+}
+
+// PeerConnOpenWithFirstPacket opens the peer connection and stashes a first packet to be
+// reinjected once the real transport is established.
+func (s *Store) PeerConnOpenWithFirstPacket(ctx context.Context, pubKey string, firstPacket []byte) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	if err := p.OpenWithFirstPacket(ctx, firstPacket); err != nil {
+		p.Log.Errorf("failed to open peer connection: %v", err)
+	}
+}
+
+func (s *Store) PeerConnIdle(pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	p.Close(true)
+}
+
+func (s *Store) PeerConnClose(pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	p.Close(false)
 }
 
 func (s *Store) PeersPubKey() []string {

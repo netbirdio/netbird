@@ -1,0 +1,51 @@
+{
+  "Network": {"Serial": 21},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.40.0"}},
+    "peer-c": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-ops": {"Peers": ["peer-c"]}
+  },
+  "PostureChecks": {
+    "chk-ver": {"Checks": {"NBVersionCheck": {"MinVersion": "0.45.0"}}}
+  },
+  "PostureCheckXIDToPublicID": {"chk-ver": "chk-ver-pub"},
+  "Policies": [
+    {
+      "ID": "pol-direct-ok",
+      "PublicID": "pol-direct-ok-pub",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-ver"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "SourceResource": {"ID": "peer-a", "Type": "peer"},
+          "Destinations": ["grp-ops"]
+        }
+      ]
+    },
+    {
+      "ID": "pol-direct-denied",
+      "PublicID": "pol-direct-denied-pub",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-ver"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["8443"],
+          "Bidirectional": true,
+          "SourceResource": {"ID": "peer-b", "Type": "peer"},
+          "Destinations": ["grp-ops"]
+        }
+      ]
+    }
+  ]
+}

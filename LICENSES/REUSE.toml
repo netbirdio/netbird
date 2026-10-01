@@ -1,0 +1,6 @@
+[project]
+default_license = "BSD-3-Clause"
+
+[[files]]
+paths = ["management/", "signal/", "relay/"]
+license = "AGPL-3.0-only"

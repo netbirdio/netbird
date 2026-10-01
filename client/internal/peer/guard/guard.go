@@ -8,11 +8,25 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// ConnStatus represents the connection state as seen by the guard.
+type ConnStatus int
+
 const (
-	reconnectMaxElapsedTime = 30 * time.Minute
+	// ConnStatusDisconnected means neither ICE nor Relay is connected.
+	ConnStatusDisconnected ConnStatus = iota
+	// ConnStatusPartiallyConnected means Relay is connected but ICE is not.
+	ConnStatusPartiallyConnected
+	// ConnStatusConnected means all required connections are established.
+	ConnStatusConnected
 )
 
-type isConnectedFunc func() bool
+type connStatusFunc func() ConnStatus
+
+// NetworkWatcher is the availability view the guard gates reconnects on.
+type NetworkWatcher interface {
+	IsOnline() bool
+	Changed() <-chan struct{}
+}
 
 // Guard is responsible for the reconnection logic.
 // It will trigger to send an offer to the peer then has connection issues.
@@ -23,35 +37,34 @@ type isConnectedFunc func() bool
 // - Relayed connection disconnected
 // - ICE candidate changes
 type Guard struct {
-	Reconnect               chan struct{}
-	log                     *log.Entry
-	isController            bool
-	isConnectedOnAllWay     isConnectedFunc
-	timeout                 time.Duration
-	srWatcher               *SRWatcher
+	log                 *log.Entry
+	isConnectedOnAllWay connStatusFunc
+	timeout             time.Duration
+	srWatcher           *SRWatcher
+	// netWatcher gates reconnect attempts on OS-reported network availability;
+	// nil disables gating.
+	netWatcher              NetworkWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
 }
 
-func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
+// NewGuard creates a reconnection guard for a peer connection. A nil netWatcher
+// disables network availability gating.
+func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netWatcher NetworkWatcher) *Guard {
 	return &Guard{
-		Reconnect:               make(chan struct{}, 1),
 		log:                     log,
-		isController:            isController,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
+		netWatcher:              netWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
 }
 
-func (g *Guard) Start(ctx context.Context) {
-	if g.isController {
-		g.reconnectLoopWithRetry(ctx)
-	} else {
-		g.listenForDisconnectEvents(ctx)
-	}
+func (g *Guard) Start(ctx context.Context, eventCallback func()) {
+	g.log.Infof("starting guard for reconnection with MaxInterval: %s", g.timeout)
+	g.reconnectLoopWithRetry(ctx, eventCallback)
 }
 
 func (g *Guard) SetRelayedConnDisconnected() {
@@ -68,51 +81,98 @@ func (g *Guard) SetICEConnDisconnected() {
 	}
 }
 
-// reconnectLoopWithRetry periodically check (max 30 min) the connection status.
-// Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
-func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
-	waitForInitialConnectionTry(ctx)
-
+// reconnectLoopWithRetry periodically checks the connection status and sends offers to re-establish connectivity.
+//
+// Behavior depends on the connection state reported by isConnectedOnAllWay:
+//   - Connected: no action, the peer is fully reachable.
+//   - Disconnected (neither ICE nor Relay): retries aggressively with exponential backoff (800ms doubling
+//     up to timeout), never gives up. This ensures rapid recovery when the peer has no connectivity at all.
+//   - PartiallyConnected (Relay up, ICE not): retries up to 3 times with exponential backoff, then switches
+//     to one attempt per hour. This limits signaling traffic when relay already provides connectivity.
+//
+// External events (relay/ICE disconnect, signal/relay reconnect, candidate changes) reset the retry
+// counter and backoff ticker, giving ICE a fresh chance after network conditions change.
+func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
-	ticker := g.prepareExponentTicker(ctx)
-	defer ticker.Stop()
+	ticker := g.initialTicker(ctx)
+	defer func() {
+		// If backoff.Ticker.send is blocked, context.Done will not close the Ticker goroutine.
+		// We have to explicitly call Stop, even if we use backoff.WithContext.
+		ticker.Stop()
+	}()
 
 	tickerChannel := ticker.C
 
-	g.log.Infof("start reconnect loop...")
+	iceState := &iceRetryState{log: g.log}
+	defer iceState.reset()
+
+	var netChanged <-chan struct{}
+	if g.netWatcher != nil {
+		netChanged = g.netWatcher.Changed()
+	}
+
 	for {
 		select {
-		case t := <-tickerChannel:
-			if t.IsZero() {
-				g.log.Infof("retry timed out, stop periodic offer sending")
-				// after backoff timeout the ticker.C will be closed. We need to a dummy channel to avoid loop
-				tickerChannel = make(<-chan time.Time)
+		case <-tickerChannel:
+			// skip attempts while the OS reports no usable network; the
+			// netChanged case below resumes the loop once it returns
+			if g.netWatcher != nil && !g.netWatcher.IsOnline() {
 				continue
 			}
-
-			if !g.isConnectedOnAllWay() {
-				g.triggerOfferSending()
+			switch g.isConnectedOnAllWay() {
+			case ConnStatusConnected:
+				// all good, nothing to do
+			case ConnStatusDisconnected:
+				callback()
+			case ConnStatusPartiallyConnected:
+				if iceState.shouldRetry() {
+					callback()
+				} else {
+					iceState.enterHourlyMode()
+					ticker.Stop()
+					tickerChannel = iceState.hourlyC()
+				}
 			}
 
 		case <-g.relayedConnDisconnected:
 			g.log.Debugf("Relay connection changed, reset reconnection ticker")
 			ticker.Stop()
-			ticker = g.prepareExponentTicker(ctx)
+			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C
+			iceState.reset()
 
 		case <-g.iCEConnDisconnected:
 			g.log.Debugf("ICE connection changed, reset reconnection ticker")
 			ticker.Stop()
-			ticker = g.prepareExponentTicker(ctx)
+			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C
+			iceState.reset()
 
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
 			ticker.Stop()
-			ticker = g.prepareExponentTicker(ctx)
+			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C
+			iceState.reset()
+
+		case <-netChanged:
+			// Re-arm for the next transition before acting on this one.
+			netChanged = g.netWatcher.Changed()
+			if !g.netWatcher.IsOnline() {
+				continue
+			}
+			// Ticks skipped while offline drove the backoff towards its
+			// maximum without ever attempting, and left the ICE budget
+			// frozen — possibly in hourly mode. Recover on our own so the
+			// peer does not depend on a signal or relay event that never
+			// comes when both stayed up across the outage.
+			g.log.Debugf("network is back, reset reconnection ticker")
+			ticker.Stop()
+			ticker = g.newReconnectTicker(ctx)
+			tickerChannel = ticker.C
+			iceState.reset()
 
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")
@@ -121,39 +181,26 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 	}
 }
 
-// listenForDisconnectEvents is used when the peer is not a controller and it should reconnect to the peer
-// when the connection is lost. It will try to establish a connection only once time if before the connection was established
-// It track separately the ice and relay connection status. Just because a lower priority connection reestablished it does not
-// mean that to switch to it. We always force to use the higher priority connection.
-func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
-	srReconnectedChan := g.srWatcher.NewListener()
-	defer g.srWatcher.RemoveListener(srReconnectedChan)
+// initialTicker give chance to the peer to establish the initial connection.
+func (g *Guard) initialTicker(ctx context.Context) *backoff.Ticker {
+	bo := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     3 * time.Second,
+		RandomizationFactor: 0.1,
+		Multiplier:          2,
+		MaxInterval:         g.timeout,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
 
-	g.log.Infof("start listen for reconnect events...")
-	for {
-		select {
-		case <-g.relayedConnDisconnected:
-			g.log.Debugf("Relay connection changed, triggering reconnect")
-			g.triggerOfferSending()
-		case <-g.iCEConnDisconnected:
-			g.log.Debugf("ICE state changed, try to send new offer")
-			g.triggerOfferSending()
-		case <-srReconnectedChan:
-			g.triggerOfferSending()
-		case <-ctx.Done():
-			g.log.Debugf("context is done, stop reconnect loop")
-			return
-		}
-	}
+	return backoff.NewTicker(bo)
 }
 
-func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
+func (g *Guard) newReconnectTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: 0.1,
 		Multiplier:          2,
 		MaxInterval:         g.timeout,
-		MaxElapsedTime:      reconnectMaxElapsedTime,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -162,21 +209,4 @@ func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
-}
-
-func (g *Guard) triggerOfferSending() {
-	select {
-	case g.Reconnect <- struct{}{}:
-	default:
-	}
-}
-
-// Give chance to the peer to establish the initial connection.
-// With it, we can decrease to send necessary offer
-func waitForInitialConnectionTry(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
-	}
 }

@@ -1,12 +1,12 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type Resource struct {
 	ID   string
-	Type string
+	Type ResourceType
 }
 
 func (r *Resource) ToAPIResponse() *api.Resource {
@@ -26,5 +26,5 @@ func (r *Resource) FromAPIRequest(req *api.Resource) {
 	}
 
 	r.ID = req.Id
-	r.Type = string(req.Type)
+	r.Type = ResourceType(req.Type)
 }
