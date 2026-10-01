@@ -106,3 +106,31 @@ func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 }
+
+func TestCollectChallenges_RefusesMalformedInput(t *testing.T) {
+	ca := certtest.NewCA(t, "corp-root")
+	dir := t.TempDir()
+	key := certtest.ECDSAKey(t)
+	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
+	store := NewFileStore(dir)
+	nonce := certposture.NewChallenger([]byte("secret")).Nonce(peerKey, time.Now())
+
+	tests := []struct {
+		name    string
+		nonce   []byte
+		peerKey []byte
+		want    int
+	}{
+		{"issued nonce and peer key are signed", nonce, peerKey, 1},
+		{"short nonce is not signed", nonce[:8], peerKey, 0},
+		{"oversized nonce is not signed", append(append([]byte{}, nonce...), 0), peerKey, 0},
+		{"short peer key is not signed", nonce, peerKey[:16], 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			challenges := []*proto.CertificateChallenge{{Nonce: tt.nonce, CaCertificates: []string{ca.PEM}}}
+			assert.Len(t, CollectChallenges(context.Background(), store, challenges, tt.peerKey), tt.want,
+				"the device key signs only what management could have issued")
+		})
+	}
+}

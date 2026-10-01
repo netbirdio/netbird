@@ -14,6 +14,9 @@ const (
 	challengeDomain = "netbird-cert-challenge-v1"
 	windowLen       = 8
 	nonceLen        = windowLen + sha256.Size
+
+	// NonceSize is the length of every nonce a Challenger issues.
+	NonceSize = nonceLen
 )
 
 var (

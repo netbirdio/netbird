@@ -12,7 +12,9 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-var challengeChecks = []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: []byte("nonce")}}}
+var challengeChecks = []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{
+	Nonce: certposture.NewChallenger([]byte("secret")).Nonce(peerKey, time.Now()),
+}}}
 
 func TestCollector_SkipsChecksWithoutChallenges(t *testing.T) {
 	var c Collector

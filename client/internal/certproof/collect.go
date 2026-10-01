@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -31,7 +32,17 @@ func logNoChallenges(checks []*proto.Checks) {
 
 // CollectChallenges answers challenges already extracted from the posture checks, so a
 // caller that ships them across a process boundary reuses the same matching and signing.
+// Only nonces of the size management issues are signed, for a peer key of the size of
+// ours, so the keys behind the store never sign arbitrary caller-chosen data.
 func CollectChallenges(ctx context.Context, store Store, challenges []*proto.CertificateChallenge, peerKey []byte) []certposture.Proof {
+	if len(peerKey) != wgtypes.KeyLen {
+		log.Warnf("certificate posture: refusing to sign for a %d byte peer key", len(peerKey))
+		return nil
+	}
+	challenges = wellFormed(challenges)
+	if len(challenges) == 0 {
+		return nil
+	}
 	log.Debugf("certificate posture: answering %d certificate challenges from store %T", len(challenges), store)
 
 	candidates, err := store.Candidates(ctx)
@@ -94,11 +105,24 @@ func CollectChallenges(ctx context.Context, store Store, challenges []*proto.Cer
 func certificateChallenges(checks []*proto.Checks) []*proto.CertificateChallenge {
 	var challenges []*proto.CertificateChallenge
 	for _, check := range checks {
-		if challenge := check.GetCertificateChallenge(); challenge != nil && len(challenge.GetNonce()) > 0 {
+		if challenge := check.GetCertificateChallenge(); challenge != nil {
 			challenges = append(challenges, challenge)
 		}
 	}
-	return challenges
+	return wellFormed(challenges)
+}
+
+// wellFormed drops challenges whose nonce is not one management could have issued.
+func wellFormed(challenges []*proto.CertificateChallenge) []*proto.CertificateChallenge {
+	var kept []*proto.CertificateChallenge
+	for _, challenge := range challenges {
+		if len(challenge.GetNonce()) != certposture.NonceSize {
+			log.Debugf("certificate posture: skipping challenge with a %d byte nonce", len(challenge.GetNonce()))
+			continue
+		}
+		kept = append(kept, challenge)
+	}
+	return kept
 }
 
 func prove(candidate Candidate, nonce, peerKey []byte) (certposture.Proof, error) {
