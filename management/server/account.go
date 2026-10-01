@@ -152,7 +152,6 @@ func (am *DefaultAccountManager) runAccountDeletionHooks(ctx context.Context, ac
 func isUniqueConstraintError(err error) bool {
 	switch {
 	case strings.Contains(err.Error(), "(SQLSTATE 23505)"),
-		strings.Contains(err.Error(), "Error 1062 (23000)"),
 		strings.Contains(err.Error(), "UNIQUE constraint failed"):
 		return true
 
