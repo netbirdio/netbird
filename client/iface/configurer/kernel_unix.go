@@ -340,7 +340,7 @@ func (c *KernelConfigurer) discardLocked() {
 		return
 	}
 	if err := c.client.Close(); err != nil {
-		log.Debugf("failed to close wgctrl client: %v", err)
+		log.Warnf("failed to close wgctrl client: %v", err)
 	}
 	c.client = nil
 }
