@@ -13,7 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,7 +22,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
@@ -322,6 +320,7 @@ type Store interface {
 	GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error)
 	GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkUsage, error)
 	DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error)
+	GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx context.Context) ([]string, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
@@ -337,6 +336,7 @@ type Store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
 	DisconnectAllProxies(ctx context.Context) (int64, error)
@@ -389,6 +389,7 @@ type Store interface {
 	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)
 	GetAgentNetworkConsumptionBatch(ctx context.Context, lockStrength LockingStrength, accountID string, keys []agentNetworkTypes.ConsumptionKey) (map[agentNetworkTypes.ConsumptionKey]*agentNetworkTypes.Consumption, error)
 	ListAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Consumption, error)
+	DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx context.Context) (int64, error)
 	GetAccountAgentNetworkBudgetRules(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.AccountBudgetRule, error)
 	GetAgentNetworkBudgetRuleByID(ctx context.Context, lockStrength LockingStrength, accountID, ruleID string) (*agentNetworkTypes.AccountBudgetRule, error)
 	SaveAgentNetworkBudgetRule(ctx context.Context, rule *agentNetworkTypes.AccountBudgetRule) error
@@ -715,29 +716,19 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		kind = types.SqliteStoreEngine
 	}
 
-	storeStr := fmt.Sprintf("%s?cache=shared", db.SqliteFileName)
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = db.SqliteFileName
-	}
-
-	file := filepath.Join(dataDir, storeStr)
-	gormDB, err := gorm.Open(sqlite.Open(file), db.GormConfig())
+	conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	if filename != "" {
-		err = LoadSQL(gormDB, filename)
+		err = LoadSQL(conn.DB(nil), filename)
 		if err != nil {
+			_ = conn.Close()
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
 	}
 
-	conn, err := db.NewConn(ctx, gormDB, db.SqliteStoreEngine, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
-	}
 	store, err := NewSqlStore(ctx, conn, nil, false)
 	if err != nil {
 		_ = conn.Close()
@@ -746,6 +737,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
+		_ = store.Close(ctx)
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 

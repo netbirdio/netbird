@@ -93,7 +93,12 @@ func OpenSqliteFile(ctx context.Context, dataDir, storeFile string) (*Conn, erro
 	if err != nil {
 		return nil, err
 	}
-	return NewConn(ctx, gormDB, SqliteStoreEngine, nil)
+	conn, err := NewConn(ctx, gormDB, SqliteStoreEngine, nil)
+	if err != nil {
+		closeGorm(gormDB)
+		return nil, err
+	}
+	return conn, nil
 }
 
 // OpenPostgres opens a Postgres database through gorm and a pgx pool sized by pool.
@@ -107,7 +112,13 @@ func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, erro
 		closeGorm(gormDB)
 		return nil, err
 	}
-	return NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
+	if err != nil {
+		pgxPool.Close()
+		closeGorm(gormDB)
+		return nil, err
+	}
+	return conn, nil
 }
 
 // MysqlDSN adds the connection parameters every MySQL handle needs, keeping
@@ -126,7 +137,12 @@ func OpenMysql(ctx context.Context, dsn string) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewConn(ctx, gormDB, MysqlStoreEngine, nil)
+	conn, err := NewConn(ctx, gormDB, MysqlStoreEngine, nil)
+	if err != nil {
+		closeGorm(gormDB)
+		return nil, err
+	}
+	return conn, nil
 }
 
 func newPgxPool(ctx context.Context, dsn string, cfg PoolConfig) (*pgxpool.Pool, error) {
