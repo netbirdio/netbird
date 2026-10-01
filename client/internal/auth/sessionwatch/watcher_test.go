@@ -566,15 +566,17 @@ func TestIsLateIgnoresMonotonicReading(t *testing.T) {
 
 func TestLateTimerFiring(t *testing.T) {
 	tests := []struct {
-		name        string
-		final       bool
-		beforeDl    time.Duration
-		wantPublish bool
+		name       string
+		final      bool
+		beforeDl   time.Duration
+		wantWarns  int
+		wantFinals int
 	}{
-		{"warning on resume inside window", false, 3 * time.Minute, true},
-		{"warning skipped past final window", false, time.Minute, false},
-		{"final on resume before deadline", true, time.Minute, true},
-		{"final skipped past deadline", true, -time.Minute, false},
+		{"warning on resume inside window", false, 3 * time.Minute, 1, 0},
+		{"warning promoted to final inside final window", false, time.Minute, 0, 1},
+		{"warning skipped past deadline", false, -time.Minute, 0, 0},
+		{"final on resume before deadline", true, time.Minute, 0, 1},
+		{"final skipped past deadline", true, -time.Minute, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -591,21 +593,46 @@ func TestLateTimerFiring(t *testing.T) {
 				t.Fatalf("Update: %v", err)
 			}
 
-			pred := event.isWarning
 			if tt.final {
-				pred = event.isFinalWarning
 				w.fireFinal(d)
 			} else {
 				w.fire(d)
 			}
 
-			want := 0
-			if tt.wantPublish {
-				want = 1
+			events := r.snapshot()
+			if got := countWhere(events, event.isWarning); got != tt.wantWarns {
+				t.Fatalf("expected %d warning publishes, got %d: %+v", tt.wantWarns, got, events)
 			}
-			if got := countWhere(r.snapshot(), pred); got != want {
-				t.Fatalf("expected %d warning publishes, got %d: %+v", want, got, r.snapshot())
+			if got := countWhere(events, event.isFinalWarning); got != tt.wantFinals {
+				t.Fatalf("expected %d final-warning publishes, got %d: %+v", tt.wantFinals, got, events)
 			}
 		})
+	}
+}
+
+func TestPromotedFinalWarningIsNotRepeated(t *testing.T) {
+	r := &fakeRecorder{}
+	w := New(r)
+	defer w.Close()
+
+	d := time.Now().Add(time.Hour).Round(0)
+	now := d.Add(-time.Minute)
+	w.nowFn = func() time.Time { return now }
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	w.fire(d)
+	// The final timer was suspended too, so it fires even later than the
+	// warning timer, here still just before the deadline.
+	now = d.Add(-30 * time.Second)
+	w.fireFinal(d)
+
+	events := r.snapshot()
+	if got := countWhere(events, event.isFinalWarning); got != 1 {
+		t.Fatalf("expected exactly 1 final-warning publish, got %d: %+v", got, events)
+	}
+	if got := countWhere(events, event.isWarning); got != 0 {
+		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
 	}
 }
