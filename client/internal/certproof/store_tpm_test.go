@@ -13,7 +13,6 @@ import (
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.step.sm/crypto/tpm/tss2"
 
 	"github.com/netbirdio/netbird/client/internal/tpm"
 	"github.com/netbirdio/netbird/client/internal/tpm/tpmtest"
@@ -34,9 +33,8 @@ func TestFileStore_TPMKeyFile(t *testing.T) {
 
 	// A key that needs a password can never be used silently, so its certificate is skipped.
 	locked := certtest.ECDSAKey(t)
-	withAuth := func(k *tss2.TPMKey) { k.EmptyAuth = false }
 	writeFile(t, dir, "locked.pem", certtest.CertPEM(ca.Issue(t, locked, "locked")))
-	writeFile(t, dir, "locked.key", tpmtest.KeyPEM(t, locked.Public().(*ecdsa.PublicKey), withAuth))
+	writeFile(t, dir, "locked.key", tpmtest.KeyPEM(t, locked.Public().(*ecdsa.PublicKey), tpmtest.WithAuth()))
 
 	candidates, err := NewFileStore(dir).Candidates(context.Background())
 	require.NoError(t, err)
@@ -88,7 +86,7 @@ func createTPMKey(t *testing.T) (public, private []byte) {
 	require.NoError(t, err)
 	defer func() { _ = rwc.Close() }()
 
-	parent, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, tpm2.PCRSelection{}, "", "", tss2.ECCSRKTemplate)
+	parent, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, tpm2.PCRSelection{}, "", "", tpmtest.ECCSRKTemplate)
 	require.NoError(t, err)
 	defer func() { _ = tpm2.FlushContext(rwc, parent) }()
 
