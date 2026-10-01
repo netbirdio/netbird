@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 	"hash/fnv"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -147,13 +149,13 @@ func offsetWithin(key string, period time.Duration) time.Duration {
 	return time.Duration(binary.BigEndian.Uint64(h.Sum(nil)) % uint64(period))
 }
 
-// refreshCertificateChallenges pushes the account's peers an update so each one is
-// stamped with a nonce for the current window, and reports whether the account still
-// has a certificate posture check to refresh for.
+// refreshCertificateChallenges pushes an update to the peers that answer a certificate
+// challenge, so each is stamped with a nonce for the current window. It reports whether
+// the account still has a certificate posture check to refresh for.
 func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Context, accountID string) bool {
-	wanted, err := am.accountNeedsCertificateChallenges(ctx, accountID)
+	peerIDs, wanted, err := am.certificateChallengeTargets(ctx, accountID)
 	if err != nil {
-		log.WithContext(ctx).Debugf("cannot tell whether account %s still needs certificate challenges: %v", accountID, err)
+		log.WithContext(ctx).Debugf("cannot resolve the certificate challenge targets of account %s: %v", accountID, err)
 		// Keep the account tracked: a store error now says nothing about its checks.
 		return true
 	}
@@ -161,13 +163,94 @@ func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Contex
 		log.WithContext(ctx).Debugf("account %s has no certificate posture check left, stopping challenge refresh", accountID)
 		return false
 	}
+	if len(peerIDs) == 0 {
+		log.WithContext(ctx).Tracef("account %s has a certificate posture check but no peer answers it yet", accountID)
+		return true
+	}
 
-	log.WithContext(ctx).Debugf("refreshing certificate challenges for account %s", accountID)
-	am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{
-		Resource:  types.UpdateResourcePostureCheck,
-		Operation: types.UpdateOperationRefresh,
-	})
+	log.WithContext(ctx).Debugf("refreshing certificate challenges for %d peers of account %s", len(peerIDs), accountID)
+	if err := am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs); err != nil {
+		log.WithContext(ctx).Warnf("failed refreshing certificate challenges for account %s: %v", accountID, err)
+	}
 	return true
+}
+
+// certificateChallengeTargets returns the peers that are sent a certificate challenge,
+// and whether the account asks for one at all. Only those peers hold a nonce, so only
+// they need the update; pushing to the whole account would wake every peer that has
+// nothing to do with certificates.
+//
+// A peer is sent a challenge when it is a source of an enabled policy whose posture
+// checks include a certificate check. This is the inverse of processPeerPostureChecks,
+// which decides the same thing one peer at a time, and the two are held together by
+// TestCertificateChallengeTargets_MatchesThePerPeerRule.
+func (am *DefaultAccountManager) certificateChallengeTargets(ctx context.Context, accountID string) ([]string, bool, error) {
+	certCheckIDs, err := am.certificatePostureCheckIDs(ctx, accountID)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(certCheckIDs) == 0 {
+		return nil, false, nil
+	}
+
+	policies, err := am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, true, err
+	}
+	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, true, err
+	}
+	groupPeers := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		groupPeers[g.ID] = g.Peers
+	}
+
+	return certificateChallengeTargets(policies, groupPeers, certCheckIDs), true, nil
+}
+
+// certificateChallengeTargets collects the source peers of every enabled policy whose
+// posture checks include a certificate check.
+func certificateChallengeTargets(policies []*types.Policy, groupPeers map[string][]string, certCheckIDs map[string]struct{}) []string {
+	targets := map[string]struct{}{}
+	for _, policy := range policies {
+		if !policy.Enabled || !slices.ContainsFunc(policy.SourcePostureChecks, func(id string) bool {
+			_, ok := certCheckIDs[id]
+			return ok
+		}) {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
+				targets[rule.SourceResource.ID] = struct{}{}
+			}
+			for _, groupID := range rule.Sources {
+				for _, peerID := range groupPeers[groupID] {
+					targets[peerID] = struct{}{}
+				}
+			}
+		}
+	}
+	return slices.Collect(maps.Keys(targets))
+}
+
+// certificatePostureCheckIDs returns the IDs of the account's posture checks that ask a
+// peer to prove a certificate.
+func (am *DefaultAccountManager) certificatePostureCheckIDs(ctx context.Context, accountID string) (map[string]struct{}, error) {
+	checks, err := am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]struct{}{}
+	for _, check := range checks {
+		if check.Checks.CertificateCheck != nil {
+			ids[check.ID] = struct{}{}
+		}
+	}
+	return ids, nil
 }
 
 // trackCertificateChallenges starts refreshing the account's certificate challenges if
@@ -177,28 +260,13 @@ func (am *DefaultAccountManager) trackCertificateChallenges(ctx context.Context,
 		return
 	}
 
-	wanted, err := am.accountNeedsCertificateChallenges(ctx, accountID)
+	certCheckIDs, err := am.certificatePostureCheckIDs(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("cannot tell whether account %s needs certificate challenges: %v", accountID, err)
 		return
 	}
-	if !wanted {
+	if len(certCheckIDs) == 0 {
 		return
 	}
 	am.certChallenges.Track(ctx, accountID)
-}
-
-// accountNeedsCertificateChallenges reports whether any of the account's posture checks
-// asks its peers to prove a certificate.
-func (am *DefaultAccountManager) accountNeedsCertificateChallenges(ctx context.Context, accountID string) (bool, error) {
-	checks, err := am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return false, err
-	}
-	for _, check := range checks {
-		if check.Checks.CertificateCheck != nil {
-			return true, nil
-		}
-	}
-	return false, nil
 }
