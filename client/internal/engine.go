@@ -276,6 +276,9 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
+	// certProofs answers the certificate challenges in checks within a bounded time.
+	certProofs certproof.Collector
+
 	infoSource system.InfoSource
 
 	relayManager       *relayClient.Manager
@@ -1296,9 +1299,10 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 
 // attachCertificateProofs answers the certificate challenges in checks with the
 // certificates reachable on this device, signing each challenge nonce for our peer key.
+// Collection is bounded in time because callers hold the sync loop while it runs.
 func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
 	peerKey := e.config.WgPrivateKey.PublicKey()
-	info.CertificateProofs = certproof.CollectProofs(e.ctx, checks, peerKey[:], e.config.CertStore)
+	info.CertificateProofs = e.certProofs.Collect(e.ctx, checks, peerKey[:], e.config.CertStore)
 }
 
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
