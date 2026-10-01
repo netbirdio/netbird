@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -16,6 +17,13 @@ import (
 const (
 	maxHelperStdout = 1 << 20
 	maxHelperStderr = 4 << 10
+
+	// helperWaitDelay bounds how long Wait keeps reading the helper's output after the
+	// process we launched is gone. Killing that process does not close the pipe its own
+	// children inherited, and on macOS they are the ones doing the work: we launch
+	// launchctl, which launches sudo, which launches the helper. Without this, a helper
+	// stuck on a keychain prompt leaves Wait blocked with no deadline at all.
+	helperWaitDelay = time.Second
 )
 
 var errHelperOutputTooLarge = errors.New("helper output exceeds the size limit")
@@ -34,6 +42,7 @@ func runHelperCmd(cmd *exec.Cmd, req HelperRequest) ([]certposture.Proof, error)
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	cmd.WaitDelay = helperWaitDelay
 
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
