@@ -527,3 +527,85 @@ func TestDismissBeforeUpdateIsNoop(t *testing.T) {
 	}
 	t.Fatalf("final-warning did not publish after no-op pre-Update Dismiss, events=%+v", r.snapshot())
 }
+
+func TestIsLate(t *testing.T) {
+	armedFor := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	lead := 2 * time.Minute
+	tests := []struct {
+		name       string
+		now        time.Time
+		cutoffLead time.Duration
+		want       bool
+	}{
+		{"before cutoff", armedFor.Add(-3 * time.Minute), lead, false},
+		{"at cutoff", armedFor.Add(-lead), lead, true},
+		{"after cutoff", armedFor.Add(-time.Minute), lead, true},
+		{"zero lead before deadline", armedFor.Add(-time.Second), 0, false},
+		{"zero lead at deadline", armedFor, 0, true},
+		{"zero lead after deadline", armedFor.Add(time.Second), 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isLate(tt.now, armedFor, tt.cutoffLead); got != tt.want {
+				t.Fatalf("isLate(%s, %s, %s) = %v, want %v", tt.now, armedFor, tt.cutoffLead, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsLateIgnoresMonotonicReading(t *testing.T) {
+	now := time.Now()
+	wallOnly := now.Round(0)
+	if isLate(now, wallOnly.Add(time.Second), 0) {
+		t.Fatalf("now with monotonic reading must compare as wall clock before a later wall-only deadline")
+	}
+	if !isLate(now, wallOnly, 0) {
+		t.Fatalf("now with monotonic reading must compare as wall clock at an equal wall-only deadline")
+	}
+}
+
+func TestLateTimerFiring(t *testing.T) {
+	tests := []struct {
+		name        string
+		final       bool
+		beforeDl    time.Duration
+		wantPublish bool
+	}{
+		{"warning on resume inside window", false, 3 * time.Minute, true},
+		{"warning skipped past final window", false, time.Minute, false},
+		{"final on resume before deadline", true, time.Minute, true},
+		{"final skipped past deadline", true, -time.Minute, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRecorder{}
+			w := New(r)
+			defer w.Close()
+
+			// The deadline is an hour out so the real timers never fire
+			// during the test; the late callback is invoked directly with an
+			// injected clock that simulates a resume near the deadline.
+			d := time.Now().Add(time.Hour).Round(0)
+			w.nowFn = func() time.Time { return d.Add(-tt.beforeDl) }
+			if err := w.Update(d); err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+
+			pred := event.isWarning
+			if tt.final {
+				pred = event.isFinalWarning
+				w.fireFinal(d)
+			} else {
+				w.fire(d)
+			}
+
+			want := 0
+			if tt.wantPublish {
+				want = 1
+			}
+			if got := countWhere(r.snapshot(), pred); got != want {
+				t.Fatalf("expected %d warning publishes, got %d: %+v", want, got, r.snapshot())
+			}
+		})
+	}
+}

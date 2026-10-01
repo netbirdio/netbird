@@ -102,6 +102,7 @@ type Watcher struct {
 	dismissedAt  time.Time // deadline value the user dismissed via Dismiss(); gates fireFinal
 	closed       bool
 	recorder     StatusRecorder
+	nowFn        func() time.Time
 }
 
 // New returns a watcher with the package defaults WarningLead and
@@ -122,6 +123,7 @@ func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 		lead:      lead,
 		finalLead: final,
 		recorder:  recorder,
+		nowFn:     time.Now,
 	}
 }
 
@@ -304,11 +306,12 @@ func (w *Watcher) fire(armedFor time.Time) {
 		return
 	}
 	cutoffLead := max(w.finalLead, 0)
-	if w.lateLocked(armedFor, cutoffLead) {
+	now := w.nowFn()
+	if isLate(now, armedFor, cutoffLead) {
 		w.firedAt = armedFor
 		w.mu.Unlock()
 		log.Infof("auth session expiry soon warning skipped for deadline %s (final-warning window passed %s ago)",
-			armedFor.Format(time.RFC3339), time.Since(armedFor.Add(-cutoffLead)).Round(time.Second))
+			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor.Add(-cutoffLead)).Round(time.Second))
 		return
 	}
 	w.firedAt = armedFor
@@ -339,11 +342,12 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 		log.Infof("auth session final-warning skipped (dismissed by user)")
 		return
 	}
-	if w.lateLocked(armedFor, 0) {
+	now := w.nowFn()
+	if isLate(now, armedFor, 0) {
 		w.finalFiredAt = armedFor
 		w.mu.Unlock()
 		log.Infof("auth session final-warning skipped for deadline %s (passed %s ago)",
-			armedFor.Format(time.RFC3339), time.Since(armedFor).Round(time.Second))
+			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor).Round(time.Second))
 		return
 	}
 	w.finalFiredAt = armedFor
@@ -354,16 +358,6 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 	}
 	log.Infof("auth session final-warning fired")
 	publishWarning(recorder, armedFor, true)
-}
-
-// lateLocked reports whether the wall clock has already reached
-// armedFor minus cutoffLead. The timers run on the monotonic clock,
-// which does not advance while an Android device is suspended, so a
-// timer can fire long after the window it was armed for. Caller must
-// hold w.mu.
-func (w *Watcher) lateLocked(armedFor time.Time, cutoffLead time.Duration) bool {
-	cutoff := armedFor.Add(-cutoffLead).Round(0)
-	return !time.Now().Round(0).Before(cutoff)
 }
 
 // armOneShotLocked schedules cb at fireAt. When fireAt is already in the
@@ -404,4 +398,12 @@ func publishWarning(recorder StatusRecorder, deadline time.Time, final bool) {
 		"",
 		meta,
 	)
+}
+
+// isLate reports whether the wall clock now has already reached armedFor
+// minus cutoffLead. The timers run on the monotonic clock, which does not
+// advance while an Android device is suspended, so a timer can fire long
+// after the window it was armed for.
+func isLate(now, armedFor time.Time, cutoffLead time.Duration) bool {
+	return !now.Round(0).Before(armedFor.Add(-cutoffLead).Round(0))
 }
