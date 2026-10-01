@@ -358,11 +358,21 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 
 // fireLateLocked handles a T-WarningLead callback that fired inside the
 // final-warning window: it sends the final warning in its place while the
-// deadline has not passed, so a resume with time left still warns. The
-// caller must hold w.mu; this helper releases it.
+// deadline has not passed and the user has not dismissed it, so a resume
+// with time left still warns. The caller must hold w.mu; this helper
+// releases it.
 func (w *Watcher) fireLateLocked(armedFor, now time.Time) {
 	w.firedAt = armedFor
-	if isLate(now, armedFor, 0) || w.finalFiredAt.Equal(armedFor) {
+	switch {
+	case w.dismissedAt.Equal(armedFor):
+		w.mu.Unlock()
+		log.Infof("auth session expiry soon warning skipped (dismissed by user)")
+		return
+	case w.finalFiredAt.Equal(armedFor):
+		w.mu.Unlock()
+		log.Infof("auth session expiry soon warning skipped (final warning already fired)")
+		return
+	case isLate(now, armedFor, 0):
 		w.mu.Unlock()
 		log.Infof("auth session expiry soon warning skipped for deadline %s (passed %s ago)",
 			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor).Round(time.Second))

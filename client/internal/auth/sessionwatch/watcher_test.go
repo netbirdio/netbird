@@ -636,3 +636,48 @@ func TestPromotedFinalWarningIsNotRepeated(t *testing.T) {
 		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
 	}
 }
+
+func TestPromotionRespectsDismiss(t *testing.T) {
+	r := &fakeRecorder{}
+	w := New(r)
+	defer w.Close()
+
+	d := time.Now().Add(time.Hour).Round(0)
+	w.nowFn = func() time.Time { return d.Add(-time.Minute) }
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	w.Dismiss()
+	w.fire(d)
+
+	events := r.snapshot()
+	if got := countWhere(events, func(e event) bool { return e.kind == publish }); got != 0 {
+		t.Fatalf("expected no publish after dismiss, got %d: %+v", got, events)
+	}
+}
+
+func TestPromotionSkippedWhenFinalAlreadyFired(t *testing.T) {
+	r := &fakeRecorder{}
+	w := New(r)
+	defer w.Close()
+
+	// Both timers fall in the past after a long suspend and are dispatched
+	// with a zero delay, so the final callback can run before the warning one.
+	d := time.Now().Add(time.Hour).Round(0)
+	w.nowFn = func() time.Time { return d.Add(-time.Minute) }
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	w.fireFinal(d)
+	w.fire(d)
+
+	events := r.snapshot()
+	if got := countWhere(events, event.isFinalWarning); got != 1 {
+		t.Fatalf("expected exactly 1 final-warning publish, got %d: %+v", got, events)
+	}
+	if got := countWhere(events, event.isWarning); got != 0 {
+		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
+	}
+}
