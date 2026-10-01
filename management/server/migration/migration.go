@@ -19,19 +19,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func GetColumnName(db *gorm.DB, column string) string {
-	if db.Name() == "mysql" {
-		return fmt.Sprintf("`%s`", column)
-	}
-	return column
-}
-
 // MigrateFieldFromGobToJSON migrates a column from Gob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
 // S is the type of the field to be migrated.
 func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, fieldName string) error {
-	orgColumnName := fieldName
-	oldColumnName := GetColumnName(db, orgColumnName)
+	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
 
 	var model T
@@ -86,7 +78,7 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 		for _, row := range rows {
 			var field S
 
-			str, ok := row[orgColumnName].(string)
+			str, ok := row[oldColumnName].(string)
 			if !ok {
 				return fmt.Errorf("type assertion failed")
 			}
@@ -125,8 +117,7 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 // MigrateNetIPFieldFromBlobToJSON migrates a Net IP column from Blob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
 func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fieldName string, indexName string) error {
-	orgColumnName := fieldName
-	oldColumnName := GetColumnName(db, orgColumnName)
+	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
 
 	var model T
@@ -178,7 +169,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 
 		for _, row := range rows {
 			var blobValue string
-			if columnValue := row[orgColumnName]; columnValue != nil {
+			if columnValue := row[oldColumnName]; columnValue != nil {
 				value, ok := columnValue.(string)
 				if !ok {
 					return fmt.Errorf("type assertion failed")
@@ -225,8 +216,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 }
 
 func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) error {
-	orgColumnName := "key"
-	oldColumnName := GetColumnName(db, orgColumnName)
+	oldColumnName := "key"
 	newColumnName := "key_secret"
 
 	var model T
@@ -268,7 +258,7 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 		for _, row := range rows {
 
 			var plainKey string
-			if columnValue := row[orgColumnName]; columnValue != nil {
+			if columnValue := row[oldColumnName]; columnValue != nil {
 				value, ok := columnValue.(string)
 				if !ok {
 					return fmt.Errorf("type assertion failed")
@@ -394,33 +384,13 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 		return fmt.Errorf("failed to parse model schema: %w", err)
 	}
 	tableName := stmt.Schema.Table
-	dialect := db.Name()
 
 	if db.Migrator().HasIndex(&model, indexName) {
 		log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)
 		return nil
 	}
 
-	var columnClause string
-	if dialect == "mysql" {
-		var withLength []string
-		for _, col := range columns {
-			quotedCol := fmt.Sprintf("`%s`", col)
-			if col == "ip" || col == "dns_label" || col == "key" {
-				withLength = append(withLength, fmt.Sprintf("%s(64)", quotedCol))
-			} else {
-				withLength = append(withLength, quotedCol)
-			}
-		}
-		columnClause = strings.Join(withLength, ", ")
-	} else {
-		columnClause = strings.Join(columns, ", ")
-	}
-
-	createStmt := fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s)", indexName, tableName, columnClause)
-	if dialect == "postgres" || dialect == "sqlite" {
-		createStmt = strings.Replace(createStmt, "CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1)
-	}
+	createStmt := fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s)", indexName, tableName, strings.Join(columns, ", "))
 
 	log.WithContext(ctx).Infof("executing index creation: %s", createStmt)
 	if err := db.Exec(createStmt).Error; err != nil {
@@ -505,14 +475,6 @@ func hasForeignKey(db *gorm.DB, table, column string) bool {
 			  AND kcu.table_name = ?
 			  AND kcu.column_name = ?
 		`, table, column).Scan(&count)
-	case "mysql":
-		db.Raw(`
-			SELECT COUNT(*) FROM information_schema.key_column_usage
-			WHERE table_schema = DATABASE()
-			  AND table_name = ?
-			  AND column_name = ?
-			  AND referenced_table_name IS NOT NULL
-		`, table, column).Scan(&count)
 	default: // sqlite
 		type fkInfo struct {
 			From string
@@ -592,7 +554,7 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 		return nil
 	}
 
-	keyColumn := GetColumnName(db, "key")
+	keyColumn := "key"
 
 	var duplicates []struct {
 		Key   string
