@@ -568,11 +568,14 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The peers use userspace WireGuard (stdnet transport). A tight busy-loop
-	// here starves the wireguard-go goroutines that process the handshake, so
-	// poll on a ticker instead and yield the CPU between checks. WireGuard also
-	// only retries a lost handshake initiation every REKEY_TIMEOUT (5s), which
-	// is why the overall wait can occasionally stretch to tens of seconds.
+	// On Linux with the kernel module both peers are kernel devices, elsewhere
+	// they run on wireguard-go. A tight busy-loop here would starve the
+	// wireguard-go goroutines that process the handshake, so poll on a ticker
+	// instead and yield the CPU between checks. WireGuard also only retries a
+	// lost handshake initiation every REKEY_TIMEOUT (5s), which is why the
+	// overall wait can occasionally stretch to tens of seconds. Each side sends
+	// its first initiation when its peer is configured, and the first one leaves
+	// before the other device knows the peer, so that one is always wasted.
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -590,11 +593,24 @@ func Test_ConnectPeers(t *testing.T) {
 
 		select {
 		case <-timeoutChannel:
-			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
+			// The counters tell whether initiations were sent at all, whether they
+			// arrived, and whether only one direction is working.
+			t.Fatalf("waiting for peer handshake timeout after %s\n%s\n%s", timeout.String(),
+				describePeer(peer1ifaceName, peer2Key.PublicKey().String()),
+				describePeer(peer2ifaceName, peer1Key.PublicKey().String()))
 		case <-ticker.C:
 		}
 	}
 
+}
+
+func describePeer(ifaceName, peerPubKey string) string {
+	peer, err := getPeer(ifaceName, peerPubKey)
+	if err != nil {
+		return fmt.Sprintf("%s: peer %s: %v", ifaceName, peerPubKey, err)
+	}
+	return fmt.Sprintf("%s: peer %s endpoint=%v tx=%d rx=%d last_handshake=%v",
+		ifaceName, peerPubKey, peer.Endpoint, peer.TransmitBytes, peer.ReceiveBytes, peer.LastHandshakeTime)
 }
 
 func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
