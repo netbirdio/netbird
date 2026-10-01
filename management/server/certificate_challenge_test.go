@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 )
 
@@ -217,4 +219,85 @@ func TestCertChallengeRefresher_RefreshesWithoutHoldingTheLock(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the refresh never ran")
 	}
+}
+
+// TestCertificateChallengeTargets_MatchesThePerPeerRule holds the renewal to the same
+// rule management uses when it hands out the challenge. The refresher asks "which peers
+// get one", processPeerPostureChecks asks "does this peer get one", and the two have to
+// answer identically: a peer the refresher forgets stops being renewed and silently
+// falls out of its policies, which is the failure the refresher exists to prevent.
+func TestCertificateChallengeTargets_MatchesThePerPeerRule(t *testing.T) {
+	const certCheck, osCheck = "check-cert", "check-os"
+	certCheckIDs := map[string]struct{}{certCheck: {}}
+
+	groupPeers := map[string][]string{
+		"g-devs":    {"p1", "p2"},
+		"g-servers": {"p3"},
+		"g-empty":   {},
+		"g-mixed":   {"p2", "p4"},
+	}
+	peerGroups := map[string][]string{
+		"p1": {"g-devs"},
+		"p2": {"g-devs", "g-mixed"},
+		"p3": {"g-servers"},
+		"p4": {"g-mixed"},
+		"p5": {},
+	}
+
+	policies := []*types.Policy{
+		{
+			ID: "gated", Enabled: true, SourcePostureChecks: []string{certCheck},
+			Rules: []*types.PolicyRule{{Enabled: true, Sources: []string{"g-devs"}}},
+		},
+		{
+			// A disabled policy hands out nothing.
+			ID: "disabled-policy", Enabled: false, SourcePostureChecks: []string{certCheck},
+			Rules: []*types.PolicyRule{{Enabled: true, Sources: []string{"g-servers"}}},
+		},
+		{
+			// A disabled rule inside an enabled policy likewise.
+			ID: "disabled-rule", Enabled: true, SourcePostureChecks: []string{certCheck},
+			Rules: []*types.PolicyRule{{Enabled: false, Sources: []string{"g-servers"}}},
+		},
+		{
+			// Gated on something other than a certificate: no nonce to renew.
+			ID: "other-check", Enabled: true, SourcePostureChecks: []string{osCheck},
+			Rules: []*types.PolicyRule{{Enabled: true, Sources: []string{"g-mixed"}}},
+		},
+		{
+			// A peer named directly rather than through a group.
+			ID: "by-resource", Enabled: true, SourcePostureChecks: []string{osCheck, certCheck},
+			Rules: []*types.PolicyRule{{
+				Enabled:        true,
+				SourceResource: types.Resource{Type: types.ResourceTypePeer, ID: "p4"},
+			}},
+		},
+		{
+			// Destinations are never filtered, so being one earns no challenge.
+			ID: "as-destination", Enabled: true, SourcePostureChecks: []string{certCheck},
+			Rules: []*types.PolicyRule{{Enabled: true, Sources: []string{"g-empty"}, Destinations: []string{"g-servers"}}},
+		},
+	}
+
+	got := certificateChallengeTargets(policies, groupPeers, certCheckIDs)
+
+	// The same question, asked one peer at a time the way the gRPC layer asks it.
+	var want []string
+	for peerID, groupIDs := range peerGroups {
+		for _, policy := range policies {
+			if !policy.Enabled {
+				continue
+			}
+			ids := processPeerPostureChecks(policy, peerID, groupIDs)
+			if slices.ContainsFunc(ids, func(id string) bool { _, ok := certCheckIDs[id]; return ok }) {
+				want = append(want, peerID)
+				break
+			}
+		}
+	}
+
+	slices.Sort(got)
+	slices.Sort(want)
+	assert.Equal(t, want, got, "the peers the refresher renews must be exactly the peers that are sent a challenge")
+	assert.Equal(t, []string{"p1", "p2", "p4"}, got, "p3 is only reachable through disabled rules, p5 is in no source group")
 }
