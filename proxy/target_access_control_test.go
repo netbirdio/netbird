@@ -33,6 +33,63 @@ func TestTargetAccessActionFromProto(t *testing.T) {
 	require.Error(t, err, "an unknown wire action must reject the mapping")
 }
 
+func TestProtoToMappingPreservesLegacyDuplicateLocations(t *testing.T) {
+	runtime, _ := newTargetAccessRuntime(t)
+	mapping, err := runtime.protoToMapping(t.Context(), &managementproto.ProxyMapping{
+		Id: "legacy-service", AccountId: "account", Domain: targetAccessDomain,
+		Path: []*managementproto.PathMapping{
+			{Path: "/", Target: "http://first.internal"},
+			{Path: "/", Target: "https://second.internal"},
+			{Path: "", Target: "http://empty.internal"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, mapping.Paths, 2, "legacy empty and slash locations must remain distinct")
+	assert.Equal(t, "second.internal", mapping.Paths["/"].URL.Host,
+		"legacy duplicate locations must retain last-entry-wins behavior")
+	assert.Equal(t, "empty.internal", mapping.Paths[""].URL.Host)
+}
+
+func TestProtoToMappingRejectsDuplicateLocationsWhenAccessControlIsActive(t *testing.T) {
+	tests := []struct {
+		name  string
+		paths []*managementproto.PathMapping
+	}{
+		{
+			name: "duplicate action location",
+			paths: []*managementproto.PathMapping{
+				{Path: "/", Target: "http://first.internal"},
+				{Path: "/", Target: "http://second.internal", AccessAction: managementproto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK},
+			},
+		},
+		{
+			name: "root aliases",
+			paths: []*managementproto.PathMapping{
+				{Path: "", Target: "http://first.internal"},
+				{Path: "/", Target: "http://second.internal", AccessAction: managementproto.TargetAccessAction_TARGET_ACCESS_ACTION_BYPASS},
+			},
+		},
+		{
+			name: "action elsewhere",
+			paths: []*managementproto.PathMapping{
+				{Path: "/", Target: "http://first.internal"},
+				{Path: "/", Target: "http://second.internal"},
+				{Path: "/public", Target: "http://public.internal", AccessAction: managementproto.TargetAccessAction_TARGET_ACCESS_ACTION_BYPASS},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runtime, _ := newTargetAccessRuntime(t)
+			_, err := runtime.protoToMapping(t.Context(), &managementproto.ProxyMapping{
+				Id: "guarded-service", AccountId: "account", Domain: targetAccessDomain, Path: tt.paths,
+			})
+			assert.ErrorContains(t, err, `duplicate target location "/"`)
+		})
+	}
+}
+
 func TestModifyHTTPMappingRejectsInvalidReplacement(t *testing.T) {
 	tests := []struct {
 		name   string

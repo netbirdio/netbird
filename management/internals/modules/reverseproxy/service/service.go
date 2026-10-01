@@ -1000,18 +1000,29 @@ func (s *Service) validateTLSMode() error {
 }
 
 func (s *Service) validateHTTPTargets() error {
-	paths := make(map[string]int, len(s.Targets))
+	strictPaths := false
 	for i, target := range s.Targets {
 		if err := s.validateHTTPTarget(i, target); err != nil {
 			return err
 		}
-		if target.Enabled {
-			normalizedPath := normalizedTargetPath(target.Path)
-			if previous, ok := paths[normalizedPath]; ok {
-				return fmt.Errorf("targets %d and %d have duplicate path %q", previous, i, normalizedPath)
-			}
-			paths[normalizedPath] = i
+		if target.Enabled && target.effectiveAccessAction() != TargetAccessActionInherit {
+			strictPaths = true
 		}
+	}
+	if !strictPaths {
+		return nil
+	}
+
+	paths := make(map[string]int, len(s.Targets))
+	for i, target := range s.Targets {
+		if !target.Enabled {
+			continue
+		}
+		normalizedPath := normalizedTargetPath(target.Path)
+		if previous, ok := paths[normalizedPath]; ok {
+			return fmt.Errorf("targets %d and %d have duplicate path %q", previous, i, normalizedPath)
+		}
+		paths[normalizedPath] = i
 	}
 
 	return nil

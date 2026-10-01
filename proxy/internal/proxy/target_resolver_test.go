@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	guardrail "github.com/netbirdio/netbird/proxy/internal/middleware/builtin/llm_guardrail"
 )
 
 type resolverRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -109,25 +110,31 @@ func TestTargetResolver_PinnedMissDoesNotFallBackToNewMapping(t *testing.T) {
 }
 
 func TestReverseProxy_UnpinnedNonDefaultMappingFailsClosed(t *testing.T) {
-	called := false
-	rp := NewReverseProxy(resolverRoundTripFunc(func(*http.Request) (*http.Response, error) {
-		called = true
-		return nil, errors.New("unexpected forwarding")
-	}), "auto", nil, nil)
-	rp.AddMapping(resolverMapping(map[string]*PathTarget{
-		"/": {
-			URL:          mustTargetURL(t, "http://public.internal"),
-			AccessAction: AccessActionBypass,
-		},
-	}))
+	for _, requestPath := range []string{"/public", "/missing"} {
+		t.Run(requestPath, func(t *testing.T) {
+			called := false
+			rp := NewReverseProxy(resolverRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				called = true
+				return nil, errors.New("unexpected forwarding")
+			}), "auto", nil, nil)
+			rp.AddMapping(resolverMapping(map[string]*PathTarget{
+				"/public": {
+					URL:          mustTargetURL(t, "http://public.internal"),
+					AccessAction: AccessActionBypass,
+				},
+			}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
-	rec := httptest.NewRecorder()
-	rp.ServeHTTP(rec, req)
+			req := httptest.NewRequest(http.MethodGet, "http://example.com"+requestPath, nil)
+			rec := httptest.NewRecorder()
+			rp.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
-	assert.False(t, called, "a target access action must never forward without an auth-owned resolution")
+			assert.Equal(t, http.StatusServiceUnavailable, rec.Code,
+				"both target hits and misses must require an auth-owned resolution")
+			assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"),
+				"an unavailable routing snapshot must not be cached")
+			assert.False(t, called, "a target access action must never forward without an auth-owned resolution")
+		})
+	}
 }
 
 func TestReverseProxy_ConfiguredMiddlewareMissingChainFailsClosed(t *testing.T) {
@@ -162,7 +169,7 @@ func TestReverseProxy_PinnedTargetFailsClosedAfterMiddlewareRemoval(t *testing.T
 		URL:          mustTargetURL(t, "http://protected.internal"),
 		AccessAction: AccessActionInherit,
 		Middlewares: []middleware.Spec{{
-			ID:      "required-policy",
+			ID:      guardrail.ID,
 			Slot:    middleware.SlotOnRequest,
 			Enabled: true,
 		}},
@@ -174,18 +181,38 @@ func TestReverseProxy_PinnedTargetFailsClosedAfterMiddlewareRemoval(t *testing.T
 	resolvedReq, _, err := resolver.ResolveRequest(req)
 	require.NoError(t, err)
 
-	called := false
+	upstreamCalls := 0
+	registry := middleware.NewRegistry()
+	require.NoError(t, registry.Register(guardrail.Factory{}))
 	manager := middleware.NewManager(0, nil, nil)
-	manager.Invalidate(string(mapping.ID))
+	manager.SetResolver(middleware.NewResolver(registry))
+	require.NoError(t, manager.Rebuild(string(mapping.ID), []middleware.PathTargetBinding{{
+		ServiceID: string(mapping.ID),
+		PathID:    "/",
+		Specs:     target.Middlewares,
+	}}))
+	require.NotNil(t, manager.ChainFor(string(mapping.ID), "/"), "the policy chain must exist before invalidation")
 	rp := NewReverseProxy(resolverRoundTripFunc(func(*http.Request) (*http.Response, error) {
-		called = true
-		return nil, errors.New("unexpected forwarding")
+		upstreamCalls++
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+		}, nil
 	}), "auto", nil, nil, WithMiddlewareManager(manager))
+	before := httptest.NewRecorder()
+	rp.ServeHTTP(before, resolvedReq.Clone(resolvedReq.Context()))
+	require.Equal(t, http.StatusNoContent, before.Code, "the installed policy chain must allow forwarding")
+	require.Equal(t, 1, upstreamCalls, "the upstream must receive the request before invalidation")
+
+	manager.Invalidate(string(mapping.ID))
+	require.Nil(t, manager.ChainFor(string(mapping.ID), "/"), "invalidation must remove the installed chain")
 	rec := httptest.NewRecorder()
 	rp.ServeHTTP(rec, resolvedReq)
 
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	assert.False(t, called, "a stale pinned target must not bypass a removed policy chain")
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "a removed policy chain must fail closed")
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"), "a removed policy chain must not be cached")
+	assert.Equal(t, 1, upstreamCalls, "a stale pinned target must not bypass a removed policy chain")
 }
 
 func TestTargetResolver_RejectsUnsafePathsWhenActionsAreConfigured(t *testing.T) {

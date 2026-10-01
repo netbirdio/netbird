@@ -2360,21 +2360,33 @@ func (s *Server) deleteMapping(svcID types.ServiceID) *proto.ProxyMapping {
 }
 
 func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) (proxy.Mapping, error) {
-	paths := make(map[string]*proxy.PathTarget)
-	for _, pathMapping := range mapping.GetPath() {
+	pathMappings := mapping.GetPath()
+	actions := make([]proxy.AccessAction, len(pathMappings))
+	strictPaths := false
+	for i, pathMapping := range pathMappings {
 		if pathMapping == nil {
 			return proxy.Mapping{}, fmt.Errorf("nil target mapping")
-		}
-		path := pathMapping.GetPath()
-		if path == "" {
-			path = "/"
-		}
-		if _, exists := paths[path]; exists {
-			return proxy.Mapping{}, fmt.Errorf("duplicate target location %q", path)
 		}
 		action, err := targetAccessActionFromProto(pathMapping.GetAccessAction())
 		if err != nil {
 			return proxy.Mapping{}, err
+		}
+		actions[i] = action
+		if action != proxy.AccessActionInherit {
+			strictPaths = true
+		}
+	}
+
+	paths := make(map[string]*proxy.PathTarget)
+	for i, pathMapping := range pathMappings {
+		path := pathMapping.GetPath()
+		if strictPaths && path == "" {
+			path = "/"
+		}
+		if strictPaths {
+			if _, exists := paths[path]; exists {
+				return proxy.Mapping{}, fmt.Errorf("duplicate target location %q", path)
+			}
 		}
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
@@ -2384,7 +2396,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 			return proxy.Mapping{}, fmt.Errorf("invalid HTTP target URL for location %q", path)
 		}
 
-		pt := &proxy.PathTarget{URL: targetURL, AccessAction: action}
+		pt := &proxy.PathTarget{URL: targetURL, AccessAction: actions[i]}
 		if opts := pathMapping.GetOptions(); opts != nil {
 			pt.SkipTLSVerify = opts.GetSkipTlsVerify()
 			pt.PathRewrite = protoToPathRewrite(opts.GetPathRewrite())

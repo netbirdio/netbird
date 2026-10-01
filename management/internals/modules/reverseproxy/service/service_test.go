@@ -175,19 +175,99 @@ func TestValidateTargetAccessActionPath(t *testing.T) {
 }
 
 func TestValidateDuplicateEnabledTargetPaths(t *testing.T) {
-	for _, secondPath := range []*string{nil, func() *string { v := ""; return &v }(), func() *string { v := "/"; return &v }()} {
-		rp := validProxy()
-		rp.Targets = append(rp.Targets, &Target{
-			TargetId:   "peer-2",
-			TargetType: TargetTypePeer,
-			Path:       secondPath,
-			Host:       "10.0.0.2",
-			Port:       80,
-			Protocol:   TargetProtoHTTP,
-			Enabled:    true,
-		})
-		assert.ErrorContains(t, rp.Validate(), `duplicate path "/"`)
+	emptyPath := ""
+	rootPath := "/"
+	rootAliases := []struct {
+		name string
+		path *string
+	}{
+		{name: "nil", path: nil},
+		{name: "empty", path: &emptyPath},
+		{name: "slash", path: &rootPath},
 	}
+
+	for _, alias := range rootAliases {
+		t.Run("legacy all-inherit "+alias.name, func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets = append(rp.Targets, &Target{
+				TargetId:   "peer-2",
+				TargetType: TargetTypePeer,
+				Path:       alias.path,
+				Host:       "10.0.0.2",
+				Port:       443,
+				Protocol:   TargetProtoHTTPS,
+				Enabled:    true,
+			})
+			require.NoError(t, rp.Validate(), "legacy all-inherit path and protocol twins must remain valid")
+		})
+
+		t.Run("access-controlled "+alias.name, func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets = append(rp.Targets, &Target{
+				TargetId:     "peer-2",
+				TargetType:   TargetTypePeer,
+				Path:         alias.path,
+				Host:         "10.0.0.2",
+				Port:         80,
+				Protocol:     TargetProtoHTTP,
+				Enabled:      true,
+				AccessAction: TargetAccessActionBlock,
+			})
+			assert.ErrorContains(t, rp.Validate(), `duplicate path "/"`)
+		})
+	}
+
+	t.Run("access action elsewhere enables strict paths", func(t *testing.T) {
+		publicPath := "/public"
+		rp := validProxy()
+		rp.Targets = append(rp.Targets,
+			&Target{
+				TargetId:   "peer-2",
+				TargetType: TargetTypePeer,
+				Host:       "10.0.0.2",
+				Port:       80,
+				Protocol:   TargetProtoHTTP,
+				Enabled:    true,
+			},
+			&Target{
+				TargetId:     "peer-3",
+				TargetType:   TargetTypePeer,
+				Path:         &publicPath,
+				Host:         "10.0.0.3",
+				Port:         80,
+				Protocol:     TargetProtoHTTP,
+				Enabled:      true,
+				AccessAction: TargetAccessActionBypass,
+			},
+		)
+		assert.ErrorContains(t, rp.Validate(), `duplicate path "/"`)
+	})
+
+	t.Run("disabled action preserves legacy validation", func(t *testing.T) {
+		publicPath := "/public"
+		rp := validProxy()
+		rp.Targets = append(rp.Targets,
+			&Target{
+				TargetId:   "peer-2",
+				TargetType: TargetTypePeer,
+				Host:       "10.0.0.2",
+				Port:       80,
+				Protocol:   TargetProtoHTTP,
+				Enabled:    true,
+			},
+			&Target{
+				TargetId:     "peer-3",
+				TargetType:   TargetTypePeer,
+				Path:         &publicPath,
+				Host:         "10.0.0.3",
+				Port:         80,
+				Protocol:     TargetProtoHTTP,
+				Enabled:      false,
+				AccessAction: TargetAccessActionBlock,
+			},
+		)
+		require.NoError(t, rp.Validate())
+	})
 
 	t.Run("disabled target does not collide", func(t *testing.T) {
 		rp := validProxy()
