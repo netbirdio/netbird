@@ -18,7 +18,7 @@ to one WireGuard peer key and cannot be replayed by another peer.
 | Windows | signed-in user's `CurrentUser\MY` | a helper launched with that session's token |
 | Linux and others | PEM directory: `CertStoreDir` in the profile config, else `NB_CERT_STORE_DIR`, else `/etc/netbird/certs` | the daemon, directly |
 | Linux | a `TSS2 PRIVATE KEY` file in that directory, signed by the TPM | the daemon, through `/dev/tpmrm0` |
-| Linux | a PKCS#11 token, tpm2-pkcs11 for one, enabled by `CertPKCS11PIN` in the profile config | the daemon, through the token's module, in builds with the `pkcs11` tag |
+| Linux | a PKCS#11 token, tpm2-pkcs11 for one, enabled by `NB_TPM_PIN` in the daemon's environment | the daemon, through the token's module, in builds with the `pkcs11` tag |
 
 macOS and Windows both keep per-user certificates out of reach of a privileged daemon,
 and both are handled the same way: the daemon reads the machine store itself and
@@ -147,11 +147,12 @@ NB_TPM_DEVICE=/tmp/swtpm.sock go test ./client/internal/certproof/ -run TestColl
 
 Distributions that follow Red Hat's guidance reach the TPM through tpm2-pkcs11, a PKCS#11
 module whose token holds both the key and, after `tpm2_ptool addcert`, the certificate.
-The store reads that token when the profile config, `/etc/netbird/config.json` by default,
-carries the token's user PIN:
+The store reads that token when the daemon's environment carries the token's user PIN in
+`NB_TPM_PIN`. The PIN is never read from the profile config or a command-line flag; set it
+on the service instead:
 
-```json
-"CertPKCS11PIN": "1234"
+```sh
+netbird service install --service-env NB_TPM_PIN=1234
 ```
 
 That alone opens the first token the p11-kit proxy exposes, which is tpm2-pkcs11 on a
@@ -166,7 +167,7 @@ on a host with several tokens or without p11-kit:
 names the library to load; `module-name=tpm2_pkcs11` resolves to `libtpm2_pkcs11.so` on
 the loader's search path, and with neither the p11-kit proxy is loaded, which exposes every
 module the system has registered. The URI may carry the PIN itself, as `pin-value` inline
-or `pin-source` naming a file, and `CertPKCS11PIN` takes precedence over both. Without any
+or `pin-source` naming a file, and `NB_TPM_PIN` takes precedence over both. Without any
 PIN no login happens, and tpm2-pkcs11 then shows no private keys at all. Every other
 attribute is ignored.
 
@@ -184,9 +185,10 @@ Each operation opens a session, logs in, works, logs out and closes, so no token
 outlives a call, and the PEM directory keeps working when the token does not: the two are
 queried together and a failing token is logged rather than hiding file certificates.
 
-Two consequences of the PIN are worth knowing. It is a secret on disk, which the profile
-config already is: it holds the WireGuard private key and is written readable by root
-alone, and the debug bundle's config dump leaves `CertPKCS11PIN` out. And a wrong PIN
+Two consequences of the PIN are worth knowing. It lives in the service definition
+(the systemd unit environment, for one), so it stays out of the profile config and the
+debug bundle, which only records whether `CertPKCS11URI` is set because a URI may carry
+`pin-value`. And a wrong PIN
 counts against the TPM's dictionary-attack lockout, which is shared with everything else
 on the machine that uses the TPM.
 
@@ -194,7 +196,7 @@ The module is loaded at runtime without cgo, through `purego`, which means the b
 dynamically linked against libc. The store is therefore compiled in only with `-tags pkcs11`
 on linux/amd64 and linux/arm64: the deb and rpm packages are built that way, since they
 target glibc distributions, while the release tarballs and the Alpine-based container
-images keep the fully static build. Without the tag, setting `CertPKCS11PIN` logs that
+images keep the fully static build. Without the tag, setting `NB_TPM_PIN` logs that
 the build lacks the support.
 
 To exercise the path without hardware, initialise a SoftHSM token and run the end-to-end
