@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -429,10 +429,6 @@ func Test_SyncStatusRace(t *testing.T) {
 	if os.Getenv("CI") == "true" {
 		if os.Getenv("NETBIRD_STORE_ENGINE") == "postgres" {
 			t.Skip("Skipping on CI and Postgres store")
-		}
-
-		if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-			t.Skip("Skipping on CI and MySQL store")
 		}
 	}
 	for i := 0; i < 500; i++ {
