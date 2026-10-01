@@ -21,6 +21,10 @@ const (
 	defaultStoreDir = "/etc/netbird/certs"
 )
 
+// errKeyMismatch rejects a key that does not belong to the certificate it sits with: it
+// would sign a proof management can only reject, in place of a usable later candidate.
+var errKeyMismatch = errors.New("private key does not match the certificate")
+
 // Candidate is a certificate chain the peer can sign for. Signer never exposes the key.
 type Candidate struct {
 	Chain  []*x509.Certificate
@@ -120,23 +124,43 @@ func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
 	if len(chain) == 0 {
 		return nil, nil, errors.New("no certificate")
 	}
-	if signer != nil {
-		return chain, signer, nil
-	}
-	keyData, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
-	if errors.Is(err, os.ErrNotExist) {
-		return chain, nil, nil
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("read key file: %w", err)
-	}
-	if _, signer, err = parsePEM(keyData); err != nil {
-		return nil, nil, err
-	}
 	if signer == nil {
-		return nil, nil, errors.New("no private key in key file")
+		if signer, err = siblingKey(path); err != nil {
+			return nil, nil, err
+		}
+		if signer == nil {
+			return chain, nil, nil
+		}
+	}
+	if !samePublicKey(signer.Public(), chain[0].PublicKey) {
+		return nil, nil, errKeyMismatch
 	}
 	return chain, signer, nil
+}
+
+// siblingKey reads the private key from the "<name>.key" file next to a certificate
+// file, or returns nil when there is no such file.
+func siblingKey(path string) (crypto.Signer, error) {
+	keyData, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read key file: %w", err)
+	}
+	_, signer, err := parsePEM(keyData)
+	if err != nil {
+		return nil, err
+	}
+	if signer == nil {
+		return nil, errors.New("no private key in key file")
+	}
+	return signer, nil
+}
+
+func samePublicKey(a, b crypto.PublicKey) bool {
+	equaler, ok := a.(interface{ Equal(crypto.PublicKey) bool })
+	return ok && equaler.Equal(b)
 }
 
 func parsePEM(data []byte) ([]*x509.Certificate, crypto.Signer, error) {

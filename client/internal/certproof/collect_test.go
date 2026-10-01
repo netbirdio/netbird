@@ -134,3 +134,29 @@ func TestCollectChallenges_RefusesMalformedInput(t *testing.T) {
 		})
 	}
 }
+
+func TestFileStore_SkipsKeyOfAnotherCertificate(t *testing.T) {
+	ca := certtest.NewCA(t, "corp-root")
+	dir := t.TempDir()
+
+	// A stale key next to a renewed certificate, sorted before the good pair, must not
+	// produce a proof that management rejects and stop the search there.
+	writeFile(t, dir, "a-renewed.crt", certtest.CertPEM(ca.Issue(t, certtest.ECDSAKey(t), "renewed")))
+	writeFile(t, dir, "a-renewed.key", certtest.KeyPEM(t, certtest.ECDSAKey(t)))
+	goodKey := certtest.ECDSAKey(t)
+	good := ca.Issue(t, goodKey, "good")
+	writeFile(t, dir, "b-good.pem", certtest.CertPEM(good)+certtest.KeyPEM(t, goodKey))
+
+	candidates, err := NewFileStore(dir).Candidates(context.Background())
+	require.NoError(t, err)
+	require.Len(t, candidates, 1, "only the certificate whose key matches is a candidate")
+	assert.True(t, good.Equal(candidates[0].Chain[0]), "the matching pair is kept")
+
+	challenger := certposture.NewChallenger([]byte("secret"))
+	now := time.Now()
+	nonce := challenger.Nonce(peerKey, now)
+	proofs := CollectChallenges(context.Background(), NewFileStore(dir), []*proto.CertificateChallenge{{Nonce: nonce, CaCertificates: []string{ca.PEM}}}, peerKey)
+	require.Len(t, proofs, 1)
+	_, err = challenger.Verify(proofs[0], peerKey, now)
+	assert.NoError(t, err, "the proof sent is one management accepts")
+}
