@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build (darwin && !ios) || windows
 
 package certproof
 

@@ -1,4 +1,4 @@
-//go:build pkcs11 && linux && (amd64 || arm64)
+//go:build pkcs11 && linux && !android && (amd64 || arm64)
 
 package pkcs11
 
