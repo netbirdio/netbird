@@ -3,71 +3,37 @@ package manager
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/metric/noop"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
-	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-func TestCreateServiceTargetAccessControlCapability(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		capable   *bool
-		legacy    bool
-		enabled   bool
-		wantError bool
-	}{
-		{name: "capable cluster", capable: boolPtr(true), enabled: true},
-		{name: "mixed cluster", capable: boolPtr(true), legacy: true, enabled: true, wantError: true},
-		{name: "unsupported cluster", capable: boolPtr(false), enabled: true, wantError: true},
-		{name: "unreported capability", enabled: true, wantError: true},
-		{name: "disabled configuration", enabled: false},
+func TestCreateServiceTargetAccessWithoutActiveProxies(t *testing.T) {
+	for _, action := range []rpservice.TargetAccessAction{
+		rpservice.TargetAccessActionBlock,
+		rpservice.TargetAccessActionBypass,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(string(action), func(t *testing.T) {
 			ctx := context.Background()
 			mgr, testStore, _ := setupL4Test(t, nil)
-			require.NoError(t, testStore.SaveProxy(ctx, &proxy.Proxy{
-				ID: "current", ClusterAddress: testCluster,
-				Status: proxy.StatusConnected, LastSeen: time.Now(),
-				Capabilities: proxy.Capabilities{SupportsTargetAccessControl: tc.capable},
-			}))
-			if tc.legacy {
-				require.NoError(t, testStore.SaveProxy(ctx, &proxy.Proxy{
-					ID: "legacy", ClusterAddress: testCluster,
-					Status: proxy.StatusConnected, LastSeen: time.Now(),
-				}))
-			}
 			svc := &rpservice.Service{
 				Name: "target access", Domain: "target.test.netbird.io", Mode: rpservice.ModeHTTP,
-				Enabled: tc.enabled,
+				Enabled: true,
 				Targets: []*rpservice.Target{{
 					AccountID: testAccountID, TargetId: testPeerID,
 					TargetType: rpservice.TargetTypePeer, Protocol: "http", Port: 8080,
-					Enabled: true, AccessAction: rpservice.TargetAccessActionBlock,
+					Enabled: true, AccessAction: action,
 				}},
 			}
 			created, err := mgr.CreateService(ctx, testAccountID, testUserID, svc)
-			if tc.wantError {
-				require.Error(t, err)
-				parsed, ok := status.FromError(err)
-				require.True(t, ok, "capability rejection must use a structured status")
-				assert.Equal(t, status.PreconditionFailed, parsed.Type(), "unsupported clusters must fail activation")
-				_, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, svc.ID)
-				assert.Error(t, err, "a rejected service must not be persisted")
-				return
-			}
 			require.NoError(t, err)
 			stored, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, created.ID)
 			require.NoError(t, err)
 			require.Len(t, stored.Targets, 1)
-			assert.Equal(t, rpservice.TargetAccessActionBlock, stored.Targets[0].AccessAction,
+			assert.Equal(t, action, stored.Targets[0].AccessAction,
 				"accepted target actions must survive persistence")
 		})
 	}
@@ -76,12 +42,6 @@ func TestCreateServiceTargetAccessControlCapability(t *testing.T) {
 func TestUpdateServicePreservesOmittedTargetAccessAction(t *testing.T) {
 	ctx := context.Background()
 	mgr, testStore, _ := setupL4Test(t, nil)
-	capable := true
-	require.NoError(t, testStore.SaveProxy(ctx, &proxy.Proxy{
-		ID: "current", ClusterAddress: testCluster,
-		Status: proxy.StatusConnected, LastSeen: time.Now(),
-		Capabilities: proxy.Capabilities{SupportsTargetAccessControl: &capable},
-	}))
 	existing := seedService(t, testStore, "protected", "http", "target.test.netbird.io", testCluster, 0)
 	existing.Targets[0].AccessAction = rpservice.TargetAccessActionBlock
 	require.NoError(t, testStore.UpdateService(ctx, existing))
@@ -120,7 +80,7 @@ func TestUpdateServicePreservesOmittedTargetAccessAction(t *testing.T) {
 		"explicit inherit must clear the stored target block")
 }
 
-func TestUpdateServiceCannotActivateTargetAccessOnLegacyCluster(t *testing.T) {
+func TestUpdateServiceActivatesPreservedTargetAccess(t *testing.T) {
 	ctx := context.Background()
 	mgr, testStore, _ := setupL4Test(t, nil)
 	existing := seedService(t, testStore, "protected", "http", "target.test.netbird.io", testCluster, 0)
@@ -133,32 +93,34 @@ func TestUpdateServiceCannotActivateTargetAccessOnLegacyCluster(t *testing.T) {
 	updated.Targets[0].AccessAction = rpservice.TargetAccessActionInherit
 	updated.Targets[0].AccessActionProvided = false
 	_, err := mgr.UpdateService(ctx, testAccountID, testUserID, updated)
-	require.Error(t, err)
+	require.NoError(t, err)
 	stored, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, existing.ID)
 	require.NoError(t, err)
-	assert.False(t, stored.Enabled, "an older client must not activate an unenforceable policy")
+	assert.True(t, stored.Enabled, "activating target access must not require an active proxy")
 	assert.Equal(t, rpservice.TargetAccessActionBlock, stored.Targets[0].AccessAction,
-		"a failed activation must retain the stored access action")
+		"activation must retain an omitted stored access action")
 }
 
-func TestGetClustersReportsTargetAccessControlCapability(t *testing.T) {
+func TestUpdateServiceValidatesPreservedTargetAccess(t *testing.T) {
 	ctx := context.Background()
 	mgr, testStore, _ := setupL4Test(t, nil)
-	proxyManager, err := proxymanager.NewManager(testStore, noop.NewMeterProvider().Meter("test"))
+	existing := seedService(t, testStore, "public", "http", "target.test.netbird.io", testCluster, 0)
+	existing.Targets[0].AccessAction = rpservice.TargetAccessActionBypass
+	require.NoError(t, testStore.UpdateService(ctx, existing))
+
+	updated := existing.Copy()
+	updated.Private = true
+	updated.AccessGroups = []string{testGroupID}
+	updated.Targets[0].AccessAction = rpservice.TargetAccessActionInherit
+	updated.Targets[0].AccessActionProvided = false
+	_, err := mgr.UpdateService(ctx, testAccountID, testUserID, updated)
+	require.ErrorContains(t, err, "bypass access_action is not supported for private services")
+
+	stored, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, existing.ID)
 	require.NoError(t, err)
-	mgr.capabilities = proxyManager
-	capable := true
-	require.NoError(t, testStore.SaveProxy(ctx, &proxy.Proxy{
-		ID: "current", ClusterAddress: testCluster,
-		Status: proxy.StatusConnected, LastSeen: time.Now(),
-		Capabilities: proxy.Capabilities{SupportsTargetAccessControl: &capable},
-	}))
-	clusters, err := mgr.GetClusters(ctx, testAccountID, testUserID)
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	require.NotNil(t, clusters[0].SupportsTargetAccessControl)
-	assert.True(t, *clusters[0].SupportsTargetAccessControl,
-		"cluster listings must expose the stored target access capability to clients")
+	assert.False(t, stored.Private, "an invalid preserved bypass must prevent the private-service update")
+	assert.Equal(t, rpservice.TargetAccessActionBypass, stored.Targets[0].AccessAction,
+		"a rejected update must retain the existing target action")
 }
 
 func TestUpdateServiceLegacyClientCannotRemoveControlledPath(t *testing.T) {

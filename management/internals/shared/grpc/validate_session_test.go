@@ -634,10 +634,6 @@ func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Conte
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) ClusterSupportsTargetAccessControl(_ context.Context, _ string) *bool {
-	return nil
-}
-
 func (m *testValidateSessionProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
 	return false
 }

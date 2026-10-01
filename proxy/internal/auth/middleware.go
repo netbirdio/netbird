@@ -148,37 +148,11 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
-		if config.TargetResolver != nil {
-			resolvedRequest, action, err := config.TargetResolver.ResolveRequest(r)
-			if err != nil {
-				mw.rejectUnsafePath(w, r, err)
-				return
-			}
-			r = resolvedRequest
-			switch action {
-			case proxy.AccessActionInherit:
-			case proxy.AccessActionBypass:
-				if config.Private {
-					mw.logger.Error("private domain reached a bypass target; denying")
-					denyPrivate(w)
-					return
-				}
-				markAccessAction(r, action)
-				next.ServeHTTP(w, r)
-				return
-			case proxy.AccessActionBlock:
-				markAccessAction(r, action)
-				w.Header().Set("Cache-Control", "no-store")
-				denyForbidden(w, config)
-				return
-			default:
-				mw.logger.Errorf("resolved unknown access action %q; denying", action)
-				markAccessAction(r, action)
-				w.Header().Set("Cache-Control", "no-store")
-				denyForbidden(w, config)
-				return
-			}
+		resolvedRequest, handled := mw.handleTargetAccess(w, r, config, next)
+		if handled {
+			return
 		}
+		r = resolvedRequest
 
 		// Private services bypass operator schemes and gate on tunnel peer.
 		if config.Private {
@@ -217,6 +191,40 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 
 		mw.authenticateWithSchemes(w, r, host, config)
 	})
+}
+
+func (mw *Middleware) handleTargetAccess(w http.ResponseWriter, r *http.Request, config DomainConfig, next http.Handler) (*http.Request, bool) {
+	if config.TargetResolver == nil {
+		return r, false
+	}
+	resolvedRequest, action, err := config.TargetResolver.ResolveRequest(r)
+	if err != nil {
+		mw.rejectUnsafePath(w, r, err)
+		return r, true
+	}
+	r = resolvedRequest
+	switch action {
+	case proxy.AccessActionInherit:
+		return r, false
+	case proxy.AccessActionBypass:
+		if config.Private {
+			mw.logger.Error("private domain reached a bypass target; denying")
+			denyPrivate(w)
+			return r, true
+		}
+		markAccessAction(r, action)
+		next.ServeHTTP(w, r)
+	case proxy.AccessActionBlock:
+		markAccessAction(r, action)
+		w.Header().Set("Cache-Control", "no-store")
+		denyForbidden(w, config)
+	default:
+		mw.logger.Errorf("resolved unknown access action %q; denying", action)
+		markAccessAction(r, action)
+		w.Header().Set("Cache-Control", "no-store")
+		denyForbidden(w, config)
+	}
+	return r, true
 }
 
 func (mw *Middleware) rejectUnsafePath(w http.ResponseWriter, r *http.Request, err error) {

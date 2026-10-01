@@ -73,8 +73,6 @@ message ProxyCapabilities {
   optional bool private = 4;
   // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
   optional bool supports_private_service = 5;
-  // Whether the proxy enforces per-target access actions on PathMapping.
-  optional bool supports_target_access_control = 6;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.

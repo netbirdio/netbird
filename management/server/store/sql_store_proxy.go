@@ -334,11 +334,10 @@ func (s *SqlStore) GetProxyClusters(ctx context.Context, accountID string) ([]pr
 const proxyActiveThreshold = 2 * time.Minute
 
 var validCapabilityColumns = map[string]struct{}{
-	"supports_custom_ports":          {},
-	"require_subdomain":              {},
-	"supports_crowdsec":              {},
-	"private":                        {},
-	"supports_target_access_control": {},
+	"supports_custom_ports": {},
+	"require_subdomain":     {},
+	"supports_crowdsec":     {},
+	"private":               {},
 }
 
 // GetClusterSupportsCustomPorts returns whether any active proxy in the cluster
@@ -366,12 +365,6 @@ func (s *SqlStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr st
 // bypass reputation checks.
 func (s *SqlStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_crowdsec")
-}
-
-// GetClusterSupportsTargetAccessControl reports whether every active proxy
-// enforces target access actions, including proxies without reported capabilities.
-func (s *SqlStore) GetClusterSupportsTargetAccessControl(ctx context.Context, clusterAddr string) *bool {
-	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_target_access_control")
 }
 
 // GetActiveProxyVersions returns every active proxy version in a cluster.

@@ -3534,10 +3534,6 @@ components:
           type: boolean
           description: Whether all active proxies in the cluster have CrowdSec configured
           example: false
-        supports_target_access_control:
-          type: boolean
-          description: Whether all active proxies in the cluster support per-target access actions
-          example: true
         private:
           type: boolean
           description: True when at least one connected proxy in this cluster is running embedded in a netbird client (`netbird proxy`) and serving over a WireGuard tunnel. Lets the dashboard distinguish per-peer / private clusters from centralised ones.
@@ -3597,10 +3593,6 @@ components:
           type: boolean
           description: Whether the proxy cluster has CrowdSec configured
           example: false
-        supports_target_access_control:
-          type: boolean
-          description: Whether all active proxies in the cluster support per-target access actions
-          example: true
         supports_private:
           type: boolean
           description: Whether the proxy cluster supports private (NetBird-only) services. True when at least one connected proxy in the cluster runs embedded in a netbird client.

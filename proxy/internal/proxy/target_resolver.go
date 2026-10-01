@@ -229,21 +229,30 @@ func validateAccessPath(requestURL *url.URL) error {
 			return fmt.Errorf("%w: invalid escaped path", ErrUnsafeRequestPath)
 		}
 	}
-	if strings.Contains(requestURL.Path, "//") || strings.ContainsAny(requestURL.Path, "\\;?#") {
+	if err := validateDecodedAccessPath(requestURL.Path); err != nil {
+		return err
+	}
+	return validateEscapedAccessPath(requestURL.EscapedPath())
+}
+
+func validateDecodedAccessPath(path string) error {
+	if strings.Contains(path, "//") || strings.ContainsAny(path, "\\;?#") {
 		return fmt.Errorf("%w: ambiguous path separator", ErrUnsafeRequestPath)
 	}
-	for _, segment := range strings.Split(requestURL.Path, "/") {
+	for _, segment := range strings.Split(path, "/") {
 		if segment == "." || segment == ".." {
 			return fmt.Errorf("%w: dot segment", ErrUnsafeRequestPath)
 		}
 	}
-	for _, char := range requestURL.Path {
+	for _, char := range path {
 		if char < 0x20 || char == 0x7f {
 			return fmt.Errorf("%w: control character", ErrUnsafeRequestPath)
 		}
 	}
+	return nil
+}
 
-	escapedPath := requestURL.EscapedPath()
+func validateEscapedAccessPath(escapedPath string) error {
 	for i := 0; i < len(escapedPath); i++ {
 		if escapedPath[i] != '%' {
 			continue

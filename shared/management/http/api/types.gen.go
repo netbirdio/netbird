@@ -4938,9 +4938,6 @@ type ProxyCluster struct {
 	// SupportsCustomPorts Whether the cluster supports binding arbitrary TCP/UDP ports
 	SupportsCustomPorts *bool `json:"supports_custom_ports,omitempty"`
 
-	// SupportsTargetAccessControl Whether all active proxies in the cluster support per-target access actions
-	SupportsTargetAccessControl *bool `json:"supports_target_access_control,omitempty"`
-
 	// Type Source of the proxy cluster. `account` clusters are owned and operated by the account (BYOP);
 	// `shared` clusters are operated by NetBird and shared across accounts.
 	Type ProxyClusterType `json:"type"`
@@ -5011,9 +5008,6 @@ type ReverseProxyDomain struct {
 
 	// SupportsPrivate Whether the proxy cluster supports private (NetBird-only) services. True when at least one connected proxy in the cluster runs embedded in a netbird client.
 	SupportsPrivate *bool `json:"supports_private,omitempty"`
-
-	// SupportsTargetAccessControl Whether all active proxies in the cluster support per-target access actions
-	SupportsTargetAccessControl *bool `json:"supports_target_access_control,omitempty"`
 
 	// TargetCluster The proxy cluster this domain is validated against (only for custom domains)
 	TargetCluster *string `json:"target_cluster,omitempty"`

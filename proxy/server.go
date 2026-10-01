@@ -1289,14 +1289,12 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 	privateCapability := s.Private
 	// Always true: this build enforces ProxyMapping.private via the auth middleware.
 	supportsPrivateService := true
-	supportsTargetAccessControl := true
 	return &proto.ProxyCapabilities{
-		SupportsCustomPorts:         &s.SupportsCustomPorts,
-		RequireSubdomain:            &s.RequireSubdomain,
-		SupportsCrowdsec:            &supportsCrowdSec,
-		Private:                     &privateCapability,
-		SupportsPrivateService:      &supportsPrivateService,
-		SupportsTargetAccessControl: &supportsTargetAccessControl,
+		SupportsCustomPorts:    &s.SupportsCustomPorts,
+		RequireSubdomain:       &s.RequireSubdomain,
+		SupportsCrowdsec:       &supportsCrowdSec,
+		Private:                &privateCapability,
+		SupportsPrivateService: &supportsPrivateService,
 	}
 }
 
@@ -1648,7 +1646,8 @@ func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if old := s.loadMapping(types.ServiceID(mapping.GetId())); old != nil {
 		if !types.ServiceMode(old.GetMode()).IsL4() &&
 			!types.ServiceMode(mapping.GetMode()).IsL4() &&
-			old.GetDomain() == mapping.GetDomain() && len(mapping.GetPath()) > 0 {
+			old.GetDomain() == mapping.GetDomain() &&
+			len(old.GetPath()) > 0 && len(mapping.GetPath()) > 0 {
 			if err := s.updateMapping(ctx, mapping); err != nil {
 				// A rejected policy must not leave an older, potentially more
 				// permissive route serving requests. Keep the peer, but remove

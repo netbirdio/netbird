@@ -62,9 +62,9 @@ Services using target access overrides reject ambiguous request paths, including
 encoded separators and traversal segments, before forwarding. Path rewriting
 continues to use the selected Location prefix after access checks.
 
-All active proxies in a cluster must advertise target access control support
-before an override can be enabled. An older proxy cannot receive a service whose
-target actions it cannot enforce. API updates that omit an existing Location's
+Upgrade all proxies before using target access actions. Older proxies ignore
+these actions and continue applying the service's authentication settings.
+API updates that omit an existing Location's
 `access_action` preserve its setting; send `"access_action": "inherit"` explicitly
 to restore service authentication. Requests omitting all access actions cannot
 remove or rename a controlled Location; use an updated client and explicitly

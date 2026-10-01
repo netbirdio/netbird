@@ -42,15 +42,14 @@ func domainTypeToApi(t domain.Type) api.ReverseProxyDomainType {
 
 func domainToApi(d *domain.Domain) api.ReverseProxyDomain {
 	resp := api.ReverseProxyDomain{
-		Domain:                      d.Domain,
-		Id:                          d.ID,
-		Type:                        domainTypeToApi(d.Type),
-		Validated:                   d.Validated,
-		SupportsCustomPorts:         d.SupportsCustomPorts,
-		RequireSubdomain:            d.RequireSubdomain,
-		SupportsCrowdsec:            d.SupportsCrowdSec,
-		SupportsPrivate:             d.SupportsPrivate,
-		SupportsTargetAccessControl: d.SupportsTargetAccessControl,
+		Domain:              d.Domain,
+		Id:                  d.ID,
+		Type:                domainTypeToApi(d.Type),
+		Validated:           d.Validated,
+		SupportsCustomPorts: d.SupportsCustomPorts,
+		RequireSubdomain:    d.RequireSubdomain,
+		SupportsCrowdsec:    d.SupportsCrowdSec,
+		SupportsPrivate:     d.SupportsPrivate,
 	}
 	if d.TargetCluster != "" {
 		resp.TargetCluster = &d.TargetCluster

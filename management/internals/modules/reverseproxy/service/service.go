@@ -1002,39 +1002,7 @@ func (s *Service) validateTLSMode() error {
 func (s *Service) validateHTTPTargets() error {
 	paths := make(map[string]int, len(s.Targets))
 	for i, target := range s.Targets {
-		if target == nil {
-			return fmt.Errorf("target %d is nil", i)
-		}
-		if err := validateTargetAccessAction(i, target, s.Private); err != nil {
-			return err
-		}
-		switch target.TargetType {
-		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-			// Host is normally overwritten by replaceHostByLookup with the
-			// resolved peer IP / resource address; operator-supplied values
-			// are honored only when DirectUpstream is set. Validate the
-			// override here so misconfigured hosts fail fast at API time.
-			if err := validateDirectUpstreamHost(i, target); err != nil {
-				return err
-			}
-		case TargetTypeSubnet:
-			if err := validateSubnetTarget(i, target); err != nil {
-				return err
-			}
-		case TargetTypeCluster:
-			if err := validateClusterTarget(i, target); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
-		}
-		if target.TargetId == "" {
-			return fmt.Errorf("target %d has empty target_id", i)
-		}
-		if target.ProxyProtocol {
-			return fmt.Errorf("target %d: proxy_protocol is not supported for HTTP services", i)
-		}
-		if err := validateTargetOptions(i, &target.Options); err != nil {
+		if err := s.validateHTTPTarget(i, target); err != nil {
 			return err
 		}
 		if target.Enabled {
@@ -1047,6 +1015,42 @@ func (s *Service) validateHTTPTargets() error {
 	}
 
 	return nil
+}
+
+func (s *Service) validateHTTPTarget(idx int, target *Target) error {
+	if target == nil {
+		return fmt.Errorf("target %d is nil", idx)
+	}
+	if err := validateTargetAccessAction(idx, target, s.Private); err != nil {
+		return err
+	}
+	switch target.TargetType {
+	case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
+		// Host is normally overwritten by replaceHostByLookup with the
+		// resolved peer IP / resource address; operator-supplied values
+		// are honored only when DirectUpstream is set. Validate the
+		// override here so misconfigured hosts fail fast at API time.
+		if err := validateDirectUpstreamHost(idx, target); err != nil {
+			return err
+		}
+	case TargetTypeSubnet:
+		if err := validateSubnetTarget(idx, target); err != nil {
+			return err
+		}
+	case TargetTypeCluster:
+		if err := validateClusterTarget(idx, target); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("target %d has invalid target_type %q", idx, target.TargetType)
+	}
+	if target.TargetId == "" {
+		return fmt.Errorf("target %d has empty target_id", idx)
+	}
+	if target.ProxyProtocol {
+		return fmt.Errorf("target %d: proxy_protocol is not supported for HTTP services", idx)
+	}
+	return validateTargetOptions(idx, &target.Options)
 }
 
 func validateSubnetTarget(idx int, target *Target) error {

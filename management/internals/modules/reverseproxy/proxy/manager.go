@@ -20,7 +20,6 @@ type Manager interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
-	ClusterSupportsTargetAccessControl(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsSessionCode(ctx context.Context, clusterAddr string) bool
 	CleanupStale(ctx context.Context, inactivityDuration time.Duration) error
 	GetAccountProxy(ctx context.Context, accountID string) (*Proxy, error)

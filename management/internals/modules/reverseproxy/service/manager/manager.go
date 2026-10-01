@@ -84,7 +84,6 @@ type CapabilityProvider interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
-	ClusterSupportsTargetAccessControl(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -140,7 +139,6 @@ func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]
 		clusters[i].RequireSubdomain = m.capabilities.ClusterRequireSubdomain(ctx, clusters[i].Address)
 		clusters[i].SupportsCrowdSec = m.capabilities.ClusterSupportsCrowdSec(ctx, clusters[i].Address)
 		clusters[i].Private = m.capabilities.ClusterSupportsPrivate(ctx, clusters[i].Address)
-		clusters[i].SupportsTargetAccessControl = m.capabilities.ClusterSupportsTargetAccessControl(ctx, clusters[i].Address)
 	}
 
 	return clusters, nil
@@ -335,7 +333,7 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 	}
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := validateTargetAccessControl(ctx, transaction, svc); err != nil {
+		if err := validateTargetAccessControl(svc); err != nil {
 			return err
 		}
 		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
@@ -665,7 +663,7 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	if err := preserveTargetAccessActions(service, existingService); err != nil {
 		return err
 	}
-	if err := validateTargetAccessControl(ctx, transaction, service); err != nil {
+	if err := validateTargetAccessControl(service); err != nil {
 		return err
 	}
 	if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
@@ -705,21 +703,13 @@ func (m *Manager) validateServiceDomain(ctx context.Context, tx store.Store, acc
 	return m.clusterDeriver.ValidateServiceDomain(ctx, tx, accountID, svc.Domain, cluster)
 }
 
-func validateTargetAccessControl(ctx context.Context, tx store.Store, svc *service.Service) error {
+func validateTargetAccessControl(svc *service.Service) error {
 	if !svc.HasTargetAccessControl() {
 		return nil
 	}
 	// Legacy requests may acquire an existing action during the update merge.
 	if err := svc.Validate(); err != nil {
 		return status.Errorf(status.InvalidArgument, "%s", err)
-	}
-	if !svc.Enabled {
-		return nil
-	}
-	supported := tx.GetClusterSupportsTargetAccessControl(ctx, svc.ProxyCluster)
-	if supported == nil || !*supported {
-		return status.Errorf(status.PreconditionFailed,
-			"all active proxies in the cluster must support target access control")
 	}
 	return nil
 }

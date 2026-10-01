@@ -66,8 +66,6 @@ func TestTargetAccessControl_PublicServiceLifecycle(t *testing.T) {
 	require.NoError(t, err, "start public reverse proxy")
 	t.Cleanup(func() { _ = px.Terminate(context.Background()) })
 
-	waitForTargetAccessCapability(t, ctx, px)
-
 	request := targetAccessServiceRequest(t, upstream.URL,
 		api.ServiceTargetAccessActionBypass,
 		api.ServiceTargetAccessActionBlock,
@@ -196,39 +194,6 @@ func targetAccessServiceRequest(
 		Private:            &private,
 		Targets:            &targets,
 	}
-}
-
-func waitForTargetAccessCapability(t *testing.T, ctx context.Context, px *harness.Proxy) {
-	t.Helper()
-
-	deadline := time.Now().Add(90 * time.Second)
-	last := "cluster not listed"
-	for time.Now().Before(deadline) {
-		clusters, err := srv.API().ReverseProxyClusters.List(ctx)
-		if err != nil {
-			last = "list clusters: " + err.Error()
-		} else {
-			for _, cluster := range clusters {
-				if cluster.Address != harness.AgentNetworkCluster {
-					continue
-				}
-				switch {
-				case cluster.SupportsTargetAccessControl == nil:
-					last = "target access capability not reported"
-				case *cluster.SupportsTargetAccessControl:
-					return
-				default:
-					last = "target access capability reported false"
-				}
-				break
-			}
-		}
-		if !waitBeforeRetry(ctx, time.Second) {
-			break
-		}
-	}
-	t.Fatalf("cluster %s never reported target access control support: %s\n=== combined logs ===\n%s\n=== proxy logs ===\n%s",
-		harness.AgentNetworkCluster, last, srv.Logs(context.Background()), px.Logs(context.Background()))
 }
 
 func requireProxyStatus(

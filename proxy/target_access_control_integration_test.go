@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"net"
 	"net/http"
@@ -123,11 +124,10 @@ func targetAccessService(t *testing.T, upstreamURL string) *service.Service {
 	}
 }
 
-func targetAccessCapabilities() *proto.ProxyCapabilities {
+func privateServiceCapabilities() *proto.ProxyCapabilities {
 	supported := true
 	return &proto.ProxyCapabilities{
-		SupportsPrivateService:      &supported,
-		SupportsTargetAccessControl: &supported,
+		SupportsPrivateService: &supported,
 	}
 }
 
@@ -228,6 +228,72 @@ func targetAccessRequestTo(handler http.Handler, path, remoteAddr string, header
 	return recorder
 }
 
+func TestModifyHTTPMappingFromEmptyPathsRegistersRoute(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Test-Upstream", "reached")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(upstream.Close)
+
+	runtime, handler := newTargetAccessRuntime(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	router := nbtcp.NewRouter(runtime.Logger, func(proxytypes.AccountID) (proxytypes.DialContextFunc, error) {
+		return func(context.Context, string, string) (net.Conn, error) {
+			return nil, net.ErrClosed
+		}, nil
+	}, listener.Addr())
+	router.SetFallback(nbtcp.Route{
+		Type:      nbtcp.RouteTCP,
+		AccountID: "fallback-account",
+		ServiceID: "fallback-service",
+		Target:    "unreachable.test:443",
+	})
+	runtime.mainRouter = router
+
+	httpServer := &http.Server{
+		Handler:           handler,
+		TLSConfig:         selfSignedTLSConfig(t),
+		ReadHeaderTimeout: time.Second,
+	}
+	t.Cleanup(func() { _ = httpServer.Close() })
+	go func() { _ = httpServer.ServeTLS(router.HTTPListener(), "", "") }()
+	go feedRouterFromListener(t.Context(), listener, router, runtime.Logger, proxytypes.AccountID(targetAccessAccountID))
+
+	previous := &proto.ProxyMapping{
+		Id:        "empty-to-routable",
+		AccountId: targetAccessAccountID,
+		Domain:    targetAccessDomain,
+	}
+	runtime.storeMapping(previous)
+	replacement := &proto.ProxyMapping{
+		Id:        previous.GetId(),
+		AccountId: previous.GetAccountId(),
+		Domain:    previous.GetDomain(),
+		Path: []*proto.PathMapping{{
+			Path:   "/",
+			Target: upstream.URL,
+		}},
+	}
+	require.NoError(t, runtime.modifyMapping(t.Context(), replacement))
+
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, //nolint:gosec
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, listener.Addr().String())
+		},
+	}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+	response, err := client.Get("https://" + targetAccessDomain + "/ready")
+	require.NoError(t, err, "first target must register the domain with the SNI router")
+	t.Cleanup(func() { _ = response.Body.Close() })
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+	assert.Equal(t, "reached", response.Header.Get("X-Test-Upstream"))
+}
+
 func TestIntegration_TargetAccessControl_ManagementToUpstream(t *testing.T) {
 	setup := setupIntegrationTest(t)
 	t.Cleanup(setup.cleanup)
@@ -239,10 +305,10 @@ func TestIntegration_TargetAccessControl_ManagementToUpstream(t *testing.T) {
 	svc := targetAccessService(t, upstream.URL)
 	require.NoError(t, setup.store.CreateService(t.Context(), svc))
 
-	stream := targetAccessMappingStream(t, setup, "target-access-modern", targetAccessCapabilities())
+	stream := targetAccessMappingStream(t, setup, "target-access-proxy", nil)
 	snapshot := receiveTargetAccessSnapshot(t, stream)
 	mapping := snapshot[svc.ID]
-	require.NotNil(t, mapping, "capable proxy must receive the target-access service")
+	require.NotNil(t, mapping, "proxy must receive the target-access service")
 
 	actions := make(map[string]proto.TargetAccessAction)
 	for _, pathMapping := range mapping.GetPath() {
@@ -342,9 +408,9 @@ func TestIntegration_TargetAccessControl_PrivateServiceRejectsBypass(t *testing.
 	svc.Targets = svc.Targets[1:2]
 	require.NoError(t, setup.store.CreateService(t.Context(), svc))
 
-	stream := targetAccessMappingStream(t, setup, "target-access-private-modern", targetAccessCapabilities())
+	stream := targetAccessMappingStream(t, setup, "target-access-private", privateServiceCapabilities())
 	mapping := receiveTargetAccessSnapshot(t, stream)[svc.ID]
-	require.NotNil(t, mapping, "proxy with both capabilities must receive private target-access mapping")
+	require.NotNil(t, mapping, "proxy supporting private services must receive private target-access mapping")
 
 	runtime, handler := newTargetAccessRuntime(t)
 	err := runtime.updateMapping(t.Context(), mapping)
@@ -358,42 +424,4 @@ func TestIntegration_TargetAccessControl_PrivateServiceRejectsBypass(t *testing.
 
 	assert.Equal(t, http.StatusNotFound, recorder.Code, "rejected private mapping must not be published")
 	assert.Empty(t, upstreamRecorder.snapshot(), "rejected private mapping must not reach upstream")
-}
-
-func TestIntegration_TargetAccessControl_LegacyCapabilityFiltering(t *testing.T) {
-	setup := setupIntegrationTest(t)
-	t.Cleanup(setup.cleanup)
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(upstream.Close)
-
-	controlled := targetAccessService(t, upstream.URL)
-	controlled.ID = "target-access-capability-controlled"
-	controlled.Domain = "controlled.test.proxy.io"
-	require.NoError(t, setup.store.CreateService(t.Context(), controlled))
-
-	legacySafe := targetAccessService(t, upstream.URL)
-	legacySafe.ID = "target-access-capability-inherit"
-	legacySafe.Domain = "inherit.test.proxy.io"
-	legacySafe.Targets = legacySafe.Targets[:1]
-	require.NoError(t, setup.store.CreateService(t.Context(), legacySafe))
-
-	modern := targetAccessMappingStream(t, setup, "target-access-capability-modern", targetAccessCapabilities())
-	modernSnapshot := receiveTargetAccessSnapshot(t, modern)
-	assert.Contains(t, modernSnapshot, controlled.ID, "capable proxy must receive non-inherit actions")
-	assert.Contains(t, modernSnapshot, legacySafe.ID, "capable proxy must retain inherit-only mappings")
-
-	legacy := targetAccessMappingStream(t, setup, "target-access-capability-legacy", nil)
-	legacySnapshot := receiveTargetAccessSnapshot(t, legacy)
-	legacyControlled := legacySnapshot[controlled.ID]
-	require.NotNil(t, legacyControlled,
-		"legacy snapshot must explicitly remove a route whose block action cannot be enforced")
-	assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, legacyControlled.GetType(),
-		"legacy proxy must not retain an older unrestricted version of a controlled route")
-	legacyInherited := legacySnapshot[legacySafe.ID]
-	require.NotNil(t, legacyInherited,
-		"legacy proxy must continue receiving mappings that only use zero-value inherit")
-	assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED, legacyInherited.GetType())
 }

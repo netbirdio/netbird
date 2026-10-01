@@ -580,11 +580,10 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	var caps *proxy.Capabilities
 	if c := params.capabilities; c != nil {
 		caps = &proxy.Capabilities{
-			SupportsCustomPorts:         c.SupportsCustomPorts,
-			RequireSubdomain:            c.RequireSubdomain,
-			SupportsCrowdsec:            c.SupportsCrowdsec,
-			SupportsTargetAccessControl: c.SupportsTargetAccessControl,
-			Private:                     c.Private,
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+			SupportsCrowdsec:    c.SupportsCrowdsec,
+			Private:             c.Private,
 		}
 	}
 
@@ -716,9 +715,6 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 			end = len(mappings)
 		}
 		for _, m := range mappings[i:end] {
-			if m.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
-				continue
-			}
 			token, err := s.tokenStore.GenerateToken(m.AccountId, m.Id, s.proxyTokenTTL())
 			if err != nil {
 				return fmt.Errorf("generate auth token for service %s: %w", m.Id, err)
@@ -816,9 +812,6 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			end = len(mappings)
 		}
 		for _, m := range mappings[i:end] {
-			if m.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
-				continue
-			}
 			token, err := s.tokenStore.GenerateToken(m.AccountId, m.Id, s.proxyTokenTTL())
 			if err != nil {
 				return fmt.Errorf("generate auth token for service %s: %w", m.Id, err)
@@ -892,8 +885,7 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		}
 
 		m := service.ToProtoMapping(rpservice.Create, "", oidcCfg)
-		m = mappingForProxy(conn, m)
-		if m == nil {
+		if !proxyAcceptsMapping(conn, m) {
 			continue
 		}
 		mappings = append(mappings, m)
@@ -1138,11 +1130,11 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 		if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
 			continue
 		}
-		connUpdate := filterMappingsForProxy(conn, updateResponse)
-		if len(connUpdate.Mapping) == 0 {
+		if !proxyAcceptsMapping(conn, update) {
+			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
 			continue
 		}
-		msg := s.perProxyMessage(connUpdate, proxyID)
+		msg := s.perProxyMessage(updateResponse, proxyID)
 		if msg == nil {
 			log.WithContext(ctx).Warnf("Token generation failed for proxy %s in cluster %s, disconnecting to force resync", proxyID, clusterAddr)
 			conn.cancel()
@@ -1159,14 +1151,12 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 }
 
 // proxyAcceptsMapping returns whether the proxy can receive this mapping.
-// Target actions and private services require their respective capabilities.
-// Custom-port L4 mappings require SupportsCustomPorts. Removals always pass.
+// Private mappings require SupportsPrivateService; custom-port L4 mappings
+// require SupportsCustomPorts. Remove operations always pass so proxies can
+// clean up.
 func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
 	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
 		return true
-	}
-	if mappingRequiresTargetAccessControl(mapping) && !conn.capabilities.GetSupportsTargetAccessControl() {
-		return false
 	}
 	if mapping.GetPrivate() {
 		caps := conn.capabilities
@@ -1182,52 +1172,27 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
 }
 
-// filterMappingsForProxy removes routes whose access actions cannot be enforced
-// and drops other mappings the proxy cannot safely receive.
+// filterMappingsForProxy drops mappings the proxy cannot safely receive
+// (e.g. private mappings to a proxy without SupportsPrivateService).
 // Returns the input unchanged when no filtering is needed.
 func filterMappingsForProxy(conn *proxyConnection, update *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
 	if update == nil || len(update.Mapping) == 0 {
 		return update
 	}
 	kept := make([]*proto.ProxyMapping, 0, len(update.Mapping))
-	changed := false
 	for _, m := range update.Mapping {
-		filtered := mappingForProxy(conn, m)
-		changed = changed || filtered != m
-		if filtered == nil {
+		if !proxyAcceptsMapping(conn, m) {
 			continue
 		}
-		kept = append(kept, filtered)
+		kept = append(kept, m)
 	}
-	if !changed {
+	if len(kept) == len(update.Mapping) {
 		return update
 	}
 	return &proto.GetMappingUpdateResponse{
 		Mapping:             kept,
 		InitialSyncComplete: update.InitialSyncComplete,
 	}
-}
-
-func mappingRequiresTargetAccessControl(mapping *proto.ProxyMapping) bool {
-	for _, target := range mapping.Path {
-		if target.GetAccessAction() != proto.TargetAccessAction_TARGET_ACCESS_ACTION_INHERIT {
-			return true
-		}
-	}
-	return false
-}
-
-func mappingForProxy(conn *proxyConnection, mapping *proto.ProxyMapping) *proto.ProxyMapping {
-	if proxyAcceptsMapping(conn, mapping) {
-		return mapping
-	}
-	if mappingRequiresTargetAccessControl(mapping) {
-		// Skipping an update could leave an older unrestricted route active.
-		removed := shallowCloneMapping(mapping)
-		removed.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
-		return removed
-	}
-	return nil
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
