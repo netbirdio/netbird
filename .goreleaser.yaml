@@ -194,6 +194,27 @@ builds:
       - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: nblink
+    dir: client/link/cmd/nblink
+    env: [CGO_ENABLED=0]
+    binary: nblink
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ignore:
+      - goos: windows
+        goarch: arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: netbird-idp-migrate
     dir: tools/idp-migrate
     env:
@@ -232,6 +253,15 @@ archives:
     builds:
       - netbird-idp-migrate
     name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: nblink
+    builds:
+      - nblink
+    name_template: "nblink_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # goreleaser archives as tar.gz everywhere unless told otherwise, and
+    # nblink is downloaded and extracted by hand on Windows too.
+    format_overrides:
+      - goos: windows
+        format: zip
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
@@ -529,6 +559,28 @@ dockers_v2:
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: nblink
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - nblink
+     images:
+       - netbirdio/nblink
+       - ghcr.io/netbirdio/nblink
+     tags:
+       - "{{ .Version }}"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+     dockerfile: client/Dockerfile-nblink
+     platforms:
+       - linux/amd64
+       - linux/arm64
+       - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "nblink"
        "org.opencontainers.image.version": "{{.Version}}"
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
