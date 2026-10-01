@@ -1,3 +1,5 @@
+//go:build (linux && !android) || freebsd
+
 package configurer
 
 import (
@@ -163,33 +165,6 @@ func (s *allowedIPStore) releaseLocked(k wgtypes.Key) {
 			delete(s.owners, prefix)
 		}
 	}
-}
-
-// normalizePrefix puts a prefix into the form the store recognises it by. It clears the
-// host bits, which a device does on its own, so a caller passing 10.20.0.1/16 still matches
-// the 10.20.0.0/16 read back from the device; and it unmaps a v4-mapped prefix so that it
-// compares equal to, and marshals like, the plain v4 prefix for the same network.
-//
-// Masking comes first because it also decides the address family: only a prefix at least 96
-// bits long keeps the mapped marker through the mask, so a shorter prefix inside the mapped
-// range is a genuine v6 prefix and unmapping it would yield an invalid v4 prefix.
-func normalizePrefix(prefix netip.Prefix) netip.Prefix {
-	masked := prefix.Masked()
-
-	addr := masked.Addr()
-	if !addr.Is4In6() {
-		return masked
-	}
-	return netip.PrefixFrom(addr.Unmap(), masked.Bits()-96)
-}
-
-// normalizePrefixes returns a normalized copy without changing the caller's slice.
-func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
-	normalized := make([]netip.Prefix, len(prefixes))
-	for i, prefix := range prefixes {
-		normalized[i] = normalizePrefix(prefix)
-	}
-	return normalized
 }
 
 // ipNetsToPrefixes converts addresses read back from a device. Unmap keeps a v4-mapped v6
