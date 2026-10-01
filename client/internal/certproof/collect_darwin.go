@@ -1,14 +1,11 @@
 package certproof
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -61,32 +58,21 @@ func collectAsConsoleUser(ctx context.Context, challenges []*proto.CertificateCh
 		return nil, fmt.Errorf("resolve own binary: %w", err)
 	}
 
-	payload, err := json.Marshal(helperRequest(challenges, peerKey))
-	if err != nil {
-		return nil, fmt.Errorf("encode helper request: %w", err)
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
 	defer cancel()
 
+	// Absolute paths, because the daemon's PATH is configurable through the service
+	// environment, and sudo selects the user by uid so the name never has to round-trip.
 	uid := strconv.FormatUint(uint64(user.UID), 10)
-	cmd := exec.CommandContext(ctx, "launchctl", "asuser", uid, "sudo", "-u", user.Name, "-H", binary, "posture", "cert-proof")
-	cmd.Stdin = bytes.NewReader(payload)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", binary, "posture", "cert-proof")
 
-	log.Infof("certificate posture: asking the desktop session of %q (uid %s) to answer %d challenges", user.Name, uid, len(challenges))
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run helper as %s: %w: %s", user.Name, err, strings.TrimSpace(stderr.String()))
+	log.Debugf("certificate posture: asking the desktop session of uid %s to answer %d challenges", uid, len(challenges))
+	proofs, err := runHelperCmd(cmd, helperRequest(challenges, peerKey))
+	if err != nil {
+		return nil, fmt.Errorf("run helper as uid %s: %w", uid, err)
 	}
-
-	var resp HelperResponse
-	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
-		return nil, fmt.Errorf("decode helper response: %w", err)
-	}
-	log.Infof("certificate posture: desktop session of %q returned %d proofs", user.Name, len(resp.Proofs))
-	return resp.Proofs, nil
+	log.Debugf("certificate posture: desktop session of uid %s returned %d proofs", uid, len(proofs))
+	return proofs, nil
 }
 
 // helperStore is the store the helper reads. On macOS the keychain search list of the
