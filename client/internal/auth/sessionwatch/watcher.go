@@ -303,10 +303,12 @@ func (w *Watcher) fire(armedFor time.Time) {
 		w.mu.Unlock()
 		return
 	}
-	if w.lateLocked(armedFor, max(w.finalLead, 0)) {
+	cutoffLead := max(w.finalLead, 0)
+	if w.lateLocked(armedFor, cutoffLead) {
 		w.firedAt = armedFor
 		w.mu.Unlock()
-		log.Infof("auth session expiry soon warning skipped (final-warning window already passed)")
+		log.Infof("auth session expiry soon warning skipped for deadline %s (final-warning window passed %s ago)",
+			armedFor.Format(time.RFC3339), time.Since(armedFor.Add(-cutoffLead)).Round(time.Second))
 		return
 	}
 	w.firedAt = armedFor
@@ -340,7 +342,8 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 	if w.lateLocked(armedFor, 0) {
 		w.finalFiredAt = armedFor
 		w.mu.Unlock()
-		log.Infof("auth session final-warning skipped (deadline already passed)")
+		log.Infof("auth session final-warning skipped for deadline %s (passed %s ago)",
+			armedFor.Format(time.RFC3339), time.Since(armedFor).Round(time.Second))
 		return
 	}
 	w.finalFiredAt = armedFor
