@@ -158,29 +158,42 @@ func signWithIdentity(identity, algorithm uintptr, digest []byte) ([]byte, error
 	if status := secIdentityCopyPrivateKey(identity, &key); status != 0 {
 		return nil, fmt.Errorf("SecIdentityCopyPrivateKey: %d", status)
 	}
-	defer cfRelease(key)
+	defer release(key)
 
 	data := cfDataCreate(0, &digest[0], len(digest))
-	defer cfRelease(data)
+	if data == 0 {
+		return nil, errors.New("CFDataCreate returned NULL")
+	}
+	defer release(data)
 
 	var cfErr uintptr
 	signature := secKeyCreateSignature(key, algorithm, data, &cfErr)
 	if signature == 0 {
-		defer cfRelease(cfErr)
+		if cfErr == 0 {
+			return nil, errors.New("SecKeyCreateSignature failed without a CFError")
+		}
+		defer release(cfErr)
 		return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d", cfErrorGetCode(cfErr))
 	}
-	defer cfRelease(signature)
+	defer release(signature)
 	return dataBytes(signature), nil
 }
 
+// eachIdentity calls fn with every identity in the search list and its certificate. An
+// identity whose certificate cannot be read is skipped rather than ending the walk.
 func eachIdentity(fn func(identity uintptr, der []byte) (bool, error)) error {
 	return eachMatching(kSecClassIdentity, "identity", func(identity uintptr) (bool, error) {
 		var cert uintptr
 		if status := secIdentityCopyCertificate(identity, &cert); status != 0 {
-			return true, fmt.Errorf("SecIdentityCopyCertificate: %d", status)
+			log.Debugf("skipping keychain identity: SecIdentityCopyCertificate: %d", status)
+			return false, nil
 		}
 		der := certificateDER(cert)
-		cfRelease(cert)
+		release(cert)
+		if der == nil {
+			log.Debug("skipping keychain identity whose certificate has no DER data")
+			return false, nil
+		}
 		return fn(identity, der)
 	})
 }
@@ -204,7 +217,7 @@ func eachMatching(class uintptr, name string, fn func(item uintptr) (bool, error
 	keys := []uintptr{kSecClass, kSecMatchLimit, kSecReturnRef}
 	values := []uintptr{class, kSecMatchLimitAll, kCFBooleanTrue}
 	query := cfDictionaryCreate(0, &keys[0], &values[0], len(keys), kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks)
-	defer cfRelease(query)
+	defer release(query)
 
 	var items uintptr
 	switch status := secItemCopyMatching(query, &items); status {
@@ -216,7 +229,7 @@ func eachMatching(class uintptr, name string, fn func(item uintptr) (bool, error
 		log.Debugf("keychain %s query returned OSStatus %d", name, status)
 		return fmt.Errorf("SecItemCopyMatching: %d", status)
 	}
-	defer cfRelease(items)
+	defer release(items)
 
 	n := cfArrayGetCount(items)
 	log.Debugf("keychain %s query returned %d items", name, n)
@@ -228,14 +241,31 @@ func eachMatching(class uintptr, name string, fn func(item uintptr) (bool, error
 	return nil
 }
 
+// certificateDER returns the DER form of cert, or nil when SecCertificateCopyData
+// returns NULL, which it does for an object that is not a valid certificate.
 func certificateDER(cert uintptr) []byte {
 	data := secCertificateCopyData(cert)
-	defer cfRelease(data)
+	if data == 0 {
+		return nil
+	}
+	defer release(data)
 	return dataBytes(data)
 }
 
 func dataBytes(data uintptr) []byte {
-	return bytes.Clone(unsafe.Slice((*byte)(cfDataGetBytePtr(data)), cfDataGetLength(data)))
+	n := cfDataGetLength(data)
+	if n <= 0 {
+		return nil
+	}
+	return bytes.Clone(unsafe.Slice((*byte)(cfDataGetBytePtr(data)), n))
+}
+
+// release drops a CoreFoundation reference. CFRelease crashes the process on NULL, and
+// several Security calls return NULL on failure, so every release goes through here.
+func release(ref uintptr) {
+	if ref != 0 {
+		cfRelease(ref)
+	}
 }
 
 func loadKeychain() error {
@@ -263,7 +293,7 @@ func logSearchList() {
 		log.Debugf("SecKeychainCopySearchList returned OSStatus %d", status)
 		return
 	}
-	defer cfRelease(list)
+	defer release(list)
 
 	n := cfArrayGetCount(list)
 	log.Debugf("keychain search list contains %d keychains", n)

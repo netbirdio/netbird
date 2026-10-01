@@ -47,7 +47,7 @@ func CurrentConsoleUser() (ConsoleUser, bool) {
 		log.Debug("no console user is logged in, no login keychain is reachable")
 		return ConsoleUser{}, false
 	}
-	defer cfRelease(name)
+	defer release(name)
 
 	user := ConsoleUser{Name: cfString(name), UID: uid, GID: gid}
 	if !user.hasDesktop() {
