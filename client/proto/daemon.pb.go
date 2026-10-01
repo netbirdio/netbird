@@ -343,8 +343,13 @@ type LoginRequest struct {
 	DisableSSHAuth                *bool   `protobuf:"varint,38,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                *int32  `protobuf:"varint,39,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
 	DisableIpv6                   *bool   `protobuf:"varint,40,opt,name=disable_ipv6,json=disableIpv6,proto3,oneof" json:"disable_ipv6,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	EnableLocalMetrics            *bool   `protobuf:"varint,41,opt,name=enable_local_metrics,json=enableLocalMetrics,proto3,oneof" json:"enable_local_metrics,omitempty"`
+	LocalMetricsAddress           *string `protobuf:"bytes,42,opt,name=local_metrics_address,json=localMetricsAddress,proto3,oneof" json:"local_metrics_address,omitempty"`
+	// remoteJobsAllowed opts the peer into management-requested remote jobs
+	// (e.g. debug bundles). Absent leaves the stored value unchanged.
+	RemoteJobsAllowed *bool `protobuf:"varint,43,opt,name=remoteJobsAllowed,proto3,oneof" json:"remoteJobsAllowed,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -654,6 +659,27 @@ func (x *LoginRequest) GetSshJWTCacheTTL() int32 {
 func (x *LoginRequest) GetDisableIpv6() bool {
 	if x != nil && x.DisableIpv6 != nil {
 		return *x.DisableIpv6
+	}
+	return false
+}
+
+func (x *LoginRequest) GetEnableLocalMetrics() bool {
+	if x != nil && x.EnableLocalMetrics != nil {
+		return *x.EnableLocalMetrics
+	}
+	return false
+}
+
+func (x *LoginRequest) GetLocalMetricsAddress() string {
+	if x != nil && x.LocalMetricsAddress != nil {
+		return *x.LocalMetricsAddress
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetRemoteJobsAllowed() bool {
+	if x != nil && x.RemoteJobsAllowed != nil {
+		return *x.RemoteJobsAllowed
 	}
 	return false
 }
@@ -1215,6 +1241,7 @@ type GetConfigResponse struct {
 	DisableSSHAuth                bool   `protobuf:"varint,25,opt,name=disableSSHAuth,proto3" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                int32  `protobuf:"varint,26,opt,name=sshJWTCacheTTL,proto3" json:"sshJWTCacheTTL,omitempty"`
 	DisableIpv6                   bool   `protobuf:"varint,27,opt,name=disable_ipv6,json=disableIpv6,proto3" json:"disable_ipv6,omitempty"`
+	RemoteJobsAllowed             bool   `protobuf:"varint,29,opt,name=remoteJobsAllowed,proto3" json:"remoteJobsAllowed,omitempty"`
 	// mDMManagedFields lists the names of configuration keys whose value is
 	// currently enforced by an MDM policy. Names match mdm.Key* constants
 	// (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
@@ -1440,6 +1467,13 @@ func (x *GetConfigResponse) GetSshJWTCacheTTL() int32 {
 func (x *GetConfigResponse) GetDisableIpv6() bool {
 	if x != nil {
 		return x.DisableIpv6
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetRemoteJobsAllowed() bool {
+	if x != nil {
+		return x.RemoteJobsAllowed
 	}
 	return false
 }
@@ -2771,14 +2805,23 @@ func (x *ForwardingRulesResponse) GetRules() []*ForwardingRule {
 
 // DebugBundler
 type DebugBundleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Anonymize     bool                   `protobuf:"varint,1,opt,name=anonymize,proto3" json:"anonymize,omitempty"`
-	SystemInfo    bool                   `protobuf:"varint,3,opt,name=systemInfo,proto3" json:"systemInfo,omitempty"`
-	UploadURL     string                 `protobuf:"bytes,4,opt,name=uploadURL,proto3" json:"uploadURL,omitempty"`
-	LogFileCount  uint32                 `protobuf:"varint,5,opt,name=logFileCount,proto3" json:"logFileCount,omitempty"`
-	CliVersion    string                 `protobuf:"bytes,6,opt,name=cliVersion,proto3" json:"cliVersion,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Anonymize    bool                   `protobuf:"varint,1,opt,name=anonymize,proto3" json:"anonymize,omitempty"`
+	SystemInfo   bool                   `protobuf:"varint,3,opt,name=systemInfo,proto3" json:"systemInfo,omitempty"`
+	UploadURL    string                 `protobuf:"bytes,4,opt,name=uploadURL,proto3" json:"uploadURL,omitempty"`
+	LogFileCount uint32                 `protobuf:"varint,5,opt,name=logFileCount,proto3" json:"logFileCount,omitempty"`
+	CliVersion   string                 `protobuf:"bytes,6,opt,name=cliVersion,proto3" json:"cliVersion,omitempty"`
+	// uploadInsecure allows uploading to an http endpoint or one with an
+	// untrusted TLS certificate. Restricted to privileged callers; for
+	// self-hosted upload servers.
+	UploadInsecure bool `protobuf:"varint,7,opt,name=uploadInsecure,proto3" json:"uploadInsecure,omitempty"`
+	// anonymizeLevel selects how much the anonymizer redacts: "default"
+	// (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+	// Unknown values are treated as "strict". Only meaningful with anonymize;
+	// "strict" implies it.
+	AnonymizeLevel string `protobuf:"bytes,8,opt,name=anonymizeLevel,proto3" json:"anonymizeLevel,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DebugBundleRequest) Reset() {
@@ -2842,6 +2885,20 @@ func (x *DebugBundleRequest) GetLogFileCount() uint32 {
 func (x *DebugBundleRequest) GetCliVersion() string {
 	if x != nil {
 		return x.CliVersion
+	}
+	return ""
+}
+
+func (x *DebugBundleRequest) GetUploadInsecure() bool {
+	if x != nil {
+		return x.UploadInsecure
+	}
+	return false
+}
+
+func (x *DebugBundleRequest) GetAnonymizeLevel() string {
+	if x != nil {
+		return x.AnonymizeLevel
 	}
 	return ""
 }
@@ -4210,8 +4267,13 @@ type SetConfigRequest struct {
 	DisableSSHAuth                *bool                `protobuf:"varint,33,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                *int32               `protobuf:"varint,34,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
 	DisableIpv6                   *bool                `protobuf:"varint,35,opt,name=disable_ipv6,json=disableIpv6,proto3,oneof" json:"disable_ipv6,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	EnableLocalMetrics            *bool                `protobuf:"varint,36,opt,name=enable_local_metrics,json=enableLocalMetrics,proto3,oneof" json:"enable_local_metrics,omitempty"`
+	LocalMetricsAddress           *string              `protobuf:"bytes,37,opt,name=local_metrics_address,json=localMetricsAddress,proto3,oneof" json:"local_metrics_address,omitempty"`
+	// remoteJobsAllowed opts the peer into management-requested remote jobs
+	// (e.g. debug bundles). Absent leaves the stored value unchanged.
+	RemoteJobsAllowed *bool `protobuf:"varint,38,opt,name=remoteJobsAllowed,proto3,oneof" json:"remoteJobsAllowed,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SetConfigRequest) Reset() {
@@ -4485,6 +4547,27 @@ func (x *SetConfigRequest) GetSshJWTCacheTTL() int32 {
 func (x *SetConfigRequest) GetDisableIpv6() bool {
 	if x != nil && x.DisableIpv6 != nil {
 		return *x.DisableIpv6
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetEnableLocalMetrics() bool {
+	if x != nil && x.EnableLocalMetrics != nil {
+		return *x.EnableLocalMetrics
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetLocalMetricsAddress() string {
+	if x != nil && x.LocalMetricsAddress != nil {
+		return *x.LocalMetricsAddress
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetRemoteJobsAllowed() bool {
+	if x != nil && x.RemoteJobsAllowed != nil {
+		return *x.RemoteJobsAllowed
 	}
 	return false
 }
@@ -5605,9 +5688,13 @@ func (x *GetPeerSSHHostKeyResponse) GetFound() bool {
 type RequestJWTAuthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// hint for OIDC login_hint parameter (typically email address)
-	Hint          *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Hint *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
+	// hasGraphicalSession tells the daemon that the caller has a graphical session,
+	// which decides whether PKCE or the device code flow is preferred. The daemon
+	// cannot detect this itself: it does not inherit the session environment.
+	HasGraphicalSession bool `protobuf:"varint,2,opt,name=hasGraphicalSession,proto3" json:"hasGraphicalSession,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RequestJWTAuthRequest) Reset() {
@@ -5645,6 +5732,13 @@ func (x *RequestJWTAuthRequest) GetHint() string {
 		return *x.Hint
 	}
 	return ""
+}
+
+func (x *RequestJWTAuthRequest) GetHasGraphicalSession() bool {
+	if x != nil {
+		return x.HasGraphicalSession
+	}
+	return false
 }
 
 // RequestJWTAuthResponse contains authentication flow information
@@ -5871,9 +5965,13 @@ type RequestExtendAuthSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional OIDC login_hint (typically the user's email) to pre-fill the
 	// IdP login form.
-	Hint          *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Hint *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
+	// hasGraphicalSession tells the daemon that the caller has a graphical session,
+	// which decides whether PKCE or the device code flow is preferred. The daemon
+	// cannot detect this itself: it does not inherit the session environment.
+	HasGraphicalSession bool `protobuf:"varint,2,opt,name=hasGraphicalSession,proto3" json:"hasGraphicalSession,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RequestExtendAuthSessionRequest) Reset() {
@@ -5911,6 +6009,13 @@ func (x *RequestExtendAuthSessionRequest) GetHint() string {
 		return *x.Hint
 	}
 	return ""
+}
+
+func (x *RequestExtendAuthSessionRequest) GetHasGraphicalSession() bool {
+	if x != nil {
+		return x.HasGraphicalSession
+	}
+	return false
 }
 
 // RequestExtendAuthSessionResponse carries the verification URI the UI
@@ -6987,7 +7092,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xef\x12\n" +
+	"\fEmptyRequest\"\xdb\x14\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -7032,7 +7137,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1denableSSHRemotePortForwarding\x18% \x01(\bH\x18R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
 	"\x0edisableSSHAuth\x18& \x01(\bH\x19R\x0edisableSSHAuth\x88\x01\x01\x12+\n" +
 	"\x0esshJWTCacheTTL\x18' \x01(\x05H\x1aR\x0esshJWTCacheTTL\x88\x01\x01\x12&\n" +
-	"\fdisable_ipv6\x18( \x01(\bH\x1bR\vdisableIpv6\x88\x01\x01B\x13\n" +
+	"\fdisable_ipv6\x18( \x01(\bH\x1bR\vdisableIpv6\x88\x01\x01\x125\n" +
+	"\x14enable_local_metrics\x18) \x01(\bH\x1cR\x12enableLocalMetrics\x88\x01\x01\x127\n" +
+	"\x15local_metrics_address\x18* \x01(\tH\x1dR\x13localMetricsAddress\x88\x01\x01\x121\n" +
+	"\x11remoteJobsAllowed\x18+ \x01(\bH\x1eR\x11remoteJobsAllowed\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7060,7 +7168,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1e_enableSSHRemotePortForwardingB\x11\n" +
 	"\x0f_disableSSHAuthB\x11\n" +
 	"\x0f_sshJWTCacheTTLB\x0f\n" +
-	"\r_disable_ipv6\"\xb5\x01\n" +
+	"\r_disable_ipv6B\x17\n" +
+	"\x15_enable_local_metricsB\x18\n" +
+	"\x16_local_metrics_addressB\x14\n" +
+	"\x12_remoteJobsAllowed\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -7095,7 +7206,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xaa\t\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xd8\t\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -7127,7 +7238,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1denableSSHRemotePortForwarding\x18\x17 \x01(\bR\x1denableSSHRemotePortForwarding\x12&\n" +
 	"\x0edisableSSHAuth\x18\x19 \x01(\bR\x0edisableSSHAuth\x12&\n" +
 	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\x12!\n" +
-	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12*\n" +
+	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12,\n" +
+	"\x11remoteJobsAllowed\x18\x1d \x01(\bR\x11remoteJobsAllowed\x12*\n" +
 	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\x92\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
@@ -7242,7 +7354,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12translatedHostname\x18\x04 \x01(\tR\x12translatedHostname\x128\n" +
 	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort\"G\n" +
 	"\x17ForwardingRulesResponse\x12,\n" +
-	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\xb4\x01\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\x84\x02\n" +
 	"\x12DebugBundleRequest\x12\x1c\n" +
 	"\tanonymize\x18\x01 \x01(\bR\tanonymize\x12\x1e\n" +
 	"\n" +
@@ -7252,7 +7364,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\flogFileCount\x18\x05 \x01(\rR\flogFileCount\x12\x1e\n" +
 	"\n" +
 	"cliVersion\x18\x06 \x01(\tR\n" +
-	"cliVersion\"}\n" +
+	"cliVersion\x12&\n" +
+	"\x0euploadInsecure\x18\a \x01(\bR\x0euploadInsecure\x12&\n" +
+	"\x0eanonymizeLevel\x18\b \x01(\tR\x0eanonymizeLevel\"}\n" +
 	"\x13DebugBundleResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12 \n" +
 	"\vuploadedKey\x18\x02 \x01(\tR\vuploadedKey\x120\n" +
@@ -7353,7 +7467,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"'\n" +
 	"\x15SwitchProfileResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x98\x11\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x84\x13\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -7393,7 +7507,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1denableSSHRemotePortForwarding\x18  \x01(\bH\x15R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
 	"\x0edisableSSHAuth\x18! \x01(\bH\x16R\x0edisableSSHAuth\x88\x01\x01\x12+\n" +
 	"\x0esshJWTCacheTTL\x18\" \x01(\x05H\x17R\x0esshJWTCacheTTL\x88\x01\x01\x12&\n" +
-	"\fdisable_ipv6\x18# \x01(\bH\x18R\vdisableIpv6\x88\x01\x01B\x13\n" +
+	"\fdisable_ipv6\x18# \x01(\bH\x18R\vdisableIpv6\x88\x01\x01\x125\n" +
+	"\x14enable_local_metrics\x18$ \x01(\bH\x19R\x12enableLocalMetrics\x88\x01\x01\x127\n" +
+	"\x15local_metrics_address\x18% \x01(\tH\x1aR\x13localMetricsAddress\x88\x01\x01\x121\n" +
+	"\x11remoteJobsAllowed\x18& \x01(\bH\x1bR\x11remoteJobsAllowed\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7418,7 +7535,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1e_enableSSHRemotePortForwardingB\x11\n" +
 	"\x0f_disableSSHAuthB\x11\n" +
 	"\x0f_sshJWTCacheTTLB\x0f\n" +
-	"\r_disable_ipv6\"\x13\n" +
+	"\r_disable_ipv6B\x17\n" +
+	"\x15_enable_local_metricsB\x18\n" +
+	"\x16_local_metrics_addressB\x14\n" +
+	"\x12_remoteJobsAllowed\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
@@ -7478,9 +7598,10 @@ const file_daemon_proto_rawDesc = "" +
 	"sshHostKey\x12\x16\n" +
 	"\x06peerIP\x18\x02 \x01(\tR\x06peerIP\x12\x1a\n" +
 	"\bpeerFQDN\x18\x03 \x01(\tR\bpeerFQDN\x12\x14\n" +
-	"\x05found\x18\x04 \x01(\bR\x05found\"9\n" +
+	"\x05found\x18\x04 \x01(\bR\x05found\"k\n" +
 	"\x15RequestJWTAuthRequest\x12\x17\n" +
-	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01B\a\n" +
+	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01\x120\n" +
+	"\x13hasGraphicalSession\x18\x02 \x01(\bR\x13hasGraphicalSessionB\a\n" +
 	"\x05_hint\"\x9a\x02\n" +
 	"\x16RequestJWTAuthResponse\x12(\n" +
 	"\x0fverificationURI\x18\x01 \x01(\tR\x0fverificationURI\x128\n" +
@@ -7500,9 +7621,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x14WaitJWTTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1c\n" +
 	"\ttokenType\x18\x02 \x01(\tR\ttokenType\x12\x1c\n" +
-	"\texpiresIn\x18\x03 \x01(\x03R\texpiresIn\"C\n" +
+	"\texpiresIn\x18\x03 \x01(\x03R\texpiresIn\"u\n" +
 	"\x1fRequestExtendAuthSessionRequest\x12\x17\n" +
-	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01B\a\n" +
+	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01\x120\n" +
+	"\x13hasGraphicalSession\x18\x02 \x01(\bR\x13hasGraphicalSessionB\a\n" +
 	"\x05_hint\"\xe0\x01\n" +
 	" RequestExtendAuthSessionResponse\x12(\n" +
 	"\x0fverificationURI\x18\x01 \x01(\tR\x0fverificationURI\x128\n" +

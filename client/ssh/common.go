@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -32,6 +33,19 @@ var (
 // HostKeyVerifier provides SSH host key verification
 type HostKeyVerifier interface {
 	VerifySSHHostKey(peerAddress string, key []byte) error
+}
+
+// PeerKeyLookup returns the stored SSH host key for a peer address.
+type PeerKeyLookup func(peerAddress string) ([]byte, bool)
+
+// VerifySSHHostKey implements HostKeyVerifier by looking up the stored key
+// and comparing it against the presented key.
+func (l PeerKeyLookup) VerifySSHHostKey(peerAddress string, presentedKey []byte) error {
+	storedKey, found := l(peerAddress)
+	if !found {
+		return ErrPeerNotFound
+	}
+	return VerifyHostKey(storedKey, presentedKey, peerAddress)
 }
 
 // DaemonHostKeyVerifier implements HostKeyVerifier using the NetBird daemon
@@ -92,7 +106,8 @@ func printAuthInstructions(stderr io.Writer, authResponse *proto.RequestJWTAuthR
 
 // RequestJWTToken requests or retrieves a JWT token for SSH authentication
 func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool, hint string, openBrowser func(string) error) (string, error) {
-	req := &proto.RequestJWTAuthRequest{}
+	// the ssh client runs in the user's session, the daemon does not: tell it what we can see
+	req := &proto.RequestJWTAuthRequest{HasGraphicalSession: util.HasGraphicalSession()}
 	if hint != "" {
 		req.Hint = &hint
 	}
@@ -193,4 +208,3 @@ func buildAddressList(hostname string, remote net.Addr) []string {
 	}
 	return addresses
 }
-

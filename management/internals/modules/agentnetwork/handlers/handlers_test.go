@@ -9,14 +9,17 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	rpproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -28,6 +31,9 @@ import (
 const (
 	testAccountID = "acc-1"
 	testUserID    = "user-bob"
+	// testClusterAddress is the shared proxy cluster the settings tests pin
+	// their gateway to; the fixture seeds a connected private-capable proxy for it.
+	testClusterAddress = "eu.proxy.netbird.io"
 )
 
 // agentNetworkHandlerFixture builds a real agentnetwork.Manager with
@@ -61,10 +67,29 @@ func newAgentNetworkHandlerFixture(t *testing.T) *agentNetworkHandlerFixture {
 		Return(true, context.Background(), nil).
 		AnyTimes()
 
-	manager := agentnetwork.NewManager(st, perms, nil, nil)
+	// Swallow activity events so the mutation paths (create/update/delete)
+	// are exercisable through the HTTP layer.
+	accounts := account.NewMockManager(ctrl)
+	accounts.EXPECT().
+		StoreEvent(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		AnyTimes()
+	accounts.EXPECT().
+		UpdateAccountPeers(gomock.Any(), gomock.Any(), gomock.Any()).
+		AnyTimes()
+
+	manager := agentnetwork.NewManager(st, perms, accounts, nil)
 	h := &handler{manager: manager}
 
+	// The labeled bootstrap validates its proxy_address against the live
+	// clusters, so seed the shared cluster these tests pin to as a real,
+	// private-capable one — the wire-shape assertions then run through the
+	// validated path rather than the "nothing connected yet" carve-out.
+	seedSharedPrivateCluster(t, st, testClusterAddress)
+
 	router := mux.NewRouter()
+	router.HandleFunc("/agent-network/providers", h.createProvider).Methods("POST")
+	router.HandleFunc("/agent-network/providers/{providerId}", h.getProvider).Methods("GET")
+	router.HandleFunc("/agent-network/providers/{providerId}", h.updateProvider).Methods("PUT")
 	h.addPolicyEndpoints(router)
 	h.addConsumptionEndpoints(router)
 	h.addBudgetRuleEndpoints(router)
@@ -253,4 +278,22 @@ func TestConsumptionHandler_PopulatedAccountListsRows(t *testing.T) {
 	// together), so window_start_utc must match across them.
 	assert.Equal(t, groupRow.WindowStartUtc, userRow.WindowStartUtc,
 		"rows recorded in the same window must share the aligned window_start_utc")
+}
+
+// seedSharedPrivateCluster registers a connected, NetBird-operated proxy
+// with private capabilities (the `private` capability) so
+// clusterAddr is a cluster any account may pin its agent-network gateway to.
+func seedSharedPrivateCluster(t *testing.T, st store.Store, clusterAddr string) {
+	t.Helper()
+	private := true
+	now := time.Now().UTC()
+	require.NoError(t, st.SaveProxy(context.Background(), &rpproxy.Proxy{
+		ID:             "shared-proxy-" + clusterAddr,
+		SessionID:      "shared-session",
+		ClusterAddress: clusterAddr,
+		LastSeen:       now,
+		ConnectedAt:    &now,
+		Status:         rpproxy.StatusConnected,
+		Capabilities:   rpproxy.Capabilities{Private: &private},
+	}), "seeding the shared proxy cluster must succeed")
 }

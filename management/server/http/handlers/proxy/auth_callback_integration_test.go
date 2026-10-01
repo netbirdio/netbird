@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	activitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
 	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -180,6 +181,10 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 }
 
 func setupAuthCallbackTest(t *testing.T) *testSetup {
+	return setupAuthCallbackTestWithProxyManager(t, testSessionCodeManager{})
+}
+
+func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Manager) *testSetup {
 	t.Helper()
 
 	ctx := context.Background()
@@ -196,7 +201,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	require.NoError(t, err)
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
-	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 
 	usersManager := users.NewManager(testStore)
 
@@ -211,16 +216,17 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
-		pkceStore,
+		singleUseStore,
 		oidcConfig,
 		nil,
 		usersManager,
 		nil,
-		nil,
+		proxyManager,
 		nil,
 	)
 
 	proxyService.SetServiceManager(&testServiceManager{store: testStore})
+	proxyService.SetActivityManager(activitymanager.NewManager(testStore))
 
 	handler := NewAuthCallbackHandler(proxyService, nil)
 
@@ -240,6 +246,15 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	}
 }
 
+type testSessionCodeManager struct {
+	nbproxy.Manager
+	supported bool
+}
+
+func (m testSessionCodeManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return m.supported
+}
+
 func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store.Store) {
 	t.Helper()
 
@@ -250,10 +265,11 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 	privKey := base64.StdEncoding.EncodeToString(priv)
 
 	testProxy := &service.Service{
-		ID:        "testProxyId",
-		AccountID: "testAccountId",
-		Name:      "Test Proxy",
-		Domain:    "test-proxy.example.com",
+		ID:           "testProxyId",
+		AccountID:    "testAccountId",
+		Name:         "Test Proxy",
+		Domain:       "test-proxy.example.com",
+		ProxyCluster: "cluster.example.com",
 		Targets: []*service.Target{{
 			Path:       strPtr("/"),
 			Host:       "localhost",
@@ -360,6 +376,51 @@ func createTestAccountsAndUsers(t *testing.T, ctx context.Context, testStore sto
 		Issued:     "api",
 	}
 	require.NoError(t, testStore.SaveUser(ctx, allowedUser))
+
+	// A second tenant, whose users must never be issued a token signed with
+	// the first tenant's service session key.
+	otherAccount := &types.Account{
+		Id:                     "otherAccountId",
+		Domain:                 "other.com",
+		DomainCategory:         "private",
+		IsDomainPrimaryAccount: true,
+		CreatedAt:              time.Now(),
+	}
+	require.NoError(t, testStore.SaveAccount(ctx, otherAccount))
+
+	otherAccountUser := &types.User{
+		Id:        "otherAccountUserId",
+		AccountID: "otherAccountId",
+		Role:      types.UserRoleUser,
+		CreatedAt: time.Now(),
+		Issued:    "api",
+	}
+	require.NoError(t, testStore.SaveUser(ctx, otherAccountUser))
+
+	// A user awaiting approval is stored as blocked and pending approval, and
+	// carries the same group membership as the approved one.
+	pendingUser := &types.User{
+		Id:              "pendingUserId",
+		AccountID:       "testAccountId",
+		Role:            types.UserRoleUser,
+		AutoGroups:      []string{"allowedGroupId"},
+		Blocked:         true,
+		PendingApproval: true,
+		CreatedAt:       time.Now(),
+		Issued:          "api",
+	}
+	require.NoError(t, testStore.SaveUser(ctx, pendingUser))
+
+	blockedUser := &types.User{
+		Id:         "blockedUserId",
+		AccountID:  "testAccountId",
+		Role:       types.UserRoleUser,
+		AutoGroups: []string{"allowedGroupId"},
+		Blocked:    true,
+		CreatedAt:  time.Now(),
+		Issued:     "api",
+	}
+	require.NoError(t, testStore.SaveUser(ctx, blockedUser))
 }
 
 // testServiceManager is a minimal implementation for testing.
@@ -465,29 +526,163 @@ func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL st
 }
 
 func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
+	tests := []struct {
+		name        string
+		manager     nbproxy.Manager
+		wantParam   string
+		absentParam string
+	}{
+		{name: "legacy proxy", manager: testSessionCodeManager{}, wantParam: "session_token", absentParam: "session_code"},
+		{name: "compatible proxy", manager: testSessionCodeManager{supported: true}, wantParam: "session_code", absentParam: "session_token"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupAuthCallbackTestWithProxyManager(t, tt.manager)
+			defer setup.cleanup()
+
+			setup.oidcServer.tokenSubject = "allowedUserId"
+			state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+			req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+			rec := httptest.NewRecorder()
+			setup.router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusFound, rec.Code)
+
+			location, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+			require.Equal(t, "test-proxy.example.com", location.Host)
+			require.NotEmpty(t, location.Query().Get(tt.wantParam))
+			require.Empty(t, location.Query().Get(tt.absentParam))
+			require.Empty(t, location.Query().Get("error"))
+
+			if tt.wantParam == "session_code" {
+				code := location.Query().Get("session_code")
+				response, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+					Domain:      location.Hostname(),
+					SessionCode: code,
+				})
+				require.NoError(t, err)
+				require.True(t, response.GetValid())
+				require.NotEmpty(t, response.GetSessionToken())
+				require.NotEqual(t, code, response.GetSessionToken())
+
+				replayed, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+					Domain:      location.Hostname(),
+					SessionCode: code,
+				})
+				require.NoError(t, err)
+				require.False(t, replayed.GetValid())
+				require.Empty(t, replayed.GetSessionToken())
+			}
+		})
+	}
+}
+
+// TestAuthCallback_UserDeniedByAccountStatus asserts that a user whose account
+// is pending approval or blocked never receives a session token from the OIDC
+// callback, and that the redirect carries a description the proxy can render.
+// TestAuthCallback_RecordsUserLogin drives the real OIDC callback and asserts
+// the login lands on the user row. That timestamp is what activity accounting
+// reads, and it is the only signal that can ever count someone who reaches
+// proxy-protected services from a browser and never opens the dashboard.
+func TestAuthCallback_RecordsUserLogin(t *testing.T) {
 	setup := setupAuthCallbackTest(t)
 	defer setup.cleanup()
 
-	setup.oidcServer.tokenSubject = "allowedUserId"
+	ctx := context.Background()
 
+	before, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "allowedUserId")
+	require.NoError(t, err)
+	require.Nil(t, before.LastLogin, "fixture user starts with no login on record")
+
+	setup.oidcServer.tokenSubject = "allowedUserId"
 	state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
 
 	req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
 	rec := httptest.NewRecorder()
-
 	setup.router.ServeHTTP(rec, req)
-
 	require.Equal(t, http.StatusFound, rec.Code)
 
-	location := rec.Header().Get("Location")
-	require.NotEmpty(t, location)
-
-	parsedLocation, err := url.Parse(location)
+	after, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "allowedUserId")
 	require.NoError(t, err)
+	require.NotNil(t, after.LastLogin, "a completed proxy SSO login must be recorded on the user")
+	require.WithinDuration(t, time.Now().UTC(), after.LastLogin.UTC(), time.Minute, "login should be stamped at sign-in time")
+}
 
-	require.Equal(t, "test-proxy.example.com", parsedLocation.Host)
-	require.NotEmpty(t, parsedLocation.Query().Get("session_token"), "Should include session token")
-	require.Empty(t, parsedLocation.Query().Get("error"), "Should not have error parameter")
+// TestAuthCallback_DeniedUserLoginNotRecorded keeps the write on the granted
+// path: a refused sign-in is not a login.
+func TestAuthCallback_DeniedUserLoginNotRecorded(t *testing.T) {
+	setup := setupAuthCallbackTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+
+	setup.oidcServer.tokenSubject = "blockedUserId"
+	state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+
+	req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+	rec := httptest.NewRecorder()
+	setup.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusFound, rec.Code)
+
+	after, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "blockedUserId")
+	require.NoError(t, err)
+	require.Nil(t, after.LastLogin, "a denied user must not be recorded as having logged in")
+}
+
+func TestAuthCallback_UserDeniedByAccountStatus(t *testing.T) {
+	tests := []struct {
+		name            string
+		subject         string
+		expectErrorDesc string
+	}{
+		{
+			name:            "pending approval",
+			subject:         "pendingUserId",
+			expectErrorDesc: "Your account is pending approval by an administrator",
+		},
+		{
+			name:            "blocked",
+			subject:         "blockedUserId",
+			expectErrorDesc: "Your account is blocked",
+		},
+		{
+			name:            "unknown to management",
+			subject:         "userMissingFromStoreId",
+			expectErrorDesc: "Service configuration error",
+		},
+		{
+			// The account topology stays out of the browser-visible message.
+			name:            "belongs to another account",
+			subject:         "otherAccountUserId",
+			expectErrorDesc: "Service configuration error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupAuthCallbackTest(t)
+			defer setup.cleanup()
+
+			setup.oidcServer.tokenSubject = tt.subject
+
+			state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+
+			req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+			rec := httptest.NewRecorder()
+
+			setup.router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusFound, rec.Code)
+
+			parsedLocation, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+
+			require.Empty(t, parsedLocation.Query().Get("session_token"), "Denied user must not receive a session token")
+			require.Equal(t, "access_denied", parsedLocation.Query().Get("error"))
+			require.Equal(t, tt.expectErrorDesc, parsedLocation.Query().Get("error_description"))
+		})
+	}
 }
 
 func TestAuthCallback_ProxyNotFound(t *testing.T) {

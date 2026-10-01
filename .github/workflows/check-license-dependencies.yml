@@ -2,7 +2,7 @@ name: Check License Dependencies
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release-*"]
     paths:
       - "go.mod"
       - "go.sum"

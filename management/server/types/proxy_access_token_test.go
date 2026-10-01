@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,22 @@ func TestCreateNewProxyAccessToken(t *testing.T) {
 		assert.NotEqual(t, gen1.HashedToken, gen2.HashedToken)
 		assert.NotEqual(t, gen1.ID, gen2.ID)
 	})
+}
+
+func TestGenerateProxyToken(t *testing.T) {
+	hashed, plain, err := GenerateProxyToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plain.Validate(); err != nil {
+		t.Errorf("generated token failed Validate(): %v", err)
+	}
+	if plain.Hash() != hashed {
+		t.Error("returned hashed token does not match Hash(plain)")
+	}
+	if !strings.HasPrefix(string(plain), ProxyTokenPrefix) {
+		t.Errorf("token %q missing prefix %q", plain, ProxyTokenPrefix)
+	}
 }
 
 func TestProxyAccessToken_IsExpired(t *testing.T) {

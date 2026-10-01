@@ -13,14 +13,14 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
-	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes      int32 = 1
-	PeerCapabilityIPv6Overlay         int32 = 2
-	PeerCapabilityComponentNetworkMap int32 = 3
+	PeerCapabilitySourcePrefixes      = nmdata.PeerCapabilitySourcePrefixes
+	PeerCapabilityIPv6Overlay         = nmdata.PeerCapabilityIPv6Overlay
+	PeerCapabilityComponentNetworkMap = nmdata.PeerCapabilityComponentNetworkMap
 )
 
 // Peer represents a machine connected to the network.
@@ -142,6 +142,7 @@ type Flags struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
+	RemoteJobsAllowed   bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -204,35 +205,6 @@ func (p PeerSystemMeta) isEmpty() bool {
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
 func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
-}
-
-// ToComponent converts the peer to its self-contained components
-// representation, carrying exactly the subset of peer data that crosses the
-// components wire format. Returns nil for a nil peer so callers can convert
-// possibly-missing peers without guarding.
-func (p *Peer) ToComponent() *sharedTypes.ComponentPeer {
-	if p == nil {
-		return nil
-	}
-	cp := &sharedTypes.ComponentPeer{
-		ID:                     p.ID,
-		Key:                    p.Key,
-		IP:                     p.IP,
-		IPv6:                   p.IPv6,
-		DNSLabel:               p.DNSLabel,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		ServerSSHAllowed:       p.Meta.Flags.ServerSSHAllowed,
-		AgentVersion:           p.Meta.WtVersion,
-		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
-		SupportsIPv6:           p.SupportsIPv6(),
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		AddedWithSSOLogin:      p.AddedWithSSOLogin(),
-	}
-	if p.LastLogin != nil {
-		cp.LastLogin = *p.LastLogin
-	}
-	return cp
 }
 
 // HasCapability reports whether the peer has the given capability.
@@ -602,6 +574,7 @@ func (f Flags) isEqual(other Flags) bool {
 	return f.RosenpassEnabled == other.RosenpassEnabled &&
 		f.RosenpassPermissive == other.RosenpassPermissive &&
 		f.ServerSSHAllowed == other.ServerSSHAllowed &&
+		f.RemoteJobsAllowed == other.RemoteJobsAllowed &&
 		f.DisableClientRoutes == other.DisableClientRoutes &&
 		f.DisableServerRoutes == other.DisableServerRoutes &&
 		f.DisableDNS == other.DisableDNS &&

@@ -30,7 +30,23 @@ mkdir -p /usr/local/bin/
     $AGENT service install || true
     $AGENT service start || true
 
-    open $APP
+    console_user=$(stat -f%Su /dev/console 2>/dev/null)
+    case "$console_user" in
+        ""|root|loginwindow|_mbsetupuser)
+            echo "No active GUI user session (console user: '${console_user:-none}'); skipping UI launch."
+            ;;
+        *)
+            uid=$(id -u "$console_user" 2>/dev/null)
+            if [ -z "$uid" ]; then
+                echo "Could not resolve uid for console user '$console_user'; skipping UI launch."
+            else
+                echo "Launching NetBird UI as console user $console_user (uid $uid)."
+                if ! launchctl asuser "$uid" sudo -u "$console_user" -H open "$APP"; then
+                    echo "Failed to launch NetBird UI; if autostart is enabled it will start at next login."
+                fi
+            fi
+            ;;
+    esac
 
     echo "Finished Netbird installation successfully"
     exit 0 # all good

@@ -1,0 +1,93 @@
+{
+  "Serial": "26",
+  "peerConfig": {
+    "address": "100.64.0.11/10",
+    "sshConfig": {},
+    "fqdn": "peer-r1.netbird.test",
+    "RoutingPeerDnsResolutionEnabled": true,
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "vblMc9U8RAI6cVopcKEMTVT6lVC3D9nTTMSwot5d3L4=",
+      "allowedIps": [
+        "100.64.0.1/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-a.netbird.test",
+      "agentVersion": "0.60.0"
+    }
+  ],
+  "Routes": [
+    {
+      "ID": "rt-ha:peer-r1",
+      "Network": "10.60.0.0/24",
+      "NetworkType": "1",
+      "Peer": "Iu6Lj1HqDXfgDh5RppHCRI6RO3lMlZBCndRNrdS7QUI=",
+      "Metric": "9999",
+      "Masquerade": true,
+      "NetID": "ha-net"
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-a.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.1"
+          },
+          {
+            "Name": "peer-r1.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.11"
+          },
+          {
+            "Name": "peer-r2.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.12"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "22054"
+  },
+  "FirewallRules": [
+    {
+      "PeerIP": "100.64.0.1",
+      "Protocol": "TCP",
+      "Port": "8080",
+      "PolicyID": "cG9sLWNvbm4="
+    },
+    {
+      "PeerIP": "100.64.0.1",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "8080",
+      "PolicyID": "cG9sLWNvbm4="
+    }
+  ],
+  "routesFirewallRules": [
+    {
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "destination": "10.60.0.0/24",
+      "protocol": "ALL",
+      "portInfo": {},
+      "RouteID": "rt-ha:peer-r1"
+    }
+  ],
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}

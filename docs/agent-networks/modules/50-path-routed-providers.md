@@ -87,9 +87,9 @@ strips the `@version` suffix from the model, and maps the publisher to a parser
 surface via `vertexPublisherVendor`:
 
 - `anthropic` → `llm.provider="anthropic"` → metered through the Anthropic
-  parser, priced under the **`anthropic`** block in `defaults_pricing.yaml`
-  (the parser emits the standard Anthropic provider label, so Vertex Claude
-  reuses first-party Anthropic prices).
+  parser, priced under the **`anthropic`** surface of the pricing table
+  management ships (the parser emits the standard Anthropic provider label, so
+  Vertex Claude reuses first-party Anthropic prices).
 - `openai` → `llm.provider="openai"` (reserved; not in the catalog lineup
   today).
 - anything else (notably `google` / Gemini) → empty vendor → **no parser**.
@@ -104,8 +104,9 @@ is omitted from the catalog.
 
 > Caveat: cross-region inference profiles in `eu` / `apac` carry a ~10% price
 > premium that the base per-token rates do **not** model — cost annotations for
-> those regions read low. Operators who need exact regional billing override
-> the affected entries in `pricing.yaml`.
+> those regions read low. Operators who need exact regional billing set the
+> affected models' prices on the provider record, or replace the default entries
+> via management's `AgentNetwork.PricingDefaultsFile`.
 
 ## AWS Bedrock (`bedrock_api`)
 
@@ -211,15 +212,19 @@ so a model-listing call can't be rewritten onto an upstream that would 404 it.
 ## Catalog ↔ pricing cross-check
 
 Catalog prices and context windows are cross-checked against LiteLLM's
-`model_prices_and_context_window.json`. The proxy's embedded
-`defaults_pricing.yaml` covers **every metered first-party model** the catalog
-enumerates — guarded by
-`TestDefaultTable_FirstPartyModelCoverage`
-([pricing/defaults_coverage_test.go](../../../proxy/internal/llm/pricing/defaults_coverage_test.go)),
-which fails if a catalog model has no embedded price. Bedrock entries are keyed
-by the **normalised** id the request parser emits (region prefix + version
-suffix stripped). Vertex Claude carries no Bedrock-style prefix, so it prices
-straight off the `anthropic` block.
+`model_prices_and_context_window.json`. The **catalog is the source of default
+prices**: management's `pricing.DefaultTable` folds every catalog provider's
+models into the surfaces that provider declares (`PricingSurfaces`), so coverage
+is structural rather than maintained in a parallel file
+([pricing/defaults.go](../../../management/internals/modules/agentnetwork/pricing/defaults.go)).
+`TestDefaultTable_CoversEveryCatalogModel` fails if a catalog model ends up
+unpriced, and `TestDefaultTable_NoConflictingContributions` fails if two
+providers contribute the same (surface, model) at different rates. Bedrock
+entries are keyed by the **normalised** id the request parser emits (region
+prefix + version suffix stripped) — management applies the same normalisation to
+per-provider prices at synth time, so the two keys compare equal. Vertex Claude
+carries no Bedrock-style prefix, so it prices straight off the `anthropic`
+surface.
 
 ## Things to scrutinise
 
@@ -232,16 +237,17 @@ operator-misconfigured Vertex provider and unmetered Gemini traffic; verify
 publishers).
 
 **Correctness.** `normalizeBedrockModel` is the join between the wire id and the
-pricing key — a model that normalises to something not in `defaults_pricing.yaml`
-meters at `cost.skipped=unknown_model` rather than failing the request. The
+pricing key — a model that normalises to something absent from the shipped
+pricing table meters at `cost.skipped=unknown_model` rather than failing the
+request. The
 `/bedrock` prefix strip must run on both the parser side (so the model is
 extracted) and the router side (so the upstream path is native); a regression in
 either silently breaks the other.
 
 **Metering caveats.** eu/apac cross-region Bedrock + Vertex profiles carry a
-~10% premium not modelled by base pricing — flagged in both the catalog comment
-and `defaults_pricing.yaml`. Operators needing exact regional billing override
-the relevant entries.
+~10% premium not modelled by base pricing — flagged in the catalog comment.
+Operators needing exact regional billing set per-provider prices on the model
+rows (or replace the default entries via `AgentNetwork.PricingDefaultsFile`).
 
 ## Cross-references
 

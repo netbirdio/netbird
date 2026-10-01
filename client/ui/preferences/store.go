@@ -49,15 +49,43 @@ func (v ViewMode) IsValid() bool {
 	return false
 }
 
+// Theme is the preferred UI appearance: follow the OS ("system") or force
+// "light"/"dark".
+type Theme string
+
+const (
+	ThemeSystem Theme = "system"
+	ThemeLight  Theme = "light"
+	ThemeDark   Theme = "dark"
+)
+
+// DefaultTheme applies when no file exists or its theme is empty/unknown.
+const DefaultTheme = ThemeSystem
+
+var ErrUnsupportedTheme = errors.New("unsupported theme")
+
+func (t Theme) IsValid() bool {
+	switch t {
+	case ThemeSystem, ThemeLight, ThemeDark:
+		return true
+	}
+	return false
+}
+
 // UIPreferences is rewritten in full on every change; there are no partial updates.
 type UIPreferences struct {
 	Language            i18n.LanguageCode `json:"language"`
 	ViewMode            ViewMode          `json:"viewMode"`
+	Theme               Theme             `json:"theme"`
 	OnboardingCompleted bool              `json:"onboardingCompleted"`
 	// AutostartInitialized records that the one-time autostart default
 	// decision has run for this OS user. It only ever transitions to true
 	// and is never reset, so the default-on flow runs at most once, ever.
 	AutostartInitialized bool `json:"autostartInitialized"`
+	// KeepConnectedOnQuit leaves the daemon connected when the GUI quits.
+	// Its false zero value preserves the historical disconnect-on-quit
+	// behaviour for preference files written before the field existed.
+	KeepConnectedOnQuit bool `json:"keepConnectedOnQuit"`
 }
 
 // LanguageValidator rejects SetLanguage inputs with no shipped bundle.
@@ -101,7 +129,7 @@ func NewStore(validator LanguageValidator, emitter Emitter) (*Store, error) {
 		path:      path,
 		validator: validator,
 		emitter:   emitter,
-		current:   UIPreferences{ViewMode: DefaultViewMode},
+		current:   UIPreferences{ViewMode: DefaultViewMode, Theme: DefaultTheme},
 	}
 
 	if err := s.load(); err != nil {
@@ -131,6 +159,30 @@ func (s *Store) SetViewMode(mode ViewMode) error {
 	}
 	next := s.current
 	next.ViewMode = mode
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
+}
+
+// SetTheme validates, persists, and broadcasts. No-op if unchanged.
+func (s *Store) SetTheme(theme Theme) error {
+	if !theme.IsValid() {
+		return fmt.Errorf("%w: %q", ErrUnsupportedTheme, theme)
+	}
+
+	s.mu.Lock()
+	if s.current.Theme == theme {
+		s.mu.Unlock()
+		return nil
+	}
+	next := s.current
+	next.Theme = theme
 	if err := s.persistLocked(next); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("persist preferences: %w", err)
@@ -172,6 +224,26 @@ func (s *Store) SetAutostartInitialized(done bool) error {
 	}
 	next := s.current
 	next.AutostartInitialized = done
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
+}
+
+// SetKeepConnectedOnQuit persists the disconnect-on-quit opt-out. No-op if unchanged.
+func (s *Store) SetKeepConnectedOnQuit(keep bool) error {
+	s.mu.Lock()
+	if s.current.KeepConnectedOnQuit == keep {
+		s.mu.Unlock()
+		return nil
+	}
+	next := s.current
+	next.KeepConnectedOnQuit = keep
 	if err := s.persistLocked(next); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("persist preferences: %w", err)
@@ -246,6 +318,7 @@ func (s *Store) ExistedAtLoad() bool {
 func (s *Store) load() error {
 	if _, err := os.Stat(s.path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Infof("no ui preferences file at %s; using defaults", s.path)
 			return nil
 		}
 		return fmt.Errorf("stat preferences: %w", err)
@@ -262,6 +335,9 @@ func (s *Store) load() error {
 
 	if !loaded.ViewMode.IsValid() {
 		loaded.ViewMode = DefaultViewMode
+	}
+	if !loaded.Theme.IsValid() {
+		loaded.Theme = DefaultTheme
 	}
 
 	s.mu.Lock()

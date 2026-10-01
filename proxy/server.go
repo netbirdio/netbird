@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -246,10 +247,6 @@ type Server struct {
 	// in processMappings before the receive loop reconnects to resync.
 	// Zero uses defaultMappingBatchWatchdog.
 	MappingBatchWatchdog time.Duration
-	// MiddlewareDataDir is the base directory the middleware system uses to
-	// resolve file-backed configuration (e.g. the cost_meter pricing table).
-	// Empty means any middleware that requires a file fails at configure time.
-	MiddlewareDataDir string
 	// MiddlewareCaptureBudgetBytes overrides the proxy-wide in-flight capture
 	// budget passed to middleware.NewManager. Zero or negative values fall
 	// back to defaultMiddlewareCaptureBudgetBytes (256 MiB).
@@ -365,6 +362,13 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
+	startupOK := false
+	defer func() {
+		if !startupOK {
+			s.cleanupFailedStart()
+		}
+	}()
+
 	// Management client must be initialised BEFORE the middleware manager —
 	// initMiddlewareManager passes s.mgmtClient into the builtin FactoryContext
 	// that the limit-check / limit-record middlewares pull from. Reversed
@@ -377,7 +381,9 @@ func (s *Server) Start(ctx context.Context) error {
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.runCancel = runCancel
 
-	s.initNetBirdClient()
+	if err := s.initNetBirdClient(); err != nil {
+		return err
+	}
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
@@ -397,18 +403,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.initGeoLookup(); err != nil {
 		return err
 	}
-
-	startupOK := false
-	defer func() {
-		if startupOK {
-			return
-		}
-		if s.geoRaw != nil {
-			if closeErr := s.geoRaw.Close(); closeErr != nil {
-				s.Logger.Debugf("close geolocation on startup failure: %v", closeErr)
-			}
-		}
-	}()
 
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
@@ -478,14 +472,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		go func() {
 			defer close(done)
 			s.gracefulShutdown()
-			if s.runCancel != nil {
-				s.runCancel()
-			}
-			if s.mgmtConn != nil {
-				if err := s.mgmtConn.Close(); err != nil {
-					s.Logger.Debugf("management connection close: %v", err)
-				}
-			}
+			s.releaseRunResources()
 		}()
 
 		select {
@@ -498,6 +485,27 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	return s.runErr
+}
+
+// cleanupFailedStart releases what a failed Start already brought up. It
+// skips the drain and pre-stop delay because nothing has served yet, and
+// consumes stopOnce so a later Stop stays a no-op.
+func (s *Server) cleanupFailedStart() {
+	s.stopOnce.Do(func() {
+		s.shutdownServices()
+		s.releaseRunResources()
+	})
+}
+
+func (s *Server) releaseRunResources() {
+	if s.runCancel != nil {
+		s.runCancel()
+	}
+	if s.mgmtConn != nil {
+		if err := s.mgmtConn.Close(); err != nil {
+			s.Logger.Debugf("management connection close: %v", err)
+		}
+	}
 }
 
 // waitAndStop blocks until ctx is cancelled or a background goroutine
@@ -571,7 +579,7 @@ func (s *Server) initManagementClient() error {
 // initNetBirdClient builds the multi-tenant embedded NetBird client used
 // for outbound RoundTripping and (when --private is on) per-account
 // inbound listeners.
-func (s *Server) initNetBirdClient() {
+func (s *Server) initNetBirdClient() error {
 	s.netbird = roundtrip.NewNetBird(s.ctx, s.ID, s.ProxyURL, roundtrip.ClientConfig{
 		MgmtAddr:     s.ManagementAddress,
 		WGPort:       s.WireguardPort,
@@ -584,6 +592,10 @@ func (s *Server) initNetBirdClient() {
 		BlockInbound: !s.Private,
 	}, s.Logger, s, s.mgmtClient)
 	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
+	if err := s.meter.RegisterClientObserver(s.netbird.ClientCount); err != nil {
+		return fmt.Errorf("register client metrics: %w", err)
+	}
+	return nil
 }
 
 // initReverseProxy builds the meter-instrumented reverse proxy. MultiTransport
@@ -2066,22 +2078,54 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if mapping.GetAuth().GetOidc() {
 		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, svcID, accountID, s.ForwardedProto))
 	}
-	for _, ha := range mapping.GetAuth().GetHeaderAuths() {
-		schemes = append(schemes, auth.NewHeader(s.mgmtClient, svcID, accountID, ha.GetHeader()))
-	}
+	schemes = append(schemes, headerAuthSchemes(mapping.GetAuth().GetHeaderAuths())...)
 
 	ipRestrictions := s.parseRestrictions(mapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate()); err != nil {
+	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds()); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)
-	s.proxy.AddMapping(m)
+	// The chain is published before the route that leads to it. A request
+	// arriving at a target whose chain has not been rebuilt yet is served
+	// straight through, so a provider update that added the route first left a
+	// window in which an inference could complete unrouted and unmetered.
+	// Rebuilding first inverts that: the worst a request in the window meets is
+	// the new chain in front of the previous target, which is still counted.
+	if err := s.rebuildMiddlewareChains(svcID, m); err != nil {
+		return err
+	}
 	s.meter.AddMapping(m)
-	s.rebuildMiddlewareChains(svcID, m)
+	s.proxy.AddMapping(m)
 	return nil
+}
+
+// headerAuthSchemes builds one scheme per canonical header name, carrying every
+// hash configured for that name so any of them is accepted — the OR semantics
+// management applied while it still validated the credential itself. No entry is
+// ever dropped: a name that arrives blank, or without a hash, still yields a
+// scheme, because a mapping that lost its only scheme would fall through
+// Protect's no-schemes pass-through and serve the domain unauthenticated.
+func headerAuthSchemes(headerAuths []*proto.HeaderAuth) []auth.Scheme {
+	names := make([]string, 0, len(headerAuths))
+	hashes := make(map[string][]string, len(headerAuths))
+	for _, ha := range headerAuths {
+		name := http.CanonicalHeaderKey(ha.GetHeader())
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+		if hash := ha.GetHashedValue(); hash != "" {
+			hashes[name] = append(hashes[name], hash)
+		}
+	}
+
+	schemes := make([]auth.Scheme, 0, len(names))
+	for _, name := range names {
+		schemes = append(schemes, auth.NewHeader(name, hashes[name]))
+	}
+	return schemes
 }
 
 // initMiddlewareManager wires the middleware subsystem at boot. It configures
@@ -2093,7 +2137,7 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 		return fmt.Errorf("middleware manager requires metrics bundle")
 	}
 	otelMeter := s.meter.Meter()
-	mwbuiltin.Configure(ctx, s.MiddlewareDataDir, otelMeter, s.Logger, s.mgmtClient)
+	mwbuiltin.Configure(ctx, otelMeter, s.Logger, s.mgmtClient)
 
 	mwMetrics, err := middleware.NewMetrics(otelMeter)
 	if err != nil {
@@ -2118,15 +2162,21 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 }
 
 // rebuildMiddlewareChains converts m into per-path bindings and calls
-// Manager.Rebuild. Short-circuits when the middleware manager is unset.
-func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) {
+// Manager.Rebuild. Short-circuits when the middleware manager is unset, which
+// is a deployment without middleware rather than a failure to install it.
+//
+// A rebuild that fails is reported rather than logged: the caller publishes
+// the route once this returns, and a route published over chains that were
+// not installed serves requests with no policy enforcement and no metering.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) error {
 	if s.middlewareManager == nil {
-		return
+		return nil
 	}
 	bindings := buildMiddlewareBindings(svcID, m)
 	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
-		s.Logger.WithError(err).WithField("service_id", svcID).Error("failed to rebuild middleware chains")
+		return fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
 	}
+	return nil
 }
 
 // isLiveService reports whether svcID is currently present in the live

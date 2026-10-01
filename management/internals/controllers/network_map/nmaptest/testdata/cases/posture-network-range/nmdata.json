@@ -1,0 +1,42 @@
+{
+  "Network": {"Serial": 33},
+  "Peers": {
+    "peer-office": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0", "NetworkAddresses": [{"NetIP": "192.168.1.10/24"}]}},
+    "peer-remote": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0", "NetworkAddresses": [{"NetIP": "10.0.0.5/8"}]}},
+    "peer-by-connip": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}, "Location": {"ConnectionIP": "192.168.5.5"}},
+    "peer-noaddr": {"IP": "100.64.0.4", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-office", "peer-remote", "peer-by-connip", "peer-noaddr"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "PostureChecks": {
+    "chk-range": {
+      "Checks": {
+        "PeerNetworkRangeCheck": {
+          "Action": "allow",
+          "Ranges": ["192.168.0.0/16"]
+        }
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-range",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-range"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["22"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

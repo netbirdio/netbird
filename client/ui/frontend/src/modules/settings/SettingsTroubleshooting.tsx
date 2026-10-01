@@ -1,6 +1,15 @@
 import { useId, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { CircleCheckBig, FolderOpen, Loader2 } from "lucide-react";
+import {
+    CircleCheckBig,
+    FolderOpen,
+    Info,
+    Loader2,
+    Shield,
+    ShieldCheck,
+    ShieldOff,
+    type LucideIcon,
+} from "lucide-react";
 import { Browser } from "@wailsio/runtime";
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
@@ -12,20 +21,28 @@ import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import HelpText from "@/components/typography/HelpText.tsx";
 import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
+import { Select } from "@/components/inputs/Select";
 import { SquareIcon } from "@/components/SquareIcon";
+import { Tooltip } from "@/components/Tooltip";
 import { formatRemaining } from "@/lib/formatters";
-import type { DebugStage } from "@/contexts/DebugBundleContext";
+import type { AnonymizeLevel, DebugStage } from "@/contexts/DebugBundleContext";
 import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 
 const SUPPORT_DOCS_URL = "https://docs.netbird.io/help/report-bug-issues";
 
+const ANONYMIZE_LEVELS: { value: AnonymizeLevel; icon: LucideIcon }[] = [
+    { value: "none", icon: ShieldOff },
+    { value: "default", icon: Shield },
+    { value: "strict", icon: ShieldCheck },
+];
+
 export function SettingsTroubleshooting() {
     const { t } = useTranslation();
     const durationId = useId();
     const {
-        anonymize,
-        setAnonymize,
+        anonymizeLevel,
+        setAnonymizeLevel,
         systemInfo,
         setSystemInfo,
         upload,
@@ -55,12 +72,43 @@ export function SettingsTroubleshooting() {
 
     return (
         <SectionGroup title={t("settings.troubleshooting.section.title")}>
-            <FancyToggleSwitch
-                value={anonymize}
-                onChange={setAnonymize}
-                label={t("settings.troubleshooting.anonymize.label")}
-                helpText={t("settings.troubleshooting.anonymize.help")}
-            />
+            <div className={"flex items-center justify-between gap-6"}>
+                <div className={"max-w-md flex-1"}>
+                    <Label as={"div"}>
+                        <span className={"inline-flex items-center gap-1.5"}>
+                            {t("settings.troubleshooting.anonymize.label")}
+                            <Tooltip
+                                content={
+                                    <div className={"max-w-xs whitespace-normal leading-relaxed"}>
+                                        {t("settings.troubleshooting.anonymize.info")}
+                                    </div>
+                                }
+                            >
+                                <Info
+                                    size={14}
+                                    aria-label={t("settings.troubleshooting.anonymize.label")}
+                                    className={"shrink-0 cursor-default text-nb-gray-400"}
+                                />
+                            </Tooltip>
+                        </span>
+                    </Label>
+                    <HelpText margin={false}>
+                        {t("settings.troubleshooting.anonymize.help")}
+                    </HelpText>
+                </div>
+                <div className={"shrink-0"}>
+                    <Select
+                        value={anonymizeLevel}
+                        options={ANONYMIZE_LEVELS.map(({ value, icon }) => ({
+                            value,
+                            icon,
+                            label: t(`settings.troubleshooting.anonymize.${value}`),
+                        }))}
+                        onChange={setAnonymizeLevel}
+                        ariaLabel={t("settings.troubleshooting.anonymize.label")}
+                    />
+                </div>
+            </div>
             <FancyToggleSwitch
                 value={systemInfo}
                 onChange={setSystemInfo}
@@ -209,7 +257,10 @@ function DoneResult({
     };
     return (
         <CenteredPanel>
-            <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
+            <SquareIcon
+                icon={CircleCheckBig}
+                className={"bg-white dark:bg-nb-gray-920 [&_svg]:text-green-500"}
+            />
 
             <div className={"flex max-w-sm flex-col items-center gap-2"}>
                 <DialogHeading className={"text-balance"}>
@@ -258,7 +309,9 @@ function DoneResult({
                             <button
                                 type={"button"}
                                 onClick={onRevealPath}
-                                className={"pointer-events-auto transition-all hover:text-white"}
+                                className={
+                                    "pointer-events-auto transition-all hover:text-nb-gray-50"
+                                }
                                 aria-label={t("settings.troubleshooting.done.openFileLocation")}
                             >
                                 <FolderOpen size={16} aria-hidden={"true"} />
@@ -271,7 +324,7 @@ function DoneResult({
                     <div
                         role={"alert"}
                         className={
-                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300"
                         }
                     >
                         {result.uploadFailureReason

@@ -9,18 +9,22 @@
 # Example: ./freebsd-port-issue-body.sh 0.56.0 0.59.1
 #
 # If no versions are provided, the script will:
-#   - Fetch OLD version from FreeBSD ports cgit (current version in ports tree)
+#   - Fetch OLD version from the FreeBSD ports GitHub mirror (current version in ports tree)
 #   - Fetch NEW version from latest NetBird GitHub release tag
 
 set -e
 
 GITHUB_REPO="netbirdio/netbird"
-PORTS_CGIT_URL="https://cgit.freebsd.org/ports/plain/security/netbird/Makefile"
+PORTS_MAKEFILE_URL="https://raw.githubusercontent.com/freebsd/freebsd-ports/main/security/netbird/Makefile"
 
 fetch_current_ports_version() {
     echo "Fetching current version from FreeBSD ports..." >&2
     local makefile_content
-    makefile_content=$(curl -sL "$PORTS_CGIT_URL" 2>/dev/null)
+    makefile_content=$(curl -fsL --proto '=https' --proto-redir '=https' --retry 3 "$PORTS_MAKEFILE_URL" 2>/dev/null) || makefile_content=""
+    if [[ "$makefile_content" == \<* ]]; then
+        echo "Error: Received HTML instead of Makefile from ${PORTS_MAKEFILE_URL}" >&2
+        return 1
+    fi
     if [[ -z "$makefile_content" ]]; then
         echo "Error: Could not fetch Makefile from FreeBSD ports" >&2
         return 1

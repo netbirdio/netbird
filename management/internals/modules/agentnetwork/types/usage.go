@@ -25,14 +25,36 @@ type AgentNetworkUsage struct {
 	InputTokens        int64
 	OutputTokens       int64
 	TotalTokens        int64
-	CostUSD            float64
-	CreatedAt          time.Time
+	// Prompt-cache buckets: read + write token counts.
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	// Per-bucket cost breakdown, mirroring AgentNetworkAccessLog — the only
+	// cost state stored; total and cache portion are derived on read. Kept on
+	// the usage ledger too so spend can be attributed per bucket even for
+	// accounts with log collection turned off. See AgentNetworkAccessLog for
+	// why the columns carry a zero default.
+	InputCostUSD         float64 `gorm:"not null;default:0"`
+	CachedInputCostUSD   float64 `gorm:"not null;default:0"`
+	CacheCreationCostUSD float64 `gorm:"not null;default:0"`
+	OutputCostUSD        float64 `gorm:"not null;default:0"`
+	CreatedAt            time.Time
 }
 
 // TableName keeps usage records in their own stripped table. Named
 // distinctly (…_request_usage) to avoid colliding with any pre-existing
 // agent_network_usage table in a shared database.
 func (AgentNetworkUsage) TableName() string { return "agent_network_request_usage" }
+
+// TotalCostUSD is the request's total cost: the sum of the four per-bucket
+// costs. Derived rather than stored so it cannot disagree with the breakdown.
+func (u *AgentNetworkUsage) TotalCostUSD() float64 {
+	return u.InputCostUSD + u.CachedInputCostUSD + u.CacheCreationCostUSD + u.OutputCostUSD
+}
+
+// CacheCostUSD is the portion of the total billed for prompt-cache buckets.
+func (u *AgentNetworkUsage) CacheCostUSD() float64 {
+	return u.CachedInputCostUSD + u.CacheCreationCostUSD
+}
 
 // AgentNetworkUsageGroup is the normalised many-to-many row linking a usage
 // record to one authorising group, mirroring AgentNetworkAccessLogGroup so the

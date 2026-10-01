@@ -446,7 +446,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, account.Peers, dnsDomain))
+	util.WriteJSONObject(ctx, w, toAccessiblePeers(account.Peers, netMap, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
@@ -534,20 +534,22 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-// toAccessiblePeers rehydrates the calculated map's component peers into the
-// account's full peer objects, which carry the location/status/meta fields
-// the API response needs.
-func toAccessiblePeers(netMap *types.NetworkMap, accountPeers map[string]*nbpeer.Peer, dnsDomain string) []api.AccessiblePeer {
+// toAccessiblePeers resolves the twin peers in netMap back to the full account
+// peers (by ID) so the API response keeps Status/Name/OS/GeoNameID, which the
+// slim netmap twins intentionally don't carry.
+func toAccessiblePeers(accountPeers map[string]*nbpeer.Peer, netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	add := func(peers []*types.ComponentPeer) {
-		for _, p := range peers {
-			if peer := accountPeers[p.ID]; peer != nil {
-				accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(peer, dnsDomain))
-			}
+	appendByID := func(id string) {
+		if p, ok := accountPeers[id]; ok && p != nil {
+			accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
 		}
 	}
-	add(netMap.Peers)
-	add(netMap.OfflinePeers)
+	for _, p := range netMap.Peers {
+		appendByID(p.ID)
+	}
+	for _, p := range netMap.OfflinePeers {
+		appendByID(p.ID)
+	}
 
 	return accessiblePeers
 }
@@ -615,6 +617,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
 		},
 	}
 
@@ -670,6 +673,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
 		},
 	}
 }

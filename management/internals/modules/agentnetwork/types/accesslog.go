@@ -41,8 +41,24 @@ type AgentNetworkAccessLog struct {
 	InputTokens        int64
 	OutputTokens       int64
 	TotalTokens        int64
-	CostUSD            float64
-	Stream             bool
+	// Prompt-cache buckets: read + write token counts.
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	// Per-bucket cost breakdown — one column per token bucket the provider
+	// bills separately. These four are the only cost state stored: the total
+	// and the cache portion are derived on read (TotalCostUSD / CacheCostUSD)
+	// rather than stored alongside, so a stored aggregate can never drift out
+	// of step with the components it summarises.
+	//
+	// default:0 matters on upgrade: these columns are ALTER TABLE ADD COLUMN
+	// on an existing table, and without it every historical row holds NULL —
+	// which a raw SUM()/scan into float64 can't read. The default backfills
+	// them as 0, so pre-upgrade rows report an unknown split, not an error.
+	InputCostUSD         float64 `gorm:"not null;default:0"`
+	CachedInputCostUSD   float64 `gorm:"not null;default:0"`
+	CacheCreationCostUSD float64 `gorm:"not null;default:0"`
+	OutputCostUSD        float64 `gorm:"not null;default:0"`
+	Stream               bool
 
 	// Prompt capture. Only populated when prompt collection is enabled
 	// (account master switch AND policy guardrail). Heavy free text.
@@ -60,19 +76,44 @@ type AgentNetworkAccessLog struct {
 // the reverse-proxy AccessLogEntry table.
 func (AgentNetworkAccessLog) TableName() string { return "agent_network_access_log" }
 
+// CostUSDSQLExpr is the SQL sum of the per-bucket cost columns — the total cost
+// of a row. Used wherever a query has to sort or aggregate on total cost now
+// that no cost_usd column is stored. Plain arithmetic over NOT NULL columns, so
+// it stays portable across SQLite and Postgres.
+const CostUSDSQLExpr = "(input_cost_usd + cached_input_cost_usd + cache_creation_cost_usd + output_cost_usd)"
+
+// TotalCostUSD is the request's total cost: the sum of the four per-bucket
+// costs. Derived rather than stored so it cannot disagree with the breakdown.
+func (a *AgentNetworkAccessLog) TotalCostUSD() float64 {
+	return a.InputCostUSD + a.CachedInputCostUSD + a.CacheCreationCostUSD + a.OutputCostUSD
+}
+
+// CacheCostUSD is the portion of the total billed for prompt-cache buckets:
+// cache reads plus cache writes.
+func (a *AgentNetworkAccessLog) CacheCostUSD() float64 {
+	return a.CachedInputCostUSD + a.CacheCreationCostUSD
+}
+
 // ToAPIResponse renders the flattened entry as the API representation.
 func (a *AgentNetworkAccessLog) ToAPIResponse() api.AgentNetworkAccessLog {
 	out := api.AgentNetworkAccessLog{
-		Id:           a.ID,
-		ServiceId:    a.ServiceID,
-		Timestamp:    a.Timestamp,
-		StatusCode:   a.StatusCode,
-		DurationMs:   int(a.Duration.Milliseconds()),
-		InputTokens:  a.InputTokens,
-		OutputTokens: a.OutputTokens,
-		TotalTokens:  a.TotalTokens,
-		CostUsd:      a.CostUSD,
-		Stream:       &a.Stream,
+		Id:                   a.ID,
+		ServiceId:            a.ServiceID,
+		Timestamp:            a.Timestamp,
+		StatusCode:           a.StatusCode,
+		DurationMs:           int(a.Duration.Milliseconds()),
+		InputTokens:          a.InputTokens,
+		OutputTokens:         a.OutputTokens,
+		TotalTokens:          a.TotalTokens,
+		CachedInputTokens:    a.CachedInputTokens,
+		CacheCreationTokens:  a.CacheCreationTokens,
+		InputCostUsd:         a.InputCostUSD,
+		CachedInputCostUsd:   a.CachedInputCostUSD,
+		CacheCreationCostUsd: a.CacheCreationCostUSD,
+		OutputCostUsd:        a.OutputCostUSD,
+		CostUsd:              a.TotalCostUSD(),
+		CacheCostUsd:         a.CacheCostUSD(),
+		Stream:               &a.Stream,
 	}
 
 	out.UserId = strPtr(a.UserID)
@@ -112,20 +153,36 @@ func strPtr(s string) *string {
 // summary plus its ordered entries. Assembled in Go from a page of entries — it
 // is not a stored table.
 type AgentNetworkAccessLogSession struct {
-	SessionID    string // empty for a session-less (singleton) request
-	UserID       string
-	GroupIDs     []string // union of the entries' authorising groups
-	StartedAt    time.Time
-	EndedAt      time.Time
-	RequestCount int
-	InputTokens  int64
-	OutputTokens int64
-	TotalTokens  int64
-	CostUSD      float64
-	Providers    []string // distinct vendors seen in the session
-	Models       []string // distinct models seen in the session
-	Decision     string   // "deny" if any entry was denied, else "allow"
-	Entries      []*AgentNetworkAccessLog
+	SessionID            string // empty for a session-less (singleton) request
+	UserID               string
+	GroupIDs             []string // union of the entries' authorising groups
+	StartedAt            time.Time
+	EndedAt              time.Time
+	RequestCount         int
+	InputTokens          int64
+	OutputTokens         int64
+	TotalTokens          int64
+	CachedInputTokens    int64
+	CacheCreationTokens  int64
+	InputCostUSD         float64
+	CachedInputCostUSD   float64
+	CacheCreationCostUSD float64
+	OutputCostUSD        float64
+	Providers            []string // distinct vendors seen in the session
+	Models               []string // distinct models seen in the session
+	Decision             string   // "deny" if any entry was denied, else "allow"
+	Entries              []*AgentNetworkAccessLog
+}
+
+// TotalCostUSD is the session's total cost: the sum of the four per-bucket
+// costs accumulated across its entries.
+func (sess *AgentNetworkAccessLogSession) TotalCostUSD() float64 {
+	return sess.InputCostUSD + sess.CachedInputCostUSD + sess.CacheCreationCostUSD + sess.OutputCostUSD
+}
+
+// CacheCostUSD is the session's prompt-cache spend: cache reads plus writes.
+func (sess *AgentNetworkAccessLogSession) CacheCostUSD() float64 {
+	return sess.CachedInputCostUSD + sess.CacheCreationCostUSD
 }
 
 // sessionKey is the grouping key for an entry: its session id, or — when the
@@ -205,7 +262,12 @@ func (sess *AgentNetworkAccessLogSession) foldEntry(sk *sessionSeen, e *AgentNet
 	sess.InputTokens += e.InputTokens
 	sess.OutputTokens += e.OutputTokens
 	sess.TotalTokens += e.TotalTokens
-	sess.CostUSD += e.CostUSD
+	sess.CachedInputTokens += e.CachedInputTokens
+	sess.CacheCreationTokens += e.CacheCreationTokens
+	sess.InputCostUSD += e.InputCostUSD
+	sess.CachedInputCostUSD += e.CachedInputCostUSD
+	sess.CacheCreationCostUSD += e.CacheCreationCostUSD
+	sess.OutputCostUSD += e.OutputCostUSD
 	if e.Timestamp.Before(sess.StartedAt) {
 		sess.StartedAt = e.Timestamp
 	}
@@ -248,15 +310,22 @@ func (sess *AgentNetworkAccessLogSession) ToAPIResponse() api.AgentNetworkAccess
 	}
 
 	out := api.AgentNetworkAccessLogSession{
-		StartedAt:    sess.StartedAt,
-		EndedAt:      sess.EndedAt,
-		RequestCount: sess.RequestCount,
-		InputTokens:  sess.InputTokens,
-		OutputTokens: sess.OutputTokens,
-		TotalTokens:  sess.TotalTokens,
-		CostUsd:      sess.CostUSD,
-		Decision:     sess.Decision,
-		Entries:      entries,
+		StartedAt:            sess.StartedAt,
+		EndedAt:              sess.EndedAt,
+		RequestCount:         sess.RequestCount,
+		InputTokens:          sess.InputTokens,
+		OutputTokens:         sess.OutputTokens,
+		TotalTokens:          sess.TotalTokens,
+		CachedInputTokens:    sess.CachedInputTokens,
+		CacheCreationTokens:  sess.CacheCreationTokens,
+		InputCostUsd:         sess.InputCostUSD,
+		CachedInputCostUsd:   sess.CachedInputCostUSD,
+		CacheCreationCostUsd: sess.CacheCreationCostUSD,
+		OutputCostUsd:        sess.OutputCostUSD,
+		CostUsd:              sess.TotalCostUSD(),
+		CacheCostUsd:         sess.CacheCostUSD(),
+		Decision:             sess.Decision,
+		Entries:              entries,
 	}
 	out.SessionId = strPtr(sess.SessionID)
 	out.UserId = strPtr(sess.UserID)

@@ -224,6 +224,7 @@ func TestResolver_StaleTriggersAsyncRefresh(t *testing.T) {
 }
 
 func TestResolver_ConcurrentStaleHitsCollapseRefresh(t *testing.T) {
+	semaphore := make(chan struct{})
 	r := NewResolver()
 	chain := newFakeChain()
 	chain.setAnswer("mgmt.example.com.", dns.TypeA, "10.0.0.2")
@@ -239,7 +240,7 @@ func TestResolver_ConcurrentStaleHitsCollapseRefresh(t *testing.T) {
 				break
 			}
 		}
-		time.Sleep(50 * time.Millisecond) // hold inflight long enough to collide
+		<-semaphore // block the call to force request collision
 	}
 
 	r.SetChainResolver(chain, 50)
@@ -255,17 +256,17 @@ func TestResolver_ConcurrentStaleHitsCollapseRefresh(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			queryA(t, r, "mgmt.example.com.")
-		}()
+		})
 	}
+
+	assert.Eventually(t, func() bool { return inflight.Load() >= 1 }, 2*time.Second, 100*time.Millisecond)
+
+	close(semaphore)
 	wg.Wait()
 
-	waitFor(t, 2*time.Second, func() bool {
-		return inflight.Load() == 0
-	})
+	assert.Eventually(t, func() bool { return inflight.Load() == 0 }, 2*time.Second, 100*time.Millisecond)
 
 	calls := chain.callCount("mgmt.example.com.", dns.TypeA)
 	assert.LessOrEqual(t, calls, 2, "singleflight must collapse concurrent refreshes (got %d)", calls)

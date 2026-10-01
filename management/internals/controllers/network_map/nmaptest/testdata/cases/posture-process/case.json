@@ -1,0 +1,4 @@
+{
+  "description": "Process posture check, which picks the path for the peer's own platform. peer-lin-running and peer-mac-running each have their platform's process running and pass. peer-lin-stopped reports the same file but not running, so it fails — presence of the binary is not enough. peer-bsd runs an unsupported operating system, which the check reports as an error, and errors deny.",
+  "peers": ["peer-srv", "peer-lin-running", "peer-lin-stopped", "peer-bsd"]
+}

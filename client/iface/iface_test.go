@@ -464,6 +464,8 @@ func Test_RemovePeer(t *testing.T) {
 }
 
 func Test_ConnectPeers(t *testing.T) {
+	t.Setenv("NB_DISABLE_EBPF_WG_PROXY", "true")
+
 	peer1ifaceName := fmt.Sprintf("utun%d", WgIntNumber+400)
 	peer1wgIP := netip.MustParsePrefix("10.99.99.17/30")
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
@@ -505,12 +507,8 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP, err := getLocalIP()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer1wgPort))
+	localIP1 := "127.0.0.1"
+	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP1, peer1wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +544,8 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer2wgPort))
+	localIP2 := "127.0.0.1"
+	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP2, peer2wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,29 +619,4 @@ func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 		}
 	}
 	return wgtypes.Peer{}, fmt.Errorf("peer not found")
-}
-
-func getLocalIP() (string, error) {
-	// Get all interfaces
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		if ipNet.IP.IsLoopback() {
-			continue
-		}
-
-		if ipNet.IP.To4() == nil {
-			continue
-		}
-		return ipNet.IP.String(), nil
-	}
-
-	return "", fmt.Errorf("no local IP found")
 }

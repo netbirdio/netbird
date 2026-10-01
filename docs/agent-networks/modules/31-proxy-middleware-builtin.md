@@ -5,7 +5,7 @@ LLM request. The two highest-blast-radius areas are the **capture-pointer
 semantics** and the **limit_check ⇒ limit_record** record-once invariant.
 
 Sibling module: [32-proxy-llm-parsers.md](./32-proxy-llm-parsers.md) — the SDK
-adapters + pricing catalog this chain delegates to.
+adapters + pricing table and cost formula this chain delegates to.
 
 ---
 
@@ -34,7 +34,7 @@ rewrites.
 | `llm_identity_inject` | OnRequest | `llm.{resolved_provider_id,authorising_groups}`, `Input.{UserEmail,UserID,UserGroups,UserGroupNames}` | none | header strip/inject + optional body rewrite |
 | `llm_guardrail` | OnRequest | `llm.{model,request_prompt_raw}` | `llm_policy.{decision,reason}`, `llm.request_prompt` | none (model allowlist deny) |
 | `llm_response_parser` | OnResponse | `llm.provider`, `Input.{RespHeaders,RespBody,Status}` | `llm.{input,output,total,cached_input,cache_creation}_tokens`, `llm.response_completion` | none |
-| `cost_meter` | OnResponse | `llm.{provider,model}`, token buckets | `cost.usd_total` or `cost.skipped` | pricing lookup |
+| `cost_meter` | OnResponse | `llm.{provider,model,resolved_provider_id}`, token buckets | `cost.usd_{input,cached_input,cache_creation,output,total,cache}` or `cost.skipped` | none (in-memory pricing lookup) |
 | `llm_limit_record` | OnResponse | `llm.{attribution_group_id,attribution_window_seconds,input_tokens,output_tokens}`, `cost.usd_total` | none | gRPC `RecordLLMUsage` |
 
 [all_test.go:26–40](../../../proxy/internal/middleware/builtin/all_test.go)
@@ -44,7 +44,7 @@ locks the ID set; adding or removing one is a conscious extension.
 
 | File | LOC | Notes |
 |---|---:|---|
-| `builtin.go` | 86 | Registry + `FactoryContext` (ctx, data dir, meter, logger, mgmt client) |
+| `builtin.go` | 90 | Registry + `FactoryContext` (ctx, meter, logger, mgmt client) |
 | `all_test.go` | 41 | Locks the 8-ID registry surface |
 | `agentnetwork_chain_integration_test.go` | 319 | Live sqlite + real gRPC bufconn; gate→recorder wire path |
 | `llm_request_parser/*` | 162 / 66 / 356 | Provider detection, body parse, prompt extraction with capture-pointer gating |
@@ -53,7 +53,7 @@ locks the ID set; adding or removing one is a conscious extension.
 | `llm_identity_inject/*` | 440 / 108 / 666 | HeaderPair (LiteLLM) + JSONMetadata (Portkey) + ExtraHeaders |
 | `llm_guardrail/*` | 176 / 82 / 75 / 219 / 217 | Model allowlist + optional prompt capture with PII redaction |
 | `llm_response_parser/*` | 258 / 222 / 43 / 433 / 169 / 111 | Buffered + SSE accumulation; AWS event-stream accumulator (`streaming_bedrock.go`) for Bedrock; capture-pointer gates completion emit |
-| `cost_meter/*` | 181 / 84 / 439 | Token → USD via `proxy/internal/llm/pricing` |
+| `cost_meter/*` | 236 / 98 / 586 | Token → USD via `proxy/internal/llm/pricing`; both pricing tiers arrive in the middleware config |
 | `llm_limit_record/*` | 144 / 35 / 191 | Post-flight `RecordLLMUsage` (5s, debug-on-error) |
 
 ## Per-middleware
@@ -168,12 +168,46 @@ token schema.
 
 ### cost_meter
 
-Reads `llm.provider` + `llm.model` + token buckets, looks up per-1k rate via
-`pricing.Loader`, emits `cost.usd_total` or a closed-set `cost.skipped`
-reason (`missing_provider/model/tokens`, `unparseable_tokens`, `zero_tokens`,
-`unknown_model`). Loader's hot-reload goroutine is bound to proxy-lifetime
-context via `startReloader`. **Key invariant:** provider-shape switch lives
-in `pricing.Table.Cost` (sibling doc) — `cost_meter` stays provider-agnostic.
+Reads `llm.provider` + `llm.model` + token buckets, looks up the per-1k rates,
+and emits the full `cost.usd_*` breakdown (four per-bucket values plus the
+`_total` and `_cache` aggregates) or a closed-set `cost.skipped` reason
+(`missing_provider/model/tokens`, `unparseable_tokens`, `zero_tokens`,
+`unknown_model`).
+
+**Management owns pricing.** The proxy carries no embedded price list: the whole
+table arrives in this middleware's `ConfigJSON` as
+`{pricing: {defaults, providers}}`, synthesized by management from the catalog
+plus the operator's stored per-provider prices
+([factory.go:13–34](../../../proxy/internal/middleware/builtin/cost_meter/factory.go)).
+Both tiers are validated by `pricing.NewTable` / `pricing.NewEntries` at
+construction, so a non-finite or negative rate fails the chain build. A price
+change is an ordinary mapping push — the chain rebuild yields a fresh instance
+over a fresh immutable table, so there is no data dir, no pricing file, no
+reload goroutine, and nothing to invalidate.
+
+**Two-tier lookup**
+([middleware.go:165–183](../../../proxy/internal/middleware/builtin/cost_meter/middleware.go)):
+
+1. **Per-provider-record** — the operator's stored price for the route that
+   actually served the request, keyed by the `llm.resolved_provider_id` that
+   `llm_router` stamped on the allow path, then by normalized model id. Entries
+   arrive fully materialized (management folds default cache rates in at synth
+   time), so there is no merging here. Absent metadata — no router in the chain
+   — skips this tier.
+2. **Surface defaults** — the catalog-derived table keyed by `llm.provider`
+   (`openai`/`anthropic`/`bedrock`). This is also what prices gateway-style
+   providers, which enumerate no models and therefore get no per-record entry.
+
+**Backward compatibility:** a config with no `pricing` block means management
+predates config-delivered pricing. The factory logs one warning at build time
+and the instance records `cost.skipped=unknown_model` ($0) for every request
+rather than falling back to a stale built-in price list
+([factory.go:55–60](../../../proxy/internal/middleware/builtin/cost_meter/factory.go)).
+
+**Key invariant:** the provider-shape switch lives in `pricing.EntryCosts`
+(sibling doc) and is selected by the **surface**, not by which tier the entry
+came from — `cost_meter` stays provider-agnostic, and a per-record override on
+an Anthropic route still bills its cache buckets additively.
 
 ### llm_limit_record
 
@@ -244,14 +278,16 @@ no mocks. Tests: `TestChain_AllowPath_StampsAttributionAndRecordsCounter`
 | `llm_router` | `{providers: [{id, models, upstream_scheme, upstream_host, upstream_path?, auth_header_name, auth_header_value, allowed_group_ids}]}` |
 | `llm_limit_check` | `{}` — pulls `MgmtClient` from `FactoryContext` |
 | `llm_identity_inject` | `{providers: [{provider_id, header_pair?|json_metadata?, extra_headers?}]}` |
-| `llm_guardrail` | `{model_allowlist: []string, prompt_capture: {enabled, redact_pii}}` |
+| `llm_guardrail` | `{provider_allowlists: {providerID: []string}, prompt_capture: {enabled, redact_pii}}` — allowlist keyed by resolved provider id; a provider absent from the map is unrestricted (fail-closed backstop; authoritative per-policy/group check is management's `CheckLLMPolicyLimits`) |
 | `llm_response_parser` | `{redact_pii?, capture_completion?: *bool}` |
-| `cost_meter` | `{pricing_path?}` (basename inside data-dir; defaults `pricing.yaml`) |
+| `cost_meter` | `{pricing: {defaults: {surface: {model: rates}}, providers: {providerRecordID: {model: rates}}}}` — rates are `{input_per_1k, output_per_1k, cached_input_per_1k?, cache_read_per_1k?, cache_creation_per_1k?}`. A missing `pricing` key means "management predates config-delivered pricing": every request records `cost.skipped=unknown_model` |
 | `llm_limit_record` | `{}` — same pattern as `llm_limit_check` |
 
 All factories accept empty / null / `{}` / whitespace as zero-value config;
 only structurally invalid JSON is rejected so misconfig surfaces at chain
-build time.
+build time. `cost_meter` adds a semantic check on top of that: a `pricing`
+block carrying a negative or non-finite rate fails the build too, rather than
+mispricing live traffic.
 
 ## Invariants
 
@@ -320,10 +356,11 @@ non-object `metadata` field
 — header path still attributes, but body-level tag-budget enforcement
 doesn't run for that request.
 
-**Concurrency.** `cost_meter` shares a `pricing.Loader` via
-`atomic.Pointer[Table]`; readers always see a consistent table. Every
-middleware is a stateless value receiver. Integration test uses real bufconn
-gRPC — race detector is the meaningful bar.
+**Concurrency.** `cost_meter`'s two pricing tables are built once from the
+middleware config and never mutated, so the lookup path needs no lock or atomic
+swap — a price change replaces the whole instance. Every middleware is
+otherwise a stateless value receiver. Integration test uses real bufconn gRPC —
+race detector is the meaningful bar.
 
 **Perf.** Hot path is `lookupKV` linear scan over <10 KVs; `cost_meter.Cost`
 is O(1); SSE accumulation is single-pass. No map allocation per call.
@@ -349,13 +386,13 @@ counter accuracy.
 | `llm_guardrail/redact_test.go` | 15 | Email, SSN, phone (E.164 + NA), bearer, IPv4; fixture-driven |
 | `llm_response_parser/middleware_test.go` | 18 | Buffered OAI+Anthro, capture-pointer, redact, truncation |
 | `llm_response_parser/streaming_test.go` | 7 | OAI usage frame, Anthro message_delta, truncated body best-effort |
-| `cost_meter/middleware_test.go` | 17 | Each skip reason, provider-shape, pricing loader integration |
+| `cost_meter/middleware_test.go` | 22 | Each skip reason, provider-shape formulas, config-delivered defaults, per-record-beats-defaults + miss-falls-back, per-record uses surface formula, nil-pricing skips everything, invalid-rate rejection |
 | `llm_limit_record/middleware_test.go` | 7 | Skip-on-no-signal, skip-on-missing-attribution, RPC failure swallowed |
 
 ## Cross-references
 
 - Sibling: [32-proxy-llm-parsers.md](./32-proxy-llm-parsers.md) — SDK adapters
-  + SSE framer + pricing loader.
+  + SSE framer + pricing table and cost formula.
 - Path-routed providers (Vertex AI + Bedrock), `keyfile::` credential, GCP
   token minting, `/bedrock` prefix:
   [50-path-routed-providers.md](./50-path-routed-providers.md).

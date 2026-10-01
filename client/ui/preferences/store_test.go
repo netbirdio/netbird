@@ -238,6 +238,42 @@ func TestStore_SetAutostartInitializedPersistsAcrossReload(t *testing.T) {
 	assert.True(t, reloaded.Get().AutostartInitialized, "marker must survive a reload from disk")
 }
 
+func TestStore_SetKeepConnectedOnQuitPersistsAcrossReload(t *testing.T) {
+	withTempConfigDir(t)
+	emitter := &recordingEmitter{}
+	s, err := NewStore(nil, emitter)
+	require.NoError(t, err)
+
+	assert.False(t, s.Get().KeepConnectedOnQuit, "quitting must disconnect by default")
+
+	require.NoError(t, s.SetKeepConnectedOnQuit(true))
+	assert.True(t, s.Get().KeepConnectedOnQuit, "Get should reflect the persisted opt-out")
+	require.Len(t, emitter.calledWith(EventPreferencesChanged), 1, "first write should broadcast")
+
+	require.NoError(t, s.SetKeepConnectedOnQuit(true))
+	assert.Len(t, emitter.calledWith(EventPreferencesChanged), 1, "idempotent write should not broadcast again")
+
+	reloaded, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.True(t, reloaded.Get().KeepConnectedOnQuit, "opt-out must survive a reload from disk")
+}
+
+func TestStore_KeepConnectedOnQuitDefaultsFalseForPreExistingFile(t *testing.T) {
+	withTempConfigDir(t)
+
+	// A preferences file written before the field existed must keep the
+	// historical disconnect-on-quit behaviour rather than silently opting out.
+	path, err := preferencesPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"language":"en","viewMode":"default"}`), 0o600))
+
+	s, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.False(t, s.Get().KeepConnectedOnQuit, "a file predating the field must not opt out of disconnect-on-quit")
+	assert.True(t, s.ExistedAtLoad(), "the pre-existing file must be seen on disk")
+}
+
 func TestStore_ExistedAtLoad(t *testing.T) {
 	withTempConfigDir(t)
 

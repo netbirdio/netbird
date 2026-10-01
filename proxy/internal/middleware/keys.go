@@ -22,6 +22,15 @@ const (
 	// body. Empty for clients that don't send one.
 	KeyLLMSessionID = "llm.session_id"
 
+	// Sub-agent attribution (emitted by llm_request_parser from the
+	// client's request headers). A coding agent that spawns helpers
+	// stamps the spawned agent's id, and the spawning agent's id when
+	// the helper is itself nested, so cost within one session can be
+	// split across the agents that ran in parallel. These identify an
+	// agent, not a person or a device: never treat them as a user id.
+	KeyLLMAgentID       = "llm.agent_id"
+	KeyLLMParentAgentID = "llm.parent_agent_id"
+
 	// LLM response-side metadata (emitted by llm_response_parser).
 	//nolint:gosec // metadata key name, not a credential
 	KeyLLMInputTokens = "llm.input_tokens"
@@ -66,6 +75,14 @@ const (
 	// downstream gateways' spend logs.
 	KeyLLMAuthorisingGroups = "llm.authorising_groups"
 
+	// LLM non-inference marker (emitted by llm_router on the allow path
+	// for endpoints that legitimately carry no model, such as model
+	// listing). The router still authorises these against the caller's
+	// groups; the marker only tells the limits gate that a per-model
+	// allowlist has nothing to evaluate, so an empty model must not be
+	// read as an undetermined one. Never derived from client input.
+	KeyLLMNonInference = "llm.non_inference"
+
 	// LLM policy attribution (emitted by llm_limit_check on the allow
 	// path). Names the policy that paid for this request and the
 	// dimension counters the post-flight llm_limit_record middleware
@@ -75,8 +92,19 @@ const (
 	KeyLLMAttributionGroupID = "llm.attribution_group_id"
 	KeyLLMAttributionWindowS = "llm.attribution_window_seconds"
 
-	// Cost metering (emitted by cost_meter).
-	KeyCostUSDTotal = "cost.usd_total"
+	// Cost metering (emitted by cost_meter). The four per-bucket keys are the
+	// base of the breakdown — one per token bucket the provider bills
+	// separately — and the two aggregates below are derived from them:
+	// usd_total is their sum, usd_cache is cached_input + cache_creation.
+	KeyCostUSDInput = "cost.usd_input"
+	// KeyCostUSDCachedInput is the cost of the cache-read bucket (Anthropic cache_read; OpenAI's discounted cached subset of input).
+	KeyCostUSDCachedInput = "cost.usd_cached_input"
+	// KeyCostUSDCacheCreation is the cost of the cache-write bucket. Zero for providers without one.
+	KeyCostUSDCacheCreation = "cost.usd_cache_creation"
+	KeyCostUSDOutput        = "cost.usd_output"
+	KeyCostUSDTotal         = "cost.usd_total"
+	// KeyCostUSDCache is the portion of cost.usd_total billed for prompt-cache buckets (cache read/creation, or OpenAI's cached input subset).
+	KeyCostUSDCache = "cost.usd_cache"
 	KeyCostSkipped  = "cost.skipped"
 
 	// Framework-emitted error markers. Use the mw.<id>.* prefix to

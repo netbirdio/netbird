@@ -88,9 +88,9 @@ func TestAgentNetworkSettings_RealStore_CollectionTogglesRoundTrip(t *testing.T)
 
 	const accountID = "acc-settings-toggles"
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, &agentNetworkTypes.Settings{
-		AccountID: accountID,
-		Cluster:   "eu.proxy.netbird.io",
-		Subdomain: "violet",
+		AccountID:    accountID,
+		Domain:       "violet.eu.proxy.netbird.io",
+		ProxyAddress: "eu.proxy.netbird.io",
 	}))
 
 	got, err := s.GetAgentNetworkSettings(ctx, LockingStrengthNone, accountID)

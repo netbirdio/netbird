@@ -7,8 +7,6 @@ import (
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 )
 
 // localIPSnapshot is an immutable snapshot of local IP addresses, swapped
@@ -60,7 +58,7 @@ func processInterface(iface net.Interface, ips map[netip.Addr]struct{}, addresse
 }
 
 // UpdateLocalIPs rebuilds the local IP snapshot and swaps it in atomically.
-func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
+func (m *localIPManager) UpdateLocalIPs(iface Iface) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)

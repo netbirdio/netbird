@@ -1,0 +1,4 @@
+{
+  "description": "A disabled resource with a valid policy and router must leave no trace: no routes and no route firewall rules for either the client or the router. Disabling a resource is the switch that revokes access without deleting the policy.",
+  "peers": ["peer-a", "peer-r"]
+}

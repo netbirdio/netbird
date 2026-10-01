@@ -33,7 +33,7 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 )
 
 const (
@@ -802,6 +802,52 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	}
 }
 
+func TestUser_DeleteUser_OtherAccount(t *testing.T) {
+	testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	if err = testStore.SaveAccount(context.Background(), account); err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	otherAccount := newAccountWithId(context.Background(), "otherAccount", "otherOwner", "", "", "", false)
+	otherAccount.Users["otherRegularUser"] = &types.User{
+		Id:        "otherRegularUser",
+		AccountID: "otherAccount",
+		Role:      types.UserRoleUser,
+	}
+	otherAccount.Users["otherServiceUser"] = &types.User{
+		Id:              "otherServiceUser",
+		AccountID:       "otherAccount",
+		Role:            types.UserRoleUser,
+		IsServiceUser:   true,
+		ServiceUserName: "otherServiceUser",
+	}
+	if err = testStore.SaveAccount(context.Background(), otherAccount); err != nil {
+		t.Fatalf("Error when saving other account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:              testStore,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissions.NewManager(testStore),
+	}
+
+	for _, targetUserID := range []string{"otherRegularUser", "otherServiceUser"} {
+		t.Run(targetUserID, func(t *testing.T) {
+			err := am.DeleteUser(context.Background(), mockAccountID, mockUserID, targetUserID)
+			assert.Equal(t, status.NewUserNotFoundError(targetUserID), err)
+
+			_, err = testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
+			assert.NoError(t, err, "user of another account must not be deleted")
+		})
+	}
+}
+
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -894,6 +940,49 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		})
 	}
 
+}
+
+func TestUser_deleteRegularUser_RejectsOwner(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Users[mockTargetUserId] = &types.User{
+		Id:     mockTargetUserId,
+		Issued: types.UserIssuedAPI,
+		Role:   types.UserRoleOwner,
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	am := DefaultAccountManager{Store: s}
+
+	_, err = am.deleteRegularUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{ID: mockTargetUserId})
+	assert.EqualError(t, err, status.NewOwnerDeletePermissionError().Error())
+}
+
+func TestUser_deleteRegularUser_InitiatorOwnerDeletesThemself(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	networkMapControllerMock := network_map.NewMockController(gomock.NewController(t))
+	networkMapControllerMock.EXPECT().OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	am := DefaultAccountManager{
+		Store:                s,
+		eventStore:           &activity.InMemoryEventStore{},
+		networkMapController: networkMapControllerMock,
+	}
+
+	_, err = am.deleteRegularUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{ID: mockUserID})
+	require.NoError(t, err)
+
+	_, err = s.GetUserByUserID(context.Background(), store.LockingStrengthNone, mockUserID)
+	assert.Equal(t, status.NewUserNotFoundError(mockUserID), err)
 }
 
 func TestUser_DeleteUser_RegularUsers(t *testing.T) {
@@ -1690,6 +1779,42 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account2))
 
+	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
+	account3.Users["pending-user"] = &types.User{
+		Id:              "pending-user",
+		AccountID:       account3.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account3))
+
+	// The owner has no address to name, so the refusal falls back to the generic one.
+	account4 := newAccountWithId(context.Background(), "account4", "account4Owner", "", "", "", false)
+	account4.Users["pending-user-without-owner-email"] = &types.User{
+		Id:              "pending-user-without-owner-email",
+		AccountID:       account4.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account4))
+
+	// No user holds the owner role, so the owner lookup itself fails.
+	account5 := newAccountWithId(context.Background(), "account5", "account5Admin", "", "", "", false)
+	account5.Users["account5Admin"].Role = types.UserRoleAdmin
+	account5.Users["pending-user-without-owner"] = &types.User{
+		Id:              "pending-user-without-owner",
+		AccountID:       account5.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account5))
+
+	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	require.NoError(t, store.SaveAccount(context.Background(), account6))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1722,6 +1847,34 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			name:        "service user",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:        "pending approval names the owner",
+			userAuth:    auth.UserAuth{AccountId: account3.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "pending approval without an owner address",
+			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			name:        "pending approval without an owner",
+			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			// The account claim points at an account the caller is not in. The
+			// owner named has to be the one of the account holding the caller's
+			// own record, never the one the claim asks for.
+			name:        "pending approval ignores a mismatched account claim",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "blocked user answers before the account claim is validated",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:     "owner user",

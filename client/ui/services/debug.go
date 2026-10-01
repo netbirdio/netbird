@@ -15,10 +15,13 @@ import (
 )
 
 type DebugBundleParams struct {
-	Anonymize    bool   `json:"anonymize"`
-	SystemInfo   bool   `json:"systemInfo"`
-	UploadURL    string `json:"uploadUrl"`
-	LogFileCount uint32 `json:"logFileCount"`
+	Anonymize bool `json:"anonymize"`
+	// AnonymizeLevel is "default" or "strict"; strict also anonymizes
+	// private IP ranges, peer names, and WireGuard public keys.
+	AnonymizeLevel string `json:"anonymizeLevel"`
+	SystemInfo     bool   `json:"systemInfo"`
+	UploadURL      string `json:"uploadUrl"`
+	LogFileCount   uint32 `json:"logFileCount"`
 }
 
 // DebugBundleResult: Path is set for local-only bundles, UploadedKey on upload
@@ -48,11 +51,12 @@ func (s *Debug) Bundle(ctx context.Context, p DebugBundleParams) (DebugBundleRes
 		return DebugBundleResult{}, err
 	}
 	resp, err := cli.DebugBundle(ctx, &proto.DebugBundleRequest{
-		Anonymize:    p.Anonymize,
-		SystemInfo:   p.SystemInfo,
-		UploadURL:    p.UploadURL,
-		LogFileCount: p.LogFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      p.Anonymize,
+		AnonymizeLevel: p.AnonymizeLevel,
+		SystemInfo:     p.SystemInfo,
+		UploadURL:      p.UploadURL,
+		LogFileCount:   p.LogFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	})
 	if err != nil {
 		return DebugBundleResult{}, err

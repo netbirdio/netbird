@@ -683,3 +683,81 @@ func BackfillPublicIDs[T any](ctx context.Context, db *gorm.DB) error {
 	log.WithContext(ctx).Infof("Backfill of empty public_id in table %s completed", tableName)
 	return nil
 }
+
+// FoldCostAggregatesIntoBuckets migrates a per-request cost table from the old
+// "stored aggregate" shape (cost_usd + cache_cost_usd columns) to the per-bucket
+// breakdown, where the total and cache portion are derived on read instead.
+//
+// The fold preserves both aggregates exactly for historical rows: the cache
+// total moves into cached_input_cost_usd and the remainder into
+// input_cost_usd, so a row's derived total and cache cost still match what it
+// reported before the upgrade. The finer split is genuinely unknown for those
+// rows — the old schema never recorded a read/write or input/output division —
+// so it is lumped rather than guessed; only rows written after the upgrade
+// carry a true four-way split.
+//
+// Dropping the columns before folding would zero every historical row's cost,
+// so the update runs first and the drop only happens once it succeeds. A table
+// with no cost_usd column has already been migrated (or was created fresh) and
+// is skipped.
+func FoldCostAggregatesIntoBuckets[T any](ctx context.Context, db *gorm.DB) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no cost-bucket migration needed", model)
+		return nil
+	}
+	if !db.Migrator().HasColumn(&model, "cost_usd") {
+		log.WithContext(ctx).Debugf("table for %T has no cost_usd column, cost buckets already migrated", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(&model); err != nil {
+		return fmt.Errorf("parse model schema: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	// COALESCE guards rows whose new columns were added as NULL by an earlier
+	// AutoMigrate run that predates the NOT NULL default.
+	hasCacheColumn := db.Migrator().HasColumn(&model, "cache_cost_usd")
+	cacheExpr := "0"
+	if hasCacheColumn {
+		cacheExpr = "COALESCE(cache_cost_usd, 0)"
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		// Only touch rows that carry a legacy total and no breakdown yet, so
+		// the migration is idempotent and never overwrites a true split.
+		update := fmt.Sprintf(`UPDATE %s
+			SET input_cost_usd = COALESCE(cost_usd, 0) - %s,
+			    cached_input_cost_usd = %s,
+			    cache_creation_cost_usd = 0,
+			    output_cost_usd = 0
+			WHERE COALESCE(cost_usd, 0) <> 0
+			  AND COALESCE(input_cost_usd, 0) = 0
+			  AND COALESCE(cached_input_cost_usd, 0) = 0
+			  AND COALESCE(cache_creation_cost_usd, 0) = 0
+			  AND COALESCE(output_cost_usd, 0) = 0`, tableName, cacheExpr, cacheExpr)
+		res := tx.Exec(update)
+		if res.Error != nil {
+			return fmt.Errorf("fold legacy cost aggregates in %s: %w", tableName, res.Error)
+		}
+		log.WithContext(ctx).Infof("folded legacy cost aggregates into per-bucket columns for %d rows in table %s", res.RowsAffected, tableName)
+
+		if err := tx.Migrator().DropColumn(&model, "cost_usd"); err != nil {
+			return fmt.Errorf("drop cost_usd from %s: %w", tableName, err)
+		}
+		if hasCacheColumn {
+			if err := tx.Migrator().DropColumn(&model, "cache_cost_usd"); err != nil {
+				return fmt.Errorf("drop cache_cost_usd from %s: %w", tableName, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("migration of stored cost aggregates to per-bucket columns in table %s completed", tableName)
+	return nil
+}
