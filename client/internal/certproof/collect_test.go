@@ -2,6 +2,9 @@ package certproof
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/x509"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,4 +162,88 @@ func TestFileStore_SkipsKeyOfAnotherCertificate(t *testing.T) {
 	require.Len(t, proofs, 1)
 	_, err = challenger.Verify(proofs[0], peerKey, now)
 	assert.NoError(t, err, "the proof sent is one management accepts")
+}
+
+// staticStore hands out fixed candidates, for scenarios no on-disk layout can express.
+type staticStore []Candidate
+
+func (s staticStore) Candidates(context.Context) ([]Candidate, error) { return s, nil }
+
+func TestCollectChallenges_RoutesAroundExpiredCopyOfRenewedIntermediate(t *testing.T) {
+	root := certtest.NewCA(t, "root")
+	intermediate := certtest.NewIntermediate(t, root, "issuing-ca")
+
+	// Renewing a CA with the same key pair leaves two certificates with the same
+	// subject and key in the store. The expired one sorts first here.
+	expiredTmpl := *intermediate.Cert
+	expiredTmpl.SerialNumber = big.NewInt(1)
+	expiredTmpl.NotBefore = time.Now().Add(-72 * time.Hour)
+	expiredTmpl.NotAfter = time.Now().Add(-48 * time.Hour)
+	der, err := x509.CreateCertificate(rand.Reader, &expiredTmpl, root.Cert, intermediate.Key.Public(), root.Key)
+	require.NoError(t, err)
+	expired, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+
+	key := certtest.ECDSAKey(t)
+	leaf := intermediate.Issue(t, key, "device")
+	pool := []*x509.Certificate{expired, intermediate.Cert}
+
+	chain := buildChain(leaf, pool)
+	require.Len(t, chain, 2)
+	require.True(t, expired.Equal(chain[1]), "precondition: the first-match chain runs through the expired copy")
+
+	challenger := certposture.NewChallenger([]byte("secret"))
+	now := time.Now()
+	nonce := challenger.Nonce(peerKey, now)
+	store := staticStore{{Chain: chain, Signer: key, Intermediates: pool}}
+
+	proofs := CollectChallenges(context.Background(), store, []*proto.CertificateChallenge{{Nonce: nonce, CaCertificates: []string{root.PEM}}}, peerKey)
+
+	require.Len(t, proofs, 1, "a valid path through the renewed intermediate exists, so the challenge is answered")
+	verified, err := challenger.Verify(proofs[0], peerKey, now)
+	require.NoError(t, err)
+	assert.True(t, intermediate.Cert.Equal(verified[1]), "the proof carries the valid intermediate, not the expired copy")
+	assert.True(t, certposture.ChainMatchesCAs(certposture.EncodeChainPEM(verified), []string{root.PEM}, now),
+		"management's own check accepts the chain the proof carries")
+}
+
+func TestCollectChallenges_ProvesALeafOncePerDistinctChain(t *testing.T) {
+	rootA := certtest.NewCA(t, "root-a")
+	rootB := certtest.NewCA(t, "root-b")
+	issuer := certtest.NewIntermediate(t, rootA, "issuing-ca")
+
+	// The same issuing CA cross-signed by a second root: one leaf, two valid paths.
+	crossTmpl := *issuer.Cert
+	crossTmpl.SerialNumber = big.NewInt(2)
+	der, err := x509.CreateCertificate(rand.Reader, &crossTmpl, rootB.Cert, issuer.Key.Public(), rootB.Key)
+	require.NoError(t, err)
+	cross, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+
+	key := certtest.ECDSAKey(t)
+	leaf := issuer.Issue(t, key, "device")
+	pool := []*x509.Certificate{issuer.Cert, cross}
+	store := staticStore{{Chain: buildChain(leaf, pool), Signer: key, Intermediates: pool}}
+
+	challenger := certposture.NewChallenger([]byte("secret"))
+	now := time.Now()
+	nonce := challenger.Nonce(peerKey, now)
+	challenges := []*proto.CertificateChallenge{
+		{Nonce: nonce, CaCertificates: []string{rootA.PEM}},
+		{Nonce: nonce, CaCertificates: []string{rootB.PEM}},
+		{Nonce: nonce, CaCertificates: []string{rootA.PEM}},
+	}
+
+	proofs := CollectChallenges(context.Background(), store, challenges, peerKey)
+
+	require.Len(t, proofs, 2, "one proof per distinct chain, the repeated root-a challenge reuses the first")
+	for _, root := range []*certtest.CA{rootA, rootB} {
+		matched := false
+		for _, p := range proofs {
+			chain, err := challenger.Verify(p, peerKey, now)
+			require.NoError(t, err)
+			matched = matched || certposture.ChainMatchesCAs(certposture.EncodeChainPEM(chain), []string{root.PEM}, now)
+		}
+		assert.True(t, matched, "management can match a chain for the check that trusts %s", root.Cert.Subject.CommonName)
+	}
 }

@@ -88,7 +88,7 @@ func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
 	for _, leaf := range leaves {
 		chain := buildChain(leaf, pool)
 		log.Debugf("certificate store %s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
-		candidates = append(candidates, Candidate{Chain: chain, Signer: &systemStoreSigner{leaf: leaf, location: s.location}})
+		candidates = append(candidates, Candidate{Chain: chain, Signer: &systemStoreSigner{leaf: leaf, location: s.location}, Intermediates: pool})
 	}
 	return candidates, nil
 }

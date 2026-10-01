@@ -113,7 +113,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 func (s *PKCS11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.Certificate) Candidate {
 	chain := buildChain(leaf, pool)
 	log.Debugf("%s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
-	return Candidate{Chain: chain, Signer: &pkcs11Signer{store: s, leaf: leaf, id: id}}
+	return Candidate{Chain: chain, Signer: &pkcs11Signer{store: s, leaf: leaf, id: id}, Intermediates: pool}
 }
 
 // fileChains reads the certificate files in the PEM directory that carry no key of their

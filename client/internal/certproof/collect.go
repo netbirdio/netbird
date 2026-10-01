@@ -2,7 +2,9 @@ package certproof
 
 import (
 	"context"
+	"crypto"
 	"crypto/sha256"
+	"crypto/x509"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -73,18 +75,22 @@ func CollectChallenges(ctx context.Context, store Store, challenges []*proto.Cer
 				continue
 			}
 			leaf := candidate.Chain[0]
-			if err := certposture.VerifyChain(candidate.Chain, roots, now); err != nil {
-				log.Debugf("certificate posture: challenge %d rejected %q issued by %q, chain of %d: %v", i, leaf.Subject, leaf.Issuer, len(candidate.Chain), err)
+			chain, err := certposture.VerifiedChain(leaf, candidate.issuers(), roots, now)
+			if err != nil {
+				log.Debugf("certificate posture: challenge %d rejected %q issued by %q: %v", i, leaf.Subject, leaf.Issuer, err)
 				continue
 			}
 			matched = true
 
-			fingerprint := sha256.Sum256(leaf.Raw)
+			// The same leaf can chain to different CAs for different challenges, and
+			// management checks each chain against each check's CAs, so a proof is
+			// deduplicated by its whole chain rather than by its leaf.
+			fingerprint := chainFingerprint(chain)
 			if _, done := proven[fingerprint]; done {
 				log.Debugf("certificate posture: challenge %d matched %q, already proven for an earlier challenge", i, leaf.Subject)
 				break
 			}
-			proof, err := prove(candidate, challenge.GetNonce(), peerKey)
+			proof, err := prove(candidate.Signer, chain, challenge.GetNonce(), peerKey)
 			if err != nil {
 				log.Warnf("failed signing certificate proof for %s: %v", leaf.Subject, err)
 				continue
@@ -125,14 +131,23 @@ func wellFormed(challenges []*proto.CertificateChallenge) []*proto.CertificateCh
 	return kept
 }
 
-func prove(candidate Candidate, nonce, peerKey []byte) (certposture.Proof, error) {
-	sigAlg, sig, err := certposture.Sign(candidate.Signer, nonce, peerKey)
+func prove(signer crypto.Signer, chain []*x509.Certificate, nonce, peerKey []byte) (certposture.Proof, error) {
+	sigAlg, sig, err := certposture.Sign(signer, nonce, peerKey)
 	if err != nil {
 		return certposture.Proof{}, err
 	}
-	chain := make([][]byte, 0, len(candidate.Chain))
-	for _, cert := range candidate.Chain {
-		chain = append(chain, cert.Raw)
+	der := make([][]byte, 0, len(chain))
+	for _, cert := range chain {
+		der = append(der, cert.Raw)
 	}
-	return certposture.Proof{Nonce: nonce, Chain: chain, SigAlg: sigAlg, Signature: sig}, nil
+	return certposture.Proof{Nonce: nonce, Chain: der, SigAlg: sigAlg, Signature: sig}, nil
+}
+
+func chainFingerprint(chain []*x509.Certificate) [sha256.Size]byte {
+	buf := make([]byte, 0, len(chain)*sha256.Size)
+	for _, cert := range chain {
+		certHash := sha256.Sum256(cert.Raw)
+		buf = append(buf, certHash[:]...)
+	}
+	return sha256.Sum256(buf)
 }

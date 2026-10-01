@@ -28,17 +28,32 @@ func VerifyChain(chain []*x509.Certificate, roots *x509.CertPool, now time.Time)
 	if len(chain) == 0 {
 		return ErrEmptyChain
 	}
-	intermediates := x509.NewCertPool()
-	for _, cert := range chain[1:] {
-		intermediates.AddCert(cert)
+	_, err := VerifiedChain(chain[0], chain[1:], roots, now)
+	return err
+}
+
+// VerifiedChain finds a path from leaf to one of roots through any of intermediates,
+// trying every candidate issuer rather than the first that matches, and returns it
+// without the root, leaf first. It applies the same rules as VerifyChain.
+func VerifiedChain(leaf *x509.Certificate, intermediates []*x509.Certificate, roots *x509.CertPool, now time.Time) ([]*x509.Certificate, error) {
+	pool := x509.NewCertPool()
+	for _, cert := range intermediates {
+		pool.AddCert(cert)
 	}
-	_, err := chain[0].Verify(x509.VerifyOptions{
+	chains, err := leaf.Verify(x509.VerifyOptions{
 		Roots:         roots,
-		Intermediates: intermediates,
+		Intermediates: pool,
 		CurrentTime:   now,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	chain := chains[0]
+	if len(chain) > 1 {
+		chain = chain[:len(chain)-1]
+	}
+	return chain, nil
 }
 
 // ChainMatchesCAs is VerifyChain over the PEM forms stored in peer meta and check config.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -26,9 +27,18 @@ const (
 var errKeyMismatch = errors.New("private key does not match the certificate")
 
 // Candidate is a certificate chain the peer can sign for. Signer never exposes the key.
+// Chain is leaf first. Intermediates holds every other certificate the store has, so a
+// path to a challenge's CAs can be found even where Chain followed a different issuer,
+// such as an expired copy of a renewed intermediate.
 type Candidate struct {
-	Chain  []*x509.Certificate
-	Signer crypto.Signer
+	Chain         []*x509.Certificate
+	Signer        crypto.Signer
+	Intermediates []*x509.Certificate
+}
+
+// issuers is every certificate other than the leaf that a path may run through.
+func (c Candidate) issuers() []*x509.Certificate {
+	return append(slices.Clip(c.Chain[1:]), c.Intermediates...)
 }
 
 // Store yields the certificates a peer may prove possession of. FileStore is the PEM

@@ -103,7 +103,7 @@ func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 		if len(chain) == 1 && leaf.CheckSignatureFrom(leaf) != nil {
 			log.Debugf("keychain candidate %q has no issuer in the keychain, its proof carries the leaf alone and only verifies if the challenge supplies %q", leaf.Subject, leaf.Issuer)
 		}
-		candidates = append(candidates, Candidate{Chain: chain, Signer: &keychainSigner{leaf: leaf}})
+		candidates = append(candidates, Candidate{Chain: chain, Signer: &keychainSigner{leaf: leaf}, Intermediates: pool})
 	}
 	return candidates, nil
 }
