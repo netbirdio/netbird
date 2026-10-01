@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,6 +29,7 @@ func TestIsBlockedUpstreamAddr(t *testing.T) {
 		"172.31.255.255",
 		"192.0.0.170",
 		"192.168.1.1",
+		"192.88.99.1",
 		"198.18.0.1",
 		"224.0.0.1",
 		"255.255.255.255",
@@ -40,6 +42,11 @@ func TestIsBlockedUpstreamAddr(t *testing.T) {
 		"64:ff9b::a9fe:a9fe", // NAT64 of 169.254.169.254
 		"64:ff9b::a00:1",     // NAT64 of 10.0.0.1
 		"64:ff9b:1::1",
+		"2001::1",
+		"2001:0:4136:e378:8000:63bf:3fff:fdd2",
+		"2001:2::1",
+		"3fff::1",
+		"5f00::1",
 		"2002:a9fe:a9fe::1", // 6to4 of 169.254.169.254
 		"2002:7f00:1::",     // 6to4 of 127.0.0.1
 		"fc00::1",
@@ -64,6 +71,9 @@ func TestIsBlockedUpstreamAddr(t *testing.T) {
 		"172.32.0.0",
 		"169.253.255.255",
 		"2606:4700:4700::1111",
+		"2001:4860:4860::8888",
+		"2001:1::1",
+		"4000::1",
 		"::ffff:8.8.8.8",
 		"64:ff9b::808:808", // NAT64 of 8.8.8.8
 		"2002:808:808::1",  // 6to4 of 8.8.8.8
@@ -137,6 +147,23 @@ func TestMultiTransport_BlockPrivateUpstreams(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid value enables the guard", func(t *testing.T) {
+		t.Setenv(EnvDirectUpstreamBlockPrivate, "yes please")
+		mt := NewMultiTransport(&stubRoundTripper{body: "embedded"}, nil)
+
+		_, err := roundTrip(t, mt, directCtx, srv.URL)
+		assert.ErrorIs(t, err, ErrDirectUpstreamBlocked, "a value that does not parse must fail closed")
+	})
+
+	t.Run("explicit false disables the guard", func(t *testing.T) {
+		t.Setenv(EnvDirectUpstreamBlockPrivate, "false")
+		mt := NewMultiTransport(&stubRoundTripper{body: "embedded"}, nil)
+
+		body, err := roundTrip(t, mt, directCtx, srv.URL)
+		require.NoError(t, err)
+		assert.Equal(t, "reached", body)
+	})
+
 	t.Run("enabled leaves embedded branch alone", func(t *testing.T) {
 		t.Setenv(EnvDirectUpstreamBlockPrivate, "true")
 		embedded := &stubRoundTripper{body: "embedded"}
@@ -149,6 +176,10 @@ func TestMultiTransport_BlockPrivateUpstreams(t *testing.T) {
 	})
 
 	t.Run("disabled by default", func(t *testing.T) {
+		// Register the restore first so an exported value comes back after
+		// the test, then exercise a genuinely absent variable.
+		t.Setenv(EnvDirectUpstreamBlockPrivate, "")
+		require.NoError(t, os.Unsetenv(EnvDirectUpstreamBlockPrivate))
 		mt := NewMultiTransport(&stubRoundTripper{body: "embedded"}, nil)
 
 		body, err := roundTrip(t, mt, directCtx, srv.URL)

@@ -131,9 +131,7 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 	if v, ok := envUpstreamHTTPVersion(EnvUpstreamHTTPVersion, logger); ok {
 		cfg.upstreamHTTPVersion = v
 	}
-	if v, ok := envBool(EnvDirectUpstreamBlockPrivate, logger); ok {
-		cfg.blockPrivateUpstreams = v
-	}
+	cfg.blockPrivateUpstreams = envGuardBool(EnvDirectUpstreamBlockPrivate, logger)
 
 	logger.WithFields(log.Fields{
 		"max_idle_conns":          cfg.maxIdleConns,
@@ -257,6 +255,22 @@ func envDuration(key string, logger *log.Logger) (time.Duration, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// envGuardBool reads a bool that turns a security guard on. Unset means
+// off, but a value that does not parse turns the guard on: a typo must not
+// leave a proxy that was meant to be guarded without the guard.
+func envGuardBool(key string, logger *log.Logger) bool {
+	s := os.Getenv(key)
+	if s == "" {
+		return false
+	}
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		logger.Warnf("failed to parse %s=%q as bool, enabling it: %v", key, s, err)
+		return true
+	}
+	return v
 }
 
 func envBool(key string, logger *log.Logger) (bool, bool) {

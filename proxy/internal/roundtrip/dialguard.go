@@ -25,6 +25,7 @@ var blockedUpstreamPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("172.16.0.0/12"),   // RFC1918
 	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
 	netip.MustParsePrefix("192.0.2.0/24"),    // documentation
+	netip.MustParsePrefix("192.88.99.0/24"),  // 6to4 relay anycast (deprecated)
 	netip.MustParsePrefix("192.168.0.0/16"),  // RFC1918
 	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
 	netip.MustParsePrefix("198.51.100.0/24"), // documentation
@@ -36,7 +37,11 @@ var blockedUpstreamPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("::/96"),          // unspecified, loopback, IPv4-compatible
 	netip.MustParsePrefix("64:ff9b:1::/48"), // local-use NAT64
 	netip.MustParsePrefix("100::/64"),       // discard-only
+	netip.MustParsePrefix("2001::/32"),      // Teredo
+	netip.MustParsePrefix("2001:2::/48"),    // benchmarking
 	netip.MustParsePrefix("2001:db8::/32"),  // documentation
+	netip.MustParsePrefix("3fff::/20"),      // documentation
+	netip.MustParsePrefix("5f00::/16"),      // SRv6 SIDs
 	netip.MustParsePrefix("fc00::/7"),       // unique local, including AWS IMDS fd00:ec2::254
 	netip.MustParsePrefix("fe80::/10"),      // link-local
 	netip.MustParsePrefix("fec0::/10"),      // site-local (deprecated)
