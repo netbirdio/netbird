@@ -82,6 +82,11 @@ func PINRejected(err error) bool {
 	return false
 }
 
+func isCode(err error, code uint) bool {
+	var e Error
+	return errors.As(err, &e) && e.Code == code
+}
+
 var returnValueNames = map[uint]string{
 	0x2:   "CKR_HOST_MEMORY",
 	0x3:   "CKR_SLOT_ID_INVALID",
@@ -195,11 +200,17 @@ func (m *Module) openSession(label string, pin []byte, readWrite bool) (*Session
 	if pin == nil {
 		return s, nil
 	}
-	if err := m.d.login(handle, pin); err != nil {
+	err = m.d.login(handle, pin)
+	switch {
+	case err == nil:
+		s.loggedIn = true
+	case isCode(err, rvUserAlreadyLoggedIn):
+		// Login state belongs to the application, not the session, so another session
+		// holds it; logging out on Close would pull it from under that session.
+	default:
 		s.Close()
 		return nil, err
 	}
-	s.loggedIn = true
 	return s, nil
 }
 

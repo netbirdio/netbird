@@ -25,6 +25,12 @@ const (
 	userTypeUser      = 0x1
 
 	findBatch = 32
+
+	// Upper bounds on sizes a module reports, so a buggy module cannot make the daemon
+	// allocate without limit. Certificates and keys are far smaller; an RSA-16384
+	// signature is 2 KiB.
+	maxAttributeLen = 1 << 20
+	maxSignatureLen = 1 << 16
 )
 
 type version struct {
@@ -211,7 +217,7 @@ func (m *module) login(session uint, pin []byte) error {
 	}
 	rv := m.cLogin(ulong(session), userTypeUser, pinPtr, ulong(len(pin)))
 	runtime.KeepAlive(pin)
-	if rv != rvOK && rv != rvUserAlreadyLoggedIn {
+	if rv != rvOK {
 		return Error{Op: "C_Login", Code: uint(rv)}
 	}
 	return nil
@@ -222,9 +228,10 @@ func (m *module) logout(session uint) {
 }
 
 func (m *module) findObjects(session uint, template []Attribute) ([]Object, error) {
-	attrs := toAttributes(template)
+	var pinner runtime.Pinner
+	attrs := toAttributes(template, &pinner)
 	rv := m.cFindObjectsInit(ulong(session), first(attrs), ulong(len(attrs)))
-	runtime.KeepAlive(template)
+	pinner.Unpin()
 	if rv != rvOK {
 		return nil, Error{Op: "C_FindObjectsInit", Code: uint(rv)}
 	}
@@ -236,6 +243,9 @@ func (m *module) findObjects(session uint, template []Attribute) ([]Object, erro
 		var count ulong
 		if rv := m.cFindObjects(ulong(session), &batch[0], findBatch, &count); rv != rvOK {
 			return nil, Error{Op: "C_FindObjects", Code: uint(rv)}
+		}
+		if count > findBatch {
+			return nil, fmt.Errorf("C_FindObjects reported %d handles for a batch of %d", count, findBatch)
 		}
 		for _, handle := range batch[:count] {
 			objects = append(objects, Object(handle))
@@ -257,12 +267,20 @@ func (m *module) attribute(session uint, obj Object, typ uint) ([]byte, error) {
 	if attr.len == 0 {
 		return nil, nil
 	}
+	if attr.len > maxAttributeLen {
+		return nil, fmt.Errorf("attribute 0x%x reports %d bytes, over the %d byte limit", typ, attr.len, maxAttributeLen)
+	}
 	value := make([]byte, attr.len)
+	var pinner runtime.Pinner
+	pinner.Pin(&value[0])
 	attr.value = unsafe.Pointer(&value[0])
 	rv := m.cGetAttributeValue(ulong(session), ulong(obj), &attr, 1)
-	runtime.KeepAlive(value)
+	pinner.Unpin()
 	if rv != rvOK {
 		return nil, Error{Op: "C_GetAttributeValue", Code: uint(rv)}
+	}
+	if attr.len > ulong(len(value)) {
+		return nil, fmt.Errorf("attribute 0x%x grew from %d to %d bytes between calls", typ, len(value), attr.len)
 	}
 	return value[:attr.len], nil
 }
@@ -272,14 +290,15 @@ func (m *module) sign(session uint, mech Mechanism, key Object, data []byte) ([]
 		return nil, errors.New("nothing to sign")
 	}
 	native := mechanism{typ: ulong(mech.Type)}
-	var params *pssParams
+	var pinner runtime.Pinner
 	if mech.PSS != nil {
-		params = &pssParams{hashAlg: ulong(mech.PSS.Hash), mgf: ulong(mech.PSS.MGF), saltLen: ulong(mech.PSS.SaltLen)}
+		params := &pssParams{hashAlg: ulong(mech.PSS.Hash), mgf: ulong(mech.PSS.MGF), saltLen: ulong(mech.PSS.SaltLen)}
+		pinner.Pin(params)
 		native.parameter = unsafe.Pointer(params)
 		native.len = ulong(unsafe.Sizeof(*params))
 	}
 	rv := m.cSignInit(ulong(session), &native, ulong(key))
-	runtime.KeepAlive(params)
+	pinner.Unpin()
 	if rv != rvOK {
 		return nil, Error{Op: "C_SignInit", Code: uint(rv)}
 	}
@@ -288,31 +307,41 @@ func (m *module) sign(session uint, mech Mechanism, key Object, data []byte) ([]
 	if rv := m.cSign(ulong(session), &data[0], ulong(len(data)), nil, &size); rv != rvOK {
 		return nil, Error{Op: "C_Sign", Code: uint(rv)}
 	}
+	if size == 0 || size > maxSignatureLen {
+		return nil, fmt.Errorf("C_Sign reports a %d byte signature", size)
+	}
 	signature := make([]byte, size)
 	rv = m.cSign(ulong(session), &data[0], ulong(len(data)), &signature[0], &size)
 	runtime.KeepAlive(data)
 	if rv != rvOK {
 		return nil, Error{Op: "C_Sign", Code: uint(rv)}
 	}
+	if size > ulong(len(signature)) {
+		return nil, fmt.Errorf("C_Sign wrote %d bytes into a %d byte buffer", size, len(signature))
+	}
 	return signature[:size], nil
 }
 
 func (m *module) createObject(session uint, template []Attribute) (Object, error) {
-	attrs := toAttributes(template)
+	var pinner runtime.Pinner
+	attrs := toAttributes(template, &pinner)
 	var object ulong
 	rv := m.cCreateObject(ulong(session), first(attrs), ulong(len(attrs)), &object)
-	runtime.KeepAlive(template)
+	pinner.Unpin()
 	if rv != rvOK {
 		return 0, Error{Op: "C_CreateObject", Code: uint(rv)}
 	}
 	return Object(object), nil
 }
 
-func toAttributes(template []Attribute) []attribute {
+// toAttributes builds the C template for template. The values stay Go memory referenced
+// from Go memory passed to C, so each is pinned; the caller unpins after the call.
+func toAttributes(template []Attribute, pinner *runtime.Pinner) []attribute {
 	attrs := make([]attribute, len(template))
 	for i, a := range template {
 		attrs[i].typ = ulong(a.Type)
 		if len(a.Value) > 0 {
+			pinner.Pin(&a.Value[0])
 			attrs[i].value = unsafe.Pointer(&a.Value[0])
 			attrs[i].len = ulong(len(a.Value))
 		}
