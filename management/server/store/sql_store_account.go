@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -163,6 +164,10 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return result.Error
 		}
 
+		if err := deleteAgentNetworkAccountConfig(tx, account.Id); err != nil {
+			return err
+		}
+
 		result = tx.Select(clause.Associations).Delete(account)
 		if result.Error != nil {
 			return result.Error
@@ -178,6 +183,29 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 	log.WithContext(ctx).Tracef("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
+}
+
+// deleteAgentNetworkAccountConfig removes the account's agent network configuration. These
+// tables are not account associations, so deleting the account does not reach them. The
+// settings row holds the account's globally unique gateway domain and the provider rows
+// hold its upstream API keys. Tables that grow with traffic are left out: consumption
+// counters and access logs are swept in the background, and usage records are kept.
+func deleteAgentNetworkAccountConfig(tx *gorm.DB, accountID string) error {
+	// Dependents first: policies point at providers and guardrails, and settings
+	// go last, as DeleteSettings refuses while providers exist.
+	models := []any{
+		&agentNetworkTypes.Policy{},
+		&agentNetworkTypes.Provider{},
+		&agentNetworkTypes.Guardrail{},
+		&agentNetworkTypes.AccountBudgetRule{},
+		&agentNetworkTypes.Settings{},
+	}
+	for _, model := range models {
+		if err := tx.Delete(model, "account_id = ?", accountID).Error; err != nil {
+			return fmt.Errorf("delete %T rows: %w", model, err)
+		}
+	}
+	return nil
 }
 
 func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
