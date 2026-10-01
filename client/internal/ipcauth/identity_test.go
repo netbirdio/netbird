@@ -66,9 +66,8 @@ func TestIdentitySameUser(t *testing.T) {
 }
 
 func TestIdentityIsPrivileged(t *testing.T) {
-	sidLocalService := "S-1-5-19"       // NT AUTHORITY\LOCAL SERVICE
-	sidNetworkService := "S-1-5-20"     // NT AUTHORITY\NETWORK SERVICE
-	sidAdministrators := "S-1-5-32-544" // BUILTIN\Administrators
+	sidLocalService := "S-1-5-19"   // NT AUTHORITY\LOCAL SERVICE
+	sidNetworkService := "S-1-5-20" // NT AUTHORITY\NETWORK SERVICE
 	tests := []struct {
 		name string
 		id   Identity

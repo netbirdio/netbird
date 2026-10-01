@@ -65,9 +65,9 @@ func (i Identity) IsWindows() bool {
 // user-to-root boundary.
 //
 // On Windows the decision comes from the caller's token rather than from
-// account names or group RIDs: an elevated token, one of the service accounts
-// the daemon itself may run as, or a token with BUILTIN\Administrators
-// enabled. A UAC-filtered administrator has that group marked deny-only, and
+// account names or group RIDs: an elevated token, the LocalSystem SID, or a
+// token with BUILTIN\Administrators enabled. LocalService and NetworkService
+// are not privileged by SID. A UAC-filtered administrator has that group marked deny-only, and
 // deny-only groups are dropped when the identity is captured, so such a
 // caller is correctly reported as unprivileged. Domain group memberships
 // (Domain Admins and friends) are deliberately not consulted: they say
