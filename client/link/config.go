@@ -1,0 +1,190 @@
+package link
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+)
+
+// envPrefix matches the prefix the agent uses, so an operator who already sets
+// NB_SETUP_KEY or NB_MANAGEMENT_URL for the agent can reuse them here.
+const envPrefix = "NB_"
+
+// fileScheme marks a flag value that holds a path to read the real value from,
+// so a container can pass a secret as a mounted file instead of an environment
+// variable visible to anything that can read the process environment.
+const fileScheme = "file:"
+
+// Config is the resolved runtime configuration.
+type Config struct {
+	Forwards        []Forward
+	SetupKey        string
+	ManagementURL   string
+	Hostname        string
+	StateDir        string
+	LogLevel        string
+	AllowPublicBind bool
+	NoBrowser       bool
+	Check           bool
+}
+
+// rawConfig holds flag values before parsing and validation.
+type rawConfig struct {
+	forwards        []string
+	setupKey        string
+	managementURL   string
+	hostname        string
+	stateDir        string
+	logLevel        string
+	allowPublicBind bool
+	noBrowser       bool
+	check           bool
+}
+
+// BindFlags registers nblink's flags on cmd and returns the backing values.
+// Every flag gains an NB_-prefixed environment variable of the same name, so
+// the container configuration cannot drift from the command line.
+func BindFlags(cmd *cobra.Command) *rawConfig {
+	raw := &rawConfig{}
+	f := cmd.PersistentFlags()
+
+	f.StringSliceVar(&raw.forwards, "forward", nil,
+		"forward spec scheme://[host:]port=upstream, repeatable (env: comma separated)")
+	f.StringVar(&raw.setupKey, "setup-key", "",
+		"setup key for non-interactive login, accepts a file: prefix")
+	f.StringVar(&raw.managementURL, "management-url", profilemanager.DefaultManagementURL,
+		"management server URL")
+	f.StringVar(&raw.hostname, "hostname", "", "peer name in the network")
+	f.StringVar(&raw.stateDir, "state-dir", "",
+		"directory for config and state, kept in memory when empty")
+	f.StringVar(&raw.logLevel, "log-level", "info", "log level")
+	f.BoolVar(&raw.allowPublicBind, "allow-public-bind", false,
+		"permit forwards that bind an address other than loopback")
+	f.BoolVar(&raw.noBrowser, "no-browser", false,
+		"print the login URL instead of opening a browser")
+	f.BoolVar(&raw.check, "check", false,
+		"validate configuration, print the effective forwards and exit")
+
+	return raw
+}
+
+// SetFlagsFromEnvVars fills unset flags from NB_-prefixed environment
+// variables derived from each flag name, so --management-url reads
+// NB_MANAGEMENT_URL. A flag given on the command line wins.
+func SetFlagsFromEnvVars(cmd *cobra.Command) {
+	flags := cmd.PersistentFlags()
+	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			return
+		}
+		value, ok := os.LookupEnv(FlagNameToEnvVar(f.Name))
+		if !ok {
+			return
+		}
+		if err := flags.Set(f.Name, value); err != nil {
+			fmt.Fprintf(os.Stderr, "ignoring %s: %v\n", FlagNameToEnvVar(f.Name), err)
+		}
+	})
+}
+
+// FlagNameToEnvVar converts a flag name to its environment variable, so
+// allow-public-bind becomes NB_ALLOW_PUBLIC_BIND.
+func FlagNameToEnvVar(name string) string {
+	return envPrefix + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+}
+
+// Resolve validates the raw flag values and produces a runtime configuration.
+// It reports every problem it can rather than stopping at the first, so an
+// operator fixing a container environment sees the whole list in one run.
+func (r *rawConfig) Resolve() (*Config, error) {
+	cfg := &Config{
+		ManagementURL:   r.managementURL,
+		Hostname:        r.hostname,
+		StateDir:        r.stateDir,
+		LogLevel:        r.logLevel,
+		AllowPublicBind: r.allowPublicBind,
+		NoBrowser:       r.noBrowser,
+		Check:           r.check,
+	}
+
+	setupKey, err := resolveSecret(r.setupKey)
+	if err != nil {
+		return nil, fmt.Errorf("setup key: %w", err)
+	}
+	cfg.SetupKey = setupKey
+
+	if len(r.forwards) == 0 {
+		return nil, fmt.Errorf("at least one --forward is required (env %s)", FlagNameToEnvVar("forward"))
+	}
+
+	var problems []string
+	seen := make(map[string]string, len(r.forwards))
+	for _, spec := range r.forwards {
+		fwd, err := ParseForward(spec)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		if prev, dup := seen[fwd.Listen]; dup {
+			problems = append(problems, fmt.Sprintf("forward %q: %s is already bound by %q", spec, fwd.Listen, prev))
+			continue
+		}
+		if !cfg.AllowPublicBind && !isLoopback(fwd.Listen) {
+			problems = append(problems, fmt.Sprintf(
+				"forward %q: %s is not loopback, pass --allow-public-bind (env %s) to expose it",
+				spec, fwd.Listen, FlagNameToEnvVar("allow-public-bind")))
+			continue
+		}
+		seen[fwd.Listen] = spec
+		cfg.Forwards = append(cfg.Forwards, fwd)
+	}
+
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("invalid configuration:\n  %s", strings.Join(problems, "\n  "))
+	}
+
+	return cfg, nil
+}
+
+// ConfigPath returns where the peer identity is persisted, or an empty string
+// when the client should keep it in memory only.
+func (c *Config) ConfigPath() string {
+	if c.StateDir == "" {
+		return ""
+	}
+	return filepath.Join(c.StateDir, "config.json")
+}
+
+// StatePath returns where runtime state is persisted, or an empty string when
+// no state directory was configured.
+func (c *Config) StatePath() string {
+	if c.StateDir == "" {
+		return ""
+	}
+	return filepath.Join(c.StateDir, "state.json")
+}
+
+// resolveSecret reads a value that may carry a file: prefix naming the file
+// that holds it. Whitespace around the file contents is trimmed so a trailing
+// newline from the usual tooling does not become part of the secret.
+func resolveSecret(value string) (string, error) {
+	path, ok := strings.CutPrefix(value, fileScheme)
+	if !ok {
+		return value, nil
+	}
+	if path == "" {
+		return "", fmt.Errorf("%s prefix with no path", fileScheme)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	return strings.TrimSpace(string(content)), nil
+}

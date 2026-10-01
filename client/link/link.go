@@ -1,0 +1,176 @@
+package link
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	embed "github.com/netbirdio/netbird/client/embed"
+)
+
+const (
+	// startTimeout bounds the wait for the overlay session to come up.
+	startTimeout = 90 * time.Second
+	// shutdownTimeout bounds draining in-flight requests and closing the session.
+	shutdownTimeout = 10 * time.Second
+)
+
+// Run starts the overlay session, serves every configured forward, and blocks
+// until the process is signalled or a forward fails.
+func Run(ctx context.Context, cfg *Config) error {
+	if cfg.Check {
+		return printEffectiveConfig(cfg)
+	}
+
+	creds, err := resolveCredentials(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	client, err := embed.New(embed.Options{
+		DeviceName:    cfg.Hostname,
+		SetupKey:      creds.setupKey,
+		JWTToken:      creds.jwtToken,
+		ManagementURL: cfg.ManagementURL,
+		ConfigPath:    cfg.ConfigPath(),
+		StatePath:     cfg.StatePath(),
+		LogLevel:      cfg.LogLevel,
+		// nblink only dials out. Refusing inbound connections and host network
+		// access keeps the peer from becoming a route into the machine it runs on.
+		BlockInbound:   true,
+		BlockLANAccess: true,
+	})
+	if err != nil {
+		return fmt.Errorf("create client: %w", err)
+	}
+
+	log.Infof("connecting to %s", cfg.ManagementURL)
+	startCtx, cancel := context.WithTimeout(ctx, startTimeout)
+	defer cancel()
+	if err := client.Start(startCtx); err != nil {
+		return fmt.Errorf("start client: %w", err)
+	}
+	logSession(client)
+
+	forwards, err := startForwards(cfg, client.DialContext)
+	if err != nil {
+		stopClient(client)
+		return err
+	}
+
+	err = waitForShutdown(ctx, forwards)
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancelShutdown()
+	closeForwards(shutdownCtx, forwards)
+	stopClient(client)
+
+	return err
+}
+
+// startForwards binds every forward before serving any of them, so a clash on
+// the last one does not leave the earlier ones running.
+func startForwards(cfg *Config, dial DialFunc) ([]*httpForwarder, error) {
+	forwards := make([]*httpForwarder, 0, len(cfg.Forwards))
+	for _, fwd := range cfg.Forwards {
+		f, err := newHTTPForwarder(fwd, dial)
+		if err != nil {
+			closeForwards(context.Background(), forwards)
+			return nil, err
+		}
+		forwards = append(forwards, f)
+	}
+
+	for _, f := range forwards {
+		log.Infof("forwarding http://%s to %s over the overlay", f.Addr(), f.forward.Upstream)
+	}
+	return forwards, nil
+}
+
+// waitForShutdown blocks until a signal arrives, the context ends, or a
+// forward stops serving.
+func waitForShutdown(ctx context.Context, forwards []*httpForwarder) error {
+	serveErr := make(chan error, len(forwards))
+	var wg sync.WaitGroup
+	for _, f := range forwards {
+		wg.Add(1)
+		go func(f *httpForwarder) {
+			defer wg.Done()
+			if err := f.Serve(); err != nil {
+				serveErr <- err
+			}
+		}(f)
+	}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	select {
+	case err := <-serveErr:
+		return err
+	case sig := <-stop:
+		log.Infof("received %s, shutting down", sig)
+		return nil
+	case <-ctx.Done():
+		return nil
+	}
+}
+
+func closeForwards(ctx context.Context, forwards []*httpForwarder) {
+	for _, f := range forwards {
+		if err := f.Close(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Warnf("close forward %s: %v", f.forward.Listen, err)
+		}
+	}
+}
+
+func stopClient(client *embed.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := client.Stop(ctx); err != nil && !errors.Is(err, embed.ErrClientNotStarted) {
+		log.Warnf("stop client: %v", err)
+	}
+}
+
+// logSession reports the overlay address and control-plane state once the
+// session is up, so a failure to reach an upstream later can be told apart
+// from a session that never connected.
+func logSession(client *embed.Client) {
+	status, err := client.Status()
+	if err != nil {
+		log.Infof("connected (status unavailable: %v)", err)
+		return
+	}
+	log.Infof("connected as %s (%s), management %t, signal %t, %d peers",
+		status.LocalPeerState.FQDN, status.LocalPeerState.IP,
+		status.ManagementState.Connected, status.SignalState.Connected, len(status.Peers))
+}
+
+// printEffectiveConfig writes the parsed forwards and exits without touching
+// the network, so a container configuration can be checked before deploying it.
+func printEffectiveConfig(cfg *Config) error {
+	fmt.Printf("management-url: %s\n", cfg.ManagementURL)
+	fmt.Printf("state-dir: %s\n", orDefault(cfg.StateDir, "(memory)"))
+	fmt.Printf("hostname: %s\n", orDefault(cfg.Hostname, "(host default)"))
+	fmt.Printf("setup-key: %t\n", cfg.SetupKey != "")
+	fmt.Printf("forwards: %d\n", len(cfg.Forwards))
+	for _, f := range cfg.Forwards {
+		fmt.Printf("  %s -> %s\n", f.Listen, f.Upstream)
+	}
+	return nil
+}
+
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}

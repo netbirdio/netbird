@@ -1,0 +1,174 @@
+// Package link implements nblink, an unprivileged forwarder that exposes local
+// listeners and carries their traffic into the NetBird overlay.
+//
+// The process runs the embedded client in netstack mode, so it needs no TUN
+// device and no elevated privileges. Overlay names on the upstream side are
+// resolved inside the tunnel rather than through the host resolver.
+package link
+
+import (
+	"fmt"
+	"net"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
+// defaultBindHost is used when a forward spec gives a port but no bind address.
+// Binding loopback by default keeps the overlay unreachable from the rest of
+// the network until the operator opts in.
+const defaultBindHost = "127.0.0.1"
+
+// ProtoHTTP forwards HTTP requests to an upstream URL over the overlay.
+const ProtoHTTP = "http"
+
+// supportedProtos lists the forward schemes this build accepts. Specs naming a
+// known but unimplemented scheme are rejected with a clearer message than an
+// unknown one would produce.
+var (
+	supportedProtos = map[string]bool{ProtoHTTP: true}
+	plannedProtos   = map[string]bool{"tcp": true, "udp": true, "socks5": true}
+)
+
+// Forward is one local listener and the overlay address it carries traffic to.
+type Forward struct {
+	// Proto is the listener type, taken from the scheme on the left of the spec.
+	Proto string
+	// Listen is the local bind address as host:port.
+	Listen string
+	// Upstream is the target reached over the overlay.
+	Upstream *url.URL
+	// Spec is the original text, used in logs and errors so the operator sees
+	// what they typed rather than a normalized form.
+	Spec string
+}
+
+// String returns the forward in the spec form the operator wrote.
+func (f Forward) String() string {
+	return fmt.Sprintf("%s://%s=%s", f.Proto, f.Listen, f.Upstream)
+}
+
+// ParseForward parses a forward spec of the form scheme://[host:]port=upstream.
+//
+// The scheme on the left selects the listener type, the right side is the
+// overlay target. A spec that gives only a port binds loopback.
+func ParseForward(spec string) (Forward, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return Forward{}, fmt.Errorf("empty forward spec")
+	}
+
+	schemeEnd := strings.Index(spec, "://")
+	if schemeEnd < 0 {
+		return Forward{}, fmt.Errorf("forward %q: missing scheme, want scheme://[host:]port=upstream", spec)
+	}
+	proto := strings.ToLower(spec[:schemeEnd])
+
+	// The left side cannot contain '=', so the first one always separates the
+	// listener from the upstream even when the upstream carries a query string.
+	sep := strings.Index(spec, "=")
+	if sep < 0 || sep < schemeEnd {
+		return Forward{}, fmt.Errorf("forward %q: missing '=' between listener and upstream", spec)
+	}
+
+	if !supportedProtos[proto] {
+		if plannedProtos[proto] {
+			return Forward{}, fmt.Errorf("forward %q: %s forwarding is not supported yet, this build handles %s", spec, proto, ProtoHTTP)
+		}
+		return Forward{}, fmt.Errorf("forward %q: unknown scheme %q", spec, proto)
+	}
+
+	listen, err := parseListen(spec[schemeEnd+len("://") : sep])
+	if err != nil {
+		return Forward{}, fmt.Errorf("forward %q: %w", spec, err)
+	}
+
+	upstream, err := parseUpstream(spec[sep+1:])
+	if err != nil {
+		return Forward{}, fmt.Errorf("forward %q: %w", spec, err)
+	}
+
+	return Forward{Proto: proto, Listen: listen, Upstream: upstream, Spec: spec}, nil
+}
+
+// parseListen normalizes the listener side of a spec to host:port, defaulting
+// the host to loopback when only a port is given.
+func parseListen(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("missing listen address")
+	}
+
+	host, port := defaultBindHost, raw
+	if strings.Contains(raw, ":") {
+		h, p, err := net.SplitHostPort(raw)
+		if err != nil {
+			return "", fmt.Errorf("parse listen address %q: %w", raw, err)
+		}
+		if h != "" {
+			host = h
+		}
+		port = p
+	}
+
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return "", fmt.Errorf("listen port %q is not a number", port)
+	}
+	// Port 0 asks the OS for a free port. The bound address is printed at
+	// startup, so the operator still learns where to point a client.
+	if n < 0 || n > 65535 {
+		return "", fmt.Errorf("listen port %d out of range 0-65535", n)
+	}
+
+	return net.JoinHostPort(host, port), nil
+}
+
+// parseUpstream validates the overlay target of an HTTP forward. The host is
+// resolved later, inside the tunnel, so only the shape is checked here.
+func parseUpstream(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("missing upstream")
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse upstream %q: %w", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("upstream scheme %q must be http or https", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("upstream %q has no host", raw)
+	}
+
+	return u, nil
+}
+
+// isLoopback reports whether addr binds only the loopback interface. A host
+// that is not an IP literal is treated as non-loopback unless it resolves to
+// one, so an ambiguous bind is gated rather than allowed.
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
+}
