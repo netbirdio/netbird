@@ -37,21 +37,21 @@ type ConsoleUser struct {
 // or attributes the session to root, and neither has a login keychain to offer.
 func CurrentConsoleUser() (ConsoleUser, bool) {
 	if err := loadConsoleUser(); err != nil {
-		log.Infof("console user lookup unavailable: %v", err)
+		log.Debugf("console user lookup unavailable: %v", err)
 		return ConsoleUser{}, false
 	}
 
 	var uid, gid uint32
 	name := scDynamicStoreCopyConsoleUser(0, &uid, &gid)
 	if name == 0 {
-		log.Info("no console user is logged in, no login keychain is reachable")
+		log.Debug("no console user is logged in, no login keychain is reachable")
 		return ConsoleUser{}, false
 	}
 	defer cfRelease(name)
 
 	user := ConsoleUser{Name: cfString(name), UID: uid, GID: gid}
 	if !user.hasDesktop() {
-		log.Infof("console session belongs to %q uid=%d, which is not a desktop login, no login keychain is reachable", user.Name, user.UID)
+		log.Debugf("console session belongs to %q uid=%d, which is not a desktop login, no login keychain is reachable", user.Name, user.UID)
 		return ConsoleUser{}, false
 	}
 	return user, true

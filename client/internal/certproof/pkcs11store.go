@@ -72,7 +72,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("%s holds %d certificates, %d certificate files without a key wait for its keys", s, len(certs), len(fileChains))
+	log.Debugf("%s holds %d certificates, %d certificate files without a key wait for its keys", s, len(certs), len(fileChains))
 
 	pool := make([]*x509.Certificate, 0, len(certs))
 	for _, cert := range certs {
@@ -85,7 +85,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	var candidates []Candidate
 	for _, cert := range certs {
 		if _, err := privateKey(session, cert.id); err != nil {
-			log.Infof("%s certificate %q has no usable private key: %v", s, cert.cert.Subject, err)
+			log.Debugf("%s certificate %q has no usable private key: %v", s, cert.cert.Subject, err)
 			continue
 		}
 		candidates = append(candidates, s.candidate(cert.cert, cert.id, pool))
@@ -112,7 +112,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 
 func (s *PKCS11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.Certificate) Candidate {
 	chain := buildChain(leaf, pool)
-	log.Infof("%s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
+	log.Debugf("%s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
 	return Candidate{Chain: chain, Signer: &pkcs11Signer{store: s, leaf: leaf, id: id}}
 }
 

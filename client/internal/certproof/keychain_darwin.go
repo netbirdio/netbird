@@ -75,7 +75,7 @@ func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 			log.Warnf("skipping keychain identity: %v", err)
 			return false, nil
 		}
-		log.Infof("keychain identity: subject=%q issuer=%q serial=%s expires=%s", cert.Subject, cert.Issuer, cert.SerialNumber, cert.NotAfter)
+		log.Debugf("keychain identity: subject=%q issuer=%q serial=%s expires=%s", cert.Subject, cert.Issuer, cert.SerialNumber, cert.NotAfter)
 		leaves = append(leaves, cert)
 		return false, nil
 	})
@@ -89,17 +89,17 @@ func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 		return nil, err
 	}
 	if len(leaves) == 0 {
-		log.Infof("keychain search list holds no identities usable for certificate posture, but %d readable certificates: an identity needs its private key in the same keychain", len(pool))
+		log.Debugf("keychain search list holds no identities usable for certificate posture, but %d readable certificates: an identity needs its private key in the same keychain", len(pool))
 		return nil, nil
 	}
-	log.Infof("keychain search list holds %d identities and %d certificates for chain building", len(leaves), len(pool))
+	log.Debugf("keychain search list holds %d identities and %d certificates for chain building", len(leaves), len(pool))
 
 	candidates := make([]Candidate, 0, len(leaves))
 	for _, leaf := range leaves {
 		chain := buildChain(leaf, pool)
-		log.Infof("keychain candidate %q issued by %q built a chain of %d certificates", leaf.Subject, leaf.Issuer, len(chain))
+		log.Debugf("keychain candidate %q issued by %q built a chain of %d certificates", leaf.Subject, leaf.Issuer, len(chain))
 		if len(chain) == 1 && leaf.CheckSignatureFrom(leaf) != nil {
-			log.Infof("keychain candidate %q has no issuer in the keychain, its proof carries the leaf alone and only verifies if the challenge supplies %q", leaf.Subject, leaf.Issuer)
+			log.Debugf("keychain candidate %q has no issuer in the keychain, its proof carries the leaf alone and only verifies if the challenge supplies %q", leaf.Subject, leaf.Issuer)
 		}
 		candidates = append(candidates, Candidate{Chain: chain, Signer: &keychainSigner{leaf: leaf}})
 	}
@@ -121,7 +121,7 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("signing certificate posture challenge with keychain key of %q", s.leaf.Subject)
+	log.Debugf("signing certificate posture challenge with keychain key of %q", s.leaf.Subject)
 
 	algorithm := keychainAlgorithm(scheme)
 	var signature []byte
@@ -138,7 +138,7 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 	if signature == nil {
 		return nil, errors.New("certificate is no longer in the keychain")
 	}
-	log.Infof("keychain signed certificate posture challenge for %q, %d bytes", s.leaf.Subject, len(signature))
+	log.Debugf("keychain signed certificate posture challenge for %q, %d bytes", s.leaf.Subject, len(signature))
 	return signature, nil
 }
 
@@ -196,7 +196,7 @@ func keychainCertificates() ([]*x509.Certificate, error) {
 		unparsable++
 		return false, nil
 	})
-	log.Infof("keychain holds %d parsable certificates, %d unparsable", len(certs), unparsable)
+	log.Debugf("keychain holds %d parsable certificates, %d unparsable", len(certs), unparsable)
 	return certs, err
 }
 
@@ -210,16 +210,16 @@ func eachMatching(class uintptr, name string, fn func(item uintptr) (bool, error
 	switch status := secItemCopyMatching(query, &items); status {
 	case 0:
 	case errSecItemNotFound:
-		log.Infof("keychain %s query returned errSecItemNotFound (%d): the search list holds no item of this class", name, errSecItemNotFound)
+		log.Debugf("keychain %s query returned errSecItemNotFound (%d): the search list holds no item of this class", name, errSecItemNotFound)
 		return nil
 	default:
-		log.Infof("keychain %s query returned OSStatus %d", name, status)
+		log.Debugf("keychain %s query returned OSStatus %d", name, status)
 		return fmt.Errorf("SecItemCopyMatching: %d", status)
 	}
 	defer cfRelease(items)
 
 	n := cfArrayGetCount(items)
-	log.Infof("keychain %s query returned %d items", name, n)
+	log.Debugf("keychain %s query returned %d items", name, n)
 	for i := 0; i < n; i++ {
 		if stop, err := fn(cfArrayGetValueAtIndex(items, i)); stop || err != nil {
 			return err
@@ -241,10 +241,10 @@ func dataBytes(data uintptr) []byte {
 func loadKeychain() error {
 	keychainOnce.Do(func() {
 		if keychainErr = resolveKeychain(); keychainErr != nil {
-			log.Infof("macOS keychain unavailable for certificate posture: %v", keychainErr)
+			log.Debugf("macOS keychain unavailable for certificate posture: %v", keychainErr)
 			return
 		}
-		log.Infof("macOS Security framework loaded for certificate posture, running as uid=%d euid=%d", os.Getuid(), os.Geteuid())
+		log.Debugf("macOS Security framework loaded for certificate posture, running as uid=%d euid=%d", os.Getuid(), os.Geteuid())
 		logSearchList()
 	})
 	return keychainErr
@@ -254,21 +254,21 @@ func loadKeychain() error {
 // System keychain and System Roots, never a user's login keychain.
 func logSearchList() {
 	if secKeychainCopySearchList == nil || secKeychainGetPath == nil {
-		log.Info("keychain search list diagnostics unavailable on this macOS version")
+		log.Debug("keychain search list diagnostics unavailable on this macOS version")
 		return
 	}
 
 	var list uintptr
 	if status := secKeychainCopySearchList(&list); status != 0 {
-		log.Infof("SecKeychainCopySearchList returned OSStatus %d", status)
+		log.Debugf("SecKeychainCopySearchList returned OSStatus %d", status)
 		return
 	}
 	defer cfRelease(list)
 
 	n := cfArrayGetCount(list)
-	log.Infof("keychain search list contains %d keychains", n)
+	log.Debugf("keychain search list contains %d keychains", n)
 	for i := 0; i < n; i++ {
-		log.Infof("keychain search list[%d]: %s", i, keychainPath(cfArrayGetValueAtIndex(list, i)))
+		log.Debugf("keychain search list[%d]: %s", i, keychainPath(cfArrayGetValueAtIndex(list, i)))
 	}
 }
 
@@ -356,7 +356,7 @@ func resolveKeychain() error {
 func resolveOptional(lib uintptr, name string, ptr any) {
 	symbol, err := purego.Dlsym(lib, name)
 	if err != nil {
-		log.Infof("keychain diagnostics: %s unavailable: %v", name, err)
+		log.Debugf("keychain diagnostics: %s unavailable: %v", name, err)
 		return
 	}
 	purego.RegisterFunc(ptr, symbol)

@@ -39,7 +39,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 
 	userProofs, err := collectAsDesktopUser(ctx, challenges, peerKey)
 	if err != nil {
-		log.Infof("certificate posture: user certificate store unavailable: %v", err)
+		log.Debugf("certificate posture: user certificate store unavailable: %v", err)
 	}
 	return mergeProofs(proofs, userProofs)
 }

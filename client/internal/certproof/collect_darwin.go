@@ -38,7 +38,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 
 	userProofs, err := collectAsConsoleUser(ctx, challenges, peerKey)
 	if err != nil {
-		log.Infof("certificate posture: console user keychain unavailable: %v", err)
+		log.Debugf("certificate posture: console user keychain unavailable: %v", err)
 	}
 	return mergeProofs(proofs, userProofs)
 }

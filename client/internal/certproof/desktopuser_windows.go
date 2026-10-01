@@ -46,12 +46,12 @@ func CurrentDesktopUser() (DesktopUser, bool) {
 		if user, ok := desktopUser(session); ok {
 			return user, true
 		}
-		log.Infof("console session %d has nobody signed in, looking for an active remote session", session)
+		log.Debugf("console session %d has nobody signed in, looking for an active remote session", session)
 	}
 
 	sessions, err := activeSessions()
 	if err != nil {
-		log.Infof("cannot enumerate terminal sessions: %v", err)
+		log.Debugf("cannot enumerate terminal sessions: %v", err)
 		return DesktopUser{}, false
 	}
 	for _, session := range sessions {
@@ -60,7 +60,7 @@ func CurrentDesktopUser() (DesktopUser, bool) {
 		}
 	}
 
-	log.Info("no interactive session is signed in, no user certificate store is reachable")
+	log.Debug("no interactive session is signed in, no user certificate store is reachable")
 	return DesktopUser{}, false
 }
 
@@ -73,7 +73,7 @@ func desktopUser(session uint32) (DesktopUser, bool) {
 
 	name, err := tokenAccount(token)
 	if err != nil {
-		log.Infof("session %d token has no readable account: %v", session, err)
+		log.Debugf("session %d token has no readable account: %v", session, err)
 		if closeErr := token.Close(); closeErr != nil {
 			log.Debugf("failed closing session token: %v", closeErr)
 		}

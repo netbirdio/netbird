@@ -78,7 +78,7 @@ func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("certificate store %s holds %d personal certificates and %d intermediates", s, len(leaves), len(intermediates))
+	log.Debugf("certificate store %s holds %d personal certificates and %d intermediates", s, len(leaves), len(intermediates))
 	if len(leaves) == 0 {
 		return nil, nil
 	}
@@ -87,7 +87,7 @@ func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
 	candidates := make([]Candidate, 0, len(leaves))
 	for _, leaf := range leaves {
 		chain := buildChain(leaf, pool)
-		log.Infof("certificate store %s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
+		log.Debugf("certificate store %s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
 		candidates = append(candidates, Candidate{Chain: chain, Signer: &systemStoreSigner{leaf: leaf, location: s.location}})
 	}
 	return candidates, nil
