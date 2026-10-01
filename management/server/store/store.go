@@ -4,7 +4,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -449,8 +447,6 @@ type AgentNetworkMetrics struct {
 const (
 	PostgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
 	PostgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
-	mysqlDsnEnv          = "NB_STORE_ENGINE_MYSQL_DSN"
-	mysqlDsnEnvLegacy    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
 // lookupDSNEnv checks the NB_ env var first, then falls back to the legacy NETBIRD_ env var.
@@ -461,7 +457,7 @@ func lookupDSNEnv(nbKey, legacyKey string) (string, bool) {
 	return os.LookupEnv(legacyKey)
 }
 
-var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine, types.MysqlStoreEngine}
+var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine}
 
 func getStoreEngineFromEnv() types.Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
@@ -536,13 +532,6 @@ func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn,
 			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 		}
 		return db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
-	case types.MysqlStoreEngine:
-		log.WithContext(ctx).Info("using MySQL store engine")
-		dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
-		if !ok {
-			return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
-		}
-		return db.OpenMysql(ctx, dsn)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
@@ -787,9 +776,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	var err error
 	switch kind {
 	case types.PostgresStoreEngine:
-		store, cleanup, err = newReusedPostgresStore(ctx, sqliteStore, kind)
-	case types.MysqlStoreEngine:
-		store, cleanup, err = newReusedMysqlStore(ctx, sqliteStore, kind)
+		store, cleanup, err = newReusedPostgresStore(ctx, sqliteStore)
 	default:
 		cleanup = func() {
 			// sqlite doesn't need to be cleaned up
@@ -812,7 +799,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
+func newReusedPostgresStore(ctx context.Context, store *SqlStore) (*SqlStore, func(), error) {
 	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
@@ -826,7 +813,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 
-	db, err := openDBWithRetry(dsn, kind, 5)
+	db, err := openDBWithRetry(dsn, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
 	}
@@ -837,7 +824,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, err
 	}
 
-	dsn, cleanup, err := createRandomDB(dsn, db, kind, template)
+	dsn, cleanup, err := createRandomDB(dsn, db, template)
 
 	closeGormDB(db)
 
@@ -854,65 +841,10 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 	return store, cleanup, nil
 }
 
-func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
-	if !ok || dsn == "" {
-		var err error
-		_, dsn, err = testutil.CreateMysqlTestContainer()
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if dsn == "" {
-		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
-	}
-
-	db, err := openDBWithRetry(dsn, kind, 5)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
-	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get underlying sql.DB: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-
-	tableDDL, err := mysqlSchemaTemplate(ctx, dsn, db)
-	if err != nil {
-		sqlDB.Close()
-		return nil, nil, err
-	}
-
-	dsn, cleanup, err := createRandomDB(dsn, db, kind, "")
-
-	sqlDB.Close()
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if err := cloneMysqlSchema(ctx, dsn, tableDDL); err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-
-	store, err = newMysqlStoreFromSqlStore(ctx, store, dsn, nil, true)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-
-	return store, cleanup, nil
-}
-
 // schemaTemplates remembers, per engine and server, a database that went
 // through the full migration once in this process. Every later test database
 // is cloned from it, so a test pays for CREATE DATABASE and a schema copy
-// instead of the 40-table AutoMigrate plus every pre and post migration, which
-// is what made each MySQL test store cost well over a second in CI.
+// instead of the 40-table AutoMigrate plus every pre and post migration.
 var (
 	schemaTemplatesMu sync.Mutex
 	schemaTemplates   = map[string]*schemaTemplate{}
@@ -920,10 +852,6 @@ var (
 
 type schemaTemplate struct {
 	dbName string
-	// tableDDL holds the CREATE TABLE statements of the template. MySQL has no
-	// server-side database template, so the schema is replayed statement by
-	// statement into each test database.
-	tableDDL []string
 }
 
 func schemaTemplateKey(engine types.Engine, dsn string) string {
@@ -963,112 +891,6 @@ func postgresSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB)
 	return name, nil
 }
 
-// mysqlSchemaTemplate returns the CREATE TABLE statements of a fully migrated
-// database, migrating one on first use.
-func mysqlSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB) ([]string, error) {
-	schemaTemplatesMu.Lock()
-	defer schemaTemplatesMu.Unlock()
-
-	key := schemaTemplateKey(types.MysqlStoreEngine, baseDSN)
-	if tpl, ok := schemaTemplates[key]; ok {
-		return tpl.tableDDL, nil
-	}
-
-	name := newTestDBName("test_template")
-	if err := admin.Exec(fmt.Sprintf("CREATE DATABASE %s", name)).Error; err != nil {
-		return nil, fmt.Errorf("create mysql template database: %w", err)
-	}
-
-	tplStore, err := NewMysqlStore(ctx, replaceDBName(baseDSN, name), nil, false)
-	if err != nil {
-		dropDatabase(admin, name)
-		return nil, fmt.Errorf("migrate mysql template database: %w", err)
-	}
-	tableDDL, err := mysqlTableDDL(ctx, tplStore.db, name)
-	tplStore.Close(ctx)
-	if err != nil {
-		dropDatabase(admin, name)
-		return nil, err
-	}
-
-	schemaTemplates[key] = &schemaTemplate{dbName: name, tableDDL: tableDDL}
-	return tableDDL, nil
-}
-
-func mysqlTableDDL(ctx context.Context, db *gorm.DB, dbName string) ([]string, error) {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, err
-	}
-
-	tables, err := mysqlTableNames(ctx, sqlDB, dbName)
-	if err != nil {
-		return nil, err
-	}
-
-	tableDDL := make([]string, 0, len(tables))
-	for _, table := range tables {
-		var name, createStmt string
-		row := sqlDB.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE %s.%s", dbName, table))
-		if err := row.Scan(&name, &createStmt); err != nil {
-			return nil, fmt.Errorf("read create statement of %s: %w", table, err)
-		}
-		tableDDL = append(tableDDL, createStmt)
-	}
-	return tableDDL, nil
-}
-
-func mysqlTableNames(ctx context.Context, sqlDB *sql.DB, dbName string) ([]string, error) {
-	rows, err := sqlDB.QueryContext(ctx, fmt.Sprintf("SHOW TABLES FROM %s", dbName))
-	if err != nil {
-		return nil, fmt.Errorf("list template tables: %w", err)
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			return nil, fmt.Errorf("scan template table name: %w", err)
-		}
-		tables = append(tables, table)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list template tables: %w", err)
-	}
-	return tables, nil
-}
-
-// cloneMysqlSchema replays the template's CREATE TABLE statements into the
-// database the DSN points at.
-func cloneMysqlSchema(ctx context.Context, dsn string, tableDDL []string) error {
-	gormDB, err := gorm.Open(mysql.Open(db.MysqlDSN(dsn)), db.GormConfig())
-	if err != nil {
-		return fmt.Errorf("connect to test database: %w", err)
-	}
-	sqlDB, err := gormDB.DB()
-	if err != nil {
-		return err
-	}
-	defer sqlDB.Close()
-
-	// The statements come out of SHOW TABLES in name order, not dependency
-	// order, and their foreign keys reference tables of the session's default
-	// database. Pin a single connection so the session setting below covers
-	// every statement, and connect straight to the new database so unqualified
-	// references land there.
-	sqlDB.SetMaxOpenConns(1)
-	if _, err := sqlDB.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0"); err != nil {
-		return fmt.Errorf("disable foreign key checks: %w", err)
-	}
-	for _, stmt := range tableDDL {
-		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("replay table definition: %w", err)
-		}
-	}
-	return nil
-}
-
 // dropDatabase removes a template that never became usable, so a failed setup
 // does not leave it behind on a shared server. The server may still be tearing
 // down the sessions the failed migration held, so the drop retries while
@@ -1085,18 +907,12 @@ func closeGormDB(db *gorm.DB) {
 	}
 }
 
-func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
+func openDBWithRetry(dsn string, maxRetries int) (*gorm.DB, error) {
 	var gormDB *gorm.DB
 	var err error
 
 	for i := range maxRetries {
-		switch engine {
-		case types.PostgresStoreEngine:
-			gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		case types.MysqlStoreEngine:
-			gormDB, err = gorm.Open(mysql.Open(db.MysqlDSN(dsn)), &gorm.Config{})
-		}
-
+		gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err == nil {
 			return gormDB, nil
 		}
@@ -1110,13 +926,13 @@ func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB,
 	return nil, err
 }
 
-// createRandomDB creates a uniquely named database for one test. On postgres a
-// non-empty template is copied server-side with CREATE DATABASE ... TEMPLATE.
-func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template string) (string, func(), error) {
+// createRandomDB creates a uniquely named database for one test. A non-empty
+// template is copied server-side with CREATE DATABASE ... TEMPLATE.
+func createRandomDB(dsn string, admin *gorm.DB, template string) (string, func(), error) {
 	dbName := newTestDBName("test_db")
 
 	createStmt := fmt.Sprintf("CREATE DATABASE %s", dbName)
-	if template != "" && engine == types.PostgresStoreEngine {
+	if template != "" {
 		createStmt = fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, template)
 	}
 	if err := execWithTemplateRetry(admin, createStmt); err != nil {
@@ -1126,58 +942,27 @@ func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template st
 	originalDSN := dsn
 
 	cleanup := func() {
-		var dropDB *gorm.DB
-		var err error
-
-		switch engine {
-		case types.PostgresStoreEngine:
-			dropDB, err = gorm.Open(postgres.Open(originalDSN), &gorm.Config{
-				SkipDefaultTransaction: true,
-				PrepareStmt:            false,
-			})
-			if err != nil {
-				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
-				return
-			}
-			defer func() {
-				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-					sqlDB.Close()
-				}
-			}()
-
+		dropDB, err := gorm.Open(postgres.Open(originalDSN), &gorm.Config{
+			SkipDefaultTransaction: true,
+			PrepareStmt:            false,
+		})
+		if err != nil {
+			log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
+			return
+		}
+		defer func() {
 			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-				sqlDB.SetMaxOpenConns(1)
-				sqlDB.SetMaxIdleConns(0)
-				sqlDB.SetConnMaxLifetime(time.Second)
+				sqlDB.Close()
 			}
+		}()
 
-			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
-
-		case types.MysqlStoreEngine:
-			dropDB, err = gorm.Open(mysql.Open(db.MysqlDSN(originalDSN)), &gorm.Config{
-				SkipDefaultTransaction: true,
-				PrepareStmt:            false,
-			})
-			if err != nil {
-				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
-				return
-			}
-			defer func() {
-				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-					sqlDB.Close()
-				}
-			}()
-
-			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-				sqlDB.SetMaxOpenConns(1)
-				sqlDB.SetMaxIdleConns(0)
-				sqlDB.SetConnMaxLifetime(time.Second)
-			}
-
-			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)).Error
+		if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+			sqlDB.SetMaxOpenConns(1)
+			sqlDB.SetMaxIdleConns(0)
+			sqlDB.SetConnMaxLifetime(time.Second)
 		}
 
-		if err != nil {
+		if err := dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error; err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
 		}
 	}
