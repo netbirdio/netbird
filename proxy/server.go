@@ -2361,20 +2361,9 @@ func (s *Server) deleteMapping(svcID types.ServiceID) *proto.ProxyMapping {
 
 func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) (proxy.Mapping, error) {
 	pathMappings := mapping.GetPath()
-	actions := make([]proxy.AccessAction, len(pathMappings))
-	strictPaths := false
-	for i, pathMapping := range pathMappings {
-		if pathMapping == nil {
-			return proxy.Mapping{}, fmt.Errorf("nil target mapping")
-		}
-		action, err := targetAccessActionFromProto(pathMapping.GetAccessAction())
-		if err != nil {
-			return proxy.Mapping{}, err
-		}
-		actions[i] = action
-		if action != proxy.AccessActionInherit {
-			strictPaths = true
-		}
+	actions, strictPaths, err := parseTargetAccessActions(pathMappings)
+	if err != nil {
+		return proxy.Mapping{}, err
 	}
 
 	paths := make(map[string]*proxy.PathTarget)

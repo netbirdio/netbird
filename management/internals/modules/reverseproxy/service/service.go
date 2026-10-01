@@ -14,8 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/rs/xid"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -38,7 +36,6 @@ const (
 
 type Status string
 type TargetType string
-type TargetAccessAction string
 
 const (
 	StatusPending            Status = "pending"
@@ -53,10 +50,6 @@ const (
 	TargetTypeDomain  TargetType = "domain"
 	TargetTypeSubnet  TargetType = "subnet"
 	TargetTypeCluster TargetType = "cluster"
-
-	TargetAccessActionInherit TargetAccessAction = "inherit"
-	TargetAccessActionBypass  TargetAccessAction = "bypass"
-	TargetAccessActionBlock   TargetAccessAction = "block"
 
 	SourcePermanent = "permanent"
 	SourceEphemeral = "ephemeral"
@@ -530,36 +523,6 @@ func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 	default:
 		return proto.PathRewriteMode_PATH_REWRITE_DEFAULT
 	}
-}
-
-func (t *Target) effectiveAccessAction() TargetAccessAction {
-	if t.AccessAction == "" {
-		return TargetAccessActionInherit
-	}
-	return t.AccessAction
-}
-
-func targetAccessActionToProto(action TargetAccessAction) proto.TargetAccessAction {
-	switch action {
-	case TargetAccessActionInherit:
-		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_INHERIT
-	case TargetAccessActionBypass:
-		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_BYPASS
-	case TargetAccessActionBlock:
-		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK
-	default:
-		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK
-	}
-}
-
-// HasTargetAccessControl reports whether any target overrides service authentication.
-func (s *Service) HasTargetAccessControl() bool {
-	for _, target := range s.Targets {
-		if target != nil && target.effectiveAccessAction() != TargetAccessActionInherit {
-			return true
-		}
-	}
-	return false
 }
 
 func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
@@ -1196,72 +1159,6 @@ func (s *Service) validateL4Target(target *Target) error {
 	}
 	if len(target.Options.CustomHeaders) > 0 {
 		return errors.New("custom_headers is not supported for L4 services")
-	}
-	return nil
-}
-
-func validateTargetAccessAction(idx int, target *Target, private bool) error {
-	action, err := validatedTargetAccessAction(idx, target)
-	if err != nil {
-		return err
-	}
-	if action == TargetAccessActionBypass {
-		if private {
-			return fmt.Errorf("target %d: bypass access_action is not supported for private services", idx)
-		}
-		if target.Options.AgentNetwork {
-			return fmt.Errorf("target %d: bypass access_action is not supported for Agent Network targets", idx)
-		}
-	}
-
-	if action == TargetAccessActionInherit {
-		return nil
-	}
-	return validateAccessActionPath(idx, target.Path)
-}
-
-func validatedTargetAccessAction(idx int, target *Target) (TargetAccessAction, error) {
-	if target.AccessActionProvided && target.AccessAction == "" {
-		return "", fmt.Errorf("target %d: unknown access_action %q", idx, target.AccessAction)
-	}
-	action := target.effectiveAccessAction()
-	switch action {
-	case TargetAccessActionInherit, TargetAccessActionBypass, TargetAccessActionBlock:
-		return action, nil
-	default:
-		return "", fmt.Errorf("target %d: unknown access_action %q", idx, target.AccessAction)
-	}
-}
-
-func normalizedTargetPath(configured *string) string {
-	if configured == nil || *configured == "" {
-		return "/"
-	}
-	return *configured
-}
-
-func validateAccessActionPath(idx int, configured *string) error {
-	if configured == nil {
-		return nil
-	}
-	value := *configured
-	if value == "" {
-		return nil
-	}
-	if !strings.HasPrefix(value, "/") {
-		return fmt.Errorf("target %d: access_action path %q must start with /", idx, value)
-	}
-	if !utf8.ValidString(value) || strings.ContainsAny(value, "%\\?#;") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
-		return fmt.Errorf("target %d: access_action path %q contains invalid characters", idx, value)
-	}
-	segments := strings.Split(strings.TrimPrefix(value, "/"), "/")
-	for i, segment := range segments {
-		if segment == "." || segment == ".." {
-			return fmt.Errorf("target %d: access_action path %q is not canonical", idx, value)
-		}
-		if segment == "" && value != "/" && i != len(segments)-1 {
-			return fmt.Errorf("target %d: access_action path %q is not canonical", idx, value)
-		}
 	}
 	return nil
 }
