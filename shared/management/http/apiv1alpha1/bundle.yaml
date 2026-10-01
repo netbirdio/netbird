@@ -1,0 +1,646 @@
+openapi: 3.1.0
+servers:
+  - url: /apiv1alpha1
+    description: Default server
+info:
+  title: NetBird REST API
+  description: API to manipulate groups, rules, policies and retrieve information about peers and users
+  version: 1.0.0-alpha1
+tags:
+  - name: Users
+    description: Interact with and view information about users.
+  - name: Tokens
+    description: Interact with and view information about tokens.
+  - name: Peers
+    description: Interact with and view information about peers.
+  - name: Setup Keys
+    description: Interact with and view information about setup keys.
+  - name: Groups
+    description: Interact with and view information about groups.
+  - name: Policies
+    description: Interact with and view information about policies.
+  - name: Posture Checks
+    description: Interact with and view information about posture checks.
+  - name: Routes
+    description: Interact with and view information about routes.
+  - name: DNS
+    description: Interact with and view information about DNS configuration.
+  - name: DNS Zones
+    description: Interact with and view information about custom DNS zones.
+  - name: Events
+    description: View information about the account and network events.
+  - name: Accounts
+    description: View information about the accounts.
+  - name: Ingress Ports
+    description: Interact with and view information about the ingress peers and ports.
+    x-cloud-only: true
+  - name: Identity Providers
+    description: Interact with and view information about identity providers.
+  - name: Services
+    description: Interact with and view information about reverse proxy services.
+  - name: Instance
+    description: Instance setup and status endpoints for initial configuration.
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+  - name: Usage
+    description: Retrieve current usage statistics for the account.
+    x-cloud-only: true
+  - name: Subscription
+    description: Manage and view information about account subscriptions.
+    x-cloud-only: true
+  - name: Plans
+    description: Retrieve available plans and products.
+    x-cloud-only: true
+  - name: Checkout
+    description: Manage checkout sessions for plan subscriptions.
+    x-cloud-only: true
+  - name: AWS Marketplace
+    description: Manage AWS Marketplace subscriptions.
+    x-cloud-only: true
+  - name: Portal
+    description: Access customer portal for subscription management.
+    x-cloud-only: true
+  - name: Invoice
+    description: Manage and retrieve account invoices.
+    x-cloud-only: true
+  - name: MSP
+    description: MSP portal for Tenant management.
+    x-cloud-only: true
+  - name: IDP SCIM Integrations
+    description: Manage generic SCIM identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Google Integrations
+    description: Manage Google Workspace identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Azure Integrations
+    description: Manage Azure AD identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Okta SCIM Integrations
+    description: Manage Okta SCIM identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: EDR Intune Integrations
+    description: Manage Microsoft Intune EDR integrations.
+    x-cloud-only: true
+  - name: EDR SentinelOne Integrations
+    description: Manage SentinelOne EDR integrations.
+    x-cloud-only: true
+  - name: EDR Falcon Integrations
+    description: Manage CrowdStrike Falcon EDR integrations.
+    x-cloud-only: true
+  - name: EDR Huntress Integrations
+    description: Manage Huntress EDR integrations.
+    x-cloud-only: true
+  - name: EDR FleetDM Integrations
+    description: Manage FleetDM EDR integrations.
+    x-cloud-only: true
+  - name: EDR Peers
+    description: Manage EDR compliance bypass for peers.
+    x-cloud-only: true
+  - name: Event Streaming Integrations
+    description: Manage event streaming integrations.
+    x-cloud-only: true
+  - name: Notifications
+    description: Manage notification channels for account event alerts.
+    x-cloud-only: true
+components:
+  schemas:
+    CountryCode:
+      description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+      type: string
+      example: "DE"
+    CityName:
+      description: Commonly used English name of the city
+      type: string
+      example: "Berlin"
+    Country:
+      description: Describe country geographical location information
+      type: object
+      properties:
+        country_name:
+          description: Commonly used English name of the country
+          type: string
+          example: "Germany"
+        country_code:
+          $ref: '#/components/schemas/CountryCode'
+      required:
+        - country_name
+        - country_code
+    City:
+      description: Describe city geographical location information
+      type: object
+      properties:
+        geoname_id:
+          description: Integer ID of the record in GeoNames database
+          type: integer
+          example: 2950158
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - geoname_id
+        - city_name
+    ErrorResponse:
+      type: object
+      description: "Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided."
+      properties:
+        message:
+          type: string
+          description: A human-readable error message.
+          example: "couldn't parse JSON request"
+    GroupMinimum:
+      $ref: '#/components/schemas/GroupMinimum__components'
+    PeerRequest:
+      $ref: '#/components/schemas/PeerRequest__components'
+    Peer:
+      $ref: '#/components/schemas/Peer__components'
+    PeerBatch:
+      $ref: '#/components/schemas/PeerBatch__components'
+    PeerMinumum:
+      $ref: '#/components/schemas/PeerMinimum'
+    GroupMinimum__components:
+      type: object
+      properties:
+        id:
+          description: Group ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7m0
+        name:
+          description: Group Name identifier
+          type: string
+          example: devs
+        peers_count:
+          description: Count of peers associated to the group
+          type: integer
+          example: 2
+        resources_count:
+          description: Count of resources associated to the group
+          type: integer
+          example: 5
+        issued:
+          description: How the group was issued (api, integration, jwt)
+          type: string
+          enum:
+            - "api"
+            - "integration"
+            - "jwt"
+          example: api
+      required:
+        - id
+        - name
+        - peers_count
+        - resources_count
+    PeerRequest__components:
+      type: object
+      properties:
+        name:
+          type: string
+          example: stage-host-1
+        ssh_enabled:
+          type: boolean
+          example: true
+        login_expiration_enabled:
+          type: boolean
+          example: false
+        inactivity_expiration_enabled:
+          type: boolean
+          example: false
+        approval_required:
+          description: (Cloud only) Indicates whether peer needs approval
+          type: boolean
+          example: true
+        ip:
+          description: Peer's IP address
+          type: string
+          format: ipv4
+          example: 100.64.0.15
+        ipv6:
+          description: Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+          type: string
+          format: ipv6
+          example: "fd00:4e42:ab12::1"
+      required:
+        - name
+        - ssh_enabled
+        - login_expiration_enabled
+        - inactivity_expiration_enabled
+    Peer__components:
+      allOf:
+        - $ref: '#/components/schemas/PeerMinimum'
+        - type: object
+          properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            ip:
+              description: Peer's IP address
+              type: string
+              example: 10.64.0.1
+            ipv6:
+              description: Peer's IPv6 overlay address
+              type: string
+              format: ipv6
+              example: "fd00:4e42:ab12::1"
+            connection_ip:
+              description: Peer's public connection IP address
+              type: string
+              example: 35.64.0.1
+            connected:
+              description: Peer to Management connection status
+              type: boolean
+              example: true
+            last_seen:
+              description: Last time peer connected to Netbird's management service
+              type: string
+              format: date-time
+              example: "2023-05-05T10:05:26.420578Z"
+            os:
+              description: Peer's operating system and version
+              type: string
+              example: Darwin 13.2.1
+            kernel_version:
+              description: Peer's operating system kernel version
+              type: string
+              example: 23.2.0
+            geoname_id:
+              description: Unique identifier from the GeoNames database for a specific geographical location.
+              type: integer
+              example: 2643743
+            version:
+              description: Peer's daemon or cli version
+              type: string
+              example: 0.14.0
+            groups:
+              description: Groups that the peer belongs to
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum__components'
+            ssh_enabled:
+              description: Indicates whether SSH server is enabled on this peer
+              type: boolean
+              example: true
+            user_id:
+              description: User ID of the user that enrolled this peer
+              type: string
+              example: google-oauth2|277474792786460067937
+            hostname:
+              description: Hostname of the machine
+              type: string
+              example: stage-host-1
+            ui_version:
+              description: Peer's desktop UI version
+              type: string
+              example: 0.14.0
+            dns_label:
+              description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+              type: string
+              example: stage-host-1.netbird.cloud
+            login_expiration_enabled:
+              description: Indicates whether peer login expiration has been enabled or not
+              type: boolean
+              example: false
+            login_expired:
+              description: Indicates whether peer's login expired or not
+              type: boolean
+              example: false
+            last_login:
+              description: Last time this peer performed log in (authentication). E.g., user authenticated.
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            inactivity_expiration_enabled:
+              description: Indicates whether peer inactivity expiration has been enabled or not
+              type: boolean
+              example: false
+            approval_required:
+              description: (Cloud only) Indicates whether peer needs approval
+              type: boolean
+              example: true
+            disapproval_reason:
+              description: (Cloud only) Reason why the peer requires approval
+              type: string
+            country_code:
+              $ref: '#/components/schemas/CountryCode'
+            city_name:
+              $ref: '#/components/schemas/CityName'
+            serial_number:
+              description: System serial number
+              type: string
+              example: "C02XJ0J0JGH7"
+            extra_dns_labels:
+              description: Extra DNS labels added to the peer
+              type: array
+              items:
+                type: string
+                example: "stage-host-1"
+            ephemeral:
+              description: Indicates whether the peer is ephemeral or not
+              type: boolean
+              example: false
+            local_flags:
+              $ref: '#/components/schemas/PeerLocalFlags'
+          required:
+            - city_name
+            - connected
+            - connection_ip
+            - country_code
+            - created_at
+            - dns_label
+            - geoname_id
+            - groups
+            - hostname
+            - ip
+            - kernel_version
+            - last_login
+            - last_seen
+            - login_expiration_enabled
+            - login_expired
+            - inactivity_expiration_enabled
+            - os
+            - ssh_enabled
+            - user_id
+            - version
+            - ui_version
+            - approval_required
+            - serial_number
+            - extra_dns_labels
+            - ephemeral
+    PeerBatch__components:
+      allOf:
+        - $ref: '#/components/schemas/Peer__components'
+        - type: object
+          properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            accessible_peers_count:
+              description: Number of accessible peers
+              type: integer
+              example: 5
+          required:
+            - created_at
+            - accessible_peers_count
+    PeerMinimum:
+      type: object
+      properties:
+        id:
+          description: Peer ID
+          type: string
+          example: chacbco6lnnbn6cg5s90
+        name:
+          description: Peer's hostname
+          type: string
+          example: stage-host-1
+      required:
+        - id
+        - name
+    PeerLocalFlags:
+      type: object
+      properties:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
+          type: boolean
+          example: true
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
+          type: boolean
+          example: false
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        remote_jobs_allowed:
+          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
+  responses:
+    not_found:
+      description: Resource not found
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    validation_failed_simple:
+      description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    bad_request:
+      description: Bad Request
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    internal_error:
+      description: Internal Server Error
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    validation_failed:
+      description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    forbidden:
+      description: Forbidden
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    requires_authentication:
+      description: Requires authentication
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
+    conflict:
+      description: Conflict
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  headers:
+    X-Request-Id:
+      description: |
+        Unique identifier assigned to the request by the server and set on every
+        response. Useful for correlating client requests with server-side logs.
+      schema:
+        type: string
+        example: cot7r4n3l3vh3qj4qveg
+      example: cot7r4n3l3vh3qj4qveg
+  pathItems:
+    peers:
+      get:
+        summary: List all Peers
+        description: Returns a list of all peers
+        tags:
+          - Peers
+        parameters:
+          - in: query
+            name: name
+            schema:
+              type: string
+            description: Filter peers by name
+          - in: query
+            name: ip
+            schema:
+              type: string
+            description: Filter peers by IP address
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        responses:
+          '200':
+            description: A JSON Array of Peers
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PeerBatch__components'
+          '400':
+            "$ref": "#/components/responses/bad_request"
+          '401':
+            "$ref": "#/components/responses/requires_authentication"
+          '403':
+            "$ref": "#/components/responses/forbidden"
+          '500':
+            "$ref": "#/components/responses/internal_error"
+    peer:
+      get:
+        summary: Retrieve a Peer
+        description: Get information about a peer
+        tags:
+          - Peers
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: peerId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a peer
+        responses:
+          '200':
+            description: A Peer object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Peer__components'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+      put:
+        summary: Update a Peer
+        description: Update information about a peer
+        tags:
+          - Peers
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: peerId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a peer
+        requestBody:
+          description: update a peer
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/PeerRequest__components'
+        responses:
+          '200':
+            description: A Peer object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Peer__components'
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+      delete:
+        summary: Delete a Peer
+        description: Delete a peer
+        tags:
+          - Peers
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: peerId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a peer
+        responses:
+          '200':
+            description: Delete status code
+            content: {}
+          '400':
+            "$ref": '#/components/responses/bad_request'
+          '401':
+            "$ref": '#/components/responses/requires_authentication'
+          '403':
+            "$ref": '#/components/responses/forbidden'
+          '500':
+            "$ref": '#/components/responses/internal_error'
+paths:
+  /peers:
+    $ref: '#/components/pathItems/peers'
+  /peers/{peerId}:
+    $ref: '#/components/pathItems/peer'
