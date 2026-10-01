@@ -98,7 +98,7 @@ func TestIsPrivilegedCaller_SelfRule(t *testing.T) {
 			t.Cleanup(func() { selfIdentity, selfKnown, selfMayDelegate = prevID, prevKnown, prevDelegate })
 
 			selfIdentity, selfKnown = tt.self, tt.selfKnown
-			selfMayDelegate = tt.selfKnown && !tt.self.IsPrivileged()
+			selfMayDelegate = tt.selfKnown && mayDelegate(tt.self)
 
 			if got := IsPrivilegedCaller(tt.caller); got != tt.want {
 				t.Fatalf("IsPrivilegedCaller(%v) with daemon %v = %t, want %t",
