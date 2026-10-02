@@ -76,6 +76,8 @@ type ConnectClient struct {
 	// netMgr gates every reconnection loop on OS-reported network
 	// availability and sweeps connections on network change.
 	netMgr *netevents.Manager
+
+	profileOwner string
 }
 
 // ConnectClientOption configures optional ConnectClient behavior.
@@ -84,6 +86,12 @@ type ConnectClientOption func(*ConnectClient)
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) ConnectClientOption {
 	return func(c *ConnectClient) { c.netMgr = events }
+}
+
+// WithProfileOwner names the OS account the active profile belongs to, whose own
+// certificate store answers user certificate posture checks.
+func WithProfileOwner(username string) ConnectClientOption {
+	return func(c *ConnectClient) { c.profileOwner = username }
 }
 
 func NewConnectClient(
@@ -417,6 +425,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 		engineConfig.TempDir = mobileDependency.TempDir
+		engineConfig.CertStore.ProfileOwner = c.profileOwner
 		// Leave StateDir empty when there is no state path so a disk-backed
 		// syncstore falls back to os.TempDir() instead of filepath.Dir("") == ".".
 		if path != "" {

@@ -23,7 +23,7 @@ const helperTimeout = 30 * time.Second
 // installs device identities, and reaches the console user's login keychain only by
 // launching a helper into that user's session. A Mac sitting at the login window
 // therefore yields device proofs alone.
-func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, _ Config) []certposture.Proof {
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, cfg Config) []certposture.Proof {
 	challenges := certificateChallenges(checks)
 	if len(challenges) == 0 {
 		logNoChallenges(checks)
@@ -38,7 +38,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 
 	proofs := CollectChallenges(ctx, DefaultStore(), challenges, peerKey)
 
-	userProofs, err := collectAsConsoleUser(ctx, challenges, peerKey)
+	userProofs, err := collectAsConsoleUser(ctx, cfg.ProfileOwner, challenges, peerKey)
 	if err != nil {
 		log.Debugf("certificate posture: console user keychain unavailable: %v", err)
 	}
@@ -49,9 +49,13 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 // user. Dropping to their uid is not enough: keychain access is an XPC call to a
 // per-session securityd, so the helper has to enter their Mach bootstrap namespace,
 // which is what launchctl asuser does.
-func collectAsConsoleUser(ctx context.Context, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
+func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
 	user, ok := CurrentConsoleUser()
 	if !ok {
+		return nil, nil
+	}
+	if !user.isOwner(owner) {
+		log.Debugf("certificate posture: console user %s does not own the active profile, no user keychain is asked", user.Name)
 		return nil, nil
 	}
 

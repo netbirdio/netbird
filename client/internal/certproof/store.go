@@ -47,12 +47,18 @@ type Store interface {
 	Candidates(ctx context.Context) ([]Candidate, error)
 }
 
-// Config selects where the Linux daemon looks for certificates: Dir is the PEM directory,
+// Config selects where the daemon looks for certificates. Dir is the Linux PEM directory,
 // empty for NB_CERT_STORE_DIR or /etc/netbird/certs, and PKCS11 names a token whose keys
 // sign for certificates on the token or in that directory.
+//
+// ProfileOwner is the OS account the active profile belongs to. On macOS and Windows only
+// that account's certificate store is consulted for user certificates, so on a machine
+// with several people signed in the result does not depend on who else is logged in.
+// Empty means the profile has no owner, and only the user at the physical console counts.
 type Config struct {
-	Dir    string
-	PKCS11 PKCS11Config
+	Dir          string
+	PKCS11       PKCS11Config
+	ProfileOwner string
 }
 
 func (c Config) dir() string {

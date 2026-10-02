@@ -5,6 +5,7 @@ package certproof
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/ebitengine/purego"
@@ -67,6 +68,13 @@ func (u ConsoleUser) hasDesktop() bool {
 		return false
 	}
 	return u.UID != 0
+}
+
+// isOwner reports whether the console user is owner, the account of the active profile,
+// which is recorded as a short user name or, for an account without one, a numeric uid.
+// With no owner the console user counts, as macOS has a single console user.
+func (u ConsoleUser) isOwner(owner string) bool {
+	return owner == "" || owner == u.Name || owner == strconv.FormatUint(uint64(u.UID), 10)
 }
 
 func cfString(str uintptr) string {

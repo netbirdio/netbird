@@ -88,8 +88,11 @@ cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token), CreationFlag
 `CREATE_NO_WINDOW` matters: without it a console window flashes on the user's desktop on
 every sync.
 
-Session selection prefers the physical console, then falls back to any active session,
-so remote desktop and VDI hosts work. `WTSQueryUserToken` needs `SE_TCB_NAME`, which
+The session asked is one belonging to the account that owns the active profile, matched
+by SID: the console first, then active remote sessions, then disconnected ones, whose
+user is still signed in. Session 0 hosts services and is never asked. A profile without
+an owner asks the console user only. Nobody else who happens to be signed in to a
+terminal server or VDI host can therefore decide the result. `WTSQueryUserToken` needs `SE_TCB_NAME`, which
 LocalSystem holds and an ordinary process does not, so a user-run `netbird up` skips the
 helper and reads the machine store alone.
 
@@ -221,11 +224,11 @@ currently open**. Consequences worth designing around:
 - **Signing out changes the answer.** Posture can flip between compliant and
   non-compliant across a sign-out, so management should treat "no proof" as its own
   state rather than as a failed check, or users get disconnected at the sign-in screen.
-- **One session is asked, not all of them.** macOS asks the console user, so other
-  fast-user-switched accounts are skipped even though their keychains are unlocked.
-  Windows prefers the console and otherwise takes the first active session. If you ever
-  need every signed-in user, both platforms would have to enumerate sessions and ask
-  each one.
+- **Only the profile owner is asked.** The user certificate belongs to whoever owns the
+  active NetBird profile. macOS asks the console user only when that user owns the
+  profile, so a fast-user-switched account never answers for someone else. Windows asks
+  a session of the owner wherever it is, console or remote, and with no owner recorded
+  only the console user.
 - **A locked keychain still blocks signing.** A user can be logged in with their
   keychain locked (locked on sleep, or manually). The helper then needs an unlock prompt
   and may block, which is why the spawn has a 30s timeout and a failure is reported as

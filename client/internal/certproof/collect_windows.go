@@ -22,7 +22,7 @@ const helperTimeout = 30 * time.Second
 // Intune enrol device certificates, and reaches the signed-in user's store by launching
 // a helper with that session's token. A machine at the sign-in screen therefore proves
 // device certificates alone.
-func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, _ Config) []certposture.Proof {
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, cfg Config) []certposture.Proof {
 	challenges := certificateChallenges(checks)
 	if len(challenges) == 0 {
 		logNoChallenges(checks)
@@ -37,7 +37,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 		return proofs
 	}
 
-	userProofs, err := collectAsDesktopUser(ctx, challenges, peerKey)
+	userProofs, err := collectAsDesktopUser(ctx, cfg.ProfileOwner, challenges, peerKey)
 	if err != nil {
 		log.Debugf("certificate posture: user certificate store unavailable: %v", err)
 	}
@@ -53,8 +53,8 @@ func helperStore() Store {
 // collectAsDesktopUser runs the helper inside the interactive session of the signed-in
 // user. Unlike a keychain on macOS, a Windows service can assume a user identity
 // directly, so the session token goes straight into the child process.
-func collectAsDesktopUser(ctx context.Context, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
-	user, ok := CurrentDesktopUser()
+func collectAsDesktopUser(ctx context.Context, owner string, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
+	user, ok := CurrentDesktopUser(owner)
 	if !ok {
 		return nil, nil
 	}
