@@ -90,8 +90,9 @@ type StatusRecorder interface {
 // fallback T-FinalWarningLead dialog (suppressed when the user dismissed
 // the first one for the same deadline). Safe for concurrent use.
 type Watcher struct {
-	lead      time.Duration
-	finalLead time.Duration
+	lead         time.Duration
+	finalLead    time.Duration
+	deadlineOnly bool
 
 	mu           sync.Mutex
 	current      time.Time
@@ -125,6 +126,13 @@ func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 		recorder:  recorder,
 		nowFn:     time.Now,
 	}
+}
+
+// NewDeadlineOnly returns a watcher that validates and records deadlines but arms no warning timers.
+func NewDeadlineOnly(recorder StatusRecorder) *Watcher {
+	w := New(recorder)
+	w.deadlineOnly = true
+	return w
 }
 
 // Update sets the latest deadline. Pass the zero time to clear (e.g. when
@@ -183,7 +191,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
 
-	if deadline.After(now) {
+	if deadline.After(now) && !w.deadlineOnly {
 		w.armTimerLocked(deadline)
 	}
 	recorder := w.recorder

@@ -681,3 +681,47 @@ func TestPromotionSkippedWhenFinalAlreadyFired(t *testing.T) {
 		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
 	}
 }
+
+func TestDeadlineOnlyRecordsDeadlineWithoutWarnings(t *testing.T) {
+	r := &fakeRecorder{}
+	w := NewDeadlineOnly(r)
+	defer w.Close()
+
+	// With the default leads this deadline would otherwise fire both
+	// timers on the next tick.
+	d := time.Now().Add(50 * time.Millisecond).Round(0)
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := r.deadline(); !got.Equal(d) {
+		t.Fatalf("expected recorder deadline %v, got %v", d, got)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	events := r.snapshot()
+	if got := countWhere(events, func(e event) bool { return e.kind == publish }); got != 0 {
+		t.Fatalf("expected no publish in deadline-only mode, got %d: %+v", got, events)
+	}
+	if w.timer != nil || w.finalTimer != nil {
+		t.Fatal("expected no timers armed in deadline-only mode")
+	}
+}
+
+func TestDeadlineOnlyStillRejectsOutOfRangeDeadlines(t *testing.T) {
+	r := &fakeRecorder{}
+	w := NewDeadlineOnly(r)
+	defer w.Close()
+
+	if err := w.Update(time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	err := w.Update(time.Now().Add(-maxPastHorizon - time.Hour))
+	if !errors.Is(err, ErrDeadlineInPast) {
+		t.Fatalf("expected ErrDeadlineInPast, got %v", err)
+	}
+	if got := r.deadline(); !got.IsZero() {
+		t.Fatalf("expected recorder cleared after rejection, got %v", got)
+	}
+}
