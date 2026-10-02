@@ -38,7 +38,7 @@ func asDaemon(t *testing.T, id Identity) {
 	prevID, prevKnown, prevDelegate := selfIdentity, selfKnown, selfMayDelegate
 	t.Cleanup(func() { selfIdentity, selfKnown, selfMayDelegate = prevID, prevKnown, prevDelegate })
 	selfIdentity, selfKnown = id, true
-	selfMayDelegate = !id.IsPrivileged()
+	selfMayDelegate = mayDelegate(id)
 }
 
 func TestCallerIdentity_DirectConnections(t *testing.T) {
