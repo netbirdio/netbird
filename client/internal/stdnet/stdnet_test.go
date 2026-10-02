@@ -53,6 +53,18 @@ func TestNet_InterfacesDiscoversLazilyAndCaches(t *testing.T) {
 	assert.Equal(t, 1, d.calls)
 }
 
+func TestNewNet_DoesNotDiscoverAtConstruction(t *testing.T) {
+	n := NewNet(context.Background(), nil)
+	require.NotNil(t, n)
+	assert.True(t, n.lastUpdate.IsZero(), "constructor must leave the cache cold")
+}
+
+func TestNewNetWithDiscover_DoesNotDiscoverAtConstruction(t *testing.T) {
+	n := NewNetWithDiscover(context.Background(), nil, nil)
+	require.NotNil(t, n)
+	assert.True(t, n.lastUpdate.IsZero(), "constructor must leave the cache cold")
+}
+
 func TestNet_InterfacesRetryAfterDiscoveryFailure(t *testing.T) {
 	discoverErr := errors.New("discover failed")
 	d := &countingDiscover{err: discoverErr}

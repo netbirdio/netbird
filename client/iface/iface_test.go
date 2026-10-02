@@ -40,11 +40,18 @@ func init() {
 	peerPubKey = peerPrivateKey.PublicKey().String()
 }
 
+// testIFaceBlackList mirrors the prefixes profilemanager.DefaultInterfaceBlacklist
+// carries for the overlay interface. These tests create their own utun device, and
+// stdnet's filter probes with wgctrl every interface it is not told to skip, which
+// on a userspace WireGuard platform reaches the UAPI socket of this same process.
+// Declared here rather than imported because profilemanager imports this package.
+var testIFaceBlackList = []string{"wt", "utun", "tun0"}
+
 func TestWGIface_UpdateAddr(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	addr := "100.64.0.1/8"
 	wgPort := 33100
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -124,7 +131,7 @@ func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+1)
 	wgIP := "10.99.99.1/32"
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
 		Address:      wgaddr.MustParseWGAddress(wgIP),
@@ -164,7 +171,7 @@ func Test_Close(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 	wgIP := "10.99.99.2/32"
 	wgPort := 33100
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -206,7 +213,7 @@ func TestRecreation(t *testing.T) {
 			ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 			wgIP := "10.99.99.2/32"
 			wgPort := 33100
-			newNet := stdnet.NewNet(context.Background(), nil)
+			newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 			opts := WGIFaceOpts{
 				IFaceName:    ifaceName,
@@ -276,7 +283,7 @@ func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+3)
 	wgIP := "10.99.99.5/30"
 	wgPort := 33100
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
 		Address:      wgaddr.MustParseWGAddress(wgIP),
@@ -328,7 +335,7 @@ func Test_ConfigureInterface(t *testing.T) {
 func Test_UpdatePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.9/30"
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -395,7 +402,7 @@ func Test_UpdatePeer(t *testing.T) {
 func Test_RemovePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.13/30"
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -456,7 +463,7 @@ func Test_ConnectPeers(t *testing.T) {
 	peer2wgPort := 33200
 
 	keepAlive := 1 * time.Second
-	newNet := stdnet.NewNet(context.Background(), nil)
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 	guid := fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
@@ -492,7 +499,7 @@ func Test_ConnectPeers(t *testing.T) {
 	guid = fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
-	newNet = stdnet.NewNet(context.Background(), nil)
+	newNet = stdnet.NewNet(context.Background(), testIFaceBlackList)
 
 	optsPeer2 := WGIFaceOpts{
 		IFaceName:    peer2ifaceName,
