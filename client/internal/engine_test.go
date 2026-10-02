@@ -161,7 +161,6 @@ func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
 }
 
-
 func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
@@ -689,7 +688,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				StatusRecorder: peer.NewRecorder("https://mgm"),
 			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet := stdnet.NewNet(context.Background(), nil)
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
@@ -894,7 +893,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet := stdnet.NewNet(context.Background(), nil)
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
 				Address:      wgaddr.MustParseWGAddress(wgAddr),

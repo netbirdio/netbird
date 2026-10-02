@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -406,7 +407,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
-			newNet := stdnet.NewNet(context.Background(), nil)
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun43%d", n),
 				Address:      wgaddr.MustParseWGAddress("100.65.65.2/24"),
