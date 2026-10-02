@@ -21,8 +21,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
-
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
@@ -33,17 +31,19 @@ import (
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -75,8 +75,8 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 
 // CacheStore returns a shared cache store backed by Redis or in-memory depending on the environment.
 // All consumers should reuse this store to avoid creating multiple Redis connections.
-func (s *BaseServer) CacheStore() cachestore.StoreInterface {
-	return Create(s, func() cachestore.StoreInterface {
+func (s *BaseServer) CacheStore() nbcache.Store {
+	return Create(s, func() nbcache.Store {
 		cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultStoreMaxTimeout, nbcache.DefaultStoreCleanupInterval, nbcache.DefaultStoreMaxConn)
 		if err != nil {
 			log.Fatalf("failed to create shared cache store: %v", err)
@@ -85,9 +85,20 @@ func (s *BaseServer) CacheStore() cachestore.StoreInterface {
 	})
 }
 
+// DBConn opens the database connection shared by the store and the domain repositories.
+func (s *BaseServer) DBConn() *db.Conn {
+	return Create(s, func() *db.Conn {
+		conn, err := store.OpenConn(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir)
+		if err != nil {
+			log.Fatalf("failed to open database connection: %v", err)
+		}
+		return conn
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -113,7 +124,8 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			s.Config.StoreConfig.Engine,
 			s.Config.Datadir,
 			s.IntegratedValidator(),
-			s.SettingsManager())
+			s.SettingsManager(),
+		)
 		// networkmap db store supports postgres and sqlite backends only
 		// for other backends a fallback is used, so NotSupportedStoreEngineError
 		// is not a fatal error
@@ -147,7 +159,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager(), nil)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -171,10 +183,10 @@ func (s *BaseServer) Router() *mux.Router {
 	})
 }
 
-func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
-	return Create(s, func() *middleware.APIRateLimiter {
-		cfg, enabled := middleware.RateLimiterConfigFromEnv()
-		limiter := middleware.NewAPIRateLimiter(cfg)
+func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
+	return Create(s, func() *ratelimit.APIRateLimiter {
+		cfg, enabled := ratelimit.RateLimiterConfigFromEnv()
+		limiter := ratelimit.NewAPIRateLimiter(cfg)
 		limiter.SetEnabled(enabled)
 		return limiter
 	})
@@ -182,24 +194,7 @@ func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
 
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
-		trustedPeers := s.Config.ReverseProxy.TrustedPeers
-		defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
-		if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
-			log.WithContext(context.Background()).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
-			trustedPeers = defaultTrustedPeers
-		}
-		trustedHTTPProxies := s.Config.ReverseProxy.TrustedHTTPProxies
-		trustedProxiesCount := s.Config.ReverseProxy.TrustedHTTPProxiesCount
-		if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-			log.WithContext(context.Background()).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
-				"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
-		}
-		realipOpts := []realip.Option{
-			realip.WithTrustedPeers(trustedPeers),
-			realip.WithTrustedProxies(trustedHTTPProxies),
-			realip.WithTrustedProxiesCount(trustedProxiesCount),
-			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
-		}
+		realipOpts := realIPOptions(s.Config.ReverseProxy)
 		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
 		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
@@ -253,7 +248,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.SingleUseStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
 			proxyService.SetActivityManager(s.ProxyActivityManager())
@@ -310,9 +305,9 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 	})
 }
 
-func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
-	return Create(s, func() *nbgrpc.PKCEVerifierStore {
-		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+func (s *BaseServer) SingleUseStore() *nbgrpc.SingleUseStore {
+	return Create(s, func() *nbgrpc.SingleUseStore {
+		return nbgrpc.NewSingleUseStore(context.Background(), s.CacheStore())
 	})
 }
 
@@ -325,7 +320,7 @@ func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
 
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
-		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.DBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
 		accessLogManager.StartPeriodicCleanup(
 			context.Background(),
 			s.Config.ReverseProxy.AccessLogRetentionDays,
@@ -335,7 +330,7 @@ func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	})
 }
 
-func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
+func loadTLSConfig(certFile, certKey string) (*tls.Config, error) {
 	// Load server's certificate and private key
 	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
 	if err != nil {
@@ -381,4 +376,38 @@ func streamInterceptor(
 	//nolint
 	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(srv, wrapped)
+}
+
+// realIPOptions builds the real-IP middleware options.
+//
+// Empty TrustedPeers trusts all IPv4 and IPv6 sources. Configure TrustedPeers
+// with the reverse proxy address or network.
+//
+// X-Forwarded-For takes precedence over X-Real-IP.
+func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
+	trustedPeers := cfg.TrustedPeers
+	if len(trustedPeers) == 0 {
+		trustedPeers = []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/0"),
+			netip.MustParsePrefix("::/0"),
+		}
+	}
+	if idx := slices.IndexFunc(trustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
+		log.WithContext(context.Background()).Warnf("TrustedPeers contains the default route %s, which trusts "+
+			"X-Forwarded-For from every client and allows connection IP spoofing. Set TrustedPeers to the address "+
+			"of your reverse proxy.", trustedPeers[idx])
+	}
+	if cfg.TrustedHTTPProxiesCount > 0 {
+		log.WithContext(context.Background()).Warn(
+			"TrustedHTTPProxiesCount skips X-Forwarded-For entries by position before TrustedHTTPProxies filters by address. " +
+				"An incorrect count may skip the real client IP and produce an incorrect source address.",
+		)
+	}
+
+	return []realip.Option{
+		realip.WithTrustedPeers(trustedPeers),
+		realip.WithTrustedProxies(cfg.TrustedHTTPProxies),
+		realip.WithTrustedProxiesCount(cfg.TrustedHTTPProxiesCount),
+		realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
+	}
 }

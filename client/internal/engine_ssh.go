@@ -24,6 +24,8 @@ type sshServer interface {
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
+	JWTConfig() *sshserver.JWTConfig
+	AuthConfig() *sshauth.Config
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -77,7 +79,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 
 	if e.config.DisableSSHAuth != nil && *e.config.DisableSSHAuth {
 		log.Info("starting SSH server without JWT authentication (authentication disabled by config)")
-		return e.startSSHServer(nil)
+		return e.startSSHServer(nil, nil)
 	}
 
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
@@ -95,7 +97,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}
 
-		return e.startSSHServer(jwtConfig)
+		return e.startSSHServer(jwtConfig, nil)
 	}
 
 	return errors.New("SSH server requires valid JWT configuration")
@@ -231,8 +233,33 @@ func (e *Engine) cleanupSSHConfig() {
 	}
 }
 
-// startSSHServer initializes and starts the SSH server with proper configuration.
-func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
+// restartSSHListeners rebuilds the SSH server so it listens on new sockets, on
+// the same terms it was started with. No-op when it is not running. See
+// Engine.rebindOverlayListeners for why this is needed.
+func (e *Engine) restartSSHListeners() error {
+	if e.sshServer == nil {
+		return nil
+	}
+	// Read from the server before it goes away. A rebuilt one starts with an
+	// empty authorizer, which fails closed, so without carrying the
+	// authorization over every JWT login is refused until the next network map
+	// happens to bring one.
+	jwtConfig, authConfig := e.sshServer.JWTConfig(), e.sshServer.AuthConfig()
+	if err := e.stopSSHServer(); err != nil {
+		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	if err := e.startSSHServer(jwtConfig, authConfig); err != nil {
+		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	return nil
+}
+
+// startSSHServer initializes and starts the SSH server with proper
+// configuration. authConfig is the fine-grained authorization to open with, and
+// is applied before the server accepts anything: a server that starts listening
+// with an empty authorizer refuses the logins that arrive in the meantime.
+// Nil leaves it as management has not sent one yet.
+func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig, authConfig *sshauth.Config) error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
 	}
@@ -240,6 +267,7 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 	serverConfig := &sshserver.Config{
 		HostKeyPEM: e.config.SSHKey,
 		JWT:        jwtConfig,
+		Auth:       authConfig,
 	}
 	server := sshserver.New(serverConfig)
 

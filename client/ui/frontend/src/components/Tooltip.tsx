@@ -81,12 +81,12 @@ export const Tooltip = ({
                         onPointerLeave={interactive ? scheduleClose : undefined}
                         onPointerDownOutside={interactive ? undefined : (e) => e.preventDefault()}
                         className={cn(
-                            "z-50 select-none text-xs text-nb-gray-100 shadow-lg",
+                            "z-50 select-none text-xs text-nb-gray-100 shadow-sm dark:shadow-lg",
                             "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out",
                             "data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0",
                             !interactive && "pointer-events-none",
                             contentClassName ??
-                                "rounded-md border border-nb-gray-850 bg-nb-gray-900 px-2 py-1",
+                                "rounded-md border border-nb-gray-800 bg-white px-2 py-1 dark:border-nb-gray-850 dark:bg-nb-gray-900",
                         )}
                     >
                         {content}

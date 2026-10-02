@@ -32,7 +32,7 @@ type NetworkResource struct {
 	ID          string `gorm:"primaryKey"`
 	NetworkID   string `gorm:"index"`
 	AccountID   string `gorm:"index"`
-	PublicID    string `json:"-"`
+	PublicID    string `json:"-" gorm:"index"`
 	Name        string
 	Description string
 	Type        NetworkResourceType

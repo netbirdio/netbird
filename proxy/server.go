@@ -362,6 +362,13 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
+	startupOK := false
+	defer func() {
+		if !startupOK {
+			s.cleanupFailedStart()
+		}
+	}()
+
 	// Management client must be initialised BEFORE the middleware manager —
 	// initMiddlewareManager passes s.mgmtClient into the builtin FactoryContext
 	// that the limit-check / limit-record middlewares pull from. Reversed
@@ -374,7 +381,9 @@ func (s *Server) Start(ctx context.Context) error {
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.runCancel = runCancel
 
-	s.initNetBirdClient()
+	if err := s.initNetBirdClient(); err != nil {
+		return err
+	}
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
@@ -394,18 +403,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.initGeoLookup(); err != nil {
 		return err
 	}
-
-	startupOK := false
-	defer func() {
-		if startupOK {
-			return
-		}
-		if s.geoRaw != nil {
-			if closeErr := s.geoRaw.Close(); closeErr != nil {
-				s.Logger.Debugf("close geolocation on startup failure: %v", closeErr)
-			}
-		}
-	}()
 
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
@@ -475,14 +472,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		go func() {
 			defer close(done)
 			s.gracefulShutdown()
-			if s.runCancel != nil {
-				s.runCancel()
-			}
-			if s.mgmtConn != nil {
-				if err := s.mgmtConn.Close(); err != nil {
-					s.Logger.Debugf("management connection close: %v", err)
-				}
-			}
+			s.releaseRunResources()
 		}()
 
 		select {
@@ -495,6 +485,27 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	return s.runErr
+}
+
+// cleanupFailedStart releases what a failed Start already brought up. It
+// skips the drain and pre-stop delay because nothing has served yet, and
+// consumes stopOnce so a later Stop stays a no-op.
+func (s *Server) cleanupFailedStart() {
+	s.stopOnce.Do(func() {
+		s.shutdownServices()
+		s.releaseRunResources()
+	})
+}
+
+func (s *Server) releaseRunResources() {
+	if s.runCancel != nil {
+		s.runCancel()
+	}
+	if s.mgmtConn != nil {
+		if err := s.mgmtConn.Close(); err != nil {
+			s.Logger.Debugf("management connection close: %v", err)
+		}
+	}
 }
 
 // waitAndStop blocks until ctx is cancelled or a background goroutine
@@ -568,7 +579,7 @@ func (s *Server) initManagementClient() error {
 // initNetBirdClient builds the multi-tenant embedded NetBird client used
 // for outbound RoundTripping and (when --private is on) per-account
 // inbound listeners.
-func (s *Server) initNetBirdClient() {
+func (s *Server) initNetBirdClient() error {
 	s.netbird = roundtrip.NewNetBird(s.ctx, s.ID, s.ProxyURL, roundtrip.ClientConfig{
 		MgmtAddr:     s.ManagementAddress,
 		WGPort:       s.WireguardPort,
@@ -581,6 +592,10 @@ func (s *Server) initNetBirdClient() {
 		BlockInbound: !s.Private,
 	}, s.Logger, s, s.mgmtClient)
 	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
+	if err := s.meter.RegisterClientObserver(s.netbird.ClientCount); err != nil {
+		return fmt.Errorf("register client metrics: %w", err)
+	}
+	return nil
 }
 
 // initReverseProxy builds the meter-instrumented reverse proxy. MultiTransport
@@ -2069,7 +2084,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate()); err != nil {
+	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds()); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)

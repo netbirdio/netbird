@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -14,10 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	"github.com/netbirdio/netbird/management/server/job"
-	"github.com/netbirdio/netbird/shared/auth"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
@@ -30,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -40,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -51,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/auth"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -65,7 +63,7 @@ const (
 type userLoggedInOnce bool
 
 func cacheEntryExpiration() time.Duration {
-	r := rand.Intn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
+	r := util.RandIntn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
 }
 
@@ -114,12 +112,41 @@ type DefaultAccountManager struct {
 	permissionsManager permissions.Manager
 
 	disableDefaultPolicy bool
+
+	deletionHooksMu sync.RWMutex
+	deletionHooks   []account.DeletionHook
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
 
 func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
 	am.serviceManager = serviceManager
+}
+
+// AddAccountDeletionHook registers hook to run on every account deletion. Hooks run in
+// registration order, and the first one to fail stops the rest and aborts the deletion.
+// It panics on a nil hook: dropping one silently would skip that hook's cleanup on every
+// deletion, so the wiring bug surfaces at startup instead.
+func (am *DefaultAccountManager) AddAccountDeletionHook(hook account.DeletionHook) {
+	if hook == nil {
+		panic("nil account deletion hook")
+	}
+	am.deletionHooksMu.Lock()
+	defer am.deletionHooksMu.Unlock()
+	am.deletionHooks = append(am.deletionHooks, hook)
+}
+
+func (am *DefaultAccountManager) runAccountDeletionHooks(ctx context.Context, accountID string) error {
+	am.deletionHooksMu.RLock()
+	hooks := slices.Clone(am.deletionHooks)
+	am.deletionHooksMu.RUnlock()
+
+	for _, hook := range hooks {
+		if err := hook(ctx, accountID); err != nil {
+			return fmt.Errorf("account deletion hook: %w", err)
+		}
+	}
+	return nil
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -237,6 +264,10 @@ func BuildManager(
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
 		log.WithContext(ctx).Error(err)
+	}
+
+	if IsEmbeddedIdp(idpManager) && accountsCounter > 1 {
+		log.WithContext(ctx).Warnf("embedded IdP requires a single account, found %d", accountsCounter)
 	}
 
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -717,8 +748,10 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 		log.WithContext(ctx).Tracef("peer login expiration job for account %s is already scheduled", accountID)
 		return
 	}
+	// The job outlives the request that arms it, so it must not inherit the request's cancellation.
+	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
-		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
+		go am.peerLoginExpiry.Schedule(jobCtx, nextRun, accountID, am.peerLoginExpirationJob(jobCtx, accountID))
 	}
 }
 
@@ -750,8 +783,9 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
 func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, accountID string) {
 	am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
-		go am.peerInactivityExpiry.Schedule(ctx, nextRun, accountID, am.peerInactivityExpirationJob(ctx, accountID))
+		go am.peerInactivityExpiry.Schedule(jobCtx, nextRun, accountID, am.peerInactivityExpirationJob(jobCtx, accountID))
 	}
 }
 
@@ -882,6 +916,10 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
+	if err = am.runAccountDeletionHooks(ctx, accountID); err != nil {
+		return err
 	}
 
 	if err = am.deleteAccountUsers(ctx, accountID, userID, account.Users, userInfosMap); err != nil {
@@ -1593,7 +1631,10 @@ func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	userAuth.Domain = domain
+	// Keep the configured single account domain when the existing account has none
+	if domain != "" {
+		userAuth.Domain = domain
+	}
 
 	log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	return nil
@@ -1838,6 +1879,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 
 	return am.addNewPrivateAccount(ctx, domainAccountID, userAuth)
 }
+
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 	if handleNotFound(err) != nil {
@@ -2470,8 +2512,7 @@ func (am *DefaultAccountManager) ensureIPv6Subnet(ctx context.Context, transacti
 		return transaction.UpdateAccountNetworkV6(ctx, accountID, network.NetV6)
 	}
 	if network.NetV6.IP == nil {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		network.NetV6 = types.AllocateIPv6Subnet(r)
+		network.NetV6 = types.AllocateIPv6Subnet()
 
 		// Sync settings to match the allocated subnet so SaveAccountSettings persists it.
 		ones, _ := network.NetV6.Mask.Size()

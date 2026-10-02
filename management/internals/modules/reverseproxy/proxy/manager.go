@@ -11,7 +11,7 @@ import (
 
 // Manager defines the interface for proxy operations
 type Manager interface {
-	Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, accountID *string, capabilities *Capabilities) (*Proxy, error)
+	Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress, version string, accountID *string, capabilities *Capabilities) (*Proxy, error)
 	Disconnect(ctx context.Context, proxyID, sessionID string) error
 	Heartbeat(ctx context.Context, p *Proxy) error
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
@@ -20,6 +20,7 @@ type Manager interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsSessionCode(ctx context.Context, clusterAddr string) bool
 	CleanupStale(ctx context.Context, inactivityDuration time.Duration) error
 	GetAccountProxy(ctx context.Context, accountID string) (*Proxy, error)
 	CountAccountProxies(ctx context.Context, accountID string) (int64, error)

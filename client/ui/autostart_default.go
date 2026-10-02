@@ -72,7 +72,7 @@ func netbirdFootprintExists() bool {
 // retrying autostart entry writes on every launch. A user's later disable in
 // Settings is never overridden: the marker guarantees at-most-once, ever.
 func applyAutostartDefault(ctx context.Context, autostart *services.Autostart, prefs *preferences.Store, prefsFileExisted bool) {
-	mdmDisabled := autostartDisabledByMDM(mdm.LoadPolicy())
+	mdmDisabled := autostartDisabledByMDM(mdm.NewLoader(nil).Load())
 
 	if mdmDisabled {
 		if enabled, err := autostart.IsEnabled(ctx); err != nil {

@@ -331,6 +331,11 @@ func discoverableModels(route ProviderRoute, userGroups []string) ([]string, boo
 				intersection[m] = struct{}{}
 			}
 		}
+		if route.Vertex {
+			if _, ok := permitted[llm.NormalizeVertexModel(m)]; ok {
+				intersection[m] = struct{}{}
+			}
+		}
 	}
 	return sortedModels(intersection), true
 }
@@ -867,6 +872,11 @@ func routeClaimsModel(route ProviderRoute, model string) bool {
 		// "us.anthropic.claude-haiku-4-5"). Normalize the candidate so both sides
 		// compare equal; otherwise a native Bedrock request denies as not-routable.
 		if route.Bedrock && llm.NormalizeBedrockModel(candidate) == model {
+			return true
+		}
+		// Vertex likewise: the parser strips the "@version" suffix from the
+		// path model, while the operator may register the versioned form.
+		if route.Vertex && llm.NormalizeVertexModel(candidate) == model {
 			return true
 		}
 		// A client may pin a dated Anthropic id ("claude-sonnet-4-5-20250929")

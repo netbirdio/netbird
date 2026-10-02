@@ -179,6 +179,10 @@ func policiesForProvider(policies []*types.Policy, providerID string) []*types.P
 // only claims declared models, so an allowlisted-but-undeclared model is
 // unreachable and must not be advertised. With no declared models the
 // router claims every model, so the allowlist union stands alone.
+// Allowlist entries and declared ids both compare through the canonical
+// id the proxy's parser emits, so an allowlist may hold either form: the
+// raw declared id the dashboard's picker copies from the provider, or
+// the stripped id the parser matches at request time.
 func effectiveModelsForProvider(provider *types.Provider, policies []*types.Policy, guardrailsByID map[string]*types.Guardrail) (bool, []string) {
 	restricted := true
 	union := make([]string, 0)
@@ -192,7 +196,7 @@ func effectiveModelsForProvider(provider *types.Provider, policies []*types.Poli
 			}
 			policyRestricted = true
 			for _, model := range g.Checks.ModelAllowlist.Models {
-				key := normaliseModelID(model)
+				key := canonicalModelKey(provider.ProviderID, model)
 				if key == "" {
 					continue
 				}
@@ -221,15 +225,24 @@ func effectiveModelsForProvider(provider *types.Provider, policies []*types.Poli
 	for _, id := range declared {
 		// Compare through the canonical id the proxy's parser emits — a
 		// Bedrock declaration may carry the region/version form
-		// ("eu.anthropic.claude-...-v1:0") while the allowlist holds the
-		// stripped id the parser matches at request time, and the raw
-		// forms would never intersect. The declared id itself is what
-		// gets advertised, matching the router's route claim.
-		if _, ok := seen[normaliseModelID(normalizePricingModelID(provider.ProviderID, id))]; ok {
+		// ("eu.anthropic.claude-...-v1:0") that the parser strips at
+		// request time, and the raw forms would never intersect. The
+		// declared id itself is what gets advertised, matching the
+		// router's route claim.
+		if _, ok := seen[canonicalModelKey(provider.ProviderID, id)]; ok {
 			out = append(out, id)
 		}
 	}
 	return false, out
+}
+
+// canonicalModelKey builds the compare key for a model id: lowercased,
+// trimmed, and canonicalized through the provider-aware normalization the
+// proxy's parser applies. Lowercase/trim comes FIRST — the path-style
+// strippers anchor on a lowercase id's tail, so a trailing space or a
+// case-variant geography/version would otherwise survive into the key.
+func canonicalModelKey(catalogProviderID, id string) string {
+	return normaliseModelID(normalizePricingModelID(catalogProviderID, normaliseModelID(id)))
 }
 
 // providerModelsByID maps effective model ids (as effectiveModelsForProvider
