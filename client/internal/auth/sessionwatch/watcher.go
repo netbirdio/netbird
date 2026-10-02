@@ -180,7 +180,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 		return nil
 	}
 
-	now := time.Now()
+	now := w.nowFn()
 	switch {
 	case deadline.Before(time.Unix(0, 0)):
 		w.clearLocked()
@@ -207,7 +207,11 @@ func (w *Watcher) Update(deadline time.Time) error {
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
 
-	if deadline.After(now) && !w.deadlineOnly {
+	// Poll every accepted deadline, including one that reads as already
+	// expired: the clock may be running ahead of real time and get
+	// corrected later, and evaluate ignores a deadline that has genuinely
+	// passed anyway.
+	if !w.deadlineOnly {
 		w.startPollLocked()
 	}
 	recorder := w.recorder

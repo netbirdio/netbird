@@ -754,3 +754,34 @@ func TestDeadlineOnlyStillRejectsOutOfRangeDeadlines(t *testing.T) {
 		t.Fatalf("expected recorder cleared after rejection, got %v", got)
 	}
 }
+
+// TestClockAheadAtUpdateStillWarnsOnceCorrected covers a client that connects
+// while its clock runs ahead of real time: the deadline reads as already
+// expired when it arrives, so nothing publishes, and the warning must still
+// come once NTP pulls the clock back.
+func TestClockAheadAtUpdateStillWarnsOnceCorrected(t *testing.T) {
+	r := &fakeRecorder{}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	deadline := time.Now().Add(time.Hour).Round(0)
+	// Two hours past the deadline from the device's point of view, well
+	// inside maxPastHorizon, so Update accepts and records it.
+	clock := newFakeClock(deadline.Add(2 * time.Hour))
+	w.nowFn = clock.now
+	t.Cleanup(w.Close)
+
+	if err := w.Update(deadline); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	settle()
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("a deadline that reads as expired must not warn, got %d: %+v", n, r.snapshot())
+	}
+
+	clock.set(deadline.Add(-5 * time.Minute))
+
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the warning once the clock was corrected, got %+v", events[1])
+	}
+}
