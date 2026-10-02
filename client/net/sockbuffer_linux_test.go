@@ -4,6 +4,9 @@ package net
 
 import (
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,13 +14,27 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// relaySocketBufferFloor is a lower bound on the readback SO_RCVBUF/SO_SNDBUF
-// after sizing. The kernel doubles the requested value on readback; unprivileged
-// runs are clamped to net.core.rmem_max (commonly 212992, doubling to 425984),
-// while privileged runs reach close to the configured default of 7 MiB. This
-// floor holds in both cases while still proving growth over the ~208 KiB OS
-// default.
-const relaySocketBufferFloor = 416 * 1024
+// defaultSocketBufferMax is the long-standing kernel default of net.core.rmem_max and
+// wmem_max, assumed when the sysctl cannot be read.
+const defaultSocketBufferMax = 212992
+
+// relaySocketBufferFloor returns the smallest SO_RCVBUF/SO_SNDBUF readback that sizing
+// to size can leave. The kernel doubles the requested value on readback. Privileged runs
+// force the full size, while unprivileged runs are first capped at the named net.core
+// sysctl, so the floor follows a host tuned above or below the kernel default.
+func relaySocketBufferFloor(t *testing.T, sysctl string, size int) int {
+	t.Helper()
+
+	raw, err := os.ReadFile("/proc/sys/net/core/" + sysctl)
+	if err != nil {
+		t.Logf("read %s: %v, assuming the kernel default %d", sysctl, err, defaultSocketBufferMax)
+		return 2 * min(size, defaultSocketBufferMax)
+	}
+
+	limit, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	require.NoError(t, err, "parse %s", sysctl)
+	return 2 * min(size, limit)
+}
 
 func getSockBuffers(t *testing.T, conn *net.UDPConn) (rcv, snd int) {
 	t.Helper()
@@ -85,10 +102,13 @@ func TestSizeRelaySocketBuffersGrowsBuffers(t *testing.T) {
 
 	rcvAfter, sndAfter := getSockBuffers(t, conn)
 
-	assert.GreaterOrEqual(t, rcvAfter, relaySocketBufferFloor)
-	assert.GreaterOrEqual(t, sndAfter, relaySocketBufferFloor)
-	assert.GreaterOrEqual(t, rcvAfter, rcvBefore)
-	assert.GreaterOrEqual(t, sndAfter, sndBefore)
+	rcvFloor := relaySocketBufferFloor(t, "rmem_max", defaultRelaySocketBufferSize)
+	sndFloor := relaySocketBufferFloor(t, "wmem_max", defaultRelaySocketBufferSize)
+
+	assert.GreaterOrEqual(t, rcvAfter, rcvFloor, "receive buffer should reach the floor")
+	assert.GreaterOrEqual(t, sndAfter, sndFloor, "send buffer should reach the floor")
+	assert.GreaterOrEqual(t, rcvAfter, rcvBefore, "receive buffer must not shrink")
+	assert.GreaterOrEqual(t, sndAfter, sndBefore, "send buffer must not shrink")
 }
 
 func TestSizeRelaySocketBuffersEnvDisable(t *testing.T) {
