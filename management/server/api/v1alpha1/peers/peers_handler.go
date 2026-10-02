@@ -85,6 +85,13 @@ func (h *Handler) GetTestAllPeers(w http.ResponseWriter, r *http.Request) {
 		{PeerComponents: apiv1alpha1.PeerComponents{PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"}}},
 	}
 
+	fmt.Println("page: " + r.URL.Query().Get("page"))
+	fmt.Println("page_size: " + r.URL.Query().Get("page_size"))
+	fmt.Println("approval_required: " + r.URL.Query().Get("approval_required") + " " + fmt.Sprintf("%v", r.URL.Query().Has("approval_required")))
+	fmt.Println("os: " + r.URL.Query().Get("os"))
+	fmt.Println("search: " + r.URL.Query().Get("search"))
+	fmt.Println("")
+
 	util.WriteJSONObject(r.Context(), w, respBody)
 
 }
