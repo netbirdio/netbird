@@ -438,9 +438,9 @@ func publishWarning(recorder StatusRecorder, deadline time.Time, final bool) {
 }
 
 // isLate reports whether the wall clock now has already reached armedFor
-// minus cutoffLead. The timers run on the monotonic clock, which does not
-// advance while an Android device is suspended, so a timer can fire long
-// after the window it was armed for.
+// minus cutoffLead. The timers run on the monotonic clock, which can stall
+// while the host sleeps, so a timer can fire long after the window it was
+// armed for.
 func isLate(now, armedFor time.Time, cutoffLead time.Duration) bool {
 	return !now.Round(0).Before(armedFor.Add(-cutoffLead).Round(0))
 }
