@@ -94,6 +94,19 @@ func (rm *Counter[Key, I, O]) Get(key Key) (Ref[O], bool) {
 	return ref, ok
 }
 
+// Keys returns the currently tracked keys. Callers reconciling external state must treat
+// the snapshot as best-effort: entries may be added or removed concurrently.
+func (rm *Counter[Key, I, O]) Keys() []Key {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	keys := make([]Key, 0, len(rm.refCountMap))
+	for key := range rm.refCountMap {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 // ReapplyMatching calls apply for every key whose stored Out satisfies pred, holding the
 // counter lock for the whole pass. Running apply under the lock keeps it atomic with respect
 // to Increment/Decrement: a prefix dropped to zero is removed from the map (and had its
