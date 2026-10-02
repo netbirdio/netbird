@@ -74,6 +74,8 @@ type Mapping struct {
 	// StripAuthHeaders are header names used for header-based auth.
 	// These headers are stripped from requests before forwarding.
 	StripAuthHeaders []string
+	// MiddlewareRevision binds this routing snapshot to its middleware policies.
+	MiddlewareRevision middleware.Revision
 	// sortedPaths caches the paths sorted by length (longest first).
 	sortedPaths []string
 	// requirePinnedResolution prevents a mapping with target access actions
@@ -82,14 +84,15 @@ type Mapping struct {
 }
 
 type targetResult struct {
-	target           *PathTarget
-	matchedPath      string
-	serviceID        types.ServiceID
-	accountID        types.AccountID
-	passHostHeader   bool
-	rewriteRedirects bool
-	stripAuthHeaders []string
-	requirePinned    bool
+	target             *PathTarget
+	matchedPath        string
+	serviceID          types.ServiceID
+	accountID          types.AccountID
+	passHostHeader     bool
+	rewriteRedirects   bool
+	stripAuthHeaders   []string
+	middlewareRevision middleware.Revision
+	requirePinned      bool
 }
 
 func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bool) {
@@ -118,14 +121,15 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 			}
 			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, pt.URL)
 			return targetResult{
-				target:           pt,
-				matchedPath:      path,
-				serviceID:        m.ID,
-				accountID:        m.AccountID,
-				passHostHeader:   m.PassHostHeader,
-				rewriteRedirects: m.RewriteRedirects,
-				stripAuthHeaders: m.StripAuthHeaders,
-				requirePinned:    m.requirePinnedResolution,
+				target:             pt,
+				matchedPath:        path,
+				serviceID:          m.ID,
+				accountID:          m.AccountID,
+				passHostHeader:     m.PassHostHeader,
+				rewriteRedirects:   m.RewriteRedirects,
+				stripAuthHeaders:   m.StripAuthHeaders,
+				middlewareRevision: m.MiddlewareRevision,
+				requirePinned:      m.requirePinnedResolution,
 			}, true
 		}
 	}

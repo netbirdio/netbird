@@ -2107,15 +2107,12 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
-	// The chain is published before the route that leads to it. A request
-	// arriving at a target whose chain has not been rebuilt yet is served
-	// straight through, so a provider update that added the route first left a
-	// window in which an inference could complete unrouted and unmetered.
-	// Rebuilding first inverts that: the worst a request in the window meets is
-	// the new chain in front of the previous target, which is still counted.
-	if err := s.rebuildMiddlewareChains(svcID, m); err != nil {
+	revision, err := s.rebuildMiddlewareChains(svcID, m)
+	if err != nil {
 		return err
 	}
+	m.MiddlewareRevision = revision
+	config.TargetResolver = resolver.WithMiddlewareRevision(revision)
 	// The auth snapshot owns its resolver, so an in-flight request cannot
 	// authorize an old target and then forward to a replacement target.
 	s.auth.AddDomainConfig(mapping.GetDomain(), config)
@@ -2183,22 +2180,17 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 	return nil
 }
 
-// rebuildMiddlewareChains converts m into per-path bindings and calls
-// Manager.Rebuild. Short-circuits when the middleware manager is unset, which
-// is a deployment without middleware rather than a failure to install it.
-//
-// A rebuild that fails is reported rather than logged: the caller publishes
-// the route once this returns, and a route published over chains that were
-// not installed serves requests with no policy enforcement and no metering.
-func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) error {
+// rebuildMiddlewareChains installs the service's policies before its routing snapshot.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) (middleware.Revision, error) {
 	if s.middlewareManager == nil {
-		return nil
+		return 0, nil
 	}
 	bindings := buildMiddlewareBindings(svcID, m)
-	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
-		return fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
+	revision, err := s.middlewareManager.RebuildSnapshot(string(svcID), bindings)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
 	}
-	return nil
+	return revision, nil
 }
 
 // isLiveService reports whether svcID is currently present in the live

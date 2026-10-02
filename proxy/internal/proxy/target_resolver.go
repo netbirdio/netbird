@@ -87,6 +87,13 @@ func (r *TargetResolver) HasBypass() bool {
 	return r != nil && r.hasBypass
 }
 
+// WithMiddlewareRevision returns a routing snapshot bound to the given policy revision.
+func (r *TargetResolver) WithMiddlewareRevision(revision middleware.Revision) *TargetResolver {
+	bound := *r
+	bound.mapping.MiddlewareRevision = revision
+	return &bound
+}
+
 func targetResolutionFromContext(ctx context.Context) (targetResolution, bool) {
 	resolution, ok := ctx.Value(targetResolutionContextKey{}).(targetResolution)
 	return resolution, ok
@@ -203,14 +210,15 @@ func findTargetInMapping(path string, mapping Mapping) (targetResult, bool) {
 			continue
 		}
 		return targetResult{
-			target:           target,
-			matchedPath:      prefix,
-			serviceID:        mapping.ID,
-			accountID:        mapping.AccountID,
-			passHostHeader:   mapping.PassHostHeader,
-			rewriteRedirects: mapping.RewriteRedirects,
-			stripAuthHeaders: mapping.StripAuthHeaders,
-			requirePinned:    mapping.requirePinnedResolution,
+			target:             target,
+			matchedPath:        prefix,
+			serviceID:          mapping.ID,
+			accountID:          mapping.AccountID,
+			passHostHeader:     mapping.PassHostHeader,
+			rewriteRedirects:   mapping.RewriteRedirects,
+			stripAuthHeaders:   mapping.StripAuthHeaders,
+			middlewareRevision: mapping.MiddlewareRevision,
+			requirePinned:      mapping.requirePinnedResolution,
 		}, true
 	}
 	return targetResult{requirePinned: mapping.requirePinnedResolution}, false

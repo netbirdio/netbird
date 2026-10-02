@@ -127,8 +127,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rewriteMatchedPath = ""
 	}
 
-	chain := p.resolveChain(result)
-	if targetRequiresMiddleware(pt) && (chain == nil || chain.Empty()) {
+	chain, current := p.resolveChain(result)
+	if !current || (targetRequiresMiddleware(pt) && (chain == nil || chain.Empty())) {
 		p.serveProxyUnavailable(w, r)
 		return
 	}
@@ -489,14 +489,15 @@ func applyUpstreamHeaders(r *http.Request, rewrite *middleware.UpstreamRewrite) 
 	}
 }
 
-// resolveChain returns the middleware chain registered for the
-// resolved target, or nil when middleware is disabled for the proxy
-// or the target.
-func (p *ReverseProxy) resolveChain(result targetResult) *middleware.Chain {
+// resolveChain returns a chain only from the target's routing revision.
+func (p *ReverseProxy) resolveChain(result targetResult) (*middleware.Chain, bool) {
 	if p.middlewareManager == nil {
-		return nil
+		return nil, result.middlewareRevision == 0
 	}
-	return p.middlewareManager.ChainFor(string(result.serviceID), result.matchedPath)
+	if result.middlewareRevision == 0 {
+		return p.middlewareManager.ChainFor(string(result.serviceID), result.matchedPath), true
+	}
+	return p.middlewareManager.ChainForRevision(string(result.serviceID), result.matchedPath, result.middlewareRevision)
 }
 
 // buildRequestInput gathers the per-request fields the middleware
