@@ -198,7 +198,7 @@ func TestStalledRequestBodyIsCutOff(t *testing.T) {
 	defer conn.Close()
 
 	// Announce a body, send one byte of it, then go quiet.
-	_, err = conn.Write([]byte("POST / HTTP/1.1\r\nHost: grafana.internal\r\nContent-Length: 1000\r\n\r\nx"))
+	_, err = conn.Write([]byte("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000\r\n\r\nx"))
 	require.NoError(t, err)
 
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
@@ -226,4 +226,117 @@ func TestParseForwardDoesNotEchoPassword(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "hunter2", "the password must not appear anywhere in the error")
 	assert.Contains(t, err.Error(), "must not carry credentials")
+}
+
+// A POST whose body is fully delivered must still receive its whole response,
+// even when the upstream takes longer to answer than the body idle timeout.
+// The deadline that guards the body must not outlive it.
+func TestCompletedUploadGetsFullResponse(t *testing.T) {
+	previous := bodyIdleTimeout
+	bodyIdleTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { bodyIdleTimeout = previous })
+
+	payload := strings.Repeat("y", 4096)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		time.Sleep(600 * time.Millisecond)
+		_, _ = io.WriteString(w, payload)
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	resp, err := http.Post(base+"/upload", "text/plain", strings.NewReader(strings.Repeat("x", 2048)))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "the response must not be cut off once the body was fully read")
+	assert.Equal(t, len(payload), len(body), "the whole response body should arrive")
+}
+
+// A page that points its own hostname at this loopback listener must not be
+// able to reach the upstream through it.
+func TestLoopbackForwarderRejectsForeignHost(t *testing.T) {
+	var reached bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	req, err := http.NewRequest(http.MethodGet, base, nil)
+	require.NoError(t, err)
+	req.Host = "attacker.example"
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusMisdirectedRequest, resp.StatusCode)
+	assert.False(t, reached, "the upstream must not be reached under a foreign Host")
+}
+
+func TestLoopbackForwarderRejectsCrossOrigin(t *testing.T) {
+	var reached bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	req, err := http.NewRequest(http.MethodGet, base, nil)
+	require.NoError(t, err)
+	req.Header.Set("Origin", "https://attacker.example")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.False(t, reached, "the upstream must not be reached from a cross-site page")
+}
+
+// The ordinary local callers must keep working: no Origin at all, and a
+// same-origin browser request.
+func TestLoopbackForwarderAllowsLocalCallers(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	for _, origin := range []string{"", "http://" + strings.TrimPrefix(base, "http://")} {
+		req, err := http.NewRequest(http.MethodGet, base, nil)
+		require.NoError(t, err)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "origin %q should be allowed", origin)
+		assert.Equal(t, "ok", string(body))
+	}
+}
+
+// A malformed upstream fails in the URL parser rather than in the credential
+// check, so both error layers have to be redacted.
+func TestParseForwardRedactsMalformedUpstream(t *testing.T) {
+	for _, spec := range []string{
+		"http://8080=https://user:hunter2@a.internal:bad",
+		"http://8080=https://user:hunter2@a.internal/%zz",
+	} {
+		_, err := ParseForward(spec)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "hunter2",
+			"a password must not survive a parse failure either")
+	}
 }

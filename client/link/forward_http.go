@@ -8,7 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -79,7 +82,10 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 		forward:  fwd,
 		listener: listener,
 		server: &http.Server{
-			Handler: withBodyIdleTimeout(proxy),
+			// The body deadline wraps the guard rather than the other way
+			// round, so a request the guard rejects still has its body
+			// bounded while the server drains it.
+			Handler: withBodyIdleTimeout(guardRebinding(proxy, isLoopback(fwd.Listen))),
 			// Bound how long a caller may take to send headers, so a slow
 			// sender cannot hold a connection and its goroutine open
 			// indefinitely. Neither deadline limits body streaming, so large
@@ -184,11 +190,91 @@ type idleTimeoutBody struct {
 }
 
 func (b *idleTimeoutBody) Read(p []byte) (int, error) {
-	// A connection that cannot carry a deadline, which the controller reports
-	// as unsupported, still reads normally rather than failing the request.
-	if err := b.controller.SetReadDeadline(time.Now().Add(b.idle)); err != nil &&
-		!errors.Is(err, http.ErrNotSupported) {
+	if err := b.setDeadline(time.Now().Add(b.idle)); err != nil {
 		return 0, err
 	}
-	return b.ReadCloser.Read(p)
+
+	n, err := b.ReadCloser.Read(p)
+	if errors.Is(err, io.EOF) {
+		// The body arrived in full, so its deadline has to go with it. The
+		// server keeps reading the connection while the handler streams its
+		// reply, and a deadline left over from the body would cut that reply
+		// off partway through.
+		//
+		// Only EOF clears it. On any other error the caller stalled or the
+		// connection broke, and the deadline is what stops the server from
+		// blocking forever as it drains what was never sent.
+		b.clearDeadline()
+	}
+	return n, err
+}
+
+func (b *idleTimeoutBody) setDeadline(t time.Time) error {
+	// A connection that cannot carry a deadline, which the controller reports
+	// as unsupported, still reads normally rather than failing the request.
+	if err := b.controller.SetReadDeadline(t); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+// clearDeadline removes any read deadline. A failure here cannot be acted on
+// and must not mask the error the caller is already returning.
+func (b *idleTimeoutBody) clearDeadline() {
+	if err := b.setDeadline(time.Time{}); err != nil {
+		log.Debugf("clear read deadline: %v", err)
+	}
+}
+
+// guardRebinding rejects requests that reached a loopback listener under a
+// name that is not its own.
+//
+// A loopback forwarder is reachable from any page the user visits: a site can
+// point its own hostname at 127.0.0.1 and have the browser send requests to
+// this listener, which would otherwise proxy them into the network under the
+// peer's identity. The browser still sends the attacker's name in Host, so
+// requiring a loopback name here is what makes that attack fail.
+//
+// A publicly bound listener is deliberately reachable under names this process
+// cannot enumerate, so only the browser-origin check applies there.
+func guardRebinding(next http.Handler, loopbackOnly bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if loopbackOnly && !isLocalName(hostnameOf(r.Host)) {
+			http.Error(w, "unexpected Host for a loopback listener", http.StatusMisdirectedRequest)
+			return
+		}
+		// Only a browser sets Origin, and a legitimate one for this listener
+		// is same-origin. Anything else is a cross-site caller.
+		if origin := r.Header.Get("Origin"); origin != "" && !isLocalOrigin(origin) {
+			http.Error(w, "cross-origin request refused", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// hostnameOf strips any port from a Host header value.
+func hostnameOf(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
+}
+
+// isLocalName reports whether host names this machine's loopback interface.
+func isLocalName(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil && ip.Unmap().IsLoopback()
+}
+
+// isLocalOrigin reports whether an Origin header belongs to this listener.
+func isLocalOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return isLocalName(u.Hostname())
 }
