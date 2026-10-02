@@ -72,14 +72,14 @@ func (s *certPostureState) stale(userContext string, now time.Time) bool {
 // attachCertificateProofs answers the certificate challenges in checks with the
 // certificates reachable on this device, signing each challenge nonce for our peer key.
 // Collection is bounded in time because callers hold the sync loop while it runs.
-func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
+func (e *Engine) attachCertificateProofs(ctx context.Context, info *system.Info, checks []*mgmProto.Checks) {
 	if !certproof.HasChallenges(checks) {
 		info.CertificateProofs = nil
 		return
 	}
 	userContext := certproof.UserContext(e.config.CertStore)
 	peerKey := e.config.WgPrivateKey.PublicKey()
-	info.CertificateProofs = e.certProofs.Collect(e.ctx, checks, peerKey[:], e.config.CertStore)
+	info.CertificateProofs = e.certProofs.Collect(ctx, checks, peerKey[:], e.config.CertStore)
 
 	proven := len(info.CertificateProofs) > 0
 	if e.certState.record(userContext, proven, time.Now()) {
@@ -137,20 +137,20 @@ func (e *Engine) recollectCertificateProofsIfStale() error {
 		return nil
 	}
 	log.Debugf("certificate posture: proofs are stale, collecting again")
-	return e.syncChecksMeta(e.checks)
+	return e.syncChecksMeta(e.ctx, e.checks)
 }
 
 // syncChecksMeta gathers the system info that checks evaluate, with its certificate
 // proofs, and sends it to management. The caller holds syncMsgMux.
-func (e *Engine) syncChecksMeta(checks []*mgmProto.Checks) error {
-	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+func (e *Engine) syncChecksMeta(ctx context.Context, checks []*mgmProto.Checks) error {
+	info, ok := e.infoSource.Refresh(ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
 		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
 		return errSystemInfoTimeout
 	}
 	e.applyInfoFlags(info)
-	e.attachCertificateProofs(info, checks)
+	e.attachCertificateProofs(ctx, info, checks)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("sync meta: %w", err)

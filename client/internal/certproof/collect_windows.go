@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -14,8 +13,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
-
-const helperTimeout = 30 * time.Second
 
 // CollectProofs answers the certificate challenges in checks from every store this
 // machine can reach. The service reads the local machine store itself, where AD and
@@ -86,9 +83,6 @@ func collectAsDesktopUser(ctx context.Context, owner string, challenges []*proto
 	if err != nil {
 		return nil, fmt.Errorf("build environment of %s: %w", user.Name, err)
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
-	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "posture", "cert-proof")
 	cmd.Env = env

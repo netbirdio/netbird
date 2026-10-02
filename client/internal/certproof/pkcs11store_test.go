@@ -182,7 +182,7 @@ func privateKeyAttributes(t *testing.T, key crypto.Signer) []pkcs11.Attribute {
 		return []pkcs11.Attribute{
 			attr(pkcs11.AttrKeyType, pkcs11.ULong(pkcs11.KeyEC)),
 			attr(pkcs11.AttrECParams, oidP256),
-			attr(pkcs11.AttrValue, k.D.FillBytes(make([]byte, 32))),
+			attr(pkcs11.AttrValue, ecPrivateScalar(t, k)),
 		}
 	case *rsa.PrivateKey:
 		k.Precompute()
@@ -361,4 +361,12 @@ func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
 	require.NoError(t, err)
 	_, err = good.Candidates(context.Background())
 	assert.NoError(t, err, "the correct PIN for the same token is unaffected")
+}
+
+// ecPrivateScalar returns the raw private scalar the token stores in CKA_VALUE.
+func ecPrivateScalar(t *testing.T, k *ecdsa.PrivateKey) []byte {
+	t.Helper()
+	raw, err := k.Bytes()
+	require.NoError(t, err)
+	return raw
 }

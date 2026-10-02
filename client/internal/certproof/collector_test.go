@@ -65,7 +65,7 @@ func TestCollector_AbandonsStuckCollection(t *testing.T) {
 
 	close(release)
 	<-finished
-	require.Eventually(t, func() bool { return !c.busy.Load() }, time.Second, 5*time.Millisecond, "the collector frees up once the stuck call returns")
+	require.Eventually(t, c.idle, time.Second, 5*time.Millisecond, "the collector frees up once the stuck call returns")
 
 	want := []certposture.Proof{{Nonce: []byte("nonce")}}
 	assert.Equal(t, want, c.collect(context.Background(), challengeChecks, func(context.Context) []certposture.Proof { return want }),
@@ -87,4 +87,50 @@ func TestCollector_CancelsContextAtDeadline(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("a collection that honours its context, like the helper process, must see it cancelled")
 	}
+}
+
+func TestCollector_StartsAnotherOnceAWedgedOneIsLost(t *testing.T) {
+	// On Linux a wedged token or TPM read blocks in this process: there is no helper to
+	// kill and no wait delay to apply, so the collection never returns. Holding the slot
+	// for it would mean the peer never proves its certificate again, failing the check
+	// for good over a fault that may have passed.
+	c := Collector{timeout: 20 * time.Millisecond}
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	require.Nil(t, c.collect(context.Background(), challengeChecks,
+		func(context.Context) []certposture.Proof { <-stuck; return nil }))
+
+	healthy := func(context.Context) []certposture.Proof { return []certposture.Proof{{Nonce: []byte("n")}} }
+
+	assert.Nil(t, c.collect(context.Background(), challengeChecks, healthy),
+		"while the wedged one may still be merely slow, nothing else starts")
+
+	clock = clock.Add(lostAfter * c.deadline())
+	assert.Len(t, c.collect(context.Background(), challengeChecks, healthy), 1,
+		"once it is clearly lost, a healthy collection runs beside it")
+}
+
+func TestCollector_StopsPilingUpWedgedCollections(t *testing.T) {
+	c := Collector{timeout: 20 * time.Millisecond}
+	clock := time.Now()
+	c.now = func() time.Time { return clock }
+
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	wedged := func(context.Context) []certposture.Proof { <-stuck; return nil }
+
+	for range maxInFlight {
+		require.Nil(t, c.collect(context.Background(), challengeChecks, wedged))
+		clock = clock.Add(lostAfter * c.deadline())
+	}
+
+	called := false
+	assert.Nil(t, c.collect(context.Background(), challengeChecks, func(context.Context) []certposture.Proof {
+		called = true
+		return nil
+	}))
+	assert.False(t, called, "a store that never answers must not leak a goroutine per sync")
 }

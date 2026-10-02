@@ -81,24 +81,24 @@ func TestEngine_AttachCertificateProofsReportsLostAndRegainedProofs(t *testing.T
 	}
 
 	info := &system.Info{}
-	e.attachCertificateProofs(info, checks)
+	e.attachCertificateProofs(context.Background(), info, checks)
 	assert.Empty(t, info.CertificateProofs, "no certificate in the store yet")
 	assert.Equal(t, 1, warnings(), "the user is told the device proves no certificate")
 
-	e.attachCertificateProofs(info, checks)
+	e.attachCertificateProofs(context.Background(), info, checks)
 	assert.Equal(t, 1, warnings(), "an unchanged outcome is not reported again")
 
 	deviceKey := certtest.ECDSAKey(t)
 	pem := certtest.CertPEM(ca.Issue(t, deviceKey, "device")) + certtest.KeyPEM(t, deviceKey)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.pem"), []byte(pem), 0o600))
 
-	e.attachCertificateProofs(info, checks)
+	e.attachCertificateProofs(context.Background(), info, checks)
 	assert.Len(t, info.CertificateProofs, 1, "the certificate is proven once it is in the store")
 	events := recorder.GetEventHistory()
 	require.NotEmpty(t, events)
 	last := events[len(events)-1]
 	assert.Equal(t, cProto.SystemEvent_INFO, last.Severity, "regaining the proof is reported as good news")
 
-	e.attachCertificateProofs(&system.Info{}, []*mgmProto.Checks{{Files: []string{"/bin/agent"}}})
+	e.attachCertificateProofs(context.Background(), &system.Info{}, []*mgmProto.Checks{{Files: []string{"/bin/agent"}}})
 	assert.Len(t, recorder.GetEventHistory(), len(events), "checks without a certificate challenge collect and report nothing")
 }
