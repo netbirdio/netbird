@@ -1870,6 +1870,20 @@ func (mr *MockStoreMockRecorder) GetAnyAccountID(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAnyAccountID", reflect.TypeOf((*MockStore)(nil).GetAnyAccountID), ctx)
 }
 
+// GetClusterAllProxiesPrivate mocks base method.
+func (m *MockStore) GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterAllProxiesPrivate", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// GetClusterAllProxiesPrivate indicates an expected call of GetClusterAllProxiesPrivate.
+func (mr *MockStoreMockRecorder) GetClusterAllProxiesPrivate(ctx, clusterAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterAllProxiesPrivate", reflect.TypeOf((*MockStore)(nil).GetClusterAllProxiesPrivate), ctx, clusterAddr)
+}
+
 // GetClusterRequireSubdomain mocks base method.
 func (m *MockStore) GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
