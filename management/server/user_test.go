@@ -1577,6 +1577,8 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 		// Creating a new regular user should send peer update (as users are not filtered yet)
 		step(t, "creating new regular user with no groups", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+
 			done := make(chan struct{})
 			go func() {
 				peerShouldReceiveUpdate(t, updMsg)
@@ -1593,16 +1595,16 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 			select {
 			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
 			}
 		})
 
-		// updating user with no linked peers should update account peers and send peer update (as users are not filtered yet)
+		// saving an unchanged user with no linked peers should not update account peers and not send peer update
 		step(t, "updating user with no linked peers", func(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
-				peerShouldReceiveUpdate(t, updMsg)
+				peerShouldNotReceiveUpdate(t, updMsg)
 				close(done)
 			}()
 

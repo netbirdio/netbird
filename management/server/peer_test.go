@@ -2158,7 +2158,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		})
 
 		// Deleting peer with linked group to name server group should update peers in that group, not unrelated peers
-		step(t, "deleting peer with linked group to route", func(t *testing.T) {
+		step(t, "deleting peer with linked group to name server group", func(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				peerShouldNotReceiveUpdate(t, updMsg)
