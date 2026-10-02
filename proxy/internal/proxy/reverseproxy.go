@@ -809,6 +809,12 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: false, Destination: false}
 
+	case errors.Is(err, roundtrip.ErrDirectUpstreamBlocked):
+		return "Destination Not Allowed",
+			"This proxy does not connect to private or internal addresses. Please contact your administrator.",
+			http.StatusBadGateway,
+			web.ErrorStatus{Proxy: false, Destination: false}
+
 	case errors.Is(err, roundtrip.ErrTooManyInflight):
 		return "Service Overloaded",
 			"The service is currently handling too many requests. Please try again shortly.",
