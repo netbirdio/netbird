@@ -1844,374 +1844,336 @@ func Test_LoginPeer(t *testing.T) {
 }
 
 func TestPeerAccountPeersUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
-	require.NoError(t, err)
-
-	g := []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupC",
-			Name:  "GroupC",
-			Peers: []string{},
-		},
-	}
-	for _, group := range g {
-		err = manager.CreateGroup(context.Background(), account.Id, userID, group)
-		require.NoError(t, err)
-	}
-
-	// create a user with auto groups
-	_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*types.User{
-		{
-			Id:         "regularUser1",
-			AccountID:  account.Id,
-			Role:       types.UserRoleAdmin,
-			Issued:     types.UserIssuedAPI,
-			AutoGroups: []string{"groupA"},
-		},
-		{
-			Id:         "regularUser2",
-			AccountID:  account.Id,
-			Role:       types.UserRoleAdmin,
-			Issued:     types.UserIssuedAPI,
-			AutoGroups: []string{"groupB"},
-		},
-		{
-			Id:         "regularUser3",
-			AccountID:  account.Id,
-			Role:       types.UserRoleAdmin,
-			Issued:     types.UserIssuedAPI,
-			AutoGroups: []string{"groupC"},
-		},
-	}, true)
-	require.NoError(t, err)
-
-	var peer4 *nbpeer.Peer
-	var peer5 *nbpeer.Peer
-	var peer6 *nbpeer.Peer
-
-	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
-	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
-		t.Skip("Currently all updates will trigger a network map")
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err := manager.UpdatePeer(context.Background(), account.Id, userID, peer2)
+		err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		g := []*types.Group{
+			{
+				ID:    "groupA",
+				Name:  "GroupA",
+				Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+			},
+			{
+				ID:    "groupB",
+				Name:  "GroupB",
+				Peers: []string{},
+			},
+			{
+				ID:    "groupC",
+				Name:  "GroupC",
+				Peers: []string{},
+			},
 		}
-	})
-
-	// Adding peer to unlinked group should not update account peers and not send peer update
-	t.Run("adding peer to unlinked group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
-
-		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser1", &nbpeer.Peer{
-			Key:  expectedPeerKey,
-			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		}, false)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Deleting peer with unlinked group should not update account peers and not send peer update
-	t.Run("deleting peer with unlinked group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Updating peer label should update account peers and send peer update
-	t.Run("updating peer label", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		peer1.Name = "peer-1"
-		_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	t.Run("validator requires update", func(t *testing.T) {
-		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
-			return update, true, nil
+		for _, group := range g {
+			err = manager.CreateGroup(context.Background(), account.Id, userID, group)
+			require.NoError(t, err)
 		}
 
-		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	t.Run("validator requires no update", func(t *testing.T) {
-		t.Skip("Currently all updates will trigger a network map")
-
-		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
-			return update, false, nil
-		}
-
-		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Adding peer to group linked with policy should update account peers and send peer update
-	t.Run("adding peer to group linked with policy", func(t *testing.T) {
-		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
-			AccountID: account.Id,
-			Enabled:   true,
-			Rules: []*types.PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"groupA"},
-					Destinations:  []string{"groupA"},
-					Bidirectional: true,
-					Action:        types.PolicyTrafficActionAccept,
-				},
+		// create a user with auto groups
+		_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*types.User{
+			{
+				Id:         "regularUser1",
+				AccountID:  account.Id,
+				Role:       types.UserRoleAdmin,
+				Issued:     types.UserIssuedAPI,
+				AutoGroups: []string{"groupA"},
+			},
+			{
+				Id:         "regularUser2",
+				AccountID:  account.Id,
+				Role:       types.UserRoleAdmin,
+				Issued:     types.UserIssuedAPI,
+				AutoGroups: []string{"groupB"},
+			},
+			{
+				Id:         "regularUser3",
+				AccountID:  account.Id,
+				Role:       types.UserRoleAdmin,
+				Issued:     types.UserIssuedAPI,
+				AutoGroups: []string{"groupC"},
 			},
 		}, true)
 		require.NoError(t, err)
 
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+		var peer4 *nbpeer.Peer
+		var peer5 *nbpeer.Peer
+		var peer6 *nbpeer.Peer
 
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 
-		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser1", &nbpeer.Peer{
-			Key:                    expectedPeerKey,
-			LoginExpirationEnabled: true,
-			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		}, false)
-		require.NoError(t, err)
+		// Adding peer to unlinked group should not update account peers and not send peer update
+		step(t, "adding peer to unlinked group", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+			key, err := wgtypes.GeneratePrivateKey()
+			require.NoError(t, err)
 
-	// Deleting peer with linked group to policy should update account peers and send peer update
-	t.Run("deleting peer with linked group to policy", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			expectedPeerKey := key.PublicKey().String()
+			peer4, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser1", &nbpeer.Peer{
+				Key:  expectedPeerKey,
+				Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+			}, false)
+			require.NoError(t, err)
 
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+		// Deleting peer with unlinked group should not update account peers and not send peer update
+		step(t, "deleting peer with unlinked group", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	// drain any buffered updates from previous subtests
-	drainPeerUpdates(updMsg)
+			err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
+			require.NoError(t, err)
 
-	// Adding peer to group linked with route should update peers in that group, not unrelated peers
-	t.Run("adding peer to group linked with route", func(t *testing.T) {
-		route := nbroute.Route{
-			ID:          "testingRoute1",
-			Network:     netip.MustParsePrefix("100.65.250.202/32"),
-			NetID:       "superNet",
-			NetworkType: nbroute.IPv4Network,
-			PeerGroups:  []string{"groupB"},
-			Description: "super",
-			Masquerade:  false,
-			Metric:      9999,
-			Enabled:     true,
-			Groups:      []string{"groupB"},
-		}
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
-		_, err := manager.CreateRoute(
-			context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, route.Peer,
-			route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-			route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
-		)
-		require.NoError(t, err)
+		// Updating peer label should update account peers and send peer update
+		step(t, "updating peer label", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			peer1.Name = "peer-1"
+			_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
+			require.NoError(t, err)
 
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		expectedPeerKey := key.PublicKey().String()
-		peer5, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
-			Key:                    expectedPeerKey,
-			LoginExpirationEnabled: true,
-			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		}, false)
-		require.NoError(t, err)
+		step(t, "validator requires update", func(t *testing.T) {
+			requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
+				return update, true, nil
+			}
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+			manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	// Deleting peer with linked group to route should update peers in that group, not unrelated peers
-	t.Run("deleting peer with linked group to route", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
+			require.NoError(t, err)
 
-		err = manager.DeletePeer(context.Background(), account.Id, peer5.ID, userID)
-		require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+		// Adding peer to group linked with policy should update account peers and send peer update
+		step(t, "adding peer to group linked with policy", func(t *testing.T) {
+			_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+				AccountID: account.Id,
+				Enabled:   true,
+				Rules: []*types.PolicyRule{
+					{
+						Enabled:       true,
+						Sources:       []string{"groupA"},
+						Destinations:  []string{"groupA"},
+						Bidirectional: true,
+						Action:        types.PolicyTrafficActionAccept,
+					},
+				},
+			}, true)
+			require.NoError(t, err)
 
-	// Adding peer to group linked with name server group should update peers in that group, not unrelated peers
-	t.Run("adding peer to group linked with name server group", func(t *testing.T) {
-		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "nsGroup", "nsGroup", []nbdns.NameServer{{
-				IP:     netip.MustParseAddr("1.1.1.1"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			}},
-			[]string{"groupC"},
-			true, []string{}, true, userID, false,
-		)
-		require.NoError(t, err)
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			key, err := wgtypes.GeneratePrivateKey()
+			require.NoError(t, err)
 
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
+			expectedPeerKey := key.PublicKey().String()
+			peer4, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser1", &nbpeer.Peer{
+				Key:                    expectedPeerKey,
+				LoginExpirationEnabled: true,
+				Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+			}, false)
+			require.NoError(t, err)
 
-		expectedPeerKey := key.PublicKey().String()
-		peer6, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser3", &nbpeer.Peer{
-			Key:                    expectedPeerKey,
-			LoginExpirationEnabled: true,
-			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		}, false)
-		require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+		// Deleting peer with linked group to policy should update account peers and send peer update
+		step(t, "deleting peer with linked group to policy", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	// Deleting peer with linked group to name server group should update peers in that group, not unrelated peers
-	t.Run("deleting peer with linked group to route", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
+			require.NoError(t, err)
 
-		err = manager.DeletePeer(context.Background(), account.Id, peer6.ID, userID)
-		require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
+		// drain any buffered updates from previous subtests
+		drainPeerUpdates(updMsg)
+
+		// Adding peer to group linked with route should update peers in that group, not unrelated peers
+		step(t, "adding peer to group linked with route", func(t *testing.T) {
+			route := nbroute.Route{
+				ID:          "testingRoute1",
+				Network:     netip.MustParsePrefix("100.65.250.202/32"),
+				NetID:       "superNet",
+				NetworkType: nbroute.IPv4Network,
+				PeerGroups:  []string{"groupB"},
+				Description: "super",
+				Masquerade:  false,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{"groupB"},
+			}
+
+			_, err := manager.CreateRoute(
+				context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, route.Peer,
+				route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
+				route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
+			)
+			require.NoError(t, err)
+
+			settleAffectedUpdates(updMsg)
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			key, err := wgtypes.GeneratePrivateKey()
+			require.NoError(t, err)
+
+			expectedPeerKey := key.PublicKey().String()
+			peer5, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
+				Key:                    expectedPeerKey,
+				LoginExpirationEnabled: true,
+				Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+			}, false)
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// Deleting peer with linked group to route should update peers in that group, not unrelated peers
+		step(t, "deleting peer with linked group to route", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err = manager.DeletePeer(context.Background(), account.Id, peer5.ID, userID)
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// Adding peer to group linked with name server group should update peers in that group, not unrelated peers
+		step(t, "adding peer to group linked with name server group", func(t *testing.T) {
+			_, err = manager.CreateNameServerGroup(
+				context.Background(), account.Id, "nsGroup", "nsGroup", []nbdns.NameServer{{
+					IP:     netip.MustParseAddr("1.1.1.1"),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				}},
+				[]string{"groupC"},
+				true, []string{}, true, userID, false,
+			)
+			require.NoError(t, err)
+
+			settleAffectedUpdates(updMsg)
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			key, err := wgtypes.GeneratePrivateKey()
+			require.NoError(t, err)
+
+			expectedPeerKey := key.PublicKey().String()
+			peer6, _, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser3", &nbpeer.Peer{
+				Key:                    expectedPeerKey,
+				LoginExpirationEnabled: true,
+				Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+			}, false)
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// Deleting peer with linked group to name server group should update peers in that group, not unrelated peers
+		step(t, "deleting peer with linked group to route", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err = manager.DeletePeer(context.Background(), account.Id, peer6.ID, userID)
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 	})
 }
 
@@ -2859,45 +2821,47 @@ func TestPeerWillHaveIPv6(t *testing.T) {
 // flipping --disable-ipv6) without bumping its WtVersion, other account peers
 // receive a fresh network map so their AAAA records for it become unstale.
 func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
-	manager, updateManager, _, peer1, peer2, _ := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, _, peer1, peer2, _ := setupNetworkMapTest(t)
 
-	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer1.ID)
-	})
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 
-	// Drain any initial updates from setup.
-	drain := func() {
-		for {
-			select {
-			case <-updMsg:
-			case <-time.After(200 * time.Millisecond):
-				return
+		// Drain any initial updates from setup.
+		drain := func() {
+			for {
+				select {
+				case <-updMsg:
+				case <-time.After(200 * time.Millisecond):
+					return
+				}
 			}
 		}
-	}
-	drain()
+		drain()
 
-	t.Run("no propagation when capabilities are unchanged", func(t *testing.T) {
-		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
-			WireGuardPubKey: peer2.Key,
-			Meta:            peer2.Meta,
-		}, peer2.AccountID)
-		require.NoError(t, err)
-		peerShouldNotReceiveUpdate(t, updMsg)
-	})
+		step(t, "no propagation when capabilities are unchanged", func(t *testing.T) {
+			_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+				WireGuardPubKey: peer2.Key,
+				Meta:            peer2.Meta,
+			}, peer2.AccountID)
+			require.NoError(t, err)
+			peerShouldNotReceiveUpdate(t, updMsg)
+		})
 
-	t.Run("propagation when IPv6 capability is added", func(t *testing.T) {
-		newMeta := peer2.Meta
-		newMeta.Capabilities = append([]int32{}, peer2.Meta.Capabilities...)
-		newMeta.Capabilities = append(newMeta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+		step(t, "propagation when IPv6 capability is added", func(t *testing.T) {
+			newMeta := peer2.Meta
+			newMeta.Capabilities = append([]int32{}, peer2.Meta.Capabilities...)
+			newMeta.Capabilities = append(newMeta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
 
-		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
-			WireGuardPubKey: peer2.Key,
-			Meta:            newMeta,
-		}, peer2.AccountID)
-		require.NoError(t, err)
-		peerShouldReceiveUpdate(t, updMsg)
+			_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+				WireGuardPubKey: peer2.Key,
+				Meta:            newMeta,
+			}, peer2.AccountID)
+			require.NoError(t, err)
+			peerShouldReceiveUpdate(t, updMsg)
+		})
 	})
 }
 
