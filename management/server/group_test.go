@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -1012,6 +1013,18 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				Metric:     9999,
 				Enabled:    true,
 			})
+			require.NoError(t, err)
+
+			resource, err := resourcesManager.CreateResource(context.Background(), userID, &resourceTypes.NetworkResource{
+				AccountID: account.Id,
+				NetworkID: network.ID,
+				Name:      "resource_test",
+				Address:   "10.20.30.0/24",
+				Enabled:   true,
+			})
+			require.NoError(t, err)
+
+			_, err = manager.SavePolicy(context.Background(), account.Id, userID, peerToResourcePolicyByResource("groupA", resource.ID), true)
 			require.NoError(t, err)
 
 			settleAffectedUpdates(updMsg)
