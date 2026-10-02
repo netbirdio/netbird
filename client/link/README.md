@@ -50,6 +50,7 @@ image is configured. `NB_FORWARD` takes a comma separated list.
 
 ```sh
 docker run --rm -p 8080:8080 \
+  --mount type=bind,src="$(pwd)/nb_setup_key",dst=/run/secrets/nb_setup_key,readonly \
   -e NB_SETUP_KEY=file:/run/secrets/nb_setup_key \
   -e NB_FORWARD='http://0.0.0.0:8080=https://grafana.internal' \
   -e NB_ALLOW_PUBLIC_BIND=true \
@@ -91,7 +92,9 @@ host's own network, so the peer cannot become a route into the machine it runs
 on.
 
 Userspace mode carries TCP, UDP and ping only. It cannot act as an exit node or
-a routing peer, does not take over system DNS, and cannot bind privileged ports.
+a routing peer and does not take over system DNS. Ports below 1024 need
+privileges the process usually does not have, though some container runtimes
+lower that boundary.
 
 This build forwards HTTP. The `tcp`, `udp` and `socks5` schemes are reserved by
 the grammar and rejected with a message saying so, so adding them later needs

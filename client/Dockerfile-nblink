@@ -5,11 +5,13 @@
 # writable by the root group rather than by one named user.
 FROM alpine:3.22 AS build
 
-# Group 0 owns the state directory and the group bits mirror the owner bits, so
-# a container started as any UID in group 0 can still persist its identity.
+# Group 0 owns the state directory so a container started as any UID in that
+# group can still persist its identity. Mode 770 rather than g=u, because the
+# directory holds the peer's keys and nothing outside owner and group should
+# read them, including when the path is bind-mounted from a host.
 RUN mkdir -p /tmp/var/lib/nblink \
     && chgrp -R 0 /tmp/var/lib/nblink \
-    && chmod -R g=u /tmp/var/lib/nblink
+    && chmod -R 770 /tmp/var/lib/nblink
 
 FROM gcr.io/distroless/static-debian13:nonroot
 
