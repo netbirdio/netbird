@@ -9,6 +9,7 @@ package link
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -33,7 +34,18 @@ var (
 	// schemePrefix matches a URL scheme at the start of a string, per RFC 3986
 	// section 3.1.
 	schemePrefix = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
+
+	// urlPassword matches the password half of a URL's userinfo. Errors quote
+	// the spec the operator typed, which would otherwise echo a password back
+	// to the terminal and into whatever captured it.
+	urlPassword = regexp.MustCompile(`(//[^/@\s]*):[^/@\s]*@`)
 )
+
+// redactSpec replaces any password inside a forward spec, so an error may
+// still name the spec it refers to.
+func redactSpec(spec string) string {
+	return urlPassword.ReplaceAllString(spec, "$1:xxxxx@")
+}
 
 // Forward is one local listener and the overlay address it carries traffic to.
 type Forward struct {
@@ -65,7 +77,7 @@ func ParseForward(spec string) (Forward, error) {
 
 	schemeEnd := strings.Index(spec, "://")
 	if schemeEnd < 0 {
-		return Forward{}, fmt.Errorf("forward %q: missing scheme, want scheme://[host:]port=upstream", spec)
+		return Forward{}, fmt.Errorf("forward %q: missing scheme, want scheme://[host:]port=upstream", redactSpec(spec))
 	}
 	proto := strings.ToLower(spec[:schemeEnd])
 
@@ -73,24 +85,24 @@ func ParseForward(spec string) (Forward, error) {
 	// listener from the upstream even when the upstream carries a query string.
 	sep := strings.Index(spec, "=")
 	if sep < 0 || sep < schemeEnd {
-		return Forward{}, fmt.Errorf("forward %q: missing '=' between listener and upstream", spec)
+		return Forward{}, fmt.Errorf("forward %q: missing '=' between listener and upstream", redactSpec(spec))
 	}
 
 	if !supportedProtos[proto] {
 		if plannedProtos[proto] {
-			return Forward{}, fmt.Errorf("forward %q: %s forwarding is not supported yet, this build handles %s", spec, proto, ProtoHTTP)
+			return Forward{}, fmt.Errorf("forward %q: %s forwarding is not supported yet, this build handles %s", redactSpec(spec), proto, ProtoHTTP)
 		}
-		return Forward{}, fmt.Errorf("forward %q: unknown scheme %q", spec, proto)
+		return Forward{}, fmt.Errorf("forward %q: unknown scheme %q", redactSpec(spec), proto)
 	}
 
 	listen, err := parseListen(spec[schemeEnd+len("://") : sep])
 	if err != nil {
-		return Forward{}, fmt.Errorf("forward %q: %w", spec, err)
+		return Forward{}, fmt.Errorf("forward %q: %w", redactSpec(spec), err)
 	}
 
 	upstream, err := parseUpstream(spec[sep+1:])
 	if err != nil {
-		return Forward{}, fmt.Errorf("forward %q: %w", spec, err)
+		return Forward{}, fmt.Errorf("forward %q: %w", redactSpec(spec), err)
 	}
 
 	return Forward{Proto: proto, Listen: listen, Upstream: upstream, Spec: spec}, nil
@@ -118,11 +130,13 @@ func parseListen(raw string) (string, error) {
 
 	// Only literal addresses are accepted. A name would be resolved once by
 	// the loopback check and again by the bind, and an answer that changed in
-	// between would put a listener on a public address without the opt-in.
+	// between would put a listener on a public address without the opt-in. A
+	// zone suffix stays allowed: it is part of the literal, resolved the same
+	// way at both points, and link-local addresses cannot be bound without it.
 	if strings.EqualFold(host, "localhost") {
 		host = defaultBindHost
 	}
-	if net.ParseIP(host) == nil {
+	if _, err := netip.ParseAddr(host); err != nil {
 		return "", fmt.Errorf("listen host %q must be an IP address or localhost", host)
 	}
 
@@ -179,6 +193,11 @@ func isLoopback(addr string) bool {
 	if err != nil {
 		return false
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	// Unmap first, so a v4-mapped form such as ::ffff:127.0.0.1 is recognised
+	// as the loopback address it is.
+	return ip.Unmap().IsLoopback()
 }

@@ -176,3 +176,54 @@ func TestCloseReleasesAnUnservedListener(t *testing.T) {
 	require.NoError(t, err, "Close should have released the listener")
 	require.NoError(t, reclaimed.Close())
 }
+
+// A caller that sends headers and then stalls its body must be cut off.
+// ReadHeaderTimeout does not cover the body and IdleTimeout applies only
+// between requests, so without the idle read deadline this connection would be
+// held open indefinitely.
+func TestStalledRequestBodyIsCutOff(t *testing.T) {
+	previous := bodyIdleTimeout
+	bodyIdleTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { bodyIdleTimeout = previous })
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(base, "http://"))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Announce a body, send one byte of it, then go quiet.
+	_, err = conn.Write([]byte("POST / HTTP/1.1\r\nHost: grafana.internal\r\nContent-Length: 1000\r\n\r\nx"))
+	require.NoError(t, err)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
+	_, err = io.ReadAll(conn)
+
+	// The server closes the connection rather than waiting on the rest of the
+	// body, so the read ends well before the generous deadline above.
+	require.NoError(t, err, "the connection should be closed by the server, not time out in the test")
+}
+
+func TestRedactSpec(t *testing.T) {
+	assert.Equal(t, "http://8080=https://user:xxxxx@a.internal",
+		redactSpec("http://8080=https://user:hunter2@a.internal"),
+		"a password must not survive into an error message")
+	assert.Equal(t, "http://8080=https://a.internal",
+		redactSpec("http://8080=https://a.internal"),
+		"a spec without credentials should be unchanged")
+}
+
+// The error that rejects a credential-bearing upstream quotes the spec, which
+// must not carry the password back to the terminal.
+func TestParseForwardDoesNotEchoPassword(t *testing.T) {
+	_, err := ParseForward("http://8080=https://user:hunter2@a.internal")
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "hunter2", "the password must not appear anywhere in the error")
+	assert.Contains(t, err.Error(), "must not carry credentials")
+}

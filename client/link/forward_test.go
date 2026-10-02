@@ -75,6 +75,15 @@ func TestParseForward(t *testing.T) {
 			wantUpstream: "https://grafana.internal",
 		},
 		{
+			// A zone is part of the literal and is resolved the same way at
+			// the check and at the bind, and link-local cannot be bound
+			// without it.
+			name:         "zone scoped ipv6 listen address",
+			spec:         "http://[fe80::1%eth0]:8080=https://grafana.internal",
+			wantListen:   "[fe80::1%eth0]:8080",
+			wantUpstream: "https://grafana.internal",
+		},
+		{
 			name:         "a scheme inside the query is not mistaken for the upstream scheme",
 			spec:         "http://8080=grafana.internal/login?next=https://grafana.internal/d",
 			wantListen:   "127.0.0.1:8080",
@@ -145,6 +154,10 @@ func TestIsLoopback(t *testing.T) {
 		{"192.168.1.10:8080", false},
 		{"[::]:8080", false},
 		{"not-an-address", false},
+		// A v4-mapped form is still the loopback address.
+		{"[::ffff:127.0.0.1]:8080", true},
+		// Link-local is not loopback, so it stays behind the opt-in.
+		{"[fe80::1%eth0]:8080", false},
 		// Names never reach this check, because parseListen rejects them.
 		{"localhost:8080", false},
 	}
