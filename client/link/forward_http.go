@@ -18,6 +18,10 @@ const (
 	// bodies stream without a deadline so long downloads are not cut off.
 	dialTimeout = 30 * time.Second
 
+	// readHeaderTimeout bounds how long a caller may take to send request
+	// headers.
+	readHeaderTimeout = 10 * time.Second
+
 	idleConnTimeout       = 90 * time.Second
 	tlsHandshakeTimeout   = 10 * time.Second
 	expectContinueTimeout = time.Second
@@ -73,7 +77,15 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 	return &httpForwarder{
 		forward:  fwd,
 		listener: listener,
-		server:   &http.Server{Handler: proxy},
+		server: &http.Server{
+			Handler: proxy,
+			// Bound how long a caller may take to send headers, so a slow
+			// sender cannot hold a connection and its goroutine open
+			// indefinitely. Neither deadline limits body streaming, so large
+			// uploads and downloads still run as long as they need.
+			ReadHeaderTimeout: readHeaderTimeout,
+			IdleTimeout:       idleConnTimeout,
+		},
 	}, nil
 }
 
@@ -93,8 +105,17 @@ func (f *httpForwarder) Serve() error {
 
 // Close stops the listener and waits for in-flight requests to finish, up to
 // the deadline carried by ctx.
+//
+// Shutdown only closes listeners the server has taken over in Serve, so the
+// raw listener is closed here as well. Otherwise a forwarder that was built
+// but never served, which happens when a later bind in the same set fails,
+// would hold its socket until the process exits.
 func (f *httpForwarder) Close(ctx context.Context) error {
-	return f.server.Shutdown(ctx)
+	shutdownErr := f.server.Shutdown(ctx)
+	if err := f.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return shutdownErr
 }
 
 // boundedDial applies dialTimeout to connection establishment without

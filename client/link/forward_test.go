@@ -68,6 +68,18 @@ func TestParseForward(t *testing.T) {
 			wantListen:   "127.0.0.1:0",
 			wantUpstream: "https://grafana.internal",
 		},
+		{
+			name:         "localhost normalizes to a literal address",
+			spec:         "http://localhost:8080=https://grafana.internal",
+			wantListen:   "127.0.0.1:8080",
+			wantUpstream: "https://grafana.internal",
+		},
+		{
+			name:         "a scheme inside the query is not mistaken for the upstream scheme",
+			spec:         "http://8080=grafana.internal/login?next=https://grafana.internal/d",
+			wantListen:   "127.0.0.1:8080",
+			wantUpstream: "https://grafana.internal/login?next=https://grafana.internal/d",
+		},
 	}
 
 	for _, tc := range tests {
@@ -95,6 +107,8 @@ func TestParseForwardErrors(t *testing.T) {
 		{name: "port not a number", spec: "http://http=grafana.internal", wantMsg: "not a number"},
 		{name: "missing upstream", spec: "http://8080=", wantMsg: "missing upstream"},
 		{name: "bad upstream scheme", spec: "http://8080=ftp://grafana.internal", wantMsg: "must be http or https"},
+		{name: "listen host is a name", spec: "http://grafana.internal:8080=https://a.internal", wantMsg: "must be an IP address or localhost"},
+		{name: "upstream carries credentials", spec: "http://8080=https://user:pass@grafana.internal", wantMsg: "must not carry credentials"},
 	}
 
 	for _, tc := range tests {
@@ -131,6 +145,8 @@ func TestIsLoopback(t *testing.T) {
 		{"192.168.1.10:8080", false},
 		{"[::]:8080", false},
 		{"not-an-address", false},
+		// Names never reach this check, because parseListen rejects them.
+		{"localhost:8080", false},
 	}
 
 	for _, tc := range tests {

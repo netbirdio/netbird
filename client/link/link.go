@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -98,11 +97,8 @@ func startForwards(cfg *Config, dial DialFunc) ([]*httpForwarder, error) {
 // forward stops serving.
 func waitForShutdown(ctx context.Context, forwards []*httpForwarder) error {
 	serveErr := make(chan error, len(forwards))
-	var wg sync.WaitGroup
 	for _, f := range forwards {
-		wg.Add(1)
 		go func(f *httpForwarder) {
-			defer wg.Done()
 			if err := f.Serve(); err != nil {
 				serveErr <- err
 			}
@@ -140,18 +136,19 @@ func stopClient(client *embed.Client) {
 	}
 }
 
-// logSession reports the overlay address and control-plane state once the
-// session is up, so a failure to reach an upstream later can be told apart
-// from a session that never connected.
+// logSession reports control-plane state once the session is up, so a failure
+// to reach an upstream later can be told apart from a session that never
+// connected. The peer name and address stay at debug level, where the rest of
+// the client keeps identifying details.
 func logSession(client *embed.Client) {
 	status, err := client.Status()
 	if err != nil {
 		log.Infof("connected (status unavailable: %v)", err)
 		return
 	}
-	log.Infof("connected as %s (%s), management %t, signal %t, %d peers",
-		status.LocalPeerState.FQDN, status.LocalPeerState.IP,
+	log.Infof("connected, management %t, signal %t, %d peers",
 		status.ManagementState.Connected, status.SignalState.Connected, len(status.Peers))
+	log.Debugf("peer %s has address %s", status.LocalPeerState.FQDN, status.LocalPeerState.IP)
 }
 
 // printEffectiveConfig writes the parsed forwards and exits without touching

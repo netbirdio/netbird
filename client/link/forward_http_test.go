@@ -153,3 +153,26 @@ func TestNewHTTPForwarderReportsBindConflict(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "listen on")
 }
+
+// A forwarder that was built but never served still owns its socket. The
+// bind-all-then-serve path closes earlier forwarders when a later bind fails,
+// so Close has to release the port even though Serve never ran.
+func TestCloseReleasesAnUnservedListener(t *testing.T) {
+	fwd, err := ParseForward("http://127.0.0.1:0=https://grafana.internal")
+	require.NoError(t, err)
+
+	f, err := newHTTPForwarder(fwd, func(context.Context, string, string) (net.Conn, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+	addr := f.Addr()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, f.Close(ctx))
+
+	// The port is free again only if the listener was actually closed.
+	reclaimed, err := net.Listen("tcp", addr)
+	require.NoError(t, err, "Close should have released the listener")
+	require.NoError(t, reclaimed.Close())
+}

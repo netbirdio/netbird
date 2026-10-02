@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -28,6 +29,10 @@ const ProtoHTTP = "http"
 var (
 	supportedProtos = map[string]bool{ProtoHTTP: true}
 	plannedProtos   = map[string]bool{"tcp": true, "udp": true, "socks5": true}
+
+	// schemePrefix matches a URL scheme at the start of a string, per RFC 3986
+	// section 3.1.
+	schemePrefix = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 )
 
 // Forward is one local listener and the overlay address it carries traffic to.
@@ -111,6 +116,16 @@ func parseListen(raw string) (string, error) {
 		port = p
 	}
 
+	// Only literal addresses are accepted. A name would be resolved once by
+	// the loopback check and again by the bind, and an answer that changed in
+	// between would put a listener on a public address without the opt-in.
+	if strings.EqualFold(host, "localhost") {
+		host = defaultBindHost
+	}
+	if net.ParseIP(host) == nil {
+		return "", fmt.Errorf("listen host %q must be an IP address or localhost", host)
+	}
+
 	n, err := strconv.Atoi(port)
 	if err != nil {
 		return "", fmt.Errorf("listen port %q is not a number", port)
@@ -131,7 +146,9 @@ func parseUpstream(raw string) (*url.URL, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("missing upstream")
 	}
-	if !strings.Contains(raw, "://") {
+	// Only a leading scheme counts. A "://" inside a path or query, as in a
+	// redirect parameter, belongs to the target rather than to this URL.
+	if !schemePrefix.MatchString(raw) {
 		raw = "https://" + raw
 	}
 
@@ -145,30 +162,23 @@ func parseUpstream(raw string) (*url.URL, error) {
 	if u.Hostname() == "" {
 		return nil, fmt.Errorf("upstream %q has no host", raw)
 	}
+	// Credentials in the upstream would reach the logs and the --check output,
+	// and the forwarder does not use them to authenticate anything.
+	if u.User != nil {
+		return nil, fmt.Errorf("upstream %q must not carry credentials", u.Redacted())
+	}
 
 	return u, nil
 }
 
-// isLoopback reports whether addr binds only the loopback interface. A host
-// that is not an IP literal is treated as non-loopback unless it resolves to
-// one, so an ambiguous bind is gated rather than allowed.
+// isLoopback reports whether addr binds only the loopback interface. The host
+// is always a literal address, because parseListen rejects names, so this
+// decides the same address the bind will use.
 func isLoopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
-	}
-
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
-		return false
-	}
-	for _, ip := range ips {
-		if !ip.IsLoopback() {
-			return false
-		}
-	}
-	return true
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
