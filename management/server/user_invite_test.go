@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -729,6 +730,9 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 		{"no digit", "Password!", "one digit"},
 		{"no uppercase", "password1!", "one uppercase"},
 		{"no special", "Password1", "one special character"},
+		// A password past bcrypt's 72-byte limit must be rejected here, before
+		// the embedded IdP tries to hash it and fails with an opaque error.
+		{"too long", strings.Repeat("A", 71) + "1!", "at most 72"},
 	}
 
 	for _, tc := range testCases {
@@ -738,6 +742,18 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.expectedMsg)
 		})
 	}
+}
+
+func TestUpdateUserPassword_RejectsOverLength(t *testing.T) {
+	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
+	defer cleanup()
+
+	// A new password past bcrypt's 72-byte limit is rejected by shared
+	// validation, before it reaches the embedded IdP and fails while hashing.
+	longPassword := strings.Repeat("A", 71) + "1!"
+	err := am.UpdateUserPassword(context.Background(), testAccountID, testAdminUserID, testAdminUserID, "OldPass1!", longPassword)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most 72")
 }
 
 func TestValidatePassword(t *testing.T) {
@@ -758,6 +774,12 @@ func TestValidatePassword(t *testing.T) {
 		{"all lowercase short", "pass", true, "at least 8 characters"},
 		{"empty", "", true, "at least 8 characters"},
 		{"spaces count as special", "Pass word1", false, ""},
+		// bcrypt hashes at most 72 bytes, so anything longer must be rejected
+		// here rather than failing later during hashing. The boundary is bytes,
+		// not runes: the multibyte case is under 72 runes but over 72 bytes.
+		{"exactly 72 bytes", strings.Repeat("A", 70) + "1!", false, ""},
+		{"too long 73 bytes", strings.Repeat("A", 71) + "1!", true, "at most 72"},
+		{"multibyte over 72 bytes", strings.Repeat("\u00e9", 36) + "A1!", true, "at most 72"},
 	}
 
 	for _, tc := range testCases {

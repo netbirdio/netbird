@@ -85,6 +85,17 @@ func TestRunChangePasswordValidatesPassword(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid password")
 }
 
+func TestRunChangePasswordRejectsOverLength(t *testing.T) {
+	st := newTestIDPStorage(t)
+	// 73 bytes with valid complexity: rejected by validation up front, not left
+	// to surface later as a bcrypt "password length exceeds 72 bytes" failure.
+	password := strings.Repeat("A", 71) + "1!"
+	err := runChangePassword(context.Background(), st, io.Discard, userSelector{email: "user@example.com"}, password, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid password")
+	require.Contains(t, err.Error(), "at most 72")
+}
+
 func TestRunResetMFA(t *testing.T) {
 	ctx := context.Background()
 	st := newTestIDPStorage(t)
