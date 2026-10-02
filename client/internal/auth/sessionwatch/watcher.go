@@ -114,6 +114,7 @@ type Watcher struct {
 	firedAt      time.Time // deadline value the T-WarningLead warning last published for
 	finalFiredAt time.Time // deadline value the T-FinalWarningLead warning last published for
 	dismissedAt  time.Time // deadline value the user dismissed via Dismiss(); gates the final warning
+	announcedAt  time.Time // deadline value the recorder has been told about; gates publishing
 	closed       bool
 	recorder     StatusRecorder
 	nowFn        func() time.Time
@@ -206,6 +207,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
+	w.announcedAt = time.Time{}
 
 	// Poll every accepted deadline, including one that reads as already
 	// expired: the clock may be running ahead of real time and get
@@ -220,8 +222,18 @@ func (w *Watcher) Update(deadline time.Time) error {
 		recorder.SetSessionExpiresAt(deadline)
 	}
 	log.Infof("auth session deadline set to: %s (in %s)", deadline.Format(time.RFC3339), time.Until(deadline).Round(time.Second))
-	// Evaluated after the recorder call so the state change reaches
-	// consumers before any warning event that refers to it.
+
+	// Open the gate only once the recorder knows the new deadline, so a
+	// warning that refers to it can never reach consumers before the state
+	// change itself. A tick landing in between finds the gate shut.
+	w.mu.Lock()
+	if w.closed || !w.current.Equal(deadline) {
+		w.mu.Unlock()
+		return nil
+	}
+	w.announcedAt = deadline
+	w.mu.Unlock()
+
 	w.evaluate()
 	return nil
 }
@@ -272,6 +284,7 @@ func (w *Watcher) Close() {
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
+	w.announcedAt = time.Time{}
 	// Copy the channels out and drop them before releasing the lock: the
 	// loop takes w.mu on every tick, so waiting for it while holding the
 	// lock would deadlock.
@@ -299,6 +312,7 @@ func (w *Watcher) clearLocked() {
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
+	w.announcedAt = time.Time{}
 	recorder := w.recorder
 	w.mu.Unlock()
 	if recorder != nil {
@@ -355,6 +369,11 @@ func (w *Watcher) evaluate() {
 	}
 
 	deadline := w.current
+	if !w.announcedAt.Equal(deadline) {
+		// Update is still on its way to the recorder with this deadline.
+		w.mu.Unlock()
+		return
+	}
 	// Round(0) strips the monotonic reading so the comparison is wall
 	// clock on both sides, whether the deadline came off the wire or from
 	// a caller that derived it from time.Now.

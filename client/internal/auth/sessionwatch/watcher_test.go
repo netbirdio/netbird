@@ -19,6 +19,9 @@ type fakeRecorder struct {
 	mu           sync.Mutex
 	events       []event
 	lastDeadline time.Time
+	// setDelay stalls SetSessionExpiresAt, widening the window in which a
+	// concurrent evaluation could publish a warning out of order.
+	setDelay time.Duration
 }
 
 type eventKind int
@@ -43,6 +46,12 @@ type event struct {
 // is the zero time, so an initial clear before any deadline is set emits
 // nothing — matching the real recorder.
 func (r *fakeRecorder) SetSessionExpiresAt(deadline time.Time) {
+	r.mu.Lock()
+	delay := r.setDelay
+	r.mu.Unlock()
+	// Stall without the lock held, so a concurrent publish can still record.
+	time.Sleep(delay)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.lastDeadline.Equal(deadline) {
@@ -783,5 +792,31 @@ func TestClockAheadAtUpdateStillWarnsOnceCorrected(t *testing.T) {
 	events := waitForEvents(t, r, 2)
 	if !events[1].isWarning() {
 		t.Fatalf("expected the warning once the clock was corrected, got %+v", events[1])
+	}
+}
+
+// TestWarningNeverPrecedesTheDeadlineStateChange pins the ordering Update
+// documents: consumers learn the new deadline before they see a warning that
+// refers to it. The deadline here already sits inside the warning window, and
+// the recorder stalls, so the evaluation loop gets many chances to publish
+// while Update is still announcing.
+func TestWarningNeverPrecedesTheDeadlineStateChange(t *testing.T) {
+	r := &fakeRecorder{setDelay: 50 * time.Millisecond}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	deadline := time.Now().Add(time.Hour).Round(0)
+	clock := newFakeClock(deadline.Add(-5 * time.Minute))
+	w.nowFn = clock.now
+	t.Cleanup(w.Close)
+
+	if err := w.Update(deadline); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	events := waitForEvents(t, r, 2)
+	if events[0].kind != stateChange {
+		t.Fatalf("event[0] should be the deadline state change, got %+v", events)
+	}
+	if !events[1].isWarning() {
+		t.Fatalf("event[1] should be the warning, got %+v", events)
 	}
 }
