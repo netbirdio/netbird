@@ -1054,6 +1054,17 @@ func TestClassifyProxyError(t *testing.T) {
 			wantStatus: web.ErrorStatus{Proxy: true, Destination: false},
 		},
 		{
+			name: "direct upstream blocked by dial guard",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: roundtrip.ErrDirectUpstreamBlocked,
+			},
+			wantTitle:  "Destination Not Allowed",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: false, Destination: false},
+		},
+		{
 			name:       "unknown error falls to default",
 			err:        errors.New("something unexpected"),
 			wantTitle:  "Connection Error",
