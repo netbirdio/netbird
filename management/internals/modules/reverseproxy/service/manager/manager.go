@@ -84,6 +84,7 @@ type CapabilityProvider interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -373,18 +374,18 @@ func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) 
 	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
 }
 
-// validatePrivateClusterTargets rejects cluster and direct upstream targets unless the
-// service's proxy cluster reports the private capability. Proxies outside a private
-// cluster dial these targets from the proxy host itself, so an unreported capability
-// is treated as unsupported. Must be called outside a transaction, like
-// clusterCustomPorts.
+// validatePrivateClusterTargets rejects cluster and direct upstream targets unless
+// every active proxy in the service's cluster reports the private capability. The
+// mapping reaches all proxies in the cluster, so one non-private proxy would serve
+// these targets too. An unreported capability is treated as unsupported. Must be
+// called outside a transaction, like clusterCustomPorts.
 func (m *Manager) validatePrivateClusterTargets(ctx context.Context, targets []*service.Target, cluster string) error {
 	target := firstPrivateClusterTarget(targets)
 	if target == nil {
 		return nil
 	}
 
-	if private := m.capabilities.ClusterSupportsPrivate(ctx, cluster); private != nil && *private {
+	if private := m.capabilities.ClusterAllProxiesPrivate(ctx, cluster); private != nil && *private {
 		return nil
 	}
 

@@ -336,6 +336,7 @@ type Store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)

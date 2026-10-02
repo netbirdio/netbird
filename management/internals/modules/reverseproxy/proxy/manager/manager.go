@@ -23,6 +23,7 @@ type store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
@@ -147,6 +148,11 @@ func (m Manager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string
 // ClusterSupportsPrivate reports whether any active proxy claims the private capability (nil = unreported).
 func (m Manager) ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool {
 	return m.store.GetClusterSupportsPrivate(ctx, clusterAddr)
+}
+
+// ClusterAllProxiesPrivate reports whether every active proxy claims the private capability (nil = unreported).
+func (m Manager) ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool {
+	return m.store.GetClusterAllProxiesPrivate(ctx, clusterAddr)
 }
 
 // ClusterSupportsSessionCode reports whether all active proxies support session codes.

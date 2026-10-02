@@ -29,12 +29,16 @@ func setupPrivateClusterTest(t *testing.T, private *bool) (*Manager, store.Store
 	mgr.capabilities = proxyMgr
 
 	if private != nil {
-		caps := &proxy.Capabilities{Private: private}
-		_, err = proxyMgr.Connect(context.Background(), "proxy-1", "session-1", testCluster, "127.0.0.1", "", nil, caps)
-		require.NoError(t, err)
+		connectTestProxy(t, proxyMgr, "proxy-1", &proxy.Capabilities{Private: private})
 	}
 
 	return mgr, testStore
+}
+
+func connectTestProxy(t *testing.T, proxyMgr *proxymanager.Manager, proxyID string, caps *proxy.Capabilities) {
+	t.Helper()
+	_, err := proxyMgr.Connect(context.Background(), proxyID, "session-"+proxyID, testCluster, "127.0.0.1", "", nil, caps)
+	require.NoError(t, err)
 }
 
 func clusterTarget() *rpservice.Target {
@@ -105,6 +109,40 @@ func TestCreateService_PrivateClusterTargets(t *testing.T) {
 	}
 }
 
+// A cluster where only some proxies run in private mode must not accept these
+// targets: the mapping is delivered to every proxy in the cluster, so the
+// non-private ones would serve the target from their host network as well.
+func TestCreateService_MixedClusterRejectsPrivateTargets(t *testing.T) {
+	tests := []struct {
+		name       string
+		secondCaps *proxy.Capabilities
+	}{
+		{name: "second proxy reports not private", secondCaps: &proxy.Capabilities{Private: boolPtr(false)}},
+		{name: "second proxy predates capability reporting", secondCaps: nil},
+	}
+
+	for _, tc := range tests {
+		for _, target := range []*rpservice.Target{clusterTarget(), directUpstreamPeerTarget()} {
+			t.Run(tc.name+"/"+string(target.TargetType), func(t *testing.T) {
+				ctx := context.Background()
+				mgr, testStore := setupPrivateClusterTest(t, boolPtr(true))
+				connectTestProxy(t, mgr.capabilities.(*proxymanager.Manager), "proxy-2", tc.secondCaps)
+
+				svc := newTestService("app.test.netbird.io")
+				svc.Targets = []*rpservice.Target{target}
+
+				_, err := mgr.CreateService(ctx, testAccountID, testUserID, svc)
+				require.Error(t, err, "a cluster with a non-private proxy must not accept the target")
+				assert.Contains(t, err.Error(), "requires a proxy cluster with private mode enabled")
+
+				services, err := testStore.GetAccountServices(ctx, store.LockingStrengthNone, testAccountID)
+				require.NoError(t, err)
+				assert.Empty(t, services, "a rejected service must not be persisted")
+			})
+		}
+	}
+}
+
 func TestCreateService_RegularTargetIgnoresPrivateCapability(t *testing.T) {
 	ctx := context.Background()
 	mgr, _ := setupPrivateClusterTest(t, boolPtr(false))
@@ -172,7 +210,7 @@ func TestUpdateService_PrivateClusterAllowsClusterTarget(t *testing.T) {
 
 func TestValidatePrivateClusterTargets_NoLookupWithoutPrivateTargets(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	// No ClusterSupportsPrivate expectation: a lookup would fail the test.
+	// No ClusterAllProxiesPrivate expectation: a lookup would fail the test.
 	mgr := &Manager{capabilities: proxy.NewMockManager(ctrl)}
 
 	targets := []*rpservice.Target{{TargetId: testPeerID, TargetType: rpservice.TargetTypePeer}}
