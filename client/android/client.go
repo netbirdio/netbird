@@ -95,8 +95,7 @@ type Client struct {
 
 	stateChangeMu    sync.Mutex
 	stateChangeSubID string
-	eventSub         *peer.EventSubscription
-	// Closed to stop the watch goroutines from delivering buffered items to a
+	// Closed to stop the watch goroutine from delivering buffered ticks to a
 	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
 	stateChangeDone chan struct{}
 
