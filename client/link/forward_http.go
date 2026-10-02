@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -78,7 +79,7 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 		forward:  fwd,
 		listener: listener,
 		server: &http.Server{
-			Handler: proxy,
+			Handler: withBodyIdleTimeout(proxy),
 			// Bound how long a caller may take to send headers, so a slow
 			// sender cannot hold a connection and its goroutine open
 			// indefinitely. Neither deadline limits body streaming, so large
@@ -146,4 +147,48 @@ func bindHint(addr string, err error) error {
 		return fmt.Errorf("%w (nblink runs unprivileged, so %s likely needs a port above 1023)", err, addr)
 	}
 	return err
+}
+
+// bodyIdleTimeout bounds how long a request body may stall without delivering
+// more bytes. It is a variable so tests can shorten it.
+var bodyIdleTimeout = 30 * time.Second
+
+// withBodyIdleTimeout cuts off a caller that sends request headers and then
+// stops sending the body.
+//
+// ReadHeaderTimeout covers only the headers, and IdleTimeout applies between
+// requests rather than during one, so without this a caller could hold a
+// connection and its handler open indefinitely. A total ReadTimeout would
+// close that gap but would also break legitimate long uploads, so the deadline
+// is refreshed on every read that makes progress instead.
+func withBodyIdleTimeout(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && r.Body != http.NoBody {
+			r.Body = &idleTimeoutBody{
+				ReadCloser: r.Body,
+				controller: http.NewResponseController(w),
+				idle:       bodyIdleTimeout,
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// idleTimeoutBody applies a fresh read deadline before every read, so a
+// transfer that keeps progressing runs as long as it needs while a stalled one
+// is cut off.
+type idleTimeoutBody struct {
+	io.ReadCloser
+	controller *http.ResponseController
+	idle       time.Duration
+}
+
+func (b *idleTimeoutBody) Read(p []byte) (int, error) {
+	// A connection that cannot carry a deadline, which the controller reports
+	// as unsupported, still reads normally rather than failing the request.
+	if err := b.controller.SetReadDeadline(time.Now().Add(b.idle)); err != nil &&
+		!errors.Is(err, http.ErrNotSupported) {
+		return 0, err
+	}
+	return b.ReadCloser.Read(p)
 }
