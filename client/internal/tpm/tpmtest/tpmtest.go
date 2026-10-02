@@ -65,12 +65,17 @@ func KeyPEM(t *testing.T, pub *ecdsa.PublicKey, opts ...Option) string {
 	t.Helper()
 	require.Equal(t, elliptic.P256(), pub.Curve, "fixture keys must be P-256")
 	area := SigningTemplate()
-	area.ECCParameters.Point = tpm2.ECPoint{
-		XRaw: pub.X.FillBytes(make([]byte, p256Bytes)),
-		YRaw: pub.Y.FillBytes(make([]byte, p256Bytes)),
-	}
-	encoded, err := area.Encode()
+	// The uncompressed encoding is 0x04 followed by the two coordinates, which is
+	// what the TPM wants them as.
+	point, err := pub.Bytes()
 	require.NoError(t, err)
+	require.Len(t, point, 1+2*p256Bytes)
+	area.ECCParameters.Point = tpm2.ECPoint{
+		XRaw: point[1 : 1+p256Bytes],
+		YRaw: point[1+p256Bytes:],
+	}
+	encoded, encErr := area.Encode()
+	require.NoError(t, encErr)
 	return EncodePEM(t, encoded, []byte("placeholder"), opts...)
 }
 

@@ -37,3 +37,12 @@ func storeWithToken(cfg Config) Store {
 	}
 	return Stores{files, token}
 }
+
+// dir is where the PEM store looks, which is only asked on the platforms that read a
+// directory at all.
+func (c Config) dir() string {
+	if c.Dir != "" {
+		return c.Dir
+	}
+	return StoreDir()
+}
