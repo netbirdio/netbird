@@ -82,11 +82,7 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	token, err := (&oauth2.Config{
-		ClientID:    oidcConfig.ClientID,
-		Endpoint:    provider.Endpoint(),
-		RedirectURL: oidcConfig.CallbackURL,
-	}).Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(codeVerifier))
+	token, err := oidcConfig.OAuth2Config(provider.Endpoint(), nil).Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(codeVerifier))
 	if err != nil {
 		log.WithError(err).Error("Failed to exchange code for token")
 		http.Error(w, "Failed to exchange code for token", http.StatusInternalServerError)

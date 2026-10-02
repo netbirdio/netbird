@@ -288,6 +288,7 @@ func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 			Issuer: s.Config.HttpConfig.AuthIssuer,
 			// todo: double check auth clientID value
 			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
+			ClientSecret: s.Config.HttpConfig.AuthClientSecret,
 			Scopes:       []string{"openid", "profile", "email"},
 			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
 			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
