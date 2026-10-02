@@ -324,19 +324,13 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID != "" {
-				sourcePeers = []string{rule.SourceResource.ID}
-				if rule.SourceResource.ID == peerID {
-					peerInSources = true
-				}
+				sourcePeers, peerInSources = nmd.getPeerFromResource(rule.SourceResource, peerID, policy.SourcePostureChecks, postureFailedPeers)
 			} else {
 				sourcePeers, peerInSources = nmd.getPeersFromGroups(rule.Sources, peerID, policy.SourcePostureChecks, postureFailedPeers)
 			}
 
 			if rule.DestinationResource.Type == string(types.ResourceTypePeer) && rule.DestinationResource.ID != "" {
-				destinationPeers = []string{rule.DestinationResource.ID}
-				if rule.DestinationResource.ID == peerID {
-					peerInDestinations = true
-				}
+				destinationPeers, peerInDestinations = nmd.getPeerFromResource(rule.DestinationResource, peerID, nil, postureFailedPeers)
 			} else {
 				destinationPeers, peerInDestinations = nmd.getPeersFromGroups(rule.Destinations, peerID, nil, postureFailedPeers)
 			}
@@ -403,30 +397,16 @@ func (nmd *NetworkMapData) getPeersFromGroups(groups []string, peerID string, so
 			filteredPeerIDs = make([]string, 0, len(group.Peers))
 			peerInGroups = false
 			for _, pid := range group.Peers {
-				peer, ok := nmd.Peers[pid]
-				if !ok || peer == nil {
+				if !nmd.admitPolicyPeer(pid, sourcePostureChecksIDs, postureFailedPeers) {
 					continue
 				}
 
-				if _, ok := nmd.ValidatedPeers[peer.ID]; !ok {
-					continue
-				}
-
-				isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(sourcePostureChecksIDs, peer.ID)
-				if !isValid && len(pname) > 0 {
-					if _, ok := (*postureFailedPeers)[pname]; !ok {
-						(*postureFailedPeers)[pname] = make(map[string]struct{})
-					}
-					(*postureFailedPeers)[pname][peer.ID] = struct{}{}
-					continue
-				}
-
-				if peer.ID == peerID {
+				if pid == peerID {
 					peerInGroups = true
 					continue
 				}
 
-				filteredPeerIDs = append(filteredPeerIDs, peer.ID)
+				filteredPeerIDs = append(filteredPeerIDs, pid)
 			}
 			return filteredPeerIDs, peerInGroups
 		}
@@ -436,34 +416,57 @@ func (nmd *NetworkMapData) getPeersFromGroups(groups []string, peerID string, so
 				continue
 			}
 			seenPeerIds[pid] = struct{}{}
-			peer, ok := nmd.Peers[pid]
-			if !ok || peer == nil {
+			if !nmd.admitPolicyPeer(pid, sourcePostureChecksIDs, postureFailedPeers) {
 				continue
 			}
 
-			if _, ok := nmd.ValidatedPeers[peer.ID]; !ok {
-				continue
-			}
-
-			isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(sourcePostureChecksIDs, peer.ID)
-			if !isValid && len(pname) > 0 {
-				if _, ok := (*postureFailedPeers)[pname]; !ok {
-					(*postureFailedPeers)[pname] = make(map[string]struct{})
-				}
-				(*postureFailedPeers)[pname][peer.ID] = struct{}{}
-				continue
-			}
-
-			if peer.ID == peerID {
+			if pid == peerID {
 				peerInGroups = true
 				continue
 			}
 
-			filteredPeerIDs = append(filteredPeerIDs, peer.ID)
+			filteredPeerIDs = append(filteredPeerIDs, pid)
 		}
 	}
 
 	return filteredPeerIDs, peerInGroups
+}
+
+// getPeerFromResource resolves a rule side that names a peer directly, admitting it
+// like a member of a group holding only that peer.
+func (nmd *NetworkMapData) getPeerFromResource(resource nmdata.Resource, peerID string, sourcePostureChecksIDs []string,
+	postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
+	if !nmd.admitPolicyPeer(resource.ID, sourcePostureChecksIDs, postureFailedPeers) {
+		return nil, false
+	}
+	if resource.ID == peerID {
+		return nil, true
+	}
+	return []string{resource.ID}, false
+}
+
+// admitPolicyPeer applies the per-peer admission of a rule side: the peer must exist,
+// be validated and pass the rule's posture checks. A failed check is recorded in
+// postureFailedPeers.
+func (nmd *NetworkMapData) admitPolicyPeer(pid string, sourcePostureChecksIDs []string, postureFailedPeers *map[string]map[string]struct{}) bool {
+	peer, ok := nmd.Peers[pid]
+	if !ok || peer == nil {
+		return false
+	}
+
+	if _, ok := nmd.ValidatedPeers[pid]; !ok {
+		return false
+	}
+
+	isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(sourcePostureChecksIDs, pid)
+	if !isValid && len(pname) > 0 {
+		if _, ok := (*postureFailedPeers)[pname]; !ok {
+			(*postureFailedPeers)[pname] = make(map[string]struct{})
+		}
+		(*postureFailedPeers)[pname][pid] = struct{}{}
+		return false
+	}
+	return true
 }
 
 func (nmd *NetworkMapData) validatePostureChecksOnPeerGetFailed(sourcePostureChecksID []string, peerID string) (bool, string) {

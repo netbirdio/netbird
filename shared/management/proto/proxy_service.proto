@@ -194,6 +194,12 @@ message Authentication {
   bool pin = 4;
   bool oidc = 5;
   repeated HeaderAuth header_auths = 6;
+  // Group ids allowed to reach the service through an OIDC identity. When
+  // non-empty the proxy requires the session token's groups claim to
+  // intersect this list before honouring the cookie, so a token minted for
+  // an identity outside these groups is not a bearer credential for the
+  // service. Empty means group membership does not restrict access.
+  repeated string allowed_group_ids = 7;
 }
 
 message AccessRestrictions {
@@ -357,7 +363,9 @@ message GetOIDCURLResponse {
 
 message ValidateSessionRequest {
   string domain = 1;
-  string session_token = 2;
+  string session_token = 2 [deprecated = true];
+  // session_code is a short-lived, single-use code exchanged for a session token.
+  string session_code = 3;
 }
 
 message ValidateSessionResponse {
@@ -374,6 +382,8 @@ message ValidateSessionResponse {
   // Stamped onto upstream requests as X-NetBird-Groups so downstream
   // services can read names rather than opaque ids.
   repeated string peer_group_names = 6;
+  // session_token contains the durable token issued when session_code is redeemed.
+  string session_token = 7;
 }
 
 // ValidateTunnelPeerRequest carries the inbound peer's tunnel IP and the
@@ -500,4 +510,3 @@ message RecordLLMUsageRequest {
 
 message RecordLLMUsageResponse {
 }
-

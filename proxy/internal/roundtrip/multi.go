@@ -26,8 +26,8 @@ import (
 // branch at all), construct the MultiTransport via NewDirectOnly.
 type MultiTransport struct {
 	embedded http.RoundTripper
-	direct   *http.Transport
-	insecure *http.Transport
+	direct   *upstreamTransport
+	insecure *upstreamTransport
 }
 
 // errNoEmbeddedTransport is returned when a request reaches the
@@ -53,7 +53,6 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 	}
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          cfg.maxIdleConns,
 		MaxIdleConnsPerHost:   cfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.maxConnsPerHost,
@@ -65,13 +64,16 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 		ReadBufferSize:        cfg.readBufferSize,
 		DisableCompression:    cfg.disableCompression,
 	}
+	// Clone runs the transport's one-time protocol setup, so the HTTP
+	// version must be applied first or the source loses HTTP/2 for good.
+	applyUpstreamHTTPVersion(direct, cfg.upstreamHTTPVersion)
 	insecure := direct.Clone()
 	insecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // matches the embedded NetBird transport's per-target opt-in
 
 	return &MultiTransport{
 		embedded: embedded,
-		direct:   direct,
-		insecure: insecure,
+		direct:   newUpstreamTransport(direct, cfg.upstreamHTTPVersion, logger),
+		insecure: newUpstreamTransport(insecure, cfg.upstreamHTTPVersion, logger),
 	}
 }
 

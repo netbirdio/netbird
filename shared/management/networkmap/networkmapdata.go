@@ -54,6 +54,10 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 	// builder can load because they are never written to the database.
 	Services []*nmdata.Service
 
+	// Domains are the account's registered reverse-proxy domains, used to
+	// resolve the zone apex a private service's records hang under.
+	Domains []nmdata.ProxyDomain
+
 	peerGroupsOnce sync.Once
 	peerGroupsIdx  map[string]map[string]struct{}
 

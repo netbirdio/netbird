@@ -50,6 +50,7 @@ The build requires `CGO_ENABLED=1` because it links the SQLite driver used by `S
 | `--domain` | string | `""` | Sets both dashboard and API domain (convenience shorthand) |
 | `--dashboard-domain` | string | *(required)* | Dashboard domain (for redirect URIs) |
 | `--api-domain` | string | *(required)* | API domain (for Dex issuer and callback URLs) |
+| `--single-account-mode-domain` | string | `netbird.selfhosted` | Domain single account mode groups users under. Used only when the account has no domain of its own; passing one that conflicts with the account's existing domain is an error |
 | `--dry-run` | bool | `false` | Preview changes without writing |
 | `--force` | bool | `false` | Skip interactive confirmation prompt |
 | `--skip-config` | bool | `false` | Skip config generation (DB-only migration) |
@@ -68,6 +69,7 @@ All flags can be overridden via environment variables. Env vars take precedence 
 | `NETBIRD_CONFIG_PATH` | `--config` |
 | `NETBIRD_DATA_DIR` | `--datadir` |
 | `NETBIRD_IDP_SEED_INFO` | `--idp-seed-info` |
+| `NETBIRD_SINGLE_ACCOUNT_MODE_DOMAIN` | `--single-account-mode-domain` |
 | `NETBIRD_DRY_RUN` | `--dry-run` (set to `"true"`) |
 | `NETBIRD_FORCE` | `--force` (set to `"true"`) |
 | `NETBIRD_SKIP_CONFIG` | `--skip-config` (set to `"true"`) |

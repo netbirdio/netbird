@@ -242,7 +242,11 @@ func getDatabaseFilename(ctx context.Context, databaseURL string, filenamePatter
 	// strip suffixes that may be nested, such as .tar.gz
 	basename := strings.SplitN(filename, ".", 2)[0]
 	// get date version from basename
-	date := strings.SplitN(basename, "_", 2)[1]
+	parts := strings.SplitN(basename, "_", 2)
+	if len(parts) < 2 || parts[1] == "" {
+		return "", fmt.Errorf("unexpected database filename %q: missing date suffix", filename)
+	}
+	date := parts[1]
 	// format db as "GeoLite2-Cities-{maxmind|geonames}_{DATE}.{mmdb|db}"
 	databaseFilename := filepath.Base(strings.Replace(filenamePattern, "*", date, 1))
 
