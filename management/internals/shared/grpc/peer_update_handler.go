@@ -7,6 +7,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -18,12 +19,14 @@ func PeerUpdateHandlerFactory(
 	peerKey wgtypes.Key,
 	updates chan *network_map.UpdateMessage,
 	secretsManager SecretsManager,
+	challenger *certposture.Challenger,
 	srv proto.ManagementService_SyncServer,
 	cleanupfunc func()) *PeerUpdateHandler {
 	return &PeerUpdateHandler{
 		peerKey:        peerKey,
 		updates:        updates,
 		secretsManager: secretsManager,
+		challenger:     challenger,
 		srv:            srv,
 		encrypter:      encryption.DefaultEncrypter{},
 		debouncer:      NewUpdateDebouncer(1000 * time.Millisecond),
@@ -40,6 +43,7 @@ type PeerUpdateHandler struct {
 	updates        chan *network_map.UpdateMessage
 	appMetrics     telemetry.AppMetrics
 	secretsManager SecretsManager
+	challenger     *certposture.Challenger
 	srv            syncSender
 	encrypter      encryption.Encrypter
 	debouncer      Debouncer
@@ -117,7 +121,7 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 
-	stampCertificateChallenges(update.Update.GetChecks(), pu.peerKey, key)
+	stampCertificateChallenges(update.Update.GetChecks(), pu.challenger, pu.peerKey)
 	encryptedResp, err := pu.encrypter.EncryptMessage(pu.peerKey, key, update.Update)
 	if err != nil {
 		pu.cleanupFunc()

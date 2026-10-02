@@ -45,6 +45,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
@@ -70,6 +71,7 @@ type Server struct {
 	peerLocks      sync.Map
 	authManager    auth.Manager
 	sessionStore   *auth.SessionStore
+	challenger     *certposture.Challenger
 
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
@@ -131,7 +133,13 @@ func NewServer(
 		}
 	}
 
+	serverKey, err := secretsManager.GetWGKey()
+	if err != nil {
+		return nil, fmt.Errorf("get server WireGuard key: %w", err)
+	}
+
 	return &Server{
+		challenger:               newCertChallenger(config.DataStoreEncryptionKey, serverKey),
 		jobManager:               jobManager,
 		accountManager:           accountManager,
 		settingsManager:          settingsManager,
@@ -338,7 +346,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
+	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger, srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
 
@@ -721,7 +729,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	stampCertificateChallenges(loginResp.Checks, peerKey, key)
+	stampCertificateChallenges(loginResp.Checks, s.challenger, peerKey)
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
@@ -973,7 +981,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed getting server key")
 	}
 
-	stampCertificateChallenges(plainResp.Checks, peerKey, key)
+	stampCertificateChallenges(plainResp.Checks, s.challenger, peerKey)
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
