@@ -26,7 +26,10 @@ const (
 
 // errKeyMismatch rejects a key that does not belong to the certificate it sits with: it
 // would sign a proof management can only reject, in place of a usable later candidate.
-var errKeyMismatch = errors.New("private key does not match the certificate")
+var (
+	errKeyMismatch  = errors.New("private key does not match the certificate")
+	errNoSiblingKey = errors.New("no key file next to the certificate")
+)
 
 // Candidate is a certificate chain the peer can sign for. Signer never exposes the key.
 // Chain is leaf first. Intermediates holds every other certificate the store has, so a
@@ -61,13 +64,6 @@ type Config struct {
 	Dir          string
 	PKCS11       PKCS11Config
 	ProfileOwner string
-}
-
-func (c Config) dir() string {
-	if c.Dir != "" {
-		return c.Dir
-	}
-	return StoreDir()
 }
 
 // FileStore reads PEM files from a directory. A file holds the chain (leaf first) and
@@ -146,11 +142,13 @@ func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
 		return nil, nil, errors.New("no certificate")
 	}
 	if signer == nil {
-		if signer, err = siblingKey(path); err != nil {
-			return nil, nil, err
-		}
-		if signer == nil {
+		signer, err = siblingKey(path)
+		switch {
+		case errors.Is(err, errNoSiblingKey):
+			// A certificate with no key of its own: the token store pairs it later.
 			return chain, nil, nil
+		case err != nil:
+			return nil, nil, err
 		}
 	}
 	if !samePublicKey(signer.Public(), chain[0].PublicKey) {
@@ -160,11 +158,11 @@ func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
 }
 
 // siblingKey reads the private key from the "<name>.key" file next to a certificate
-// file, or returns nil when there is no such file.
+// file, reporting errNoSiblingKey when there is none.
 func siblingKey(path string) (crypto.Signer, error) {
 	keyData, err := readStoreFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, errNoSiblingKey
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read key file: %w", err)

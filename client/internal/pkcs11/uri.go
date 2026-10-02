@@ -31,7 +31,7 @@ type URI struct {
 func ParseURI(raw string) (*URI, error) {
 	rest, ok := strings.CutPrefix(raw, "pkcs11:")
 	if !ok {
-		return nil, errors.New("PKCS#11 URI must start with pkcs11:")
+		return nil, errors.New("PKCS#11 URI does not start with the pkcs11 scheme")
 	}
 	path, query, _ := strings.Cut(rest, "?")
 
