@@ -434,19 +434,26 @@ func TestRejectedRequestClosesTheConnection(t *testing.T) {
 	require.NoError(t, err)
 	req.Host = "attacker.example"
 
-	done := make(chan *http.Response, 1)
+	// The request is answered on another goroutine, so a server that waits on
+	// the stalled body fails the test by timing out rather than hanging it.
+	type rejection struct {
+		status     int
+		closesConn bool
+	}
+	done := make(chan rejection, 1)
 	go func() {
 		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			done <- resp
+		if err != nil {
+			return
 		}
+		defer resp.Body.Close()
+		done <- rejection{status: resp.StatusCode, closesConn: resp.Close}
 	}()
 
 	select {
-	case resp := <-done:
-		defer resp.Body.Close()
-		assert.Equal(t, http.StatusMisdirectedRequest, resp.StatusCode)
-		assert.True(t, resp.Close, "the server must close a connection it rejected rather than drain the body")
+	case got := <-done:
+		assert.Equal(t, http.StatusMisdirectedRequest, got.status)
+		assert.True(t, got.closesConn, "the server must close a connection it rejected rather than drain the body")
 	case <-time.After(5 * time.Second):
 		t.Fatal("the rejected request was not answered while its body stalled")
 	}
