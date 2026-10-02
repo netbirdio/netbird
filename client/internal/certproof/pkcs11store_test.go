@@ -310,9 +310,9 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 		wantPIN    []byte
 		wantModule string
 	}{
-		{"pin alone opens the first p11-kit token", PKCS11Config{PIN: "1234"}, []byte("1234"), pkcs11.DefaultModule},
-		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:?module-path=/lib/x.so&pin-value=0000", PIN: "1234"}, []byte("1234"), "/lib/x.so"},
-		{"uri pin-value stands in for a missing field", PKCS11Config{URI: "pkcs11:?pin-value=0000"}, []byte("0000"), pkcs11.DefaultModule},
+		{"pin with a token label opens that token through p11-kit", PKCS11Config{URI: "pkcs11:token=netbird", PIN: "1234"}, []byte("1234"), pkcs11.DefaultModule},
+		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:token=netbird?module-path=/lib/x.so&pin-value=0000", PIN: "1234"}, []byte("1234"), "/lib/x.so"},
+		{"uri pin-value stands in for a missing field", PKCS11Config{URI: "pkcs11:token=netbird?pin-value=0000"}, []byte("0000"), pkcs11.DefaultModule},
 		{"no pin at all means no login", PKCS11Config{URI: "pkcs11:token=netbird"}, nil, pkcs11.DefaultModule},
 	}
 	for _, tt := range tests {
@@ -328,4 +328,14 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 
 	_, err := NewPKCS11Store(PKCS11Config{URI: "not-a-pkcs11-uri", PIN: "1234"}, "")
 	assert.Error(t, err, "a malformed URI must not be silently replaced by the defaults")
+
+	for name, cfg := range map[string]PKCS11Config{
+		"env pin without uri":      {PIN: "1234"},
+		"env pin, uri lacks token": {URI: "pkcs11:?module-path=/lib/x.so", PIN: "1234"},
+		"inline pin-value only":    {URI: "pkcs11:?pin-value=0000"},
+		"pin-source only":          {URI: "pkcs11:?pin-source=file:/etc/netbird/pkcs11.pin"},
+	} {
+		_, err := NewPKCS11Store(cfg, "")
+		assert.ErrorIs(t, err, errPINNeedsToken, "%s: a PIN must not go to whichever token is listed first", name)
+	}
 }

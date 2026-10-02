@@ -147,23 +147,21 @@ NB_TPM_DEVICE=/tmp/swtpm.sock go test ./client/internal/certproof/ -run TestColl
 
 Distributions that follow Red Hat's guidance reach the TPM through tpm2-pkcs11, a PKCS#11
 module whose token holds both the key and, after `tpm2_ptool addcert`, the certificate.
-The store reads that token when the daemon's environment carries the token's user PIN in
-`NB_TPM_PIN`. The PIN is never read from the profile config or a command-line flag; set it
-on the service instead:
-
-```sh
-netbird service install --service-env NB_TPM_PIN=1234
-```
-
-That alone opens the first token the p11-kit proxy exposes, which is tpm2-pkcs11 on a
-stock setup that has registered it. `CertPKCS11URI`, an RFC 7512 URI, narrows that down
-on a host with several tokens or without p11-kit:
+The store reads that token when `CertPKCS11URI` in the profile config, an RFC 7512 URI,
+names it, and the daemon's environment carries the token's user PIN in `NB_TPM_PIN`. The
+PIN is not a profile config field or a command-line flag; set it on the service:
 
 ```json
 "CertPKCS11URI": "pkcs11:token=netbird?module-path=/usr/lib/x86_64-linux-gnu/libtpm2_pkcs11.so"
 ```
 
-`token` selects the token by label, or the first token present when absent. `module-path`
+```sh
+netbird service install --service-env NB_TPM_PIN=1234
+```
+
+`token` selects the token by label and is required whenever a PIN is set, from any source:
+a PIN that names no token would go to whichever token is listed first, which may be a
+plugged-in smartcard, and each wrong PIN counts towards that card's lockout. `module-path`
 names the library to load; `module-name=tpm2_pkcs11` resolves to `libtpm2_pkcs11.so` on
 the loader's search path, and with neither the p11-kit proxy is loaded, which exposes every
 module the system has registered. The URI may carry the PIN itself, as `pin-value` inline

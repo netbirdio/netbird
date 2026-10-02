@@ -44,16 +44,22 @@ type PKCS11Store struct {
 
 // NewPKCS11Store parses cfg.URI, standing in the bare defaults when it is empty. Files in
 // certDir without a key of their own are paired with the token's keys by public key.
+//
+// A PIN is only accepted together with a token label: without one the PIN would go to
+// whichever token the module lists first, which on a machine with a smartcard plugged
+// in may be the card, and every wrong PIN counts towards that card's lockout.
 func NewPKCS11Store(cfg PKCS11Config, certDir string) (*PKCS11Store, error) {
 	store := &PKCS11Store{uri: &pkcs11.URI{}, pin: cfg.PIN, certDir: certDir}
-	if cfg.URI == "" {
-		return store, nil
+	if cfg.URI != "" {
+		parsed, err := pkcs11.ParseURI(cfg.URI)
+		if err != nil {
+			return nil, err
+		}
+		store.uri = parsed
 	}
-	parsed, err := pkcs11.ParseURI(cfg.URI)
-	if err != nil {
-		return nil, err
+	if (cfg.PIN != "" || store.uri.HasPIN()) && store.uri.Token == "" {
+		return nil, errPINNeedsToken
 	}
-	store.uri = parsed
 	return store, nil
 }
 

@@ -80,6 +80,11 @@ func (u *URI) Module() string {
 	return u.ModulePath
 }
 
+// HasPIN reports whether the URI carries a PIN, inline or as a pin-source.
+func (u *URI) HasPIN() bool {
+	return u.pinValue != nil || u.pinSource != ""
+}
+
 // PIN returns the user PIN, or nil when the URI carries none and no login should happen.
 // A pin-source names a file whose single line is the PIN.
 func (u *URI) PIN() ([]byte, error) {
