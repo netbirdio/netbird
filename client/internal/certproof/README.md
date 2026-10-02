@@ -224,6 +224,11 @@ currently open**. Consequences worth designing around:
 - **Signing out changes the answer.** Posture can flip between compliant and
   non-compliant across a sign-out, so management should treat "no proof" as its own
   state rather than as a failed check, or users get disconnected at the sign-in screen.
+- **The engine notices the change.** Every minute it checks whether the profile owner's
+  session came or went, and collects again when it did. A collection that proved nothing
+  is retried every five minutes, for a keychain unlocked after login or a TPM resource
+  manager started after the daemon. Losing every proof, and regaining one, is published
+  as a system event, so the UI and `netbird status` show why access changed.
 - **Only the profile owner is asked.** The user certificate belongs to whoever owns the
   active NetBird profile. macOS asks the console user only when that user owns the
   profile, so a fast-user-switched account never answers for someone else. Windows asks

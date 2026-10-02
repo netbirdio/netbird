@@ -44,6 +44,21 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 	return mergeProofs(proofs, userProofs)
 }
 
+// UserContext identifies the session whose store a collection would include: a session
+// of the profile owner, or empty when no user store would be asked. A change means a
+// collection made earlier no longer reflects what this machine can prove.
+func UserContext(cfg Config) string {
+	if !runningAsLocalSystem() {
+		return ""
+	}
+	user, ok := CurrentDesktopUser(cfg.ProfileOwner)
+	if !ok {
+		return ""
+	}
+	defer user.Close()
+	return fmt.Sprintf("%d:%s", user.Session, user.Name)
+}
+
 // helperStore is the store the helper reads. It runs as the signed-in user, so it wants
 // that user's store rather than the machine store the service already read.
 func helperStore() Store {

@@ -108,6 +108,11 @@ func CollectChallenges(ctx context.Context, store Store, challenges []*proto.Cer
 	return proofs
 }
 
+// HasChallenges reports whether any of checks asks for a certificate proof.
+func HasChallenges(checks []*proto.Checks) bool {
+	return len(certificateChallenges(checks)) > 0
+}
+
 func certificateChallenges(checks []*proto.Checks) []*proto.CertificateChallenge {
 	var challenges []*proto.CertificateChallenge
 	for _, check := range checks {

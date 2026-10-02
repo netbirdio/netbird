@@ -17,6 +17,12 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 	return Collect(ctx, storeWithToken(cfg), checks, peerKey)
 }
 
+// UserContext identifies the user whose certificates a collection would include. These
+// platforms have no per-user store, so it never changes.
+func UserContext(Config) string {
+	return ""
+}
+
 // helperStore is the store the helper reads. Nothing launches a helper on these
 // platforms, so it is the platform default.
 func helperStore() Store {

@@ -276,8 +276,10 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
-	// certProofs answers the certificate challenges in checks within a bounded time.
+	// certProofs answers the certificate challenges in checks within a bounded time, and
+	// certState remembers what it last proved.
 	certProofs certproof.Collector
+	certState  certPostureState
 
 	infoSource system.InfoSource
 
@@ -677,6 +679,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		defer e.shutdownWg.Done()
 		e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
 	}()
+
+	e.shutdownWg.Add(1)
+	go func(ctx context.Context) {
+		defer e.shutdownWg.Done()
+		e.watchCertificatePosture(ctx)
+	}(e.ctx)
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
@@ -1258,17 +1266,11 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if isChecksEqual(e.checks, checks) {
 		return nil
 	}
-	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
-	if !ok {
-		// Gathering timed out; skip the meta sync this cycle rather than blocking the
-		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
-		return nil
-	}
-	e.applyInfoFlags(info)
-	e.attachCertificateProofs(info, checks)
-
-	if err := e.mgmClient.SyncMeta(info); err != nil {
-		return fmt.Errorf("could not sync meta: error %s", err)
+	if err := e.syncChecksMeta(checks); err != nil {
+		if errors.Is(err, errSystemInfoTimeout) {
+			return nil
+		}
+		return err
 	}
 	e.checks = checks
 	return nil
@@ -1295,14 +1297,6 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.DisableSSHAuth,
 		&e.config.RemoteJobsAllowed,
 	)
-}
-
-// attachCertificateProofs answers the certificate challenges in checks with the
-// certificates reachable on this device, signing each challenge nonce for our peer key.
-// Collection is bounded in time because callers hold the sync loop while it runs.
-func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
-	peerKey := e.config.WgPrivateKey.PublicKey()
-	info.CertificateProofs = e.certProofs.Collect(e.ctx, checks, peerKey[:], e.config.CertStore)
 }
 
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {

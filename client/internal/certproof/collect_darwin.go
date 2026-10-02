@@ -45,6 +45,20 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 	return mergeProofs(proofs, userProofs)
 }
 
+// UserContext identifies the user whose keychain a collection would include: the console
+// user when it owns the active profile, or empty when no user keychain would be asked. A
+// change means a collection made earlier no longer reflects what this Mac can prove.
+func UserContext(cfg Config) string {
+	if os.Geteuid() != 0 {
+		return ""
+	}
+	user, ok := CurrentConsoleUser()
+	if !ok || !user.isOwner(cfg.ProfileOwner) {
+		return ""
+	}
+	return strconv.FormatUint(uint64(user.UID), 10) + ":" + user.Name
+}
+
 // collectAsConsoleUser runs the helper inside the desktop session of the logged-in
 // user. Dropping to their uid is not enough: keychain access is an XPC call to a
 // per-session securityd, so the helper has to enter their Mach bootstrap namespace,
