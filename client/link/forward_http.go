@@ -26,6 +26,14 @@ const (
 	// headers.
 	readHeaderTimeout = 10 * time.Second
 
+	// fetchSiteHeader is the browser's own account of how a request was
+	// initiated. It is the only one of the three guard signals that a no-cors
+	// GET carries.
+	fetchSiteHeader = "Sec-Fetch-Site"
+
+	// defaultHTTPPort fills in the port an origin leaves implicit.
+	defaultHTTPPort = "80"
+
 	idleConnTimeout       = 90 * time.Second
 	tlsHandshakeTimeout   = 10 * time.Second
 	expectContinueTimeout = time.Second
@@ -82,9 +90,6 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 		forward:  fwd,
 		listener: listener,
 		server: &http.Server{
-			// The body deadline wraps the guard rather than the other way
-			// round, so a request the guard rejects still has its body
-			// bounded while the server drains it.
 			Handler: withBodyIdleTimeout(guardRebinding(proxy, isLoopback(fwd.Listen))),
 			// Bound how long a caller may take to send headers, so a slow
 			// sender cannot hold a connection and its goroutine open
@@ -226,31 +231,73 @@ func (b *idleTimeoutBody) clearDeadline() {
 	}
 }
 
-// guardRebinding rejects requests that reached a loopback listener under a
-// name that is not its own.
+// guardRebinding rejects requests that a browser issued on behalf of some
+// other site, and requests that reached a loopback listener under a name that
+// is not its own.
 //
-// A loopback forwarder is reachable from any page the user visits: a site can
-// point its own hostname at 127.0.0.1 and have the browser send requests to
-// this listener, which would otherwise proxy them into the network under the
-// peer's identity. The browser still sends the attacker's name in Host, so
-// requiring a loopback name here is what makes that attack fail.
+// A loopback forwarder is reachable from any page the user visits. A site can
+// point its own hostname at 127.0.0.1, and it can also embed the loopback
+// address directly in an img, script or iframe URL. Either way the browser
+// sends the request, and this listener would otherwise proxy it into the
+// network under the peer's identity.
+//
+// Three signals separate those from a local caller. Host carries the
+// attacker's name in the rebinding variant. Origin is present on any
+// cross-origin fetch. Sec-Fetch-Site covers what the first two miss: the
+// browser states how the request was initiated, including on the no-cors GETs
+// that carry no Origin at all. Non-browser callers send none of the latter
+// two and are unaffected.
+//
+// A browser too old to send Sec-Fetch-Site can still reach a loopback forward
+// with an embedded no-cors GET. Browsers have sent it since 2020, so this
+// residual needs a deliberately outdated one.
 //
 // A publicly bound listener is deliberately reachable under names this process
-// cannot enumerate, so only the browser-origin check applies there.
+// cannot enumerate, so only the browser checks apply there.
 func guardRebinding(next http.Handler, loopbackOnly bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if loopbackOnly && !isLocalName(hostnameOf(r.Host)) {
-			http.Error(w, "unexpected Host for a loopback listener", http.StatusMisdirectedRequest)
+			rejectRequest(w, "unexpected Host for a loopback listener", http.StatusMisdirectedRequest)
 			return
 		}
-		// Only a browser sets Origin, and a legitimate one for this listener
-		// is same-origin. Anything else is a cross-site caller.
-		if origin := r.Header.Get("Origin"); origin != "" && !isLocalOrigin(origin) {
-			http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		if !isLocalCaller(r) {
+			rejectRequest(w, "cross-origin request refused", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// rejectRequest answers a guarded request and closes the connection.
+//
+// On a keep-alive connection the server drains whatever is left of the request
+// body before reading the next request. It drains the original body rather
+// than the handler's wrapper, so the idle deadline that bounds an accepted
+// upload is never armed for a rejected one, and a caller that stopped sending
+// would hold the connection and its goroutine. Closing skips that drain.
+func rejectRequest(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Connection", "close")
+	http.Error(w, msg, code)
+}
+
+// foreignFetchSites are the Sec-Fetch-Site values a browser sends when a page
+// other than this listener's own initiated the request. A page on another port
+// is same-site here, because a bare address or localhost is its own site, yet
+// it is a different application with no more claim on this listener than any
+// other page has.
+var foreignFetchSites = map[string]bool{"cross-site": true, "same-site": true}
+
+// isLocalCaller reports whether a request may be proxied, from what the
+// browser says about where it came from.
+func isLocalCaller(r *http.Request) bool {
+	if foreignFetchSites[strings.ToLower(r.Header.Get(fetchSiteHeader))] {
+		return false
+	}
+
+	// Only a browser sets Origin, and a legitimate one for this listener is
+	// same-origin. Anything else is a cross-site caller.
+	origin := r.Header.Get("Origin")
+	return origin == "" || isSameOrigin(origin, r.Host)
 }
 
 // hostnameOf strips any port from a Host header value.
@@ -270,11 +317,23 @@ func isLocalName(host string) bool {
 	return err == nil && ip.Unmap().IsLoopback()
 }
 
-// isLocalOrigin reports whether an Origin header belongs to this listener.
-func isLocalOrigin(origin string) bool {
+// isSameOrigin reports whether an Origin header names this listener. Scheme,
+// host and port all have to match: the forwarder serves plaintext HTTP, and a
+// page on another loopback port is a different origin like any other.
+func isSameOrigin(origin, host string) bool {
 	u, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || u.Scheme != "http" {
 		return false
 	}
-	return isLocalName(u.Hostname())
+	return normalizeAuthority(u.Host) == normalizeAuthority(host)
+}
+
+// normalizeAuthority reduces an authority to a comparable host:port, so two
+// spellings of one origin match.
+func normalizeAuthority(authority string) string {
+	host, port, err := net.SplitHostPort(authority)
+	if err != nil {
+		host, port = authority, defaultHTTPPort
+	}
+	return strings.ToLower(strings.Trim(host, "[]")) + ":" + port
 }

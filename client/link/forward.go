@@ -39,7 +39,11 @@ var (
 	// urlPassword matches the password half of a URL's userinfo. Errors quote
 	// the spec the operator typed, which would otherwise echo a password back
 	// to the terminal and into whatever captured it.
-	urlPassword = regexp.MustCompile(`(//[^/@\s]*):[^/@\s]*@`)
+	//
+	// The password runs to the last '@' of the authority, which is where
+	// net/url ends the userinfo, so a password containing an '@' is covered
+	// whole. The username ends at the first ':', as net/url splits it.
+	urlPassword = regexp.MustCompile(`(//[^/:\s]*):[^/\s]*@`)
 )
 
 // redactSpec replaces any password inside a forward spec, so an error may

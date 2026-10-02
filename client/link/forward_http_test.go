@@ -345,3 +345,125 @@ func TestParseForwardRedactsMalformedUpstream(t *testing.T) {
 			"a password must not survive a parse failure either")
 	}
 }
+
+// An embedded <img> or <script> aimed straight at the loopback address carries
+// a loopback Host and no Origin, so Sec-Fetch-Site is the only signal that the
+// request came from a page.
+func TestLoopbackForwarderRejectsCrossSiteFetch(t *testing.T) {
+	for _, site := range []string{"cross-site", "same-site", "Cross-Site"} {
+		var reached bool
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached = true
+		}))
+
+		base, _ := startForwarder(t, upstream)
+
+		req, err := http.NewRequest(http.MethodGet, base, nil)
+		require.NoError(t, err)
+		req.Header.Set("Sec-Fetch-Site", site)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		upstream.Close()
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode, "Sec-Fetch-Site %q should be refused", site)
+		assert.False(t, reached, "the upstream must not be reached from a %s page", site)
+	}
+}
+
+// A browser reaches the listener legitimately when the user navigated to it or
+// when the page it serves calls back into it.
+func TestLoopbackForwarderAllowsFirstPartyFetch(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	for _, site := range []string{"none", "same-origin"} {
+		req, err := http.NewRequest(http.MethodGet, base, nil)
+		require.NoError(t, err)
+		req.Header.Set("Sec-Fetch-Site", site)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "Sec-Fetch-Site %q should be allowed", site)
+	}
+}
+
+// A page served from another loopback port is a different origin, however
+// local it is.
+func TestLoopbackForwarderRejectsAnotherLocalPort(t *testing.T) {
+	var reached bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	req, err := http.NewRequest(http.MethodGet, base, nil)
+	require.NoError(t, err)
+	req.Header.Set("Origin", "http://localhost:3000")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.False(t, reached, "a page on another local port must not reach the upstream")
+}
+
+// A rejected request is never read, so the deadline that bounds an accepted
+// upload never arms for it. Closing the connection is what stops the server
+// from draining a body the caller stopped sending.
+func TestRejectedRequestClosesTheConnection(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer upstream.Close()
+
+	base, _ := startForwarder(t, upstream)
+
+	body, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+
+	req, err := http.NewRequest(http.MethodPost, base, body)
+	require.NoError(t, err)
+	req.Host = "attacker.example"
+
+	done := make(chan *http.Response, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			done <- resp
+		}
+	}()
+
+	select {
+	case resp := <-done:
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusMisdirectedRequest, resp.StatusCode)
+		assert.True(t, resp.Close, "the server must close a connection it rejected rather than drain the body")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the rejected request was not answered while its body stalled")
+	}
+}
+
+// net/url ends the userinfo at the last '@', so a password containing one must
+// be redacted whole rather than up to its first '@'.
+func TestRedactSpecCoversPasswordWithAtSign(t *testing.T) {
+	redacted := redactSpec("http://8080=https://user:pa@ss@a.internal/%zz")
+
+	assert.Equal(t, "http://8080=https://user:xxxxx@a.internal/%zz", redacted)
+	assert.NotContains(t, redacted, "ss@a.internal", "no part of the password may survive")
+}
+
+func TestParseForwardRedactsPasswordWithAtSign(t *testing.T) {
+	_, err := ParseForward("http://8080=https://user:pa@ss@a.internal/%zz")
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "ss@", "no part of the password may reach the error")
+}
