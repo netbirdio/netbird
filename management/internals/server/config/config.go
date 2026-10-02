@@ -108,6 +108,9 @@ type HttpServerConfig struct {
 	CertKey string
 	// AuthClientID is the client id used for proxy SSO auth
 	AuthClientID string
+	// AuthClientSecret is the optional client secret used for proxy SSO auth.
+	// Required by IdPs such as Google that demand a secret even when PKCE is used.
+	AuthClientSecret string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
 	// CLIAuthAudience identifies the client app recipients that the JWT is intended for (aud in JWT)

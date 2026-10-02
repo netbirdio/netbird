@@ -46,14 +46,27 @@ import (
 )
 
 type ProxyOIDCConfig struct {
-	Issuer      string
-	ClientID    string
-	Scopes      []string
-	CallbackURL string
-	HMACKey     []byte
+	Issuer   string
+	ClientID string
+	// ClientSecret is optional; leave empty for public clients using PKCE only.
+	ClientSecret string
+	Scopes       []string
+	CallbackURL  string
+	HMACKey      []byte
 
 	Audience     string
 	KeysLocation string
+}
+
+// OAuth2Config builds the oauth2 client configuration for the given provider endpoint.
+func (c ProxyOIDCConfig) OAuth2Config(endpoint oauth2.Endpoint, scopes []string) *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     c.ClientID,
+		ClientSecret: c.ClientSecret,
+		Endpoint:     endpoint,
+		RedirectURL:  c.CallbackURL,
+		Scopes:       scopes,
+	}
 }
 
 // ProxyTokenChecker checks whether a proxy access token is still valid.
@@ -1602,12 +1615,7 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	}
 
 	return &proto.GetOIDCURLResponse{
-		Url: (&oauth2.Config{
-			ClientID:    s.oidcConfig.ClientID,
-			Endpoint:    provider.Endpoint(),
-			RedirectURL: s.oidcConfig.CallbackURL,
-			Scopes:      scopes,
-		}).AuthCodeURL(state, oauth2.S256ChallengeOption(codeVerifier)),
+		Url: s.oidcConfig.OAuth2Config(provider.Endpoint(), scopes).AuthCodeURL(state, oauth2.S256ChallengeOption(codeVerifier)),
 	}, nil
 }
 
