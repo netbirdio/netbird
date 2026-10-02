@@ -60,6 +60,7 @@ func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover
 	} else {
 		n.iFaceDiscover = newMobileIFaceDiscover(iFaceDiscover)
 	}
+	n.warmCache()
 	return n
 }
 
@@ -68,11 +69,23 @@ func NewNet(ctx context.Context, disallowList []string) *Net {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Net{
+	n := &Net{
 		iFaceDiscover:   pionDiscover{},
 		interfaceFilter: InterfaceFilter(disallowList),
 		ctx:             ctx,
 	}
+	n.warmCache()
+	return n
+}
+
+// warmCache performs the first discovery while the caller is still setting up,
+// before an overlay interface of its own exists. interfaceFilter probes every
+// interface it is not told to skip with wgctrl, and on a userspace WireGuard
+// platform that probe reaches the UAPI socket of this same process, so running
+// it later means asking our own device about itself. The result is discarded:
+// a failure here is reported by the accessor that needs the interfaces.
+func (n *Net) warmCache() {
+	_, _ = n.Interfaces()
 }
 
 // resolveAddr performs DNS resolution with context support and timeout.
