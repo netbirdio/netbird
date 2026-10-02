@@ -97,6 +97,13 @@ it instead of exposing it in the process environment.
 host's own network, so the peer cannot become a route into the machine it runs
 on.
 
+A loopback forward answers only requests whose `Host` names the loopback
+interface, and refuses any request carrying a cross-site `Origin`. A page the
+user visits can point its own hostname at `127.0.0.1`, and without those checks
+the browser could reach the upstream through this listener under the peer's
+identity. Ordinary callers are unaffected, since they send either no `Origin`
+or a matching one.
+
 Userspace mode carries TCP, UDP and ping only. It cannot act as an exit node or
 a routing peer and does not take over system DNS. Ports below 1024 need
 privileges the process usually does not have, though some container runtimes
