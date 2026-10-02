@@ -449,14 +449,19 @@ jobs:
           PFLT_PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
           PFLT_CERTIFICATION_COMPONENT_ID: ${{ vars.REDHAT_CERT_COMPONENT_ID || env.DEFAULT_COMPONENT_ID }}
           PFLT_ARTIFACTS: artifacts
-          PFLT_LOGFILE: artifacts/preflight.log
           PFLT_LOGLEVEL: info
           PFLT_JUNIT: "true"
         run: |
           set -euo pipefail
-          # No --platform: preflight walks the manifest list and submits every
-          # architecture in one run, grouped under one manifest-list digest.
-          ./preflight check container "$IMAGE_REF" --submit
+          # preflight checks only one platform per run (the runner's arch by
+          # default), so submit each architecture explicitly. Results land in
+          # artifacts/<arch>/. The log file is attached to the submission and its
+          # directory must exist before preflight starts, or the submit fails.
+          mkdir -p artifacts
+          for arch in amd64 arm64; do
+            PFLT_LOGFILE="artifacts/preflight-${arch}.log" \
+              ./preflight check container "$IMAGE_REF" --platform "$arch" --submit
+          done
 
       - name: Fail if any check did not pass
         run: |
