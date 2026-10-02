@@ -6,8 +6,8 @@ name: Red Hat Certification
 # to Pyxis; auto-publish on the component makes it public once certified.
 #
 # Each component's Partner Connect ID comes from the REDHAT_CERT_ID_<NAME>
-# repository variable, e.g. REDHAT_CERT_ID_CLIENT_ROOTLESS. With "all",
-# components whose variable is not set are skipped.
+# repository variable, e.g. REDHAT_CERT_ID_CLIENT_ROOTLESS. The run fails
+# before certifying anything if a selected component's variable is not set.
 
 on:
   workflow_call:
@@ -68,22 +68,23 @@ jobs:
             "reverse-proxy ghcr.io/netbirdio/reverse-proxy -ubi"
           )
           matrix="[]"
+          missing=()
           for c in "${components[@]}"; do
             read -r name repo suffix <<< "$c"
             [[ "$COMPONENT" == all || "$COMPONENT" == "$name" ]] || continue
             var="REDHAT_CERT_ID_${name^^}"; var="${var//-/_}"
             id="$(jq -r --arg v "$var" '.[$v] // empty' <<< "$REPO_VARS")"
             if [[ -z "$id" ]]; then
-              if [[ "$COMPONENT" == all ]]; then
-                echo "::warning::Skipping ${name}: repository variable ${var} is not set"
-                continue
-              fi
-              echo "::error::Repository variable ${var} is not set"
-              exit 1
+              missing+=("$var")
+              continue
             fi
             matrix="$(jq -c --arg n "$name" --arg t "${version}${suffix}" --arg r "${repo}:${version}${suffix}" --arg i "$id" \
               '. + [{component: $n, tag: $t, ref: $r, component_id: $i}]' <<< "$matrix")"
           done
+          if (( ${#missing[@]} )); then
+            echo "::error::Set these repository variables to the Partner Connect component IDs: ${missing[*]}"
+            exit 1
+          fi
           if [[ "$matrix" == "[]" ]]; then
             echo "::error::No component to certify for '${COMPONENT}'"
             exit 1
@@ -182,7 +183,8 @@ jobs:
           PFLT_PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
         run: |
           set -euo pipefail
-          url="https://catalog.redhat.com/api/containers/v1/projects/certification/id/${COMPONENT_ID}/images?page_size=100"
+          # Filter on the tag server-side so older versions are found past the first page.
+          url="https://catalog.redhat.com/api/containers/v1/projects/certification/id/${COMPONENT_ID}/images?filter=repositories.tags.name==${TAG}&page_size=100"
           for attempt in $(seq 1 20); do
             certified="$(curl -fsS --proto '=https' --proto-redir '=https' -H "X-API-KEY: ${PFLT_PYXIS_API_TOKEN}" "$url" \
               | jq -r --arg t "$TAG" '[.data[] | select(.repositories[]?.tags[]?.name == $t) | select(.certified == true) | .architecture] | unique | join(",")')"
@@ -193,4 +195,5 @@ jobs:
             fi
             sleep 30
           done
-          echo "::warning::Pyxis has not marked both architectures certified after 10 minutes. Check https://connect.redhat.com/component/view/${COMPONENT_ID}/images"
+          echo "::error::Pyxis has not marked both architectures certified after 10 minutes. Check https://connect.redhat.com/component/view/${COMPONENT_ID}/images"
+          exit 1
