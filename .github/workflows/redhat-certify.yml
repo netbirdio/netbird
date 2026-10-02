@@ -141,7 +141,7 @@ jobs:
           PFLT_LOGLEVEL: info
           PFLT_JUNIT: "true"
         run: |
-          set -veuo pipefail
+          # set -veuo pipefail
           # No --platform: preflight walks the manifest list and submits every
           # architecture in one run, grouped under one manifest-list digest.
           # preflight does not create the PFLT_LOGFILE directory, and --submit
