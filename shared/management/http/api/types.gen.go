@@ -3409,8 +3409,17 @@ type HuntressMatchAttributes struct {
 
 // IdentityProvider defines model for IdentityProvider.
 type IdentityProvider struct {
+	// AdditionalScopes Additional scopes requested from a generic OIDC provider
+	AdditionalScopes *[]string `json:"additional_scopes,omitempty"`
+
 	// ClientId OAuth2 client ID
 	ClientId string `json:"client_id"`
+
+	// GetUserInfo Fetch additional claims from the upstream UserInfo endpoint for a generic OIDC provider
+	GetUserInfo *bool `json:"get_user_info,omitempty"`
+
+	// GroupsClaim Upstream claim mapped to Dex groups for a generic OIDC provider
+	GroupsClaim *string `json:"groups_claim,omitempty"`
 
 	// Id Identity provider ID
 	Id *string `json:"id,omitempty"`
@@ -3427,11 +3436,20 @@ type IdentityProvider struct {
 
 // IdentityProviderRequest defines model for IdentityProviderRequest.
 type IdentityProviderRequest struct {
+	// AdditionalScopes Additional generic OIDC scopes. Omit or send null on update to retain the setting; send an empty array to clear it.
+	AdditionalScopes *[]string `json:"additional_scopes,omitempty"`
+
 	// ClientId OAuth2 client ID
 	ClientId string `json:"client_id"`
 
 	// ClientSecret OAuth2 client secret
 	ClientSecret string `json:"client_secret"`
+
+	// GetUserInfo Fetch upstream UserInfo claims for a generic OIDC provider. Omit or send null on update to retain the setting; send false to disable it.
+	GetUserInfo *bool `json:"get_user_info,omitempty"`
+
+	// GroupsClaim Upstream claim mapped to Dex groups. Omit or send null on update to retain the setting; send an empty string to clear it.
+	GroupsClaim *string `json:"groups_claim,omitempty"`
 
 	// Issuer OIDC issuer URL
 	Issuer string `json:"issuer"`
