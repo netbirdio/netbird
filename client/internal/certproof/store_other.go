@@ -2,7 +2,15 @@
 
 package certproof
 
-import log "github.com/sirupsen/logrus"
+import (
+	"sync"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/pkcs11"
+)
+
+var unsupportedTokenOnce sync.Once
 
 // DefaultStore is the PEM directory named by NB_CERT_STORE_DIR, or /etc/netbird/certs.
 func DefaultStore() Store {
@@ -14,6 +22,12 @@ func DefaultStore() Store {
 func storeWithToken(cfg Config) Store {
 	files := NewFileStore(cfg.dir())
 	if cfg.PKCS11.URI == "" && cfg.PKCS11.PIN == "" {
+		return files
+	}
+	if !pkcs11.Supported() {
+		unsupportedTokenOnce.Do(func() {
+			log.Warnf("ignoring the configured PKCS#11 token: %v", pkcs11.ErrUnsupported)
+		})
 		return files
 	}
 	token, err := NewPKCS11Store(cfg.PKCS11, cfg.dir())

@@ -121,6 +121,11 @@ type module struct {
 	cSign              func(session ulong, data *byte, dataLen ulong, signature *byte, signatureLen *ulong) ulong
 }
 
+// Supported reports whether this build can load PKCS#11 modules.
+func Supported() bool {
+	return true
+}
+
 func load(path string) (driver, error) {
 	lib, err := purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_LOCAL)
 	if err != nil {

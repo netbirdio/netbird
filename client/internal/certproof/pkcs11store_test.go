@@ -339,3 +339,26 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 		assert.ErrorIs(t, err, errPINNeedsToken, "%s: a PIN must not go to whichever token is listed first", name)
 	}
 }
+
+// TestPKCS11Store_WrongPINIsTriedOnce logs in to the real token with a wrong PIN: the
+// token refuses it, and the next collection refuses to send the same PIN again rather
+// than spending another attempt of the token's lockout counter.
+func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
+	_, uri := pkcs11TestStore(t, "")
+
+	wrongPIN := "wrong-pin-" + t.Name()
+	store, err := NewPKCS11Store(PKCS11Config{URI: uri, PIN: wrongPIN}, "")
+	require.NoError(t, err)
+
+	_, err = store.Candidates(context.Background())
+	require.Error(t, err)
+	assert.True(t, pkcs11.PINRejected(err), "the token itself rejects the PIN: %v", err)
+
+	_, err = store.Candidates(context.Background())
+	assert.ErrorIs(t, err, errPINRejectedBefore, "the rejected PIN is not sent to the token again")
+
+	good, err := NewPKCS11Store(PKCS11Config{URI: uri}, "")
+	require.NoError(t, err)
+	_, err = good.Candidates(context.Background())
+	assert.NoError(t, err, "the correct PIN for the same token is unaffected")
+}

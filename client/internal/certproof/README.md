@@ -197,8 +197,10 @@ The module is loaded at runtime without cgo, through `purego`, which means the b
 dynamically linked against libc. The store is therefore compiled in only with `-tags pkcs11`
 on linux/amd64 and linux/arm64: the deb and rpm packages are built that way, since they
 target glibc distributions, while the release tarballs and the Alpine-based container
-images keep the fully static build. Without the tag, setting `NB_TPM_PIN` logs that
-the build lacks the support.
+images keep the fully static build. The arm and 386 packages carry the tag too but have
+no driver, so they behave like the static build. A build without support logs one warning
+when a token is configured and keeps reading the PEM directory. The "Client PKCS#11 /
+Unit" CI job builds with the tag and signs with a SoftHSM token.
 
 To exercise the path without hardware, initialise a SoftHSM token and run the end-to-end
 test, which imports a key and certificate itself:
