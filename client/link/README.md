@@ -57,6 +57,12 @@ docker run --rm -p 8080:8080 \
   netbirdio/nblink
 ```
 
+The key file has to exist before the run and be readable by the container
+user, which is UID 65532. A bind mount keeps the host file's owner and mode, so
+a key written with the usual `chmod 600` is not readable and the run fails on
+startup. If the source path does not exist at all, the runtime creates a
+directory there instead and the read reports that.
+
 The image needs no `--privileged`, no `--cap-add NET_ADMIN`, no
 `--device /dev/net/tun` and no host networking.
 
