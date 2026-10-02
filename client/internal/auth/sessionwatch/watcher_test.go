@@ -19,6 +19,9 @@ type fakeRecorder struct {
 	mu           sync.Mutex
 	events       []event
 	lastDeadline time.Time
+	// setDelay stalls SetSessionExpiresAt, widening the window in which a
+	// concurrent evaluation could publish a warning out of order.
+	setDelay time.Duration
 }
 
 type eventKind int
@@ -43,6 +46,12 @@ type event struct {
 // is the zero time, so an initial clear before any deadline is set emits
 // nothing — matching the real recorder.
 func (r *fakeRecorder) SetSessionExpiresAt(deadline time.Time) {
+	r.mu.Lock()
+	delay := r.setDelay
+	r.mu.Unlock()
+	// Stall without the lock held, so a concurrent publish can still record.
+	time.Sleep(delay)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.lastDeadline.Equal(deadline) {
@@ -116,10 +125,54 @@ func waitForEvents(t *testing.T, r *fakeRecorder, want int) []event {
 	return nil
 }
 
-// newWatcher builds a watcher with the final timer disabled (finalLead=0),
+// testInterval keeps the ticker-driven tests fast; the leads they use are
+// in the same millisecond scale.
+const testInterval = 2 * time.Millisecond
+
+// newWatcher builds a watcher with the final warning disabled (finalLead=0),
 // matching the lead-only behaviour the pre-final-warning tests assume.
 func newWatcher(lead time.Duration, r *fakeRecorder) *Watcher {
-	return NewWithLeads(lead, 0, r)
+	return newWatcherWithLeads(lead, 0, r)
+}
+
+// newWatcherWithLeads builds a watcher that evaluates on testInterval. The
+// interval is set before Update, so the evaluation loop does not exist yet
+// and the write cannot race it.
+func newWatcherWithLeads(lead, final time.Duration, r *fakeRecorder) *Watcher {
+	w := NewWithLeads(lead, final, r)
+	w.interval = testInterval
+	return w
+}
+
+// fakeClock is the watcher's wall clock under test. Reads come from the
+// evaluation goroutine while the test writes, so both go through the mutex.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func newFakeClock(t time.Time) *fakeClock {
+	return &fakeClock{t: t}
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+// set jumps the clock, standing in for a resume from suspension or for an
+// NTP correction.
+func (c *fakeClock) set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = t
+}
+
+// settle waits out a handful of evaluation ticks so a test can assert that
+// nothing was published.
+func settle() {
+	time.Sleep(20 * testInterval)
 }
 
 func TestUpdateZeroBeforeAnythingIsNoop(t *testing.T) {
@@ -410,7 +463,7 @@ func TestCloseWithoutDeadlineLeavesRecorderUntouched(t *testing.T) {
 func TestFinalWarningFiresAfterRegularWarning(t *testing.T) {
 	r := &fakeRecorder{}
 	// Warning fires at deadline-80ms, final at deadline-30ms.
-	w := NewWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
+	w := newWatcherWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
 	defer w.Close()
 
 	d := time.Now().Add(100 * time.Millisecond)
@@ -446,7 +499,7 @@ func TestFinalWarningFiresAfterRegularWarning(t *testing.T) {
 
 func TestDismissSuppressesFinalWarning(t *testing.T) {
 	r := &fakeRecorder{}
-	w := NewWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
+	w := newWatcherWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
 	defer w.Close()
 
 	d := time.Now().Add(100 * time.Millisecond)
@@ -477,7 +530,7 @@ func TestDismissSuppressesFinalWarning(t *testing.T) {
 
 func TestDismissResetByNewDeadline(t *testing.T) {
 	r := &fakeRecorder{}
-	w := NewWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
+	w := newWatcherWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
 	defer w.Close()
 
 	first := time.Now().Add(100 * time.Millisecond)
@@ -507,7 +560,7 @@ func TestDismissResetByNewDeadline(t *testing.T) {
 
 func TestDismissBeforeUpdateIsNoop(t *testing.T) {
 	r := &fakeRecorder{}
-	w := NewWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
+	w := newWatcherWithLeads(80*time.Millisecond, 30*time.Millisecond, r)
 	defer w.Close()
 
 	// No deadline tracked yet; Dismiss must be a no-op (no panic, no state).
@@ -528,157 +581,139 @@ func TestDismissBeforeUpdateIsNoop(t *testing.T) {
 	t.Fatalf("final-warning did not publish after no-op pre-Update Dismiss, events=%+v", r.snapshot())
 }
 
-func TestIsLate(t *testing.T) {
-	armedFor := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	lead := 2 * time.Minute
-	tests := []struct {
-		name       string
-		now        time.Time
-		cutoffLead time.Duration
-		want       bool
-	}{
-		{"before cutoff", armedFor.Add(-3 * time.Minute), lead, false},
-		{"at cutoff", armedFor.Add(-lead), lead, true},
-		{"after cutoff", armedFor.Add(-time.Minute), lead, true},
-		{"zero lead before deadline", armedFor.Add(-time.Second), 0, false},
-		{"zero lead at deadline", armedFor, 0, true},
-		{"zero lead after deadline", armedFor.Add(time.Second), 0, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isLate(tt.now, armedFor, tt.cutoffLead); got != tt.want {
-				t.Fatalf("isLate(%s, %s, %s) = %v, want %v", tt.now, armedFor, tt.cutoffLead, got, tt.want)
-			}
-		})
-	}
-}
+// The tests below drive the watcher's wall clock directly. The deadline sits
+// an hour out in real time and the fake clock jumps, standing in for a device
+// that was suspended and resumed somewhere inside — or past — the warning
+// windows. The evaluation loop is what reacts to the jump, so these exercise
+// the same path production takes on a resume.
+func newResumeWatcher(t *testing.T, r *fakeRecorder) (*Watcher, *fakeClock, time.Time) {
+	t.Helper()
 
-func TestIsLateIgnoresMonotonicReading(t *testing.T) {
-	now := time.Now()
-	wallOnly := now.Round(0)
-	if isLate(now, wallOnly.Add(time.Second), 0) {
-		t.Fatalf("now with monotonic reading must compare as wall clock before a later wall-only deadline")
-	}
-	if !isLate(now, wallOnly, 0) {
-		t.Fatalf("now with monotonic reading must compare as wall clock at an equal wall-only deadline")
-	}
-}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	start := time.Now()
+	clock := newFakeClock(start)
+	// Set before Update: the evaluation loop does not exist yet.
+	w.nowFn = clock.now
+	t.Cleanup(w.Close)
 
-func TestLateTimerFiring(t *testing.T) {
-	tests := []struct {
-		name       string
-		final      bool
-		beforeDl   time.Duration
-		wantWarns  int
-		wantFinals int
-	}{
-		{"warning on resume inside window", false, 3 * time.Minute, 1, 0},
-		{"warning promoted to final inside final window", false, time.Minute, 0, 1},
-		{"warning skipped past deadline", false, -time.Minute, 0, 0},
-		{"final on resume before deadline", true, time.Minute, 0, 1},
-		{"final skipped past deadline", true, -time.Minute, 0, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &fakeRecorder{}
-			w := New(r)
-			defer w.Close()
-
-			// The deadline is an hour out so the real timers never fire
-			// during the test; the late callback is invoked directly with an
-			// injected clock that simulates a resume near the deadline.
-			d := time.Now().Add(time.Hour).Round(0)
-			w.nowFn = func() time.Time { return d.Add(-tt.beforeDl) }
-			if err := w.Update(d); err != nil {
-				t.Fatalf("Update: %v", err)
-			}
-
-			if tt.final {
-				w.fireFinal(d)
-			} else {
-				w.fire(d)
-			}
-
-			events := r.snapshot()
-			if got := countWhere(events, event.isWarning); got != tt.wantWarns {
-				t.Fatalf("expected %d warning publishes, got %d: %+v", tt.wantWarns, got, events)
-			}
-			if got := countWhere(events, event.isFinalWarning); got != tt.wantFinals {
-				t.Fatalf("expected %d final-warning publishes, got %d: %+v", tt.wantFinals, got, events)
-			}
-		})
-	}
-}
-
-func TestPromotedFinalWarningIsNotRepeated(t *testing.T) {
-	r := &fakeRecorder{}
-	w := New(r)
-	defer w.Close()
-
-	d := time.Now().Add(time.Hour).Round(0)
-	now := d.Add(-time.Minute)
-	w.nowFn = func() time.Time { return now }
-	if err := w.Update(d); err != nil {
+	deadline := start.Add(time.Hour).Round(0)
+	if err := w.Update(deadline); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+	return w, clock, deadline
+}
 
-	w.fire(d)
-	// The final timer was suspended too, so it fires even later than the
-	// warning timer, here still just before the deadline.
-	now = d.Add(-30 * time.Second)
-	w.fireFinal(d)
+func TestResumeInsideWarningWindowWarns(t *testing.T) {
+	r := &fakeRecorder{}
+	_, clock, deadline := newResumeWatcher(t, r)
 
-	events := r.snapshot()
-	if got := countWhere(events, event.isFinalWarning); got != 1 {
-		t.Fatalf("expected exactly 1 final-warning publish, got %d: %+v", got, events)
+	clock.set(deadline.Add(-5 * time.Minute))
+
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the interactive warning after the resume, got %+v", events[1])
 	}
-	if got := countWhere(events, event.isWarning); got != 0 {
-		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
+	if n := countWhere(events, event.isFinalWarning); n != 0 {
+		t.Fatalf("final-warning must wait for its own window, got %d: %+v", n, events)
 	}
 }
 
-func TestPromotionRespectsDismiss(t *testing.T) {
+func TestResumeInsideFinalWindowSendsFinalWarningOnly(t *testing.T) {
 	r := &fakeRecorder{}
-	w := New(r)
-	defer w.Close()
+	_, clock, deadline := newResumeWatcher(t, r)
 
-	d := time.Now().Add(time.Hour).Round(0)
-	w.nowFn = func() time.Time { return d.Add(-time.Minute) }
-	if err := w.Update(d); err != nil {
-		t.Fatalf("Update: %v", err)
+	clock.set(deadline.Add(-time.Minute))
+
+	events := waitForEvents(t, r, 2)
+	if !events[1].isFinalWarning() {
+		t.Fatalf("expected the final warning after the resume, got %+v", events[1])
+	}
+	settle()
+	if n := countWhere(r.snapshot(), event.isWarning); n != 0 {
+		t.Fatalf("the interactive warning is stale inside the final window, got %d: %+v", n, r.snapshot())
+	}
+}
+
+func TestResumePastDeadlinePublishesNothing(t *testing.T) {
+	r := &fakeRecorder{}
+	_, clock, deadline := newResumeWatcher(t, r)
+
+	clock.set(deadline.Add(time.Minute))
+
+	settle()
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("an expired session must not warn, got %d publishes: %+v", n, r.snapshot())
+	}
+}
+
+func TestWarningPublishesOncePerDeadline(t *testing.T) {
+	r := &fakeRecorder{}
+	_, clock, deadline := newResumeWatcher(t, r)
+
+	clock.set(deadline.Add(-5 * time.Minute))
+	waitForEvents(t, r, 2)
+
+	// Many ticks pass inside the same window.
+	settle()
+	if n := countWhere(r.snapshot(), event.isWarning); n != 1 {
+		t.Fatalf("expected exactly 1 warning publish across ticks, got %d: %+v", n, r.snapshot())
+	}
+}
+
+// TestWarningRecoversFromAClockRunningAhead covers the device that boots
+// before NTP has corrected it: the deadline looks long gone, nothing is
+// published, and the warning still arrives once the clock is fixed.
+func TestWarningRecoversFromAClockRunningAhead(t *testing.T) {
+	r := &fakeRecorder{}
+	_, clock, deadline := newResumeWatcher(t, r)
+
+	clock.set(deadline.Add(2 * time.Hour))
+	settle()
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("a deadline that looks expired must not warn, got %d publishes: %+v", n, r.snapshot())
 	}
 
+	clock.set(deadline.Add(-5 * time.Minute))
+
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the warning once the clock was corrected, got %+v", events[1])
+	}
+}
+
+func TestResumeInsideFinalWindowRespectsDismiss(t *testing.T) {
+	r := &fakeRecorder{}
+	w, clock, deadline := newResumeWatcher(t, r)
+
+	// The user dismissed the warning for this deadline before the device
+	// was suspended; resuming inside the final window must not reopen it.
 	w.Dismiss()
-	w.fire(d)
+	clock.set(deadline.Add(-time.Minute))
 
-	events := r.snapshot()
-	if got := countWhere(events, func(e event) bool { return e.kind == publish }); got != 0 {
-		t.Fatalf("expected no publish after dismiss, got %d: %+v", got, events)
+	settle()
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("a dismissed deadline must not warn on resume, got %d: %+v", n, r.snapshot())
 	}
 }
 
-func TestPromotionSkippedWhenFinalAlreadyFired(t *testing.T) {
+func TestCloseStopsTheEvaluationLoop(t *testing.T) {
 	r := &fakeRecorder{}
-	w := New(r)
-	defer w.Close()
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	start := time.Now()
+	clock := newFakeClock(start)
+	w.nowFn = clock.now
 
-	// Both timers fall in the past after a long suspend and are dispatched
-	// with a zero delay, so the final callback can run before the warning one.
-	d := time.Now().Add(time.Hour).Round(0)
-	w.nowFn = func() time.Time { return d.Add(-time.Minute) }
-	if err := w.Update(d); err != nil {
+	deadline := start.Add(time.Hour).Round(0)
+	if err := w.Update(deadline); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+	w.Close()
 
-	w.fireFinal(d)
-	w.fire(d)
+	clock.set(deadline.Add(-5 * time.Minute))
+	settle()
 
-	events := r.snapshot()
-	if got := countWhere(events, event.isFinalWarning); got != 1 {
-		t.Fatalf("expected exactly 1 final-warning publish, got %d: %+v", got, events)
-	}
-	if got := countWhere(events, event.isWarning); got != 0 {
-		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("a closed watcher must not publish, got %d: %+v", n, r.snapshot())
 	}
 }
 
@@ -687,8 +722,8 @@ func TestDeadlineOnlyRecordsDeadlineWithoutWarnings(t *testing.T) {
 	w := NewDeadlineOnly(r)
 	defer w.Close()
 
-	// With the default leads this deadline would otherwise fire both
-	// timers on the next tick.
+	// With the default leads this deadline sits inside the final-warning
+	// window, so a watcher that warns at all would publish on the spot.
 	d := time.Now().Add(50 * time.Millisecond).Round(0)
 	if err := w.Update(d); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -703,8 +738,11 @@ func TestDeadlineOnlyRecordsDeadlineWithoutWarnings(t *testing.T) {
 	if got := countWhere(events, func(e event) bool { return e.kind == publish }); got != 0 {
 		t.Fatalf("expected no publish in deadline-only mode, got %d: %+v", got, events)
 	}
-	if w.timer != nil || w.finalTimer != nil {
-		t.Fatal("expected no timers armed in deadline-only mode")
+	w.mu.Lock()
+	polling := w.stop != nil
+	w.mu.Unlock()
+	if polling {
+		t.Fatal("expected no evaluation loop in deadline-only mode")
 	}
 }
 
@@ -723,5 +761,62 @@ func TestDeadlineOnlyStillRejectsOutOfRangeDeadlines(t *testing.T) {
 	}
 	if got := r.deadline(); !got.IsZero() {
 		t.Fatalf("expected recorder cleared after rejection, got %v", got)
+	}
+}
+
+// TestClockAheadAtUpdateStillWarnsOnceCorrected covers a client that connects
+// while its clock runs ahead of real time: the deadline reads as already
+// expired when it arrives, so nothing publishes, and the warning must still
+// come once NTP pulls the clock back.
+func TestClockAheadAtUpdateStillWarnsOnceCorrected(t *testing.T) {
+	r := &fakeRecorder{}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	deadline := time.Now().Add(time.Hour).Round(0)
+	// Two hours past the deadline from the device's point of view, well
+	// inside maxPastHorizon, so Update accepts and records it.
+	clock := newFakeClock(deadline.Add(2 * time.Hour))
+	w.nowFn = clock.now
+	t.Cleanup(w.Close)
+
+	if err := w.Update(deadline); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	settle()
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("a deadline that reads as expired must not warn, got %d: %+v", n, r.snapshot())
+	}
+
+	clock.set(deadline.Add(-5 * time.Minute))
+
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the warning once the clock was corrected, got %+v", events[1])
+	}
+}
+
+// TestWarningNeverPrecedesTheDeadlineStateChange pins the ordering Update
+// documents: consumers learn the new deadline before they see a warning that
+// refers to it. The deadline here already sits inside the warning window, and
+// the recorder stalls, so the evaluation loop gets many chances to publish
+// while Update is still announcing.
+func TestWarningNeverPrecedesTheDeadlineStateChange(t *testing.T) {
+	r := &fakeRecorder{setDelay: 50 * time.Millisecond}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	deadline := time.Now().Add(time.Hour).Round(0)
+	clock := newFakeClock(deadline.Add(-5 * time.Minute))
+	w.nowFn = clock.now
+	t.Cleanup(w.Close)
+
+	if err := w.Update(deadline); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	events := waitForEvents(t, r, 2)
+	if events[0].kind != stateChange {
+		t.Fatalf("event[0] should be the deadline state change, got %+v", events)
+	}
+	if !events[1].isWarning() {
+		t.Fatalf("event[1] should be the warning, got %+v", events)
 	}
 }
