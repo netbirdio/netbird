@@ -7,6 +7,7 @@
 package link
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -168,13 +169,19 @@ func parseUpstream(raw string) (*url.URL, error) {
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse upstream %q: %w", raw, err)
+		// url.Error carries the whole URL, password included, so only the
+		// reason inside it is reported alongside the redacted form.
+		var parseErr *url.Error
+		if errors.As(err, &parseErr) {
+			err = parseErr.Err
+		}
+		return nil, fmt.Errorf("parse upstream %q: %w", redactSpec(raw), err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("upstream scheme %q must be http or https", u.Scheme)
 	}
 	if u.Hostname() == "" {
-		return nil, fmt.Errorf("upstream %q has no host", raw)
+		return nil, fmt.Errorf("upstream %q has no host", redactSpec(raw))
 	}
 	// Credentials in the upstream would reach the logs and the --check output,
 	// and the forwarder does not use them to authenticate anything.
