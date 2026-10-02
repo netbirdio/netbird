@@ -302,7 +302,7 @@ func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
 }
 
 func TestEngine_SyncInfoFuncReusesRefreshedInfoOnce(t *testing.T) {
-	engine := &Engine{config: &EngineConfig{}}
+	engine := &Engine{config: &EngineConfig{}, syncMsgMux: &sync.Mutex{}}
 
 	refreshed := &system.Info{Hostname: "from-refresh"}
 	getInfo := engine.syncInfoFunc(refreshed)
@@ -316,7 +316,7 @@ func TestEngine_SyncInfoFuncReusesRefreshedInfoOnce(t *testing.T) {
 }
 
 func TestEngine_SyncInfoFuncGathersWhenRefreshFailed(t *testing.T) {
-	engine := &Engine{config: &EngineConfig{}}
+	engine := &Engine{config: &EngineConfig{}, syncMsgMux: &sync.Mutex{}}
 
 	info := engine.syncInfoFunc(nil)(context.Background())
 	require.NotNil(t, info, "a failed refresh should fall back to gathering the info")

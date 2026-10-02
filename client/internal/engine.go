@@ -1266,7 +1266,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if isChecksEqual(e.checks, checks) {
 		return nil
 	}
-	if err := e.syncChecksMeta(checks); err != nil {
+	if err := e.syncChecksMeta(e.ctx, checks); err != nil {
 		if errors.Is(err, errSystemInfoTimeout) {
 			return nil
 		}
@@ -1302,8 +1302,18 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
 	e.applyInfoFlags(info)
-	e.attachCertificateProofs(info, e.checks)
+	e.attachCertificateProofs(ctx, info, e.checksSnapshot())
 	return info
+}
+
+// checksSnapshot returns the posture checks the sync loop last applied. The sync loop
+// writes them while holding syncMsgMux, and the stream's info callbacks read them from
+// another goroutine, so the read takes the same lock. No caller holds it already: the
+// callbacks run on the stream's retry loop, not inside handleSync.
+func (e *Engine) checksSnapshot() []*mgmProto.Checks {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	return e.checks
 }
 
 // syncInfoFunc returns the info callback for the management sync stream. The
@@ -1318,7 +1328,7 @@ func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) 
 		info := refreshed
 		refreshed = nil
 		e.applyInfoFlags(info)
-		e.attachCertificateProofs(info, e.checks)
+		e.attachCertificateProofs(ctx, info, e.checksSnapshot())
 		return info
 	}
 }
@@ -1516,7 +1526,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checksSnapshot(), e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
