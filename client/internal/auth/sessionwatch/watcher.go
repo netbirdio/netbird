@@ -107,7 +107,7 @@ type Watcher struct {
 	lead         time.Duration
 	finalLead    time.Duration
 	interval     time.Duration
-	deadlineOnly bool
+	deadlineOnly bool // record the deadline, leave the warnings to the caller
 
 	mu           sync.Mutex
 	current      time.Time
@@ -145,7 +145,10 @@ func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 	}
 }
 
-// NewDeadlineOnly returns a watcher that validates and records deadlines but arms no warning timers.
+// NewDeadlineOnly returns a watcher that validates and records deadlines
+// but publishes no warnings about them, and runs no evaluation loop to
+// decide. Used where the deadline is handed on to something that schedules
+// the warnings itself, such as the Android app.
 func NewDeadlineOnly(recorder StatusRecorder) *Watcher {
 	w := New(recorder)
 	w.deadlineOnly = true
