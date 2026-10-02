@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errDialNotExpected marks a test that must never reach the overlay, so a dial
+// that does happen fails the test rather than passing silently.
+var errDialNotExpected = errors.New("dial not expected in this test")
+
+func refuseDial(context.Context, string, string) (net.Conn, error) {
+	return nil, errDialNotExpected
+}
 
 // overlayDialer stands in for the embedded client. It records what the
 // forwarder asked to reach and then connects to a local test server, which
@@ -146,9 +155,7 @@ func TestNewHTTPForwarderReportsBindConflict(t *testing.T) {
 	fwd, err := ParseForward("http://" + busy.Addr().String() + "=https://grafana.internal")
 	require.NoError(t, err)
 
-	_, err = newHTTPForwarder(fwd, func(context.Context, string, string) (net.Conn, error) {
-		return nil, nil
-	})
+	_, err = newHTTPForwarder(fwd, refuseDial)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "listen on")
@@ -161,9 +168,7 @@ func TestCloseReleasesAnUnservedListener(t *testing.T) {
 	fwd, err := ParseForward("http://127.0.0.1:0=https://grafana.internal")
 	require.NoError(t, err)
 
-	f, err := newHTTPForwarder(fwd, func(context.Context, string, string) (net.Conn, error) {
-		return nil, nil
-	})
+	f, err := newHTTPForwarder(fwd, refuseDial)
 	require.NoError(t, err)
 	addr := f.Addr()
 

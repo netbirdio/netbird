@@ -154,13 +154,14 @@ func logSession(client *embed.Client) {
 // printEffectiveConfig writes the parsed forwards and exits without touching
 // the network, so a container configuration can be checked before deploying it.
 func printEffectiveConfig(cfg *Config) error {
-	fmt.Printf("management-url: %s\n", cfg.ManagementURL)
-	fmt.Printf("state-dir: %s\n", orDefault(cfg.StateDir, "(memory)"))
-	fmt.Printf("hostname: %s\n", orDefault(cfg.Hostname, "(host default)"))
-	fmt.Printf("setup-key: %t\n", cfg.SetupKey != "")
-	fmt.Printf("forwards: %d\n", len(cfg.Forwards))
+	out := os.Stdout
+	fmt.Fprintf(out, "management-url: %s\n", cfg.ManagementURL)
+	fmt.Fprintf(out, "state-dir: %s\n", orDefault(cfg.StateDir, "(memory)"))
+	fmt.Fprintf(out, "hostname: %s\n", orDefault(cfg.Hostname, "(host default)"))
+	fmt.Fprintf(out, "setup-key: %t\n", cfg.SetupKey != "")
+	fmt.Fprintf(out, "forwards: %d\n", len(cfg.Forwards))
 	for _, f := range cfg.Forwards {
-		fmt.Printf("  %s -> %s\n", f.Listen, f.Upstream)
+		fmt.Fprintf(out, "  %s -> %s\n", f.Listen, f.Upstream)
 	}
 	return nil
 }
