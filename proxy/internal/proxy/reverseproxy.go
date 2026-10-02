@@ -725,9 +725,9 @@ func stripSessionCookie(r *httputil.ProxyRequest) {
 // from the outgoing URL to prevent credential leakage to backends.
 func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 	q := r.Out.URL.Query()
-	if q.Has("session_token") || q.Has("session_code") {
-		q.Del("session_token")
-		q.Del("session_code")
+	if q.Has(auth.SessionTokenQueryParam) || q.Has(auth.SessionCodeQueryParam) {
+		q.Del(auth.SessionTokenQueryParam)
+		q.Del(auth.SessionCodeQueryParam)
 		r.Out.URL.RawQuery = q.Encode()
 	}
 }
