@@ -88,6 +88,8 @@ func TestRelaySocketBufferSize(t *testing.T) {
 }
 
 func TestSizeRelaySocketBuffersSmoke(t *testing.T) {
+	unsetRelaySocketBufferEnv(t)
+
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
 	defer conn.Close()
