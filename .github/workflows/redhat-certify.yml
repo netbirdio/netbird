@@ -141,13 +141,14 @@ jobs:
           PFLT_LOGLEVEL: info
           PFLT_JUNIT: "true"
         run: |
-          set -euo pipefail
+          set -veuo pipefail
           # No --platform: preflight walks the manifest list and submits every
           # architecture in one run, grouped under one manifest-list digest.
           # preflight does not create the PFLT_LOGFILE directory, and --submit
           # fails if the log file is missing.
           mkdir -p artifacts
           ./preflight check container "$IMAGE_REF" --submit
+          ls -alR
 
       - name: Fail if any check did not pass
         run: |
