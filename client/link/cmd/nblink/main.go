@@ -35,6 +35,9 @@ func rootCmd() *cobra.Command {
 		Example: "  nblink --forward 'http://8080=https://grafana.internal'\n" +
 			"  nblink --forward 'http://127.0.0.1:8080=https://grafana.internal' --setup-key file:/run/secrets/key",
 		Version: version.NetbirdVersion(),
+		// A stray positional argument is a mistake, most often a forward spec
+		// that lost its --forward, and must not start the forwarder anyway.
+		Args: cobra.NoArgs,
 		// main prints the error, so cobra must not print it a second time.
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -43,7 +46,9 @@ func rootCmd() *cobra.Command {
 	raw := link.BindFlags(cmd)
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		link.SetFlagsFromEnvVars(cmd)
+		if err := link.SetFlagsFromEnvVars(cmd); err != nil {
+			return err
+		}
 
 		cfg, err := raw.Resolve()
 		if err != nil {

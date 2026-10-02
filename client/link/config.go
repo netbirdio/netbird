@@ -77,20 +77,26 @@ func BindFlags(cmd *cobra.Command) *rawConfig {
 // SetFlagsFromEnvVars fills unset flags from NB_-prefixed environment
 // variables derived from each flag name, so --management-url reads
 // NB_MANAGEMENT_URL. A flag given on the command line wins.
-func SetFlagsFromEnvVars(cmd *cobra.Command) {
+//
+// A value that does not parse is an error rather than a warning, so a
+// container cannot start with a configuration other than the one it was given.
+func SetFlagsFromEnvVars(cmd *cobra.Command) error {
 	flags := cmd.PersistentFlags()
+	var err error
 	flags.VisitAll(func(f *pflag.Flag) {
-		if f.Changed {
+		if err != nil || f.Changed {
 			return
 		}
-		value, ok := os.LookupEnv(FlagNameToEnvVar(f.Name))
+		env := FlagNameToEnvVar(f.Name)
+		value, ok := os.LookupEnv(env)
 		if !ok {
 			return
 		}
-		if err := flags.Set(f.Name, value); err != nil {
-			fmt.Fprintf(os.Stderr, "ignoring %s: %v\n", FlagNameToEnvVar(f.Name), err)
+		if setErr := flags.Set(f.Name, value); setErr != nil {
+			err = fmt.Errorf("%s: %w", env, setErr)
 		}
 	})
+	return err
 }
 
 // FlagNameToEnvVar converts a flag name to its environment variable, so
@@ -131,7 +137,9 @@ func (r *rawConfig) Resolve() (*Config, error) {
 			problems = append(problems, err.Error())
 			continue
 		}
-		if prev, dup := seen[fwd.Listen]; dup {
+		// Port 0 means the OS assigns one, so several such forwards do not
+		// collide even though they share a spec.
+		if prev, dup := seen[fwd.Listen]; dup && !strings.HasSuffix(fwd.Listen, ":0") {
 			problems = append(problems, fmt.Sprintf("forward %q: %s is already bound by %q", spec, fwd.Listen, prev))
 			continue
 		}
@@ -186,5 +194,12 @@ func resolveSecret(value string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
-	return strings.TrimSpace(string(content)), nil
+
+	// An empty file would otherwise look like no secret at all, silently
+	// turning a non-interactive start into a login that waits for a browser.
+	secret := strings.TrimSpace(string(content))
+	if secret == "" {
+		return "", fmt.Errorf("%s is empty", path)
+	}
+	return secret, nil
 }

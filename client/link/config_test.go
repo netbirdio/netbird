@@ -28,7 +28,7 @@ func TestSetFlagsFromEnvVars(t *testing.T) {
 	t.Setenv("NB_FORWARD", "http://8080=https://a.internal,http://8081=https://b.internal")
 	t.Setenv("NB_MANAGEMENT_URL", "https://mgmt.example:443")
 
-	SetFlagsFromEnvVars(cmd)
+	require.NoError(t, SetFlagsFromEnvVars(cmd))
 
 	assert.Equal(t, []string{"http://8080=https://a.internal", "http://8081=https://b.internal"},
 		raw.forwards, "NB_FORWARD should split on commas into repeated forwards")
@@ -42,9 +42,22 @@ func TestFlagBeatsEnvVar(t *testing.T) {
 	require.NoError(t, cmd.PersistentFlags().Set("log-level", "debug"))
 	t.Setenv("NB_LOG_LEVEL", "error")
 
-	SetFlagsFromEnvVars(cmd)
+	require.NoError(t, SetFlagsFromEnvVars(cmd))
 
 	assert.Equal(t, "debug", raw.logLevel, "an explicit flag should not be overwritten by the environment")
+}
+
+// A container must not start with a configuration other than the one it was
+// given, so an unparseable value stops startup instead of leaving the default.
+func TestSetFlagsFromEnvVarsRejectsInvalidValue(t *testing.T) {
+	cmd, raw := newTestCommand()
+	t.Setenv("NB_ALLOW_PUBLIC_BIND", "yes-please")
+
+	err := SetFlagsFromEnvVars(cmd)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NB_ALLOW_PUBLIC_BIND", "the error should name the variable at fault")
+	assert.False(t, raw.allowPublicBind, "the default must not be silently kept in effect")
 }
 
 func TestResolveRequiresForward(t *testing.T) {
@@ -122,6 +135,36 @@ func TestResolveSetupKeyFromFile(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "A1B2C3D4-SETUP-KEY", cfg.SetupKey, "a mounted secret should be trimmed")
+}
+
+// Each port-0 forward gets its own OS-assigned port, so sharing the spec is
+// not a collision.
+func TestResolveAllowsSeveralEphemeralPorts(t *testing.T) {
+	_, raw := newTestCommand()
+	raw.forwards = []string{
+		"http://0=https://a.internal",
+		"http://0=https://b.internal",
+	}
+
+	cfg, err := raw.Resolve()
+
+	require.NoError(t, err)
+	assert.Len(t, cfg.Forwards, 2, "two ephemeral forwards should both be kept")
+}
+
+func TestResolveSetupKeyFileEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	require.NoError(t, os.WriteFile(path, []byte("   \n"), 0o600))
+
+	_, raw := newTestCommand()
+	raw.forwards = []string{"http://8080=https://a.internal"}
+	raw.setupKey = "file:" + path
+
+	_, err := raw.Resolve()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is empty",
+		"an empty secret should fail rather than fall back to interactive login")
 }
 
 func TestResolveSetupKeyFileMissing(t *testing.T) {
