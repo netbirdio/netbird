@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -90,12 +90,55 @@ func startBlackholeSignal(t *testing.T) string {
 
 func startManagement(t *testing.T, signalAddr string) string {
 	t.Helper()
+	return startManagementWithRelay(t, signalAddr, "127.0.0.1:1234")
+}
+
+// allowAllPeers gives the test account an "All" group, which management adds
+// every new peer to, and a policy that lets its members reach each other.
+// The seed store has neither, so peers registered with the setup key would
+// otherwise never see one another.
+func allowAllPeers(t *testing.T, s store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	const accountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	allGroup := &types.Group{
+		ID:        "embed-test-all-group",
+		AccountID: accountID,
+		Name:      types.GroupAllName,
+		Issued:    types.GroupIssuedAPI,
+	}
+	require.NoError(t, s.CreateGroup(ctx, allGroup))
+	policy := &types.Policy{
+		ID:        "embed-test-default-policy",
+		AccountID: accountID,
+		Name:      "Default",
+		Enabled:   true,
+		Rules: []*types.PolicyRule{{
+			ID:            "embed-test-default-rule",
+			PolicyID:      "embed-test-default-policy",
+			Name:          "Default",
+			Enabled:       true,
+			Action:        types.PolicyTrafficActionAccept,
+			Bidirectional: true,
+			Protocol:      types.PolicyRuleProtocolALL,
+			Sources:       []string{allGroup.ID},
+			Destinations:  []string{allGroup.ID},
+		}},
+	}
+	require.NoError(t, s.CreatePolicy(ctx, policy))
+}
+
+// startManagementWithRelay starts an in-process management whose peers are
+// told to use relayAddr; pass a real relay's rel:// address to let two
+// embedded clients in the same process reach each other.
+func startManagementWithRelay(t *testing.T, signalAddr, relayAddr string) string {
+	t.Helper()
 
 	cfg := &config.Config{
 		Stuns:      []*config.Host{},
 		TURNConfig: &config.TURNConfig{},
 		Relay: &config.Relay{
-			Addresses:      []string{"127.0.0.1:1234"},
+			Addresses:      []string{relayAddr},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",
 		},
@@ -115,6 +158,7 @@ func startManagement(t *testing.T, signalAddr string) string {
 	testStore, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", cfg.Datadir)
 	require.NoError(t, err)
 	t.Cleanup(cleanUp)
+	allowAllPeers(t, testStore)
 
 	eventStore := &activity.InMemoryEventStore{}
 

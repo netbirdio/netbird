@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
@@ -29,6 +30,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Compare replace directives against the base branch
+        id: compare
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -46,6 +48,10 @@ jobs:
           # Versions are part of the key because a replace can be scoped to one
           # version of a module. Keyed on paths alone, retargeting such a
           # directive at a different version would read as unchanged.
+          #
+          # The check warns rather than fails: retargeting an existing replace
+          # at a newer commit is how the forks get bumped, and reviewers decide
+          # whether a genuinely new replace is acceptable.
           list_replaces() {
             go mod edit -json "$1" \
               | jq -r '
@@ -60,19 +66,118 @@ jobs:
           list_replaces go.mod > /tmp/head-replaces
 
           added=$(comm -13 /tmp/base-replaces /tmp/head-replaces)
-          if [ -n "$added" ]; then
-            echo "::error::This PR adds a replace directive to go.mod:"
-            echo "$added" | sed 's/^/  /'
-            echo ""
-            echo "A replace directive applies only to the main module, so it does not"
-            echo "reach anything that imports netbird as a library. Require the module"
-            echo "under a path you control instead, as done for github.com/netbirdio/go-nat."
-            exit 1
-          fi
+          cut -d' ' -f1 /tmp/base-replaces | sort -u > /tmp/base-replaced-paths
+          cut -d' ' -f1 /tmp/head-replaces | sort -u > /tmp/head-replaced-paths
 
-          removed=$(comm -23 /tmp/base-replaces /tmp/head-replaces)
+          # A removed line whose path is still replaced on the head is the old
+          # side of a retarget, not a removal.
+          removed=""
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            if ! grep -qxF "${line%% *}" /tmp/head-replaced-paths; then
+              removed="${removed}${line}"$'\n'
+            fi
+          done < <(comm -23 /tmp/base-replaces /tmp/head-replaces)
+
+          # An added line whose replaced path already had a replace on the base
+          # branch is a retarget (typically a fork bump); the rest are new.
+          new=""
+          retargeted=""
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            if grep -qxF "${line%% *}" /tmp/base-replaced-paths; then
+              retargeted="${retargeted}${line}"$'\n'
+            else
+              new="${new}${line}"$'\n'
+            fi
+          done <<< "$added"
+
+          {
+            echo "new<<EOF_REPLACES"
+            printf '%s' "$new"
+            echo "EOF_REPLACES"
+            echo "retargeted<<EOF_REPLACES"
+            printf '%s' "$retargeted"
+            echo "EOF_REPLACES"
+          } >> "$GITHUB_OUTPUT"
+
           if [ -n "$removed" ]; then
             echo "This PR removes replace directives:"
-            echo "$removed" | sed 's/^/  /'
+            printf '%s' "$removed" | sed 's/^/  /'
+          fi
+          if [ -n "$retargeted" ]; then
+            echo "This PR retargets replace directives:"
+            printf '%s' "$retargeted" | sed 's/^/  /'
+          fi
+          if [ -n "$new" ]; then
+            echo "This PR adds replace directives:"
+            printf '%s' "$new" | sed 's/^/  /'
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              echo "::warning::New replace directive in go.mod: $line"
+            done <<< "$new"
+            exit 0
           fi
           echo "No new replace directives."
+
+      - name: Report replace directives on the pull request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          NEW: ${{ steps.compare.outputs.new }}
+          RETARGETED: ${{ steps.compare.outputs.retargeted }}
+        with:
+          script: |
+            const marker = '<!-- no-new-replace -->';
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const head = pr.head.sha.slice(0, 7);
+            const added = process.env.NEW.trim();
+            const retargeted = process.env.RETARGETED.trim();
+
+            // A comment from an earlier push is updated even when there is
+            // nothing left to report, so it never describes a replace the PR
+            // no longer carries. The report is best effort: an API failure
+            // warns rather than failing the check.
+            let existing;
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              });
+              existing = comments.find(c => c.body && c.body.includes(marker));
+            } catch (error) {
+              core.warning(`Could not read the pull request comments: ${error.message}`);
+              return;
+            }
+            if (!added && !retargeted && !existing) {
+              return;
+            }
+
+            const sections = [`${marker}\n## Replace directives\n`, `Checked \`go.mod\` on \`${head}\` against the base branch.`];
+            if (added) {
+              sections.push(
+                'This PR adds a replace directive:\n\n```\n' + added + '\n```\n',
+                'A replace directive applies only to the main module, so it does not reach anything ' +
+                'that imports netbird as a library, the embedded clients among them. Prefer requiring ' +
+                'the module under a path you control, as done for github.com/netbirdio/go-nat, and say ' +
+                'in the description why a replace is needed if it has to stay.',
+              );
+            }
+            if (retargeted) {
+              sections.push('This PR retargets an existing replace directive:\n\n```\n' + retargeted + '\n```');
+            }
+            if (!added && !retargeted) {
+              sections.push('No replace directive is added or retargeted any more.');
+            }
+            const body = sections.join('\n\n');
+
+            try {
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+              }
+            } catch (error) {
+              // A pull request from a fork runs with a read-only token; the
+              // warning annotations from the previous step still show up.
+              core.warning(`Could not comment on the pull request: ${error.message}`);
+            }

@@ -26,7 +26,12 @@ type RelayBindJS struct {
 }
 
 func NewRelayBindJS() *RelayBindJS {
+	// The embedded StdNetBind is never opened; it lends the conn.Bind methods
+	// this bind does not implement itself, some of which the Device calls before
+	// Open, so it has to be a live value rather than nil.
+	std, _ := conn.NewStdNetBind().(*conn.StdNetBind)
 	return &RelayBindJS{
+		StdNetBind:       std,
 		recvChan:         make(chan recvMessage, 100),
 		endpoints:        make(map[netip.Addr]net.Conn),
 		activityRecorder: NewActivityRecorder(),
