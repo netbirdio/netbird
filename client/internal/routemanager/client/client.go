@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"reflect"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -81,6 +82,9 @@ type Watcher struct {
 	currentChosenStatus *routerPeerStatus
 	handler             RouteHandler
 	updateSerial        uint64
+	runOnce             sync.Once
+	stopOnce            sync.Once
+	done                chan struct{}
 }
 
 func NewWatcher(config WatcherConfig) *Watcher {
@@ -97,6 +101,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		peerStateUpdate:     make(chan map[string]peer.RouterState),
 		handler:             config.Handler,
 		currentChosenStatus: nil,
+		done:                make(chan struct{}),
 	}
 	return client
 }
@@ -503,24 +508,27 @@ func (w *Watcher) classifyUpdate(update RoutesUpdate) bool {
 // Start is the main point of reacting on client network routing events.
 // All the processing related to the client network should be done here. Thread-safe.
 func (w *Watcher) Start() {
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		case routersStates := <-w.peerStateUpdate:
-			routerPeerStatuses := w.convertRouterPeerStatuses(routersStates)
-			if err := w.recalculateRoutes(reasonPeerUpdate, routerPeerStatuses); err != nil {
-				log.Errorf("Failed to recalculate routes for network [%v]: %v", w.handler, err)
-			}
-		case update := <-w.routeUpdate:
-			if update.UpdateSerial < w.updateSerial {
-				log.Warnf("Received a routes update with smaller serial number (%d -> %d), ignoring it", w.updateSerial, update.UpdateSerial)
-				continue
-			}
+	w.runOnce.Do(func() {
+		defer close(w.done)
+		for {
+			select {
+			case <-w.ctx.Done():
+				return
+			case routersStates := <-w.peerStateUpdate:
+				routerPeerStatuses := w.convertRouterPeerStatuses(routersStates)
+				if err := w.recalculateRoutes(reasonPeerUpdate, routerPeerStatuses); err != nil {
+					log.Errorf("Failed to recalculate routes for network [%v]: %v", w.handler, err)
+				}
+			case update := <-w.routeUpdate:
+				if update.UpdateSerial < w.updateSerial {
+					log.Warnf("Received a routes update with smaller serial number (%d -> %d), ignoring it", w.updateSerial, update.UpdateSerial)
+					continue
+				}
 
-			w.handleRouteUpdate(update)
+				w.handleRouteUpdate(update)
+			}
 		}
-	}
+	})
 }
 
 func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
@@ -546,17 +554,21 @@ func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
 
 // Stop stops the watcher and cleans up resources.
 func (w *Watcher) Stop() {
-	log.Debugf("Stopping watcher for network [%v]", w.handler)
+	w.stopOnce.Do(func() {
+		log.Debugf("Stopping watcher for network [%v]", w.handler)
 
-	w.cancel()
+		w.cancel()
+		w.runOnce.Do(func() { close(w.done) })
+		<-w.done
 
-	if w.currentChosen == nil {
-		return
-	}
-	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
-		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
-	}
-	w.currentChosenStatus = nil
+		if w.currentChosen != nil {
+			if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
+				log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
+			}
+		}
+		w.currentChosen = nil
+		w.currentChosenStatus = nil
+	})
 }
 
 func HandlerFromRoute(params common.HandlerParams) RouteHandler {
