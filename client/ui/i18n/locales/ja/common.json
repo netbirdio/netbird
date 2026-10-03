@@ -1363,6 +1363,12 @@
     "error.daemon_unreachable": {
         "message": "NetBird デーモンが応答していません。サービスが実行されているか確認してください。"
     },
+    "error.settings_locked": {
+        "message": "この端末では設定を変更できません。管理者によってロックされています。"
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "この設定は組織によって管理されているため、変更できません。"
+    },
     "error.unknown": {
         "message": "操作に失敗しました。"
     },
