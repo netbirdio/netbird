@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -43,6 +45,7 @@ type Proxy struct {
 	container    testcontainers.Container
 	workDir      string
 	httpsAddress string
+	tlsRootCAs   *x509.CertPool
 }
 
 // StartProxy builds the proxy image and runs it on the combined server's
@@ -70,10 +73,22 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverride
 	// MkdirTemp creates the dir 0700; widen it so the non-root proxy container
 	// can traverse the bind-mounted cert dir on Linux CI runners.
 	if err := os.Chmod(workDir, 0o755); err != nil { //nolint:gosec // throwaway e2e cert dir, must be traversable by the proxy container uid
+		_ = os.RemoveAll(workDir)
 		return nil, fmt.Errorf("chmod proxy cert dir: %w", err)
 	}
 	if err := writeSelfSignedCert(workDir, []string{"*." + AgentNetworkCluster, AgentNetworkCluster}); err != nil {
+		_ = os.RemoveAll(workDir)
 		return nil, err
+	}
+	certPEM, err := os.ReadFile(filepath.Join(workDir, "tls.crt"))
+	if err != nil {
+		_ = os.RemoveAll(workDir)
+		return nil, fmt.Errorf("read proxy certificate: %w", err)
+	}
+	tlsRootCAs := x509.NewCertPool()
+	if !tlsRootCAs.AppendCertsFromPEM(certPEM) {
+		_ = os.RemoveAll(workDir)
+		return nil, fmt.Errorf("parse proxy certificate")
 	}
 
 	req := testcontainers.ContainerRequest{
@@ -141,6 +156,7 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverride
 		container:    ctr,
 		workDir:      workDir,
 		httpsAddress: net.JoinHostPort(host, mapped.Port()),
+		tlsRootCAs:   tlsRootCAs,
 	}, nil
 }
 
@@ -162,8 +178,9 @@ func (p *Proxy) HTTPSGet(ctx context.Context, domain, path string, headers http.
 			return dialer.DialContext(ctx, "tcp", p.httpsAddress)
 		},
 		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: true, //nolint:gosec // the e2e proxy intentionally uses a generated self-signed certificate
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    p.tlsRootCAs,
+			ServerName: domain,
 		},
 		DisableKeepAlives:     true,
 		TLSHandshakeTimeout:   5 * time.Second,
