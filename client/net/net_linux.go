@@ -21,6 +21,19 @@ func SetSocketMark(conn syscall.Conn) error {
 	return setRawSocketMark(sysconn)
 }
 
+// SetSocketMarkFD sets the SO_MARK option on a bare file descriptor, for sockets
+// that are never registered with the runtime poller and so have no syscall.Conn.
+func SetSocketMarkFD(fd int) error {
+	if !AdvancedRouting() {
+		return nil
+	}
+
+	if err := setSocketOptInt(fd); err != nil {
+		return fmt.Errorf("set SO_MARK: %w", err)
+	}
+	return nil
+}
+
 func setRawSocketMark(conn syscall.RawConn) error {
 	var setErr error
 
