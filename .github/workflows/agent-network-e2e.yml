@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-anet-e2e-buildx-${{ hashFiles('go.sum', 'combined/Dockerfile.multistage', 'proxy/Dockerfile.multistage', 'e2e/harness/Dockerfile.client') }}
+          key: ${{ runner.os }}-anet-e2e-buildx-${{ hashFiles('go.sum', 'combined/Dockerfile.multistage', 'proxy/Dockerfile.multistage', 'e2e/harness/Dockerfile.client', 'e2e/harness/Dockerfile.nblink') }}
           restore-keys: |
             ${{ runner.os }}-anet-e2e-buildx-
 
