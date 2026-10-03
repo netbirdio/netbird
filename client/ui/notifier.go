@@ -85,6 +85,14 @@ func (n *Notifier) SendNotificationWithActions(options notifications.Notificatio
 	return n.inner.SendNotificationWithActions(options)
 }
 
+// RemoveNotification withdraws a delivered notification, a no-op without a backend.
+func (n *Notifier) RemoveNotification(identifier string) error {
+	if !n.available.Load() {
+		return nil
+	}
+	return n.inner.RemoveNotification(identifier)
+}
+
 func (n *Notifier) RegisterNotificationCategory(category notifications.NotificationCategory) error {
 	if !n.available.Load() {
 		return nil
