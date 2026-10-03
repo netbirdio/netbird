@@ -68,6 +68,7 @@ type ServerConfig struct {
 	// Management settings (simplified mode)
 	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
 	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
+	DisableLegacyPort       bool               `yaml:"disableLegacyPort"` // Do not start the legacy management gRPC listener on port 33073
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
@@ -131,6 +132,7 @@ type ManagementConfig struct {
 	DnsDomain               string             `yaml:"dnsDomain"`
 	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
 	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
+	DisableLegacyPort       bool               `yaml:"disableLegacyPort"`
 	DisableDefaultPolicy    bool               `yaml:"disableDefaultPolicy"`
 	Auth                    AuthConfig         `yaml:"auth"`
 	Stuns                   []HostConfig       `yaml:"stuns"`
@@ -373,6 +375,7 @@ func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 	c.Management.DnsDomain = exposedHost
 	c.Management.DisableAnonymousMetrics = c.Server.DisableAnonymousMetrics
 	c.Management.DisableGeoliteUpdate = c.Server.DisableGeoliteUpdate
+	c.Management.DisableLegacyPort = c.Server.DisableLegacyPort
 	// Copy auth config from server if management auth issuer is not set
 	if c.Management.Auth.Issuer == "" && c.Server.Auth.Issuer != "" {
 		c.Management.Auth = c.Server.Auth
