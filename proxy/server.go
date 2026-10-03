@@ -293,19 +293,41 @@ func (s *Server) NotifyStatus(ctx context.Context, accountID types.AccountID, se
 	if connected {
 		req.InboundListener = s.inboundListenerProto(accountID)
 	}
-	_, err := s.mgmtClient.SendStatusUpdate(ctx, req)
-	return err
+	return s.sendStatusUpdateRPC(ctx, req)
 }
 
-// NotifyCertificateIssued sends a notification to management that a certificate was issued
+// NotifyCertificateIssued sends a notification to management that a certificate was issued.
 func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string) error {
-	_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
+	return s.sendStatusUpdateRPC(ctx, &proto.SendStatusUpdateRequest{
 		ServiceId:         string(serviceID),
 		AccountId:         string(accountID),
 		Status:            proto.ProxyStatus_PROXY_STATUS_ACTIVE,
 		CertificateIssued: true,
 		InboundListener:   s.inboundListenerProto(accountID),
 	})
+}
+
+func (s *Server) sendStatusUpdateRPC(ctx context.Context, req *proto.SendStatusUpdateRequest) error {
+	if s.Logger == nil || !s.Logger.IsLevelEnabled(log.DebugLevel) {
+		_, err := s.mgmtClient.SendStatusUpdate(ctx, req)
+		return err
+	}
+
+	entry := s.Logger.WithFields(log.Fields{
+		"rpc_id":             uuid.NewString(),
+		"rpc":                "SendStatusUpdate",
+		"account_id":         req.GetAccountId(),
+		"service_id":         req.GetServiceId(),
+		"status":             req.GetStatus(),
+		"certificate_issued": req.GetCertificateIssued(),
+	})
+	entry.Debug("management RPC started")
+	start := time.Now()
+	_, err := s.mgmtClient.SendStatusUpdate(ctx, req)
+	entry.WithFields(log.Fields{
+		"duration":  time.Since(start),
+		"grpc_code": grpcstatus.Code(err),
+	}).Debug("management RPC completed")
 	return err
 }
 
@@ -1097,7 +1119,7 @@ func (s *Server) sendStatusUpdate(ctx context.Context, accountID types.AccountID
 		msg := err.Error()
 		req.ErrorMessage = &msg
 	}
-	if _, sendErr := s.mgmtClient.SendStatusUpdate(ctx, req); sendErr != nil {
+	if sendErr := s.sendStatusUpdateRPC(ctx, req); sendErr != nil {
 		s.Logger.Debugf("failed to send status update for %s: %v", serviceID, sendErr)
 	}
 }
@@ -1385,11 +1407,17 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 			}
 
 			batchStart := time.Now()
-			s.Logger.Debug("Received mapping update, starting processing")
+			s.Logger.WithFields(log.Fields{
+				"mapping_count":         len(msg.GetMapping()),
+				"initial_sync_complete": msg.GetInitialSyncComplete(),
+			}).Debug("Received mapping update, starting processing")
 			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
 				return err
 			}
-			s.Logger.Debug("Processing mapping update completed")
+			s.Logger.WithFields(log.Fields{
+				"mapping_count": len(msg.GetMapping()),
+				"duration":      time.Since(batchStart),
+			}).Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 
 			if err := stream.Send(&proto.SyncMappingsRequest{
@@ -1436,6 +1464,7 @@ func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings [
 		return
 	}
 
+	mappingCount := len(t.snapshotIDs)
 	s.reconcileSnapshot(ctx, t.snapshotIDs)
 	t.snapshotIDs = nil
 	if s.healthChecker != nil {
@@ -1445,7 +1474,10 @@ func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings [
 	if s.meter != nil {
 		s.meter.RecordSnapshotSyncDuration(time.Since(t.connectTime))
 	}
-	s.Logger.Info("Initial mapping sync complete")
+	s.Logger.WithFields(log.Fields{
+		"mapping_count": mappingCount,
+		"duration":      time.Since(t.connectTime),
+	}).Info("Initial mapping sync complete")
 }
 
 func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool, connectTime time.Time) error {
@@ -1471,11 +1503,17 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			}
 
 			batchStart := time.Now()
-			s.Logger.Debug("Received mapping update, starting processing")
+			s.Logger.WithFields(log.Fields{
+				"mapping_count":         len(msg.GetMapping()),
+				"initial_sync_complete": msg.GetInitialSyncComplete(),
+			}).Debug("Received mapping update, starting processing")
 			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
 				return err
 			}
-			s.Logger.Debug("Processing mapping update completed")
+			s.Logger.WithFields(log.Fields{
+				"mapping_count": len(msg.GetMapping()),
+				"duration":      time.Since(batchStart),
+			}).Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
 	}
@@ -1579,42 +1617,74 @@ func (s *Server) processMappingsGuarded(ctx context.Context, mappings []*proto.P
 
 func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMapping) {
 	debug := s.Logger != nil && s.Logger.IsLevelEnabled(log.DebugLevel)
-	for _, mapping := range mappings {
+	var batchID string
+	if debug {
+		batchID = uuid.NewString()
+	}
+	for i, mapping := range mappings {
+		start := time.Now()
+		var entry *log.Entry
 		if debug {
+			entry = s.Logger.WithFields(log.Fields{
+				"batch_id":      batchID,
+				"mapping_index": i + 1,
+				"mapping_count": len(mappings),
+				"account_id":    mapping.GetAccountId(),
+				"service_id":    mapping.GetId(),
+				"domain":        mapping.GetDomain(),
+				"mode":          mapping.GetMode(),
+				"type":          mapping.GetType(),
+			})
 			raw, err := mappingJSONMarshal.Marshal(redactMappingForLog(mapping))
 			if err != nil {
 				raw = []byte(fmt.Sprintf("<marshal error: %v>", err))
 			}
-			s.Logger.WithFields(log.Fields{
-				"type":    mapping.GetType(),
-				"domain":  mapping.GetDomain(),
-				"id":      mapping.GetId(),
-				"mapping": string(raw),
-			}).Debug("Processing mapping update")
+			entry.WithField("mapping", string(raw)).Debug("Processing mapping update")
 		}
+		var mappingErr error
 		switch mapping.GetType() {
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
-			if err := s.addMapping(ctx, mapping); err != nil {
+			if mappingErr = s.addMapping(ctx, mapping); mappingErr != nil {
 				s.Logger.WithFields(log.Fields{
 					"service_id": mapping.GetId(),
 					"domain":     mapping.GetDomain(),
-					"error":      err,
+					"error":      mappingErr,
 				}).Error("Error adding new mapping, ignoring this mapping and continuing processing")
-				s.notifyError(ctx, mapping, err)
+				s.notifyError(ctx, mapping, mappingErr)
 			}
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
-			if err := s.modifyMapping(ctx, mapping); err != nil {
+			if mappingErr = s.modifyMapping(ctx, mapping); mappingErr != nil {
 				s.Logger.WithFields(log.Fields{
 					"service_id": mapping.GetId(),
 					"domain":     mapping.GetDomain(),
-					"error":      err,
+					"error":      mappingErr,
 				}).Error("failed to modify mapping")
-				s.notifyError(ctx, mapping, err)
+				s.notifyError(ctx, mapping, mappingErr)
 			}
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED:
 			s.removeMapping(ctx, mapping)
 		}
+		if debug {
+			entry.WithFields(log.Fields{
+				"duration": time.Since(start),
+				"failed":   mappingErr != nil,
+			}).Debug("Mapping update processing finished")
+		}
 	}
+}
+
+func (s *Server) logMappingStage(mapping *proto.ProxyMapping, stage string, start time.Time, err error) {
+	if s.Logger == nil || !s.Logger.IsLevelEnabled(log.DebugLevel) {
+		return
+	}
+	s.Logger.WithFields(log.Fields{
+		"account_id": mapping.GetAccountId(),
+		"service_id": mapping.GetId(),
+		"domain":     mapping.GetDomain(),
+		"stage":      stage,
+		"duration":   time.Since(start),
+		"failed":     err != nil,
+	}).Debug("Mapping stage completed")
 }
 
 // addMapping registers a service mapping and starts the appropriate relay or routes.
@@ -1624,11 +1694,17 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	authToken := mapping.GetAuthToken()
 
 	svcKey := s.serviceKeyForMapping(mapping)
-	if err := s.netbird.AddPeer(ctx, accountID, svcKey, authToken, svcID); err != nil {
+	start := time.Now()
+	err := s.netbird.AddPeer(ctx, accountID, svcKey, authToken, svcID)
+	s.logMappingStage(mapping, "add_peer", start, err)
+	if err != nil {
 		return fmt.Errorf("create peer for service %s: %w", svcID, err)
 	}
 
-	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
+	start = time.Now()
+	err = s.setupMappingRoutes(ctx, mapping)
+	s.logMappingStage(mapping, "setup_routes", start, err)
+	if err != nil {
 		s.cleanupMappingRoutes(mapping)
 		if peerErr := s.netbird.RemovePeer(ctx, accountID, svcKey); peerErr != nil {
 			s.Logger.WithError(peerErr).WithField("service_id", svcID).Warn("failed to remove peer after setup failure")
