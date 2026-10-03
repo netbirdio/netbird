@@ -46,7 +46,7 @@ services:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
     ports:
-      - $NETBIRD_SIGNAL_PORT:80
+      - $NETBIRD_SIGNAL_PORT:$NETBIRD_SIGNAL_PORT
   #      # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
@@ -95,7 +95,7 @@ services:
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
-      
+
   # Coturn
   coturn:
     <<: *default
