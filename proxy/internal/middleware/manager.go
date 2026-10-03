@@ -29,6 +29,10 @@ type PathTargetBinding struct {
 	Specs     []Spec
 }
 
+// Revision identifies a service's middleware binding snapshot. Zero is
+// reserved for routes that are not coupled to a manager snapshot.
+type Revision uint64
+
 // LiveServiceCheck reports whether the given service ID is still
 // present in the proxy's live mapping cache. The Manager calls it
 // during InvalidateMiddleware so a chain whose service has been
@@ -42,14 +46,16 @@ type LiveServiceCheck func(serviceID string) bool
 // InvalidateMiddleware find the chain keys that reference a given
 // middleware without scanning the whole table.
 type chainTable struct {
-	byTarget     map[string]*Chain
-	byMiddleware map[string]map[string]struct{}
+	byTarget        map[string]*Chain
+	byMiddleware    map[string]map[string]struct{}
+	serviceRevision map[string]Revision
 }
 
 func newChainTable() *chainTable {
 	return &chainTable{
-		byTarget:     make(map[string]*Chain),
-		byMiddleware: make(map[string]map[string]struct{}),
+		byTarget:        make(map[string]*Chain),
+		byMiddleware:    make(map[string]map[string]struct{}),
+		serviceRevision: make(map[string]Revision),
 	}
 }
 
@@ -64,6 +70,9 @@ func (c *chainTable) clone() *chainTable {
 			set[k] = struct{}{}
 		}
 		out.byMiddleware[id] = set
+	}
+	for serviceID, revision := range c.serviceRevision {
+		out.serviceRevision[serviceID] = revision
 	}
 	return out
 }
@@ -121,6 +130,7 @@ type Manager struct {
 	resolver         *Resolver
 	lastBindings     map[string]PathTargetBinding
 	liveServiceCheck atomic.Pointer[LiveServiceCheck]
+	nextRevision     Revision
 }
 
 // NewManager constructs a Manager with the given capture budget size.
@@ -179,14 +189,29 @@ func (m *Manager) Dispatcher() *Dispatcher {
 	return m.dispatcher
 }
 
-// Rebuild replaces every chain keyed by serviceID with the provided
-// bindings. Entries for other services are preserved. Replaced chains
-// are closed asynchronously after the atomic swap so in-flight
-// requests against the previous chain finish before middleware
-// resources are released.
+// Rebuild replaces every chain keyed by serviceID with the provided bindings.
+// It is the compatibility wrapper for callers that do not consume revisions.
 func (m *Manager) Rebuild(serviceID string, bindings []PathTargetBinding) error {
+	_, err := m.RebuildSnapshot(serviceID, bindings)
+	return err
+}
+
+// RebuildSnapshot atomically replaces a service's chains and assigns a nonzero
+// revision, including for empty bindings. Retired chains close asynchronously.
+func (m *Manager) RebuildSnapshot(serviceID string, bindings []PathTargetBinding) (Revision, error) {
+	for _, b := range bindings {
+		if b.ServiceID != serviceID {
+			return 0, fmt.Errorf("binding service %q does not match rebuild service %q", b.ServiceID, serviceID)
+		}
+	}
+
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
+	if m.nextRevision == ^Revision(0) {
+		return 0, fmt.Errorf("middleware snapshot revision exhausted")
+	}
+	m.nextRevision++
+	revision := m.nextRevision
 
 	cur := m.chains.Load()
 	next := cur.clone()
@@ -205,9 +230,6 @@ func (m *Manager) Rebuild(serviceID string, bindings []PathTargetBinding) error 
 	}
 
 	for _, b := range bindings {
-		if b.ServiceID != serviceID {
-			return fmt.Errorf("binding service %q does not match rebuild service %q", b.ServiceID, serviceID)
-		}
 		key := chainKey(b.ServiceID, b.PathID)
 		m.lastBindings[key] = cloneBinding(b)
 		chain := m.buildChain(b)
@@ -217,10 +239,11 @@ func (m *Manager) Rebuild(serviceID string, bindings []PathTargetBinding) error 
 		}
 		next.addChain(key, chain)
 	}
+	next.serviceRevision[serviceID] = revision
 
 	m.chains.Store(next)
 	m.closeChainsAsync(retired)
-	return nil
+	return revision, nil
 }
 
 // Invalidate drops every chain for the given service ID.
@@ -246,6 +269,7 @@ func (m *Manager) Invalidate(serviceID string) {
 			delete(m.lastBindings, k)
 		}
 	}
+	delete(next.serviceRevision, serviceID)
 	m.chains.Store(next)
 	m.closeChainsAsync(retired)
 }
@@ -357,6 +381,19 @@ func (m *Manager) ChainFor(serviceID, pathID string) *Chain {
 		return nil
 	}
 	return c
+}
+
+// ChainForRevision returns a chain only if the service revision matches.
+// A matching revision with a nil chain is a coherent chainless target. Zero never matches.
+func (m *Manager) ChainForRevision(serviceID, pathID string, revision Revision) (*Chain, bool) {
+	if revision == 0 {
+		return nil, false
+	}
+	tbl := m.chains.Load()
+	if tbl == nil || tbl.serviceRevision[serviceID] != revision {
+		return nil, false
+	}
+	return tbl.byTarget[chainKey(serviceID, pathID)], true
 }
 
 // buildChain resolves each enabled spec and returns the assembled

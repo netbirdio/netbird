@@ -3309,6 +3309,12 @@ components:
           type: string
           description: URL path prefix for this target (HTTP only)
           example: "/"
+        access_action:
+          type: string
+          description: Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+          enum: [inherit, bypass, block]
+          default: inherit
+          example: "inherit"
         protocol:
           type: string
           description: Protocol to use when connecting to the backend
