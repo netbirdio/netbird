@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"crypto/rand"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -304,7 +305,19 @@ func resolveSessionCookieEncryptionKey(configuredKey string) (string, error) {
 		key = strings.TrimSpace(os.Getenv(sessionCookieEncryptionKeyEnv))
 	}
 	if key == "" {
-		return "", nil
+		// Sessions are always initialised (TOTP can be toggled at runtime), so an
+		// empty key here is not "sessions unused" - it silently runs session
+		// cookies unencrypted (a marshaled session triple anyone who observes it
+		// can replay). Bootstrap scripts generate a persisted key for fresh
+		// installs; upgraded/custom installs can still arrive here empty. Fall
+		// back to a random per-process key: cookies stay encrypted, sessions
+		// just don't survive restarts.
+		ephemeral := make([]byte, 32)
+		if _, err := rand.Read(ephemeral); err != nil {
+			return "", fmt.Errorf("generate ephemeral embedded IdP session cookie encryption key: %w", err)
+		}
+		log.Warnf("no embedded IdP session cookie encryption key configured (%s or sessionCookieEncryptionKey); using a random per-process key, sessions will not survive restarts", sessionCookieEncryptionKeyEnv)
+		return string(ephemeral), nil
 	}
 
 	if validSessionCookieEncryptionKeyLength(len([]byte(key))) {
