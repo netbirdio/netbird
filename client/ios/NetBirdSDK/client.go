@@ -779,6 +779,25 @@ func (c *Client) stateSnapshot() (*profilemanager.Config, *internal.ConnectClien
 	return c.config, c.connectClient
 }
 
+// authSnapshot returns the config together with the path it was loaded from, in
+// one lock: the path identifies the profile whose account email backs the login
+// hint, so reading it separately could pair one profile's config with another's
+// hint when a profile switch lands in between.
+func (c *Client) authSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+
+	cfgPath := c.cfgFile
+	if c.preloadedConfigJSON.Load() != nil {
+		// The running config came from JSON, not from that file, so the file
+		// may describe a different profile — or none. An empty hint leaves the
+		// account choice to the IdP, which is the safe end of being wrong:
+		// suggesting another profile's account is worse than suggesting none.
+		cfgPath = ""
+	}
+	return c.config, cfgPath, c.connectClient
+}
+
 func formatDuration(d time.Duration) string {
 	ds := d.String()
 	dotIndex := strings.Index(ds, ".")
