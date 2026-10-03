@@ -1078,10 +1078,8 @@ func (s *SqlStore) SaveAccountSettings(ctx context.Context, accountID string, se
 		return status.Errorf(status.Internal, "failed to save account settings to store")
 	}
 
-	// MySQL reports RowsAffected=0 for no-op updates where values don't change,
-	// unlike SQLite/Postgres which report matched rows. Skip the check since the
-	// caller (UpdateAccountSettings) already verified the account exists via
-	// GetAccountSettings with LockingStrengthUpdate.
+	// No RowsAffected check: the caller (UpdateAccountSettings) already verified
+	// the account exists via GetAccountSettings with LockingStrengthUpdate.
 
 	return nil
 }
