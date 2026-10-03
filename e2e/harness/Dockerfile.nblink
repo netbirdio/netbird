@@ -1,0 +1,33 @@
+# Multistage build for nblink, used in e2e tests. The release image
+# (client/Dockerfile-nblink) packages a goreleaser artifact, so this compiles
+# from source the way Dockerfile.client does for the agent, while keeping the
+# release image's runtime shape: distroless, non-root, numeric UID.
+#
+# The runtime stage deliberately grants nothing. nblink's claim is that it
+# needs no TUN device and no capabilities, so an image or a container request
+# that quietly hands it NET_ADMIN would make the suite prove the opposite of
+# what it is for.
+
+FROM golang:1.26.7-bookworm AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -o /out/nblink ./client/link/cmd/nblink
+
+FROM gcr.io/distroless/static-debian13:nonroot
+
+# Numeric, as in the release image: the runtime may substitute its own UID and
+# there is no passwd entry to look up.
+USER 65532:0
+
+# No NB_STATE_DIR. State stays in memory, so the container needs no writable
+# volume and each run registers a fresh peer, which is what the proxy
+# container does too. Identity persistence is a separate concern from what
+# these tests assert.
+ENV NB_LOG_LEVEL=info
+
+COPY --from=builder /out/nblink /usr/local/bin/nblink
+ENTRYPOINT ["/usr/local/bin/nblink"]
