@@ -23,6 +23,7 @@ const serviceParamsFile = "service.json"
 // serviceParams holds install-time service parameters that persist across
 // uninstall/reinstall cycles. Saved to <stateDir>/service.json.
 type serviceParams struct {
+	ServiceName           string            `json:"service_name,omitempty"`
 	LogLevel              string            `json:"log_level"`
 	DaemonAddr            string            `json:"daemon_addr"`
 	JSONSocket            string            `json:"json_socket"`
@@ -100,6 +101,7 @@ func saveServiceParams(params *serviceParams) error {
 // variables into a serviceParams struct.
 func currentServiceParams() *serviceParams {
 	params := &serviceParams{
+		ServiceName:           serviceName,
 		LogLevel:              logLevel,
 		DaemonAddr:            daemonAddr,
 		JSONSocket:            jsonSocket,
@@ -144,6 +146,10 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	// For fields with non-empty defaults, keep the != "" guard so that an older
 	// service.json missing the field doesn't clobber the default with an empty string.
+	if !rootCmd.PersistentFlags().Changed("service") && params.ServiceName != "" {
+		serviceName = params.ServiceName
+	}
+
 	if !rootCmd.PersistentFlags().Changed("log-level") && params.LogLevel != "" {
 		logLevel = params.LogLevel
 	}
