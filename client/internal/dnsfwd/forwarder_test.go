@@ -649,6 +649,39 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 	}
 }
 
+// TestDNSForwarder_RecursionAvailable covers the RA bit. Every answer this
+// forwarder produces comes from a recursive lookup on the routing peer, but
+// dns.Msg.SetReply leaves RA unset, so clients report "recursion not available"
+// and some stub resolvers treat the server as unable to serve the query.
+func TestDNSForwarder_RecursionAvailable(t *testing.T) {
+	t.Run("record answer", func(t *testing.T) {
+		mockResolver := &MockResolver{}
+		forwarder := newRecordTestForwarder(t, mockResolver, "example.com")
+
+		mockResolver.On("LookupMX", mock.Anything, "example.com.").
+			Return([]*net.MX{{Host: "mail.example.com.", Pref: 10}}, nil).Once()
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeMX)
+		assert.True(t, resp.RecursionAvailable, "the forwarder resolves recursively")
+	})
+
+	t.Run("unsupported type NODATA", func(t *testing.T) {
+		forwarder := newRecordTestForwarder(t, &MockResolver{}, "example.com")
+
+		resp := runRecordQuery(t, forwarder, "example.com", dns.TypeCAA)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		assert.True(t, resp.RecursionAvailable, "RA describes the server, not the query type")
+	})
+
+	t.Run("unauthorized domain", func(t *testing.T) {
+		forwarder := newRecordTestForwarder(t, &MockResolver{}, "example.com")
+
+		resp := runRecordQuery(t, forwarder, "other.com", dns.TypeMX)
+		require.Equal(t, dns.RcodeRefused, resp.Rcode)
+		assert.True(t, resp.RecursionAvailable, "RA describes the server, not the verdict")
+	})
+}
+
 func hasEDE(m *dns.Msg, code uint16) bool {
 	opt := m.IsEdns0()
 	if opt == nil {
@@ -859,7 +892,7 @@ func TestDNSForwarder_UpstreamFailureEDE(t *testing.T) {
 			lookupErr:   &net.DNSError{Err: "i/o timeout", Server: "10.0.0.53:53", IsTimeout: true},
 			reqEdns:     true,
 			wantEDE:     true,
-			wantCode:    edeNetbirdUpstreamTimeout,
+			wantCode:    resutil.EDENetbirdUpstreamTimeout,
 			wantTextHas: "netbird forwarder: upstream timeout",
 		},
 		{
@@ -867,7 +900,7 @@ func TestDNSForwarder_UpstreamFailureEDE(t *testing.T) {
 			lookupErr:   &net.DNSError{Err: "server misbehaving", Server: "10.0.0.53:53"},
 			reqEdns:     true,
 			wantEDE:     true,
-			wantCode:    edeNetbirdUpstreamFailure,
+			wantCode:    resutil.EDENetbirdUpstreamFailure,
 			wantTextHas: "netbird forwarder: upstream failure",
 		},
 		{
