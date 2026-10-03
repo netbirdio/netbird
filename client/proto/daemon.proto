@@ -690,9 +690,25 @@ message SystemEvent {
   Severity severity = 2;
   Category category = 3;
   string message = 4;
+  // userMessage is the daemon's English rendering of messageKey, kept for the
+  // CLI and for UIs that predate messageKey. UIs that localise read messageKey
+  // and treat this as the fallback.
   string userMessage = 5;
   google.protobuf.Timestamp timestamp = 6;
   map<string, string> metadata = 7;
+  // messageKey names a user-facing message in a stable, locale-independent
+  // form. A UI resolves it against its own translation bundle and substitutes
+  // messageArgs; an unrecognised key falls back to userMessage. Empty on events
+  // that carry no user-facing text.
+  string messageKey = 8;
+  // messageArgs holds the placeholder name/value pairs for messageKey, e.g.
+  // {"version": "0.60.1"} for a "{version}" template. Values are data the
+  // daemon cannot localise (versions, addresses, error text).
+  map<string, string> messageArgs = 9;
+  // titleKey names the notification title in the same way as messageKey. Empty
+  // when the event has no dedicated title, in which case a UI composes one from
+  // severity and category.
+  string titleKey = 10;
 }
 
 message GetEventsRequest {}
