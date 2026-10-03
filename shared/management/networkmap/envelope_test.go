@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,6 +47,67 @@ func TestEnvelopeToNetworkMap_RoundTrip(t *testing.T) {
 	require.NotNil(t, result.Components.AccountSettings)
 	require.NotEmpty(t, result.NetworkMap.RemotePeers, "two-peer allow policy should produce one remote peer")
 	require.NotEmpty(t, result.NetworkMap.FirewallRules, "two-peer allow policy should produce firewall rules")
+}
+
+
+// TestEnvelopeToNetworkMap_MultipleGroupsWithMissingPublicIDs covers upgraded
+// accounts where more than one group has no public_id. The wire format must
+// keep those groups distinct so a nameserver distribution group is not lost.
+func TestEnvelopeToNetworkMap_MultipleGroupsWithMissingPublicIDs(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+
+	c.Groups = map[string]*nmdata.Group{
+		"group-custom": {
+			PublicID: "",
+			Name:     "dns-clients",
+			Peers:    []string{"peer-A"},
+		},
+		"group-all": {
+			PublicID: "",
+			Name:     "All",
+			Peers:    []string{"peer-B"},
+		},
+		"group-public": {
+			PublicID: "group-custom",
+			Name:     "other",
+			Peers:    []string{"peer-B"},
+		},
+	}
+	c.NameServerGroups = []*nmdata.NameServerGroup{{
+		ID:       "nsg-internal",
+		PublicID: "",
+		NameServers: []nmdata.NameServer{{
+			IP:     c.Peers["peer-B"].IP,
+			NSType: 1,
+			Port:   5353,
+		}},
+		Groups:  []string{"group-custom"},
+		Primary: true,
+		Enabled: true,
+	}}
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+
+	full := envelope.GetFull()
+	require.Len(t, full.Groups, 3)
+	sort.SliceStable(full.Groups, func(i, j int) bool {
+		return full.Groups[i].IsAll == false && full.Groups[j].IsAll == true
+	})
+
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err)
+
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded))
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	require.NoError(t, err)
+	require.True(t, result.NetworkMap.DNSConfig.ServiceEnable)
+	require.Len(t, result.NetworkMap.DNSConfig.NameServerGroups, 1,
+		"groups without public IDs must remain distinct across the envelope round trip")
 }
 
 // TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH guards against the
