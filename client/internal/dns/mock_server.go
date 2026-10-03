@@ -84,7 +84,12 @@ func (m *MockServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 }
 
 // SetRouteSources mock implementation of SetRouteSources from Server interface
-func (m *MockServer) SetRouteSources(selected, active func() route.HAMap) {
+func (m *MockServer) SetRouteSources(selected, active, installed func() route.HAMap) {
+	// Mock implementation - no-op
+}
+
+// OnInstalledRoutesChanged mock implementation of OnInstalledRoutesChanged from Server interface
+func (m *MockServer) OnInstalledRoutesChanged() {
 	// Mock implementation - no-op
 }
 

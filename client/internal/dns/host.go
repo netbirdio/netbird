@@ -86,7 +86,12 @@ func newNoopHostMocker() hostManager {
 	}
 }
 
-func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int) HostDNSConfig {
+// nsGroupAllowFunc reports whether a nameserver group may claim the host
+// resolver path, i.e. whether its domains and its Primary flag are allowed to
+// reach the OS DNS configuration. A nil func allows every group.
+type nsGroupAllowFunc func(*nbdns.NameServerGroup) bool
+
+func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int, allow nsGroupAllowFunc) HostDNSConfig {
 	config := HostDNSConfig{
 		RouteAll:   false,
 		ServerIP:   ip,
@@ -94,6 +99,9 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int) H
 	}
 	for _, nsConfig := range dnsConfig.NameServerGroups {
 		if len(nsConfig.NameServers) == 0 {
+			continue
+		}
+		if allow != nil && !allow(nsConfig) {
 			continue
 		}
 		if nsConfig.Primary {

@@ -634,7 +634,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	e.dnsServer.SetRouteSources(e.routeManager.GetSelectedClientRoutes, e.routeManager.GetActiveClientRoutes)
+	e.dnsServer.SetRouteSources(
+		e.routeManager.GetSelectedClientRoutes,
+		e.routeManager.GetActiveClientRoutes,
+		e.routeManager.GetInstalledClientRoutes,
+	)
 
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())

@@ -80,7 +80,8 @@ type Server interface {
 	SearchDomains() []string
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
-	SetRouteSources(selected, active func() route.HAMap)
+	SetRouteSources(selected, active, installed func() route.HAMap)
+	OnInstalledRoutesChanged()
 	SetFirewall(Firewall)
 	SetPeerActivator(local.PeerActivator)
 }
@@ -101,7 +102,14 @@ type nsHealthSnapshot struct {
 	merged   map[netip.AddrPort]UpstreamHealth
 	selected route.HAMap
 	active   route.HAMap
+	// allowed is the gating verdict the current configuration was built from.
+	// A group missing from it was never gated, so it counts as allowed.
+	allowed map[nsGroupID]bool
 }
+
+// errNoRouteToNameservers is what a withheld group reports instead of a health
+// verdict: it has no handler, so there is nothing to observe about it.
+var errNoRouteToNameservers = errors.New("no route to the nameservers")
 
 // nsGroupProj holds per-group state for the emission rules.
 type nsGroupProj struct {
@@ -174,6 +182,14 @@ type DefaultServer struct {
 	selectedRoutes func() route.HAMap
 	// activeRoutes returns the subset whose peer is in StatusConnected.
 	activeRoutes func() route.HAMap
+	// installedRoutes returns the subset whose allowed IPs are installed on
+	// a peer the HA election still considers eligible. Unlike activeRoutes
+	// it keeps a peer parked by lazy connections, which is reachable on
+	// demand rather than unreachable.
+	installedRoutes func() route.HAMap
+	// routedUpstreamGate withholds nameserver groups whose upstreams have no
+	// route. Accessed only on the configuration path, under s.mux.
+	routedUpstreamGate *routedUpstreamGate
 
 	nsGroups        []*nbdns.NameServerGroup
 	healthProjectMu sync.Mutex
@@ -187,6 +203,21 @@ type DefaultServer struct {
 	// healthRefresh is buffered=1; writers coalesce, senders never block.
 	// See refreshHealth for the lock-order rationale.
 	healthRefresh chan struct{}
+	// routeRefresh carries "the installed routes changed, re-decide gating".
+	// Buffered=1 for the same reason as healthRefresh, and asynchronous for a
+	// stronger one: the sender is the route manager, which holds its own lock
+	// while calling into this server, so re-applying inline would invert the
+	// lock order.
+	routeRefresh chan struct{}
+	// currentUpdate is the last configuration received from management, kept
+	// so a gating change can be re-applied without waiting for the next sync.
+	currentUpdate nbdns.Config
+	// haveUpdate guards currentUpdate: an empty config IS a valid config.
+	haveUpdate bool
+	// lastGateDecision is the gating verdict the current configuration was
+	// built from, so a route change that does not change it can skip the
+	// re-apply.
+	lastGateDecision map[nsGroupID]bool
 }
 
 type handlerWithStop interface {
@@ -251,7 +282,7 @@ func NewDefaultServerPermanentUpstream(
 
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
-	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
+	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort(), nil)
 	ds.searchDomainNotifier = newNotifier(ds.searchDomains())
 	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
@@ -303,6 +334,9 @@ func newDefaultServer(
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
 		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
+
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(routedUpstreamGatingFromEnv()),
 	}
 	// Wire the local resolver against the peer status recorder so it can
 	// suppress A/AAAA answers that point at disconnected peers (typical
@@ -318,11 +352,12 @@ func newDefaultServer(
 
 // SetRouteSources wires the route-manager accessors used by health
 // projection to classify each upstream for emission timing.
-func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
+func (s *DefaultServer) SetRouteSources(selected, active, installed func() route.HAMap) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	s.selectedRoutes = selected
 	s.activeRoutes = active
+	s.installedRoutes = installed
 
 	// Permanent / iOS constructors build the root handler before the
 	// engine wires route sources, so its selectedRoutes callback would
@@ -335,6 +370,28 @@ func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
 		if h, ok := entry.handler.(routeSettable); ok {
 			h.setSelectedRoutes(selected)
 		}
+	}
+}
+
+// OnInstalledRoutesChanged tells the server that the set of routes whose
+// allowed IPs are installed may have changed, so nameserver gating has to be
+// re-decided. Never blocks and never re-applies inline: callers hold the route
+// manager's lock, which this server's own paths take after s.mux.
+func (s *DefaultServer) OnInstalledRoutesChanged() {
+	// Nothing downstream can change while gating is off, and a re-apply is not
+	// free: it rebuilds the whole handler chain. Bail out before signalling so
+	// the default path stays exactly as it was before gating existed.
+	//
+	// Read without s.mux on purpose: the gate and its mode are set once in the
+	// constructor and never reassigned, and this must not block. Only the
+	// gate's latch is mutable, and it is not touched here.
+	if s.routedUpstreamGate == nil || s.routedUpstreamGate.mode == gatingOff {
+		return
+	}
+
+	select {
+	case s.routeRefresh <- struct{}{}:
+	default:
 	}
 }
 
@@ -449,6 +506,7 @@ func (s *DefaultServer) Initialize() (err error) {
 	s.stateManager.RegisterState(&ShutdownState{})
 
 	s.startHealthRefresher()
+	s.startRouteRefresher()
 
 	// Keep using noop host manager if dns off requested or running in netstack mode.
 	// Netstack mode currently doesn't have a way to receive DNS requests.
@@ -572,6 +630,9 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			"network update is %d behind the last applied update", s.updateSerial-serial)
 	}
 
+	// Resolved before taking s.mux on purpose, see routeSnapshot.
+	snap := s.routeSnapshot()
+
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -591,7 +652,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		return nil
 	}
 
-	if err := s.applyConfiguration(update); err != nil {
+	if err := s.applyConfiguration(update, s.gateNameServerGroups(update.NameServerGroups, snap)); err != nil {
 		return fmt.Errorf("apply configuration: %w", err)
 	}
 
@@ -645,7 +706,92 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 	return nil
 }
 
-func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
+// routeSnapshot resolves the route accessors. Must NOT be called while holding
+// s.mux: the accessors re-enter the route manager's lock, and the route manager
+// takes s.mux on its own paths (see refreshHealth for the same constraint).
+func (s *DefaultServer) routeSnapshot() routeSnapshot {
+	s.mux.Lock()
+	selFn := s.selectedRoutes
+	instFn := s.installedRoutes
+	s.mux.Unlock()
+
+	var snap routeSnapshot
+	if selFn != nil {
+		snap.selected = selFn()
+	}
+	if instFn != nil {
+		snap.installed = haMapPrefixes(instFn())
+	}
+	return snap
+}
+
+// haMapPrefixes flattens the concrete prefixes of an HA map. Dynamic routes
+// carry a placeholder Network and are dropped.
+func haMapPrefixes(hm route.HAMap) []netip.Prefix {
+	var out []netip.Prefix
+	for _, routes := range hm {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
+			out = append(out, r.Network)
+		}
+	}
+	return out
+}
+
+// gateNameServerGroups returns the gating decision for every group in groups,
+// keyed by group identity, and logs the ones being withheld. Deciding once per
+// configuration pass keeps the host config and the handler chain consistent
+// with each other, and keeps the log to one line per withheld group.
+func (s *DefaultServer) gateNameServerGroups(groups []*nbdns.NameServerGroup, snap routeSnapshot) map[nsGroupID]bool {
+	allowed := make(map[nsGroupID]bool, len(groups))
+	for _, nsGroup := range groups {
+		if nsGroup == nil {
+			continue
+		}
+		key := generateGroupKey(nsGroup)
+		if _, seen := allowed[key]; seen {
+			continue
+		}
+
+		ok := s.routedUpstreamGate.allow(nsGroup, snap)
+		allowed[key] = ok
+
+		// Log the transition, not the state: this runs on every route change,
+		// and a group that stays withheld has nothing new to report.
+		was, known := s.lastGateDecision[key]
+		switch {
+		case !ok && (!known || was):
+			log.Infof("withholding nameserver group [%s] for domains %v: no route to its upstreams",
+				joinAddrPorts(s.usableNameServers(nsGroup.NameServers)), nsGroup.Domains)
+		case ok && known && !was:
+			log.Infof("restoring nameserver group [%s] for domains %v: a route to its upstreams exists again",
+				joinAddrPorts(s.usableNameServers(nsGroup.NameServers)), nsGroup.Domains)
+		}
+	}
+	return allowed
+}
+
+// allowFuncFrom turns a gating decision map into the predicate the host config
+// builder takes. A group missing from the map is allowed: the map is built from
+// the same update, so an absent key means a bug here, and failing open keeps
+// DNS working rather than silently dropping a resolver.
+func allowFuncFrom(allowed map[nsGroupID]bool) nsGroupAllowFunc {
+	return func(nsGroup *nbdns.NameServerGroup) bool {
+		if nsGroup == nil {
+			return true
+		}
+		ok, present := allowed[generateGroupKey(nsGroup)]
+		return !present || ok
+	}
+}
+
+// applyConfiguration installs update, with allowed carrying the gating verdict
+// per nameserver group. The caller decides rather than this function, so that
+// a caller which only wants to re-apply on a gating change can compare the new
+// verdict against the old one first.
+func (s *DefaultServer) applyConfiguration(update nbdns.Config, allowed map[nsGroupID]bool) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	if update.ServiceEnable {
 		if err := s.enableDNS(); err != nil {
@@ -657,22 +803,34 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		}
 	}
 
+	// One verdict for both the chain and the host config, so the two cannot
+	// disagree about a group within the same pass.
+	allow := allowFuncFrom(allowed)
+
 	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
 
-	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
+	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups, allow)
 	if err != nil {
 		return fmt.Errorf("upstream handler updater: %w", err)
 	}
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
 
+	// Recorded only once the configuration can no longer fail to build. A
+	// rejected update must not become the one a later route change replays,
+	// and its verdict must not be remembered either: that would make the next
+	// refresh see "nothing changed" and skip the retry.
+	s.currentUpdate = update
+	s.haveUpdate = true
+	s.lastGateDecision = allowed
+
 	s.updateMux(muxUpdates)
 
 	s.localResolver.Update(localZones)
 
-	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort(), allow)
 
 	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
@@ -874,7 +1032,12 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 	return muxUpdates, zones, nil
 }
 
-func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]handlerWrapper, error) {
+// buildUpstreamHandlerUpdate builds the chain handlers for nameServerGroups.
+// Groups rejected by allow get no handler, so a query for their domains falls
+// through to the default and fallback upstreams: the chain only descends on
+// NXDOMAIN with the Zero bit set, so a registered handler that can only time
+// out would end the chain in SERVFAIL instead.
+func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup, allow nsGroupAllowFunc) ([]handlerWrapper, error) {
 	var muxUpdates []handlerWrapper
 
 	for _, nsGroup := range nameServerGroups {
@@ -897,6 +1060,12 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	groupedNS := groupNSGroupsByDomain(nameServerGroups)
 
 	for _, domainGroup := range groupedNS {
+		domainGroup.groups = allowedNSGroups(domainGroup.groups, allow)
+		if len(domainGroup.groups) == 0 {
+			log.Debugf("no nameserver group with a route for domain=%s, registering no handler", domainGroup.domain)
+			continue
+		}
+
 		priority := PriorityUpstream
 		if domainGroup.domain == nbdns.RootZone {
 			priority = PriorityDefault
@@ -914,6 +1083,20 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	}
 
 	return muxUpdates, nil
+}
+
+func allowedNSGroups(groups []*nbdns.NameServerGroup, allow nsGroupAllowFunc) []*nbdns.NameServerGroup {
+	if allow == nil {
+		return groups
+	}
+
+	out := make([]*nbdns.NameServerGroup, 0, len(groups))
+	for _, nsGroup := range groups {
+		if allow(nsGroup) {
+			out = append(out, nsGroup)
+		}
+	}
+	return out
 }
 
 // buildMergedDomainHandler merges every nameserver group that targets the
@@ -1031,6 +1214,7 @@ func (s *DefaultServer) refreshHealth() {
 	merged := s.collectUpstreamHealth()
 	selFn := s.selectedRoutes
 	actFn := s.activeRoutes
+	allowed := maps.Clone(s.lastGateDecision)
 	s.mux.Unlock()
 
 	var selected, active route.HAMap
@@ -1046,6 +1230,7 @@ func (s *DefaultServer) refreshHealth() {
 		merged:   merged,
 		selected: selected,
 		active:   active,
+		allowed:  allowed,
 	})
 }
 
@@ -1085,6 +1270,21 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 		verdict, groupErr := evaluateNSGroupHealth(snap.merged, servers, now)
 		id := generateGroupKey(group)
 		seen[id] = struct{}{}
+
+		// A withheld group has no handler, so no query ever reaches its
+		// upstreams and the health verdict would stay Undecided, which reads
+		// as Enabled. Report what is actually true instead: it is not serving,
+		// and the reason is the missing route rather than a sick nameserver.
+		if allowed, gated := snap.allowed[id]; gated && !allowed {
+			states = append(states, peer.NSGroupState{
+				ID:      string(id),
+				Servers: servers,
+				Domains: group.Domains,
+				Enabled: false,
+				Error:   errNoRouteToNameservers,
+			})
+			continue
+		}
 
 		immediate := s.groupHasImmediateUpstream(servers, snap)
 
@@ -1266,6 +1466,69 @@ func (s *DefaultServer) collectUpstreamHealth() map[netip.AddrPort]UpstreamHealt
 		}
 	}
 	return merged
+}
+
+func (s *DefaultServer) startRouteRefresher() {
+	s.shutdownWg.Add(1)
+	go func() {
+		defer s.shutdownWg.Done()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.routeRefresh:
+			}
+			s.refreshRoutedUpstreams()
+		}
+	}()
+}
+
+// refreshRoutedUpstreams re-applies the last configuration from management
+// against the current route state, so a group withheld earlier gets configured
+// once a route to its upstreams appears (and, in gatingAlways, withdrawn again
+// when it goes away). Replaying is safe: applyHostConfig hash-dedups and
+// service.Listen returns early when the listener is already up.
+func (s *DefaultServer) refreshRoutedUpstreams() {
+	if s.ctx.Err() != nil {
+		return
+	}
+
+	snap := s.routeSnapshot()
+
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if !s.haveUpdate {
+		return
+	}
+
+	// Gating has nothing to say while management has DNS switched off, and
+	// replaying that configuration is destructive rather than idempotent: it
+	// re-runs the whole teardown — stop the listener, restore the host
+	// resolvers, drop the shutdown state, clear the fallback — and then builds
+	// handlers on top of it. A routing peer flapping with DNS disabled would
+	// repeat that on every transition.
+	// Gating has nothing to say while management has DNS switched off, and
+	// replaying that configuration is wasted teardown: it stops the service and
+	// rebuilds the whole handler chain for something that is not running. A
+	// routing peer flapping with DNS disabled would repeat that every time the
+	// verdict changes.
+	if !s.currentUpdate.ServiceEnable {
+		log.Tracef("DNS service is disabled, not re-applying on a route change")
+		return
+	}
+
+	allowed := s.gateNameServerGroups(s.currentUpdate.NameServerGroups, snap)
+	if maps.Equal(allowed, s.lastGateDecision) {
+		// Most route changes cover no nameserver at all. Re-applying would
+		// rebuild the whole handler chain to produce the same configuration.
+		log.Tracef("routed upstream gating unchanged, not re-applying the DNS configuration")
+		return
+	}
+
+	if err := s.applyConfiguration(s.currentUpdate, allowed); err != nil {
+		log.Errorf("failed to re-apply DNS configuration after a route change: %v", err)
+	}
 }
 
 func (s *DefaultServer) startHealthRefresher() {
