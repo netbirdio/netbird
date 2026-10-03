@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/bodytap"
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -79,11 +79,10 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 	p.mappingsMux.RLock()
 	defer p.mappingsMux.RUnlock()
 
-	// Strip port from host if present (e.g., "external.test:8443" -> "external.test")
-	host := req.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
+	// Host is an authorization and routing key. Canonicalize it identically to
+	// the management domain so case and a DNS root dot cannot select a
+	// different (and potentially unprotected) route.
+	host := netutil.NormalizeHost(req.Host)
 
 	m, exists := p.mappings[host]
 	if !exists {
@@ -116,6 +115,17 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 
 // AddMapping registers a host-to-backend mapping for the reverse proxy.
 func (p *ReverseProxy) AddMapping(m Mapping) {
+	p.addMapping(m, false)
+}
+
+// AddMappingForService registers m without overwriting a mapping owned by a
+// different service. It returns false on an ownership conflict.
+func (p *ReverseProxy) AddMappingForService(m Mapping) bool {
+	return p.addMapping(m, true)
+}
+
+func (p *ReverseProxy) addMapping(m Mapping, enforceOwner bool) bool {
+	m.Host = netutil.NormalizeHost(m.Host)
 	// Sort paths longest-first to match the most specific route first.
 	paths := make([]string, 0, len(m.Paths))
 	for path := range m.Paths {
@@ -128,16 +138,31 @@ func (p *ReverseProxy) AddMapping(m Mapping) {
 
 	p.mappingsMux.Lock()
 	defer p.mappingsMux.Unlock()
+	if existing, ok := p.mappings[m.Host]; ok && enforceOwner && existing.ID != m.ID {
+		return false
+	}
 	p.mappings[m.Host] = m
+	return true
 }
 
 // RemoveMapping removes the mapping for the given host and reports whether it existed.
 func (p *ReverseProxy) RemoveMapping(m Mapping) bool {
+	m.Host = netutil.NormalizeHost(m.Host)
 	p.mappingsMux.Lock()
 	defer p.mappingsMux.Unlock()
-	if _, ok := p.mappings[m.Host]; !ok {
+	existing, ok := p.mappings[m.Host]
+	if !ok || (m.ID != "" && existing.ID != m.ID) {
 		return false
 	}
 	delete(p.mappings, m.Host)
 	return true
+}
+
+// MappingOwner returns the service that currently owns host.
+func (p *ReverseProxy) MappingOwner(host string) (types.ServiceID, bool) {
+	host = netutil.NormalizeHost(host)
+	p.mappingsMux.RLock()
+	defer p.mappingsMux.RUnlock()
+	m, ok := p.mappings[host]
+	return m.ID, ok
 }

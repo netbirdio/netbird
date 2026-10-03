@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"reflect"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/util/netrelay"
@@ -193,7 +194,7 @@ func (r *Router) HTTPListenerPlain() net.Listener {
 // stored and resolved by priority at lookup time (HTTP > TCP).
 // Empty host is ignored to prevent conflicts with ECH/ESNI fallback.
 func (r *Router) AddRoute(host SNIHost, route Route) {
-	host = SNIHost(strings.ToLower(string(host)))
+	host = SNIHost(netutil.NormalizeHost(string(host)))
 	if host == "" {
 		return
 	}
@@ -216,16 +217,22 @@ func (r *Router) AddRoute(host SNIHost, route Route) {
 // Active relay connections for the service are closed immediately.
 // If other routes remain for the host, they are preserved.
 func (r *Router) RemoveRoute(host SNIHost, svcID types.ServiceID) {
-	host = SNIHost(strings.ToLower(string(host)))
+	host = SNIHost(netutil.NormalizeHost(string(host)))
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.routes[host] = slices.DeleteFunc(r.routes[host], func(route Route) bool {
+	routes := r.routes[host]
+	remaining := slices.DeleteFunc(routes, func(route Route) bool {
 		return route.ServiceID == svcID
 	})
-	if len(r.routes[host]) == 0 {
+	if len(remaining) == len(routes) {
+		return
+	}
+	if len(remaining) == 0 {
 		delete(r.routes, host)
+	} else {
+		r.routes[host] = remaining
 	}
 	r.cancelServiceLocked(svcID)
 }
@@ -233,10 +240,42 @@ func (r *Router) RemoveRoute(host SNIHost, svcID types.ServiceID) {
 // SetFallback registers a catch-all route for connections that don't
 // match any SNI route. On a port router this handles plain TCP relay;
 // on the main router it takes priority over the HTTP channel.
-func (r *Router) SetFallback(route Route) {
+func (r *Router) SetFallback(route Route) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.fallback != nil && r.fallback.ServiceID != route.ServiceID {
+		return false
+	}
+	if r.fallback != nil && !sameRoute(*r.fallback, route) {
+		r.cancelServiceLocked(route.ServiceID)
+	}
 	r.fallback = &route
+	return true
+}
+
+func sameRoute(a, b Route) bool {
+	left, right := a.Filter, b.Filter
+	a.Filter, b.Filter = nil, nil
+	return a == b && sameFilter(left, right)
+}
+
+func sameFilter(a, b *restrict.Filter) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// Compare the checker itself, without inspecting its mutable internal state.
+	// A non-comparable implementation is conservatively treated as changed.
+	if (a.CrowdSec != nil && !reflect.TypeOf(a.CrowdSec).Comparable()) || a.CrowdSec != b.CrowdSec {
+		return false
+	}
+	return a.CrowdSecMode == b.CrowdSecMode &&
+		slices.Equal(a.AllowedCIDRs, b.AllowedCIDRs) &&
+		slices.Equal(a.BlockedCIDRs, b.BlockedCIDRs) &&
+		slices.Equal(a.AllowedCountries, b.AllowedCountries) &&
+		slices.Equal(a.BlockedCountries, b.BlockedCountries)
 }
 
 // RemoveFallback clears the catch-all fallback route and closes any
@@ -244,8 +283,33 @@ func (r *Router) SetFallback(route Route) {
 func (r *Router) RemoveFallback(svcID types.ServiceID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.fallback == nil || r.fallback.ServiceID != svcID {
+		return
+	}
 	r.fallback = nil
 	r.cancelServiceLocked(svcID)
+}
+
+// FallbackOwner returns the service that owns the raw TCP fallback.
+func (r *Router) FallbackOwner() (types.ServiceID, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.fallback == nil {
+		return "", false
+	}
+	return r.fallback.ServiceID, true
+}
+
+// RouteOwners returns the services with an SNI route registered for host.
+func (r *Router) RouteOwners(host SNIHost) []types.ServiceID {
+	host = SNIHost(netutil.NormalizeHost(string(host)))
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	owners := make([]types.ServiceID, 0, len(r.routes[host]))
+	for _, route := range r.routes[host] {
+		owners = append(owners, route.ServiceID)
+	}
+	return owners
 }
 
 // SetObserver sets the relay lifecycle observer. Must be called before Serve.
@@ -373,7 +437,7 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	host := SNIHost(strings.ToLower(sni))
+	host := SNIHost(netutil.NormalizeHost(sni))
 	route, ok := r.lookupRoute(host)
 	r.logger.WithFields(log.Fields{
 		"remote": wrapped.RemoteAddr().String(),
