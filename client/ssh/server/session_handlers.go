@@ -119,8 +119,12 @@ func (s *Server) handlePrivError(logger *log.Entry, session ssh.Session, err err
 // buildUserLookupErrorMessage creates appropriate user-facing error messages based on error type
 func (s *Server) buildUserLookupErrorMessage(err error) string {
 	var privilegedErr *PrivilegedUserError
+	var notFoundErr *UserNotFoundError
 
 	switch {
+	case errors.As(err, &notFoundErr):
+		return fmt.Sprintf("user %q does not exist on this host\n", notFoundErr.Username)
+
 	case errors.As(err, &privilegedErr):
 		if privilegedErr.Username == "root" {
 			return "root login is disabled on this SSH server\n"
