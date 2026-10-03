@@ -371,3 +371,13 @@ func (c *KernelConfigurer) fetchStats() (map[string]WGStats, error) {
 	}
 	return stats, nil
 }
+
+func buildPresharedKeyConfig(peerKey wgtypes.Key, psk wgtypes.Key, updateOnly bool) wgtypes.Config {
+	return wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{{
+			PublicKey:    peerKey,
+			PresharedKey: &psk,
+			UpdateOnly:   updateOnly,
+		}},
+	}
+}
