@@ -147,7 +147,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             ref={ref}
             type={type}
             tabIndex={0}
-            disabled={disabled || loading}
+            disabled={disabled}
+            aria-disabled={loading || undefined}
             aria-busy={loading || undefined}
             className={cn(
                 buttonVariants({
@@ -156,10 +157,15 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
                     border: border ? 1 : 0,
                     size,
                 }),
+                loading && "pointer-events-none",
                 className,
             )}
             onClick={(e) => {
                 if (stopPropagation) e.stopPropagation();
+                if (loading) {
+                    e.preventDefault();
+                    return;
+                }
                 if (copy !== undefined) {
                     void navigator.clipboard
                         .writeText(copy)

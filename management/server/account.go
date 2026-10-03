@@ -112,12 +112,41 @@ type DefaultAccountManager struct {
 	permissionsManager permissions.Manager
 
 	disableDefaultPolicy bool
+
+	deletionHooksMu sync.RWMutex
+	deletionHooks   []account.DeletionHook
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
 
 func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
 	am.serviceManager = serviceManager
+}
+
+// AddAccountDeletionHook registers hook to run on every account deletion. Hooks run in
+// registration order, and the first one to fail stops the rest and aborts the deletion.
+// It panics on a nil hook: dropping one silently would skip that hook's cleanup on every
+// deletion, so the wiring bug surfaces at startup instead.
+func (am *DefaultAccountManager) AddAccountDeletionHook(hook account.DeletionHook) {
+	if hook == nil {
+		panic("nil account deletion hook")
+	}
+	am.deletionHooksMu.Lock()
+	defer am.deletionHooksMu.Unlock()
+	am.deletionHooks = append(am.deletionHooks, hook)
+}
+
+func (am *DefaultAccountManager) runAccountDeletionHooks(ctx context.Context, accountID string) error {
+	am.deletionHooksMu.RLock()
+	hooks := slices.Clone(am.deletionHooks)
+	am.deletionHooksMu.RUnlock()
+
+	for _, hook := range hooks {
+		if err := hook(ctx, accountID); err != nil {
+			return fmt.Errorf("account deletion hook: %w", err)
+		}
+	}
+	return nil
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -887,6 +916,10 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
+	if err = am.runAccountDeletionHooks(ctx, accountID); err != nil {
+		return err
 	}
 
 	if err = am.deleteAccountUsers(ctx, accountID, userID, account.Users, userInfosMap); err != nil {
@@ -2358,7 +2391,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 		return err
 	}
 
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "", "")
 	if err != nil {
 		return err
 	}
@@ -2395,7 +2428,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 // v6 address get one allocated. When disabled, all v6 addresses are cleared.
 // When the v6 range changes, all v6 addresses are reallocated.
 func (am *DefaultAccountManager) checkIPv6Collision(ctx context.Context, transaction store.Store, accountID, peerID string, newIPv6 netip.Addr) error {
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "", "")
 	if err != nil {
 		return fmt.Errorf("get peers: %w", err)
 	}
@@ -2408,7 +2441,7 @@ func (am *DefaultAccountManager) checkIPv6Collision(ctx context.Context, transac
 }
 
 func (am *DefaultAccountManager) updatePeerIPv6Addresses(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings) error {
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "", "")
 	if err != nil {
 		return fmt.Errorf("get peers: %w", err)
 	}
@@ -2569,7 +2602,7 @@ func (am *DefaultAccountManager) buildIPv6AllowedPeers(ctx context.Context, tran
 
 	// Embedded proxy peers sit outside regular group membership but must
 	// participate in any v6-enabled overlay to reach v6-only peers.
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	if err != nil {
 		return nil, fmt.Errorf("get peers: %w", err)
 	}
@@ -2640,7 +2673,7 @@ func (am *DefaultAccountManager) updatePeerIPInTransaction(ctx context.Context, 
 			return nil
 		}
 
-		peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+		peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "", "")
 		if err != nil {
 			return fmt.Errorf("get account peers: %w", err)
 		}

@@ -65,7 +65,6 @@ type MockWGIface struct {
 	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
-	GetProxyPortFunc           func() uint16
 	GetNetFunc                 func() *netstack.Net
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
@@ -160,13 +159,6 @@ func (m *MockWGIface) GetStats() (map[string]configurer.WGStats, error) {
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
-}
-
-func (m *MockWGIface) GetProxyPort() uint16 {
-	if m.GetProxyPortFunc != nil {
-		return m.GetProxyPortFunc()
-	}
-	return 0
 }
 
 func (m *MockWGIface) GetNet() *netstack.Net {
@@ -696,10 +688,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				StatusRecorder: peer.NewRecorder("https://mgm"),
 			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
@@ -904,10 +893,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
 				Address:      wgaddr.MustParseWGAddress(wgAddr),
