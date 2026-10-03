@@ -77,8 +77,10 @@ func TestTargetAccessControl_PublicServiceLifecycle(t *testing.T) {
 
 	proxyToken, err := srv.CreateProxyTokenCLI(ctx, "e2e-target-access-proxy")
 	require.NoError(t, err, "mint global proxy token")
-	px, err := harness.StartProxy(ctx, srv, proxyToken, map[string]string{"NB_PROXY_PRIVATE": "false"})
-	require.NoError(t, err, "start public reverse proxy")
+	// Cluster direct-upstream targets require a private-capable proxy, while the
+	// service itself remains public through request.Private below.
+	px, err := harness.StartProxy(ctx, srv, proxyToken)
+	require.NoError(t, err, "start reverse proxy")
 	t.Cleanup(func() { _ = px.Terminate(context.Background()) })
 
 	request := targetAccessServiceRequest(t, upstream.URL,
