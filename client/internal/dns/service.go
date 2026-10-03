@@ -25,6 +25,7 @@ type service interface {
 	Stop() error
 	RegisterMux(domain string, handler dns.Handler)
 	DeregisterMux(key string)
+	ResolverAddress() (netip.AddrPort, bool)
 	RuntimePort() int
 	RuntimeIP() netip.Addr
 }

@@ -15,6 +15,32 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
+func TestResolverAddressRequiresRunningService(t *testing.T) {
+	want := netip.MustParseAddrPort("127.0.0.153:5053")
+
+	listenerService := &serviceViaListener{
+		listenIP:   want.Addr(),
+		listenPort: want.Port(),
+	}
+	_, ok := listenerService.ResolverAddress()
+	assert.False(t, ok, "stopped listener service should not advertise a resolver")
+	listenerService.listenerIsRunning = true
+	got, ok := listenerService.ResolverAddress()
+	assert.True(t, ok, "running listener service should advertise its resolver")
+	assert.Equal(t, want, got, "listener service should advertise its runtime endpoint")
+
+	memoryService := &ServiceViaMemory{
+		runtimeIP:   want.Addr(),
+		runtimePort: int(want.Port()),
+	}
+	_, ok = memoryService.ResolverAddress()
+	assert.False(t, ok, "stopped memory service should not advertise a resolver")
+	memoryService.listenerIsRunning = true
+	got, ok = memoryService.ResolverAddress()
+	assert.True(t, ok, "running memory service should advertise its resolver")
+	assert.Equal(t, want, got, "memory service should advertise its runtime endpoint")
+}
+
 func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
 		m := new(dns.Msg)

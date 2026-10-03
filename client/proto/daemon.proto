@@ -297,6 +297,8 @@ message StatusResponse{
   // Unset when the peer is not SSO-registered or login expiration is disabled.
   // The UI derives "warning active" from this value and its own clock.
   google.protobuf.Timestamp sessionExpiresAt = 4;
+  // Active local NetBird DNS resolver in ip:port format.
+  string dnsResolverAddress = 5;
 }
 
 message DownRequest {}
