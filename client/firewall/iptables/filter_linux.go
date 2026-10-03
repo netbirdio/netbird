@@ -3,6 +3,7 @@
 package iptables
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -38,7 +39,21 @@ func (r *family) AddFilterRule(
 		return existing, nil
 	}
 
-	rule, err := r.installFilterRules(ruleID, sources, destination, proto, sPort, dPort, action, r.ipsetSupported)
+	rule, err := r.installFilterRules(ruleID, sources, destination, proto, sPort, dPort, action, r.ipsetSupport.supported())
+
+	var unusable *ipsetUnusableError
+	if errors.As(err, &unusable) {
+		// The set could not be created or matched. Retry matching each source
+		// prefix on its own so the rule lands either way, and latch the
+		// capability off only once a probe confirms the kernel is the reason.
+		rule, err = r.installFilterRules(ruleID, sources, destination, proto, sPort, dPort, action, false)
+		if err != nil {
+			return nil, fmt.Errorf("add filter rule (ipset: %w): %w", unusable.cause, err)
+		}
+		if !r.ipsetUsable(filterChain(destination)) {
+			r.ipsetSupport.markUnsupported(unusable.cause)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +209,7 @@ func (r *family) applySourceMatch(network firewall.Network, prefixes []netip.Pre
 		}
 		name := r.ipsetName(network.Set.HashedName())
 		if _, err := r.ipsetCounter.Increment(name, prefixes); err != nil {
-			return nil, fmt.Errorf("ipset increment %s: %w", name, err)
+			return nil, ipsetUnusable(fmt.Errorf("ipset increment %s: %w", name, err))
 		}
 		return []string{"-m", "set", matchSet, name, "src"}, nil
 	case network.IsPrefix():
@@ -262,11 +277,7 @@ func (r *family) installFilterRule(
 		}
 	}
 	matchSpecs := filterMatchSpecs(proto, sPort, dPort)
-
-	chain := chainACLInput
-	if isRoute {
-		chain = chainRTFwdIn
-	}
+	chain := filterChain(destination)
 
 	var installed []filterSpecs
 	for _, srcMatch := range srcMatches {
@@ -291,7 +302,16 @@ func (r *family) installFilterRule(
 			// partial rule would silently keep matching without being tracked.
 			r.removeFilterSpecs(chain, installed)
 			r.dropSourceMatch(destExp)
-			return nil, fmt.Errorf("install filter rule on %s: %w", chain, err)
+			err = fmt.Errorf("install filter rule on %s: %w", chain, err)
+			// A failure on a rule whose source carries a set match may mean
+			// iptables cannot match against sets (xt_set); report it as such
+			// so the caller can retry the rule in its per-prefix form. A
+			// destination set cannot be expanded per prefix, so its failures
+			// are not retryable.
+			if len(findSets(srcMatch)) > 0 {
+				err = ipsetUnusable(err)
+			}
+			return nil, err
 		}
 
 		// The mangle redirect-mark rule is best effort: the filter rule itself
@@ -315,6 +335,16 @@ func (r *family) installFilterRule(
 		chain:       chain,
 		v6:          r.v6,
 	}, nil
+}
+
+// filterChain returns the ACL chain a filter rule belongs in: a rule with a
+// destination filters routed traffic, one without filters traffic addressed to
+// this peer.
+func filterChain(destination firewall.Network) string {
+	if destination.IsZero() {
+		return chainACLInput
+	}
+	return chainRTFwdIn
 }
 
 // insertFilterRule writes one assembled rule spec into the given ACL
@@ -362,7 +392,7 @@ func (r *family) applyNetwork(flag string, network firewall.Network, prefixes []
 		// source set it cannot be expanded into per-prefix rules. Without
 		// ipset such a rule is not expressible; report it instead of
 		// installing something broader than the policy allows.
-		if flag == "-d" && !r.ipsetSupported {
+		if flag == "-d" && !r.ipsetSupport.supported() {
 			return nil, fmt.Errorf("destination set %s requires ipset (ip_set_hash_net and xt_set)", network.Set.HashedName())
 		}
 
