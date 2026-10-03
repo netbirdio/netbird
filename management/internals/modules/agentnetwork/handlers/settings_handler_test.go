@@ -393,3 +393,202 @@ func TestSettingsHandler_DeleteReleasesEndpointForFreshBootstrap(t *testing.T) {
 		"the fresh row must carry bootstrap defaults, not the deleted row's toggles")
 	assert.NotNil(t, second.CreatedAt, "the fresh row is persisted and carries timestamps")
 }
+
+// bootstrapForETag bootstraps a settings row and returns the response body
+// alongside the validator the bootstrap emitted, which is what a client would
+// carry into its first conditional write.
+func bootstrapForETag(t *testing.T, f *agentNetworkHandlerFixture) (api.AgentNetworkSettings, string) {
+	t.Helper()
+
+	rec := f.do(t, http.MethodPost, "/agent-network/settings",
+		`{"proxy_address": "eu.proxy.netbird.io", "enable_prompt_collection": true, "redact_pii": true, "access_log_retention_days": 14}`)
+	require.Equal(t, http.StatusOK, rec.Code, "bootstrap POST must succeed: %s", rec.Body.String())
+
+	var settings api.AgentNetworkSettings
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+
+	etag := rec.Header().Get("ETag")
+	require.NotEmpty(t, etag, "bootstrap must emit a validator so a client can PUT without an intervening GET")
+	return settings, etag
+}
+
+// putBody renders a complete settings update — every field, with the identity
+// echo the endpoint requires — so the conditional-request tests differ only in
+// their headers.
+func putBody(settings api.AgentNetworkSettings, redactPii bool, retention int) string {
+	return fmt.Sprintf(
+		`{"endpoint": %q, "proxy_address": %q, "enable_log_collection": true, "enable_prompt_collection": true, "redact_pii": %t, "access_log_retention_days": %d}`,
+		settings.Endpoint, settings.ProxyAddress, redactPii, retention)
+}
+
+// TestSettingsHandler_EmitsETag pins that every read and every write hands the
+// client back a validator, quoted as a strong entity-tag. Without one on the
+// write responses a client would have to re-GET after every update to stay
+// able to make the next one conditional.
+func TestSettingsHandler_EmitsETag(t *testing.T) {
+	f := newAgentNetworkHandlerFixture(t)
+
+	// The pre-bootstrap defaults are a representation too, and validate like
+	// one — an If-Match taken here must not match the row that appears later.
+	rec := f.do(t, http.MethodGet, "/agent-network/settings", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	defaultsETag := rec.Header().Get("ETag")
+	assert.NotEmpty(t, defaultsETag, "the unbootstrapped view must carry a validator")
+
+	settings, bootstrapETag := bootstrapForETag(t, f)
+	assert.Regexp(t, `^"[0-9a-f]+"$`, bootstrapETag, "the validator must be a quoted strong entity-tag")
+	assert.NotEqual(t, defaultsETag, bootstrapETag, "bootstrapping must move the validator")
+
+	rec = f.do(t, http.MethodGet, "/agent-network/settings", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, bootstrapETag, rec.Header().Get("ETag"),
+		"reading an unchanged row must derive the same validator the bootstrap returned")
+
+	rec = f.do(t, http.MethodPut, "/agent-network/settings", putBody(settings, false, 7))
+	require.Equal(t, http.StatusOK, rec.Code, "update must succeed: %s", rec.Body.String())
+	assert.NotEqual(t, bootstrapETag, rec.Header().Get("ETag"),
+		"an update that changed the representation must return a different validator")
+}
+
+// TestSettingsHandler_PutIfMatch walks the conditional-update contract. The
+// stale case is the one the feature exists for: a client that planned against
+// an earlier read must be refused rather than silently reverting whatever
+// changed in between — RedactPii above all, where a silent revert turns a
+// compliance control off with no error and no drift warning.
+func TestSettingsHandler_PutIfMatch(t *testing.T) {
+	t.Run("matching validator succeeds", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, etag := bootstrapForETag(t, f)
+
+		rec := f.doWithHeaders(t, http.MethodPut, "/agent-network/settings",
+			putBody(settings, false, 7), map[string]string{"If-Match": etag})
+		require.Equal(t, http.StatusOK, rec.Code,
+			"a matching precondition must be honoured: got %d body=%s", rec.Code, rec.Body.String())
+		assert.NotEqual(t, etag, rec.Header().Get("ETag"),
+			"the response must carry the new validator, not the one that was matched")
+	})
+
+	t.Run("stale validator is refused and changes nothing", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, stale := bootstrapForETag(t, f)
+
+		// Someone else writes in between — the dashboard operator enabling
+		// something the planning client never saw.
+		rec := f.do(t, http.MethodPut, "/agent-network/settings", putBody(settings, true, 21))
+		require.Equal(t, http.StatusOK, rec.Code, "the intervening update must succeed: %s", rec.Body.String())
+		var intervened api.AgentNetworkSettings
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &intervened))
+
+		rec = f.doWithHeaders(t, http.MethodPut, "/agent-network/settings",
+			putBody(settings, false, 7), map[string]string{"If-Match": stale})
+		require.Equal(t, http.StatusPreconditionFailed, rec.Code,
+			"a stale precondition must be refused: got %d body=%s", rec.Code, rec.Body.String())
+
+		// Asserting the state, not just the status: a partial write would pass
+		// a status-only check.
+		rec = f.do(t, http.MethodGet, "/agent-network/settings", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var after api.AgentNetworkSettings
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+		assert.Equal(t, intervened, after, "the refused update must leave the row byte-identical")
+	})
+
+	t.Run("star matches the existing row", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, _ := bootstrapForETag(t, f)
+
+		rec := f.doWithHeaders(t, http.MethodPut, "/agent-network/settings",
+			putBody(settings, false, 7), map[string]string{"If-Match": "*"})
+		assert.Equal(t, http.StatusOK, rec.Code,
+			"* must match any current representation: got %d body=%s", rec.Code, rec.Body.String())
+	})
+
+	t.Run("no precondition still succeeds", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, _ := bootstrapForETag(t, f)
+
+		// The back-compatibility guarantee: clients that predate conditional
+		// requests — the dashboard among them — keep last-write-wins.
+		rec := f.do(t, http.MethodPut, "/agent-network/settings", putBody(settings, false, 7))
+		assert.Equal(t, http.StatusOK, rec.Code,
+			"an unconditional update must keep working: got %d body=%s", rec.Code, rec.Body.String())
+	})
+
+	t.Run("precondition is checked before the immutability echo", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, stale := bootstrapForETag(t, f)
+
+		rec := f.do(t, http.MethodPut, "/agent-network/settings", putBody(settings, true, 21))
+		require.Equal(t, http.StatusOK, rec.Code, "the intervening update must succeed: %s", rec.Body.String())
+
+		// A client stale enough to hold an old validator may be stale in its
+		// identity echo too. Answering 412 tells it the useful thing — go and
+		// read again — where 422 would send it hunting an immutability bug.
+		body := fmt.Sprintf(
+			`{"endpoint": "other.gateway.example.com", "proxy_address": %q, "enable_log_collection": true, "enable_prompt_collection": true, "redact_pii": false, "access_log_retention_days": 7}`,
+			settings.ProxyAddress)
+		rec = f.doWithHeaders(t, http.MethodPut, "/agent-network/settings", body,
+			map[string]string{"If-Match": stale})
+		assert.Equal(t, http.StatusPreconditionFailed, rec.Code,
+			"staleness must be reported ahead of the identity mismatch: got %d body=%s", rec.Code, rec.Body.String())
+	})
+}
+
+// TestSettingsHandler_DeleteIfMatch covers the conditional delete, which
+// carries more weight than the conditional update: both existing delete guards
+// are about state — no providers, no serving proxy — so nothing else stops a
+// client from deleting a row that was replaced since it read one.
+func TestSettingsHandler_DeleteIfMatch(t *testing.T) {
+	t.Run("stale validator is refused and the row survives", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, stale := bootstrapForETag(t, f)
+
+		rec := f.do(t, http.MethodPut, "/agent-network/settings", putBody(settings, true, 21))
+		require.Equal(t, http.StatusOK, rec.Code, "the intervening update must succeed: %s", rec.Body.String())
+
+		rec = f.doWithHeaders(t, http.MethodDelete, "/agent-network/settings", "",
+			map[string]string{"If-Match": stale})
+		require.Equal(t, http.StatusPreconditionFailed, rec.Code,
+			"a stale precondition must refuse the delete: got %d body=%s", rec.Code, rec.Body.String())
+
+		rec = f.do(t, http.MethodGet, "/agent-network/settings", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var after api.AgentNetworkSettings
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+		assert.Equal(t, settings.Endpoint, after.Endpoint, "the refused delete must leave the row in place")
+	})
+
+	t.Run("matching validator deletes", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		_, etag := bootstrapForETag(t, f)
+
+		rec := f.doWithHeaders(t, http.MethodDelete, "/agent-network/settings", "",
+			map[string]string{"If-Match": etag})
+		require.Equal(t, http.StatusOK, rec.Code,
+			"a matching precondition must be honoured: got %d body=%s", rec.Code, rec.Body.String())
+
+		rec = f.do(t, http.MethodGet, "/agent-network/settings", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var after api.AgentNetworkSettings
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+		assert.Empty(t, after.Endpoint, "the row must be gone")
+	})
+
+	t.Run("precondition is checked before the state guards", func(t *testing.T) {
+		f := newAgentNetworkHandlerFixture(t)
+		settings, stale := bootstrapForETag(t, f)
+
+		rec := f.do(t, http.MethodPut, "/agent-network/settings", putBody(settings, true, 21))
+		require.Equal(t, http.StatusOK, rec.Code, "the intervening update must succeed: %s", rec.Body.String())
+		f.seedProvider(t, "prov-precondition")
+
+		// Both refusals are 412, so the status cannot tell them apart — the
+		// message must, or a stale client is sent to delete providers it may
+		// not even know about.
+		rec = f.doWithHeaders(t, http.MethodDelete, "/agent-network/settings", "",
+			map[string]string{"If-Match": stale})
+		require.Equal(t, http.StatusPreconditionFailed, rec.Code, "the delete must be refused: %s", rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "if-match",
+			"staleness must be reported ahead of the provider guard: %s", rec.Body.String())
+	})
+}
