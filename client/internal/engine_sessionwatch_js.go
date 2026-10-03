@@ -35,6 +35,8 @@ func (w noopSessionWatcher) Update(deadline time.Time) error {
 	return nil
 }
 
+func (noopSessionWatcher) Recheck() {}
+
 func (noopSessionWatcher) Dismiss() {
 	// No-op: only suppresses the timer-driven final-warning, which this stub never arms.
 }

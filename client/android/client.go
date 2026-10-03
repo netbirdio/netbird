@@ -320,6 +320,13 @@ func (c *Client) SetNetworkAvailable(available bool) {
 // TUN device stay untouched.
 func (c *Client) NotifyNetworkChange() {
 	c.netMgr.NotifyNetworkChange()
+	cc := c.getConnectClient()
+	if cc == nil {
+		return
+	}
+	if engine := cc.Engine(); engine != nil {
+		engine.RecheckSessionDeadline()
+	}
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.

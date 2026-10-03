@@ -74,6 +74,16 @@ func (e *Engine) DismissSessionWarning() {
 	e.sessionWatcher.Dismiss()
 }
 
+// RecheckSessionDeadline re-derives the session warning schedule from the
+// wall clock; call it after a wake-up where the monotonic timers may have
+// stalled.
+func (e *Engine) RecheckSessionDeadline() {
+	if e.sessionWatcher == nil {
+		return
+	}
+	e.sessionWatcher.Recheck()
+}
+
 // ExtendAuthSession asks the management server to refresh the SSO session
 // expiry deadline using the supplied JWT, then mirrors the new deadline into
 // the daemon's state. The tunnel is untouched; no resync, no reconnect.
