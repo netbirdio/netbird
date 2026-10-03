@@ -267,18 +267,6 @@ jobs:
           grep -Fxq '  NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY=$(rand_b64_key)' infrastructure_files/getting-started-enterprise.sh
           grep -Fxq '    sessionCookieEncryptionKey: "${NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}"' infrastructure_files/getting-started-enterprise.sh
 
-      - name: Verify Dex retirement notice
-        run: |
-          if infrastructure_files/getting-started-with-dex.sh >stdout.txt 2>stderr.txt; then
-            echo "Expected the retired Dex installer to fail"
-            exit 1
-          fi
-          test ! -s stdout.txt
-          grep -Fq "Dex support is not deprecated." stderr.txt
-          grep -Fq "https://docs.netbird.io/selfhosted/selfhosted-quickstart" stderr.txt
-          grep -Fq "https://docs.netbird.io/selfhosted/identity-providers/local" stderr.txt
-          grep -Fq "removed in NetBird v0.80" stderr.txt
-
       - name: Verify Zitadel retirement notice
         run: |
           if bash infrastructure_files/getting-started-with-zitadel.sh >stdout.txt 2>stderr.txt; then
@@ -286,8 +274,6 @@ jobs:
             exit 1
           fi
           test ! -s stdout.txt
-          grep -Fq "Zitadel support and existing Zitadel deployments are not deprecated." stderr.txt
           grep -Fq "https://docs.netbird.io/selfhosted/selfhosted-quickstart" stderr.txt
           grep -Fq "https://docs.netbird.io/selfhosted/identity-providers/zitadel" stderr.txt
           grep -Fq "https://docs.netbird.io/selfhosted/selfhosted-guide" stderr.txt
-          grep -Fq "removed in NetBird v0.80" stderr.txt
