@@ -16,14 +16,14 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -o /out/nblink ./client/link/cmd/nblink \
-    && mkdir -p /out/state && chmod 770 /out/state
+    && mkdir -p /out/state/nblink && chmod 770 /out/state/nblink
 
 FROM gcr.io/distroless/static-debian13:nonroot
 
 # Same state directory as the release image, so a volume mounted over it
 # starts out owned by 65532:0 and the identity-persistence case runs against
 # the ownership the release image ships.
-COPY --from=builder --chown=65532:0 /out/state /var/lib/nblink
+COPY --from=builder --chown=65532:0 /out/state/ /var/lib/
 
 # Numeric, as in the release image: the runtime may substitute its own UID and
 # there is no passwd entry to look up.

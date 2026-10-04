@@ -155,6 +155,8 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 			fmt.Sprintf("http://0.0.0.0:%d=https://%s", nblinkPublicPort, settings.Endpoint),
 		),
 		harness.WithNBLinkEnv("NB_ALLOW_PUBLIC_BIND", "true"),
+		// The name other containers use for the public forward.
+		harness.WithNBLinkEnv("NB_ALLOWED_HOST", "nblink"),
 		harness.WithNBLinkSetupKeyFile(),
 		harness.WithNBLinkStateVolume(stateVolume),
 	}
@@ -268,7 +270,17 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 
 		pcode, pbody, perr := nb.PostFromNetwork(ctx, nblinkPublicPort, harness.ChatPath, chat, nil)
 		require.NoError(t, perr, "the public forward must accept a connection from another container")
-		assert.Equal(t, 200, pcode, "the public forward must serve a caller on the network under its own name; body: %s", pbody)
+		assert.Equal(t, 200, pcode, "the public forward must serve a caller under a listed name; body: %s", pbody)
+
+		// The shape a rebound page sends: its own name, with Origin and
+		// Sec-Fetch-Site agreeing that the request is same-origin.
+		rcode, rbody, rerr := nb.PostFromNetwork(ctx, nblinkPublicPort, harness.ChatPath, chat, []string{
+			"Host: attacker.example:8083", "Origin: http://attacker.example:8083", "Sec-Fetch-Site: same-origin",
+		})
+		require.NoError(t, rerr)
+		assert.Equal(t, 421, rcode, "a public forward must refuse a name it was not given; body: %s", rbody)
+		assert.Contains(t, nb.Logs(ctx), fmt.Sprintf("forwarding http://0.0.0.0:%d", nblinkPublicPort),
+			"a 0.0.0.0 forward must bind the IPv4 wildcard, not the dual-stack one")
 
 		// The Host check only protects loopback listeners, but the browser
 		// checks still hold on a public one.
@@ -281,11 +293,15 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		assert.Error(t, lerr, "a loopback forward must refuse connections from other machines")
 	})
 
-	t.Run("the setup key never reaches the logs", func(t *testing.T) {
+	t.Run("the logs show no secrets and no side effects on the host", func(t *testing.T) {
 		// The suite runs at debug level, the most an operator can turn on.
 		logs := nb.Logs(ctx)
 		require.Contains(t, logs, "over the overlay", "the logs must have been read")
 		assert.NotContains(t, logs, allowedKey, "the setup key must not be logged")
+		assert.Contains(t, logs, "NAT port mapper disabled", "nblink must not ask the router for a port mapping")
+		assert.NotContains(t, logs, "/var/lib/netbird", "nblink must not touch an installed agent's state")
+		assert.NotContains(t, logs, "failed to login to Management Service",
+			"registering a new peer must not log an error")
 	})
 
 	t.Run("a peer no policy names cannot reach the endpoint", func(t *testing.T) {
@@ -425,6 +441,31 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		}, 120*time.Second, 5*time.Second, "the forwarder must reach the TLS handshake and fail it; logs:\n%s", untrusted.Logs(ctx))
 		assert.Equal(t, 502, ucode, "an unverified upstream must not be served; body: %s", ubody)
 		assert.NotContains(t, ubody, "chat.completion", "no completion may come back over an unverified connection")
+	})
+
+	t.Run("an arbitrary UID in group 0 keeps its identity on a volume", func(t *testing.T) {
+		// OpenShift's restricted SCC runs the image as a UID from the
+		// namespace range with group 0. The state directory is group 0 and
+		// group-writable, and a fresh volume inherits that.
+		const name = "nblink-openshift"
+		volume := fmt.Sprintf("e2e-nblink-openshift-%d", time.Now().UnixNano())
+		t.Cleanup(func() { _ = harness.RemoveDockerVolume(context.Background(), volume) })
+		opts := []harness.NBLinkOption{
+			harness.WithNBLinkName(name),
+			harness.WithNBLinkUser("1000770000:0"),
+			harness.WithNBLinkStateVolume(volume),
+			harness.WithNBLinkSetupKeyFile(),
+		}
+
+		for range 2 {
+			fwdr, oerr := harness.StartNBLink(ctx, srv, allowedKey, forward, px.CACertPath(), opts...)
+			require.NoError(t, oerr, "start the forwarder as an arbitrary UID")
+			ocode, obody := chatUntil(ctx, t, fwdr, 200, 120*time.Second, "")
+			assert.Equal(t, 200, ocode, "the forwarder must serve as an arbitrary UID; body: %s", obody)
+			require.NoError(t, fwdr.Terminate(ctx), "stop the forwarder")
+		}
+		assert.Len(t, peersWithHostname(ctx, t, name), 1,
+			"an arbitrary UID must be able to persist the identity it registered")
 	})
 
 	t.Run("without a state dir every start is a new peer", func(t *testing.T) {

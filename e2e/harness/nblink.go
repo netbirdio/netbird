@@ -73,6 +73,7 @@ type nblinkOptions struct {
 	keyAsFile   bool
 	stateVolume string
 	env         map[string]string
+	user        string
 }
 
 // NBLinkOption adjusts how StartNBLink runs the forwarder.
@@ -107,6 +108,12 @@ func WithNBLinkSetupKeyFile() NBLinkOption {
 // volume is created on first use; RemoveDockerVolume deletes it.
 func WithNBLinkStateVolume(volume string) NBLinkOption {
 	return func(o *nblinkOptions) { o.stateVolume = volume }
+}
+
+// WithNBLinkUser runs the forwarder as uid:gid instead of the image's user,
+// the way OpenShift assigns an arbitrary UID in group 0.
+func WithNBLinkUser(user string) NBLinkOption {
+	return func(o *nblinkOptions) { o.user = user }
 }
 
 // WithNBLinkEnv sets an extra environment variable on the forwarder, for
@@ -177,6 +184,7 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 		// The embedded client reports the container hostname to management, so
 		// this is the name the peer is addressable by in the API.
 		Hostname:       o.name,
+		User:           o.user,
 		Networks:       []string{c.network.Name},
 		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env:            env,
