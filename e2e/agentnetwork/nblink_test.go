@@ -22,6 +22,9 @@ const (
 	nblinkSecondPort = 8081
 	// nblinkDeadPort forwards to a name nothing in the overlay serves.
 	nblinkDeadPort = 8082
+	// nblinkPublicPort binds every interface, so it is reachable from other
+	// containers on the network, which the loopback forwards are not.
+	nblinkPublicPort = 8083
 	// nblinkDeadUpstream is under the overlay's own domain, so the lookup is
 	// answered by the in-process resolver rather than by anything outside.
 	nblinkDeadUpstream = "https://nothing-serves-this.netbird.local"
@@ -94,13 +97,28 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 	require.NoError(t, err, "create provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
 
+	// A second provider on the mock's streaming listener, which answers every
+	// request as server-sent events.
+	streamProv, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
+		Name:        "nblink-stream",
+		ProviderId:  "anthropic_api",
+		UpstreamUrl: vllm.StreamURL,
+		ApiKey:      &dummyKey,
+		Enabled:     ptr(true),
+		Models: &[]api.AgentNetworkProviderModel{
+			{Id: streamedModel, InputPer1k: streamInRate, OutputPer1k: streamOutRate},
+		},
+	})
+	require.NoError(t, err, "create streaming provider")
+	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), streamProv.Id) })
+
 	// Caps far above what this test drives, so the limit never blocks but
 	// usage metering is switched on — that is what writes consumption rows.
 	pol, err := srv.CreatePolicy(ctx, api.AgentNetworkPolicyRequest{
 		Name:                   "e2e-nblink-allow",
 		Enabled:                ptr(true),
 		SourceGroups:           []string{allowed.Id},
-		DestinationProviderIds: []string{prov.Id},
+		DestinationProviderIds: []string{prov.Id, streamProv.Id},
 		Limits: &api.AgentNetworkPolicyLimits{
 			TokenLimit: api.AgentNetworkPolicyTokenLimit{
 				Enabled:       true,
@@ -134,7 +152,9 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		harness.WithNBLinkForwards(
 			nblinkForward(nblinkSecondPort, "https://"+settings.Endpoint),
 			nblinkForward(nblinkDeadPort, nblinkDeadUpstream),
+			fmt.Sprintf("http://0.0.0.0:%d=https://%s", nblinkPublicPort, settings.Endpoint),
 		),
+		harness.WithNBLinkEnv("NB_ALLOW_PUBLIC_BIND", "true"),
 		harness.WithNBLinkSetupKeyFile(),
 		harness.WithNBLinkStateVolume(stateVolume),
 	}
@@ -224,6 +244,48 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		// The forwarder bounds a dial at 30s; anything near curl's 90s limit
 		// means a request was left hanging.
 		assert.Less(t, elapsed, 40*time.Second, "an unreachable upstream must fail fast, took %s", elapsed)
+	})
+
+	t.Run("a streamed reply arrives as events and is metered", func(t *testing.T) {
+		streamSession := "e2e-session-nblink-stream"
+		body := fmt.Sprintf(`{"model":%q,"max_tokens":64,"stream":true,"messages":[{"role":"user","content":"Reply with exactly: pong"}]}`, streamedModel)
+		scode, sbody, serr := nb.Post(ctx, "/v1/messages", body,
+			[]string{"anthropic-version: 2023-06-01", "x-session-id: " + streamSession})
+		require.NoError(t, serr, "the probe must reach the listener")
+		require.Equal(t, 200, scode, "a streamed request must be served; body: %s%s", sbody, diag())
+		assert.Contains(t, sbody, "event: message_start", "the caller must receive the event stream itself")
+		assert.Contains(t, sbody, "message_stop", "the stream must arrive complete")
+
+		row := findAccessLogBySession(t, ctx, streamSession)
+		assert.Equal(t, harness.VLLMStreamInputTokens, int(row.InputTokens),
+			"the proxy must meter a stream carried by the forwarder like any other")
+		assert.Equal(t, harness.VLLMStreamOutputTokens, int(row.OutputTokens),
+			"output tokens must be metered from the stream")
+	})
+
+	t.Run("only the public forward is reachable from the network", func(t *testing.T) {
+		chat := harness.ChatBody(harness.VLLMModel, "Reply with exactly: pong")
+
+		pcode, pbody, perr := nb.PostFromNetwork(ctx, nblinkPublicPort, harness.ChatPath, chat, nil)
+		require.NoError(t, perr, "the public forward must accept a connection from another container")
+		assert.Equal(t, 200, pcode, "the public forward must serve a caller on the network under its own name; body: %s", pbody)
+
+		// The Host check only protects loopback listeners, but the browser
+		// checks still hold on a public one.
+		ocode, _, oerr := nb.PostFromNetwork(ctx, nblinkPublicPort, harness.ChatPath, chat,
+			[]string{"Origin: https://attacker.example"})
+		require.NoError(t, oerr)
+		assert.Equal(t, 403, ocode, "a cross-origin browser request must be refused on a public forward too")
+
+		_, _, lerr := nb.PostFromNetwork(ctx, harness.NBLinkPort, harness.ChatPath, chat, nil)
+		assert.Error(t, lerr, "a loopback forward must refuse connections from other machines")
+	})
+
+	t.Run("the setup key never reaches the logs", func(t *testing.T) {
+		// The suite runs at debug level, the most an operator can turn on.
+		logs := nb.Logs(ctx)
+		require.Contains(t, logs, "over the overlay", "the logs must have been read")
+		assert.NotContains(t, logs, allowedKey, "the setup key must not be logged")
 	})
 
 	t.Run("a peer no policy names cannot reach the endpoint", func(t *testing.T) {
@@ -345,10 +407,49 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 			"a plain local caller must still be served; body: %s%s", gbody, diag())
 	})
 
+	t.Run("an upstream whose certificate is not trusted is refused", func(t *testing.T) {
+		// No CA mounted: the proxy's self-signed certificate is unknown to the
+		// forwarder, which must refuse it rather than proxy in the clear.
+		untrusted, uerr := harness.StartNBLink(ctx, srv, allowedKey, forward, "",
+			harness.WithNBLinkName("nblink-untrusted"))
+		require.NoError(t, uerr, "start the forwarder without the proxy's CA")
+		t.Cleanup(func() { _ = untrusted.Terminate(context.Background()) })
+
+		// Until the tunnel settles the dial itself fails with the same 502, so
+		// wait for the handshake failure specifically.
+		var ucode int
+		var ubody string
+		require.Eventually(t, func() bool {
+			ucode, ubody, _ = untrusted.Chat(ctx, harness.VLLMModel, "Reply with exactly: pong", "")
+			return strings.Contains(untrusted.Logs(ctx), "x509")
+		}, 120*time.Second, 5*time.Second, "the forwarder must reach the TLS handshake and fail it; logs:\n%s", untrusted.Logs(ctx))
+		assert.Equal(t, 502, ucode, "an unverified upstream must not be served; body: %s", ubody)
+		assert.NotContains(t, ubody, "chat.completion", "no completion may come back over an unverified connection")
+	})
+
+	t.Run("without a state dir every start is a new peer", func(t *testing.T) {
+		const name = "nblink-ephemeral"
+		for range 2 {
+			eph, eerr := harness.StartNBLink(ctx, srv, allowedKey, forward, px.CACertPath(), harness.WithNBLinkName(name))
+			require.NoError(t, eerr, "start the in-memory forwarder")
+			require.NoError(t, eph.Terminate(ctx), "stop the in-memory forwarder")
+		}
+		peers := peersWithHostname(ctx, t, name)
+		assert.Len(t, peers, 2, "each in-memory start must register its own peer, as the README warns")
+	})
+
 	// Last, because it replaces the forwarder every case above used.
 	t.Run("a state dir keeps the same peer across restarts", func(t *testing.T) {
 		require.NotEmpty(t, peer.Id, "the peer lookup must have run first")
-		require.NoError(t, nb.Terminate(ctx), "stop the first forwarder")
+
+		// docker stop sends SIGTERM. The forwarder must drain and exit cleanly
+		// well inside the grace period rather than be killed at its end.
+		exitCode, took, serr := nb.Stop(ctx, 30*time.Second)
+		require.NoError(t, serr, "stop the first forwarder")
+		assert.Equal(t, 0, exitCode, "SIGTERM must be a clean exit")
+		assert.Less(t, took, 15*time.Second, "shutdown must not wait out the grace period")
+		assert.Contains(t, nb.Logs(ctx), "shutting down", "the forwarder must log the signal it handled")
+		require.NoError(t, nb.Terminate(ctx), "remove the first forwarder")
 
 		restarted, rerr := harness.StartNBLink(ctx, srv, allowedKey, forward, px.CACertPath(), nbOpts...)
 		require.NoError(t, rerr, "start the forwarder again on the same volume")
@@ -361,6 +462,39 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 
 		rcode, rbody := chatUntil(ctx, t, nb, 200, 120*time.Second, "")
 		assert.Equal(t, 200, rcode, "the restarted forwarder must be served again; body: %s%s", rbody, diag())
+	})
+}
+
+// TestNBLinkWithoutManagement covers a forwarder that can never bring its
+// session up. It must fail rather than hang, and a signal while it is trying
+// must stop it straight away.
+func TestNBLinkWithoutManagement(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	env := map[string]string{
+		"NB_MANAGEMENT_URL": "https://management.invalid",
+		"NB_SETUP_KEY":      "11111111-2222-3333-4444-555555555555",
+		"NB_FORWARD":        "http://8080=https://grafana.netbird.cloud",
+	}
+
+	t.Run("an unreachable management server fails the start", func(t *testing.T) {
+		start := time.Now()
+		res, err := harness.RunNBLinkIsolated(ctx, env)
+		took := time.Since(start)
+		require.NoError(t, err, "run the forwarder")
+		assert.NotEqual(t, 0, res.ExitCode, "a session that cannot come up must be an error; stderr: %s", res.Stderr)
+		assert.Contains(t, res.Stderr, "start client", "the error must say the session did not start")
+		assert.NotContains(t, res.Stderr, "over the overlay", "no forward may be announced without a session")
+		// startTimeout is 90s; past that something is waiting without a bound.
+		assert.Less(t, took, 120*time.Second, "the start must give up within its timeout")
+	})
+
+	t.Run("SIGTERM during startup exits at once", func(t *testing.T) {
+		exitCode, took, logs, err := harness.StopNBLinkDuringStartup(ctx, env, 3*time.Second, 30*time.Second)
+		require.NoError(t, err, "start and stop the forwarder")
+		assert.Equal(t, 0, exitCode, "a signal during startup is a clean exit; logs:\n%s", logs)
+		assert.Less(t, took, 5*time.Second, "the signal must not wait for the management dial to time out")
 	})
 }
 

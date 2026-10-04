@@ -40,11 +40,15 @@ const (
 	// is up and every forward is bound.
 	nblinkReadyLog = "over the overlay"
 
-	// nblinkKeyPath is where WithNBLinkSetupKeyFile places the setup key.
-	nblinkKeyPath = "/run/secrets/nb_setup_key"
-	// nblinkKeyMode is root-owned and readable by group 0 only, the ownership
-	// the README tells operators a key file needs for UID 65532:0 to read it.
-	nblinkKeyMode = 0o440
+	// nblinkSecretsDir holds the setup key for WithNBLinkSetupKeyFile, mounted
+	// read-only the way the README's container example mounts it.
+	nblinkSecretsDir = "/run/secrets"
+	nblinkKeyFile    = "nb_setup_key"
+	nblinkKeyPath    = nblinkSecretsDir + "/" + nblinkKeyFile
+	// keyWriterImage writes the key into its volume. The file is root-owned
+	// and readable by group 0 only, the ownership the README tells operators a
+	// key needs for UID 65532:0 to read it.
+	keyWriterImage = "alpine:3.22"
 
 	// nblinkStateDir is the state directory both images create, owned by
 	// 65532:0, so a volume mounted over it inherits that ownership.
@@ -55,6 +59,8 @@ const (
 // forwarding a local port to an upstream reached inside the tunnel.
 type NBLink struct {
 	container testcontainers.Container
+	keyVolume string
+	network   string
 	name      string
 	port      int
 }
@@ -66,6 +72,7 @@ type nblinkOptions struct {
 	extra       []string
 	keyAsFile   bool
 	stateVolume string
+	env         map[string]string
 }
 
 // NBLinkOption adjusts how StartNBLink runs the forwarder.
@@ -100,6 +107,17 @@ func WithNBLinkSetupKeyFile() NBLinkOption {
 // volume is created on first use; RemoveDockerVolume deletes it.
 func WithNBLinkStateVolume(volume string) NBLinkOption {
 	return func(o *nblinkOptions) { o.stateVolume = volume }
+}
+
+// WithNBLinkEnv sets an extra environment variable on the forwarder, for
+// settings such as NB_ALLOW_PUBLIC_BIND that have no option of their own.
+func WithNBLinkEnv(key, value string) NBLinkOption {
+	return func(o *nblinkOptions) {
+		if o.env == nil {
+			o.env = map[string]string{}
+		}
+		o.env[key] = value
+	}
 }
 
 // StartNBLink builds the nblink image and runs it on the combined server's
@@ -137,17 +155,21 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 	if caCertPath != "" {
 		env["SSL_CERT_FILE"] = nblinkCAPath
 	}
-	var files []testcontainers.ContainerFile
+	var keyVolume string
 	if o.keyAsFile {
+		// The root filesystem is read-only, so the key cannot be copied in; it
+		// is mounted, as it would be in production.
+		keyVolume = fmt.Sprintf("e2e-nblink-key-%s-%d", o.name, time.Now().UnixNano())
+		if err := writeKeyVolume(ctx, keyVolume, setupKey); err != nil {
+			return nil, err
+		}
 		env["NB_SETUP_KEY"] = "file:" + nblinkKeyPath
-		files = append(files, testcontainers.ContainerFile{
-			Reader:            strings.NewReader(setupKey + "\n"),
-			ContainerFilePath: nblinkKeyPath,
-			FileMode:          nblinkKeyMode,
-		})
 	}
 	if o.stateVolume != "" {
 		env["NB_STATE_DIR"] = nblinkStateDir
+	}
+	for k, v := range o.env {
+		env[k] = v
 	}
 
 	req := testcontainers.ContainerRequest{
@@ -158,10 +180,18 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 		Networks:       []string{c.network.Name},
 		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env:            env,
-		Files:          files,
 		HostConfigModifier: func(hc *container.HostConfig) {
+			hardenNBLink(hc)
 			if caCertPath != "" {
 				hc.Binds = append(hc.Binds, caCertPath+":"+nblinkCAPath+":ro")
+			}
+			if keyVolume != "" {
+				hc.Mounts = append(hc.Mounts, mount.Mount{
+					Type:     mount.TypeVolume,
+					Source:   keyVolume,
+					Target:   nblinkSecretsDir,
+					ReadOnly: true,
+				})
 			}
 			if o.stateVolume != "" {
 				hc.Mounts = append(hc.Mounts, mount.Mount{
@@ -181,9 +211,42 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 		Started:          true,
 	})
 	if err != nil {
+		if ctr != nil {
+			_ = ctr.Terminate(context.Background())
+		}
+		if keyVolume != "" {
+			_ = RemoveDockerVolume(context.Background(), keyVolume)
+		}
 		return nil, fmt.Errorf("start nblink container: %w", err)
 	}
-	return &NBLink{container: ctr, name: o.name, port: o.port}, nil
+	return &NBLink{container: ctr, keyVolume: keyVolume, network: c.network.Name, name: o.name, port: o.port}, nil
+}
+
+// writeKeyVolume creates a volume holding the setup key as a root-owned file
+// of mode 0440. The key goes in on stdin so it never appears in a process
+// listing.
+func writeKeyVolume(ctx context.Context, volume, key string) error {
+	if out, err := exec.CommandContext(ctx, "docker", "volume", "create", volume).CombinedOutput(); err != nil {
+		return fmt.Errorf("create key volume: %w: %s", err, out)
+	}
+	script := fmt.Sprintf("cat > /k/%[1]s && chown 0:0 /k/%[1]s && chmod 440 /k/%[1]s", nblinkKeyFile)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "-v", volume+":/k", keyWriterImage, "sh", "-c", script)
+	cmd.Stdin = strings.NewReader(key + "\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = RemoveDockerVolume(context.Background(), volume)
+		return fmt.Errorf("write key volume: %w: %s", err, out)
+	}
+	return nil
+}
+
+// hardenNBLink takes away what Docker grants a container by default: every
+// capability, a writable root filesystem, and the ability to gain privileges.
+// nblink claims to need none of them, and this is where that claim is held to.
+// State, when kept, goes to a mounted volume.
+func hardenNBLink(hc *container.HostConfig) {
+	hc.CapDrop = []string{"ALL"}
+	hc.ReadonlyRootfs = true
+	hc.SecurityOpt = append(hc.SecurityOpt, "no-new-privileges")
 }
 
 func nblinkImage(ctx context.Context) (string, error) {
@@ -243,15 +306,20 @@ func (n *NBLink) Chat(ctx context.Context, model, prompt, sessionID string) (int
 // it. Callers that want a foreign Host pass it in extraHeaders on purpose.
 func (n *NBLink) do(ctx context.Context, port int, method, path, body string, extraHeaders []string) (int, string, error) {
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
-	args := []string{
-		"run", "--rm",
-		"--network", "container:" + n.container.GetContainerID(),
+	return curlStatus(ctx, []string{"--network", "container:" + n.container.GetContainerID()}, url, method, body, extraHeaders)
+}
+
+// curlStatus runs curl in a throwaway container with the given docker run
+// network arguments and returns the status and body.
+func curlStatus(ctx context.Context, network []string, url, method, body string, extraHeaders []string) (int, string, error) {
+	args := append([]string{"run", "--rm"}, network...)
+	args = append(args,
 		curlImage,
 		"-s", "--connect-timeout", "5", "--max-time", "90",
 		"-o", "/dev/stderr", "-w", "%{http_code}",
 		"-X", method, url,
 		"-H", "Content-Type: application/json",
-	}
+	)
 	for _, h := range extraHeaders {
 		args = append(args, "-H", h)
 	}
@@ -274,6 +342,31 @@ func (n *NBLink) do(ctx context.Context, port int, method, path, body string, ex
 	return code, stderr.String(), nil
 }
 
+// PostFromNetwork issues a JSON POST to the forwarder by its network alias from
+// a separate container on the same network, the way another machine would
+// reach a publicly bound forward. A connection that is refused comes back as
+// an error, not a status.
+func (n *NBLink) PostFromNetwork(ctx context.Context, port int, path, body string, extraHeaders []string) (int, string, error) {
+	url := fmt.Sprintf("http://%s:%d%s", n.name, port, path)
+	return curlStatus(ctx, []string{"--network", n.network}, url, http.MethodPost, body, extraHeaders)
+}
+
+// Stop sends the forwarder SIGTERM, the way docker stop and an orchestrator
+// do, and reports how it exited and how long it took. The container is left
+// stopped for Logs; Terminate removes it.
+func (n *NBLink) Stop(ctx context.Context, grace time.Duration) (int, time.Duration, error) {
+	start := time.Now()
+	if err := n.container.Stop(ctx, &grace); err != nil {
+		return 0, 0, fmt.Errorf("stop nblink: %w", err)
+	}
+	took := time.Since(start)
+	state, err := n.container.State(ctx)
+	if err != nil {
+		return 0, took, fmt.Errorf("inspect nblink: %w", err)
+	}
+	return state.ExitCode, took, nil
+}
+
 // Logs returns the nblink container logs, for diagnostics on failure.
 func (n *NBLink) Logs(ctx context.Context) string {
 	return containerLogs(ctx, n.container)
@@ -284,7 +377,13 @@ func (n *NBLink) Terminate(ctx context.Context) error {
 	if n.container == nil {
 		return nil
 	}
-	return n.container.Terminate(ctx)
+	if err := n.container.Terminate(ctx); err != nil {
+		return err
+	}
+	if n.keyVolume != "" {
+		return RemoveDockerVolume(ctx, n.keyVolume)
+	}
+	return nil
 }
 
 // NBLinkCheckResult is what a --check run printed and how it exited.
@@ -298,16 +397,21 @@ type NBLinkCheckResult struct {
 // The container gets no network at all, so a run that tried to reach
 // management would fail rather than quietly succeed.
 func RunNBLinkCheck(ctx context.Context, env map[string]string) (NBLinkCheckResult, error) {
+	return RunNBLinkIsolated(ctx, env, "--check")
+}
+
+// RunNBLinkIsolated runs the nblink image to completion with no network and
+// the given environment and arguments, the way a forwarder behaves when
+// management cannot be reached.
+func RunNBLinkIsolated(ctx context.Context, env map[string]string, extraArgs ...string) (NBLinkCheckResult, error) {
 	image, err := nblinkImage(ctx)
 	if err != nil {
 		return NBLinkCheckResult{}, err
 	}
 
-	args := []string{"run", "--rm", "--network", "none"}
-	for k, v := range env {
-		args = append(args, "-e", k+"="+v)
-	}
-	args = append(args, image, "--check")
+	args := append(isolatedRunArgs("--rm"), envArgs(env)...)
+	args = append(args, image)
+	args = append(args, extraArgs...)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	var stdout, stderr strings.Builder
@@ -323,9 +427,61 @@ func RunNBLinkCheck(ctx context.Context, env map[string]string) (NBLinkCheckResu
 		return res, nil
 	}
 	if err != nil {
-		return res, fmt.Errorf("run nblink --check: %w", err)
+		return res, fmt.Errorf("run nblink: %w", err)
 	}
 	return res, nil
+}
+
+// isolatedRunArgs is docker run with no network and the same hardening
+// StartNBLink applies.
+func isolatedRunArgs(mode string) []string {
+	return []string{"run", mode, "--network", "none", "--cap-drop", "ALL", "--read-only", "--security-opt", "no-new-privileges"}
+}
+
+func envArgs(env map[string]string) []string {
+	var args []string
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+	return args
+}
+
+// StopNBLinkDuringStartup starts the nblink image with no network, so the
+// session can never come up, sends it SIGTERM after wait, and reports how it
+// exited, how long the stop took, and what it logged.
+func StopNBLinkDuringStartup(ctx context.Context, env map[string]string, wait, grace time.Duration) (int, time.Duration, string, error) {
+	image, err := nblinkImage(ctx)
+	if err != nil {
+		return 0, 0, "", err
+	}
+
+	args := append(isolatedRunArgs("-d"), envArgs(env)...)
+	out, err := exec.CommandContext(ctx, "docker", append(args, image)...).Output()
+	if err != nil {
+		return 0, 0, "", fmt.Errorf("start nblink: %w", err)
+	}
+	id := strings.TrimSpace(string(out))
+	defer func() { _ = exec.Command("docker", "rm", "-f", id).Run() }()
+
+	time.Sleep(wait)
+	start := time.Now()
+	stop := exec.CommandContext(ctx, "docker", "stop", "-t", fmt.Sprint(int(grace.Seconds())), id)
+	if out, err := stop.CombinedOutput(); err != nil {
+		return 0, 0, "", fmt.Errorf("stop nblink: %w: %s", err, out)
+	}
+	took := time.Since(start)
+
+	state, err := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.ExitCode}}", id).Output()
+	if err != nil {
+		return 0, took, "", fmt.Errorf("inspect nblink: %w", err)
+	}
+	exitCode := 0
+	_, _ = fmt.Sscanf(strings.TrimSpace(string(state)), "%d", &exitCode)
+	logs, err := exec.CommandContext(ctx, "docker", "logs", id).CombinedOutput()
+	if err != nil {
+		return exitCode, took, "", fmt.Errorf("read nblink logs: %w", err)
+	}
+	return exitCode, took, string(logs), nil
 }
 
 // RemoveDockerVolume deletes a volume created by WithNBLinkStateVolume.
