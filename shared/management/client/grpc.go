@@ -621,7 +621,13 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 
 	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
 	if err != nil {
-		log.Errorf("failed to login to Management Service: %v", err)
+		// PermissionDenied is how management asks an unknown peer to register,
+		// which the caller does next, so it is not an error worth reporting.
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			log.Debugf("login to Management Service refused: %v", err)
+		} else {
+			log.Errorf("failed to login to Management Service: %v", err)
+		}
 		return nil, err
 	}
 
