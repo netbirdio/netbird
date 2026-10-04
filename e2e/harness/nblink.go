@@ -4,6 +4,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -37,6 +39,16 @@ const (
 	// nblinkReadyLog is the line startForwards writes once the overlay session
 	// is up and every forward is bound.
 	nblinkReadyLog = "over the overlay"
+
+	// nblinkKeyPath is where WithNBLinkSetupKeyFile places the setup key.
+	nblinkKeyPath = "/run/secrets/nb_setup_key"
+	// nblinkKeyMode is root-owned and readable by group 0 only, the ownership
+	// the README tells operators a key file needs for UID 65532:0 to read it.
+	nblinkKeyMode = 0o440
+
+	// nblinkStateDir is the state directory both images create, owned by
+	// 65532:0, so a volume mounted over it inherits that ownership.
+	nblinkStateDir = "/var/lib/nblink"
 )
 
 // NBLink is a running nblink container: a NetBird peer in userspace mode
@@ -49,8 +61,11 @@ type NBLink struct {
 
 // nblinkOptions is what the NBLinkOption values assemble.
 type nblinkOptions struct {
-	name string
-	port int
+	name        string
+	port        int
+	extra       []string
+	keyAsFile   bool
+	stateVolume string
 }
 
 // NBLinkOption adjusts how StartNBLink runs the forwarder.
@@ -64,6 +79,27 @@ type NBLinkOption func(*nblinkOptions)
 // is shared and two containers cannot hold one alias on a network.
 func WithNBLinkName(name string) NBLinkOption {
 	return func(o *nblinkOptions) { o.name = name }
+}
+
+// WithNBLinkForwards adds forwards to the one StartNBLink is given. They are
+// passed in the same comma-separated NB_FORWARD, so one process serves all of
+// them over one session.
+func WithNBLinkForwards(specs ...string) NBLinkOption {
+	return func(o *nblinkOptions) { o.extra = append(o.extra, specs...) }
+}
+
+// WithNBLinkSetupKeyFile delivers the setup key as a file in the container and
+// points NB_SETUP_KEY at it with the file: prefix, instead of putting the key
+// itself in the environment.
+func WithNBLinkSetupKeyFile() NBLinkOption {
+	return func(o *nblinkOptions) { o.keyAsFile = true }
+}
+
+// WithNBLinkStateVolume mounts the named Docker volume as the state directory
+// and sets NB_STATE_DIR, so the peer identity outlives the container. The
+// volume is created on first use; RemoveDockerVolume deletes it.
+func WithNBLinkStateVolume(volume string) NBLinkOption {
+	return func(o *nblinkOptions) { o.stateVolume = volume }
 }
 
 // StartNBLink builds the nblink image and runs it on the combined server's
@@ -83,11 +119,7 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 		opt(&o)
 	}
 
-	root, err := repoRoot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	image, err := resolveImage(ctx, root, "NB_E2E_NBLINK_IMAGE", defaultNBLinkImage, nblinkDockerfile)
+	image, err := nblinkImage(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +127,7 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 	env := map[string]string{
 		"NB_MANAGEMENT_URL": combinedExposedURL,
 		"NB_SETUP_KEY":      setupKey,
-		"NB_FORWARD":        forward,
+		"NB_FORWARD":        strings.Join(append([]string{forward}, o.extra...), ","),
 		"NB_HOSTNAME":       o.name,
 		"NB_LOG_LEVEL":      "debug",
 		// Match the agent and the proxy: the combined relay is WebSocket-only,
@@ -104,6 +136,18 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 	}
 	if caCertPath != "" {
 		env["SSL_CERT_FILE"] = nblinkCAPath
+	}
+	var files []testcontainers.ContainerFile
+	if o.keyAsFile {
+		env["NB_SETUP_KEY"] = "file:" + nblinkKeyPath
+		files = append(files, testcontainers.ContainerFile{
+			Reader:            strings.NewReader(setupKey + "\n"),
+			ContainerFilePath: nblinkKeyPath,
+			FileMode:          nblinkKeyMode,
+		})
+	}
+	if o.stateVolume != "" {
+		env["NB_STATE_DIR"] = nblinkStateDir
 	}
 
 	req := testcontainers.ContainerRequest{
@@ -114,9 +158,17 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 		Networks:       []string{c.network.Name},
 		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env:            env,
+		Files:          files,
 		HostConfigModifier: func(hc *container.HostConfig) {
 			if caCertPath != "" {
 				hc.Binds = append(hc.Binds, caCertPath+":"+nblinkCAPath+":ro")
+			}
+			if o.stateVolume != "" {
+				hc.Mounts = append(hc.Mounts, mount.Mount{
+					Type:   mount.TypeVolume,
+					Source: o.stateVolume,
+					Target: nblinkStateDir,
+				})
 			}
 		},
 		// The session has 90s of its own to come up, so the wait has to outlast
@@ -134,21 +186,35 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 	return &NBLink{container: ctr, name: o.name, port: o.port}, nil
 }
 
+func nblinkImage(ctx context.Context) (string, error) {
+	root, err := repoRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return resolveImage(ctx, root, "NB_E2E_NBLINK_IMAGE", defaultNBLinkImage, nblinkDockerfile)
+}
+
 // Hostname returns the container hostname the embedded client reports to
 // management — the name the registered peer appears under in the peers API.
 func (n *NBLink) Hostname() string {
 	return n.name
 }
 
-// Post issues a JSON POST to the forwarder's local listener and returns the
+// Post issues a JSON POST to the forwarder's primary listener and returns the
 // HTTP status and response body.
 func (n *NBLink) Post(ctx context.Context, path, body string, extraHeaders []string) (int, string, error) {
-	return n.do(ctx, http.MethodPost, path, body, extraHeaders)
+	return n.do(ctx, n.port, http.MethodPost, path, body, extraHeaders)
 }
 
-// Get issues a GET to the forwarder's local listener.
+// PostOn issues a JSON POST to the forwarder's listener on port, for a forward
+// added with WithNBLinkForwards.
+func (n *NBLink) PostOn(ctx context.Context, port int, path, body string, extraHeaders []string) (int, string, error) {
+	return n.do(ctx, port, http.MethodPost, path, body, extraHeaders)
+}
+
+// Get issues a GET to the forwarder's primary listener.
 func (n *NBLink) Get(ctx context.Context, path string, extraHeaders []string) (int, string, error) {
-	return n.do(ctx, http.MethodGet, path, "", extraHeaders)
+	return n.do(ctx, n.port, http.MethodGet, path, "", extraHeaders)
 }
 
 // ChatPath and ChatBody are the request the forwarder is driven with. They are
@@ -175,8 +241,8 @@ func (n *NBLink) Chat(ctx context.Context, model, prompt, sessionID string) (int
 // Nothing here pins or rewrites Host: the loopback listener refuses a Host
 // that is not its own, and a test that papered over that would stop covering
 // it. Callers that want a foreign Host pass it in extraHeaders on purpose.
-func (n *NBLink) do(ctx context.Context, method, path, body string, extraHeaders []string) (int, string, error) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", n.port, path)
+func (n *NBLink) do(ctx context.Context, port int, method, path, body string, extraHeaders []string) (int, string, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
 	args := []string{
 		"run", "--rm",
 		"--network", "container:" + n.container.GetContainerID(),
@@ -219,4 +285,53 @@ func (n *NBLink) Terminate(ctx context.Context) error {
 		return nil
 	}
 	return n.container.Terminate(ctx)
+}
+
+// NBLinkCheckResult is what a --check run printed and how it exited.
+type NBLinkCheckResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// RunNBLinkCheck runs the nblink image with --check and the given environment.
+// The container gets no network at all, so a run that tried to reach
+// management would fail rather than quietly succeed.
+func RunNBLinkCheck(ctx context.Context, env map[string]string) (NBLinkCheckResult, error) {
+	image, err := nblinkImage(ctx)
+	if err != nil {
+		return NBLinkCheckResult{}, err
+	}
+
+	args := []string{"run", "--rm", "--network", "none"}
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+	args = append(args, image, "--check")
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	res := NBLinkCheckResult{}
+	err = cmd.Run()
+	res.Stdout, res.Stderr = stdout.String(), stderr.String()
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		res.ExitCode = exitErr.ExitCode()
+		return res, nil
+	}
+	if err != nil {
+		return res, fmt.Errorf("run nblink --check: %w", err)
+	}
+	return res, nil
+}
+
+// RemoveDockerVolume deletes a volume created by WithNBLinkStateVolume.
+func RemoveDockerVolume(ctx context.Context, volume string) error {
+	if out, err := exec.CommandContext(ctx, "docker", "volume", "rm", "-f", volume).CombinedOutput(); err != nil {
+		return fmt.Errorf("remove volume %s: %w: %s", volume, err, out)
+	}
+	return nil
 }

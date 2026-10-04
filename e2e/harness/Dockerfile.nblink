@@ -15,18 +15,22 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -o /out/nblink ./client/link/cmd/nblink
+    CGO_ENABLED=0 GOOS=linux go build -o /out/nblink ./client/link/cmd/nblink \
+    && mkdir -p /out/state && chmod 770 /out/state
 
 FROM gcr.io/distroless/static-debian13:nonroot
+
+# Same state directory as the release image, so a volume mounted over it
+# starts out owned by 65532:0 and the identity-persistence case runs against
+# the ownership the release image ships.
+COPY --from=builder --chown=65532:0 /out/state /var/lib/nblink
 
 # Numeric, as in the release image: the runtime may substitute its own UID and
 # there is no passwd entry to look up.
 USER 65532:0
 
-# No NB_STATE_DIR. State stays in memory, so the container needs no writable
-# volume and each run registers a fresh peer, which is what the proxy
-# container does too. Identity persistence is a separate concern from what
-# these tests assert.
+# No NB_STATE_DIR by default. State stays in memory and each run registers a
+# fresh peer; the persistence case sets it explicitly with a volume.
 ENV NB_LOG_LEVEL=info
 
 COPY --from=builder /out/nblink /usr/local/bin/nblink
