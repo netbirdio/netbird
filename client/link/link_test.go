@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -288,6 +290,103 @@ func TestPrintEffectiveConfig(t *testing.T) {
 		"  127.0.0.1:0 -> http://prometheus.internal:9090/api\n",
 		out.String(), "the check must print the effective configuration")
 	assert.NotContains(t, out.String(), key, "the check must report a key is set, never the key")
+}
+
+// The embedded client's management dial ignores cancellation, so a start that
+// does the same must not hold a signal until it gives up on its own.
+func TestStartSessionReturnsWhenInterrupted(t *testing.T) {
+	release := make(chan error)
+	start := func(context.Context) error { return <-release }
+	var stopped atomic.Bool
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- startSession(ctx, start, func() { stopped.Store(true) }) }()
+
+	cancel()
+	select {
+	case err := <-result:
+		assert.ErrorIs(t, err, context.Canceled, "an interrupted start must report the cancellation")
+	case <-time.After(2 * time.Second):
+		t.Fatal("startSession waited for a start that ignores cancellation")
+	}
+
+	// The start completes after the caller gave up. Its session must not be
+	// left running.
+	release <- nil
+	assert.Eventually(t, stopped.Load, 2*time.Second, 10*time.Millisecond,
+		"a session that came up after the interrupt must be stopped")
+}
+
+func TestStartSessionReportsStartFailure(t *testing.T) {
+	failure := errors.New("login: permission denied")
+	err := startSession(context.Background(), func(context.Context) error { return failure }, func() {
+		t.Error("a session that never started must not be stopped")
+	})
+	assert.ErrorIs(t, err, failure, "the start error must be returned")
+	assert.Contains(t, err.Error(), "start client", "the error must say which step failed")
+}
+
+func TestStartSessionBoundsTheStart(t *testing.T) {
+	var deadline time.Time
+	err := startSession(context.Background(), func(ctx context.Context) error {
+		deadline, _ = ctx.Deadline()
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(startTimeout), deadline, 5*time.Second,
+		"the start must run under startTimeout")
+}
+
+func TestInterruptedOr(t *testing.T) {
+	failure := errors.New("wait for login: context canceled")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	assert.Equal(t, failure, interruptedOr(ctx, failure), "an error while running must be returned")
+	cancel()
+	assert.NoError(t, interruptedOr(ctx, failure), "an error caused by a signal must be a clean exit")
+}
+
+func TestWaitForShutdownReturnsWhenAForwardStops(t *testing.T) {
+	fwd, err := ParseForward("http://127.0.0.1:0=http://grafana.internal")
+	require.NoError(t, err)
+	f, err := newHTTPForwarder(fwd, refuseDial)
+	require.NoError(t, err)
+
+	// Closing the raw listener under a serving forwarder is how a forward
+	// dies on its own, and the process must not keep running without it.
+	result := make(chan error, 1)
+	go func() { result <- waitForShutdown(context.Background(), []*httpForwarder{f}) }()
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, f.listener.Close())
+
+	select {
+	case err := <-result:
+		assert.Error(t, err, "a forward that stopped serving must end the run with an error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForShutdown kept running after its only forward stopped")
+	}
+	_ = f.Close(context.Background())
+}
+
+func TestWaitForShutdownReturnsWhenContextEnds(t *testing.T) {
+	fwd, err := ParseForward("http://127.0.0.1:0=http://grafana.internal")
+	require.NoError(t, err)
+	f, err := newHTTPForwarder(fwd, refuseDial)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close(context.Background()) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- waitForShutdown(ctx, []*httpForwarder{f}) }()
+	cancel()
+
+	select {
+	case err := <-result:
+		assert.NoError(t, err, "a cancelled context is a clean shutdown")
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForShutdown ignored the cancelled context")
+	}
 }
 
 func TestRunCheckReturnsWithoutConnecting(t *testing.T) {

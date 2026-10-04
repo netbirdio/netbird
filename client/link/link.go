@@ -32,7 +32,7 @@ func Run(ctx context.Context, cfg *Config) error {
 
 	creds, err := resolveCredentials(ctx, cfg)
 	if err != nil {
-		return err
+		return interruptedOr(ctx, err)
 	}
 
 	client, err := embed.New(embed.Options{
@@ -53,10 +53,8 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 
 	log.Infof("connecting to %s", cfg.ManagementURL)
-	startCtx, cancel := context.WithTimeout(ctx, startTimeout)
-	defer cancel()
-	if err := client.Start(startCtx); err != nil {
-		return fmt.Errorf("start client: %w", err)
+	if err := startSession(ctx, client.Start, func() { stopClient(client) }); err != nil {
+		return interruptedOr(ctx, err)
 	}
 	logSession(client)
 
@@ -74,6 +72,49 @@ func Run(ctx context.Context, cfg *Config) error {
 	stopClient(client)
 
 	return err
+}
+
+// startSession runs start under startTimeout and returns as soon as ctx ends,
+// even if start has not.
+//
+// The management dial inside the embedded client does not observe
+// cancellation, so waiting for start to return would hold a signal during
+// startup until the dial times out. A start that completes after the caller
+// gave up is stopped in the background instead of left running.
+func startSession(ctx context.Context, start func(context.Context) error, stop func()) error {
+	startCtx, cancel := context.WithTimeout(ctx, startTimeout)
+	done := make(chan error, 1)
+	go func() {
+		defer cancel()
+		done <- start(startCtx)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("start client: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		go func() {
+			if err := <-done; err == nil {
+				stop()
+			}
+		}()
+		return ctx.Err()
+	}
+}
+
+// interruptedOr reports a signal during startup or login as a clean shutdown
+// rather than a failure, and passes any other error through.
+func interruptedOr(ctx context.Context, err error) error {
+	select {
+	case <-ctx.Done():
+		log.Infof("interrupted before the session was up, shutting down")
+		return nil
+	default:
+		return err
+	}
 }
 
 // startForwards binds every forward before serving any of them, so a clash on

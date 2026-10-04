@@ -3,6 +3,7 @@ package link
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -61,7 +62,7 @@ func interactiveLogin(ctx context.Context, cfg *Config) (string, error) {
 		return "", fmt.Errorf("request login: %w", err)
 	}
 
-	promptLogin(info, cfg.NoBrowser)
+	promptLogin(os.Stderr, util.OpenBrowser, info, cfg.NoBrowser)
 
 	token, err := flow.WaitToken(ctx, info)
 	if err != nil {
@@ -71,25 +72,30 @@ func interactiveLogin(ctx context.Context, cfg *Config) (string, error) {
 	return token.GetTokenToUse(), nil
 }
 
-// promptLogin writes the verification URL to stderr so stdout stays clean for
-// piping, and opens a browser unless asked not to. The URL is always printed
-// so the flow still works over SSH where no browser can open.
-func promptLogin(info auth.AuthFlowInfo, noBrowser bool) {
+// promptLogin writes the verification URL to out, which the caller points at
+// stderr so stdout stays clean for piping, and opens a browser unless asked not
+// to. The URL is always printed so the flow still works over SSH where no
+// browser can open.
+func promptLogin(out io.Writer, openBrowser func(string) error, info auth.AuthFlowInfo, noBrowser bool) {
 	uri := info.VerificationURIComplete
 	if uri == "" {
 		uri = info.VerificationURI
 	}
 
-	fmt.Fprintf(os.Stderr, "\nOpen this URL to log in:\n\n    %s\n", uri)
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nOpen this URL to log in:\n\n    %s\n", uri)
 	if info.UserCode != "" && !strings.Contains(uri, info.UserCode) {
-		fmt.Fprintf(os.Stderr, "\n    and enter the code %s\n", info.UserCode)
+		fmt.Fprintf(&b, "\n    and enter the code %s\n", info.UserCode)
 	}
-	fmt.Fprintln(os.Stderr)
+	b.WriteString("\n")
+	if _, err := io.WriteString(out, b.String()); err != nil {
+		log.Warnf("print login URL: %v", err)
+	}
 
 	if noBrowser {
 		return
 	}
-	if err := util.OpenBrowser(uri); err != nil {
+	if err := openBrowser(uri); err != nil {
 		log.Debugf("could not open a browser: %v", err)
 	}
 }
