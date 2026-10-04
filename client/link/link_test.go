@@ -2,11 +2,15 @@ package link
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,4 +184,121 @@ func TestCheckDoesNotPrintTheSetupKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, out, cfg.SetupKey, "the setup key must never be printed")
 	assert.Contains(t, out, "setup-key: true", "its presence should still be reported")
+}
+
+// namedDialer routes each overlay name to its own local server, so a test can
+// tell which upstream a request actually reached.
+type namedDialer struct {
+	mu      sync.Mutex
+	targets map[string]string
+	asked   []string
+}
+
+func (d *namedDialer) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	d.mu.Lock()
+	d.asked = append(d.asked, addr)
+	target, ok := d.targets[addr]
+	d.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("no route to %s", addr)
+	}
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, target)
+}
+
+func namedUpstream(t *testing.T, name string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, name)
+	}))
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	return u.Host
+}
+
+// Every forward shares the one overlay dialer and asks it for its own
+// upstream, so two specs reach two different services rather than the same one.
+func TestStartForwardsRouteEachToItsOwnUpstream(t *testing.T) {
+	dialer := &namedDialer{targets: map[string]string{
+		"grafana.internal:80":    namedUpstream(t, "grafana"),
+		"prometheus.internal:80": namedUpstream(t, "prometheus"),
+	}}
+
+	cfg := &Config{}
+	for _, spec := range []string{
+		"http://127.0.0.1:0=http://grafana.internal",
+		"http://127.0.0.1:0=http://prometheus.internal",
+	} {
+		fwd, err := ParseForward(spec)
+		require.NoError(t, err)
+		cfg.Forwards = append(cfg.Forwards, fwd)
+	}
+
+	forwards, err := startForwards(cfg, dialer.dial)
+	require.NoError(t, err)
+	require.Len(t, forwards, 2, "every configured forward must be started")
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		closeForwards(ctx, forwards)
+	})
+	for _, f := range forwards {
+		go func(f *httpForwarder) { _ = f.Serve() }(f)
+	}
+	require.NotEqual(t, forwards[0].Addr(), forwards[1].Addr(), "each forward must bind its own port")
+
+	for i, want := range []string{"grafana", "prometheus"} {
+		resp, err := http.Get("http://" + forwards[i].Addr() + "/")
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "forward %d must be served", i)
+		assert.Equal(t, want, string(body), "forward %d must reach its own upstream", i)
+	}
+
+	dialer.mu.Lock()
+	defer dialer.mu.Unlock()
+	assert.ElementsMatch(t, []string{"grafana.internal:80", "prometheus.internal:80"}, dialer.asked,
+		"both forwards must share the one overlay dialer, each asking for its own name")
+}
+
+func TestPrintEffectiveConfig(t *testing.T) {
+	const key = "11111111-2222-3333-4444-555555555555"
+	cfg := &Config{ManagementURL: "https://management.invalid", SetupKey: key}
+	for _, spec := range []string{
+		"http://8080=https://grafana.internal",
+		"http://127.0.0.1:0=http://prometheus.internal:9090/api",
+	} {
+		fwd, err := ParseForward(spec)
+		require.NoError(t, err)
+		cfg.Forwards = append(cfg.Forwards, fwd)
+	}
+
+	var out strings.Builder
+	require.NoError(t, printEffectiveConfig(&out, cfg))
+
+	assert.Equal(t, "management-url: https://management.invalid\n"+
+		"state-dir: (memory)\n"+
+		"hostname: (host default)\n"+
+		"setup-key: true\n"+
+		"forwards: 2\n"+
+		"  127.0.0.1:8080 -> https://grafana.internal\n"+
+		"  127.0.0.1:0 -> http://prometheus.internal:9090/api\n",
+		out.String(), "the check must print the effective configuration")
+	assert.NotContains(t, out.String(), key, "the check must report a key is set, never the key")
+}
+
+func TestRunCheckReturnsWithoutConnecting(t *testing.T) {
+	fwd, err := ParseForward("http://127.0.0.1:0=https://grafana.internal")
+	require.NoError(t, err)
+	// An unroutable management URL and no setup key: a run that tried to log
+	// in would block on the browser flow or fail to connect, not return nil.
+	cfg := &Config{ManagementURL: "https://management.invalid", Check: true, Forwards: []Forward{fwd}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	assert.NoError(t, Run(ctx, cfg), "a check must return before any network access")
+	assert.NoError(t, ctx.Err(), "a check must return immediately")
 }

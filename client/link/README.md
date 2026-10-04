@@ -58,10 +58,13 @@ docker run --rm -p 8080:8080 \
 ```
 
 The key file has to exist before the run and be readable by the container
-user, which is UID 65532. A bind mount keeps the host file's owner and mode, so
-a key written with the usual `chmod 600` is not readable and the run fails on
-startup. If the source path does not exist at all, the runtime creates a
-directory there instead and the read reports that.
+user, which is UID 65532 in group 0. A bind mount keeps the host file's owner
+and mode, so a root-owned key written with the usual `chmod 600` is not
+readable and the run fails on startup with `permission denied`. Either give the
+file to that UID (`chown 65532`) or keep it mode `640` in group 0
+(`chgrp 0`). If the source path does not exist, `--mount` refuses to start the
+container; the older `-v` form creates a directory there instead, which the read
+then reports as a directory.
 
 The image needs no `--privileged`, no `--cap-add NET_ADMIN`, no
 `--device /dev/net/tun` and no host networking.

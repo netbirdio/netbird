@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +27,7 @@ const (
 // until the process is signalled or a forward fails.
 func Run(ctx context.Context, cfg *Config) error {
 	if cfg.Check {
-		return printEffectiveConfig(cfg)
+		return printEffectiveConfig(os.Stdout, cfg)
 	}
 
 	creds, err := resolveCredentials(ctx, cfg)
@@ -153,15 +155,18 @@ func logSession(client *embed.Client) {
 
 // printEffectiveConfig writes the parsed forwards and exits without touching
 // the network, so a container configuration can be checked before deploying it.
-func printEffectiveConfig(cfg *Config) error {
-	out := os.Stdout
-	fmt.Fprintf(out, "management-url: %s\n", cfg.ManagementURL)
-	fmt.Fprintf(out, "state-dir: %s\n", orDefault(cfg.StateDir, "(memory)"))
-	fmt.Fprintf(out, "hostname: %s\n", orDefault(cfg.Hostname, "(host default)"))
-	fmt.Fprintf(out, "setup-key: %t\n", cfg.SetupKey != "")
-	fmt.Fprintf(out, "forwards: %d\n", len(cfg.Forwards))
+func printEffectiveConfig(out io.Writer, cfg *Config) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "management-url: %s\n", cfg.ManagementURL)
+	fmt.Fprintf(&b, "state-dir: %s\n", orDefault(cfg.StateDir, "(memory)"))
+	fmt.Fprintf(&b, "hostname: %s\n", orDefault(cfg.Hostname, "(host default)"))
+	fmt.Fprintf(&b, "setup-key: %t\n", cfg.SetupKey != "")
+	fmt.Fprintf(&b, "forwards: %d\n", len(cfg.Forwards))
 	for _, f := range cfg.Forwards {
-		fmt.Fprintf(out, "  %s -> %s\n", f.Listen, f.Upstream)
+		fmt.Fprintf(&b, "  %s -> %s\n", f.Listen, f.Upstream)
+	}
+	if _, err := io.WriteString(out, b.String()); err != nil {
+		return fmt.Errorf("write configuration: %w", err)
 	}
 	return nil
 }
