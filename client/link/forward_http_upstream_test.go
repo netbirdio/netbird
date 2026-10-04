@@ -167,37 +167,99 @@ func TestForwarderServesConcurrentRequests(t *testing.T) {
 	assert.Equal(t, int64(callers), served.Load(), "every request must reach the upstream once")
 }
 
-// A publicly bound listener is reachable under names the process cannot know,
-// so it does not check Host, but a page in a browser is still refused.
+// A container port published to the host is a public listener, and a page
+// that rebinds its own name to that port sends a matching Origin and
+// Sec-Fetch-Site. Host is the only signal that tells it apart, so a public
+// listener accepts addresses and listed names only.
 func TestGuardOnPublicListener(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	allowed := []string{"nblink.lan"}
 
 	cases := []struct {
 		name         string
 		loopbackOnly bool
 		host         string
-		header       [2]string
+		headers      map[string]string
 		want         int
 	}{
-		{name: "public listener under its LAN name", host: "nblink.lan:8080", want: http.StatusOK},
-		{name: "loopback listener under the same name", loopbackOnly: true, host: "nblink.lan:8080", want: http.StatusMisdirectedRequest},
-		{name: "public listener, cross-origin fetch", host: "nblink.lan:8080", header: [2]string{"Origin", "https://attacker.example"}, want: http.StatusForbidden},
-		{name: "public listener, cross-site no-cors GET", host: "nblink.lan:8080", header: [2]string{fetchSiteHeader, "cross-site"}, want: http.StatusForbidden},
-		{name: "public listener, same-origin page", host: "nblink.lan:8080", header: [2]string{"Origin", "http://nblink.lan:8080"}, want: http.StatusOK},
+		{name: "public listener under a listed name", host: "nblink.lan:8080", want: http.StatusOK},
+		{name: "public listener under a listed name, other spelling", host: "NBLINK.LAN.:8080", want: http.StatusOK},
+		{name: "public listener under its LAN address", host: "192.168.1.20:8080", want: http.StatusOK},
+		{name: "public listener under an IPv6 address", host: "[fd00::20]:8080", want: http.StatusOK},
+		{name: "public listener under localhost", host: "localhost:8080", want: http.StatusOK},
+		{name: "public listener under an unlisted name", host: "printer.lan:8080", want: http.StatusMisdirectedRequest},
+		{
+			name: "public listener, rebound page", host: "attacker.example:8080",
+			headers: map[string]string{"Origin": "http://attacker.example:8080", fetchSiteHeader: "same-origin"},
+			want:    http.StatusMisdirectedRequest,
+		},
+		{name: "loopback listener under a listed name", loopbackOnly: true, host: "nblink.lan:8080", want: http.StatusOK},
+		{name: "loopback listener under a LAN address", loopbackOnly: true, host: "192.168.1.20:8080", want: http.StatusMisdirectedRequest},
+		{
+			name: "public listener, cross-origin fetch", host: "nblink.lan:8080",
+			headers: map[string]string{"Origin": "https://attacker.example"}, want: http.StatusForbidden,
+		},
+		{
+			name: "public listener, cross-site no-cors GET", host: "nblink.lan:8080",
+			headers: map[string]string{fetchSiteHeader: "cross-site"}, want: http.StatusForbidden,
+		},
+		{
+			name: "public listener, same-origin page", host: "nblink.lan:8080",
+			headers: map[string]string{"Origin": "http://nblink.lan:8080"}, want: http.StatusOK,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "http://"+tc.host+"/", nil)
-			if tc.header[0] != "" {
-				req.Header.Set(tc.header[0], tc.header[1])
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
 			}
 			rec := httptest.NewRecorder()
-			guardRebinding(next, tc.loopbackOnly).ServeHTTP(rec, req)
+			guardRebinding(next, tc.loopbackOnly, allowed).ServeHTTP(rec, req)
 			assert.Equal(t, tc.want, rec.Code, "%s must be answered %d", tc.name, tc.want)
 		})
 	}
+}
+
+func TestListenNetwork(t *testing.T) {
+	cases := map[string]string{
+		"0.0.0.0:8080":      "tcp4",
+		"127.0.0.1:8080":    "tcp4",
+		"[::]:8080":         "tcp6",
+		"[::1]:8080":        "tcp6",
+		"[fe80::1%en0]:808": "tcp6",
+	}
+	for addr, want := range cases {
+		assert.Equal(t, want, listenNetwork(addr), "%s must bind %s only", addr, want)
+	}
+}
+
+// 0.0.0.0 asks for every IPv4 interface. Go's plain "tcp" would also accept
+// IPv6, which the operator did not write.
+func TestIPv4WildcardDoesNotListenOnIPv6(t *testing.T) {
+	probe, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skip("no IPv6 loopback on this host")
+	}
+	_ = probe.Close()
+
+	fwd, err := ParseForward("http://0.0.0.0:0=http://grafana.internal")
+	require.NoError(t, err)
+	f, err := newHTTPForwarder(fwd, refuseDial)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close(context.Background()) })
+
+	_, port, err := net.SplitHostPort(f.Addr())
+	require.NoError(t, err)
+	assert.Equal(t, "0.0.0.0:"+port, f.Addr(), "the listener must report the IPv4 wildcard it was asked for")
+
+	conn, err := net.DialTimeout("tcp6", net.JoinHostPort("::1", port), time.Second)
+	if err == nil {
+		_ = conn.Close()
+	}
+	assert.Error(t, err, "an IPv4 wildcard must not accept IPv6 connections")
 }
 
 func TestBindHint(t *testing.T) {

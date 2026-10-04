@@ -56,7 +56,7 @@ type httpForwarder struct {
 // Binding happens here rather than in Serve so a port clash is reported before
 // any forward is announced as ready.
 func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
-	listener, err := net.Listen("tcp", fwd.Listen)
+	listener, err := net.Listen(listenNetwork(fwd.Listen), fwd.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", fwd.Listen, bindHint(fwd.Listen, err))
 	}
@@ -90,7 +90,7 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 		forward:  fwd,
 		listener: listener,
 		server: &http.Server{
-			Handler: withBodyIdleTimeout(guardRebinding(proxy, isLoopback(fwd.Listen))),
+			Handler: withBodyIdleTimeout(guardRebinding(proxy, isLoopback(fwd.Listen), fwd.AllowedHosts)),
 			// Bound how long a caller may take to send headers, so a slow
 			// sender cannot hold a connection and its goroutine open
 			// indefinitely. Neither deadline limits body streaming, so large
@@ -99,6 +99,24 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 			IdleTimeout:       idleConnTimeout,
 		},
 	}, nil
+}
+
+// listenNetwork pins the address family to the literal the operator wrote.
+// Plain "tcp" turns 0.0.0.0 into a dual-stack wildcard that also accepts IPv6,
+// which exposes more than the spec asked for. A "6" network binds IPv6 only.
+func listenNetwork(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "tcp"
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return "tcp"
+	}
+	if ip.Is4() {
+		return "tcp4"
+	}
+	return "tcp6"
 }
 
 // Addr returns the address actually bound, which differs from the spec when
@@ -252,12 +270,19 @@ func (b *idleTimeoutBody) clearDeadline() {
 // with an embedded no-cors GET. Browsers have sent it since 2020, so this
 // residual needs a deliberately outdated one.
 //
-// A publicly bound listener is deliberately reachable under names this process
-// cannot enumerate, so only the browser checks apply there.
-func guardRebinding(next http.Handler, loopbackOnly bool) http.Handler {
+// The Host check holds on a publicly bound listener too, which is how a
+// container port published to the host is reached. There a rebound page sends
+// its own name with a matching Origin, so Host is the only signal left. Other
+// machines reach a public listener by address, which is accepted; any name
+// they use instead has to be listed with --allowed-host.
+func guardRebinding(next http.Handler, loopbackOnly bool, allowedHosts []string) http.Handler {
+	allowed := make(map[string]bool, len(allowedHosts))
+	for _, h := range allowedHosts {
+		allowed[normalizeHostname(h)] = true
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if loopbackOnly && !isLocalName(hostnameOf(r.Host)) {
-			rejectRequest(w, "unexpected Host for a loopback listener", http.StatusMisdirectedRequest)
+		if !isAllowedHost(hostnameOf(r.Host), loopbackOnly, allowed) {
+			rejectRequest(w, "unexpected Host for this listener, list it with --allowed-host", http.StatusMisdirectedRequest)
 			return
 		}
 		if !isLocalCaller(r) {
@@ -306,6 +331,21 @@ func hostnameOf(host string) string {
 		return h
 	}
 	return host
+}
+
+// isAllowedHost reports whether a request may arrive under host. Loopback
+// names always may and listed names always may. A public listener also
+// accepts any address, since a page cannot rebind an address it does not
+// control.
+func isAllowedHost(host string, loopbackOnly bool, allowed map[string]bool) bool {
+	if isLocalName(host) || allowed[normalizeHostname(host)] {
+		return true
+	}
+	if loopbackOnly {
+		return false
+	}
+	_, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil
 }
 
 // isLocalName reports whether host names this machine's loopback interface.

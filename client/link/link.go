@@ -21,6 +21,10 @@ const (
 	startTimeout = 90 * time.Second
 	// shutdownTimeout bounds draining in-flight requests and closing the session.
 	shutdownTimeout = 10 * time.Second
+
+	// natMapperEnv is the embedded client's switch for UPnP, NAT-PMP and PCP
+	// port mapping on the local router.
+	natMapperEnv = "NB_DISABLE_NAT_MAPPER"
 )
 
 // Run starts the overlay session, serves every configured forward, and blocks
@@ -33,6 +37,10 @@ func Run(ctx context.Context, cfg *Config) error {
 	creds, err := resolveCredentials(ctx, cfg)
 	if err != nil {
 		return interruptedOr(ctx, err)
+	}
+
+	if err := disableNATMapperUnlessSet(); err != nil {
+		return err
 	}
 
 	client, err := embed.New(embed.Options{
@@ -72,6 +80,20 @@ func Run(ctx context.Context, cfg *Config) error {
 	stopClient(client)
 
 	return err
+}
+
+// disableNATMapperUnlessSet keeps the embedded client from asking the local
+// router for a port mapping. An unprivileged forwarder should not change the
+// network it runs on, and ICE and the relay connect without it. An operator
+// who sets the variable keeps their choice.
+func disableNATMapperUnlessSet() error {
+	if _, set := os.LookupEnv(natMapperEnv); set {
+		return nil
+	}
+	if err := os.Setenv(natMapperEnv, "true"); err != nil {
+		return fmt.Errorf("set %s: %w", natMapperEnv, err)
+	}
+	return nil
 }
 
 // startSession runs start under startTimeout and returns as soon as ctx ends,
@@ -159,6 +181,9 @@ func waitForShutdown(ctx context.Context, forwards []*httpForwarder) error {
 		log.Infof("received %s, shutting down", sig)
 		return nil
 	case <-ctx.Done():
+		// The caller's context also ends on a signal, and select picks either
+		// ready case, so this path reports the shutdown too.
+		log.Infof("shutting down")
 		return nil
 	}
 }
@@ -202,6 +227,7 @@ func printEffectiveConfig(out io.Writer, cfg *Config) error {
 	fmt.Fprintf(&b, "state-dir: %s\n", orDefault(cfg.StateDir, "(memory)"))
 	fmt.Fprintf(&b, "hostname: %s\n", orDefault(cfg.Hostname, "(host default)"))
 	fmt.Fprintf(&b, "setup-key: %t\n", cfg.SetupKey != "")
+	fmt.Fprintf(&b, "allowed-hosts: %s\n", orDefault(strings.Join(cfg.AllowedHosts, ","), "(none)"))
 	fmt.Fprintf(&b, "forwards: %d\n", len(cfg.Forwards))
 	for _, f := range cfg.Forwards {
 		fmt.Fprintf(&b, "  %s -> %s\n", f.Listen, f.Upstream)

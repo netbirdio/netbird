@@ -63,6 +63,9 @@ type Forward struct {
 	// Spec is the original text, used in logs and errors so the operator sees
 	// what they typed rather than a normalized form.
 	Spec string
+	// AllowedHosts are names, beyond loopback names and addresses, that the
+	// listener accepts in the Host header.
+	AllowedHosts []string
 }
 
 // String returns the forward in the spec form the operator wrote.

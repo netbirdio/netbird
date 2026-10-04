@@ -122,6 +122,36 @@ func TestResolveReportsEveryProblem(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown scheme")
 }
 
+func TestResolveAllowedHosts(t *testing.T) {
+	_, raw := newTestCommand()
+	raw.forwards = []string{"http://0.0.0.0:8080=https://a.internal", "http://8081=https://b.internal"}
+	raw.allowPublicBind = true
+	raw.allowedHosts = []string{"NBLink.LAN.", "svc.ns.svc.cluster.local"}
+
+	cfg, err := raw.Resolve()
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"nblink.lan", "svc.ns.svc.cluster.local"}, cfg.AllowedHosts,
+		"allowed hosts must be stored in the form they are compared in")
+	for _, f := range cfg.Forwards {
+		assert.Equal(t, cfg.AllowedHosts, f.AllowedHosts, "every forward must carry the allowed hosts")
+	}
+}
+
+func TestResolveRejectsMalformedAllowedHosts(t *testing.T) {
+	_, raw := newTestCommand()
+	raw.forwards = []string{"http://8080=https://a.internal"}
+	raw.allowedHosts = []string{"http://nblink.lan", "nblink.lan:8080", "*.lan", "10.0.0.5", ""}
+
+	_, err := raw.Resolve()
+
+	require.Error(t, err)
+	for _, entry := range []string{`"http://nblink.lan"`, `"nblink.lan:8080"`, `"*.lan"`, `""`} {
+		assert.Contains(t, err.Error(), entry, "every malformed entry must be reported")
+	}
+	assert.Contains(t, err.Error(), "addresses are already accepted", "an address must be explained, not just refused")
+}
+
 func TestResolveSetupKeyFromFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
 	// The trailing newline mirrors what a mounted secret usually contains.

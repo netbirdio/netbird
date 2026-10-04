@@ -285,6 +285,7 @@ func TestPrintEffectiveConfig(t *testing.T) {
 		"state-dir: (memory)\n"+
 		"hostname: (host default)\n"+
 		"setup-key: true\n"+
+		"allowed-hosts: (none)\n"+
 		"forwards: 2\n"+
 		"  127.0.0.1:8080 -> https://grafana.internal\n"+
 		"  127.0.0.1:0 -> http://prometheus.internal:9090/api\n",
@@ -387,6 +388,17 @@ func TestWaitForShutdownReturnsWhenContextEnds(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("waitForShutdown ignored the cancelled context")
 	}
+}
+
+func TestDisableNATMapperUnlessSet(t *testing.T) {
+	t.Setenv(natMapperEnv, "")
+	require.NoError(t, os.Unsetenv(natMapperEnv))
+	require.NoError(t, disableNATMapperUnlessSet())
+	assert.Equal(t, "true", os.Getenv(natMapperEnv), "an unset mapper switch must be turned off")
+
+	t.Setenv(natMapperEnv, "false")
+	require.NoError(t, disableNATMapperUnlessSet())
+	assert.Equal(t, "false", os.Getenv(natMapperEnv), "an operator's explicit choice must be kept")
 }
 
 func TestRunCheckReturnsWithoutConnecting(t *testing.T) {

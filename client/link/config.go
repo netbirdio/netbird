@@ -2,8 +2,10 @@ package link
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,9 +23,14 @@ const envPrefix = "NB_"
 // variable visible to anything that can read the process environment.
 const fileScheme = "file:"
 
+// hostnamePattern matches a DNS name per RFC 1123 section 2.1: dot-separated
+// labels of letters, digits and inner hyphens.
+var hostnamePattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+
 // Config is the resolved runtime configuration.
 type Config struct {
 	Forwards        []Forward
+	AllowedHosts    []string
 	SetupKey        string
 	ManagementURL   string
 	Hostname        string
@@ -37,6 +44,7 @@ type Config struct {
 // rawConfig holds flag values before parsing and validation.
 type rawConfig struct {
 	forwards        []string
+	allowedHosts    []string
 	setupKey        string
 	managementURL   string
 	hostname        string
@@ -56,6 +64,8 @@ func BindFlags(cmd *cobra.Command) *rawConfig {
 
 	f.StringSliceVar(&raw.forwards, "forward", nil,
 		"forward spec scheme://[host:]port=upstream, repeatable (env: comma separated)")
+	f.StringSliceVar(&raw.allowedHosts, "allowed-host", nil,
+		"extra name a listener may be reached under, repeatable (env: comma separated)")
 	f.StringVar(&raw.setupKey, "setup-key", "",
 		"setup key for non-interactive login, accepts a file: prefix")
 	f.StringVar(&raw.managementURL, "management-url", profilemanager.DefaultManagementURL,
@@ -130,6 +140,8 @@ func (r *rawConfig) Resolve() (*Config, error) {
 	}
 
 	var problems []string
+	cfg.AllowedHosts, problems = parseAllowedHosts(r.allowedHosts)
+
 	seen := make(map[string]string, len(r.forwards))
 	for _, spec := range r.forwards {
 		fwd, err := ParseForward(spec)
@@ -150,6 +162,7 @@ func (r *rawConfig) Resolve() (*Config, error) {
 			continue
 		}
 		seen[fwd.Listen] = spec
+		fwd.AllowedHosts = cfg.AllowedHosts
 		cfg.Forwards = append(cfg.Forwards, fwd)
 	}
 
@@ -158,6 +171,33 @@ func (r *rawConfig) Resolve() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseAllowedHosts normalizes the names given with --allowed-host and reports
+// every entry that is not a plain hostname.
+func parseAllowedHosts(raw []string) ([]string, []string) {
+	var hosts, problems []string
+	for _, entry := range raw {
+		name := normalizeHostname(entry)
+		if _, err := netip.ParseAddr(name); err == nil {
+			problems = append(problems, fmt.Sprintf(
+				"allowed host %q: addresses are already accepted on a public listener, list names only", entry))
+			continue
+		}
+		if !hostnamePattern.MatchString(name) {
+			problems = append(problems, fmt.Sprintf(
+				"allowed host %q: must be a hostname, without scheme, port or wildcard", entry))
+			continue
+		}
+		hosts = append(hosts, name)
+	}
+	return hosts, problems
+}
+
+// normalizeHostname lowercases a name and drops a trailing root dot, so the
+// spellings a client may send compare equal.
+func normalizeHostname(name string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
 }
 
 // ConfigPath returns where the peer identity is persisted, or an empty string
