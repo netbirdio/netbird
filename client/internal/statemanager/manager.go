@@ -65,7 +65,8 @@ type Manager struct {
 	stateTypes map[string]reflect.Type
 }
 
-// New creates a new Manager instance
+// New creates a new Manager instance. An empty filePath keeps state in memory
+// only: nothing is read at startup and nothing is written.
 func New(filePath string) *Manager {
 	return &Manager{
 		filePath:   filePath,
@@ -259,6 +260,11 @@ func (m *Manager) PersistState(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.filePath == "" {
+		clear(m.dirty)
+		return nil
+	}
+
 	if len(m.dirty) == 0 {
 		return nil
 	}
@@ -295,6 +301,10 @@ func (m *Manager) PersistState(ctx context.Context) error {
 
 // loadStateFile reads and unmarshals the state file into a map of raw JSON messages
 func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage, error) {
+	if m.filePath == "" {
+		return nil, nil // nolint:nilnil
+	}
+
 	data, err := os.ReadFile(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
