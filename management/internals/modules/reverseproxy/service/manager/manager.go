@@ -85,6 +85,7 @@ type CapabilityProvider interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -340,6 +341,10 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 		return err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, svc.Targets, svc.ProxyCluster); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
 			return err
@@ -378,6 +383,43 @@ func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) 
 		return nil
 	}
 	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
+}
+
+// validatePrivateClusterTargets rejects cluster and direct upstream targets unless
+// every active proxy in the service's cluster reports the private capability. The
+// mapping reaches all proxies in the cluster, so one non-private proxy would serve
+// these targets too. An unreported capability is treated as unsupported. Must be
+// called outside a transaction, like clusterCustomPorts.
+func (m *Manager) validatePrivateClusterTargets(ctx context.Context, targets []*service.Target, cluster string) error {
+	target := firstPrivateClusterTarget(targets)
+	if target == nil {
+		return nil
+	}
+
+	if private := m.capabilities.ClusterAllProxiesPrivate(ctx, cluster); private != nil && *private {
+		return nil
+	}
+
+	if target.TargetType == service.TargetTypeCluster {
+		return status.Errorf(status.InvalidArgument,
+			"target_type %q requires a proxy cluster with private mode enabled, cluster %s does not support it",
+			service.TargetTypeCluster, cluster)
+	}
+	return status.Errorf(status.InvalidArgument,
+		"direct_upstream requires a proxy cluster with private mode enabled, cluster %s does not support it", cluster)
+}
+
+// firstPrivateClusterTarget returns the first target that only a private cluster may serve.
+func firstPrivateClusterTarget(targets []*service.Target) *service.Target {
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		if target.TargetType == service.TargetTypeCluster || target.Options.DirectUpstream {
+			return target
+		}
+	}
+	return nil
 }
 
 // ensureL4Port auto-assigns a listen port when needed and validates cluster support.
@@ -570,6 +612,10 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 		return err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, svc.Targets, svc.ProxyCluster); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
 			return err
@@ -718,6 +764,10 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 	customPorts := m.clusterCustomPorts(ctx, &svcForCaps)
 
 	if err := validateTargetReferences(ctx, m.store, accountID, service.Targets); err != nil {
+		return nil, err
+	}
+
+	if err := m.validatePrivateClusterTargets(ctx, service.Targets, effectiveCluster); err != nil {
 		return nil, err
 	}
 

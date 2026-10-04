@@ -582,7 +582,7 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 // handleAuthenticatedToken validates the token, handles denied access, and on
 // success sets a session cookie and redirects to the original URL.
 func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Request, host, token string, config DomainConfig, scheme Scheme) {
-	isCode := scheme.Type() == auth.MethodOIDC && r.URL.Query().Get("session_code") != ""
+	isCode := scheme.Type() == auth.MethodOIDC && r.URL.Query().Get(auth.SessionCodeQueryParam) != ""
 	result, err := mw.validateSessionToken(r.Context(), host, token, isCode, config.SessionPublicKey, scheme.Type())
 	if err != nil {
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
@@ -660,7 +660,7 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	case auth.MethodPassword:
 		return credentialFormValue(r, passwordFormId) != ""
 	case auth.MethodOIDC:
-		return r.URL.Query().Get("session_token") != "" || r.URL.Query().Get("session_code") != ""
+		return r.URL.Query().Get(auth.SessionTokenQueryParam) != "" || r.URL.Query().Get(auth.SessionCodeQueryParam) != ""
 	}
 	return false
 }
@@ -827,11 +827,11 @@ func sessionGroupsAllowed(allowed map[string]struct{}, method auth.Method, group
 // or history.
 func stripSessionTokenParam(u *url.URL) string {
 	q := u.Query()
-	if !q.Has("session_token") && !q.Has("session_code") {
+	if !q.Has(auth.SessionTokenQueryParam) && !q.Has(auth.SessionCodeQueryParam) {
 		return u.RequestURI()
 	}
-	q.Del("session_token")
-	q.Del("session_code")
+	q.Del(auth.SessionTokenQueryParam)
+	q.Del(auth.SessionCodeQueryParam)
 	clean := *u
 	clean.RawQuery = q.Encode()
 	return clean.RequestURI()
