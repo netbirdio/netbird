@@ -12,7 +12,7 @@ import (
 )
 
 func TestStoreWithToken(t *testing.T) {
-	dir := t.TempDir()
+	dir := storeDir(t)
 
 	files, ok := storeWithToken(Config{Dir: dir}).(*FileStore)
 	require.True(t, ok, "a directory alone reads that directory alone")

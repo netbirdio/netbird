@@ -54,7 +54,10 @@ func TestCertPostureState_Stale(t *testing.T) {
 // attachCertificateProofs against a real PEM directory and status recorder: a device that
 // cannot prove its certificate gets one warning, and one notice when it can again.
 func TestEngine_AttachCertificateProofsReportsLostAndRegainedProofs(t *testing.T) {
+	// The store refuses a group-writable directory, which t.TempDir yields under a
+	// user-private-group umask.
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 

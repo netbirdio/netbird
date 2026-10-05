@@ -34,7 +34,7 @@ func (failingStore) Candidates(context.Context) ([]Candidate, error) {
 func TestStores_KeepsFileCertificatesWhenTokenFails(t *testing.T) {
 	ca := certtest.NewCA(t, "corp")
 	key := certtest.ECDSAKey(t)
-	dir := t.TempDir()
+	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
 
 	candidates, err := Stores{failingStore{}, NewFileStore(dir)}.Candidates(context.Background())
@@ -252,7 +252,7 @@ func pkcs11TestStore(t *testing.T, certDir string) (*PKCS11Store, string) {
 // token, the certificate is a PEM file in the directory, and the two are paired by public
 // key because nothing on the token carries the certificate's CKA_ID.
 func TestCollect_PKCS11KeyWithFileCertificate(t *testing.T) {
-	dir := t.TempDir()
+	dir := storeDir(t)
 	store, uri := pkcs11TestStore(t, dir)
 
 	keys := map[string]crypto.Signer{"ecdsa": certtest.ECDSAKey(t), "rsa": certtest.RSAKey(t)}
@@ -279,7 +279,7 @@ func TestCollect_PKCS11KeyWithFileCertificate(t *testing.T) {
 
 func TestPKCS11Store_FileChains(t *testing.T) {
 	ca := certtest.NewCA(t, "corp")
-	dir := t.TempDir()
+	dir := storeDir(t)
 	// Only certificate files without a key of their own belong to the token; the file
 	// store answers for the others, and non-certificate files are ignored.
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, certtest.ECDSAKey(t), "device")))

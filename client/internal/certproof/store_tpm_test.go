@@ -28,7 +28,7 @@ func TestFileStore_TPMKeyFile(t *testing.T) {
 	require.NoError(t, err)
 	leaf := ca.Issue(t, key, "device")
 
-	dir := t.TempDir()
+	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(leaf))
 	writeFile(t, dir, "device.key", tpmtest.KeyPEM(t, &key.PublicKey))
 
@@ -66,7 +66,7 @@ func TestCollect_TPMKeyEndToEnd(t *testing.T) {
 
 	ca := certtest.NewCA(t, "corp")
 	leaf := ca.Issue(t, signer, "device")
-	dir := t.TempDir()
+	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(leaf))
 	writeFile(t, dir, "device.key", keyPEM)
 

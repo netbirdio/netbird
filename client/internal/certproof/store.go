@@ -20,6 +20,10 @@ import (
 const (
 	StoreDirEnv     = "NB_CERT_STORE_DIR"
 	defaultStoreDir = "/etc/netbird/certs"
+
+	// maxStoreFileSize bounds a certificate or key file of the PEM directory. A chain with
+	// its key is a few kilobytes.
+	maxStoreFileSize = 1 << 20
 )
 
 // errKeyMismatch rejects a key that does not belong to the certificate it sits with: it
@@ -117,6 +121,9 @@ func certFiles(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read certificate store %s: %w", dir, err)
 	}
+	if err := checkStoreDir(dir); err != nil {
+		return nil, fmt.Errorf("refusing certificate store: %w", err)
+	}
 	var paths []string
 	for _, entry := range entries {
 		if !entry.IsDir() && isCertFile(entry.Name()) {
@@ -129,7 +136,7 @@ func certFiles(dir string) ([]string, error) {
 // loadPEM reads a certificate file and its private key, held in the file itself or in
 // the sibling "<name>.key" file. The signer is nil when neither holds a key.
 func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
-	data, err := os.ReadFile(path)
+	data, err := readStoreFile(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -157,7 +164,7 @@ func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
 // siblingKey reads the private key from the "<name>.key" file next to a certificate
 // file, or returns nil when there is no such file.
 func siblingKey(path string) (crypto.Signer, error) {
-	keyData, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
+	keyData, err := readStoreFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

@@ -25,7 +25,7 @@ func TestCollect_ProvesOneMatchingCertificatePerChallenge(t *testing.T) {
 	otherCA := certtest.NewCA(t, "other-root")
 	unrelatedCA := certtest.NewCA(t, "unrelated-root")
 
-	dir := t.TempDir()
+	dir := storeDir(t)
 	deviceKey := certtest.ECDSAKey(t)
 	device := corpCA.Issue(t, deviceKey, "device")
 	writeFile(t, dir, "device.pem", certtest.CertPEM(device)+certtest.KeyPEM(t, deviceKey))
@@ -64,7 +64,7 @@ func TestCollect_ProvesOneMatchingCertificatePerChallenge(t *testing.T) {
 }
 
 func TestCollect_NothingToProve(t *testing.T) {
-	dir := t.TempDir()
+	dir := storeDir(t)
 	key := certtest.ECDSAKey(t)
 	ca := certtest.NewCA(t, "root")
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
@@ -92,7 +92,7 @@ func TestFileStore_ChainWithIntermediate(t *testing.T) {
 	key := certtest.ECDSAKey(t)
 	leaf := intermediate.Issue(t, key, "device")
 
-	dir := t.TempDir()
+	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(leaf)+certtest.CertPEM(intermediate.Cert)+certtest.KeyPEM(t, key))
 
 	candidates, err := NewFileStore(dir).Candidates(context.Background())
@@ -105,6 +105,15 @@ func TestFileStore_ChainWithIntermediate(t *testing.T) {
 	assert.NoError(t, certposture.VerifyChain(candidates[0].Chain, roots, time.Now()))
 }
 
+// storeDir is a PEM directory the store accepts: t.TempDir follows the umask, which
+// leaves the directory group-writable on systems with a user-private group umask.
+func storeDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
+	return dir
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
@@ -112,7 +121,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 func TestCollectChallenges_RefusesMalformedInput(t *testing.T) {
 	ca := certtest.NewCA(t, "corp-root")
-	dir := t.TempDir()
+	dir := storeDir(t)
 	key := certtest.ECDSAKey(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
 	store := NewFileStore(dir)
@@ -140,7 +149,7 @@ func TestCollectChallenges_RefusesMalformedInput(t *testing.T) {
 
 func TestFileStore_SkipsKeyOfAnotherCertificate(t *testing.T) {
 	ca := certtest.NewCA(t, "corp-root")
-	dir := t.TempDir()
+	dir := storeDir(t)
 
 	// A stale key next to a renewed certificate, sorted before the good pair, must not
 	// produce a proof that management rejects and stop the search there.
