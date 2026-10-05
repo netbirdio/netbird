@@ -127,16 +127,15 @@ func (mr *MockControllerMockRecorder) GetNetworkMap(ctx, peerID any) *gomock.Cal
 }
 
 // GetValidatedPeerWithComponents mocks base method.
-func (m *MockController) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, p *peer.Peer) (*peer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
+func (m *MockController) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, p *peer.Peer) (*peer.Peer, *types.NetworkMapComponents, []*nmdata.PostureChecks, int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetValidatedPeerWithComponents", ctx, isRequiresApproval, accountID, p)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.NetworkMapComponents)
-	ret2, _ := ret[2].(*types.NetworkMap)
-	ret3, _ := ret[3].([]*nmdata.PostureChecks)
-	ret4, _ := ret[4].(int64)
-	ret5, _ := ret[5].(error)
-	return ret0, ret1, ret2, ret3, ret4, ret5
+	ret2, _ := ret[2].([]*nmdata.PostureChecks)
+	ret3, _ := ret[3].(int64)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // GetValidatedPeerWithComponents indicates an expected call of GetValidatedPeerWithComponents.

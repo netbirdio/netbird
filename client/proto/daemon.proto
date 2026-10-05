@@ -45,8 +45,6 @@ service DaemonService {
   // Deselect specific routes
   rpc DeselectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
-  rpc ForwardingRules(EmptyRequest) returns (ForwardingRulesResponse) {}
-
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
 
@@ -468,7 +466,9 @@ message FullStatus {
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
-  int32 NumberOfForwardingRules = 8;
+  // 8 was NumberOfForwardingRules (int32), removed with the ingress port-forwarding feature.
+  reserved 8;
+  reserved "NumberOfForwardingRules";
 
   repeated SystemEvent events = 7;
 
@@ -510,32 +510,6 @@ message Network {
   repeated string domains = 4;
   map<string, IPList> resolvedIPs = 5;
 }
-
-// ForwardingRules
-message PortInfo {
-  oneof portSelection {
-    uint32 port = 1;
-    Range range = 2;
-  }
-
-  message Range {
-    uint32 start = 1;
-    uint32 end = 2;
-  }
-}
-
-message ForwardingRule {
-  string protocol = 1;
-  PortInfo destinationPort = 2;
-  string translatedAddress = 3;
-  string translatedHostname = 4;
-  PortInfo translatedPort = 5;
-}
-
-message ForwardingRulesResponse {
-  repeated ForwardingRule rules = 1;
-}
-
 
 // DebugBundler
 message DebugBundleRequest {

@@ -175,15 +175,12 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
 	rootCmd.AddCommand(networksCMD)
-	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(exposeCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
-
-	forwardingRulesCmd.AddCommand(forwardingRulesListCmd)
 
 	debugCmd.AddCommand(debugBundleCmd)
 	debugCmd.AddCommand(logCmd)
