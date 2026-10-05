@@ -178,15 +178,17 @@ func (mr *MockControllerMockRecorder) OnPeerConnected(ctx, accountID, peerID any
 }
 
 // OnPeerDisconnected mocks base method.
-func (m *MockController) OnPeerDisconnected(ctx context.Context, accountID, peerID string) {
+func (m *MockController) OnPeerDisconnected(ctx context.Context, accountID, peerID string, session chan *UpdateMessage) bool {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "OnPeerDisconnected", ctx, accountID, peerID)
+	ret := m.ctrl.Call(m, "OnPeerDisconnected", ctx, accountID, peerID, session)
+	ret0, _ := ret[0].(bool)
+	return ret0
 }
 
 // OnPeerDisconnected indicates an expected call of OnPeerDisconnected.
-func (mr *MockControllerMockRecorder) OnPeerDisconnected(ctx, accountID, peerID any) *gomock.Call {
+func (mr *MockControllerMockRecorder) OnPeerDisconnected(ctx, accountID, peerID, session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeerDisconnected", reflect.TypeOf((*MockController)(nil).OnPeerDisconnected), ctx, accountID, peerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeerDisconnected", reflect.TypeOf((*MockController)(nil).OnPeerDisconnected), ctx, accountID, peerID, session)
 }
 
 // OnPeersAdded mocks base method.
