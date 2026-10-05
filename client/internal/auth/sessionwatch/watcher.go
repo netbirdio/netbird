@@ -342,7 +342,7 @@ func (w *Watcher) clearLocked() {
 }
 
 // startPollLocked starts the evaluation loop unless it is already
-// running. The loop starts lazily on the first future deadline, so a
+// running. The loop starts lazily on the first accepted deadline, so a
 // client whose server never publishes a session expiry never pays for a
 // ticker, and it runs until Close: the watcher is engine-scoped, and a
 // cleared deadline is normally followed by a fresh one on the next sync.
