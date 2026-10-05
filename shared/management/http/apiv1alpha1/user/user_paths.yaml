@@ -27,6 +27,8 @@ UsersPath:
         "$ref": "../openapi.yaml#/components/responses/requires_authentication"
       '403':
         "$ref": "../openapi.yaml#/components/responses/forbidden"
+      '422':
+        "$ref": "../openapi.yaml#/components/responses/unprocessable"
       '500':
         "$ref": "../openapi.yaml#/components/responses/internal_error"
   post:

@@ -175,7 +175,18 @@ components:
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
-      content: { }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              code:
+                type: integer
+            required:
+             - message
+             - code
     internal_error:
       description: Internal Server Error
       headers:

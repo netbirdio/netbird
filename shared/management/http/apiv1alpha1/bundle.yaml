@@ -143,7 +143,7 @@ components:
         - city_name
     ErrorResponse:
       type: object
-      description: "Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided."
+      description: Standard error response
       properties:
         message:
           type: string
@@ -611,7 +611,18 @@ components:
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
-      content: {}
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              code:
+                type: integer
+            required:
+              - message
+              - code
     internal_error:
       description: Internal Server Error
       headers:
@@ -741,6 +752,8 @@ components:
             "$ref": "#/components/responses/requires_authentication"
           '403':
             "$ref": "#/components/responses/forbidden"
+          '422':
+            "$ref": "#/components/responses/unprocessable"
           '500':
             "$ref": "#/components/responses/internal_error"
     peer:
@@ -870,6 +883,8 @@ components:
             "$ref": "#/components/responses/requires_authentication"
           '403':
             "$ref": "#/components/responses/forbidden"
+          '422':
+            "$ref": "#/components/responses/unprocessable"
           '500':
             "$ref": "#/components/responses/internal_error"
       post:
