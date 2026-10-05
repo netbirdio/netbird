@@ -74,6 +74,7 @@ const unknownHostPlaceholder = "unknown"
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
+	ValidateServiceDomain(ctx context.Context, tx store.Store, accountID, domain, cluster string) error
 	GetClusterDomains() []string
 }
 
@@ -83,6 +84,7 @@ type CapabilityProvider interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -331,7 +333,14 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 		return err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, svc.Targets, svc.ProxyCluster); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
+			return err
+		}
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 				return err
@@ -363,6 +372,43 @@ func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) 
 		return nil
 	}
 	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
+}
+
+// validatePrivateClusterTargets rejects cluster and direct upstream targets unless
+// every active proxy in the service's cluster reports the private capability. The
+// mapping reaches all proxies in the cluster, so one non-private proxy would serve
+// these targets too. An unreported capability is treated as unsupported. Must be
+// called outside a transaction, like clusterCustomPorts.
+func (m *Manager) validatePrivateClusterTargets(ctx context.Context, targets []*service.Target, cluster string) error {
+	target := firstPrivateClusterTarget(targets)
+	if target == nil {
+		return nil
+	}
+
+	if private := m.capabilities.ClusterAllProxiesPrivate(ctx, cluster); private != nil && *private {
+		return nil
+	}
+
+	if target.TargetType == service.TargetTypeCluster {
+		return status.Errorf(status.InvalidArgument,
+			"target_type %q requires a proxy cluster with private mode enabled, cluster %s does not support it",
+			service.TargetTypeCluster, cluster)
+	}
+	return status.Errorf(status.InvalidArgument,
+		"direct_upstream requires a proxy cluster with private mode enabled, cluster %s does not support it", cluster)
+}
+
+// firstPrivateClusterTarget returns the first target that only a private cluster may serve.
+func firstPrivateClusterTarget(targets []*service.Target) *service.Target {
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		if target.TargetType == service.TargetTypeCluster || target.Options.DirectUpstream {
+			return target
+		}
+	}
+	return nil
 }
 
 // ensureL4Port auto-assigns a listen port when needed and validates cluster support.
@@ -460,7 +506,14 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 		return err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, svc.Targets, svc.ProxyCluster); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
+			return err
+		}
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
 		}
@@ -577,6 +630,10 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 		return nil, err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, service.Targets, effectiveCluster); err != nil {
+		return nil, err
+	}
+
 	// Validate subdomain requirement *before* the transaction: the underlying
 	// capability lookup talks to the main DB pool, and SQLite's single-connection
 	// pool would self-deadlock if this ran while the tx already held the only
@@ -622,6 +679,9 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
+	if err := m.validateServiceDomain(ctx, transaction, accountID, service, effectiveCluster); err != nil {
+		return err
+	}
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -675,6 +735,13 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	return nil
+}
+
+func (m *Manager) validateServiceDomain(ctx context.Context, tx store.Store, accountID string, svc *service.Service, cluster string) error {
+	if m.clusterDeriver == nil {
+		return nil
+	}
+	return m.clusterDeriver.ValidateServiceDomain(ctx, tx, accountID, svc.Domain, cluster)
 }
 
 // validateL4PortDiffOnClusterDiff checks if custom L4 ports are configured and validates port changes across clusters.

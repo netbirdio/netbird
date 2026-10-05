@@ -33,7 +33,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Props>(function SearchIn
                 spellCheck={false}
                 {...props}
                 className={cn(
-                    "w-full bg-transparent text-sm text-nb-gray-200 placeholder:text-nb-gray-400",
+                    "w-full bg-transparent text-sm text-nb-gray-200 placeholder:text-nb-gray-600 dark:placeholder:text-nb-gray-400",
                     "border-none outline-none",
                     disabled && "cursor-not-allowed",
                     className,

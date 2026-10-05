@@ -9,14 +9,14 @@ import (
 	"strings"
 
 	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
+	nbdb "github.com/netbirdio/netbird/management/internals/shared/db"
 	gormstore "github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, func(), *gormstore.SqlStore) {
+func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, func()) {
 	storeSqliteFileName := ":memory:"
 	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
 	if runtime.GOOS == "windows" {
@@ -30,7 +30,11 @@ func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, fun
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}
-	store, err := gormstore.NewSqlStore(context.TODO(), db, types.SqliteStoreEngine, nil, false)
+	conn, err := nbdb.NewConn(context.TODO(), db, nbdb.SqliteStoreEngine, nil)
+	if err != nil {
+		log.Fatalf("error initializing db: %s", err.Error())
+	}
+	_, err = gormstore.NewSqlStore(context.TODO(), conn, nil, false)
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}
@@ -46,5 +50,5 @@ func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, fun
 		}
 	}
 
-	return &networkmap_sqlite.SqliteStore{Db: sqldb}, func() {}, store
+	return &networkmap_sqlite.SqliteStore{Db: sqldb}, func() {}
 }

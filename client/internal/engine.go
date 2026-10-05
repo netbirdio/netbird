@@ -14,12 +14,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -235,6 +237,12 @@ type Engine struct {
 	started bool
 
 	wgInterface WGIface
+
+	// wgDevice is a lock-free handle on the WireGuard device behind
+	// wgInterface. Reaching the device through wgInterface requires
+	// syncMsgMux, which handleSync holds while it adds and removes peers;
+	// SetPerformance must stay reachable exactly when that work is stuck.
+	wgDevice atomic.Pointer[wgdevice.Device]
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
@@ -651,10 +659,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		return fmt.Errorf("up wg interface: %w", err)
 	}
-
-	// Set up notrack rules immediately after proxy is listening to prevent
-	// conntrack entries from being created before the rules are in place
-	e.setupWGProxyNoTrack()
+	e.wgDevice.Store(e.wgInterface.GetWGDevice())
 
 	// Start after interface is up since port may have been resolved from 0 or changed if occupied
 	e.shutdownWg.Add(1)
@@ -791,23 +796,6 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
-}
-
-// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
-// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
-func (e *Engine) setupWGProxyNoTrack() {
-	if e.firewall == nil {
-		return
-	}
-
-	proxyPort := e.wgInterface.GetProxyPort()
-	if proxyPort == 0 {
-		return
-	}
-
-	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
-		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
-	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -1052,7 +1040,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			// back to empty if the FQDN doesn't have the expected shape.
 			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
 		}
-		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		// With the firewall disabled there is no ACL manager to program, so
+		// RoutesFirewallRules would be built and then dropped. On a peer that
+		// routes many network resources that is the single most expensive
+		// step of the sync.
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
 		if err != nil {
 			return fmt.Errorf("decode network map envelope: %w", err)
 		}
@@ -2144,6 +2136,10 @@ func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 
 	if e.wgInterface != nil {
+		// Drop the handle before the close starts: a retune that loads it
+		// afterwards would touch a device on its way out and report success
+		// for an engine that is already gone.
+		e.wgDevice.Store(nil)
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
@@ -2182,10 +2178,7 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
-	transportNet, err := e.newStdNet()
-	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
+	transportNet := e.newStdNet()
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    e.config.WgIfaceName,
@@ -2303,15 +2296,16 @@ type Performance struct {
 }
 
 // SetPerformance applies the given tuning to this engine's live Device.
+//
+// It deliberately does not take syncMsgMux. Raising the buffer pool cap is the
+// recovery path for a device whose pool is exhausted, and an exhausted pool
+// blocks peer removal inside handleSync, which holds syncMsgMux for as long as
+// it stays blocked. Taking the lock here would make the retune unreachable in
+// the one situation that needs it.
 func (e *Engine) SetPerformance(t Performance) error {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	if e.wgInterface == nil {
-		return fmt.Errorf("wg interface not initialized")
-	}
-	dev := e.wgInterface.GetWGDevice()
+	dev := e.wgDevice.Load()
 	if dev == nil {
-		return fmt.Errorf("wg device not initialized")
+		return errors.New("wg device not initialized")
 	}
 	if t.PreallocatedBuffersPerPool != nil {
 		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)

@@ -958,6 +958,101 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 	assert.Len(t, pats, 0)
 }
 
+func TestAccountManager_DeleteAccount_RunsDeletionHooks(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	// Each hook records its call and checks the account is still in the store, which is
+	// the point of running before deletion: a hook must be able to read what it cleans up.
+	var calls []string
+	hook := func(name string) nbAccount.DeletionHook {
+		return func(ctx context.Context, accountID string) error {
+			calls = append(calls, name+":"+accountID)
+			_, err := manager.Store.GetAccount(ctx, accountID)
+			assert.NoError(t, err, "account should still exist while hook %s runs", name)
+			return nil
+		}
+	}
+	manager.AddAccountDeletionHook(hook("first"))
+	manager.AddAccountDeletionHook(hook("second"))
+
+	require.NoError(t, manager.DeleteAccount(context.Background(), account.Id, ownerID))
+
+	assert.Equal(t, []string{"first:" + account.Id, "second:" + account.Id}, calls,
+		"hooks should run once each, in registration order, with the deleted account's ID")
+	_, err = manager.Store.GetAccount(context.Background(), account.Id)
+	assert.Error(t, err, "account should be deleted after the hooks succeed")
+}
+
+func TestAccountManager_DeleteAccount_DeletionHookErrorAbortsDeletion(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		return status.Errorf(status.PreconditionFailed, "teardown refused")
+	})
+	secondCalled := false
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		secondCalled = true
+		return nil
+	})
+
+	err = manager.DeleteAccount(context.Background(), account.Id, ownerID)
+	require.Error(t, err)
+
+	// The hook's status type has to survive the wrapping, since the HTTP layer maps it
+	// to the response code.
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "error should carry the hook's status error, got %v", err)
+	assert.Equal(t, status.PreconditionFailed, sErr.Type(), "status type should be the hook's")
+	assert.False(t, secondCalled, "hooks after a failing one should not run")
+
+	_, err = manager.Store.GetAccount(context.Background(), account.Id)
+	assert.NoError(t, err, "account should survive a failing hook")
+	_, err = manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, ownerID)
+	assert.NoError(t, err, "account owner should survive a failing hook")
+}
+
+func TestAccountManager_AddAccountDeletionHook_RejectsNil(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	assert.PanicsWithValue(t, "nil account deletion hook", func() {
+		manager.AddAccountDeletionHook(nil)
+	}, "registering a nil hook should panic instead of breaking a later deletion")
+}
+
+func TestAccountManager_DeleteAccount_DeletionHooksSkippedWithoutPermission(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	adminID := "regular_admin"
+	account.Users[adminID] = types.NewAdminUser(adminID)
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	called := false
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		called = true
+		return nil
+	})
+
+	err = manager.DeleteAccount(context.Background(), account.Id, adminID)
+	require.Error(t, err, "only the owner may delete the account")
+	assert.False(t, called, "hooks should not run for a caller who may not delete the account")
+}
+
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	claims := auth.UserAuth{
 		Domain:         "example.com",
@@ -2462,7 +2557,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) 
 	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, newSettings)
 	require.NoError(t, err)
 
-	accountPeers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	accountPeers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 
 	for _, peer := range accountPeers {
@@ -3516,7 +3611,13 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 
 	eventStore := &activity.InMemoryEventStore{}
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	// Everything built here watches this context; cancelling it on cleanup stops
+	// the metrics flushers, caches and controllers instead of leaking them for
+	// the rest of the package run.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3534,8 +3635,6 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 		CleanupStale(gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
-
-	ctx := context.Background()
 
 	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
@@ -4458,7 +4557,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, len(before))
 	for _, p := range peers {
@@ -4476,7 +4575,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change for host-bit-set equivalent range", p.ID)
@@ -4490,7 +4589,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change when NetworkRange omitted", p.ID)
@@ -4506,7 +4605,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.True(t, newRange.Contains(p.IP), "peer %s should be in new range %s, got %s", p.ID, newRange, p.IP)
@@ -4524,7 +4623,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	require.NoError(t, err)
 	require.NotEmpty(t, settings.IPv6EnabledGroups, "new account should have IPv6 enabled for All group")
 
-	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.True(t, p.IPv6.IsValid(), "peer %s should have IPv6 with All group enabled", p.ID)
@@ -4552,7 +4651,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	assert.Equal(t, []string{partialGroup.ID}, updatedSettings.IPv6EnabledGroups)
 
 	// peer1 and peer2 should have IPv6; peer3 should not.
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	peerMap := make(map[string]*nbpeer.Peer, len(peers))
 	for _, p := range peers {
@@ -4572,7 +4671,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	require.NoError(t, err)
 	assert.Empty(t, updatedSettings.IPv6EnabledGroups)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.False(t, p.IPv6.IsValid(), "peer %s should have no IPv6 when groups cleared", p.ID)
@@ -4587,7 +4686,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	peerMap = make(map[string]*nbpeer.Peer, len(peers))
 	for _, p := range peers {
