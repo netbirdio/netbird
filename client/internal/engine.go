@@ -544,6 +544,67 @@ func waitWithContext(ctx context.Context, wg *sync.WaitGroup) error {
 	}
 }
 
+// startRosenpassManager brings up Rosenpass when it is enabled and ML-KEM (which takes
+// precedence) is not, since the two post-quantum mechanisms are mutually exclusive.
+func (e *Engine) startRosenpassManager(publicKey wgtypes.Key) error {
+	if e.config.RosenpassEnabled && pqkem.Enabled() {
+		log.Warnf("rosenpass and ML-KEM post-quantum are mutually exclusive; ML-KEM is enabled, so rosenpass is disabled")
+	}
+	if !e.config.RosenpassEnabled || pqkem.Enabled() {
+		return nil
+	}
+
+	log.Infof("rosenpass is enabled")
+	if e.config.RosenpassPermissive {
+		log.Infof("running rosenpass in permissive mode")
+	} else {
+		log.Infof("running rosenpass in strict mode")
+	}
+
+	var err error
+	e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName, publicKey)
+	if err != nil {
+		return fmt.Errorf("create rosenpass manager: %w", err)
+	}
+	if err := e.rpManager.Run(); err != nil {
+		return fmt.Errorf("run rosenpass manager: %w", err)
+	}
+	return nil
+}
+
+// startPQKEMManager brings up the ML-KEM post-quantum PSK exchange when NB_ENABLE_PQ_MLKEM
+// is set. It binds the dedicated UDP transport on the WG overlay IP, so the interface must
+// already be up. In strict mode a bind failure is fatal (fail closed); in opportunistic
+// mode it is logged and the exchange stays disabled.
+func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
+	if !pqkem.Enabled() {
+		return nil
+	}
+	tr, err := newPQTransport(e.config.WgAddr.IP)
+	if err != nil {
+		if pqkem.Strict() {
+			return fmt.Errorf("pqkem: strict mode enabled but transport bind failed: %w", err)
+		}
+		log.Errorf("pqkem: transport bind failed, exchange disabled: %v", err)
+		return nil
+	}
+	cbHandler := pqCallbackHandler{
+		wg: e.wgInterface,
+		// On a persistent rekey failure, re-bootstrap the KEM over Signal: a fresh
+		// signalling offer starts a new exchange that overwrites the stalled PSK on both
+		// sides, recovering from a data-path desync.
+		reoffer: func(remoteKey string) {
+			if conn, ok := e.peerStore.PeerConn(remoteKey); ok {
+				conn.RequestReoffer()
+			}
+		},
+	}
+	e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger())
+	e.pqkemManager.Start(tr)
+	log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
+	return nil
+}
+
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
@@ -593,24 +654,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	publicKey := e.config.WgPrivateKey.PublicKey()
 	e.flowManager = netflow.NewManager(e.wgInterface, publicKey[:], e.statusRecorder)
 
-	// Rosenpass and ML-KEM are mutually exclusive. ML-KEM (NB_ENABLE_PQ_MLKEM) takes precedence
-	if e.config.RosenpassEnabled && pqkem.Enabled() {
-		log.Warnf("rosenpass and ML-KEM post-quantum are mutually exclusive; ML-KEM is enabled, so rosenpass is disabled")
-	}
-	if e.config.RosenpassEnabled && !pqkem.Enabled() {
-		log.Infof("rosenpass is enabled")
-		if e.config.RosenpassPermissive {
-			log.Infof("running rosenpass in permissive mode")
-		} else {
-			log.Infof("running rosenpass in strict mode")
-		}
-		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName, publicKey)
-		if err != nil {
-			return fmt.Errorf("create rosenpass manager: %w", err)
-		}
-		if err := e.rpManager.Run(); err != nil {
-			return fmt.Errorf("run rosenpass manager: %w", err)
-		}
+	if err := e.startRosenpassManager(publicKey); err != nil {
+		return err
 	}
 	e.stateManager.Start()
 
@@ -683,33 +728,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.rpManager.SetInterface(e.wgInterface)
 	}
 
-	// Start the ML-KEM PQ manager after the interface is up so its dedicated UDP
-	// transport can bind on the WG overlay IP.
-	if pqkem.Enabled() {
-		tr, pqErr := newPQTransport(e.config.WgAddr.IP)
-		if pqErr != nil {
-			// In strict mode the peer must fail closed; silently continuing without the PQ
-			// exchange would hand out classic tunnels, so treat the bind failure as fatal.
-			if pqkem.Strict() {
-				return fmt.Errorf("pqkem: strict mode enabled but transport bind failed: %w", pqErr)
-			}
-			log.Errorf("pqkem: transport bind failed, exchange disabled: %v", pqErr)
-		} else {
-			cbHandler := pqCallbackHandler{
-				wg: e.wgInterface,
-				// On a persistent rekey failure, re-bootstrap the KEM over Signal: a
-				// fresh signalling offer starts a new exchange that overwrites the
-				// stalled PSK on both sides, recovering from a data-path desync.
-				reoffer: func(remoteKey string) {
-					if conn, ok := e.peerStore.PeerConn(remoteKey); ok {
-						conn.RequestReoffer()
-					}
-				},
-			}
-			e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger())
-			e.pqkemManager.Start(tr)
-			log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
-		}
+	if err := e.startPQKEMManager(publicKey); err != nil {
+		return err
 	}
 
 	// if inbound conns are blocked there is no need to create the ACL manager
