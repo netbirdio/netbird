@@ -91,6 +91,20 @@ func (a *NetworksAPI) Delete(ctx context.Context, networkID string) error {
 	return nil
 }
 
+// ListAllRouters list all routers across all networks
+// See more: https://docs.netbird.io/api/resources/networks#list-all-network-routers
+func (a *NetworksAPI) ListAllRouters(ctx context.Context) ([]api.NetworkRouter, error) {
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks/routers", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[[]api.NetworkRouter](resp)
+	return ret, err
+}
+
 // NetworkResourcesAPI APIs for Network Resources, do not use directly
 type NetworkResourcesAPI struct {
 	c         *Client

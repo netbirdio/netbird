@@ -3,24 +3,30 @@
 package system
 
 import (
+	"context"
 	"os"
 	"slices"
 
-	"github.com/shirou/gopsutil/v3/process"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
-// getRunningProcesses returns a list of running process paths.
-func getRunningProcesses() ([]string, error) {
-	processIDs, err := process.Pids()
+// getRunningProcesses returns a list of running process paths. The context bounds the work:
+// the per-PID loop bails as soon as ctx is done, and the gopsutil calls honor it where they
+// can, so a stuck enumeration cannot run unbounded.
+func getRunningProcesses(ctx context.Context) ([]string, error) {
+	processIDs, err := process.PidsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	processMap := make(map[string]bool)
 	for _, pID := range processIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		p := &process.Process{Pid: pID}
 
-		path, _ := p.Exe()
+		path, _ := p.ExeWithContext(ctx)
 		if path != "" {
 			processMap[path] = false
 		}
@@ -35,18 +41,21 @@ func getRunningProcesses() ([]string, error) {
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
-func checkFileAndProcess(paths []string) ([]File, error) {
+func checkFileAndProcess(ctx context.Context, paths []string) ([]File, error) {
 	files := make([]File, len(paths))
 	if len(paths) == 0 {
 		return files, nil
 	}
 
-	runningProcesses, err := getRunningProcesses()
+	runningProcesses, err := getRunningProcesses(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for i, path := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		file := File{Path: path}
 
 		_, err := os.Stat(path)

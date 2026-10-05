@@ -13,7 +13,8 @@ const (
 	reconnThreshold   = 5 * time.Minute
 	baseBlockDuration = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
 	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
-	metaChangeLimit   = 3                // Number of reconnections with different metadata that triggers a ban of one peer
+	metaChangeLimit   = 5                // Number of reconnections with different metadata that triggers a ban of one peer
+	maxBanLevel       = 6                // Highest ban level; the ban duration doubles per level up to this one
 )
 
 type lfConfig struct {
@@ -21,6 +22,7 @@ type lfConfig struct {
 	baseBlockDuration time.Duration
 	reconnLimitForBan int
 	metaChangeLimit   int
+	maxBanLevel       int
 }
 
 func initCfg() *lfConfig {
@@ -29,6 +31,7 @@ func initCfg() *lfConfig {
 		baseBlockDuration: baseBlockDuration,
 		reconnLimitForBan: reconnLimitForBan,
 		metaChangeLimit:   metaChangeLimit,
+		maxBanLevel:       maxBanLevel,
 	}
 }
 
@@ -102,11 +105,18 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 		return
 	}
 
-	if state.isBanned && now.After(state.banExpiresAt) {
+	if state.isBanned {
+		if now.Before(state.banExpiresAt) {
+			return
+		}
 		state.isBanned = false
 	}
 
-	if state.banLevel > 0 && now.Sub(state.lastSeen) > (2*l.cfg.baseBlockDuration) {
+	quietSince := state.lastSeen
+	if state.banExpiresAt.After(quietSince) {
+		quietSince = state.banExpiresAt
+	}
+	if state.banLevel > 0 && now.Sub(quietSince) > (2*l.cfg.baseBlockDuration) {
 		state.banLevel = 0
 	}
 
@@ -124,10 +134,17 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 		return
 	}
 
+	if now.Sub(state.sessionStart) >= l.cfg.reconnThreshold {
+		state.sessionStart = now
+		state.sessionCounter = 0
+	}
+
 	state.sessionCounter++
-	if state.sessionCounter > l.cfg.reconnLimitForBan && now.Sub(state.sessionStart) < l.cfg.reconnThreshold {
+	if state.sessionCounter > l.cfg.reconnLimitForBan {
 		state.isBanned = true
-		state.banLevel++
+		if state.banLevel < l.cfg.maxBanLevel {
+			state.banLevel++
+		}
 
 		backoffFactor := math.Pow(2, float64(state.banLevel-1))
 		duration := time.Duration(float64(l.cfg.baseBlockDuration) * backoffFactor)
@@ -139,7 +156,7 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	state.lastSeen = now
 }
 
-func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
+func metaHash(meta nbpeer.PeerSystemMeta) uint64 {
 	h := fnv.New64a()
 
 	h.Write([]byte(meta.WtVersion))
@@ -147,14 +164,6 @@ func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
 	h.Write([]byte(meta.KernelVersion))
 	h.Write([]byte(meta.Hostname))
 	h.Write([]byte(meta.SystemSerialNumber))
-	h.Write([]byte(pubip))
 
-	macs := uint64(0)
-	for _, na := range meta.NetworkAddresses {
-		for _, r := range na.Mac {
-			macs += uint64(r)
-		}
-	}
-
-	return h.Sum64() + macs
+	return h.Sum64()
 }

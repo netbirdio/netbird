@@ -23,10 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/client"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
 func TestJWTEnforcement(t *testing.T) {
@@ -41,7 +43,7 @@ func TestJWTEnforcement(t *testing.T) {
 	t.Run("blocks_without_jwt", func(t *testing.T) {
 		jwtConfig := &JWTConfig{
 			Issuer:       "test-issuer",
-			Audience:     "test-audience",
+			Audiences:    []string{"test-audience"},
 			KeysLocation: "test-keys",
 		}
 		serverConfig := &Config{
@@ -52,7 +54,7 @@ func TestJWTEnforcement(t *testing.T) {
 		server.SetAllowRootLogin(true)
 
 		serverAddr := StartTestServer(t, server)
-		defer require.NoError(t, server.Stop())
+		defer func() { require.NoError(t, server.Stop()) }()
 
 		host, portStr, err := net.SplitHostPort(serverAddr)
 		require.NoError(t, err)
@@ -86,7 +88,7 @@ func TestJWTEnforcement(t *testing.T) {
 		serverNoJWT.SetAllowRootLogin(true)
 
 		serverAddrNoJWT := StartTestServer(t, serverNoJWT)
-		defer require.NoError(t, serverNoJWT.Stop())
+		defer func() { require.NoError(t, serverNoJWT.Stop()) }()
 
 		hostNoJWT, portStrNoJWT, err := net.SplitHostPort(serverAddrNoJWT)
 		require.NoError(t, err)
@@ -200,7 +202,7 @@ func TestJWTDetection(t *testing.T) {
 
 	jwtConfig := &JWTConfig{
 		Issuer:       issuer,
-		Audience:     audience,
+		Audiences:    []string{audience},
 		KeysLocation: jwksURL,
 	}
 	serverConfig := &Config{
@@ -211,7 +213,7 @@ func TestJWTDetection(t *testing.T) {
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
-	defer require.NoError(t, server.Stop())
+	defer func() { require.NoError(t, server.Stop()) }()
 
 	host, portStr, err := net.SplitHostPort(serverAddr)
 	require.NoError(t, err)
@@ -327,7 +329,7 @@ func TestJWTFailClose(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			jwtConfig := &JWTConfig{
 				Issuer:       issuer,
-				Audience:     audience,
+				Audiences:    []string{audience},
 				KeysLocation: jwksURL,
 				MaxTokenAge:  3600,
 			}
@@ -339,7 +341,7 @@ func TestJWTFailClose(t *testing.T) {
 			server.SetAllowRootLogin(true)
 
 			serverAddr := StartTestServer(t, server)
-			defer require.NoError(t, server.Stop())
+			defer func() { require.NoError(t, server.Stop()) }()
 
 			host, portStr, err := net.SplitHostPort(serverAddr)
 			require.NoError(t, err)
@@ -565,7 +567,7 @@ func TestJWTAuthentication(t *testing.T) {
 
 			jwtConfig := &JWTConfig{
 				Issuer:       issuer,
-				Audience:     audience,
+				Audiences:    []string{audience},
 				KeysLocation: jwksURL,
 			}
 			serverConfig := &Config{
@@ -577,19 +579,36 @@ func TestJWTAuthentication(t *testing.T) {
 				tc.setupServer(server)
 			}
 
+			// Always set up authorization for test-user to ensure tests fail at JWT validation stage
+			testUserHash, err := sshuserhash.HashUserID("test-user")
+			require.NoError(t, err)
+
+			// Get current OS username for machine user mapping
+			currentUser := testutil.GetTestUsername(t)
+
+			authConfig := &sshauth.Config{
+				UserIDClaim:     sshauth.DefaultUserIDClaim,
+				AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
+				MachineUsers: map[string][]uint32{
+					currentUser: {0}, // Allow test-user (index 0) to access current OS user
+				},
+			}
+			server.UpdateSSHAuth(authConfig)
+
 			serverAddr := StartTestServer(t, server)
-			defer require.NoError(t, server.Stop())
+			defer func() { require.NoError(t, server.Stop()) }()
 
 			host, portStr, err := net.SplitHostPort(serverAddr)
 			require.NoError(t, err)
 
 			var authMethods []cryptossh.AuthMethod
-			if tc.token == "valid" {
+			switch tc.token {
+			case "valid":
 				token := generateValidJWT(t, privateKey, issuer, audience)
 				authMethods = []cryptossh.AuthMethod{
 					cryptossh.Password(token),
 				}
-			} else if tc.token == "invalid" {
+			case "invalid":
 				invalidToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.invalid"
 				authMethods = []cryptossh.AuthMethod{
 					cryptossh.Password(invalidToken),
@@ -623,6 +642,111 @@ func TestJWTAuthentication(t *testing.T) {
 				require.NoError(t, err, "Operation should succeed")
 			} else {
 				assert.Error(t, err, "Operation should fail")
+			}
+		})
+	}
+}
+
+// TestJWTMultipleAudiences tests JWT validation with multiple audiences (dashboard and CLI).
+func TestJWTMultipleAudiences(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping JWT multiple audiences tests in short mode")
+	}
+
+	jwksServer, privateKey, jwksURL := setupJWKSServer(t)
+	defer jwksServer.Close()
+
+	const (
+		issuer            = "https://test-issuer.example.com"
+		dashboardAudience = "dashboard-audience"
+		cliAudience       = "cli-audience"
+	)
+
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name       string
+		audience   string
+		wantAuthOK bool
+	}{
+		{
+			name:       "accepts_dashboard_audience",
+			audience:   dashboardAudience,
+			wantAuthOK: true,
+		},
+		{
+			name:       "accepts_cli_audience",
+			audience:   cliAudience,
+			wantAuthOK: true,
+		},
+		{
+			name:       "rejects_unknown_audience",
+			audience:   "unknown-audience",
+			wantAuthOK: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtConfig := &JWTConfig{
+				Issuer:       issuer,
+				Audiences:    []string{dashboardAudience, cliAudience},
+				KeysLocation: jwksURL,
+			}
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        jwtConfig,
+			}
+			server := New(serverConfig)
+			server.SetAllowRootLogin(true)
+
+			testUserHash, err := sshuserhash.HashUserID("test-user")
+			require.NoError(t, err)
+
+			currentUser := testutil.GetTestUsername(t)
+			authConfig := &sshauth.Config{
+				UserIDClaim:     sshauth.DefaultUserIDClaim,
+				AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
+				MachineUsers: map[string][]uint32{
+					currentUser: {0},
+				},
+			}
+			server.UpdateSSHAuth(authConfig)
+
+			serverAddr := StartTestServer(t, server)
+			defer func() { require.NoError(t, server.Stop()) }()
+
+			host, portStr, err := net.SplitHostPort(serverAddr)
+			require.NoError(t, err)
+
+			token := generateValidJWT(t, privateKey, issuer, tc.audience)
+			config := &cryptossh.ClientConfig{
+				User: testutil.GetTestUsername(t),
+				Auth: []cryptossh.AuthMethod{
+					cryptossh.Password(token),
+				},
+				HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
+				Timeout:         2 * time.Second,
+			}
+
+			conn, err := cryptossh.Dial("tcp", net.JoinHostPort(host, portStr), config)
+			if tc.wantAuthOK {
+				require.NoError(t, err, "JWT authentication should succeed for audience %s", tc.audience)
+				defer func() {
+					if err := conn.Close(); err != nil {
+						t.Logf("close connection: %v", err)
+					}
+				}()
+
+				session, err := conn.NewSession()
+				require.NoError(t, err)
+				defer session.Close()
+
+				err = session.Shell()
+				require.NoError(t, err, "Shell should work with valid audience")
+			} else {
+				assert.Error(t, err, "JWT authentication should fail for unknown audience")
 			}
 		})
 	}

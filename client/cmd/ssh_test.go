@@ -527,10 +527,10 @@ func TestParsePortForward(t *testing.T) {
 		{
 			name:           "wildcard bind all interfaces",
 			spec:           "*:8080:localhost:80",
-			expectedLocal:  "0.0.0.0:8080",
+			expectedLocal:  ":8080",
 			expectedRemote: "localhost:80",
 			expectError:    false,
-			description:    "Wildcard * should bind to all interfaces (0.0.0.0)",
+			description:    "Wildcard * should bind to all interfaces (dual-stack)",
 		},
 		{
 			name:           "wildcard for port only",

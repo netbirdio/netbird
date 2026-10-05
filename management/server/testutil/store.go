@@ -1,5 +1,4 @@
 //go:build !ios
-// +build !ios
 
 package testutil
 
@@ -33,11 +32,23 @@ func CreateMysqlTestContainer() (func(), string, error) {
 	}
 
 	var err error
-	mysqlContainer, err = mysql.RunContainer(ctx,
-		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
+	mysqlContainer, err = mysql.Run(ctx,
+		"mlsmaycon/warmed-mysql:8",
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("root"),
 		mysql.WithPassword("testing"),
+		// Every test creates and drops a database with about 40 tables, so with
+		// the server defaults the run is dominated by durability work: each
+		// CREATE TABLE fsyncs the redo log, the binary log and the doublewrite
+		// buffer. None of it protects anything in a container that is discarded
+		// after the run. Tables stay in per-table files on purpose: in the shared
+		// system tablespace the cost of every CREATE and DROP grew with the number
+		// of databases the run had already created.
+		testcontainers.WithCmd("mysqld",
+			"--innodb-flush-log-at-trx-commit=0",
+			"--innodb-doublewrite=OFF",
+			"--skip-log-bin",
+		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("/usr/sbin/mysqld: ready for connections").
 				WithOccurrence(1).WithStartupTimeout(15*time.Second).WithPollInterval(100*time.Millisecond),
@@ -79,8 +90,8 @@ func CreatePostgresTestContainer() (func(), string, error) {
 	}
 
 	var err error
-	pgContainer, err = postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
+	pgContainer, err = postgres.Run(ctx,
+		"postgres:16-alpine",
 		postgres.WithDatabase("netbird"),
 		postgres.WithUsername("root"),
 		postgres.WithPassword("netbird"),
@@ -121,7 +132,7 @@ func noOpCleanup() {
 func CreateRedisTestContainer() (func(), string, error) {
 	ctx := context.Background()
 
-	redisContainer, err := testcontainersredis.RunContainer(ctx, testcontainers.WithImage("redis:7"))
+	redisContainer, err := testcontainersredis.Run(ctx, "redis:7")
 	if err != nil {
 		return nil, "", err
 	}

@@ -78,16 +78,18 @@ func parseTime(timeString string) time.Time {
 	return parsedTime
 }
 
-func (c ClaimsExtractor) audienceClaim(claimName string) string {
-	url, err := url.JoinPath(c.authAudience, claimName)
+func (c *ClaimsExtractor) audienceClaim(claimName string) string {
+	audienceURL, err := url.JoinPath(c.authAudience, claimName)
 	if err != nil {
 		return c.authAudience + claimName // as it was previously
 	}
 
-	return url
+	return audienceURL
 }
 
-// ToUserAuth extracts user authentication information from a JWT token
+// ToUserAuth extracts user authentication information from a JWT token.
+// The token should contain standard claims like email, name, preferred_username.
+// When using Dex, make sure to set getUserInfo: true to have these claims populated.
 func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 	claims := token.Claims.(jwt.MapClaims)
 	userAuth := auth.UserAuth{}
@@ -120,6 +122,21 @@ func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 		}
 	}
 
+	// Extract email from standard "email" claim
+	if email, ok := claims["email"].(string); ok {
+		userAuth.Email = email
+	}
+
+	// Extract name from standard "name" claim
+	if name, ok := claims["name"].(string); ok {
+		userAuth.Name = name
+	}
+
+	// Extract name from standard "preferred_username" claim
+	if preferredName, ok := claims["preferred_username"].(string); ok {
+		userAuth.PreferredName = preferredName
+	}
+
 	return userAuth, nil
 }
 
@@ -129,7 +146,11 @@ func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string 
 	userJWTGroups := make([]string, 0)
 
 	if claim, ok := claims[claimName]; ok {
-		if claimGroups, ok := claim.([]interface{}); ok {
+		switch claimGroups := claim.(type) {
+		case string:
+			// Some IdPs emit a single group claim as a string instead of an array.
+			userJWTGroups = append(userJWTGroups, claimGroups)
+		case []any:
 			for _, g := range claimGroups {
 				if group, ok := g.(string); ok {
 					userJWTGroups = append(userJWTGroups, group)
@@ -137,9 +158,11 @@ func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string 
 					log.Debugf("JWT claim %q contains a non-string group (type: %T): %v", claimName, g, g)
 				}
 			}
+		default:
+			log.Debugf("JWT claim %q is not a string or string array (type: %T): %v", claimName, claim, claim)
 		}
 	} else {
-		log.Debugf("JWT claim %q is not a string array", claimName)
+		log.Debugf("JWT claim %q is missing", claimName)
 	}
 
 	return userJWTGroups

@@ -21,6 +21,6 @@ func TestLogTextFormat(t *testing.T) {
 	result, _ := formatter.Format(someEntry)
 
 	parsedString := string(result)
-	expectedString := "^2021-02-21T01:10:30Z WARN \\[(att1: 1, att2: 2|att2: 2, att1: 1)\\] some/fancy/path.go:46: Some Message\\s+$"
+	expectedString := "^2021-02-21T01:10:30.000Z WARN \\[(att1: 1, att2: 2|att2: 2, att1: 1)\\] some/fancy/path.go:46: Some Message\\s+$"
 	assert.Regexp(t, expectedString, parsedString)
 }

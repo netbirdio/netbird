@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -35,11 +36,35 @@ type ExecutorConfig struct {
 }
 
 // PrivilegeDropper handles secure privilege dropping in child processes
-type PrivilegeDropper struct{}
+type PrivilegeDropper struct {
+	logger *log.Entry
+}
+
+// PrivilegeDropperOption is a functional option for configuring PrivilegeDropper
+type PrivilegeDropperOption func(*PrivilegeDropper)
 
 // NewPrivilegeDropper creates a new privilege dropper
-func NewPrivilegeDropper() *PrivilegeDropper {
-	return &PrivilegeDropper{}
+func NewPrivilegeDropper(opts ...PrivilegeDropperOption) *PrivilegeDropper {
+	pd := &PrivilegeDropper{}
+	for _, opt := range opts {
+		opt(pd)
+	}
+	return pd
+}
+
+// WithLogger sets the logger for the PrivilegeDropper
+func WithLogger(logger *log.Entry) PrivilegeDropperOption {
+	return func(pd *PrivilegeDropper) {
+		pd.logger = logger
+	}
+}
+
+// log returns the logger, falling back to standard logger if none set
+func (pd *PrivilegeDropper) log() *log.Entry {
+	if pd.logger != nil {
+		return pd.logger
+	}
+	return log.NewEntry(log.StandardLogger())
 }
 
 // CreateExecutorCommand creates a command that spawns netbird ssh exec for privilege dropping
@@ -83,7 +108,7 @@ func (pd *PrivilegeDropper) CreateExecutorCommand(ctx context.Context, config Ex
 			break
 		}
 	}
-	log.Tracef("creating executor command: %s %v", netbirdPath, safeArgs)
+	pd.log().Tracef("creating executor command: %s %v", netbirdPath, safeArgs)
 	return exec.CommandContext(ctx, netbirdPath, args...), nil
 }
 
@@ -206,17 +231,22 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 
 	var execCmd *exec.Cmd
 	if config.Command == "" {
-		os.Exit(ExitCodeSuccess)
+		execCmd = exec.CommandContext(ctx, config.Shell)
+	} else {
+		execCmd = exec.CommandContext(ctx, config.Shell, "-c", config.Command)
 	}
-
-	execCmd = exec.CommandContext(ctx, config.Shell, "-c", config.Command)
+	execCmd.Args[0] = "-" + filepath.Base(config.Shell)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
 
-	cmdParts := strings.Fields(config.Command)
-	safeCmd := safeLogCommand(cmdParts)
-	log.Tracef("executing %s -c %s", execCmd.Path, safeCmd)
+	if config.Command == "" {
+		log.Tracef("executing login shell: %s", execCmd.Path)
+	} else {
+		cmdParts := strings.Fields(config.Command)
+		safeCmd := safeLogCommand(cmdParts)
+		log.Tracef("executing %s -c %s", execCmd.Path, safeCmd)
+	}
 	if err := execCmd.Run(); err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {

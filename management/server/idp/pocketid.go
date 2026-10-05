@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -84,13 +83,8 @@ type pocketIdUserGroupDto struct {
 }
 
 func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMetrics) (*PocketIdManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
+	httpClient := newHTTPClient()
 
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httpTransport,
-	}
 	helper := JsonParser{}
 
 	if config.ManagementEndpoint == "" {
@@ -121,7 +115,7 @@ func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMet
 func (p *PocketIdManager) request(ctx context.Context, method, resource string, query *url.Values, body string) ([]byte, error) {
 	var MethodsWithBody = []string{http.MethodPost, http.MethodPut}
 	if !slices.Contains(MethodsWithBody, method) && body != "" {
-		return nil, fmt.Errorf("Body provided to unsupported method: %s", method)
+		return nil, fmt.Errorf("body provided to unsupported method: %s", method)
 	}
 
 	reqURL := fmt.Sprintf("%s/api/%s", p.managementEndpoint, resource)
@@ -301,7 +295,7 @@ func (p *PocketIdManager) CreateUser(ctx context.Context, email, name, accountID
 	if p.appMetrics != nil {
 		p.appMetrics.IDPMetrics().CountCreateUser()
 	}
-	var pending bool = true
+	pending := true
 	ret := &UserData{
 		Email: email,
 		Name:  name,

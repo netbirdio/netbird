@@ -12,7 +12,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(nil, netip.Prefix{})
+	logger := logger.New(nil, netip.Prefix{}, netip.Prefix{})
 	logger.Enable()
 
 	event := types.EventFields{

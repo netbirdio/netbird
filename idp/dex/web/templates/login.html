@@ -1,0 +1,56 @@
+{{ template "header.html" . }}
+
+<div class="nb-card">
+    <h1 class="nb-heading">Sign in</h1>
+    <p class="nb-subheading">Choose your login method</p>
+
+    {{/* First pass: render Email/Local connectors at the top */}}
+    {{ range $c := .Connectors }}
+    {{- $nameLower := lower $c.Name -}}
+    {{- $idLower := lower $c.ID -}}
+    {{- if or (contains "email" $nameLower) (contains "email" $idLower) (contains "local" $nameLower) (contains "local" $idLower) -}}
+    <a href="{{ $c.URL }}" class="nb-btn-connector">
+        <span class="nb-icon nb-icon-email"></span>
+        <span>Continue with {{ $c.Name }}</span>
+    </a>
+    {{- end -}}
+    {{ end }}
+
+    {{/* Second pass: render all other connectors */}}
+    {{ range $c := .Connectors }}
+    {{- $nameLower := lower $c.Name -}}
+    {{- $idLower := lower $c.ID -}}
+    {{- if not (or (contains "email" $nameLower) (contains "email" $idLower) (contains "local" $nameLower) (contains "local" $idLower)) -}}
+    <a href="{{ $c.URL }}" class="nb-btn-connector">
+        {{- $iconClass := "nb-icon-default" -}}
+        {{- if or (contains "google" $nameLower) (contains "google" $idLower) -}}
+            {{- $iconClass = "nb-icon-google" -}}
+        {{- else if or (contains "github" $nameLower) (contains "github" $idLower) -}}
+            {{- $iconClass = "nb-icon-github" -}}
+        {{- else if or (contains "entra" $nameLower) (contains "entra" $idLower) -}}
+            {{- $iconClass = "nb-icon-entra" -}}
+        {{- else if or (contains "azure" $nameLower) (contains "azure" $idLower) -}}
+            {{- $iconClass = "nb-icon-azure" -}}
+        {{- else if or (contains "microsoft" $nameLower) (contains "microsoft" $idLower) -}}
+            {{- $iconClass = "nb-icon-microsoft" -}}
+        {{- else if or (contains "okta" $nameLower) (contains "okta" $idLower) -}}
+            {{- $iconClass = "nb-icon-okta" -}}
+        {{- else if or (contains "jumpcloud" $nameLower) (contains "jumpcloud" $idLower) -}}
+            {{- $iconClass = "nb-icon-jumpcloud" -}}
+        {{- else if or (contains "pocket" $nameLower) (contains "pocket" $idLower) -}}
+            {{- $iconClass = "nb-icon-pocketid" -}}
+        {{- else if or (contains "zitadel" $nameLower) (contains "zitadel" $idLower) -}}
+            {{- $iconClass = "nb-icon-zitadel" -}}
+        {{- else if or (contains "authentik" $nameLower) (contains "authentik" $idLower) -}}
+            {{- $iconClass = "nb-icon-authentik" -}}
+        {{- else if or (contains "keycloak" $nameLower) (contains "keycloak" $idLower) -}}
+            {{- $iconClass = "nb-icon-keycloak" -}}
+        {{- end -}}
+        <span class="nb-icon {{ $iconClass }}"></span>
+        <span>Continue with {{ $c.Name }}</span>
+    </a>
+    {{- end -}}
+    {{ end }}
+</div>
+
+{{ template "footer.html" . }}

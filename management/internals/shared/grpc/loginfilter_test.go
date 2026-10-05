@@ -20,6 +20,7 @@ func testAdvancedCfg() *lfConfig {
 		baseBlockDuration: 100 * time.Millisecond,
 		reconnLimitForBan: 3,
 		metaChangeLimit:   2,
+		maxBanLevel:       3,
 	}
 }
 
@@ -85,6 +86,7 @@ func (s *LoginFilterTestSuite) TestBanDurationIncreasesExponentially() {
 	s.True(s.filter.logged[pubKey].isBanned)
 	s.Equal(2, s.filter.logged[pubKey].banLevel)
 	secondBanDuration := s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen)
+	// nolint
 	expectedSecondDuration := time.Duration(float64(baseBan) * math.Pow(2, 1))
 	s.InDelta(expectedSecondDuration, secondBanDuration, float64(time.Millisecond))
 }
@@ -156,6 +158,187 @@ func (s *LoginFilterTestSuite) TestMetaChangeIsAllowedAfterWindowResets() {
 	s.Equal(1, s.filter.logged[pubKey].metaChangeCounter, "meta change counter should reset")
 }
 
+func (s *LoginFilterTestSuite) TestReconnectStormAfterQuietPeriodTriggersBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	s.filter.addLogin(pubKey, meta)
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.filter.logged[pubKey].sessionStart = time.Now().Add(-(s.filter.cfg.reconnThreshold + time.Second))
+
+	s.filter.addLogin(pubKey, meta)
+	s.Equal(1, s.filter.logged[pubKey].sessionCounter, "expired window should restart the count")
+
+	for i := 1; i < limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.False(s.filter.logged[pubKey].isBanned)
+
+	s.filter.addLogin(pubKey, meta)
+
+	s.False(s.filter.allowLogin(pubKey, meta))
+	s.True(s.filter.logged[pubKey].isBanned)
+}
+
+func (s *LoginFilterTestSuite) TestReconnectStormAfterBanExpiresTriggersBanAgain() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Require().True(s.filter.logged[pubKey].isBanned)
+
+	expired := time.Now().Add(-(s.filter.cfg.baseBlockDuration + time.Second))
+	s.filter.logged[pubKey].banExpiresAt = expired
+	s.filter.logged[pubKey].sessionStart = expired
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(2, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestSlowReconnectsAcrossWindowsDoNotBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	for i := 0; i < limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.filter.logged[pubKey].sessionStart = time.Now().Add(-(s.filter.cfg.reconnThreshold + time.Second))
+
+	for i := 0; i < limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.False(s.filter.logged[pubKey].isBanned)
+}
+
+func (s *LoginFilterTestSuite) TestBanLevelEscalatesWhenStormResumesRightAfterBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+	banTime := time.Now().Add(-3 * s.filter.cfg.baseBlockDuration)
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:  meta,
+		isBanned:     true,
+		banLevel:     1,
+		banExpiresAt: time.Now().Add(-time.Millisecond),
+		sessionStart: banTime,
+		lastSeen:     banTime,
+	}
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(2, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestBanLevelResetsAfterQuietPeriodFollowingBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	quiet := 2*s.filter.cfg.baseBlockDuration + time.Second
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:  meta,
+		banLevel:     2,
+		banExpiresAt: time.Now().Add(-s.filter.cfg.baseBlockDuration),
+		lastSeen:     time.Now().Add(-2 * quiet),
+	}
+
+	s.filter.addLogin(pubKey, meta)
+	s.Equal(2, s.filter.logged[pubKey].banLevel, "ban ended more recently than the quiet period")
+
+	s.filter.logged[pubKey].banExpiresAt = time.Now().Add(-quiet)
+	s.filter.logged[pubKey].lastSeen = time.Now().Add(-2 * quiet)
+
+	s.filter.addLogin(pubKey, meta)
+	s.Equal(0, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestBanDurationIsCappedAtMaxLevel() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+	maxLevel := s.filter.cfg.maxBanLevel
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:  meta,
+		banLevel:     maxLevel,
+		sessionStart: time.Now(),
+		lastSeen:     time.Now(),
+	}
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(maxLevel, s.filter.logged[pubKey].banLevel)
+	expected := s.filter.cfg.baseBlockDuration << (maxLevel - 1)
+	s.InDelta(expected, s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen), float64(time.Millisecond))
+}
+
+func (s *LoginFilterTestSuite) TestEstablishedPeerReconnectingOnceIsAllowed() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	longAgo := time.Now().Add(-time.Hour)
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:           meta,
+		sessionCounter:        1,
+		sessionStart:          longAgo,
+		lastSeen:              longAgo,
+		metaChangeWindowStart: longAgo,
+		metaChangeCounter:     1,
+	}
+
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.filter.addLogin(pubKey, meta)
+
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.False(s.filter.logged[pubKey].isBanned)
+	s.Equal(1, s.filter.logged[pubKey].sessionCounter)
+}
+
+func (s *LoginFilterTestSuite) TestLoginsDuringActiveBanDoNotExtendIt() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Require().True(s.filter.logged[pubKey].isBanned)
+	expiresAt := time.Now().Add(time.Hour)
+	s.filter.logged[pubKey].banExpiresAt = expiresAt
+	lastSeen := s.filter.logged[pubKey].lastSeen
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(1, s.filter.logged[pubKey].banLevel)
+	s.Equal(expiresAt, s.filter.logged[pubKey].banExpiresAt)
+	s.Equal(lastSeen, s.filter.logged[pubKey].lastSeen)
+	s.Equal(0, s.filter.logged[pubKey].sessionCounter)
+}
+
 func BenchmarkHashingMethods(b *testing.B) {
 	meta := nbpeer.PeerSystemMeta{
 		WtVersion:          "1.25.1",
@@ -163,9 +346,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		KernelVersion:      "5.15.0-76-generic",
 		Hostname:           "prod-server-database-01",
 		SystemSerialNumber: "PC-1234567890",
-		NetworkAddresses:   []nbpeer.NetworkAddress{{Mac: "00:1B:44:11:3A:B7"}, {Mac: "00:1B:44:11:3A:B8"}},
 	}
-	pubip := "8.8.8.8"
 
 	var resultString string
 	var resultUint uint64
@@ -174,7 +355,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			resultString = builderString(meta, pubip)
+			resultString = builderString(meta)
 		}
 	})
 
@@ -182,7 +363,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			resultString = fnvHashToString(meta, pubip)
+			resultString = fnvHashToString(meta)
 		}
 	})
 
@@ -190,7 +371,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			resultUint = metaHash(meta, pubip)
+			resultUint = metaHash(meta)
 		}
 	})
 
@@ -198,29 +379,20 @@ func BenchmarkHashingMethods(b *testing.B) {
 	_ = resultUint
 }
 
-func fnvHashToString(meta nbpeer.PeerSystemMeta, pubip string) string {
+func fnvHashToString(meta nbpeer.PeerSystemMeta) string {
 	h := fnv.New64a()
-
-	if len(meta.NetworkAddresses) != 0 {
-		for _, na := range meta.NetworkAddresses {
-			h.Write([]byte(na.Mac))
-		}
-	}
 
 	h.Write([]byte(meta.WtVersion))
 	h.Write([]byte(meta.OSVersion))
 	h.Write([]byte(meta.KernelVersion))
 	h.Write([]byte(meta.Hostname))
 	h.Write([]byte(meta.SystemSerialNumber))
-	h.Write([]byte(pubip))
 
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
-	mac := getMacAddress(meta.NetworkAddresses)
-	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) +
-		len(pubip) + len(mac) + 6
+func builderString(meta nbpeer.PeerSystemMeta) string {
+	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) + 4
 
 	var b strings.Builder
 	b.Grow(estimatedSize)
@@ -234,21 +406,8 @@ func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
 	b.WriteString(meta.Hostname)
 	b.WriteByte('|')
 	b.WriteString(meta.SystemSerialNumber)
-	b.WriteByte('|')
-	b.WriteString(pubip)
 
 	return b.String()
-}
-
-func getMacAddress(nas []nbpeer.NetworkAddress) string {
-	if len(nas) == 0 {
-		return ""
-	}
-	macs := make([]string, 0, len(nas))
-	for _, na := range nas {
-		macs = append(macs, na.Mac)
-	}
-	return strings.Join(macs, "/")
 }
 
 func BenchmarkLoginFilter_ParallelLoad(b *testing.B) {

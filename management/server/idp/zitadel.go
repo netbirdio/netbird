@@ -160,13 +160,8 @@ func verifyJWTConfig(config ZitadelClientConfig) error {
 
 // NewZitadelManager creates a new instance of the ZitadelManager.
 func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
+	httpClient := newHTTPClient()
 
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httpTransport,
-	}
 	helper := JsonParser{}
 
 	hasPAT := config.PAT != ""
@@ -357,7 +352,7 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 		return nil, err
 	}
 
-	var pending bool = true
+	pending := true
 	ret := &UserData{
 		Email: email,
 		Name:  name,

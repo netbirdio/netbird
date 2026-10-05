@@ -4,6 +4,8 @@ package device
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -92,7 +94,7 @@ func (l *wgLink) up() error {
 	return nil
 }
 
-func (l *wgLink) assignAddr(address wgaddr.Address) error {
+func (l *wgLink) assignAddr(address *wgaddr.Address) error {
 	//delete existing addresses
 	list, err := netlink.AddrList(l, 0)
 	if err != nil {
@@ -110,25 +112,40 @@ func (l *wgLink) assignAddr(address wgaddr.Address) error {
 	}
 
 	name := l.attrs.Name
-	addrStr := address.String()
 
-	log.Debugf("adding address %s to interface: %s", addrStr, name)
-
-	addr, err := netlink.ParseAddr(addrStr)
-	if err != nil {
-		return fmt.Errorf("parse addr: %w", err)
+	if err := l.addAddr(name, address.Prefix()); err != nil {
+		return err
 	}
 
-	err = netlink.AddrAdd(l, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", name, addrStr)
-	} else if err != nil {
-		return fmt.Errorf("add addr: %w", err)
+	if address.HasIPv6() {
+		if err := l.addAddr(name, address.IPv6Prefix()); err != nil {
+			log.Warnf("failed to assign IPv6 address %s to %s, continuing v4-only: %v", address.IPv6Prefix(), name, err)
+			address.ClearIPv6()
+		}
 	}
 
 	// On linux, the link must be brought up
 	if err := netlink.LinkSetUp(l); err != nil {
 		return fmt.Errorf("link setup: %w", err)
+	}
+
+	return nil
+}
+
+func (l *wgLink) addAddr(ifaceName string, prefix netip.Prefix) error {
+	log.Debugf("adding address %s to interface: %s", prefix, ifaceName)
+
+	addr := &netlink.Addr{
+		IPNet: &net.IPNet{
+			IP:   prefix.Addr().AsSlice(),
+			Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()),
+		},
+	}
+
+	if err := netlink.AddrAdd(l, addr); os.IsExist(err) {
+		log.Infof("interface %s already has the address: %s", ifaceName, prefix)
+	} else if err != nil {
+		return fmt.Errorf("add addr %s: %w", prefix, err)
 	}
 
 	return nil

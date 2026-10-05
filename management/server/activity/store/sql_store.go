@@ -18,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
@@ -45,12 +46,12 @@ type eventWithNames struct {
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
 	db           *gorm.DB
-	fieldEncrypt *FieldEncrypt
+	fieldEncrypt *crypt.FieldEncrypt
 }
 
 // NewSqlStore creates a new Store with an event table if not exists.
 func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
-	crypt, err := NewFieldEncrypt(encryptionKey)
+	fieldEncrypt, err := crypt.NewFieldEncrypt(encryptionKey)
 	if err != nil {
 
 		return nil, err
@@ -61,7 +62,7 @@ func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*St
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 
-	if err = migrate(ctx, crypt, db); err != nil {
+	if err = migrate(ctx, fieldEncrypt, db); err != nil {
 		return nil, fmt.Errorf("events database migration: %w", err)
 	}
 
@@ -72,7 +73,7 @@ func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*St
 
 	return &Store{
 		db:           db,
-		fieldEncrypt: crypt,
+		fieldEncrypt: fieldEncrypt,
 	}, nil
 }
 
@@ -164,16 +165,16 @@ func (store *Store) Get(ctx context.Context, accountID string, offset, limit int
 	return store.processResult(ctx, events)
 }
 
-// Save an event in the SQLite events table end encrypt the "email" element in meta map
-func (store *Store) Save(_ context.Context, event *activity.Event) (*activity.Event, error) {
+// Save persists an activity event and encrypts deleted user details using the caller's context.
+func (store *Store) Save(ctx context.Context, event *activity.Event) (*activity.Event, error) {
 	eventCopy := event.Copy()
-	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(eventCopy)
+	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(ctx, eventCopy)
 	if err != nil {
 		return nil, err
 	}
 	eventCopy.Meta = meta
 
-	if err = store.db.Create(eventCopy).Error; err != nil {
+	if err = store.db.WithContext(ctx).Create(eventCopy).Error; err != nil {
 		return nil, err
 	}
 
@@ -182,7 +183,7 @@ func (store *Store) Save(_ context.Context, event *activity.Event) (*activity.Ev
 
 // saveDeletedUserEmailAndNameInEncrypted if the meta contains email and name then store it in encrypted way and delete
 // this item from meta map
-func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event) (map[string]any, error) {
+func (store *Store) saveDeletedUserEmailAndNameInEncrypted(ctx context.Context, event *activity.Event) (map[string]any, error) {
 	email, ok := event.Meta["email"]
 	if !ok {
 		return event.Meta, nil
@@ -210,7 +211,7 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 	}
 	deletedUser.Name = encryptedName
 
-	err = store.db.Clauses(clause.OnConflict{
+	err = store.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"email", "name"}),
 	}).Create(deletedUser).Error
@@ -248,7 +249,15 @@ func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
 
 	switch storeEngine {
 	case types.SqliteStoreEngine:
-		dialector = sqlite.Open(filepath.Join(dataDir, eventSinkDB))
+		dbFile := eventSinkDB
+		if envFile, ok := os.LookupEnv("NB_ACTIVITY_EVENT_SQLITE_FILE"); ok && envFile != "" {
+			dbFile = envFile
+		}
+		connStr := dbFile
+		if !filepath.IsAbs(dbFile) {
+			connStr = filepath.Join(dataDir, dbFile)
+		}
+		dialector = sqlite.Open(connStr)
 	case types.PostgresStoreEngine:
 		dsn, ok := os.LookupEnv(postgresDsnEnv)
 		if !ok {

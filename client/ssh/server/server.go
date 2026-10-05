@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,9 +23,11 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/util/netrelay"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -39,9 +43,20 @@ const (
 
 	msgPrivilegedUserDisabled = "privileged user login is disabled"
 
-	// DefaultJWTMaxTokenAge is the default maximum age for JWT tokens accepted by the SSH server
-	DefaultJWTMaxTokenAge = 5 * 60
+	cmdInteractiveShell = "<interactive shell>"
+	cmdPortForwarding   = "<port forwarding>"
+	cmdSFTP             = "<sftp>"
+	cmdNonInteractive   = "<idle>"
+
+	// DefaultJWTMaxTokenAge is the default maximum age for JWT tokens accepted by the SSH server.
+	// Set to 10 minutes to accommodate identity providers like Azure Entra ID
+	// that backdate the iat claim by up to 5 minutes.
+	DefaultJWTMaxTokenAge = 10 * 60
 )
+
+// directTCPIPDialTimeout bounds how long relayDirectTCPIP waits on a dial to
+// the forwarded destination before rejecting the SSH channel.
+const directTCPIPDialTimeout = 30 * time.Second
 
 var (
 	ErrPrivilegedUserDisabled = errors.New(msgPrivilegedUserDisabled)
@@ -89,10 +104,10 @@ func logSessionExitError(logger *log.Entry, err error) {
 	}
 }
 
-// safeLogCommand returns a safe representation of the command for logging
+// safeLogCommand returns a safe representation of the command for logging.
 func safeLogCommand(cmd []string) string {
 	if len(cmd) == 0 {
-		return "<interactive shell>"
+		return cmdInteractiveShell
 	}
 	if len(cmd) == 1 {
 		return cmd[0]
@@ -100,26 +115,51 @@ func safeLogCommand(cmd []string) string {
 	return fmt.Sprintf("%s [%d args]", cmd[0], len(cmd)-1)
 }
 
-type sshConnectionState struct {
-	hasActivePortForward bool
-	username             string
-	remoteAddr           string
+// connState tracks the state of an SSH connection for port forwarding and status display.
+type connState struct {
+	username     string
+	remoteAddr   net.Addr
+	portForwards []string
+	jwtUsername  string
 }
 
+// authKey uniquely identifies an authentication attempt by username and remote address.
+// Used to temporarily store JWT username between passwordHandler and sessionHandler.
 type authKey string
+
+// connKey uniquely identifies an SSH connection by its remote address.
+// Used to track authenticated connections for status display and port forwarding.
+type connKey string
 
 func newAuthKey(username string, remoteAddr net.Addr) authKey {
 	return authKey(fmt.Sprintf("%s@%s", username, remoteAddr.String()))
 }
 
+// sessionState tracks an active SSH session (shell, command, or subsystem like SFTP).
+type sessionState struct {
+	session     ssh.Session
+	sessionType string
+	jwtUsername string
+}
+
 type Server struct {
-	sshServer       *ssh.Server
-	mu              sync.RWMutex
-	hostKeyPEM      []byte
-	sessions        map[SessionKey]ssh.Session
-	sessionCancels  map[ConnectionKey]context.CancelFunc
-	sessionJWTUsers map[SessionKey]string
-	pendingAuthJWT  map[authKey]string
+	sshServer      *ssh.Server
+	listener       net.Listener
+	extraListeners []net.Listener
+	mu             sync.RWMutex
+	hostKeyPEM     []byte
+
+	// sessions tracks active SSH sessions (shell, command, SFTP).
+	// These are created when a client opens a session channel and requests shell/exec/subsystem.
+	sessions map[sessionKey]*sessionState
+
+	// pendingAuthJWT temporarily stores JWT username during the auth→session handoff.
+	// Populated in passwordHandler, consumed in sessionHandler/sftpSubsystemHandler.
+	pendingAuthJWT map[authKey]string
+
+	// connections tracks all SSH connections by their remote address.
+	// Populated at authentication time, stores JWT username and port forwards for status display.
+	connections map[connKey]*connState
 
 	allowLocalPortForwarding  bool
 	allowRemotePortForwarding bool
@@ -131,21 +171,23 @@ type Server struct {
 
 	wgAddress wgaddr.Address
 
-	remoteForwardListeners map[ForwardKey]net.Listener
-	sshConnections         map[*cryptossh.ServerConn]*sshConnectionState
+	remoteForwardListeners map[forwardKey]net.Listener
 
 	jwtValidator *jwt.Validator
 	jwtExtractor *jwt.ClaimsExtractor
 	jwtConfig    *JWTConfig
 
-	suSupportsPty bool
+	authorizer *sshauth.Authorizer
+
+	suSupportsPty    bool
+	loginIsUtilLinux bool
 }
 
 type JWTConfig struct {
 	Issuer       string
-	Audience     string
 	KeysLocation string
 	MaxTokenAge  int64
+	Audiences    []string
 }
 
 // Config contains all SSH server configuration options
@@ -155,6 +197,12 @@ type Config struct {
 
 	// HostKey is the SSH server host key in PEM format
 	HostKeyPEM []byte
+
+	// Auth is the fine-grained authorization to open with. Nil starts with an
+	// empty authorizer, which authorizes nobody until UpdateSSHAuth is called.
+	// Setting it here rather than afterwards means the server never accepts a
+	// login before it knows who is allowed.
+	Auth *sshauth.Config
 }
 
 // SessionInfo contains information about an active SSH session
@@ -163,6 +211,7 @@ type SessionInfo struct {
 	RemoteAddress string
 	Command       string
 	JWTUsername   string
+	PortForwards  []string
 }
 
 // New creates an SSH server instance with the provided host key and optional JWT configuration
@@ -171,13 +220,17 @@ func New(config *Config) *Server {
 	s := &Server{
 		mu:                     sync.RWMutex{},
 		hostKeyPEM:             config.HostKeyPEM,
-		sessions:               make(map[SessionKey]ssh.Session),
-		sessionJWTUsers:        make(map[SessionKey]string),
+		sessions:               make(map[sessionKey]*sessionState),
 		pendingAuthJWT:         make(map[authKey]string),
-		remoteForwardListeners: make(map[ForwardKey]net.Listener),
-		sshConnections:         make(map[*cryptossh.ServerConn]*sshConnectionState),
+		remoteForwardListeners: make(map[forwardKey]net.Listener),
+		connections:            make(map[connKey]*connState),
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
+		authorizer:             sshauth.NewAuthorizer(),
+	}
+
+	if config.Auth != nil {
+		s.authorizer.Update(config.Auth)
 	}
 
 	return s
@@ -193,6 +246,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	}
 
 	s.suSupportsPty = s.detectSuPtySupport(ctx)
+	s.loginIsUtilLinux = s.detectUtilLinuxLogin(ctx)
 
 	ln, addrDesc, err := s.createListener(ctx, addr)
 	if err != nil {
@@ -205,12 +259,42 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 		return fmt.Errorf("create SSH server: %w", err)
 	}
 
+	s.listener = ln
 	s.sshServer = sshServer
 	log.Infof("SSH server started on %s", addrDesc)
 
 	go func() {
 		if err := sshServer.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
 			log.Errorf("SSH server error: %v", err)
+		}
+	}()
+	return nil
+}
+
+// AddListener starts serving SSH on an additional address (e.g. IPv6).
+// Must be called after Start.
+func (s *Server) AddListener(ctx context.Context, addr netip.AddrPort) error {
+	s.mu.Lock()
+	srv := s.sshServer
+	if srv == nil {
+		s.mu.Unlock()
+		return errors.New("SSH server is not running")
+	}
+
+	ln, addrDesc, err := s.createListener(ctx, addr)
+	if err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("create listener: %w", err)
+	}
+
+	s.extraListeners = append(s.extraListeners, ln)
+	s.mu.Unlock()
+
+	log.Infof("SSH server also listening on %s", addrDesc)
+
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+			log.Errorf("SSH server error on %s: %v", addrDesc, err)
 		}
 	}()
 	return nil
@@ -246,27 +330,32 @@ func (s *Server) closeListener(ln net.Listener) {
 // Stop closes the SSH server
 func (s *Server) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.sshServer == nil {
+	sshServer := s.sshServer
+	if sshServer == nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.sshServer = nil
+	s.listener = nil
+	extraListeners := s.extraListeners
+	s.extraListeners = nil
+	s.mu.Unlock()
 
-	if err := s.sshServer.Close(); err != nil {
+	// Close outside the lock: session handlers need s.mu for unregisterSession.
+	if err := sshServer.Close(); err != nil {
 		log.Debugf("close SSH server: %v", err)
 	}
 
-	s.sshServer = nil
-
-	maps.Clear(s.sessions)
-	maps.Clear(s.sessionJWTUsers)
-	maps.Clear(s.pendingAuthJWT)
-	maps.Clear(s.sshConnections)
-
-	for _, cancelFunc := range s.sessionCancels {
-		cancelFunc()
+	for _, ln := range extraListeners {
+		if err := ln.Close(); err != nil {
+			log.Debugf("close extra SSH listener: %v", err)
+		}
 	}
-	maps.Clear(s.sessionCancels)
+
+	s.mu.Lock()
+	maps.Clear(s.sessions)
+	maps.Clear(s.pendingAuthJWT)
+	maps.Clear(s.connections)
 
 	for _, listener := range s.remoteForwardListeners {
 		if err := listener.Close(); err != nil {
@@ -274,34 +363,85 @@ func (s *Server) Stop() error {
 		}
 	}
 	maps.Clear(s.remoteForwardListeners)
+	s.mu.Unlock()
 
 	return nil
 }
 
-// GetStatus returns the current status of the SSH server and active sessions
+// Addr returns the address the SSH server is listening on, or nil if the server is not running
+func (s *Server) Addr() net.Addr {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.listener == nil {
+		return nil
+	}
+
+	return s.listener.Addr()
+}
+
+// GetStatus returns the current status of the SSH server and active sessions.
 func (s *Server) GetStatus() (enabled bool, sessions []SessionInfo) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	enabled = s.sshServer != nil
+	reportedAddrs := make(map[string]bool)
 
-	for sessionKey, session := range s.sessions {
-		cmd := "<interactive shell>"
-		if len(session.Command()) > 0 {
-			cmd = safeLogCommand(session.Command())
+	for _, state := range s.sessions {
+		info := s.buildSessionInfo(state)
+		reportedAddrs[info.RemoteAddress] = true
+		sessions = append(sessions, info)
+	}
+
+	// Add authenticated connections without sessions (e.g., -N or port-forwarding only)
+	for key, connState := range s.connections {
+		remoteAddr := string(key)
+		if reportedAddrs[remoteAddr] {
+			continue
 		}
-
-		jwtUsername := s.sessionJWTUsers[sessionKey]
-
+		cmd := cmdNonInteractive
+		if len(connState.portForwards) > 0 {
+			cmd = cmdPortForwarding
+		}
 		sessions = append(sessions, SessionInfo{
-			Username:      session.User(),
-			RemoteAddress: session.RemoteAddr().String(),
+			Username:      connState.username,
+			RemoteAddress: remoteAddr,
 			Command:       cmd,
-			JWTUsername:   jwtUsername,
+			JWTUsername:   connState.jwtUsername,
+			PortForwards:  connState.portForwards,
 		})
 	}
 
 	return enabled, sessions
+}
+
+func (s *Server) buildSessionInfo(state *sessionState) SessionInfo {
+	session := state.session
+	cmd := state.sessionType
+	if cmd == "" {
+		cmd = safeLogCommand(session.Command())
+	}
+
+	remoteAddr := session.RemoteAddr().String()
+	info := SessionInfo{
+		Username:      session.User(),
+		RemoteAddress: remoteAddr,
+		Command:       cmd,
+		JWTUsername:   state.jwtUsername,
+	}
+
+	connState, exists := s.connections[connKey(remoteAddr)]
+	if !exists {
+		return info
+	}
+
+	info.PortForwards = connState.portForwards
+	if len(connState.portForwards) > 0 && (cmd == cmdInteractiveShell || cmd == cmdNonInteractive) {
+		info.Command = cmdPortForwarding
+	}
+
+	return info
 }
 
 // SetNetstackNet sets the netstack network for userspace networking
@@ -318,6 +458,40 @@ func (s *Server) SetNetworkValidation(addr wgaddr.Address) {
 	s.wgAddress = addr
 }
 
+// UpdateSSHAuth updates the SSH fine-grained access control configuration
+// This should be called when network map updates include new SSH auth configuration
+func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Reset JWT validator/extractor to pick up new userIDClaim
+	s.jwtValidator = nil
+	s.jwtExtractor = nil
+
+	s.authorizer.Update(config)
+}
+
+// JWTConfig returns the JWT authentication this server was built with, or nil
+// when JWT authentication is disabled.
+func (s *Server) JWTConfig() *JWTConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jwtConfig
+}
+
+// AuthConfig returns the fine-grained authorization currently in force, or nil
+// when the server has no authorizer.
+func (s *Server) AuthConfig() *sshauth.Config {
+	s.mu.RLock()
+	authorizer := s.authorizer
+	s.mu.RUnlock()
+
+	if authorizer == nil {
+		return nil
+	}
+	return authorizer.Config()
+}
+
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized
 func (s *Server) ensureJWTValidator() error {
 	s.mu.RLock()
@@ -326,24 +500,35 @@ func (s *Server) ensureJWTValidator() error {
 		return nil
 	}
 	config := s.jwtConfig
+	authorizer := s.authorizer
 	s.mu.RUnlock()
 
 	if config == nil {
 		return fmt.Errorf("JWT config not set")
 	}
 
-	log.Debugf("Initializing JWT validator (issuer: %s, audience: %s)", config.Issuer, config.Audience)
+	if len(config.Audiences) == 0 {
+		return fmt.Errorf("JWT config has no audiences configured")
+	}
 
+	log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
 	validator := jwt.NewValidator(
 		config.Issuer,
-		[]string{config.Audience},
+		config.Audiences,
 		config.KeysLocation,
 		true,
 	)
 
-	extractor := jwt.NewClaimsExtractor(
-		jwt.WithAudience(config.Audience),
-	)
+	// Use custom userIDClaim from authorizer if available
+	extractorOptions := []jwt.ClaimsExtractorOption{
+		jwt.WithAudience(config.Audiences[0]),
+	}
+	if authorizer.GetUserIDClaim() != "" {
+		extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(authorizer.GetUserIDClaim()))
+		log.Debugf("Using custom user ID claim: %s", authorizer.GetUserIDClaim())
+	}
+
+	extractor := jwt.NewClaimsExtractor(extractorOptions...)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -373,8 +558,8 @@ func (s *Server) validateJWTToken(tokenString string) (*gojwt.Token, error) {
 	if err != nil {
 		if jwtConfig != nil {
 			if claims, parseErr := s.parseTokenWithoutValidation(tokenString); parseErr == nil {
-				return nil, fmt.Errorf("validate token (expected issuer=%s, audience=%s, actual issuer=%v, audience=%v): %w",
-					jwtConfig.Issuer, jwtConfig.Audience, claims["iss"], claims["aud"], err)
+				return nil, fmt.Errorf("validate token (expected issuer=%s, audiences=%v, actual issuer=%v, audience=%v): %w",
+					jwtConfig.Issuer, jwtConfig.Audiences, claims["iss"], claims["aud"], err)
 			}
 		}
 		return nil, fmt.Errorf("validate token: %w", err)
@@ -491,59 +676,131 @@ func (s *Server) parseTokenWithoutValidation(tokenString string) (map[string]int
 }
 
 func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
+	osUsername := ctx.User()
+	remoteAddr := ctx.RemoteAddr()
+	logger := s.getRequestLogger(ctx)
+
 	if err := s.ensureJWTValidator(); err != nil {
-		log.Errorf("JWT validator initialization failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		logger.Errorf("JWT validator initialization failed: %v", err)
 		return false
 	}
 
 	token, err := s.validateJWTToken(password)
 	if err != nil {
-		log.Warnf("JWT authentication failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		logger.Warnf("JWT authentication failed: %v", err)
 		return false
 	}
 
 	userAuth, err := s.extractAndValidateUser(token)
 	if err != nil {
-		log.Warnf("User validation failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		logger.Warnf("user validation failed: %v", err)
 		return false
 	}
 
-	key := newAuthKey(ctx.User(), ctx.RemoteAddr())
+	logger = logger.WithField("jwt_user", userAuth.UserId)
+
+	s.mu.RLock()
+	authorizer := s.authorizer
+	s.mu.RUnlock()
+
+	msg, err := authorizer.Authorize(userAuth.UserId, osUsername)
+	if err != nil {
+		logger.Warnf("SSH auth denied: %v", err)
+		return false
+	}
+
+	logger.Infof("SSH auth %s", msg)
+
+	key := newAuthKey(osUsername, remoteAddr)
+	remoteAddrStr := ctx.RemoteAddr().String()
 	s.mu.Lock()
 	s.pendingAuthJWT[key] = userAuth.UserId
+	s.connections[connKey(remoteAddrStr)] = &connState{
+		username:    ctx.User(),
+		remoteAddr:  ctx.RemoteAddr(),
+		jwtUsername: userAuth.UserId,
+	}
 	s.mu.Unlock()
 
-	log.Infof("JWT authentication successful for user %s (JWT user ID: %s) from %s", ctx.User(), userAuth.UserId, ctx.RemoteAddr())
 	return true
 }
 
-func (s *Server) markConnectionActivePortForward(sshConn *cryptossh.ServerConn, username, remoteAddr string) {
+func (s *Server) addConnectionPortForward(username string, remoteAddr net.Addr, forwardAddr string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if state, exists := s.sshConnections[sshConn]; exists {
-		state.hasActivePortForward = true
-	} else {
-		s.sshConnections[sshConn] = &sshConnectionState{
-			hasActivePortForward: true,
-			username:             username,
-			remoteAddr:           remoteAddr,
+	key := connKey(remoteAddr.String())
+	if state, exists := s.connections[key]; exists {
+		if !slices.Contains(state.portForwards, forwardAddr) {
+			state.portForwards = append(state.portForwards, forwardAddr)
 		}
+		return
+	}
+
+	// Connection not in connections (non-JWT auth path)
+	s.connections[key] = &connState{
+		username:     username,
+		remoteAddr:   remoteAddr,
+		portForwards: []string{forwardAddr},
+		jwtUsername:  s.pendingAuthJWT[newAuthKey(username, remoteAddr)],
 	}
 }
 
-func (s *Server) connectionCloseHandler(conn net.Conn, err error) {
-	// We can't extract the SSH connection from net.Conn directly
-	// Connection cleanup will happen during session cleanup or via timeout
-	log.Debugf("SSH connection failed for %s: %v", conn.RemoteAddr(), err)
+func (s *Server) removeConnectionPortForward(remoteAddr net.Addr, forwardAddr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, exists := s.connections[connKey(remoteAddr.String())]
+	if !exists {
+		return
+	}
+
+	state.portForwards = slices.DeleteFunc(state.portForwards, func(addr string) bool {
+		return addr == forwardAddr
+	})
 }
 
-func (s *Server) findSessionKeyByContext(ctx ssh.Context) SessionKey {
+// trackedConn wraps a net.Conn to detect when it closes
+type trackedConn struct {
+	net.Conn
+	server     *Server
+	remoteAddr string
+	onceClose  sync.Once
+}
+
+func (c *trackedConn) Close() error {
+	err := c.Conn.Close()
+	c.onceClose.Do(func() {
+		c.server.handleConnectionClose(c.remoteAddr)
+	})
+	return err
+}
+
+func (s *Server) handleConnectionClose(remoteAddr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := connKey(remoteAddr)
+	state, exists := s.connections[key]
+	if exists && len(state.portForwards) > 0 {
+		s.connLogger(state).Info("port forwarding connection closed")
+	}
+	delete(s.connections, key)
+}
+
+func (s *Server) connLogger(state *connState) *log.Entry {
+	logger := log.WithField("session", fmt.Sprintf("%s@%s", state.username, state.remoteAddr))
+	if state.jwtUsername != "" {
+		logger = logger.WithField("jwt_user", state.jwtUsername)
+	}
+	return logger
+}
+
+func (s *Server) findSessionKeyByContext(ctx ssh.Context) sessionKey {
 	if ctx == nil {
 		return "unknown"
 	}
 
-	// Try to match by SSH connection
 	sshConn := ctx.Value(ssh.ContextKeyConn)
 	if sshConn == nil {
 		return "unknown"
@@ -552,19 +809,14 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) SessionKey {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Look through sessions to find one with matching connection
-	for sessionKey, session := range s.sessions {
-		if session.Context().Value(ssh.ContextKeyConn) == sshConn {
+	for sessionKey, state := range s.sessions {
+		if state.session.Context().Value(ssh.ContextKeyConn) == sshConn {
 			return sessionKey
 		}
 	}
 
-	// If no session found, this might be during early connection setup
-	// Return a temporary key that we'll fix up later
 	if ctx.User() != "" && ctx.RemoteAddr() != nil {
-		tempKey := SessionKey(fmt.Sprintf("%s@%s", ctx.User(), ctx.RemoteAddr().String()))
-		log.Debugf("Using temporary session key for early port forward tracking: %s (will be updated when session established)", tempKey)
-		return tempKey
+		return sessionKey(fmt.Sprintf("%s@%s", ctx.User(), ctx.RemoteAddr().String()))
 	}
 
 	return "unknown"
@@ -572,11 +824,10 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) SessionKey {
 
 func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()
-	netbirdNetwork := s.wgAddress.Network
-	localIP := s.wgAddress.IP
+	wgAddr := s.wgAddress
 	s.mu.RUnlock()
 
-	if !netbirdNetwork.IsValid() || !localIP.IsValid() {
+	if !wgAddr.Network.IsValid() || !wgAddr.IP.IsValid() {
 		return conn
 	}
 
@@ -592,20 +843,27 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 		log.Warnf("SSH connection rejected: invalid remote IP %s", tcpAddr.IP)
 		return nil
 	}
+	remoteIP = remoteIP.Unmap()
 
 	// Block connections from our own IP (prevent local apps from connecting to ourselves)
-	if remoteIP == localIP {
+	if remoteIP == wgAddr.IP || wgAddr.IPv6.IsValid() && remoteIP == wgAddr.IPv6 {
 		log.Warnf("SSH connection rejected from own IP %s", remoteIP)
 		return nil
 	}
 
-	if !netbirdNetwork.Contains(remoteIP) {
+	inV4 := wgAddr.Network.Contains(remoteIP)
+	inV6 := wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(remoteIP)
+	if !inV4 && !inV6 {
 		log.Warnf("SSH connection rejected from non-NetBird IP %s", remoteIP)
 		return nil
 	}
 
 	log.Infof("SSH connection from NetBird peer %s allowed", tcpAddr)
-	return conn
+	return &trackedConn{
+		Conn:       conn,
+		server:     s,
+		remoteAddr: conn.RemoteAddr().String(),
+	}
 }
 
 func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
@@ -633,9 +891,8 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 			"tcpip-forward":        s.tcpipForwardHandler,
 			"cancel-tcpip-forward": s.cancelTcpipForwardHandler,
 		},
-		ConnCallback:             s.connectionValidator,
-		ConnectionFailedCallback: s.connectionCloseHandler,
-		Version:                  serverVersion,
+		ConnCallback: s.connectionValidator,
+		Version:      serverVersion,
 	}
 
 	if s.jwtEnabled {
@@ -651,13 +908,13 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 	return server, nil
 }
 
-func (s *Server) storeRemoteForwardListener(key ForwardKey, ln net.Listener) {
+func (s *Server) storeRemoteForwardListener(key forwardKey, ln net.Listener) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remoteForwardListeners[key] = ln
 }
 
-func (s *Server) removeRemoteForwardListener(key ForwardKey) bool {
+func (s *Server) removeRemoteForwardListener(key forwardKey) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -675,6 +932,8 @@ func (s *Server) removeRemoteForwardListener(key ForwardKey) bool {
 }
 
 func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {
+	logger := s.getRequestLogger(ctx)
+
 	var payload struct {
 		Host           string
 		Port           uint32
@@ -684,7 +943,7 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 
 	if err := cryptossh.Unmarshal(newChan.ExtraData(), &payload); err != nil {
 		if err := newChan.Reject(cryptossh.ConnectionFailed, "parse payload"); err != nil {
-			log.Debugf("channel reject error: %v", err)
+			logger.Debugf("channel reject error: %v", err)
 		}
 		return
 	}
@@ -694,19 +953,45 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 	s.mu.RUnlock()
 
 	if !allowLocal {
-		log.Warnf("local port forwarding denied for %s:%d: disabled by configuration", payload.Host, payload.Port)
+		logger.Warnf("local port forwarding denied for %s: disabled", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))))
 		_ = newChan.Reject(cryptossh.Prohibited, "local port forwarding disabled")
 		return
 	}
 
-	// Check privilege requirements for the destination port
 	if err := s.checkPortForwardingPrivileges(ctx, "local", payload.Port); err != nil {
-		log.Warnf("local port forwarding denied for %s:%d: %v", payload.Host, payload.Port, err)
+		logger.Warnf("local port forwarding denied for %s: %v", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))), err)
 		_ = newChan.Reject(cryptossh.Prohibited, "insufficient privileges")
 		return
 	}
 
-	log.Infof("local port forwarding: %s:%d", payload.Host, payload.Port)
+	hostPort := net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port)))
+	forwardAddr := "-L " + hostPort
+	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
+	logger.Infof("local port forwarding: %s", hostPort)
 
-	ssh.DirectTCPIPHandler(srv, conn, newChan, ctx)
+	s.relayDirectTCPIP(ctx, newChan, payload.Host, int(payload.Port), logger)
+}
+
+// relayDirectTCPIP is a netrelay-based replacement for gliderlabs'
+// DirectTCPIPHandler. The upstream handler closes both sides on the first
+// EOF; netrelay.Relay propagates CloseWrite so each direction drains on its
+// own terms.
+func (s *Server) relayDirectTCPIP(ctx ssh.Context, newChan cryptossh.NewChannel, host string, port int, logger *log.Entry) {
+	dest := net.JoinHostPort(host, strconv.Itoa(port))
+
+	dialer := net.Dialer{Timeout: directTCPIPDialTimeout}
+	dconn, err := dialer.DialContext(ctx, "tcp", dest)
+	if err != nil {
+		_ = newChan.Reject(cryptossh.ConnectionFailed, err.Error())
+		return
+	}
+
+	ch, reqs, err := newChan.Accept()
+	if err != nil {
+		_ = dconn.Close()
+		return
+	}
+	go cryptossh.DiscardRequests(reqs)
+
+	netrelay.Relay(ctx, dconn, ch, netrelay.Options{Logger: logger})
 }

@@ -17,6 +17,9 @@ ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 SUDO=""
+# curl protocol set for --proto / --proto-redir: https and nothing else, so no
+# request and no redirect in a chain can fall back to plaintext.
+PROTO_HTTPS="=https"
 
 
 if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
@@ -24,6 +27,15 @@ if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
 elif command -v doas > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="doas"
 fi
+
+# Downloads are staged in a private directory instead of /tmp. Fixed names in a
+# shared directory can collide with entries created there beforehand, and the
+# paths staged here are consumed by the privileged install steps below.
+NB_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/netbird.XXXXXXXXXX")" || {
+    echo "Unable to create a temporary directory for the downloads"
+    exit 1
+}
+trap 'rm -rf "$NB_TMPDIR"' EXIT
 
 if [ -z ${NETBIRD_RELEASE+x} ]; then
     NETBIRD_RELEASE=latest
@@ -73,10 +85,11 @@ download_release_binary() {
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
+    ARCHIVE_PATH="${NB_TMPDIR}/${BINARY_NAME}"
     if [ -n "$GITHUB_TOKEN" ]; then
-      cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
+      curl -H  "Authorization: token ${GITHUB_TOKEN}" -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" "$DOWNLOAD_URL"
     else
-      cd /tmp && curl -LO "$DOWNLOAD_URL" || curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      curl -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" "$DOWNLOAD_URL" || curl -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
@@ -89,12 +102,12 @@ download_release_binary() {
         fi
 
         # Unzip the app and move to INSTALL_DIR
-        unzip -q -o "$BINARY_NAME"
-        mv -v "netbird_ui_${OS_TYPE}/" "$INSTALL_DIR/" || mv -v "netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
+        unzip -q -o "$ARCHIVE_PATH" -d "$NB_TMPDIR"
+        mv -v "${NB_TMPDIR}/netbird_ui_${OS_TYPE}/" "$INSTALL_DIR/" || mv -v "${NB_TMPDIR}/netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
-        tar -xzvf "$BINARY_NAME"
-        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        tar -xzvf "$ARCHIVE_PATH" -C "$NB_TMPDIR"
+        ${SUDO} mv "${NB_TMPDIR}/${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
@@ -110,7 +123,7 @@ add_apt_repo() {
         /usr/share/keyrings/netbird-archive-keyring.gpg \
         /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
-    curl -sSL https://pkgs.netbird.io/debian/public.key \
+    curl -sSL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" https://pkgs.netbird.io/debian/public.key \
     | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
     # Explicitly set the file permission
@@ -128,7 +141,7 @@ cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
 enabled=1
-gpgcheck=0
+gpgcheck=1
 gpgkey=https://pkgs.netbird.io/yum/repodata/repomd.xml.key
 repo_gpgcheck=1
 EOF
@@ -183,11 +196,10 @@ install_pkg() {
     *) echo "Unsupported macOS arch: $(uname -m)" >&2; exit 1 ;;
   esac
 
-  PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
+  PKG_URL=$(curl -sIL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
   echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
-  curl -fsSL -o /tmp/netbird.pkg "${PKG_URL}"
-  ${SUDO} installer -pkg /tmp/netbird.pkg -target /
-  rm -f /tmp/netbird.pkg
+  curl -fsSL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "${NB_TMPDIR}/netbird.pkg" "${PKG_URL}"
+  ${SUDO} installer -pkg "${NB_TMPDIR}/netbird.pkg" -target /
 }
 
 check_use_bin_variable() {
@@ -417,15 +429,30 @@ if type uname >/dev/null 2>&1; then
               # Check the availability of a compatible package manager
               if check_use_bin_variable; then
                   PACKAGE_MANAGER="bin"
+              elif [ -e /run/ostree-booted ]; then
+                  if [ -x "$(command -v rpm-ostree)" ]; then
+                      PACKAGE_MANAGER="rpm-ostree"
+                      echo "The installation will be performed using rpm-ostree package manager"
+                  elif [ -x "$(command -v bootc)" ]; then
+                      echo "Detected bootc system without rpm-ostree." >&2
+                      echo "NetBird cannot be installed via package manager on this system." >&2
+                      echo "Options:" >&2
+                      echo "  1. Install via Distrobox (instructions in the installation docs)" >&2
+                      echo "  2. Rebuild your base image with rpm-ostree included" >&2
+                      echo "  3. Bake NetBird into your Containerfile" >&2
+                      exit 1
+                  else
+                      echo "Detected ostree-booted system without rpm-ostree or bootc." >&2
+                      echo "NetBird cannot be installed automatically on this atomic system." >&2
+                      echo "Please install NetBird by rebuilding your base image or use a supported package manager." >&2
+                      exit 1
+                  fi
               elif [ -x "$(command -v apt-get)" ]; then
                   PACKAGE_MANAGER="apt"
                   echo "The installation will be performed using apt package manager"
               elif [ -x "$(command -v dnf)" ]; then
                   PACKAGE_MANAGER="dnf"
                   echo "The installation will be performed using dnf package manager"
-              elif [ -x "$(command -v rpm-ostree)" ]; then
-                  PACKAGE_MANAGER="rpm-ostree"
-                  echo "The installation will be performed using rpm-ostree package manager"
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"

@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -75,40 +77,75 @@ func (s *Server) detectSuPtySupport(ctx context.Context) bool {
 	return supported
 }
 
-// createSuCommand creates a command using su -l -c for privilege switching
-func (s *Server) createSuCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+// detectUtilLinuxLogin checks if login is from util-linux (vs shadow-utils).
+// util-linux login uses vhangup() which requires setsid wrapper to avoid killing parent.
+// See https://bugs.debian.org/1078023 for details.
+func (s *Server) detectUtilLinuxLogin(ctx context.Context) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "login", "--version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Debugf("login --version failed (likely shadow-utils): %v", err)
+		return false
+	}
+
+	isUtilLinux := strings.Contains(string(output), "util-linux")
+	log.Debugf("util-linux login detected: %v", isUtilLinux)
+	return isUtilLinux
+}
+
+// createSuCommand creates a command using su - for privilege switching.
+func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+	if err := validateUsername(localUser.Username); err != nil {
+		return nil, fmt.Errorf("invalid username %q: %w", localUser.Username, err)
+	}
+
 	suPath, err := exec.LookPath("su")
 	if err != nil {
 		return nil, fmt.Errorf("su command not available: %w", err)
 	}
 
-	command := session.RawCommand()
-	if command == "" {
-		return nil, fmt.Errorf("no command specified for su execution")
-	}
-
-	args := []string{"-l"}
+	args := []string{"-"}
 	if hasPty && s.suSupportsPty {
 		args = append(args, "--pty")
 	}
-	args = append(args, localUser.Username, "-c", command)
+	args = append(args, localUser.Username)
 
+	command := session.RawCommand()
+	if command != "" {
+		args = append(args, "-c", command)
+	}
+
+	logger.Debugf("creating su command: %s %v", suPath, args)
 	cmd := exec.CommandContext(session.Context(), suPath, args...)
 	cmd.Dir = localUser.HomeDir
 
 	return cmd, nil
 }
 
-// getShellCommandArgs returns the shell command and arguments for executing a command string
+// getShellCommandArgs returns the shell command and arguments for executing a command string.
 func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
 	if cmdString == "" {
-		return []string{shell, "-l"}
+		return []string{shell}
 	}
-	return []string{shell, "-l", "-c", cmdString}
+	return []string{shell, "-c", cmdString}
+}
+
+// createShellCommand creates an exec.Cmd configured as a login shell by setting argv[0] to "-shellname".
+func (s *Server) createShellCommand(ctx context.Context, shell string, args []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, shell, args[1:]...)
+	cmd.Args[0] = "-" + filepath.Base(shell)
+	return cmd
 }
 
 // prepareCommandEnv prepares environment variables for command execution on Unix
-func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []string {
+func (s *Server) prepareCommandEnv(_ *log.Entry, localUser *user.User, session ssh.Session) []string {
 	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
 	env = append(env, prepareSSHEnv(session)...)
 	for _, v := range session.Environ() {
@@ -130,7 +167,7 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, e
 	return s.runPtyCommand(logger, session, execCmd, ptyReq, winCh)
 }
 
-func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	execCmd, err := s.createPtyCommand(privilegeResult, ptyReq, session)
 	if err != nil {
 		logger.Errorf("Pty command creation failed: %v", err)
@@ -144,7 +181,7 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 		return false
 	}
 
-	logger.Infof("starting interactive shell: %s", execCmd.Path)
+	logger.Infof("starting interactive shell: %s", strings.Join(execCmd.Args, " "))
 	return s.runPtyCommand(logger, session, execCmd, ptyReq, winCh)
 }
 
@@ -220,11 +257,6 @@ func (s *Server) handlePtyIO(logger *log.Entry, session ssh.Session, ptyMgr *pty
 	}()
 
 	go func() {
-		defer func() {
-			if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
-				logger.Debugf("session close error: %v", err)
-			}
-		}()
 		if _, err := io.Copy(session, ptmx); err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, syscall.EIO) {
 				logger.Warnf("Pty output copy error: %v", err)
@@ -244,7 +276,7 @@ func (s *Server) waitForPtyCompletion(logger *log.Entry, session ssh.Session, ex
 	case <-ctx.Done():
 		s.handlePtySessionCancellation(logger, session, execCmd, ptyMgr, done)
 	case err := <-done:
-		s.handlePtyCommandCompletion(logger, session, err)
+		s.handlePtyCommandCompletion(logger, session, ptyMgr, err)
 	}
 }
 
@@ -272,17 +304,20 @@ func (s *Server) handlePtySessionCancellation(logger *log.Entry, session ssh.Ses
 	}
 }
 
-func (s *Server) handlePtyCommandCompletion(logger *log.Entry, session ssh.Session, err error) {
+func (s *Server) handlePtyCommandCompletion(logger *log.Entry, session ssh.Session, ptyMgr *ptyManager, err error) {
 	if err != nil {
 		logger.Debugf("Pty command execution failed: %v", err)
 		s.handleSessionExit(session, err, logger)
-		return
+	} else {
+		logger.Debugf("Pty command completed successfully")
+		if err := session.Exit(0); err != nil {
+			logSessionExitError(logger, err)
+		}
 	}
 
-	// Normal completion
-	logger.Debugf("Pty command completed successfully")
-	if err := session.Exit(0); err != nil {
-		logSessionExitError(logger, err)
+	// Close PTY to unblock io.Copy goroutines
+	if err := ptyMgr.Close(); err != nil {
+		logger.Debugf("Pty close after completion: %v", err)
 	}
 }
 

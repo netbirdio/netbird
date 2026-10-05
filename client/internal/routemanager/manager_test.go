@@ -1,3 +1,5 @@
+//go:build privileged
+
 package routemanager
 
 import (
@@ -6,12 +8,14 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/route"
 )
@@ -403,13 +407,10 @@ func TestManagerUpdateRoutes(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun43%d", n),
-				Address:      "100.65.65.2/24",
+				Address:      wgaddr.MustParseWGAddress("100.65.65.2/24"),
 				WGPort:       33100,
 				WGPrivKey:    peerPrivateKey.String(),
 				MTU:          iface.DefaultMTU,

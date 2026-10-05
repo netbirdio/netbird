@@ -15,17 +15,17 @@ import (
 var errNotSupported = errors.New("SSH server command execution not supported on WASM/JS platform")
 
 // createSuCommand is not supported on JS/WASM
-func (s *Server) createSuCommand(_ ssh.Session, _ *user.User, _ bool) (*exec.Cmd, error) {
+func (s *Server) createSuCommand(_ *log.Entry, _ ssh.Session, _ *user.User, _ bool) (*exec.Cmd, error) {
 	return nil, errNotSupported
 }
 
 // createExecutorCommand is not supported on JS/WASM
-func (s *Server) createExecutorCommand(_ ssh.Session, _ *user.User, _ bool) (*exec.Cmd, func(), error) {
+func (s *Server) createExecutorCommand(_ *log.Entry, _ ssh.Session, _ *user.User, _ bool) (*exec.Cmd, func(), error) {
 	return nil, nil, errNotSupported
 }
 
 // prepareCommandEnv is not supported on JS/WASM
-func (s *Server) prepareCommandEnv(_ *user.User, _ ssh.Session) []string {
+func (s *Server) prepareCommandEnv(_ *log.Entry, _ *user.User, _ ssh.Session) []string {
 	return nil
 }
 
@@ -39,6 +39,11 @@ func (s *Server) killProcessGroup(*exec.Cmd) {
 
 // detectSuPtySupport always returns false on JS/WASM
 func (s *Server) detectSuPtySupport(context.Context) bool {
+	return false
+}
+
+// detectUtilLinuxLogin always returns false on JS/WASM
+func (s *Server) detectUtilLinuxLogin(context.Context) bool {
 	return false
 }
 

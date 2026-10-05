@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.0.1"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.0.1",
+			"CompanyName": "NetBird",
+			"FileDescription": "NetBird desktop client",
+			"LegalCopyright": "NetBird GmbH",
+			"ProductName": "NetBird",
+			"Comments": "This is a comment"
+		}
+	}
+}

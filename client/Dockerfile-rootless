@@ -4,7 +4,7 @@
 #   podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
 #   podman run --rm -it --cap-add={BPF,NET_ADMIN,NET_RAW} localhost/netbird:latest
 
-FROM alpine:3.22.0
+FROM alpine:3.24
 
 RUN apk add --no-cache \
       bash \
@@ -23,11 +23,11 @@ ENV \
     NB_DAEMON_ADDR="unix:///var/lib/netbird/netbird.sock" \
     NB_LOG_FILE="console,/var/lib/netbird/client.log" \
     NB_DISABLE_DNS="true" \
-    NB_ENTRYPOINT_SERVICE_TIMEOUT="5" \
-    NB_ENTRYPOINT_LOGIN_TIMEOUT="1"
+    NB_ENABLE_CAPTURE="false" \
+    NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
 
 ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
-
-ARG NETBIRD_BINARY=netbird
+ARG TARGETPLATFORM
+ARG NETBIRD_BINARY=$TARGETPLATFORM/netbird
 COPY client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
 COPY "${NETBIRD_BINARY}"  /usr/local/bin/netbird

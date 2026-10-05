@@ -1,14 +1,14 @@
 #!/bin/bash
 set -e
 
-if ! which curl >/dev/null 2>&1; then
+if ! command -v curl >/dev/null 2>&1; then
   echo "This script uses curl fetch OpenID configuration from IDP."
   echo "Please install curl and re-run the script https://curl.se/"
   echo ""
   exit 1
 fi
 
-if ! which jq >/dev/null 2>&1; then
+if ! command -v jq >/dev/null 2>&1; then
   echo "This script uses jq to load OpenID configuration from IDP."
   echo "Please install jq and re-run the script https://stedolan.github.io/jq/"
   echo ""
@@ -18,13 +18,13 @@ fi
 source setup.env
 source base.setup.env
 
-if ! which envsubst >/dev/null 2>&1; then
+if ! command -v envsubst >/dev/null 2>&1; then
   echo "envsubst is needed to run this script"
   if [[ $(uname) == "Darwin" ]]; then
     echo "you can install it with homebrew (https://brew.sh):"
     echo "brew install gettext"
   else
-    if which apt-get >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
       echo "you can install it by running"
       echo "apt-get update && apt-get install gettext-base"
     else

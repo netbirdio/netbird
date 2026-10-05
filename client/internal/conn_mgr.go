@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"maps"
 	"os"
 	"strconv"
 	"sync"
@@ -14,6 +15,17 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+)
+
+// lazyForce is the resolved local decision for lazy connections, layered above the
+// management feature flag. lazyForceNone defers to management.
+type lazyForce int
+
+const (
+	lazyForceNone lazyForce = iota
+	lazyForceOn
+	lazyForceOff
 )
 
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
@@ -24,86 +36,97 @@ import (
 // - Handling connection establishment based on peer signaling
 //
 // The implementation is not thread-safe; it is protected by engine.syncMsgMux.
+// The only exception is ActivatePeer, which is safe for concurrent use so the
+// DNS warm-up path can call it without contending on the engine mutex.
 type ConnMgr struct {
-	peerStore        *peerstore.Store
-	statusRecorder   *peer.Status
-	iface            lazyconn.WGIface
-	enabledLocally   bool
-	rosenpassEnabled bool
+	peerStore      *peerstore.Store
+	statusRecorder *peer.Status
+	iface          lazyconn.WGIface
+	force          lazyForce
+	// remoteLazyEnabled caches the account-wide lazy feature flag from management.
+	// It is the default for peers that do not carry a per-peer lazy hint.
+	remoteLazyEnabled bool
 
 	lazyConnMgr *manager.Manager
+	// lazyConnMgrMu guards the lazyConnMgr pointer for readers outside the
+	// engine loop (ActivatePeer). Writers hold it in addition to
+	// engine.syncMsgMux; all other reads stay under engine.syncMsgMux only.
+	lazyConnMgrMu sync.RWMutex
+
+	// reconcileRoutedIPs re-applies a peer's routed allowed IPs after its lazy wake endpoint is
+	// (re)armed (Mode A at arm time). Injected by the engine; nil disables the reconcile.
+	reconcileRoutedIPs func(peerKey string) error
+
+	// appliedExcludeList is the exclude set last handed to the lazy manager, kept so an
+	// unchanged set on the next sync skips the O(n) reconciliation.
+	appliedExcludeList map[string]bool
 
 	wg            sync.WaitGroup
 	lazyCtx       context.Context
 	lazyCtxCancel context.CancelFunc
 }
 
+// SetRoutedIPsReconciler injects the callback used to re-apply a peer's routed allowed IPs when
+// its lazy wake endpoint is (re)armed. Must be called before the lazy manager starts.
+func (e *ConnMgr) SetRoutedIPsReconciler(fn func(peerKey string) error) {
+	e.reconcileRoutedIPs = fn
+}
+
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
 	e := &ConnMgr{
-		peerStore:        peerStore,
-		statusRecorder:   statusRecorder,
-		iface:            iface,
-		rosenpassEnabled: engineConfig.RosenpassEnabled,
-	}
-	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
-		e.enabledLocally = true
+		peerStore:      peerStore,
+		statusRecorder: statusRecorder,
+		iface:          iface,
+		force:          resolveLazyForce(engineConfig.LazyConnection),
 	}
 	return e
 }
 
-// Start initializes the connection manager and starts the lazy connection manager if enabled by env var or cmd line option.
+// Start initializes the connection manager. The lazy connection manager always runs so that
+// per-peer lazy defaults (e.g. proxy peers) work even when the account flag is off; the
+// account flag and the local override decide the default lazy state per peer (see
+// PeerLazyDefault). Rosenpass peers stay lazy-capable too: their connections just never idle
+// on their own, since rosenpass rekey traffic keeps them active.
 func (e *ConnMgr) Start(ctx context.Context) {
 	if e.lazyConnMgr != nil {
 		log.Errorf("lazy connection manager is already started")
 		return
 	}
 
-	if !e.enabledLocally {
-		log.Infof("lazy connection manager is disabled")
-		return
-	}
-
-	if e.rosenpassEnabled {
-		log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
-		return
-	}
-
 	e.initLazyManager(ctx)
-	e.statusRecorder.UpdateLazyConnection(true)
+	e.statusRecorder.UpdateLazyConnection(e.PeerLazyDefault(mgmProto.LazyState_LazyStateDefault))
 }
 
-// UpdatedRemoteFeatureFlag is called when the remote feature flag is updated.
-// If enabled, it initializes the lazy connection manager and start it. Do not need to call Start() again.
-// If disabled, then it closes the lazy connection manager and open the connections to all peers.
-func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
-	// do not disable lazy connection manager if it was enabled by env var
-	if e.enabledLocally {
-		return nil
+// UpdatedRemoteFeatureFlag caches the account-wide lazy feature flag. The manager itself is
+// not started or stopped here; the per-sync exclude-list reconciliation moves normal peers
+// between the lazy and always-active sets when the flag flips.
+func (e *ConnMgr) UpdatedRemoteFeatureFlag(_ context.Context, enabled bool) error {
+	e.remoteLazyEnabled = enabled
+	if e.isStartedWithLazyMgr() {
+		e.statusRecorder.UpdateLazyConnection(e.PeerLazyDefault(mgmProto.LazyState_LazyStateDefault))
+	}
+	return nil
+}
+
+// PeerLazyDefault reports whether a peer should be lazy. The local override
+// (NB_LAZY_CONN/MDM) wins over everything; without a local override the
+// management per-peer state applies (LazyStateLazy/Eager force the decision),
+// and LazyStateDefault follows the account-wide flag.
+func (e *ConnMgr) PeerLazyDefault(state mgmProto.LazyState) bool {
+	switch e.force {
+	case lazyForceOn:
+		return true
+	case lazyForceOff:
+		return false
 	}
 
-	if enabled {
-		// if the lazy connection manager is already started, do not start it again
-		if e.lazyConnMgr != nil {
-			return nil
-		}
-
-		if e.rosenpassEnabled {
-			log.Infof("rosenpass connection manager is enabled, lazy connection manager will not be started")
-			return nil
-		}
-
-		log.Warnf("lazy connection manager is enabled by management feature flag")
-		e.initLazyManager(ctx)
-		e.statusRecorder.UpdateLazyConnection(true)
-		return e.addPeersToLazyConnManager()
-	} else {
-		if e.lazyConnMgr == nil {
-			return nil
-		}
-		log.Infof("lazy connection manager is disabled by management feature flag")
-		e.closeManager(ctx)
-		e.statusRecorder.UpdateLazyConnection(false)
-		return nil
+	switch state {
+	case mgmProto.LazyState_LazyStateLazy:
+		return true
+	case mgmProto.LazyState_LazyStateEager:
+		return false
+	default:
+		return e.remoteLazyEnabled
 	}
 }
 
@@ -122,6 +145,13 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 	if e.lazyConnMgr == nil {
 		return
 	}
+
+	// The exclude set is recomputed every sync but rarely changes; skip the O(n)
+	// store lookups and reconciliation when it matches what was already applied.
+	if maps.Equal(peerIDs, e.appliedExcludeList) {
+		return
+	}
+	e.appliedExcludeList = maps.Clone(peerIDs)
 
 	excludedPeers := make([]lazyconn.PeerConfig, 0, len(peerIDs))
 
@@ -158,12 +188,16 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 	}
 }
 
-func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn) (exists bool) {
+// AddPeerConn registers a peer connection. permanent requests an always-active connection
+// (the peer belongs to the exclude set: a forwarder, or a peer that is not lazy by policy).
+// Non-permanent peers are handed to the lazy manager. The subsequent SetExcludeList call
+// reconciles membership for existing peers across flag flips.
+func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn, permanent bool) (exists bool) {
 	if success := e.peerStore.AddPeerConn(peerKey, conn); !success {
 		return true
 	}
 
-	if !e.isStartedWithLazyMgr() {
+	if !e.isStartedWithLazyMgr() || permanent {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
@@ -220,12 +254,20 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
+// ActivatePeer wakes an idle lazy connection. Unlike the rest of ConnMgr it is
+// safe for concurrent use: the lazy manager pointer is read under lazyConnMgrMu
+// and the manager itself is internally synchronized, so callers outside the
+// engine loop (DNS warm-up) do not need engine.syncMsgMux.
 func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
-	if !e.isStartedWithLazyMgr() {
+	e.lazyConnMgrMu.RLock()
+	lazyConnMgr := e.lazyConnMgr
+	started := lazyConnMgr != nil && e.lazyCtxCancel != nil
+	e.lazyConnMgrMu.RUnlock()
+	if !started {
 		return
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(conn.GetKey()); found {
+	if found := lazyConnMgr.ActivatePeer(conn.GetKey()); found {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
@@ -250,16 +292,26 @@ func (e *ConnMgr) Close() {
 
 	e.lazyCtxCancel()
 	e.wg.Wait()
+
+	e.lazyConnMgrMu.Lock()
 	e.lazyConnMgr = nil
+	e.lazyConnMgrMu.Unlock()
+
+	e.appliedExcludeList = nil
 }
 
 func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
+		ReconcileAllowedIPs: e.reconcileRoutedIPs,
 	}
-	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 
+	e.lazyConnMgrMu.Lock()
+	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(engineCtx)
+	e.lazyConnMgrMu.Unlock()
+
+	e.appliedExcludeList = nil
 
 	e.wg.Add(1)
 	go func() {
@@ -268,45 +320,27 @@ func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	}()
 }
 
-func (e *ConnMgr) addPeersToLazyConnManager() error {
-	peers := e.peerStore.PeersPubKey()
-	lazyPeerCfgs := make([]lazyconn.PeerConfig, 0, len(peers))
-	for _, peerID := range peers {
-		var peerConn *peer.Conn
-		var exists bool
-		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
-			log.Warnf("failed to find peer conn for peerID: %s", peerID)
-			continue
-		}
-
-		lazyPeerCfg := lazyconn.PeerConfig{
-			PublicKey:  peerID,
-			AllowedIPs: peerConn.WgConfig().AllowedIps,
-			PeerConnID: peerConn.ConnID(),
-			Log:        peerConn.Log,
-		}
-		lazyPeerCfgs = append(lazyPeerCfgs, lazyPeerCfg)
-	}
-
-	return e.lazyConnMgr.AddActivePeers(lazyPeerCfgs)
-}
-
-func (e *ConnMgr) closeManager(ctx context.Context) {
-	if e.lazyConnMgr == nil {
-		return
-	}
-
-	e.lazyCtxCancel()
-	e.wg.Wait()
-	e.lazyConnMgr = nil
-
-	for _, peerID := range e.peerStore.PeersPubKey() {
-		e.peerStore.PeerConnOpen(ctx, peerID)
-	}
-}
-
 func (e *ConnMgr) isStartedWithLazyMgr() bool {
 	return e.lazyConnMgr != nil && e.lazyCtxCancel != nil
+}
+
+// resolveLazyForce determines the local override. NB_LAZY_CONN takes precedence; when it
+// is unset the MDM policy override (mdmState) applies. Either wins in both directions over
+// the management feature flag; StateUnset for both defers to management.
+func resolveLazyForce(mdmState lazyconn.State) lazyForce {
+	state := lazyconn.EnvState()
+	if state == lazyconn.StateUnset {
+		state = mdmState
+	}
+
+	switch state {
+	case lazyconn.StateOn:
+		return lazyForceOn
+	case lazyconn.StateOff:
+		return lazyForceOff
+	default:
+		return lazyForceNone
+	}
 }
 
 func inactivityThresholdEnv() *time.Duration {
@@ -315,11 +349,20 @@ func inactivityThresholdEnv() *time.Duration {
 		return nil
 	}
 
-	parsedMinutes, err := strconv.Atoi(envValue)
-	if err != nil || parsedMinutes <= 0 {
-		return nil
+	// Documented format: a Go duration such as "30m" or "1h".
+	if d, err := time.ParseDuration(envValue); err == nil {
+		if d <= 0 {
+			return nil
+		}
+		return &d
 	}
 
-	d := time.Duration(parsedMinutes) * time.Minute
-	return &d
+	// Backwards compatibility: a bare integer used to be interpreted as minutes.
+	if parsedMinutes, err := strconv.Atoi(envValue); err == nil && parsedMinutes > 0 {
+		d := time.Duration(parsedMinutes) * time.Minute
+		return &d
+	}
+
+	log.Warnf("invalid %s value %q: expected a Go duration such as 30m or 1h", lazyconn.EnvInactivityThreshold, envValue)
+	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,17 +23,16 @@ import (
 )
 
 const (
-	privateKey                  = "private_key"
-	ipcKeyLastHandshakeTimeSec  = "last_handshake_time_sec"
-	ipcKeyLastHandshakeTimeNsec = "last_handshake_time_nsec"
-	ipcKeyTxBytes               = "tx_bytes"
-	ipcKeyRxBytes               = "rx_bytes"
-	allowedIP                   = "allowed_ip"
-	endpoint                    = "endpoint"
-	fwmark                      = "fwmark"
-	listenPort                  = "listen_port"
-	publicKey                   = "public_key"
-	presharedKey                = "preshared_key"
+	privateKey                 = "private_key"
+	ipcKeyLastHandshakeTimeSec = "last_handshake_time_sec"
+	ipcKeyTxBytes              = "tx_bytes"
+	ipcKeyRxBytes              = "rx_bytes"
+	allowedIP                  = "allowed_ip"
+	endpoint                   = "endpoint"
+	fwmark                     = "fwmark"
+	listenPort                 = "listen_port"
+	publicKey                  = "public_key"
+	presharedKey               = "preshared_key"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -41,20 +41,39 @@ type WGUSPConfigurer struct {
 	device           *device.Device
 	deviceName       string
 	activityRecorder *bind.ActivityRecorder
+	statsCache       *statsCache
+	allowedIPs       *allowedIPStore
 
 	uapiListener net.Listener
 }
 
+// NewUSPConfigurer creates a userspace configurer and starts its UAPI listener.
 func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
 	wgCfg := &WGUSPConfigurer{
 		device:           device,
 		deviceName:       deviceName,
 		activityRecorder: activityRecorder,
+		allowedIPs:       newAllowedIPStore(),
 	}
+	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
 	wgCfg.startUAPI()
 	return wgCfg
 }
 
+// NewUSPConfigurerNoUAPI creates a userspace configurer without a UAPI listener.
+func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
+	wgCfg := &WGUSPConfigurer{
+		device:           device,
+		deviceName:       deviceName,
+		activityRecorder: activityRecorder,
+		allowedIPs:       newAllowedIPStore(),
+	}
+	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
+	return wgCfg
+}
+
+// ConfigureInterface sets the device key, port and firewall mark, replacing all peers.
+// The allowed IP mirror is reset only after the device accepts the configuration.
 func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -69,14 +88,55 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 		ListenPort:   &port,
 	}
 
-	return c.device.IpcSet(toWgUserspaceString(config))
+	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
+		return err
+	}
+
+	c.allowedIPs.reset()
+	return nil
 }
 
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates the existing peer; if false, creates or updates.
+func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
+	if err := c.device.IpcSet(toWgUserspaceString(cfg)); err != nil {
+		return err
+	}
+
+	// Without updateOnly this creates the peer when it is absent, so the store has to
+	// know about it even though no allowed IP was configured.
+	if !updateOnly {
+		c.allowedIPs.ensure(parsedPeerKey)
+	}
+	return nil
+}
+
+// UpdatePeer creates or updates a peer, merging allowed IPs with its existing set.
+// It validates the endpoint before writing and records changes after a successful write.
 func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
 	}
+
+	// Everything that can fail is done before the device is touched, so a failure here
+	// cannot leave the device holding a peer that the activity recorder and the allowed
+	// IP store never learned about.
+	var addrPort netip.AddrPort
+	if endpoint != nil {
+		addr, err := netip.ParseAddr(endpoint.IP.String())
+		if err != nil {
+			return fmt.Errorf("parse endpoint address: %w", err)
+		}
+		addrPort = netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port))
+	}
+
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
@@ -96,47 +156,27 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 	}
 
 	if endpoint != nil {
-		addr, err := netip.ParseAddr(endpoint.IP.String())
-		if err != nil {
-			return fmt.Errorf("failed to parse endpoint address: %w", err)
-		}
-		addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
 		c.activityRecorder.UpsertAddress(peerKey, addrPort)
 	}
+
+	c.allowedIPs.add(peerKeyParsed, allowedIps)
 	return nil
 }
 
+// RemoveEndpointAddress clears the endpoint of a peer while keeping it configured.
+// The UAPI cannot clear an endpoint in place, so the peer is removed and re-added with the
+// allowed IPs it already had.
 func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return fmt.Errorf("parse peer key: %w", err)
 	}
 
-	ipcStr, err := c.device.IpcGet()
+	allowedIPs, err := c.peerAllowedIPs(peerKeyParsed)
 	if err != nil {
-		return fmt.Errorf("get IPC config: %w", err)
+		return err
 	}
 
-	// Parse current status to get allowed IPs for the peer
-	stats, err := parseStatus(c.deviceName, ipcStr)
-	if err != nil {
-		return fmt.Errorf("parse IPC config: %w", err)
-	}
-
-	var allowedIPs []net.IPNet
-	found := false
-	for _, peer := range stats.Peers {
-		if peer.PublicKey == peerKey {
-			allowedIPs = peer.AllowedIPs
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("peer %s not found", peerKey)
-	}
-
-	// remove the peer from the WireGuard configuration
 	peer := wgtypes.PeerConfig{
 		PublicKey: peerKeyParsed,
 		Remove:    true,
@@ -146,14 +186,13 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
-		return fmt.Errorf("failed to remove peer: %s", ipcErr)
+		return fmt.Errorf("remove peer: %w", ipcErr)
 	}
 
-	// Build the peer config
 	peer = wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: true,
-		AllowedIPs:        allowedIPs,
+		AllowedIPs:        prefixesToIPNets(allowedIPs),
 	}
 
 	config = wgtypes.Config{
@@ -161,12 +200,15 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	}
 
 	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
-		return fmt.Errorf("remove endpoint address: %w", err)
+		c.allowedIPs.forget(peerKeyParsed)
+		return fmt.Errorf("re-add peer without endpoint: %w", err)
 	}
 
 	return nil
 }
 
+// RemovePeer removes a peer, then clears its activity and allowed IP records.
+// A failed device write leaves both records intact.
 func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -181,18 +223,17 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	ipcErr := c.device.IpcSet(toWgUserspaceString(config))
-
-	c.activityRecorder.Remove(peerKey)
-	return ipcErr
-}
-
-func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
-	ipNet := net.IPNet{
-		IP:   allowedIP.Addr().AsSlice(),
-		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
+	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
+		return ipcErr
 	}
 
+	c.activityRecorder.Remove(peerKey)
+	c.allowedIPs.forget(peerKeyParsed)
+	return nil
+}
+
+// AddAllowedIP adds a prefix to an existing peer; an absent peer is a silent no-op.
+func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -201,79 +242,89 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{ipNet},
+		AllowedIPs:        prefixesToIPNets([]netip.Prefix{allowedIP}),
 	}
 
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	return c.device.IpcSet(toWgUserspaceString(config))
+	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
+		return err
+	}
+
+	c.allowedIPs.addExisting(peerKeyParsed, []netip.Prefix{allowedIP})
+	return nil
 }
 
+// RemoveAllowedIP removes a prefix while preserving the peer's other allowed IPs.
+// It returns ErrAllowedIPNotFound if the prefix is not assigned to the peer.
 func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
-	ipc, err := c.device.IpcGet()
-	if err != nil {
-		return err
-	}
-
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
+		return fmt.Errorf("parse peer key: %w", err)
+	}
+
+	currentAllowedIPs, err := c.peerAllowedIPs(peerKeyParsed)
+	if err != nil {
 		return err
 	}
-	hexKey := hex.EncodeToString(peerKeyParsed[:])
 
-	lines := strings.Split(ipc, "\n")
+	idx := slices.Index(currentAllowedIPs, normalizePrefix(allowedIP))
+	if idx < 0 {
+		return ErrAllowedIPNotFound
+	}
+	newAllowedIPs := slices.Delete(currentAllowedIPs, idx, idx+1)
 
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: true,
-		AllowedIPs:        []net.IPNet{},
+		AllowedIPs:        prefixesToIPNets(newAllowedIPs),
 	}
 
-	foundPeer := false
-	removedAllowedIP := false
-	ip := allowedIP.String()
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// If we're within the details of the found peer and encounter another public key,
-		// this means we're starting another peer's details. So, reset the flag.
-		if strings.HasPrefix(line, "public_key=") && foundPeer {
-			foundPeer = false
-		}
-
-		// Identify the peer with the specific public key
-		if line == fmt.Sprintf("public_key=%s", hexKey) {
-			foundPeer = true
-		}
-
-		// If we're within the details of the found peer and find the specific allowed IP, skip this line
-		if foundPeer && line == "allowed_ip="+ip {
-			removedAllowedIP = true
-			continue
-		}
-
-		// Append the line to the output string
-		if foundPeer && strings.HasPrefix(line, "allowed_ip=") {
-			allowedIPStr := strings.TrimPrefix(line, "allowed_ip=")
-			_, ipNet, err := net.ParseCIDR(allowedIPStr)
-			if err != nil {
-				return err
-			}
-			peer.AllowedIPs = append(peer.AllowedIPs, *ipNet)
-		}
-	}
-
-	if !removedAllowedIP {
-		return ErrAllowedIPNotFound
-	}
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	return c.device.IpcSet(toWgUserspaceString(config))
+	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
+		return fmt.Errorf("remove allowed IP %s: %w", allowedIP, err)
+	}
+
+	c.allowedIPs.set(peerKeyParsed, newAllowedIPs)
+	return nil
+}
+
+// peerAllowedIPs returns the allowed IPs configured for a peer, reading them from the device
+// only for a peer the store has not seen. Reading them back means dumping and parsing the
+// whole device configuration, and this runs on every relay and ICE transition.
+func (c *WGUSPConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, error) {
+	if prefixes, ok := c.allowedIPs.get(peerKey); ok {
+		return prefixes, nil
+	}
+
+	ipcStr, err := c.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("get IPC config: %w", err)
+	}
+
+	stats, err := parseStatus(c.deviceName, ipcStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse IPC config: %w", err)
+	}
+
+	// parseStatus reports keys in their textual form, so the comparison needs it once.
+	wanted := peerKey.String()
+	for _, peer := range stats.Peers {
+		if peer.PublicKey != wanted {
+			continue
+		}
+
+		prefixes := ipNetsToPrefixes(peer.AllowedIPs)
+		c.allowedIPs.set(peerKey, prefixes)
+		return prefixes, nil
+	}
+
+	return nil, ErrPeerNotFound
 }
 
 func (c *WGUSPConfigurer) FullStats() (*Stats, error) {
@@ -329,6 +380,10 @@ func (t *WGUSPConfigurer) Close() {
 }
 
 func (t *WGUSPConfigurer) GetStats() (map[string]WGStats, error) {
+	return t.statsCache.get()
+}
+
+func (t *WGUSPConfigurer) fetchStats() (map[string]WGStats, error) {
 	ipc, err := t.device.IpcGet()
 	if err != nil {
 		return nil, fmt.Errorf("ipc get: %w", err)
@@ -422,21 +477,17 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		hexKey := hex.EncodeToString(p.PublicKey[:])
 		sb.WriteString(fmt.Sprintf("public_key=%s\n", hexKey))
 
+		if p.Remove {
+			sb.WriteString("remove=true\n")
+		}
+
+		if p.UpdateOnly {
+			sb.WriteString("update_only=true\n")
+		}
+
 		if p.PresharedKey != nil {
 			preSharedHexKey := hex.EncodeToString(p.PresharedKey[:])
 			sb.WriteString(fmt.Sprintf("preshared_key=%s\n", preSharedHexKey))
-		}
-
-		if p.Remove {
-			sb.WriteString("remove=true")
-		}
-
-		if p.ReplaceAllowedIPs {
-			sb.WriteString("replace_allowed_ips=true\n")
-		}
-
-		for _, aip := range p.AllowedIPs {
-			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
 		}
 
 		if p.Endpoint != nil {
@@ -445,6 +496,14 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 
 		if p.PersistentKeepaliveInterval != nil {
 			sb.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", int(p.PersistentKeepaliveInterval.Seconds())))
+		}
+
+		if p.ReplaceAllowedIPs {
+			sb.WriteString("replace_allowed_ips=true\n")
+		}
+
+		for _, aip := range p.AllowedIPs {
+			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
 		}
 	}
 	return sb.String()
@@ -471,7 +530,7 @@ func toBytes(s string) (int64, error) {
 
 func getFwmark() int {
 	if nbnet.AdvancedRouting() && runtime.GOOS == "linux" {
-		return nbnet.ControlPlaneMark
+		return int(nbnet.ControlPlaneMark)
 	}
 	return 0
 }
@@ -543,7 +602,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 
-			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
+			host, portStr, err := net.SplitHostPort(val)
 			if err != nil {
 				log.Errorf("failed to parse endpoint: %v", err)
 				continue
@@ -599,7 +658,9 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 			if val != "" && val != "0000000000000000000000000000000000000000000000000000000000000000" {
-				currentPeer.PresharedKey = true
+				if pskKey, err := hexToWireguardKey(val); err == nil {
+					currentPeer.PresharedKey = [32]byte(pskKey)
+				}
 			}
 		}
 	}

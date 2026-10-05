@@ -1,0 +1,7 @@
+{
+  "description": "A reverse-proxy service targeting a domain network resource. The synthesised proxy-access ACL is a resource policy too: on the account path the resource-policy map was built after injection, so the routing peer must carry a route firewall rule sourced from the proxy peer for the resource's domain. The store reads the policies table and ResourcePolicies never holds it, so only the synthesis puts it there.",
+  "peers": [
+    "router-peer",
+    "proxy-peer"
+  ]
+}

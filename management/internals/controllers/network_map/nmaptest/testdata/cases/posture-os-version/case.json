@@ -1,0 +1,4 @@
+{
+  "description": "OS version posture check with per-OS minimums. peer-srv must see only the peers that satisfy their own platform's rule: the Linux peer on kernel 6.1 (the check compares the part before the first dash) and the macOS peer on 14.2. The old Linux and macOS peers fail. peer-win fails too even though its version looks modern, because the check defines no Windows minimum and a platform with no rule configured is treated as failing, not as unrestricted — a surprising rule worth freezing. Each rejected peer also loses its own view of peer-srv, since the policy is its only connectivity.",
+  "peers": ["peer-srv", "peer-lin-ok", "peer-lin-old", "peer-win"]
+}

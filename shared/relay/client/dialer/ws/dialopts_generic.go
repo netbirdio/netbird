@@ -2,10 +2,14 @@
 
 package ws
 
-import "github.com/coder/websocket"
+import (
+	"net"
 
-func createDialOptions() *websocket.DialOptions {
+	"github.com/coder/websocket"
+)
+
+func createDialOptions(serverName string, underlyingOut *net.Conn) *websocket.DialOptions {
 	return &websocket.DialOptions{
-		HTTPClient: httpClientNbDialer(),
+		HTTPClient: httpClientNbDialer(serverName, underlyingOut),
 	}
 }

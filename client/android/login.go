@@ -3,17 +3,13 @@ package android
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/cmd"
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -32,7 +28,7 @@ type ErrListener interface {
 // URLOpener it is a callback interface. The Open function will be triggered if
 // the backend want to show an url for the user
 type URLOpener interface {
-	Open(string)
+	Open(url string, userCode string)
 	OnLoginSuccess()
 }
 
@@ -44,15 +40,31 @@ type Auth struct {
 }
 
 // NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
-	inputCfg := profilemanager.ConfigInput{
-		ManagementURL: mgmURL,
+//
+// The configuration at cfgPath is reused when one is already there, and only created when it is
+// not. Building a fresh in-memory config unconditionally gives the client a new WireGuard key on
+// every call: the peer registers under that key, the key is written out, and any peer registered by
+// an earlier call is orphaned on the server. It also breaks a client that enrols and then runs from
+// the persisted config, because the identity it registered is not the one it runs with — the
+// management stream rejects it with "no peer auth method provided".
+//
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	cfg, err := profilemanager.UpdateOrCreateConfig(inputCfg)
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 
 	return &Auth{
 		ctx:     context.Background(),
@@ -61,17 +73,18 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	}, nil
 }
 
-// NewAuthWithConfig instantiate Auth based on existing config
-func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth {
+// NewAuthWithConfig instantiate Auth based on existing config. cfgPath is the
+// file the config was loaded from; it identifies the profile whose account email
+// backs the login_hint.
+func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config, cfgPath string) *Auth {
 	return &Auth{
-		ctx:    ctx,
-		config: config,
+		ctx:     ctx,
+		config:  config,
+		cfgPath: cfgPath,
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	go func() {
 		sso, err := a.saveConfigIfSSOSupported()
@@ -84,39 +97,21 @@ func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 }
 
 func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
-	supportsSSO := true
-	err := a.withBackOff(a.ctx, func() (err error) {
-		_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL, nil)
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-			_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
-			s, ok := gstatus.FromError(err)
-			if !ok {
-				return err
-			}
-			if s.Code() == codes.NotFound || s.Code() == codes.Unimplemented {
-				supportsSSO = false
-				err = nil
-			}
-
-			return err
-		}
-
-		return err
-	})
-
-	if !supportsSSO {
-		return false, nil
-	}
-
+	authClient, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
 	if err != nil {
-		return false, fmt.Errorf("backoff cycle failed: %v", err)
+		return false, fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
+
+	supportsSSO, err := authClient.IsSSOSupported(a.ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	err = profilemanager.WriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	go func() {
 		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
@@ -129,28 +124,25 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupK
 }
 
 func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
+	authClient, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
+	if err != nil {
+		return fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
+
 	//nolint
 	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
-
-	err := a.withBackOff(a.ctx, func() error {
-		backoffErr := internal.Login(ctxWithValues, a.config, setupKey, "")
-		if s, ok := gstatus.FromError(backoffErr); ok && (s.Code() == codes.PermissionDenied) {
-			// we got an answer from management, exit backoff earlier
-			return backoff.Permanent(backoffErr)
-		}
-		return backoffErr
-	})
+	err, _ = authClient.Login(ctxWithValues, setupKey, "")
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("login failed: %v", err)
 	}
-
-	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // Login try register the client on the server
-func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
+func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, isAndroidTV bool) {
 	go func() {
-		err := a.login(urlOpener)
+		err := a.login(urlOpener, isAndroidTV)
 		if err != nil {
 			resultListener.OnError(err)
 		} else {
@@ -159,75 +151,92 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener) error {
-	var needsLogin bool
+func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
+	authClient, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
+	if err != nil {
+		return fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
 
 	// check if we need to generate JWT token
-	err := a.withBackOff(a.ctx, func() (err error) {
-		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config)
-		return
-	})
+	needsLogin, err := authClient.IsLoginRequired(a.ctx)
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("failed to check login requirement: %v", err)
 	}
 
 	jwtToken := ""
+	email := ""
 	if needsLogin {
-		tokenInfo, err := a.foregroundGetTokenInfo(urlOpener)
+		tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, isAndroidTV)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
 		jwtToken = tokenInfo.GetTokenToUse()
+		email = tokenInfo.Email
 	}
 
-	err = a.withBackOff(a.ctx, func() error {
-		err := internal.Login(a.ctx, a.config, "", jwtToken)
-
-		if err == nil {
-			go urlOpener.OnLoginSuccess()
-		}
-
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			return nil
-		}
-		return err
-	})
+	err, _ = authClient.Login(a.ctx, "", jwtToken)
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("login failed: %v", err)
 	}
+
+	// Stored after Login, not before: a rejected token must not leave a hint
+	// pointing at an account that cannot be used.
+	if email != "" && a.cfgPath != "" {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
+			log.Warnf("failed to store profile account email: %v", err)
+		}
+	}
+
+	go urlOpener.OnLoginSuccess()
 
 	return nil
 }
 
-func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, "")
+func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, profileLoginHint(a.cfgPath))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	return runOAuthFlow(a.ctx, oAuthFlow, urlOpener, nil)
+}
+
+// profileLoginHint returns the stored account email for the profile at cfgPath.
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return mobile.ReadProfileEmail(cfgPath)
+}
+
+// runOAuthFlow drives an already acquired OAuth flow to a token: requests the
+// flow info, presents the verification URL through the opener and waits for
+// the browser round-trip. Open is called synchronously — it is what marks the
+// surface as opened on the client side, and a fast token's OnLoginSuccess is
+// a no-op until it has, so the dismissal would be dropped rather than
+// delayed. Openers must therefore not block: they post their UI work and
+// return. onWaiting, when set, runs after the URL is shown, right before the
+// blocking wait.
+func runOAuthFlow(ctx context.Context, flow auth.OAuthFlow, urlOpener URLOpener, onWaiting func()) (*auth.TokenInfo, error) {
+	flowInfo, err := flow.RequestAuthInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
+		return nil, fmt.Errorf("request auth info: %w", err)
 	}
 
-	go urlOpener.Open(flowInfo.VerificationURIComplete)
+	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
-	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
-	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)
-	defer cancel()
-	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+	if onWaiting != nil {
+		onWaiting()
+	}
+
+	tokenInfo, err := flow.WaitToken(ctx, flowInfo)
 	if err != nil {
-		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
+		return nil, fmt.Errorf("wait for token: %w", err)
 	}
 
 	return &tokenInfo, nil
-}
-
-func (a *Auth) withBackOff(ctx context.Context, bf func() error) error {
-	return backoff.RetryNotify(
-		bf,
-		backoff.WithContext(cmd.CLIBackOffSettings, ctx),
-		func(err error, duration time.Duration) {
-			log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
-		})
 }

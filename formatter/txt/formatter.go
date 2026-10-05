@@ -1,8 +1,6 @@
 package txt
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/formatter/levels"
@@ -18,7 +16,7 @@ type TextFormatter struct {
 func NewTextFormatter() *TextFormatter {
 	return &TextFormatter{
 		levelDesc:       levels.ValidLevelDesc,
-		timestampFormat: time.RFC3339, // or RFC3339
+		timestampFormat: "2006-01-02T15:04:05.000Z07:00",
 	}
 }
 

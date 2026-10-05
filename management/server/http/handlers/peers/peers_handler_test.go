@@ -20,6 +20,9 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -66,7 +69,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	srvUser := types.NewRegularUser(serviceUser)
+	srvUser := types.NewRegularUser(serviceUser, "", "")
 	srvUser.IsServiceUser = true
 
 	account := &types.Account{
@@ -75,7 +78,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		Peers:  peersMap,
 		Users: map[string]*types.User{
 			adminUser:   types.NewAdminUser(adminUser),
-			regularUser: types.NewRegularUser(regularUser),
+			regularUser: types.NewRegularUser(regularUser, "", ""),
 			serviceUser: srvUser,
 		},
 		Groups: map[string]*types.Group{
@@ -109,13 +112,19 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		GetDNSDomain(gomock.Any()).
 		Return("domain").
 		AnyTimes()
-	networkMapController.EXPECT().
-		IsConnected(noUpdateChannelTestPeerID).
-		Return(false).
-		AnyTimes()
-	networkMapController.EXPECT().
-		IsConnected(gomock.Any()).
-		Return(true).
+
+	ctrl2 := gomock.NewController(t)
+	permissionsManager := permissions.NewMockManager(ctrl2)
+	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(context.Background(), nil).AnyTimes()
+	permissionsManager.EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
+		DoAndReturn(func(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error) {
+			user, ok := account.Users[userID]
+			if !ok {
+				return false, ctx, fmt.Errorf("user not found")
+			}
+			return user.HasAdminPower() || user.IsServiceUser, ctx, nil
+		}).
 		AnyTimes()
 
 	return &Handler{
@@ -136,7 +145,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 			UpdatePeerIPFunc: func(_ context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
 				for _, peer := range peers {
 					if peer.ID == peerID {
-						peer.IP = net.IP(newIP.AsSlice())
+						peer.IP = newIP
 						return nil
 					}
 				}
@@ -164,7 +173,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 					return nil, fmt.Errorf("user not found")
 				}
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
@@ -207,6 +216,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 			},
 		},
 		networkMapController: networkMapController,
+		permissionsManager:   permissionsManager,
 	}
 }
 
@@ -217,7 +227,8 @@ func TestGetPeers(t *testing.T) {
 	peer := &nbpeer.Peer{
 		ID:                     testPeerID,
 		Key:                    "key",
-		IP:                     net.ParseIP("100.64.0.1"),
+		IP:                     netip.MustParseAddr("100.64.0.1"),
+		IPv6:                   netip.MustParseAddr("fd00::1"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "PeerName",
 		LoginExpirationEnabled: false,
@@ -268,14 +279,6 @@ func TestGetPeers(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedArray:  false,
 			expectedPeer:   peer,
-		},
-		{
-			name:           "GetPeer with no update channel",
-			requestType:    http.MethodGet,
-			requestPath:    "/api/peers/" + peer1.ID,
-			expectedStatus: http.StatusOK,
-			expectedArray:  false,
-			expectedPeer:   expectedPeer1,
 		},
 		{
 			name:           "PutPeer",
@@ -336,8 +339,6 @@ func TestGetPeers(t *testing.T) {
 				for _, peer := range respBody {
 					if peer.Id == testPeerID {
 						got = peer
-					} else {
-						assert.Equal(t, peer.Connected, false)
 					}
 				}
 
@@ -351,14 +352,58 @@ func TestGetPeers(t *testing.T) {
 
 			t.Log(got)
 
-			assert.Equal(t, got.Name, tc.expectedPeer.Name)
-			assert.Equal(t, got.Version, tc.expectedPeer.Meta.WtVersion)
-			assert.Equal(t, got.Ip, tc.expectedPeer.IP.String())
-			assert.Equal(t, got.Os, "OS core")
-			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
-			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
-			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
-			assert.Equal(t, got.SerialNumber, tc.expectedPeer.Meta.SystemSerialNumber)
+			assert.Equal(t, tc.expectedPeer.Name, got.Name)
+			assert.Equal(t, tc.expectedPeer.Meta.WtVersion, got.Version)
+			assert.Equal(t, tc.expectedPeer.IP.String(), got.Ip)
+			assert.Equal(t, "OS core", got.Os)
+			assert.Equal(t, tc.expectedPeer.LoginExpirationEnabled, got.LoginExpirationEnabled)
+			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
+			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
+			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
+		})
+	}
+}
+
+func TestPeerResponseNetworkAddresses(t *testing.T) {
+	tests := []struct {
+		name      string
+		addresses []nbpeer.NetworkAddress
+		wantJSON  string
+	}{
+		{name: "not reported"},
+		{name: "empty", addresses: []nbpeer.NetworkAddress{}},
+		{
+			name: "multiple interfaces",
+			addresses: []nbpeer.NetworkAddress{
+				{NetIP: netip.MustParsePrefix("192.168.0.11/24"), Mac: "00:93:37:bd:83:0f"},
+				{NetIP: netip.MustParsePrefix("2001:db8::123/64"), Mac: "00:93:37:bd:83:10"},
+			},
+			wantJSON: `[{"net_ip":"192.168.0.11/24","mac":"00:93:37:bd:83:0f"},{"net_ip":"2001:db8::123/64","mac":"00:93:37:bd:83:10"}]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peer := &nbpeer.Peer{
+				Status: &nbpeer.PeerStatus{},
+				Meta:   nbpeer.PeerSystemMeta{NetworkAddresses: tt.addresses},
+			}
+			responses := map[string]any{
+				"single peer": toSinglePeerResponse(peer, nil, "example.com", true, ""),
+				"peer list":   toPeerListItemResponse(peer, nil, "example.com", 0),
+			}
+			for name, response := range responses {
+				t.Run(name, func(t *testing.T) {
+					body, err := json.Marshal(response)
+					require.NoError(t, err)
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(body, &fields))
+					if tt.wantJSON == "" {
+						assert.NotContains(t, fields, "network_addresses", "unreported interfaces should be omitted")
+						return
+					}
+					assert.JSONEq(t, tt.wantJSON, string(fields["network_addresses"]), "response should preserve interface addresses and MACs")
+				})
+			}
 		})
 	}
 }
@@ -367,7 +412,8 @@ func TestGetAccessiblePeers(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:                     "peer1",
 		Key:                    "key1",
-		IP:                     net.ParseIP("100.64.0.1"),
+		IP:                     netip.MustParseAddr("100.64.0.1"),
+		IPv6:                   netip.MustParseAddr("fd00:1234::1"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "peer1",
 		LoginExpirationEnabled: false,
@@ -377,7 +423,8 @@ func TestGetAccessiblePeers(t *testing.T) {
 	peer2 := &nbpeer.Peer{
 		ID:                     "peer2",
 		Key:                    "key2",
-		IP:                     net.ParseIP("100.64.0.2"),
+		IP:                     netip.MustParseAddr("100.64.0.2"),
+		IPv6:                   netip.MustParseAddr("fd00:1234::2"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "peer2",
 		LoginExpirationEnabled: false,
@@ -387,19 +434,19 @@ func TestGetAccessiblePeers(t *testing.T) {
 	peer3 := &nbpeer.Peer{
 		ID:                     "peer3",
 		Key:                    "key3",
-		IP:                     net.ParseIP("100.64.0.3"),
+		IP:                     netip.MustParseAddr("100.64.0.3"),
+		IPv6:                   netip.MustParseAddr("fd00:1234::3"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "peer3",
 		LoginExpirationEnabled: false,
 		UserID:                 regularUser,
 	}
 
-	p := initTestMetaData(t, peer1, peer2, peer3)
-
 	tt := []struct {
 		name           string
 		peerID         string
 		callerUserID   string
+		viewBlocked    bool
 		expectedStatus int
 		expectedPeers  []string
 	}{
@@ -438,10 +485,56 @@ func TestGetAccessiblePeers(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedPeers:  []string{"peer1", "peer2"},
 		},
+		{
+			name:           "regular user gets empty for owned peer list when view blocked",
+			peerID:         "peer1",
+			callerUserID:   regularUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{},
+		},
+		{
+			name:           "regular user gets empty list for unowned peer when view blocked",
+			peerID:         "peer2",
+			callerUserID:   regularUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{},
+		},
+		{
+			name:           "admin user still sees accessible peers when view blocked",
+			peerID:         "peer2",
+			callerUserID:   adminUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer3"},
+		},
+		{
+			name:           "service user still sees accessible peers when view blocked",
+			peerID:         "peer3",
+			callerUserID:   serviceUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer2"},
+		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+			p := initTestMetaData(t, peer1, peer2, peer3)
+
+			if tc.viewBlocked {
+				mockAM := p.accountManager.(*mock_server.MockAccountManager)
+				originalGetAccountByIDFunc := mockAM.GetAccountByIDFunc
+				mockAM.GetAccountByIDFunc = func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+					account, err := originalGetAccountByIDFunc(ctx, accountID, userID)
+					if err != nil {
+						return nil, err
+					}
+					account.Settings.RegularUsersViewBlocked = true
+					return account, nil
+				}
+			}
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)
@@ -486,7 +579,8 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 	testPeer := &nbpeer.Peer{
 		ID:                     testPeerID,
 		Key:                    "key",
-		IP:                     net.ParseIP("100.64.0.1"),
+		IP:                     netip.MustParseAddr("100.64.0.1"),
+		IPv6:                   netip.MustParseAddr("fd00::1"),
 		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		Name:                   "test-host@netbird.io",
 		LoginExpirationEnabled: false,

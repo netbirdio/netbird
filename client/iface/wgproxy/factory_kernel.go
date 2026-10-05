@@ -3,17 +3,26 @@
 package wgproxy
 
 import (
+	"os"
+	"strconv"
+
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/loopback"
 	udpProxy "github.com/netbirdio/netbird/client/iface/wgproxy/udp"
+)
+
+const (
+	envDisableKernelWGProxy = "NB_DISABLE_KERNEL_WG_PROXY"
+	// envDisableEBPFWGProxy is a deprecated alias for envDisableKernelWGProxy.
+	envDisableEBPFWGProxy = "NB_DISABLE_EBPF_WG_PROXY"
 )
 
 type KernelFactory struct {
 	wgPort int
 	mtu    uint16
 
-	ebpfProxy *ebpf.WGEBPFProxy
+	loopbackProxy *loopback.Proxy
 }
 
 func NewKernelFactory(wgPort int, mtu uint16) *KernelFactory {
@@ -22,28 +31,56 @@ func NewKernelFactory(wgPort int, mtu uint16) *KernelFactory {
 		mtu:    mtu,
 	}
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, mtu)
-	if err := ebpfProxy.Listen(); err != nil {
+	if isKernelProxyDisabled() {
 		log.Infof("WireGuard Proxy Factory will produce UDP proxy")
-		log.Warnf("failed to initialize ebpf proxy, fallback to user space proxy: %s", err)
 		return f
 	}
-	log.Infof("WireGuard Proxy Factory will produce eBPF proxy")
-	f.ebpfProxy = ebpfProxy
+
+	loopbackProxy := loopback.NewProxy(wgPort, mtu)
+	if err := loopbackProxy.Listen(); err != nil {
+		log.Infof("WireGuard Proxy Factory will produce UDP proxy")
+		log.Warnf("failed to initialize loopback proxy, fallback to user space proxy: %s", err)
+		return f
+	}
+	log.Infof("WireGuard Proxy Factory will produce loopback proxy")
+	f.loopbackProxy = loopbackProxy
 	return f
 }
 
 func (w *KernelFactory) GetProxy() Proxy {
-	if w.ebpfProxy == nil {
+	if w.loopbackProxy == nil {
 		return udpProxy.NewWGUDPProxy(w.wgPort, w.mtu)
 	}
 
-	return ebpf.NewProxyWrapper(w.ebpfProxy)
+	return loopback.NewProxyWrapper(w.loopbackProxy)
 }
 
 func (w *KernelFactory) Free() error {
-	if w.ebpfProxy == nil {
+	if w.loopbackProxy == nil {
 		return nil
 	}
-	return w.ebpfProxy.Free()
+	return w.loopbackProxy.Free()
+}
+
+func isKernelProxyDisabled() bool {
+	env := envDisableKernelWGProxy
+	val := os.Getenv(env)
+	if val == "" {
+		env = envDisableEBPFWGProxy
+		val = os.Getenv(env)
+	}
+	if val == "" {
+		return false
+	}
+
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", env, err)
+		return false
+	}
+
+	if disabled {
+		log.Infof("kernel WireGuard proxy is disabled via %s", env)
+	}
+	return disabled
 }

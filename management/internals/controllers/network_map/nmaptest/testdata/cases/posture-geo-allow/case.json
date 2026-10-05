@@ -1,0 +1,4 @@
+{
+  "description": "Geo location posture check in allow mode. An entry naming only a country matches the whole country, so peer-de passes; an entry naming a city must match that city exactly, so peer-us-ny passes while peer-us-bos does not. peer-fr matches nothing and fails. peer-nowhere has no location at all, which the check reports as an error, and an errored check denies — so it fails too.",
+  "peers": ["peer-srv", "peer-de", "peer-us-bos", "peer-nowhere"]
+}

@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -20,53 +20,53 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP("100.65.80.39"),
+				IP:     netip.MustParseAddr("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 				Meta:   nbpeer.PeerSystemMeta{WtVersion: "0.48.0"},
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP("100.65.254.139"),
+				IP:     netip.MustParseAddr("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerD": {
 				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
+				IP:     netip.MustParseAddr("100.65.62.5"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerE": {
 				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
+				IP:     netip.MustParseAddr("100.65.32.206"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerF": {
 				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
+				IP:     netip.MustParseAddr("100.65.250.202"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerG": {
 				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
+				IP:     netip.MustParseAddr("100.65.13.186"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerH": {
 				ID:     "peerH",
-				IP:     net.ParseIP("100.65.29.55"),
+				IP:     netip.MustParseAddr("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerI": {
 				ID:     "peerI",
-				IP:     net.ParseIP("100.65.31.2"),
+				IP:     netip.MustParseAddr("100.65.31.2"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerK": {
 				ID:     "peerK",
-				IP:     net.ParseIP("100.32.80.1"),
+				IP:     netip.MustParseAddr("100.32.80.1"),
 				Status: &nbpeer.PeerStatus{},
 				Meta:   nbpeer.PeerSystemMeta{WtVersion: "0.30.0"},
 			},
@@ -246,14 +246,14 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
-			peers, firewallRules := account.GetPeerConnectionResources(context.Background(), p, validatedPeers)
+			peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), p, validatedPeers, account.GetActiveGroupUsers())
 			assert.GreaterOrEqual(t, len(peers), 1, "minimum number peers should present")
 			assert.GreaterOrEqual(t, len(firewallRules), 1, "minimum number of firewall rules should present")
 		}
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], validatedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], validatedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 8)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])
@@ -509,7 +509,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	})
 
 	t.Run("check port ranges support for older peers", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerK"], validatedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerK"], validatedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 1)
 		assert.Contains(t, peers, account.Peers["peerI"])
 
@@ -540,17 +540,17 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP("100.65.80.39"),
+				IP:     netip.MustParseAddr("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP("100.65.254.139"),
+				IP:     netip.MustParseAddr("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
@@ -635,7 +635,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	}
 
 	t.Run("check first peer map", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Contains(t, peers, account.Peers["peerC"])
 
 		expectedFirewallRules := []*types.FirewallRule{
@@ -665,7 +665,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 
 	t.Run("check second peer map", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Contains(t, peers, account.Peers["peerB"])
 
 		expectedFirewallRules := []*types.FirewallRule{
@@ -697,7 +697,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account.Policies[1].Rules[0].Bidirectional = false
 
 	t.Run("check first peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Contains(t, peers, account.Peers["peerC"])
 
 		expectedFirewallRules := []*types.FirewallRule{
@@ -719,7 +719,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 
 	t.Run("check second peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Contains(t, peers, account.Peers["peerB"])
 
 		expectedFirewallRules := []*types.FirewallRule{
@@ -746,7 +746,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -756,7 +756,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP("100.65.80.39"),
+				IP:     netip.MustParseAddr("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -766,7 +766,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP("100.65.254.139"),
+				IP:     netip.MustParseAddr("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -776,7 +776,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerD": {
 				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
+				IP:     netip.MustParseAddr("100.65.62.5"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -786,7 +786,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerE": {
 				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
+				IP:     netip.MustParseAddr("100.65.32.206"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -796,7 +796,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerF": {
 				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
+				IP:     netip.MustParseAddr("100.65.250.202"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -806,7 +806,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerG": {
 				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
+				IP:     netip.MustParseAddr("100.65.13.186"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -816,7 +816,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerH": {
 				ID:     "peerH",
-				IP:     net.ParseIP("100.65.29.55"),
+				IP:     netip.MustParseAddr("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -826,7 +826,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerI": {
 				ID:     "peerI",
-				IP:     net.ParseIP("100.65.21.56"),
+				IP:     netip.MustParseAddr("100.65.21.56"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "windows",
@@ -917,7 +917,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 	t.Run("verify peer's network map with default group peer list", func(t *testing.T) {
 		// peerB doesn't fulfill the NB posture check but is included in the destination group Swarm,
 		// will establish a connection with all source peers satisfying the NB posture check.
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 4)
 		assert.Len(t, firewallRules, 4)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -927,7 +927,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerC satisfy the NB posture check, should establish connection to all destination group peer's
 		// We expect a single permissive firewall rule which all outgoing connections
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
 		assert.Len(t, firewallRules, 7)
 		expectedFirewallRules := []*types.FirewallRule{
@@ -992,7 +992,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerE"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerE"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 4)
 		assert.Len(t, firewallRules, 4)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -1002,7 +1002,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerI doesn't fulfill the OS version posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerI"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerI"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 4)
 		assert.Len(t, firewallRules, 4)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -1017,19 +1017,19 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerB doesn't satisfy the NB posture check, and doesn't exist in destination group peer's
 		// no connection should be established to any peer of destination group
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
+		peers, firewallRules, _, _ := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 0)
 		assert.Len(t, firewallRules, 0)
 
 		// peerI doesn't satisfy the OS version posture check, and doesn't exist in destination group peer's
 		// no connection should be established to any peer of destination group
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerI"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerI"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 0)
 		assert.Len(t, firewallRules, 0)
 
 		// peerC satisfy the NB posture check, should establish connection to all destination group peer's
 		// We expect a single permissive firewall rule which all outgoing connections
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
 		assert.Len(t, firewallRules, len(account.Groups["GroupSwarm"].Peers))
 
@@ -1044,14 +1044,14 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerE"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerE"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 3)
 		assert.Len(t, firewallRules, 3)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])
 		assert.Contains(t, peers, account.Peers["peerD"])
 
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerA"], approvedPeers)
+		peers, firewallRules, _, _ = account.GetPeerConnectionResources(context.Background(), account.Peers["peerA"], approvedPeers, account.GetActiveGroupUsers())
 		assert.Len(t, peers, 5)
 		// assert peers from Group Swarm
 		assert.Contains(t, peers, account.Peers["peerD"])
@@ -1231,7 +1231,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1263,7 +1263,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1294,7 +1294,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1314,17 +1314,19 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
-	// Updating disabled policy with destination and source groups containing peers should not update account's peers
-	// or send peer update
+	// Updating disabled policy with destination and source groups containing peers should still update account's peers
+	// because affected peer resolution does not filter by policy enabled state
 	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
+		drainPeerUpdates(updMsg)
+
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1335,8 +1337,8 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
@@ -1355,7 +1357,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1373,7 +1375,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 
@@ -1393,7 +1395,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

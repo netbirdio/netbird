@@ -51,7 +51,7 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 		found = true
 		select {
 		case channel <- update:
-			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
+			log.WithContext(ctx).Tracef("update was sent to channel for peer %s", peerID)
 		default:
 			dropped = true
 			log.WithContext(ctx).Warnf("channel for peer %s is %d full or closed", peerID, len(channel))

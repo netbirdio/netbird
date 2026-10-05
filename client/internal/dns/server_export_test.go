@@ -18,7 +18,12 @@ func TestGetServerDns(t *testing.T) {
 		t.Errorf("invalid dns server instance: %s", err)
 	}
 
-	if srvB != srv {
+	mockSrvB, ok := srvB.(*MockServer)
+	if !ok {
+		t.Errorf("returned server is not a MockServer")
+	}
+
+	if mockSrvB != srv {
 		t.Errorf("mismatch dns instances")
 	}
 }

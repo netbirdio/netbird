@@ -51,6 +51,7 @@ var (
 	identityFile          string
 	skipCachedToken       bool
 	requestPTY            bool
+	sshNoBrowser          bool
 )
 
 var (
@@ -81,6 +82,7 @@ func init() {
 	sshCmd.PersistentFlags().StringVarP(&identityFile, "identity", "i", "", "Path to SSH private key file (deprecated)")
 	_ = sshCmd.PersistentFlags().MarkDeprecated("identity", "this flag is no longer used")
 	sshCmd.PersistentFlags().BoolVar(&skipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
+	sshCmd.PersistentFlags().BoolVar(&sshNoBrowser, noBrowserFlag, false, noBrowserDesc)
 
 	sshCmd.PersistentFlags().StringArrayP("L", "L", []string{}, "Local port forwarding [bind_address:]port:host:hostport")
 	sshCmd.PersistentFlags().StringArrayP("R", "R", []string{}, "Remote port forwarding [bind_address:]port:host:hostport")
@@ -185,6 +187,21 @@ func getEnvOrDefault(flagName, defaultValue string) string {
 	return defaultValue
 }
 
+// getBoolEnvOrDefault checks for boolean environment variables with WT_ and NB_ prefixes
+func getBoolEnvOrDefault(flagName string, defaultValue bool) bool {
+	if envValue := os.Getenv("WT_" + flagName); envValue != "" {
+		if parsed, err := strconv.ParseBool(envValue); err == nil {
+			return parsed
+		}
+	}
+	if envValue := os.Getenv("NB_" + flagName); envValue != "" {
+		if parsed, err := strconv.ParseBool(envValue); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
 // resetSSHGlobals sets SSH globals to their default values
 func resetSSHGlobals() {
 	port = sshserver.DefaultSSHPort
@@ -196,6 +213,7 @@ func resetSSHGlobals() {
 	strictHostKeyChecking = true
 	knownHostsFile = ""
 	identityFile = ""
+	sshNoBrowser = false
 }
 
 // parseCustomSSHFlags extracts -L, -R flags and returns filtered args
@@ -370,6 +388,7 @@ type sshFlags struct {
 	KnownHostsFile        string
 	IdentityFile          string
 	SkipCachedToken       bool
+	NoBrowser             bool
 	ConfigPath            string
 	LogLevel              string
 	LocalForwards         []string
@@ -381,6 +400,7 @@ type sshFlags struct {
 func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	defaultConfigPath := getEnvOrDefault("CONFIG", configPath)
 	defaultLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
+	defaultNoBrowser := getBoolEnvOrDefault("NO_BROWSER", false)
 
 	fs := flag.NewFlagSet("ssh-flags", flag.ContinueOnError)
 	fs.SetOutput(nil)
@@ -401,6 +421,7 @@ func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	fs.StringVar(&flags.IdentityFile, "i", "", "Path to SSH private key file")
 	fs.StringVar(&flags.IdentityFile, "identity", "", "Path to SSH private key file")
 	fs.BoolVar(&flags.SkipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
+	fs.BoolVar(&flags.NoBrowser, "no-browser", defaultNoBrowser, noBrowserDesc)
 
 	fs.StringVar(&flags.ConfigPath, "c", defaultConfigPath, "Netbird config file location")
 	fs.StringVar(&flags.ConfigPath, "config", defaultConfigPath, "Netbird config file location")
@@ -449,6 +470,7 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 	knownHostsFile = flags.KnownHostsFile
 	identityFile = flags.IdentityFile
 	skipCachedToken = flags.SkipCachedToken
+	sshNoBrowser = flags.NoBrowser
 
 	if flags.ConfigPath != getEnvOrDefault("CONFIG", configPath) {
 		configPath = flags.ConfigPath
@@ -501,13 +523,14 @@ func parseHostnameAndCommand(args []string) error {
 }
 
 func runSSH(ctx context.Context, addr string, cmd *cobra.Command) error {
-	target := fmt.Sprintf("%s:%d", addr, port)
+	target := net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(port))
 	c, err := sshclient.Dial(ctx, target, username, sshclient.DialOptions{
 		KnownHostsFile:     knownHostsFile,
 		IdentityFile:       identityFile,
 		DaemonAddr:         daemonAddr,
 		SkipCachedToken:    skipCachedToken,
 		InsecureSkipVerify: !strictHostKeyChecking,
+		NoBrowser:          sshNoBrowser,
 	})
 
 	if err != nil {
@@ -611,7 +634,11 @@ func parseAndStartLocalForward(ctx context.Context, c *sshclient.Client, forward
 		return err
 	}
 
-	cmd.Printf("Local port forwarding: %s -> %s\n", localAddr, remoteAddr)
+	if err := validateDestinationPort(remoteAddr); err != nil {
+		return fmt.Errorf("invalid remote address: %w", err)
+	}
+
+	log.Debugf("Local port forwarding: %s -> %s", localAddr, remoteAddr)
 
 	go func() {
 		if err := c.LocalPortForward(ctx, localAddr, remoteAddr); err != nil && !errors.Is(err, context.Canceled) {
@@ -629,13 +656,46 @@ func parseAndStartRemoteForward(ctx context.Context, c *sshclient.Client, forwar
 		return err
 	}
 
-	cmd.Printf("Remote port forwarding: %s -> %s\n", remoteAddr, localAddr)
+	if err := validateDestinationPort(localAddr); err != nil {
+		return fmt.Errorf("invalid local address: %w", err)
+	}
+
+	log.Debugf("Remote port forwarding: %s -> %s", remoteAddr, localAddr)
 
 	go func() {
 		if err := c.RemotePortForward(ctx, remoteAddr, localAddr); err != nil && !errors.Is(err, context.Canceled) {
 			cmd.Printf("Remote port forward error: %v\n", err)
 		}
 	}()
+
+	return nil
+}
+
+// validateDestinationPort checks that the destination address has a valid port.
+// Port 0 is only valid for bind addresses (where the OS picks an available port),
+// not for destination addresses where we need to connect.
+func validateDestinationPort(addr string) error {
+	if strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, "./") {
+		return nil
+	}
+
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("parse address %s: %w", addr, err)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("invalid port %s: %w", portStr, err)
+	}
+
+	if port == 0 {
+		return fmt.Errorf("port 0 is not valid for destination address")
+	}
+
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("port %d out of range (1-65535)", port)
+	}
 
 	return nil
 }
@@ -727,10 +787,10 @@ func isUnixSocket(path string) bool {
 	return strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./")
 }
 
-// normalizeLocalHost converts "*" to "0.0.0.0" for binding to all interfaces.
+// normalizeLocalHost converts "*" to "" for binding to all interfaces (dual-stack).
 func normalizeLocalHost(host string) string {
 	if host == "*" {
-		return "0.0.0.0"
+		return ""
 	}
 	return host
 }
@@ -763,7 +823,15 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid port: %s", portStr)
 	}
 
-	proxy, err := sshproxy.New(daemonAddr, host, port, cmd.ErrOrStderr())
+	// Check env var for browser setting since this command is invoked via SSH ProxyCommand
+	// where command-line flags cannot be passed. Default is to open browser.
+	noBrowser := getBoolEnvOrDefault("NO_BROWSER", false)
+	var browserOpener func(string) error
+	if !noBrowser {
+		browserOpener = util.OpenBrowser
+	}
+
+	proxy, err := sshproxy.New(daemonAddr, host, port, cmd.ErrOrStderr(), browserOpener)
 	if err != nil {
 		return fmt.Errorf("create SSH proxy: %w", err)
 	}

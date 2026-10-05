@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,60 @@ func TestResolver_NewResolver(t *testing.T) {
 	assert.NotNil(t, resolver)
 	assert.NotNil(t, resolver.records)
 	assert.False(t, resolver.MatchSubdomains())
+}
+
+func TestResolveCacheTTL(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"unset falls back to default", "", defaultTTL},
+		{"valid duration", "45s", 45 * time.Second},
+		{"valid minutes", "2m", 2 * time.Minute},
+		{"malformed falls back to default", "not-a-duration", defaultTTL},
+		{"zero falls back to default", "0s", defaultTTL},
+		{"negative falls back to default", "-5s", defaultTTL},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envMgmtCacheTTL, tc.value)
+			got := resolveCacheTTL()
+			assert.Equal(t, tc.want, got, "parsed TTL should match")
+		})
+	}
+}
+
+func TestNewResolver_CacheTTLFromEnv(t *testing.T) {
+	t.Setenv(envMgmtCacheTTL, "7s")
+	r := NewResolver()
+	assert.Equal(t, 7*time.Second, r.cacheTTL, "NewResolver should evaluate cacheTTL once from env")
+}
+
+func TestResolver_ResponseTTL(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name     string
+		cacheTTL time.Duration
+		cachedAt time.Time
+		wantMin  uint32
+		wantMax  uint32
+	}{
+		{"fresh entry returns full TTL", 60 * time.Second, now, 59, 60},
+		{"half-aged entry returns half TTL", 60 * time.Second, now.Add(-30 * time.Second), 29, 31},
+		{"expired entry returns zero", 60 * time.Second, now.Add(-61 * time.Second), 0, 0},
+		{"exactly expired returns zero", 10 * time.Second, now.Add(-10 * time.Second), 0, 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Resolver{cacheTTL: tc.cacheTTL}
+			got := r.responseTTL(tc.cachedAt)
+			assert.GreaterOrEqual(t, got, tc.wantMin, "remaining TTL should be >= wantMin")
+			assert.LessOrEqual(t, got, tc.wantMax, "remaining TTL should be <= wantMax")
+		})
+	}
 }
 
 func TestResolver_ExtractDomainFromURL(t *testing.T) {
@@ -391,7 +446,8 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	}
 	assert.Len(t, resolver.GetCachedDomains(), 3)
 
-	// Update with partial ServerDomains (only flow domain - new type, should preserve all existing)
+	// Update with partial ServerDomains (only flow domain - flow is intentionally excluded from
+	// caching to prevent TLS failures from stale records, so all existing domains are preserved)
 	partialDomains := dnsconfig.ServerDomains{
 		Flow: "github.com",
 	}
@@ -400,10 +456,10 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
 
-	assert.Len(t, removedDomains, 0, "Should not remove any domains when adding new type")
+	assert.Len(t, removedDomains, 0, "Should not remove any domains when only flow domain is provided")
 
 	finalDomains := resolver.GetCachedDomains()
-	assert.Len(t, finalDomains, 4, "Should have all original domains plus new flow domain")
+	assert.Len(t, finalDomains, 3, "Flow domain is not cached; all original domains should be preserved")
 
 	domainStrings := make([]string, len(finalDomains))
 	for i, d := range finalDomains {
@@ -412,5 +468,5 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	assert.Contains(t, domainStrings, "example.org")
 	assert.Contains(t, domainStrings, "google.com")
 	assert.Contains(t, domainStrings, "cloudflare.com")
-	assert.Contains(t, domainStrings, "github.com")
+	assert.NotContains(t, domainStrings, "github.com")
 }

@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
+	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
@@ -25,20 +28,24 @@ type Listener struct {
 	Address string
 	// TLSConfig is the TLS configuration for the server.
 	TLSConfig *tls.Config
+	// TrustedProxies is the set of upstream proxies whose X-Real-Ip/X-Real-Port
+	// headers are trusted. Headers from any other immediate peer are ignored.
+	TrustedProxies *trustedproxy.List
 
 	server   *http.Server
-	acceptFn func(conn net.Conn)
+	acceptFn func(conn relaylistener.Conn)
 }
 
-func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
+func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
 	l.acceptFn = acceptFn
 	mux := http.NewServeMux()
 	mux.HandleFunc(URLPath, l.onAccept)
 
 	l.server = &http.Server{
-		Addr:      l.Address,
-		Handler:   mux,
-		TLSConfig: l.TLSConfig,
+		Addr:              l.Address,
+		Handler:           mux,
+		TLSConfig:         l.TLSConfig,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	log.Infof("WS server listening address: %s", l.Address)
@@ -72,7 +79,7 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 }
 
 func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
-	connRemoteAddr := remoteAddr(r)
+	connRemoteAddr := remoteAddr(r, l.TrustedProxies)
 
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
@@ -93,24 +100,23 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lAddr, err := net.ResolveTCPAddr("tcp", l.server.Addr)
-	if err != nil {
-		err = wsConn.Close(websocket.StatusInternalError, "internal error")
-		if err != nil {
-			log.Errorf("failed to close ws connection: %s", err)
-		}
-		return
-	}
-
 	log.Infof("WS client connected from: %s", rAddr)
 
-	conn := NewConn(wsConn, lAddr, rAddr)
+	conn := NewConn(wsConn, rAddr)
 	l.acceptFn(conn)
 }
 
-func remoteAddr(r *http.Request) string {
-	if r.Header.Get("X-Real-Ip") == "" || r.Header.Get("X-Real-Port") == "" {
+func remoteAddr(r *http.Request, trustedProxies *trustedproxy.List) string {
+	realIP := r.Header.Get("X-Real-Ip")
+	realPort := r.Header.Get("X-Real-Port")
+	if realIP == "" || realPort == "" {
 		return r.RemoteAddr
 	}
-	return net.JoinHostPort(r.Header.Get("X-Real-Ip"), r.Header.Get("X-Real-Port"))
+
+	if !trustedProxies.IsTrusted(r.RemoteAddr) {
+		log.Debugf("ignoring X-Real-Ip header from untrusted peer %s", r.RemoteAddr)
+		return r.RemoteAddr
+	}
+
+	return net.JoinHostPort(realIP, realPort)
 }
