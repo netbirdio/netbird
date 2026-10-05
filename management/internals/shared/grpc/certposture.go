@@ -43,8 +43,16 @@ func newCertChallenger(encryptionKey string, serverKey wgtypes.Key) *certposture
 }
 
 // stampCertificateChallenges fills the per-peer nonce into every certificate challenge
-// right before the response is encrypted for that peer.
-func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.Challenger, peerKey wgtypes.Key) {
+// right before the response is encrypted for that peer, reporting whether it issued one.
+//
+// The answer is what tells this instance it has an account to renew. A nonce is
+// stateless and verified from a shared secret, but the renewal that keeps it fresh is
+// local: only the instance that served a peer can push to it. Registering here makes
+// the two line up by construction — an instance renews exactly the accounts it has
+// issued nonces for — where asking the store on every peer connect would both miss the
+// account when the check was created through another instance and charge a query to
+// every account that never uses the feature.
+func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.Challenger, peerKey wgtypes.Key) bool {
 	var nonce []byte
 	for _, check := range checks {
 		challenge := check.GetCertificateChallenge()
@@ -56,6 +64,7 @@ func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.
 		}
 		challenge.Nonce = nonce
 	}
+	return nonce != nil
 }
 
 // verifiedCertificates turns the peer's proofs into PEM chains for its meta. Possession

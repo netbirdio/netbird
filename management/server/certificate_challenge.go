@@ -253,20 +253,9 @@ func (am *DefaultAccountManager) certificatePostureCheckIDs(ctx context.Context,
 	return ids, nil
 }
 
-// trackCertificateChallenges starts refreshing the account's certificate challenges if
-// it has a posture check that asks for one.
-func (am *DefaultAccountManager) trackCertificateChallenges(ctx context.Context, accountID string) {
-	if am.certChallenges.tracked(accountID) {
-		return
-	}
-
-	certCheckIDs, err := am.certificatePostureCheckIDs(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Debugf("cannot tell whether account %s needs certificate challenges: %v", accountID, err)
-		return
-	}
-	if len(certCheckIDs) == 0 {
-		return
-	}
+// TrackCertificateChallenges starts renewing an account's certificate challenges. It is
+// called wherever a nonce is issued, so it has to stay cheap: no store access, just a
+// map the refresher sweeps.
+func (am *DefaultAccountManager) TrackCertificateChallenges(ctx context.Context, accountID string) {
 	am.certChallenges.Track(ctx, accountID)
 }

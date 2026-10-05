@@ -1632,6 +1632,18 @@ func (mr *MockManagerMockRecorder) SyncUserJWTGroups(ctx, userAuth any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncUserJWTGroups", reflect.TypeOf((*MockManager)(nil).SyncUserJWTGroups), ctx, userAuth)
 }
 
+// TrackCertificateChallenges mocks base method.
+func (m *MockManager) TrackCertificateChallenges(ctx context.Context, accountID string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "TrackCertificateChallenges", ctx, accountID)
+}
+
+// TrackCertificateChallenges indicates an expected call of TrackCertificateChallenges.
+func (mr *MockManagerMockRecorder) TrackCertificateChallenges(ctx, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrackCertificateChallenges", reflect.TypeOf((*MockManager)(nil).TrackCertificateChallenges), ctx, accountID)
+}
+
 // UpdateAccountOnboarding mocks base method.
 func (m *MockManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
 	m.ctrl.T.Helper()

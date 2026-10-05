@@ -117,10 +117,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	// Not gated on SSO, unlike the expirations above: a certificate challenge goes to
-	// every peer the check applies to, however it was enrolled.
-	am.trackCertificateChallenges(ctx, accountID)
-
 	// A login-expired peer reconnecting, or an embedded proxy peer flipping to
 	// connected (which triggers SynthesizePrivateServiceZones), must refresh the
 	// peers reachable from it. The embedded-proxy fan-out tolerates a dispatch error.
