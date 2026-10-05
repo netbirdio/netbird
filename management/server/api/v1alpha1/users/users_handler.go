@@ -10,7 +10,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -223,26 +222,6 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, users)
-}
-
-func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *apiv1alpha1.User {
-	response := toUserResponse(user.UserInfo, userID)
-
-	// stringify modules and operations keys
-	modules := make(map[string]map[string]bool)
-	for module, operations := range user.Permissions {
-		modules[string(module)] = make(map[string]bool)
-		for op, val := range operations {
-			modules[string(module)][string(op)] = val
-		}
-	}
-
-	response.Permissions = &apiv1alpha1.UserPermissions{
-		IsRestricted: user.Restricted,
-		Modules:      modules,
-	}
-
-	return response
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User {

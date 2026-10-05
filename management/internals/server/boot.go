@@ -210,9 +210,7 @@ func (s *BaseServer) IDPHandler() http.Handler {
 }
 
 func (s *BaseServer) Router() *mux.Router {
-	return Create(s, func() *mux.Router { //nolint:unlambda
-		return mux.NewRouter()
-	})
+	return Create(s, mux.NewRouter)
 }
 
 func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {

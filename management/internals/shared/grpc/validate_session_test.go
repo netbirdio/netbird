@@ -193,7 +193,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token, //nolint:staticheck
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token, //nolint:staticheck
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -238,7 +238,7 @@ func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token, //nolint:staticheck
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) 
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "all-users-proxy.example.com",
-		SessionToken: token, //nolint:staticheck
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -286,7 +286,7 @@ func TestValidateSession_BlockedUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token, //nolint:staticheck
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -601,7 +601,7 @@ func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time
 }
 
 func (m *testValidateSessionProxyManager) GetAccountProxy(_ context.Context, _ string) (*proxy.Proxy, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
