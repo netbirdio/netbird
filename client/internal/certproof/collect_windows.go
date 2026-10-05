@@ -33,7 +33,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 
 	// The helper already runs as the signed-in user, and an ordinary process has no
 	// right to a session token, so only the service goes looking for one.
-	if !runningAsLocalSystem() {
+	if !runningAsLocalSystem() || cfg.OwnerUnknown {
 		return proofs
 	}
 
@@ -48,7 +48,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 // of the profile owner, or empty when no user store would be asked. A change means a
 // collection made earlier no longer reflects what this machine can prove.
 func UserContext(cfg Config) string {
-	if !runningAsLocalSystem() {
+	if !runningAsLocalSystem() || cfg.OwnerUnknown {
 		return ""
 	}
 	user, ok := CurrentDesktopUser(cfg.ProfileOwner)

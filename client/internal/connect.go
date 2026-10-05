@@ -77,7 +77,8 @@ type ConnectClient struct {
 	// availability and sweeps connections on network change.
 	netMgr *netevents.Manager
 
-	profileOwner string
+	profileOwner        string
+	profileOwnerUnknown bool
 }
 
 // ConnectClientOption configures optional ConnectClient behavior.
@@ -92,6 +93,12 @@ func WithNetEvents(events *netevents.Manager) ConnectClientOption {
 // certificate store answers user certificate posture checks.
 func WithProfileOwner(username string) ConnectClientOption {
 	return func(c *ConnectClient) { c.profileOwner = username }
+}
+
+// WithUnknownProfileOwner records that the active profile's owner could not be
+// determined, so no user's certificate store answers certificate posture checks.
+func WithUnknownProfileOwner() ConnectClientOption {
+	return func(c *ConnectClient) { c.profileOwnerUnknown = true }
 }
 
 func NewConnectClient(
@@ -426,6 +433,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 		engineConfig.TempDir = mobileDependency.TempDir
 		engineConfig.CertStore.ProfileOwner = c.profileOwner
+		engineConfig.CertStore.OwnerUnknown = c.profileOwnerUnknown
 		// Leave StateDir empty when there is no state path so a disk-backed
 		// syncstore falls back to os.TempDir() instead of filepath.Dir("") == ".".
 		if path != "" {

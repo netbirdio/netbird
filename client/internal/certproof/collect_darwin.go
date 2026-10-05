@@ -37,6 +37,9 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 	}
 
 	proofs := CollectChallenges(ctx, DefaultStore(), challenges, peerKey)
+	if cfg.OwnerUnknown {
+		return proofs
+	}
 
 	userProofs, err := collectAsConsoleUser(ctx, cfg.ProfileOwner, challenges, peerKey)
 	if err != nil {
@@ -49,7 +52,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 // user when it owns the active profile, or empty when no user keychain would be asked. A
 // change means a collection made earlier no longer reflects what this Mac can prove.
 func UserContext(cfg Config) string {
-	if os.Geteuid() != 0 {
+	if os.Geteuid() != 0 || cfg.OwnerUnknown {
 		return ""
 	}
 	user, ok := CurrentConsoleUser()

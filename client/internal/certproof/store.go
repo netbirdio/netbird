@@ -60,10 +60,13 @@ type Store interface {
 // that account's certificate store is consulted for user certificates, so on a machine
 // with several people signed in the result does not depend on who else is logged in.
 // Empty means the profile has no owner, and only the user at the physical console counts.
+// OwnerUnknown means the owner could not be determined, and no user store is consulted:
+// guessing would let whoever sits at the console answer for the profile.
 type Config struct {
 	Dir          string
 	PKCS11       PKCS11Config
 	ProfileOwner string
+	OwnerUnknown bool
 }
 
 // FileStore reads PEM files from a directory. A file holds the chain (leaf first) and
