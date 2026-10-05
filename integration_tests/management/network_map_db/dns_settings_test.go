@@ -26,7 +26,7 @@ func TestGetDnsSettings(t *testing.T) {
 
 	// '' dns_settings_disabled_management_groups column
 	execQuery(t, ctx,
-		`insert into accounts (id, settings_peer_inactivity_expiration_enabled) values('account-4','')`)
+		`insert into accounts (id, dns_settings_disabled_management_groups) values('account-4','')`)
 
 	settings, err = conn(t, ctx).GetDnsSettings(ctx, "account-4")
 	assert.NoError(t, err)

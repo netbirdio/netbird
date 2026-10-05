@@ -15,7 +15,6 @@ import (
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
-	gormstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -26,7 +25,6 @@ var (
 	pgstore     *networkmap_pgsql.PgStore
 	sqlitestore *networkmap_sqlite.SqliteStore
 	engine      string
-	s           *gormstore.SqlStore
 )
 
 func TestMain(m *testing.M) {
@@ -39,7 +37,7 @@ func TestMain(m *testing.M) {
 		pgstore.UsingTimeZone(time.UTC)
 	case "", string(types.SqliteStoreEngine):
 		engine = string(types.SqliteStoreEngine)
-		sqlitestore, cleanup, s = createSqliteTestStore(baseData)
+		sqlitestore, cleanup = createSqliteTestStore(baseData)
 	default:
 		log.Fatalf("unsupported db '%s' in NETBIRD_STORE_ENGINE env var", kind)
 	}

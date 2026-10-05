@@ -653,6 +653,59 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
 		},
+	}
+}
+
+// migratePostAuto migrates the SQLite database to the latest schema
+func migratePostAuto(ctx context.Context, db *gorm.DB) error {
+	migrations := getMigrationsPostAuto(ctx)
+
+	for _, m := range migrations {
+		if err := m(db); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
+	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.MigrateCustomDomainValidationExpiry(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_dnslabel", "account_id", "dns_label")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateJsonToTable[types.Group](ctx, db, "peers", func(accountID, id, value string) any {
+				return &types.GroupPeer{
+					AccountID: accountID,
+					GroupID:   id,
+					PeerID:    value,
+				}
+			})
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[nbpeer.Peer](ctx, db, "idx_peers_key")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
+		},
+		// Post-auto so the per-bucket cost columns already exist when the legacy
+		// aggregates are folded into them and dropped.
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkAccessLog](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
+		},
 		func(db *gorm.DB) error {
 			return migration.FillEmptyNameserverGroupJsonColumns(ctx, db)
 		},
@@ -721,59 +774,6 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.FillEmptyAgentNetworkGuardrailJsonColumns(ctx, db)
-		},
-	}
-}
-
-// migratePostAuto migrates the SQLite database to the latest schema
-func migratePostAuto(ctx context.Context, db *gorm.DB) error {
-	migrations := getMigrationsPostAuto(ctx)
-
-	for _, m := range migrations {
-		if err := m(db); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
-	return []migrationFunc{
-		func(db *gorm.DB) error {
-			return migration.MigrateCustomDomainValidationExpiry(ctx, db)
-		},
-		func(db *gorm.DB) error {
-			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
-		},
-		func(db *gorm.DB) error {
-			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_dnslabel", "account_id", "dns_label")
-		},
-		func(db *gorm.DB) error {
-			return migration.MigrateJsonToTable[types.Group](ctx, db, "peers", func(accountID, id, value string) any {
-				return &types.GroupPeer{
-					AccountID: accountID,
-					GroupID:   id,
-					PeerID:    value,
-				}
-			})
-		},
-		func(db *gorm.DB) error {
-			return migration.DropIndex[nbpeer.Peer](ctx, db, "idx_peers_key")
-		},
-		func(db *gorm.DB) error {
-			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
-		},
-		func(db *gorm.DB) error {
-			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
-		},
-		// Post-auto so the per-bucket cost columns already exist when the legacy
-		// aggregates are folded into them and dropped.
-		func(db *gorm.DB) error {
-			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkAccessLog](ctx, db)
-		},
-		func(db *gorm.DB) error {
-			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
 		},
 	}
 }
