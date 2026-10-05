@@ -29,7 +29,7 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	ctx := context.Background()
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z",
+			Image:        "pgsty/silo:RELEASE.2026-09-16T00-00-00Z",
 			ExposedPorts: []string{"9000/tcp"},
 			Env: map[string]string{
 				"MINIO_ROOT_USER":     "minioadmin",
@@ -90,7 +90,7 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	t.Setenv(bucketVar, bucketName)
 
 	mux := http.NewServeMux()
-	err = configureS3Handlers(mux)
+	err = configureS3Handlers(mux, newTestRateLimiter(t))
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=test-file", nil)

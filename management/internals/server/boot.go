@@ -38,11 +38,11 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -171,10 +171,10 @@ func (s *BaseServer) Router() *mux.Router {
 	})
 }
 
-func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
-	return Create(s, func() *middleware.APIRateLimiter {
-		cfg, enabled := middleware.RateLimiterConfigFromEnv()
-		limiter := middleware.NewAPIRateLimiter(cfg)
+func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
+	return Create(s, func() *ratelimit.APIRateLimiter {
+		cfg, enabled := ratelimit.RateLimiterConfigFromEnv()
+		limiter := ratelimit.NewAPIRateLimiter(cfg)
 		limiter.SetEnabled(enabled)
 		return limiter
 	})

@@ -194,6 +194,14 @@ jobs:
       - name: Fill the RPM ISA provide version
         # nfpm cannot emit rpmbuild's ISA provide and GoReleaser cannot template it.
         run: bash release_files/rpm-provides.sh
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Install proxy web dependencies for license collection
+        # proxy/collect-licenses.sh reads the UI's license terms from node_modules.
+        working-directory: proxy/web
+        run: npm ci --ignore-scripts
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 #v4.1.0
       - name: Set up Docker Buildx
@@ -301,10 +309,12 @@ jobs:
           tag_and_push() {
             local src="$1" img_name tag dst variant=""
             img_name="${src%%:*}"
-            # Client variants share a repository, so keep their tag suffixes.
+            # Variants share a repository with their default image, so keep
+            # their tag suffixes. Order matters: the first matching pattern wins.
             case "$src" in
               *-rootless-ubi-amd64) variant="-rootless-ubi" ;;
               *-rootless-amd64) variant="-rootless" ;;
+              *-ubi-amd64) variant="-ubi" ;;
             esac
             for tag in $(resolve_tags); do
               dst="${img_name}:${tag}${variant}"
@@ -370,6 +380,132 @@ jobs:
           path: dist/netbird_darwin**
           retention-days: 7
 
+  # Certify and publish the rootless UBI client image in the Red Hat Ecosystem
+  # Catalog. Stable tags only: goreleaser pushes <version>-rootless-ubi to
+  # ghcr.io in the release job above, and preflight submits every architecture
+  # of that manifest list to Pyxis. Auto-publish on the component makes the new
+  # version public once certification passes.
+  redhat_certification:
+    name: "Red Hat / Certify rootless UBI image"
+    needs: release
+    if: |
+      github.repository == 'netbirdio/netbird' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref_name, '-')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      PREFLIGHT_VERSION: "1.21.0"
+      # sha256 of preflight-linux-amd64 from the 1.21.0 GitHub release.
+      # Red Hat publishes no checksum file, so the value is pinned here.
+      PREFLIGHT_SHA256: "5e653135503c72f8702bbe31d7643197d12937c68086879133dd6b9650a9a449"
+      IMAGE_REPOSITORY: "ghcr.io/netbirdio/netbird"
+      # Component "NetBird Client Container Image (rootless)" in Partner Connect.
+      # Override with the REDHAT_CERT_COMPONENT_ID repository variable if it changes.
+      DEFAULT_COMPONENT_ID: "6aa3ca4b4676aefdf07aaa97"
+    steps:
+      - name: Resolve image reference
+        id: image
+        env:
+          INPUT_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Only stable x.y.z versions are certified, got '${INPUT_VERSION}'"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "ref=${IMAGE_REPOSITORY}:${version}-rootless-ubi" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the multi-arch image is on ghcr.io
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE_REF" --raw > manifest.json
+          for arch in amd64 arm64; do
+            if ! jq -e --arg a "$arch" '.manifests[] | select(.platform.architecture == $a)' manifest.json > /dev/null; then
+              echo "::error::${IMAGE_REF} has no ${arch} manifest"
+              exit 1
+            fi
+          done
+          echo "Manifest list for ${IMAGE_REF}:"
+          jq -r '.manifests[] | "\(.platform.os)/\(.platform.architecture) \(.digest)"' manifest.json
+
+      - name: Install preflight
+        run: |
+          set -euo pipefail
+          curl -fsSL --proto '=https' --proto-redir '=https' -o preflight \
+            "https://github.com/redhat-openshift-ecosystem/openshift-preflight/releases/download/${PREFLIGHT_VERSION}/preflight-linux-amd64"
+          echo "${PREFLIGHT_SHA256}  preflight" | sha256sum -c -
+          chmod +x preflight
+          ./preflight --version
+
+      - name: Run preflight checks and submit to Red Hat
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          PFLT_PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
+          PFLT_CERTIFICATION_COMPONENT_ID: ${{ vars.REDHAT_CERT_COMPONENT_ID || env.DEFAULT_COMPONENT_ID }}
+          PFLT_ARTIFACTS: artifacts
+          PFLT_LOGFILE: artifacts/preflight.log
+          PFLT_LOGLEVEL: info
+          PFLT_JUNIT: "true"
+        run: |
+          set -euo pipefail
+          # No --platform: preflight walks the manifest list and submits every
+          # architecture in one run, grouped under one manifest-list digest.
+          ./preflight check container "$IMAGE_REF" --submit
+
+      - name: Fail if any check did not pass
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          results=(artifacts/results.json artifacts/*/results.json)
+          if [[ ${#results[@]} -eq 0 ]]; then
+            echo "::error::preflight produced no results.json"
+            exit 1
+          fi
+          status=0
+          for f in "${results[@]}"; do
+            arch="$(basename "$(dirname "$f")")"
+            passed="$(jq -r '.passed' "$f")"
+            failed="$(jq -r '[.results.failed[]?.name] | join(", ")' "$f")"
+            echo "${arch}: passed=${passed} ${failed:+failed checks: ${failed}}"
+            [[ "$passed" == "true" ]] || status=1
+          done
+          exit $status
+
+      - name: Upload preflight artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: redhat-preflight-${{ steps.image.outputs.version }}
+          path: artifacts/
+          retention-days: 30
+
+      - name: Wait for Pyxis to mark both architectures certified
+        env:
+          VERSION: ${{ steps.image.outputs.version }}
+          PFLT_PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
+          COMPONENT_ID: ${{ vars.REDHAT_CERT_COMPONENT_ID || env.DEFAULT_COMPONENT_ID }}
+        run: |
+          set -euo pipefail
+          tag="${VERSION}-rootless-ubi"
+          url="https://catalog.redhat.com/api/containers/v1/projects/certification/id/${COMPONENT_ID}/images?page_size=100"
+          for attempt in $(seq 1 20); do
+            certified="$(curl -fsS --proto '=https' --proto-redir '=https' -H "X-API-KEY: ${PFLT_PYXIS_API_TOKEN}" "$url" \
+              | jq -r --arg t "$tag" '[.data[] | select(.repositories[]?.tags[]?.name == $t) | select(.certified == true) | .architecture] | unique | join(",")')"
+            echo "attempt ${attempt}: certified architectures for ${tag}: ${certified:-none}"
+            if [[ "$certified" == "amd64,arm64" ]]; then
+              echo "Both architectures certified. Auto-publish is enabled on the component, so the catalog updates on its own."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::warning::Pyxis has not marked both architectures certified after 10 minutes. Check https://connect.redhat.com/component/view/${COMPONENT_ID}/images"
+
   release_ui:
     runs-on: ubuntu-latest
     outputs:
@@ -424,12 +560,12 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11
 
@@ -561,12 +697,12 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11
 
@@ -658,11 +794,11 @@ jobs:
       - name: check git status
         run: git --no-pager diff --exit-code
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Set up pnpm
-        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11
       - name: Install wails3 CLI
@@ -781,7 +917,7 @@ jobs:
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/ShellExecAsUser_amd64-Unicode.7z"
 
       - name: Set up Go for wails3 CLI
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
           cache: false
