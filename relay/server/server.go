@@ -104,13 +104,13 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 // the connections will be forcefully closed.
 func (r *Server) Shutdown(ctx context.Context) error {
 	r.listenerMux.Lock()
-	defer r.listenerMux.Unlock()
-
 	r.closed = true
+	listeners := r.listeners
+	r.listeners = nil
+	r.listenerMux.Unlock()
+
 	r.relay.Shutdown(ctx)
-	err := shutdownListeners(ctx, r.listeners)
-	r.listeners = r.listeners[:0]
-	return err
+	return shutdownListeners(ctx, listeners)
 }
 
 func (r *Server) ListenerProtocols() []protocol.Protocol {
