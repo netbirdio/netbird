@@ -25,7 +25,7 @@ func GenerateV1ApiBindings(openapipath string) ([]byte, *v3.Document, error) {
 	multiFileDoc, err := libopenapi.NewDocumentWithConfiguration(specFile, &datamodel.DocumentConfiguration{
 		AllowFileReferences:     true,
 		BasePath:                filepath.Dir(openapipath),
-		SpecFilePath:            filepath.Join(openapipath),
+		SpecFilePath:            openapipath,
 		ExtractRefsSequentially: true,
 		Logger: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelError,

@@ -17,7 +17,7 @@ func (Openapi) GenerateV1Bindings(generateflags *string) error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(filepath.Join(apiPath, "bundle.yaml"), bundle, 0644)
+	err = os.WriteFile(filepath.Join(apiPath, "bundle.yaml"), bundle, 0644) //nolint:gosec
 	if err != nil {
 		return err
 	}
@@ -27,5 +27,5 @@ func (Openapi) GenerateV1Bindings(generateflags *string) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(apiPath, "types.gen.go"), generated.Source, 0644)
+	return os.WriteFile(filepath.Join(apiPath, "types.gen.go"), generated.Source, 0644) //nolint:gosec
 }

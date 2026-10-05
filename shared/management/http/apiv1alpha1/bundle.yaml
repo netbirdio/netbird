@@ -648,6 +648,17 @@ components:
         type: string
         example: cot7r4n3l3vh3qj4qveg
       example: cot7r4n3l3vh3qj4qveg
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    TokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >-
+        Enter the token with the `Token` prefix, e.g. "Token nbp_F3f0d.....".
   pathItems:
     peers:
       get:

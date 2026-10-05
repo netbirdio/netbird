@@ -17,8 +17,6 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -40,82 +38,9 @@ func NewHandler(accountManager account.Manager, networkMapController network_map
 }
 
 func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
-	// router.HandleFunc("/peers", h.GetTestAllPeers).Methods("GET", "OPTIONS")
-	// router.HandleFunc("/peers/{peerId}", h.HandleTestPeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers", h.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", h.HandlePeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
 	return router
-}
-
-func (h *Handler) getTestPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
-	p := &apiv1alpha1.Peer{
-		PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"},
-	}
-	util.WriteJSONObject(ctx, w, p)
-}
-
-func (h *Handler) updateTestPeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
-	req := &apiv1alpha1.PeerRequest{}
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	update := &nbpeer.Peer{
-		ID:                     peerID,
-		SSHEnabled:             req.SshEnabled,
-		Name:                   req.Name,
-		LoginExpirationEnabled: req.LoginExpirationEnabled,
-
-		InactivityExpirationEnabled: req.InactivityExpirationEnabled,
-	}
-
-	util.WriteJSONObject(r.Context(), w, update)
-}
-
-func (h *Handler) deleteTestPeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
-	util.WriteJSONObject(ctx, w, util.EmptyObject{})
-}
-
-func (h *Handler) GetTestAllPeers(w http.ResponseWriter, r *http.Request) {
-	respBody := []*apiv1alpha1.PeerBatch{
-		{Peer: apiv1alpha1.Peer{PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"}}},
-	}
-
-	fmt.Println("page: " + r.URL.Query().Get("page"))
-	fmt.Println("page_size: " + r.URL.Query().Get("page_size"))
-	fmt.Println("approval_required: " + r.URL.Query().Get("approval_required") + " " + fmt.Sprintf("%v", r.URL.Query().Has("approval_required")))
-	fmt.Println("os: " + r.URL.Query().Get("os"))
-	fmt.Println("search: " + r.URL.Query().Get("search"))
-	fmt.Println("")
-
-	util.WriteJSONObject(r.Context(), w, respBody)
-
-}
-
-func (h *Handler) HandleTestPeer(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	peerID := vars["peerId"]
-	if len(peerID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
-		return
-	}
-
-	switch r.Method {
-	case http.MethodDelete:
-		h.deleteTestPeer(r.Context(), "", "", peerID, w, r)
-		return
-	case http.MethodGet:
-		h.getTestPeer(r.Context(), "", peerID, "", w)
-		return
-	case http.MethodPut:
-		h.updateTestPeer(r.Context(), "", "", peerID, w, r)
-		return
-	default:
-		util.WriteError(r.Context(), status.Errorf(status.NotFound, "unknown METHOD"), w)
-	}
-
 }
 
 func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
@@ -353,43 +278,6 @@ func parseIPv6(s *string) (netip.Addr, error) {
 	return addr, nil
 }
 
-// toAccessiblePeers resolves the twin peers in netMap back to the full account
-// peers (by ID) so the API response keeps Status/Name/OS/GeoNameID, which the
-// slim netmap twins intentionally don't carry.
-func toAccessiblePeers(accountPeers map[string]*nbpeer.Peer, netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
-	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	appendByID := func(id string) {
-		if p, ok := accountPeers[id]; ok && p != nil {
-			accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
-		}
-	}
-	for _, p := range netMap.Peers {
-		appendByID(p.ID)
-	}
-	for _, p := range netMap.OfflinePeers {
-		appendByID(p.ID)
-	}
-
-	return accessiblePeers
-}
-
-func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePeer {
-	return api.AccessiblePeer{
-		CityName:    peer.Location.CityName,
-		Connected:   peer.Status.Connected,
-		CountryCode: peer.Location.CountryCode,
-		DnsLabel:    fqdn(peer, dnsDomain),
-		GeonameId:   int(peer.Location.GeoNameID),
-		Id:          peer.ID,
-		Ip:          peer.IP.String(),
-		Ipv6:        peerIPv6String(peer),
-		LastSeen:    peer.Status.LastSeen,
-		Name:        peer.Name,
-		Os:          peer.Meta.OS,
-		UserId:      peer.UserID,
-	}
-}
-
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMinimum, dnsDomain string, approved bool, reason string) *apiv1alpha1.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
@@ -502,28 +390,6 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMin
 			},
 		},
 	}
-}
-
-func toSingleJobResponse(job *types.Job) (*api.JobResponse, error) {
-	workload, err := job.BuildWorkloadResponse()
-	if err != nil {
-		return nil, err
-	}
-
-	var failed *string
-	if job.FailedReason != "" {
-		failed = &job.FailedReason
-	}
-
-	return &api.JobResponse{
-		Id:           job.ID,
-		CreatedAt:    job.CreatedAt,
-		CompletedAt:  job.CompletedAt,
-		TriggeredBy:  job.TriggeredBy,
-		Status:       api.JobResponseStatus(job.Status),
-		FailedReason: failed,
-		Workload:     *workload,
-	}, nil
 }
 
 func fqdn(peer *nbpeer.Peer, dnsDomain string) string {

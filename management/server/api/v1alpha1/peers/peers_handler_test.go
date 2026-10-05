@@ -260,6 +260,7 @@ func TestGetPeers(t *testing.T) {
 		expectedStatus int
 		requestType    string
 		requestPath    string
+		contentType    string
 		requestBody    io.Reader
 		expectedArray  bool
 		expectedPeer   *nbpeer.Peer
@@ -284,14 +285,13 @@ func TestGetPeers(t *testing.T) {
 			name:           "PutPeer",
 			requestType:    http.MethodPut,
 			requestPath:    "/peers/" + testPeerID,
+			contentType:    "application/json",
 			expectedStatus: http.StatusOK,
 			expectedArray:  false,
-			requestBody:    bytes.NewBufferString("{\"login_expiration_enabled\":true,\"name\":\"New Name\",\"ssh_enabled\":true}"),
+			requestBody:    bytes.NewBufferString("{\"login_expiration_enabled\":true,\"name\":\"New Name\",\"ssh_enabled\":true, \"inactivity_expiration_enabled\":true}"),
 			expectedPeer:   expectedUpdatedPeer,
 		},
 	}
-
-	rr := httptest.NewRecorder()
 
 	p := initTestMetaData(t, peer, peer1)
 
@@ -305,6 +305,9 @@ func TestGetPeers(t *testing.T) {
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
 			})
+			if tc.contentType != "" {
+				req.Header.Set("Content-Type", tc.contentType)
+			}
 
 			v1validator, err := apiv1alpha1.CreateV1ApiValidatingMiddleware()
 			assert.NoError(t, err)
@@ -317,7 +320,7 @@ func TestGetPeers(t *testing.T) {
 			res := recorder.Result()
 			defer res.Body.Close()
 
-			if status := rr.Code; status != tc.expectedStatus {
+			if status := recorder.Code; status != tc.expectedStatus {
 				t.Fatalf("handler returned wrong status code: got %v want %v",
 					status, http.StatusOK)
 			}

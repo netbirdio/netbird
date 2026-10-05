@@ -175,7 +175,7 @@ func (s *BaseServer) APIHandler() http.Handler {
 			apiRouter := router.PathPrefix(apiPrefix).Subrouter()
 			_, err := nbhttp.NewAPIHandler(
 				context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
-				s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
+				s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
 				s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
 				s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
 				s.AgentNetworkManager(), nil)
@@ -210,7 +210,7 @@ func (s *BaseServer) IDPHandler() http.Handler {
 }
 
 func (s *BaseServer) Router() *mux.Router {
-	return Create(s, func() *mux.Router {
+	return Create(s, func() *mux.Router { //nolint:unlambda
 		return mux.NewRouter()
 	})
 }

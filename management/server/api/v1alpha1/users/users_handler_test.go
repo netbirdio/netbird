@@ -15,8 +15,6 @@ import (
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
@@ -449,33 +447,4 @@ func TestDeleteUser(t *testing.T) {
 			}
 		})
 	}
-}
-
-func ptr[T any, PT *T](x T) PT {
-	return &x
-}
-
-func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
-	permissions := roles.Permissions{}
-
-	for k := range modules.All {
-		if rolePermissions, ok := role.Permissions[k]; ok {
-			permissions[k] = rolePermissions
-			continue
-		}
-		permissions[k] = role.AutoAllowNew
-	}
-
-	return permissions
-}
-
-func stringifyPermissionsKeys(permissions roles.Permissions) map[string]map[string]bool {
-	modules := make(map[string]map[string]bool)
-	for module, operations := range permissions {
-		modules[string(module)] = make(map[string]bool)
-		for op, val := range operations {
-			modules[string(module)][string(op)] = val
-		}
-	}
-	return modules
 }

@@ -193,7 +193,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticheck
 	})
 
 	require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticheck
 	})
 
 	require.NoError(t, err)
@@ -238,7 +238,7 @@ func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticheck
 	})
 
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) 
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "all-users-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticheck
 	})
 
 	require.NoError(t, err)
@@ -286,7 +286,7 @@ func TestValidateSession_BlockedUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticheck
 	})
 
 	require.NoError(t, err)
@@ -489,15 +489,15 @@ func (m *testValidateSessionServiceManager) GetAllServices(_ context.Context, _,
 }
 
 func (m *testValidateSessionServiceManager) GetService(_ context.Context, _, _, _ string) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) DeleteService(_ context.Context, _, _, _ string) error {
@@ -541,7 +541,7 @@ func (m *testValidateSessionServiceManager) GetServiceIDByTargetID(_ context.Con
 }
 
 func (m *testValidateSessionServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
@@ -569,7 +569,7 @@ func (m *testValidateSessionServiceManager) DeleteAccountCluster(_ context.Conte
 type testValidateSessionProxyManager struct{}
 
 func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _, _, _ string, _ *string, _ *proxy.Capabilities) (*proxy.Proxy, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _, _ string) error {

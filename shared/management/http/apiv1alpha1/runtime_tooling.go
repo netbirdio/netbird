@@ -29,6 +29,9 @@ func CreateV1ApiValidatingMiddleware() (*V1ValidatorMiddleware, error) {
 			Level: slog.LevelInfo,
 		})),
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	model, err := doc.BuildV3Model()
 	if err != nil {
