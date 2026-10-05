@@ -30,7 +30,7 @@ func TestServer_ShutdownBeforeListen(t *testing.T) {
 		errChan <- srv.Listen(ListenerConfig{Address: addr})
 	}()
 
-	assert.NoError(t, waitForListenToReturn(t, errChan))
+	assert.NoError(t, waitForReturn(t, "Listen", errChan))
 	assert.Empty(t, srv.ListenerProtocols(), "a shut down server must not register listeners")
 	requireAddressFree(t, addr)
 }
@@ -47,7 +47,7 @@ func TestServer_ShutdownStopsListen(t *testing.T) {
 	waitForListeners(t, srv, errChan)
 
 	require.NoError(t, srv.Shutdown(context.Background()))
-	assert.NoError(t, waitForListenToReturn(t, errChan))
+	assert.NoError(t, waitForReturn(t, "Listen", errChan))
 	requireAddressFree(t, addr)
 }
 
@@ -73,8 +73,8 @@ func TestServer_ConcurrentListenAndShutdown(t *testing.T) {
 
 			// Either side may take the lock first: Listen then returns without binding,
 			// or Shutdown stops its accept loops. Listen must return in both cases.
-			assert.NoError(t, waitForListenToReturn(t, listenErr))
-			assert.NoError(t, <-shutdownErr)
+			assert.NoError(t, waitForReturn(t, "Listen", listenErr))
+			assert.NoError(t, waitForReturn(t, "Shutdown", shutdownErr))
 			assert.Empty(t, srv.ListenerProtocols(), "no listener may stay registered after shutdown")
 			requireAddressFree(t, addr)
 		})
@@ -93,7 +93,7 @@ func TestServer_ListenReturnsBindError(t *testing.T) {
 		errChan <- srv.Listen(ListenerConfig{Address: addr})
 	}()
 
-	assert.Error(t, waitForListenToReturn(t, errChan), "Listen must return the bind error instead of serving")
+	assert.Error(t, waitForReturn(t, "Listen", errChan), "Listen must return the bind error instead of serving")
 	assert.Empty(t, srv.ListenerProtocols(), "a failed Listen must not register listeners")
 
 	require.NoError(t, blocker.Close())
@@ -113,7 +113,7 @@ func TestServer_ListenRollsBackOnBindError(t *testing.T) {
 		errChan <- srv.Listen(ListenerConfig{Address: addr, TLSConfig: tlsCfg})
 	}()
 
-	err = waitForListenToReturn(t, errChan)
+	err = waitForReturn(t, "Listen", errChan)
 	require.Error(t, err, "Listen must fail when the QUIC port is taken")
 	assert.ErrorContains(t, err, string(quic.Proto)+" listener", "the QUIC listener must be the one that failed to bind")
 	assert.Empty(t, srv.ListenerProtocols(), "a failed Listen must not register listeners")
@@ -177,13 +177,13 @@ func waitForListeners(t *testing.T, srv *Server, errChan <-chan error) {
 	}
 }
 
-func waitForListenToReturn(t *testing.T, errChan <-chan error) error {
+func waitForReturn(t *testing.T, op string, errChan <-chan error) error {
 	t.Helper()
 	select {
 	case err := <-errChan:
 		return err
 	case <-time.After(5 * time.Second):
-		t.Fatal("Listen did not return")
+		t.Fatalf("%s did not return", op)
 		return nil
 	}
 }
