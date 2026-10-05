@@ -306,7 +306,12 @@ func TestGetPeers(t *testing.T) {
 				AccountId: "test_id",
 			})
 
-			router := p.WithEndpointsForRouter(mux.NewRouter())
+			v1validator, err := apiv1alpha1.CreateV1ApiValidatingMiddleware()
+			assert.NoError(t, err)
+			router := mux.NewRouter()
+			router.Use(v1validator.Handler)
+
+			router = p.WithEndpointsForRouter(router)
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -390,7 +395,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 		{
 			name:           "update peer IP successfully",
 			peerID:         testPeerID,
-			requestBody:    `{"ip": "100.64.0.100"}`,
+			requestBody:    `{"name":"test", "ssh_enabled":true, "login_expiration_enabled":true, "inactivity_expiration_enabled":true, "ip": "100.64.0.100"}`,
 			callerUserID:   adminUser,
 			expectedStatus: http.StatusOK,
 			expectedIP:     "100.64.0.100",
@@ -398,7 +403,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 		{
 			name:           "update peer IP with invalid IP",
 			peerID:         testPeerID,
-			requestBody:    `{"ip": "invalid-ip"}`,
+			requestBody:    `{"name":"test", "ssh_enabled":true, "login_expiration_enabled":true, "inactivity_expiration_enabled":true, "ip": "invalid-ip"}`,
 			callerUserID:   adminUser,
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
@@ -415,9 +420,13 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 			})
 
 			rr := httptest.NewRecorder()
-			router := mux.NewRouter()
-			router.HandleFunc("/peers/{peerId}", p.HandlePeer).Methods("PUT")
 
+			v1validator, err := apiv1alpha1.CreateV1ApiValidatingMiddleware()
+			assert.NoError(t, err)
+			router := mux.NewRouter()
+			router.Use(v1validator.Handler)
+
+			router = p.WithEndpointsForRouter(router)
 			router.ServeHTTP(rr, req)
 
 			assert.Equal(t, tc.expectedStatus, rr.Code)
