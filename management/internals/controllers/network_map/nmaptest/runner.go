@@ -245,7 +245,7 @@ func computeMode(t *testing.T, ctx context.Context, mode Mode, nmData *networkma
 		peerGroups := maps.Keys(nmData.GetPeerGroups(peerID))
 		resp := mgmtgrpc.ToComponentSyncResponse(ctx, nil, nil, nil, peer, nil, nil, components, nil,
 			dnsDomain, nil, nmData.AccountSettings, nil, peerGroups, dnsFwdPort)
-		res, err := networkmap.EnvelopeToNetworkMap(ctx, resp.NetworkMapEnvelope, peer.Key, dnsDomain)
+		res, err := networkmap.EnvelopeToNetworkMap(ctx, resp.NetworkMapEnvelope, peer.Key, dnsDomain, false)
 		require.NoError(t, err, "expand envelope")
 		return res.NetworkMap
 	default:
