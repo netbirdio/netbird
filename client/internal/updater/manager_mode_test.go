@@ -152,3 +152,26 @@ func Test_ResetMode_SilencesStaleForceDirective(t *testing.T) {
 		t.Fatalf("expected enforced event after a fresh directive, got %q enforced=%v", ver, enforced)
 	}
 }
+
+func Test_SetVersion_MalformedFallsBackToDownloadOnly(t *testing.T) {
+	tmpFile := path.Join(t.TempDir(), "update-test-malformed.json")
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	m := NewManager(recorder, statemanager.New(tmpFile))
+	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	m.Start(context.Background())
+	defer m.Stop()
+
+	m.SetVersion("not-a-version", false)
+	ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
+	if ver != "1.0.1" {
+		t.Fatalf("expected download-only event for 1.0.1 after malformed version, got %q", ver)
+	}
+	if enforced {
+		t.Error("malformed version fallback must not carry enforced metadata")
+	}
+}

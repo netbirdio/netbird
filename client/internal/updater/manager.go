@@ -190,7 +190,12 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 	if expectedVersion != latestVersion {
 		parsed, err := v.NewVersion(expectedVersion)
 		if err != nil {
-			log.Errorf("error parsing version: %v", err)
+			log.Errorf("error parsing version, switching to download-only: %v", err)
+			m.setModeLocked(modeDownloadOnly)
+			select {
+			case m.mgmUpdateChan <- struct{}{}:
+			default:
+			}
 			return
 		}
 		if m.mode == modeManaged && m.expectedVersion != nil && m.expectedVersion.Equal(parsed) {
