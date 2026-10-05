@@ -820,3 +820,24 @@ func TestWarningNeverPrecedesTheDeadlineStateChange(t *testing.T) {
 		t.Fatalf("event[1] should be the warning, got %+v", events)
 	}
 }
+
+// TestUpdateWakesTheLoopWithoutWaitingForATick pins the hand-off: Update
+// publishes nothing itself, it nudges the evaluation loop, so a deadline that
+// already sits inside a warning window is warned about at once even though the
+// ticker here would not fire for an hour.
+func TestUpdateWakesTheLoopWithoutWaitingForATick(t *testing.T) {
+	r := &fakeRecorder{}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	w.interval = time.Hour
+	t.Cleanup(w.Close)
+
+	d := time.Now().Add(5 * time.Minute).Round(0)
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the warning on the wake-up, got %+v", events[1])
+	}
+}

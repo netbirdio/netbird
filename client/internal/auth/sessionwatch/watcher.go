@@ -120,6 +120,7 @@ type Watcher struct {
 	nowFn        func() time.Time
 	stop         chan struct{} // closed to stop the evaluation loop; nil while it is not running
 	done         chan struct{} // closed by the loop on its way out
+	wake         chan struct{} // buffered nudge asking the loop to evaluate before its next tick
 }
 
 // New returns a watcher with the package defaults WarningLead and
@@ -235,9 +236,18 @@ func (w *Watcher) Update(deadline time.Time) error {
 		return nil
 	}
 	w.announcedAt = deadline
+	wake := w.wake
 	w.mu.Unlock()
 
-	w.evaluate()
+	// Hand the evaluation to the loop rather than running it here, so a
+	// deadline that already sits inside a warning window is published at
+	// once without this goroutine ever touching the recorder.
+	if wake != nil {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 
@@ -292,7 +302,7 @@ func (w *Watcher) Close() {
 	// loop takes w.mu on every tick, so waiting for it while holding the
 	// lock would deadlock.
 	stop, done := w.stop, w.done
-	w.stop, w.done = nil, nil
+	w.stop, w.done, w.wake = nil, nil, nil
 	w.mu.Unlock()
 
 	if stop == nil {
@@ -336,14 +346,17 @@ func (w *Watcher) startPollLocked() {
 	}
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	w.stop, w.done = stop, done
-	go w.poll(stop, done, w.interval)
+	wake := make(chan struct{}, 1)
+	w.stop, w.done, w.wake = stop, done, wake
+	go w.poll(stop, done, wake, w.interval)
 }
 
-// poll re-evaluates the tracked deadline every interval. Its channels and
-// interval are passed in rather than read off the receiver, so Close can
-// clear them without racing the goroutine.
-func (w *Watcher) poll(stop <-chan struct{}, done chan<- struct{}, interval time.Duration) {
+// poll re-evaluates the tracked deadline every interval, and as soon as a
+// new deadline is announced. It is the only caller of evaluate, so Close
+// waiting for it to exit is enough to know no warning is still on its way
+// to the recorder. Its channels and interval are passed in rather than
+// read off the receiver, so Close can clear them without racing it.
+func (w *Watcher) poll(stop <-chan struct{}, done chan<- struct{}, wake <-chan struct{}, interval time.Duration) {
 	defer close(done)
 
 	ticker := time.NewTicker(interval)
@@ -353,6 +366,8 @@ func (w *Watcher) poll(stop <-chan struct{}, done chan<- struct{}, interval time
 		select {
 		case <-stop:
 			return
+		case <-wake:
+			w.evaluate()
 		case <-ticker.C:
 			w.evaluate()
 		}
