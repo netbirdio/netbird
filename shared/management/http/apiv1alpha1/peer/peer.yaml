@@ -43,6 +43,7 @@ put:
       description: The unique identifier of a peer
   requestBody:
     description: update a peer
+    required: true
     content:
       'application/json':
         schema:

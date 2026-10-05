@@ -38,6 +38,7 @@ UsersPath:
       - TokenAuth: [ ]
     requestBody:
       description: User invite information
+      required: true
       content:
         'application/json':
           schema:
@@ -74,6 +75,7 @@ UserPath:
         description: The unique identifier of a user
     requestBody:
       description: User update
+      required: true
       content:
         'application/json':
           schema:

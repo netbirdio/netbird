@@ -702,7 +702,7 @@ components:
                   - js
           - name: search
             in: query
-            description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names
+            description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names, mac
             required: false
             schema:
               type: string
@@ -774,6 +774,7 @@ components:
             description: The unique identifier of a peer
         requestBody:
           description: update a peer
+          required: true
           content:
             'application/json':
               schema:
@@ -862,6 +863,7 @@ components:
           - TokenAuth: []
         requestBody:
           description: User invite information
+          required: true
           content:
             'application/json':
               schema:
@@ -899,6 +901,7 @@ components:
             description: The unique identifier of a user
         requestBody:
           description: User update
+          required: true
           content:
             'application/json':
               schema:
