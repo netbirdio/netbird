@@ -3,6 +3,7 @@ package pkcs11
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,9 +20,9 @@ func TestParseURI(t *testing.T) {
 	}{
 		{
 			name:       "token with module path and pin value",
-			raw:        "pkcs11:token=netbird?module-path=/usr/lib/libtpm2_pkcs11.so&pin-value=1234",
+			raw:        "pkcs11:token=netbird?module-path=" + absModule("libtpm2_pkcs11.so") + "&pin-value=1234",
 			wantToken:  "netbird",
-			wantModule: "/usr/lib/libtpm2_pkcs11.so",
+			wantModule: absModule("libtpm2_pkcs11.so"),
 			wantPIN:    []byte("1234"),
 		},
 		{
@@ -74,7 +75,7 @@ func TestParseURI_Rejections(t *testing.T) {
 		"object selector":         "pkcs11:token=netbird;object=device",
 		"vendor path attribute":   "pkcs11:token=netbird;vendor-slot=2",
 		"duplicate token":         "pkcs11:token=a;token=b",
-		"duplicate module-path":   "pkcs11:token=a?module-path=/lib/a.so&module-path=/lib/b.so",
+		"duplicate module-path":   "pkcs11:token=a?module-path=" + absModule("a.so") + "&module-path=" + absModule("b.so"),
 		"duplicate pin-value":     "pkcs11:token=a?pin-value=1&pin-value=2",
 		"relative module-path":    "pkcs11:token=a?module-path=lib/x.so",
 		"bare module-path":        "pkcs11:token=a?module-path=libtpm2_pkcs11.so",
@@ -105,4 +106,13 @@ func TestURI_PINFromFile(t *testing.T) {
 	require.NoError(t, err)
 	_, err = uri.PIN()
 	assert.Error(t, err, "a missing PIN file must fail loudly instead of logging in without a PIN")
+}
+
+// absModule is an absolute module path on the platform the test runs on, as module-path
+// must be absolute.
+func absModule(name string) string {
+	if runtime.GOOS == "windows" {
+		return `C:\lib\` + name
+	}
+	return "/lib/" + name
 }

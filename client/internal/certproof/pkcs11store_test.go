@@ -11,6 +11,7 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -311,7 +312,7 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 		wantModule string
 	}{
 		{"pin with a token label opens that token through p11-kit", PKCS11Config{URI: "pkcs11:token=netbird", PIN: "1234"}, []byte("1234"), pkcs11.DefaultModule},
-		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:token=netbird?module-path=/lib/x.so&pin-value=0000", PIN: "1234"}, []byte("1234"), "/lib/x.so"},
+		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:token=netbird?module-path=" + absModule("x.so") + "&pin-value=0000", PIN: "1234"}, []byte("1234"), absModule("x.so")},
 		{"uri pin-value stands in for a missing field", PKCS11Config{URI: "pkcs11:token=netbird?pin-value=0000"}, []byte("0000"), pkcs11.DefaultModule},
 		{"no pin at all means no login", PKCS11Config{URI: "pkcs11:token=netbird"}, nil, pkcs11.DefaultModule},
 	}
@@ -331,7 +332,7 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 
 	for name, cfg := range map[string]PKCS11Config{
 		"env pin without uri":      {PIN: "1234"},
-		"env pin, uri lacks token": {URI: "pkcs11:?module-path=/lib/x.so", PIN: "1234"},
+		"env pin, uri lacks token": {URI: "pkcs11:?module-path=" + absModule("x.so"), PIN: "1234"},
 		"inline pin-value only":    {URI: "pkcs11:?pin-value=0000"},
 		"pin-source only":          {URI: "pkcs11:?pin-source=file:/etc/netbird/pkcs11.pin"},
 	} {
@@ -361,4 +362,13 @@ func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
 	require.NoError(t, err)
 	_, err = good.Candidates(context.Background())
 	assert.NoError(t, err, "the correct PIN for the same token is unaffected")
+}
+
+// absModule is an absolute module path on the platform the test runs on, as module-path
+// must be absolute.
+func absModule(name string) string {
+	if runtime.GOOS == "windows" {
+		return `C:\lib\` + name
+	}
+	return "/lib/" + name
 }
