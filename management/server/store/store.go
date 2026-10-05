@@ -653,6 +653,75 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
 		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyNameserverGroupJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyPeerJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptySettingsJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyPolicyJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyPolicyRuleJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyRouteJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyServiceJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyServiceTargetsJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAccountNetworkJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyNetworkResourceJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyNetworkRouterJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAccountDnsSettingsJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyUserJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyPostureCheckJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptySetupKeyJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyUserInvitesJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyGroupJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyZoneJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAccessLogEntryJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAccountBudgetRulesJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAgentNetworkPolicyJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAgentNetworkProviderJsonColumns(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FillEmptyAgentNetworkGuardrailJsonColumns(ctx, db)
+		},
 	}
 }
 
