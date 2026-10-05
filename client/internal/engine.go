@@ -275,6 +275,13 @@ type Engine struct {
 
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
+	// pendingChecks are received checks whose meta sync timed out gathering the system
+	// info; the posture watcher retries them. Both are guarded by syncMsgMux, and
+	// hasPendingChecks lets the watcher skip the lock when nothing is pending.
+	pendingChecks    []*mgmProto.Checks
+	hasPendingChecks atomic.Bool
+	// infoTimeout overrides systemInfoTimeout when set.
+	infoTimeout time.Duration
 
 	// certProofs answers the certificate challenges in checks within a bounded time, and
 	// certState remembers what it last proved.
@@ -1247,16 +1254,34 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	// if checks are equal, we skip the update
 	if isChecksEqual(e.checks, checks) {
+		e.clearPendingChecks()
 		return nil
 	}
 	if err := e.syncChecksMeta(checks); err != nil {
 		if errors.Is(err, errSystemInfoTimeout) {
+			e.pendingChecks = checks
+			e.hasPendingChecks.Store(true)
 			return nil
 		}
 		return err
 	}
 	e.checks = checks
+	e.clearPendingChecks()
 	return nil
+}
+
+// clearPendingChecks drops checks whose meta sync was still owed. The caller holds
+// syncMsgMux.
+func (e *Engine) clearPendingChecks() {
+	e.pendingChecks = nil
+	e.hasPendingChecks.Store(false)
+}
+
+func (e *Engine) infoGatherTimeout() time.Duration {
+	if e.infoTimeout > 0 {
+		return e.infoTimeout
+	}
+	return systemInfoTimeout
 }
 
 // applyInfoFlags sets the engine's config-derived feature flags on the gathered system info.
@@ -1499,7 +1524,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.checks, e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}

@@ -132,11 +132,40 @@ func (e *Engine) watchCertificatePosture(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if err := e.retryPendingChecks(); err != nil {
+				if !errors.Is(err, errSystemInfoTimeout) {
+					log.Warnf("failed to sync posture checks that timed out before: %v", err)
+				}
+				continue
+			}
 			if err := e.recollectCertificateProofsIfStale(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
 				log.Warnf("failed to refresh certificate posture proofs: %v", err)
 			}
 		}
 	}
+}
+
+// retryPendingChecks sends the meta sync for checks whose earlier sync timed out
+// gathering the system info, and applies them once it succeeds. Without it they would
+// wait for the next network map that changes the checks.
+func (e *Engine) retryPendingChecks() error {
+	if !e.hasPendingChecks.Load() {
+		return nil
+	}
+
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	if e.ctx.Err() != nil || !e.hasPendingChecks.Load() {
+		return nil
+	}
+	checks := e.pendingChecks
+	log.Debugf("posture checks: retrying the meta sync that timed out")
+	if err := e.syncChecksMeta(checks); err != nil {
+		return err
+	}
+	e.checks = checks
+	e.clearPendingChecks()
+	return nil
 }
 
 func (e *Engine) recollectCertificateProofsIfStale() error {
@@ -157,10 +186,10 @@ func (e *Engine) recollectCertificateProofsIfStale() error {
 // syncChecksMeta gathers the system info that checks evaluate, with its certificate
 // proofs, and sends it to management. The caller holds syncMsgMux.
 func (e *Engine) syncChecksMeta(checks []*mgmProto.Checks) error {
-	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
-		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
+		// sync loop (and syncMsgMux) on a stuck system call. The posture watcher retries.
 		return errSystemInfoTimeout
 	}
 	e.applyInfoFlags(info)

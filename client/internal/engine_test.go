@@ -359,6 +359,63 @@ func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
 	assert.Equal(t, 2, syncMetaCalls)
 }
 
+// TestEngine_PendingChecksRetriedAfterInfoTimeout covers a check update whose system info
+// gathering times out: the update is kept pending rather than dropped, and the posture
+// watcher's retry sends it and applies the checks, without waiting for management to
+// send different checks.
+func TestEngine_PendingChecksRetriedAfterInfoTimeout(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	var synced []*system.Info
+	mgmClient := &mgmt.MockClient{
+		SyncMetaFunc: func(info *system.Info) error {
+			synced = append(synced, info)
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun106",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33101,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checks := []*mgmtProto.Checks{{Files: []string{exe}}}
+
+	// Gathering cannot finish within a nanosecond, so the sync times out.
+	engine.infoTimeout = time.Nanosecond
+	require.NoError(t, engine.updateChecksIfNew(checks), "a timed-out gathering is not an error")
+	assert.Empty(t, synced, "nothing is sent when gathering timed out")
+	assert.Nil(t, engine.checks, "timed-out checks are not applied")
+	require.True(t, engine.hasPendingChecks.Load(), "timed-out checks are kept pending")
+
+	engine.infoTimeout = 0
+	require.NoError(t, engine.retryPendingChecks())
+	require.Len(t, synced, 1, "the retry sends the meta sync")
+	assert.Len(t, synced[0].Files, 1, "the retry evaluates the pending checks")
+	assert.Equal(t, checks, engine.checks, "the retried checks are applied")
+	assert.False(t, engine.hasPendingChecks.Load(), "nothing is pending after the retry")
+
+	require.NoError(t, engine.retryPendingChecks())
+	require.NoError(t, engine.updateChecksIfNew(checks))
+	assert.Len(t, synced, 1, "applied checks are not sent again")
+}
+
 func TestEngine_UpdateNetworkMap(t *testing.T) {
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
