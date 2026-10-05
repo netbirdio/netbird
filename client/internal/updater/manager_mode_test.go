@@ -175,3 +175,43 @@ func Test_SetVersion_MalformedFallsBackToDownloadOnly(t *testing.T) {
 		t.Error("malformed version fallback must not carry enforced metadata")
 	}
 }
+
+func Test_SetVersion_ForceChangeAppliesWithSameVersion(t *testing.T) {
+	m := NewManager(peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-force-change.json")))
+	m.update = &versionUpdateMock{}
+	m.autoUpdateSupported = func() bool { return true }
+
+	m.SetVersion("1.0.1", false)
+	m.SetVersion("1.0.1", true)
+
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
+	if !m.forceUpdate {
+		t.Fatal("enabling force update without a version change must take effect")
+	}
+	if m.expectedVersion == nil || m.expectedVersion.String() != "1.0.1" {
+		t.Fatalf("expected version 1.0.1 to stay set, got %v", m.expectedVersion)
+	}
+}
+
+func Test_SetVersion_RepeatedDirectiveKeepsMode(t *testing.T) {
+	m := NewManager(peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-repeat.json")))
+	m.update = &versionUpdateMock{}
+	m.autoUpdateSupported = func() bool { return true }
+
+	for _, expected := range []string{"1.0.1", latestVersion} {
+		m.SetVersion(expected, false)
+		m.updateMutex.Lock()
+		gen := m.modeGen
+		m.updateMutex.Unlock()
+
+		m.SetVersion(expected, false)
+		m.updateMutex.Lock()
+		repeatedGen := m.modeGen
+		m.updateMutex.Unlock()
+
+		if repeatedGen != gen {
+			t.Errorf("repeating the %q directive must not reset the mode", expected)
+		}
+	}
+}

@@ -198,10 +198,11 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 			}
 			return
 		}
-		if m.mode == modeManaged && m.expectedVersion != nil && m.expectedVersion.Equal(parsed) {
-			return
-		}
 		expectedSemVer = parsed
+	}
+
+	if m.sameDirectiveLocked(expectedSemVer, forceUpdate) {
+		return
 	}
 
 	m.setModeLocked(modeManaged)
@@ -442,6 +443,16 @@ func (m *Manager) modeChanged(gen uint64) bool {
 	defer m.updateMutex.Unlock()
 
 	return m.modeGen != gen
+}
+
+func (m *Manager) sameDirectiveLocked(expectedVersion *v.Version, forceUpdate bool) bool {
+	if m.mode != modeManaged || m.forceUpdate != forceUpdate {
+		return false
+	}
+	if expectedVersion == nil {
+		return m.updateToLatestVersion
+	}
+	return m.expectedVersion != nil && m.expectedVersion.Equal(expectedVersion)
 }
 
 func (m *Manager) setModeLocked(mode updateMode) {
