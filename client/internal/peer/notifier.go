@@ -14,7 +14,6 @@ type notifier struct {
 	listener           Listener
 	peerListWake       chan struct{}
 	peerListStop       chan struct{}
-	peerListDone       chan struct{}
 	currentClientState bool
 	lastNotification   ClientState
 	lastNumberOfPeers  int
@@ -189,11 +188,9 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 func (n *notifier) startPeerListDelivererLocked(listener Listener) {
 	wake := make(chan struct{}, 1)
 	stop := make(chan struct{})
-	done := make(chan struct{})
 	n.peerListWake = wake
 	n.peerListStop = stop
-	n.peerListDone = done
-	go n.deliverPeerListChanges(listener, wake, stop, done)
+	go n.deliverPeerListChanges(listener, wake, stop)
 }
 
 func (n *notifier) stopPeerListDelivererLocked() {
@@ -203,7 +200,6 @@ func (n *notifier) stopPeerListDelivererLocked() {
 	close(n.peerListStop)
 	n.peerListStop = nil
 	n.peerListWake = nil
-	n.peerListDone = nil
 }
 
 func (n *notifier) wakePeerListDelivererLocked() {
@@ -216,8 +212,7 @@ func (n *notifier) wakePeerListDelivererLocked() {
 	}
 }
 
-func (n *notifier) deliverPeerListChanges(listener Listener, wake <-chan struct{}, stop <-chan struct{}, done chan<- struct{}) {
-	defer close(done)
+func (n *notifier) deliverPeerListChanges(listener Listener, wake <-chan struct{}, stop <-chan struct{}) {
 	for {
 		select {
 		case <-stop:
