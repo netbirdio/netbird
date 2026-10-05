@@ -52,12 +52,6 @@ func CurrentDesktopUser(owner string) (DesktopUser, bool) {
 		return consoleUser(console)
 	}
 
-	match, err := ownerMatcher(owner)
-	if err != nil {
-		log.Debugf("certificate posture: %v", err)
-		return DesktopUser{}, false
-	}
-
 	sessions, err := userSessions(console)
 	if err != nil {
 		log.Debugf("cannot enumerate terminal sessions: %v", err)
@@ -68,7 +62,7 @@ func CurrentDesktopUser(owner string) (DesktopUser, bool) {
 		if !ok {
 			continue
 		}
-		if match(user) {
+		if sameAccountName(user.Name, owner) {
 			return user, true
 		}
 		user.Close()
@@ -90,27 +84,11 @@ func consoleUser(console uint32) (DesktopUser, bool) {
 	return user, ok
 }
 
-// ownerMatcher reports whether a session user is owner. Accounts are compared by SID,
-// which is what identifies a Windows account; the name comparison is a fallback for an
-// owner name that no longer resolves, and is case-insensitive like Windows account names.
-func ownerMatcher(owner string) (func(DesktopUser) bool, error) {
-	ownerSID, _, _, err := windows.LookupSID("", owner)
-	if err != nil {
-		log.Debugf("certificate posture: resolving profile owner %s: %v, matching by name", owner, err)
-		return func(user DesktopUser) bool { return sameAccountName(user.Name, owner) }, nil
-	}
-	return func(user DesktopUser) bool {
-		tokenUser, err := user.Token.GetTokenUser()
-		if err != nil {
-			log.Debugf("failed reading token user of session %d: %v", user.Session, err)
-			return false
-		}
-		return tokenUser.User.Sid.Equals(ownerSID)
-	}, nil
-}
-
-// sameAccountName compares DOMAIN\account names case-insensitively, and an owner given
-// without a domain against the account part alone.
+// sameAccountName compares DOMAIN\account names case-insensitively, as Windows does, and an
+// owner given without a domain against the account part alone. The session side comes from
+// the session token's own SID, which Windows resolves from its cache of signed-in users.
+// Resolving the owner name to a SID instead would ask the domain controller, which on a
+// laptop that cannot reach it yet blocks for tens of seconds, past the collection deadline.
 func sameAccountName(sessionName, owner string) bool {
 	if strings.EqualFold(sessionName, owner) {
 		return true

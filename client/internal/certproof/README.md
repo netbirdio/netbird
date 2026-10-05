@@ -89,7 +89,10 @@ cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token), CreationFlag
 every sync.
 
 The session asked is one belonging to the account that owns the active profile, matched
-by SID: the console first, then active remote sessions, then disconnected ones, whose
+by `DOMAIN\account` name, case-insensitively, against the name Windows resolves from the
+session token. The owner name is never resolved to a SID, which would ask the domain
+controller and block for tens of seconds on a laptop that cannot reach it yet. Sessions
+are tried in order: the console first, then active remote sessions, then disconnected ones, whose
 user is still signed in. Session 0 hosts services and is never asked. A profile without
 an owner asks the console user only. Nobody else who happens to be signed in to a
 terminal server or VDI host can therefore decide the result. `WTSQueryUserToken` needs `SE_TCB_NAME`, which
