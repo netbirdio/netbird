@@ -24,20 +24,10 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-// Handler is a handler that returns peers of the account
 type Handler struct {
 	accountManager       account.Manager
 	permissionsManager   permissions.Manager
 	networkMapController network_map.Controller
-}
-
-func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller, permissionsManager permissions.Manager) {
-	peersHandler := NewHandler(accountManager, networkMapController, permissionsManager)
-	router.HandleFunc("/peers", peersHandler.GetTestAllPeers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/peers/{peerId}", peersHandler.HandleTestPeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
-	router.HandleFunc("/testpeers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/testpeers/{peerId}", peersHandler.HandlePeer).
-		Methods("GET", "PUT", "DELETE", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
@@ -47,6 +37,14 @@ func NewHandler(accountManager account.Manager, networkMapController network_map
 		networkMapController: networkMapController,
 		permissionsManager:   permissionsManager,
 	}
+}
+
+func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
+	// router.HandleFunc("/peers", h.GetTestAllPeers).Methods("GET", "OPTIONS")
+	// router.HandleFunc("/peers/{peerId}", h.HandleTestPeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
+	router.HandleFunc("/peers", h.GetAllPeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}", h.HandlePeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
+	return router
 }
 
 func (h *Handler) getTestPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {

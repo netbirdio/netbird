@@ -151,41 +151,53 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		rateLimiter := s.RateLimiter()
+		middleware := CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
+			toret := make([]mux.MiddlewareFunc, 0)
+			rateLimiter := s.RateLimiter()
 
-		if rateLimiter == nil {
-			log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")
-			rateLimiter = middleware.NewAPIRateLimiter(nil)
-			rateLimiter.SetEnabled(false)
-		}
+			if rateLimiter == nil {
+				log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")
+				rateLimiter = middleware.NewAPIRateLimiter(nil)
+				rateLimiter.SetEnabled(false)
+			}
 
-		authMiddleware := middleware.NewAuthMiddleware(
-			s.AuthManager(),
-			s.AccountManager().GetAccountIDFromUserAuth,
-			s.AccountManager().SyncUserJWTGroups,
-			s.AccountManager().GetUserFromUserAuth,
-			rateLimiter,
-			s.Metrics().GetMeter(),
-			s.IsValidChildAccount,
-		)
+			toret = append(toret, middleware.NewAuthMiddleware(
+				s.AuthManager(),
+				s.AccountManager().GetAccountIDFromUserAuth,
+				s.AccountManager().SyncUserJWTGroups,
+				s.AccountManager().GetUserFromUserAuth,
+				rateLimiter,
+				s.Metrics().GetMeter(),
+				s.IsValidChildAccount,
+			).Handler)
 
-		corsMiddleware := cors.AllowAll()
-		metricsMiddleware := s.Metrics().HTTPMiddleware()
+			toret = append(toret, cors.AllowAll().Handler)
+			toret = append(toret, s.Metrics().HTTPMiddleware().Handler)
+
+			return toret
+		})
 
 		router := s.Router()
-		router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
+		router.Use(middleware...)
 
-		apiRouter := router.PathPrefix(apiPrefix).Subrouter()
-		_, err := nbhttp.NewAPIHandler(context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.AgentNetworkManager())
-		if err != nil {
-			log.Fatalf("failed to create API handler: %v", err)
-		}
+		_ = CreateNamed(s, "http_v0api", func() http.Handler {
+			apiRouter := router.PathPrefix(apiPrefix).Subrouter()
+			_, err := nbhttp.NewAPIHandler(context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.AgentNetworkManager())
+			if err != nil {
+				log.Fatalf("failed to create API handler: %v", err)
+			}
+			return apiRouter
+		})
 
-		apiv1Router := router.PathPrefix(apiV1Prefix).Subrouter()
-		_, err = v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
-		if err != nil {
-			log.Fatalf("failed to create API handler: %v", err)
-		}
+		_ = CreateNamed(s, "http_v1api", func() http.Handler {
+			apiv1Router := router.PathPrefix(apiV1Prefix).Subrouter()
+			_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
+			if err != nil {
+				log.Fatalf("failed to create API handler: %v", err)
+			}
+
+			return apiv1Router
+		})
 
 		return router
 	})

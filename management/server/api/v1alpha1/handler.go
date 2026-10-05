@@ -37,8 +37,8 @@ func NewAPIV1Handler(
 
 	router.Use((&V1ValidatorMiddleware{v: v1validator}).Handler)
 
-	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
-	return router, nil
+	handler := peers.NewHandler(accountManager, networkMapController, permissionsManager)
+	return handler.WithEndpointsForRouter(router), nil
 }
 
 type V1ValidatorMiddleware struct {

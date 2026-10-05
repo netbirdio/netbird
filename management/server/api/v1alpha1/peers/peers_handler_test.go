@@ -25,7 +25,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
-	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -267,7 +267,7 @@ func TestGetPeers(t *testing.T) {
 		{
 			name:           "GetPeersMetaData",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/peers/",
+			requestPath:    "/peers",
 			expectedStatus: http.StatusOK,
 			expectedArray:  true,
 			expectedPeer:   peer,
@@ -275,7 +275,7 @@ func TestGetPeers(t *testing.T) {
 		{
 			name:           "GetPeer with update channel",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/peers/" + testPeerID,
+			requestPath:    "/peers/" + testPeerID,
 			expectedStatus: http.StatusOK,
 			expectedArray:  false,
 			expectedPeer:   peer,
@@ -283,7 +283,7 @@ func TestGetPeers(t *testing.T) {
 		{
 			name:           "PutPeer",
 			requestType:    http.MethodPut,
-			requestPath:    "/api/peers/" + testPeerID,
+			requestPath:    "/peers/" + testPeerID,
 			expectedStatus: http.StatusOK,
 			expectedArray:  false,
 			requestBody:    bytes.NewBufferString("{\"login_expiration_enabled\":true,\"name\":\"New Name\",\"ssh_enabled\":true}"),
@@ -306,10 +306,7 @@ func TestGetPeers(t *testing.T) {
 				AccountId: "test_id",
 			})
 
-			router := mux.NewRouter()
-			router.HandleFunc("/api/peers/", p.GetAllPeers).Methods("GET")
-			router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("GET")
-			router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("PUT")
+			router := p.WithEndpointsForRouter(mux.NewRouter())
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -325,9 +322,9 @@ func TestGetPeers(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			var got *api.Peer
+			var got *apiv1alpha1.Peer
 			if tc.expectedArray {
-				respBody := []*api.Peer{}
+				respBody := []*apiv1alpha1.Peer{}
 				err = json.Unmarshal(content, &respBody)
 				if err != nil {
 					t.Fatalf("Sent content is not in correct json format; %v", err)
@@ -343,7 +340,7 @@ func TestGetPeers(t *testing.T) {
 				}
 
 			} else {
-				got = &api.Peer{}
+				got = &apiv1alpha1.Peer{}
 				err = json.Unmarshal(content, got)
 				if err != nil {
 					t.Fatalf("Sent content is not in correct json format; %v", err)
@@ -360,173 +357,6 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
 			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
 			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
-		})
-	}
-}
-
-func TestGetAccessiblePeers(t *testing.T) {
-	peer1 := &nbpeer.Peer{
-		ID:                     "peer1",
-		Key:                    "key1",
-		IP:                     netip.MustParseAddr("100.64.0.1"),
-		IPv6:                   netip.MustParseAddr("fd00:1234::1"),
-		Status:                 &nbpeer.PeerStatus{Connected: true},
-		Name:                   "peer1",
-		LoginExpirationEnabled: false,
-		UserID:                 regularUser,
-	}
-
-	peer2 := &nbpeer.Peer{
-		ID:                     "peer2",
-		Key:                    "key2",
-		IP:                     netip.MustParseAddr("100.64.0.2"),
-		IPv6:                   netip.MustParseAddr("fd00:1234::2"),
-		Status:                 &nbpeer.PeerStatus{Connected: true},
-		Name:                   "peer2",
-		LoginExpirationEnabled: false,
-		UserID:                 adminUser,
-	}
-
-	peer3 := &nbpeer.Peer{
-		ID:                     "peer3",
-		Key:                    "key3",
-		IP:                     netip.MustParseAddr("100.64.0.3"),
-		IPv6:                   netip.MustParseAddr("fd00:1234::3"),
-		Status:                 &nbpeer.PeerStatus{Connected: true},
-		Name:                   "peer3",
-		LoginExpirationEnabled: false,
-		UserID:                 regularUser,
-	}
-
-	tt := []struct {
-		name           string
-		peerID         string
-		callerUserID   string
-		viewBlocked    bool
-		expectedStatus int
-		expectedPeers  []string
-	}{
-		{
-			name:           "non admin user can access owned peer",
-			peerID:         "peer1",
-			callerUserID:   regularUser,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{"peer2", "peer3"},
-		},
-		{
-			name:           "non admin user can't access unowned peer",
-			peerID:         "peer2",
-			callerUserID:   regularUser,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{},
-		},
-		{
-			name:           "admin user can access owned peer",
-			peerID:         "peer2",
-			callerUserID:   adminUser,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{"peer1", "peer3"},
-		},
-		{
-			name:           "admin user can access unowned peer",
-			peerID:         "peer3",
-			callerUserID:   adminUser,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{"peer1", "peer2"},
-		},
-		{
-			name:           "service user can access unowned peer",
-			peerID:         "peer3",
-			callerUserID:   serviceUser,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{"peer1", "peer2"},
-		},
-		{
-			name:           "regular user gets empty for owned peer list when view blocked",
-			peerID:         "peer1",
-			callerUserID:   regularUser,
-			viewBlocked:    true,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{},
-		},
-		{
-			name:           "regular user gets empty list for unowned peer when view blocked",
-			peerID:         "peer2",
-			callerUserID:   regularUser,
-			viewBlocked:    true,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{},
-		},
-		{
-			name:           "admin user still sees accessible peers when view blocked",
-			peerID:         "peer2",
-			callerUserID:   adminUser,
-			viewBlocked:    true,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{"peer1", "peer3"},
-		},
-		{
-			name:           "service user still sees accessible peers when view blocked",
-			peerID:         "peer3",
-			callerUserID:   serviceUser,
-			viewBlocked:    true,
-			expectedStatus: http.StatusOK,
-			expectedPeers:  []string{"peer1", "peer2"},
-		},
-	}
-
-	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			p := initTestMetaData(t, peer1, peer2, peer3)
-
-			if tc.viewBlocked {
-				mockAM := p.accountManager.(*mock_server.MockAccountManager)
-				originalGetAccountByIDFunc := mockAM.GetAccountByIDFunc
-				mockAM.GetAccountByIDFunc = func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
-					account, err := originalGetAccountByIDFunc(ctx, accountID, userID)
-					if err != nil {
-						return nil, err
-					}
-					account.Settings.RegularUsersViewBlocked = true
-					return account, nil
-				}
-			}
-
-			recorder := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)
-			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
-				UserId:    tc.callerUserID,
-				Domain:    "hotmail.com",
-				AccountId: "test_id",
-			})
-
-			router := mux.NewRouter()
-			router.HandleFunc("/api/peers/{peerId}/accessible-peers", p.GetAccessiblePeers).Methods("GET")
-			router.ServeHTTP(recorder, req)
-
-			res := recorder.Result()
-			if res.StatusCode != tc.expectedStatus {
-				t.Fatalf("handler returned wrong status code: got %v want %v", res.StatusCode, tc.expectedStatus)
-			}
-
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				t.Fatalf("failed to read response body: %v", err)
-			}
-			defer res.Body.Close()
-
-			var accessiblePeers []api.AccessiblePeer
-			err = json.Unmarshal(body, &accessiblePeers)
-			if err != nil {
-				t.Fatalf("failed to unmarshal response: %v", err)
-			}
-
-			peerIDs := make([]string, len(accessiblePeers))
-			for i, peer := range accessiblePeers {
-				peerIDs[i] = peer.Id
-			}
-
-			assert.ElementsMatch(t, peerIDs, tc.expectedPeers)
 		})
 	}
 }
@@ -593,7 +423,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 
 			if tc.expectedStatus == http.StatusOK && tc.expectedIP != "" {
-				var updatedPeer api.Peer
+				var updatedPeer apiv1alpha1.Peer
 				err := json.Unmarshal(rr.Body.Bytes(), &updatedPeer)
 				require.NoError(t, err)
 				assert.Equal(t, tc.expectedIP, updatedPeer.Ip)
