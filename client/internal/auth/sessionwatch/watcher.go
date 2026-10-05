@@ -90,8 +90,9 @@ type StatusRecorder interface {
 // fallback T-FinalWarningLead dialog (suppressed when the user dismissed
 // the first one for the same deadline). Safe for concurrent use.
 type Watcher struct {
-	lead      time.Duration
-	finalLead time.Duration
+	lead         time.Duration
+	finalLead    time.Duration
+	deadlineOnly bool
 
 	mu           sync.Mutex
 	current      time.Time
@@ -102,6 +103,7 @@ type Watcher struct {
 	dismissedAt  time.Time // deadline value the user dismissed via Dismiss(); gates fireFinal
 	closed       bool
 	recorder     StatusRecorder
+	nowFn        func() time.Time
 }
 
 // New returns a watcher with the package defaults WarningLead and
@@ -122,7 +124,15 @@ func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 		lead:      lead,
 		finalLead: final,
 		recorder:  recorder,
+		nowFn:     time.Now,
 	}
+}
+
+// NewDeadlineOnly returns a watcher that validates and records deadlines but arms no warning timers.
+func NewDeadlineOnly(recorder StatusRecorder) *Watcher {
+	w := New(recorder)
+	w.deadlineOnly = true
+	return w
 }
 
 // Update sets the latest deadline. Pass the zero time to clear (e.g. when
@@ -181,7 +191,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
 
-	if deadline.After(now) {
+	if deadline.After(now) && !w.deadlineOnly {
 		w.armTimerLocked(deadline)
 	}
 	recorder := w.recorder
@@ -303,6 +313,11 @@ func (w *Watcher) fire(armedFor time.Time) {
 		w.mu.Unlock()
 		return
 	}
+	now := w.nowFn()
+	if isLate(now, armedFor, max(w.finalLead, 0)) {
+		w.fireLateLocked(armedFor, now)
+		return
+	}
 	w.firedAt = armedFor
 	recorder := w.recorder
 	w.mu.Unlock()
@@ -331,6 +346,14 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 		log.Infof("auth session final-warning skipped (dismissed by user)")
 		return
 	}
+	now := w.nowFn()
+	if isLate(now, armedFor, 0) {
+		w.finalFiredAt = armedFor
+		w.mu.Unlock()
+		log.Infof("auth session final-warning skipped for deadline %s (passed %s ago)",
+			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor).Round(time.Second))
+		return
+	}
 	w.finalFiredAt = armedFor
 	recorder := w.recorder
 	w.mu.Unlock()
@@ -338,6 +361,39 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 		return
 	}
 	log.Infof("auth session final-warning fired")
+	publishWarning(recorder, armedFor, true)
+}
+
+// fireLateLocked handles a T-WarningLead callback that fired inside the
+// final-warning window: it sends the final warning in its place while the
+// deadline has not passed and the user has not dismissed it, so a resume
+// with time left still warns. The caller must hold w.mu; this helper
+// releases it.
+func (w *Watcher) fireLateLocked(armedFor, now time.Time) {
+	w.firedAt = armedFor
+	switch {
+	case w.dismissedAt.Equal(armedFor):
+		w.mu.Unlock()
+		log.Infof("auth session expiry soon warning skipped (dismissed by user)")
+		return
+	case w.finalFiredAt.Equal(armedFor):
+		w.mu.Unlock()
+		log.Infof("auth session expiry soon warning skipped (final warning already fired)")
+		return
+	case isLate(now, armedFor, 0):
+		w.mu.Unlock()
+		log.Infof("auth session expiry soon warning skipped for deadline %s (passed %s ago)",
+			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor).Round(time.Second))
+		return
+	}
+	w.finalFiredAt = armedFor
+	recorder := w.recorder
+	w.mu.Unlock()
+	if recorder == nil {
+		return
+	}
+	log.Infof("auth session expiry soon warning fired inside the final-warning window, sending final warning for deadline %s",
+		armedFor.Format(time.RFC3339))
 	publishWarning(recorder, armedFor, true)
 }
 
@@ -379,4 +435,12 @@ func publishWarning(recorder StatusRecorder, deadline time.Time, final bool) {
 		"",
 		meta,
 	)
+}
+
+// isLate reports whether the wall clock now has already reached armedFor
+// minus cutoffLead. The timers run on the monotonic clock, which can stall
+// while the host sleeps, so a timer can fire long after the window it was
+// armed for.
+func isLate(now, armedFor time.Time, cutoffLead time.Duration) bool {
+	return !now.Round(0).Before(armedFor.Add(-cutoffLead).Round(0))
 }

@@ -79,6 +79,7 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 
 // Defines values for AgentNetworkManagedProxyState.
 const (
+	AgentNetworkManagedProxyStateDisabled     AgentNetworkManagedProxyState = "disabled"
 	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
 	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
 	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
@@ -87,6 +88,8 @@ const (
 // Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
 func (e AgentNetworkManagedProxyState) Valid() bool {
 	switch e {
+	case AgentNetworkManagedProxyStateDisabled:
+		return true
 	case AgentNetworkManagedProxyStateFailed:
 		return true
 	case AgentNetworkManagedProxyStateProvisioning:
@@ -2259,11 +2262,11 @@ type AgentNetworkManagedProxy struct {
 	// Region Region of the cluster hosting the deployment.
 	Region *string `json:"region,omitempty"`
 
-	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
 	State AgentNetworkManagedProxyState `json:"state"`
 }
 
-// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
 type AgentNetworkManagedProxyState string
 
 // AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
@@ -3835,6 +3838,15 @@ type Network struct {
 	RoutingPeersCount int `json:"routing_peers_count"`
 }
 
+// NetworkAddress defines model for NetworkAddress.
+type NetworkAddress struct {
+	// Mac MAC address of the interface
+	Mac string `json:"mac"`
+
+	// NetIp IP address with CIDR of the interface
+	NetIp string `json:"net_ip"`
+}
+
 // NetworkRequest defines model for NetworkRequest.
 type NetworkRequest struct {
 	// Description Network description
@@ -4284,6 +4296,9 @@ type Peer struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
+
 	// Os Peer's operating system and version
 	Os string `json:"os"`
 
@@ -4377,6 +4392,9 @@ type PeerBatch struct {
 
 	// Name Peer's hostname
 	Name string `json:"name"`
+
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
@@ -6300,6 +6318,9 @@ type GetApiPeersParams struct {
 
 	// Ip Filter peers by IP address
 	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
+
+	// Mac Filter peers by MAC address of a network interface
+	Mac *string `form:"mac,omitempty" json:"mac,omitempty"`
 }
 
 // GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.

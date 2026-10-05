@@ -103,6 +103,7 @@ func (s *BaseServer) AccountManager() account.Manager {
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
+			accountManager.AddAccountDeletionHook(s.AgentNetworkManager().RemoveAccountGateway)
 		})
 
 		return accountManager

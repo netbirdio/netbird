@@ -826,6 +826,20 @@ components:
         - ssh_enabled
         - login_expiration_enabled
         - inactivity_expiration_enabled
+    NetworkAddress:
+      type: object
+      properties:
+        net_ip:
+          description: IP address with CIDR of the interface
+          type: string
+          example: 192.168.0.11/24
+        mac:
+          description: MAC address of the interface
+          type: string
+          example: "00:93:37:bd:83:0f"
+      required:
+        - net_ip
+        - mac
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -845,6 +859,11 @@ components:
               type: string
               format: ipv6
               example: "fd00:4e42:ab12::1"
+            network_addresses:
+              description: Network interfaces (IP + MAC) reported by the peer
+              type: array
+              items:
+                $ref: '#/components/schemas/NetworkAddress'
             connection_ip:
               description: Peer's public connection IP address
               type: string
@@ -6467,8 +6486,8 @@ components:
           example: "d1m3kebd9pcs0c1pnu7g"
         state:
           type: string
-          description: Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
-          enum: [ "provisioning", "ready", "failed" ]
+          description: Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
+          enum: [ "provisioning", "ready", "failed", "disabled" ]
           example: "ready"
         endpoint:
           type: string
@@ -7530,6 +7549,11 @@ paths:
           schema:
             type: string
           description: Filter peers by IP address
+        - in: query
+          name: mac
+          schema:
+            type: string
+          description: Filter peers by MAC address of a network interface
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -10615,6 +10639,28 @@ paths:
           $ref: "#/components/responses/requires_authentication"
         "500":
           $ref: "#/components/responses/internal_error"
+    delete:
+      summary: Delete MSP tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      responses:
+        "200":
+          description: Successfully deleted the tenant
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
   /api/integrations/msp/tenants/{id}/unlink:
     post:
       summary: Unlink a tenant
@@ -13361,7 +13407,7 @@ paths:
   /api/reverse-proxies/domains/{domainId}:
     delete:
       summary: Delete a Custom domain
-      description: Delete an existing service custom domain
+      description: Delete an existing service custom domain after removing or moving all services that use it or its subdomains, including disabled services.
       tags: [ Services ]
       security:
         - BearerAuth: [ ]
@@ -13384,6 +13430,9 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '412':
+          description: The domain or one of its subdomains is still used by a service
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/domains/{domainId}/validate:
@@ -13586,7 +13635,7 @@ paths:
   /api/integrations/agent-network/managed-proxy:
     post:
       summary: Provision a managed Agent Network gateway
-      description: Starts provisioning of a NetBird-managed Agent Network gateway for the account, allocating its endpoint under the managed zone on the first call. Idempotent — answers 202 when this call started (or, after a failure, restarted) provisioning and 200 when a deployment already exists, reporting current state either way. Returns 409 when the account already has an Agent Network endpoint that managed provisioning does not own, and 503 when endpoint allocation is temporarily exhausted.
+      description: Starts provisioning of a NetBird-managed Agent Network gateway for the account, allocating its endpoint under the managed zone on the first call. Idempotent — answers 202 when this call started (or, after a failure, restarted) provisioning and 200 when a deployment already exists, reporting current state either way. A disabled deployment answers 200 with state `disabled` and stays disabled. Returns 409 when the account already has an Agent Network endpoint that managed provisioning does not own, and 503 when endpoint allocation is temporarily exhausted.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13624,7 +13673,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     get:
       summary: Retrieve managed Agent Network gateway status
-      description: Reports the account's managed gateway deployment and its derived state. Returns 404 when the account has no managed deployment.
+      description: Reports the account's managed gateway deployment and its derived state, including `disabled` for a deployment that is turned off. Returns 404 when the account has no managed deployment.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
