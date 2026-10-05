@@ -110,8 +110,9 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		if !ok {
 			return fmt.Errorf("parse endpoint address %v", endpoint.IP)
 		}
-		addrPort = netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port))
-		cfg.Endpoint = &bind.Endpoint{AddrPort: addrPort}
+		addr = addr.Unmap()
+		addrPort = netip.AddrPortFrom(addr, uint16(endpoint.Port))
+		cfg.Endpoint = &bind.Endpoint{AddrPort: netip.AddrPortFrom(addr.WithZone(endpoint.Zone), addrPort.Port())}
 	}
 
 	if preSharedKey != nil {

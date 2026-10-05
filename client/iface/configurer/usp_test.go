@@ -118,6 +118,21 @@ func TestFullStatsMatchesTheDeviceDump(t *testing.T) {
 	assert.Contains(t, block, "allowed_ip=10.20.0.0/16", "the dump must show the second prefix")
 }
 
+func TestUpdatePeerKeepsTheEndpointZone(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+
+	priv, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err, "generate peer private key")
+	peerKey := priv.PublicKey().String()
+	// The idle device opens no socket, so the zone name does not have to exist on the host.
+	endpoint := &net.UDPAddr{IP: net.ParseIP("fe80::1"), Port: 51820, Zone: "eth0"}
+	prefixes := []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32")}
+	require.NoError(t, c.UpdatePeer(peerKey, prefixes, 25*time.Second, endpoint, nil), "add peer")
+
+	assert.Contains(t, uapiPeerBlock(t, c, peerKey), "endpoint=[fe80::1%eth0]:51820",
+		"a link-local endpoint must keep its zone")
+}
+
 func TestRemoveEndpointAddressKeepsThePeerAndStopsTheKeepalive(t *testing.T) {
 	c := newTestUSPConfigurer(t)
 
