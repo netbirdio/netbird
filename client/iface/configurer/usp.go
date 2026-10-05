@@ -130,8 +130,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 }
 
 // RemoveEndpointAddress clears the endpoint of a peer while keeping it configured.
-// The session is reset and the keepalive is switched off until the next endpoint arrives,
-// which is what removing and re-adding the peer used to do.
+// The session is reset and the keepalive is switched off until the next endpoint arrives.
 func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {

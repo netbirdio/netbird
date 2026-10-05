@@ -180,8 +180,8 @@ func ipNetStrings(ipNets []net.IPNet) []string {
 	return out
 }
 
-// uapiPeerBlock reads the device back through the UAPI dump, the path this package no
-// longer uses, so a typed write is checked against an independent view of the device.
+// uapiPeerBlock reads the device back through the UAPI dump, so a typed write is checked
+// against an independent view of the device.
 func uapiPeerBlock(t *testing.T, c *WGUSPConfigurer, peerKey string) []string {
 	t.Helper()
 
