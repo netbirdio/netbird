@@ -13,12 +13,14 @@ import (
 func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Manager, accountManager account.Manager, metrics telemetry.AppMetrics, isValidChildAcctFunc IsValidChildAccountFunc) []mux.MiddlewareFunc {
 	toret := make([]mux.MiddlewareFunc, 0)
 
+	toret = append(toret, metrics.HTTPMiddleware().Handler)
+	toret = append(toret, cors.AllowAll().Handler)
+
 	if rateLimiter == nil {
 		log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")
 		rateLimiter = ratelimit.NewAPIRateLimiter(nil)
 		rateLimiter.SetEnabled(false)
 	}
-
 	toret = append(toret, NewAuthMiddleware(
 		authManager,
 		accountManager.GetAccountIDFromUserAuth,
@@ -28,9 +30,6 @@ func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Man
 		metrics.GetMeter(),
 		isValidChildAcctFunc,
 	).Handler)
-
-	toret = append(toret, cors.AllowAll().Handler)
-	toret = append(toret, metrics.HTTPMiddleware().Handler)
 
 	return toret
 }
