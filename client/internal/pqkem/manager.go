@@ -80,7 +80,6 @@ const (
 type exchangeCtl struct {
 	id         ExchangeID
 	state      exchangeState
-	startedAt  time.Time
 	cancel     context.CancelFunc
 	lastSent   []byte
 	initiator  *Initiator
@@ -402,7 +401,7 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 		}
 		return m.pushDataPath(remoteID, answer)
 	case MsgAnswer:
-		return m.processAnswer(remoteID, msg.(*AnswerMsg), viaSignalLabel)
+		return m.processAnswer(remoteID, msg.(*AnswerMsg), viaDataPathLabel)
 	default:
 		return fmt.Errorf("unhandled data-path message type %d from %s", typ, remoteID)
 	}

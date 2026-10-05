@@ -43,15 +43,16 @@ const EnvStrict = "NB_PQ_MLKEM_STRICT"
 // Strict reports whether strict (fail-closed) mode is enabled via the environment.
 // An empty or unrecognized value is treated as disabled (opportunistic).
 func Strict() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvStrict))) {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(EnvStrict)))
+	switch raw {
 	case "on":
 		return true
 	case "", "off":
 		return false
 	}
-	enabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(EnvStrict)))
+	enabled, err := strconv.ParseBool(raw)
 	if err != nil {
-		log.Warnf("failed to parse %s value %q: %v", EnvStrict, os.Getenv(EnvStrict), err)
+		log.Warnf("failed to parse %s value %q: %v", EnvStrict, raw, err)
 		return false
 	}
 	return enabled

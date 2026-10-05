@@ -67,7 +67,6 @@ func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID E
 	m.exchanges[remoteID] = &exchangeCtl{
 		id:        id,
 		state:     stateAwaitingAnswer,
-		startedAt: time.Now(),
 		cancel:    cancel,
 		lastSent:  raw,
 		initiator: init,
@@ -118,11 +117,19 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 		return last, nil
 	}
 	// Reserve the slot so a concurrent duplicate offer bails.
-	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, startedAt: time.Now()}
+	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved}
 	m.mu.Unlock()
 
 	answerBytes, psk, err := Respond(o.KEMOffer, m.binding(remoteID))
 	if err != nil {
+		// Respond failed before the PSK was committed: clear the reservation so a
+		// retransmission of this offer (a transient or malformed first packet) can retry
+		// instead of hitting the stuck reserved slot forever.
+		m.mu.Lock()
+		if cur := m.exchanges[remoteID]; cur != nil && cur.id == o.ExchangeID && cur.state == stateReserved {
+			delete(m.exchanges, remoteID)
+		}
+		m.mu.Unlock()
 		return nil, err
 	}
 	raw, err := (&AnswerMsg{ExchangeID: o.ExchangeID, KEMAnswer: answerBytes}).Encode()
@@ -235,7 +242,6 @@ func (m *Manager) ackConverged(remoteID RemoteID, ackID ExchangeID) {
 	delete(m.exchanges, remoteID)
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
-	_ = time.Since(ex.startedAt) // convergence latency (metrics hook, later step)
 	m.mu.Unlock()
 
 	m.trace("pqkem: previous exchange confirmed by ack", "peer", remoteID, "exchange", idHex(ackID))

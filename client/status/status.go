@@ -793,7 +793,7 @@ func peerQuantumResistanceStatus(established, rosenpassEnabled, rosenpassPermiss
 	}
 	switch {
 	case mlkemEnabled && mlkemStrict:
-		return "false (ML-KEM strict: blocking peer traffic until the exchange converges)"
+		return "false (ML-KEM strict: no post-quantum PSK established for this peer yet)"
 	case mlkemEnabled:
 		return "false (ML-KEM: not converged yet, or peer does not run the exchange)"
 	case rosenpassEnabled && rosenpassPermissive:

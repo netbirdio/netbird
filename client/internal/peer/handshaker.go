@@ -171,10 +171,11 @@ func (h *Handshaker) handleRemoteOffer(remoteOfferAnswer OfferAnswer) {
 	// Derive+store the KEM PSK (inside sendAnswer's AnswerPayload) BEFORE bringing up the
 	// connection: the relay/ICE workers configure the WG endpoint, which pulls the PSK
 	// for the first handshake. Notifying them first would race the KEM exchange and hand
-	// the first handshake a not-yet-derived key.
+	// the first handshake a not-yet-derived key. A failure to signal the answer is
+	// transient (the peer retries), so still bring the local transport up over relay/ICE
+	// instead of aborting the whole setup.
 	if err := h.sendAnswer(&remoteOfferAnswer); err != nil {
 		h.log.Errorf("failed to send remote offer confirmation: %s", err)
-		return
 	}
 	h.notifyListeners(&remoteOfferAnswer)
 }

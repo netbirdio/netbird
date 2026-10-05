@@ -296,16 +296,12 @@ func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
 	// When Rosenpass has already initialized the PSK for this peer,
 	// presharedKey must return nil to avoid UpdatePeer overwriting it.
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return true }
-	if k := conn.presharedKey([]byte("remote"), nil); k != nil {
-		t.Fatalf("expected nil presharedKey when Rosenpass manages PSK, got %v", k)
-	}
+	assert.Nil(t, conn.presharedKey([]byte("remote"), nil), "expected nil presharedKey when Rosenpass manages PSK")
 
 	// When Rosenpass hasn't taken over yet, presharedKey should provide
 	// a non-nil initial key (deterministic or from NetBird PSK).
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return false }
-	if k := conn.presharedKey([]byte("remote"), nil); k == nil {
-		t.Fatalf("expected non-nil presharedKey before Rosenpass manages PSK")
-	}
+	assert.NotNil(t, conn.presharedKey([]byte("remote"), nil), "expected non-nil presharedKey before Rosenpass manages PSK")
 }
 
 func newWGTimeoutTestConn(rosenpassEnabled bool, disconnected *[]string) *Conn {
