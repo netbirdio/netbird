@@ -81,7 +81,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &apiv1alpha1.PeerRequest{}
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
