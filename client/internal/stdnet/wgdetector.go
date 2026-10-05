@@ -57,14 +57,17 @@ func (d *WGDetector) IsWireGuard(iFace string) bool {
 		return probeWireGuard(iFace)
 	}
 
-	d.mu.RLock()
-	entry, ok := d.cache[iFace]
-	d.mu.RUnlock()
-	if ok && time.Now().Before(entry.expireAt) {
-		return entry.isWireGuard
+	if isWireGuard, ok := d.cached(iFace); ok {
+		return isWireGuard
 	}
 
 	result, _, _ := d.sf.Do(iFace, func() (interface{}, error) {
+		// A caller that saw the entry expire may get here after another caller already
+		// refreshed it and left the singleflight group.
+		if isWireGuard, ok := d.cached(iFace); ok {
+			return isWireGuard, nil
+		}
+
 		isWireGuard := d.probe(iFace)
 
 		d.mu.Lock()
@@ -74,6 +77,17 @@ func (d *WGDetector) IsWireGuard(iFace string) bool {
 		return isWireGuard, nil
 	})
 	return result.(bool)
+}
+
+func (d *WGDetector) cached(iFace string) (isWireGuard, ok bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	entry, found := d.cache[iFace]
+	if !found || !time.Now().Before(entry.expireAt) {
+		return false, false
+	}
+	return entry.isWireGuard, true
 }
 
 func probeWireGuard(iFace string) bool {

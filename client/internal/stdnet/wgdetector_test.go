@@ -73,7 +73,9 @@ func TestWGDetectorCollapsesConcurrentProbes(t *testing.T) {
 		}()
 	}
 
-	// Every caller is now either waiting on the single in-flight probe or about to join it.
+	// The sleep only lets the callers pile up on the blocked probe so the collapse is
+	// exercised. The count does not depend on it: a caller that arrives after the probe
+	// finished finds the fresh entry, either before or inside the singleflight group.
 	time.Sleep(20 * time.Millisecond)
 	close(release)
 	wg.Wait()
