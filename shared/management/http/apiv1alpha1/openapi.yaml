@@ -1,6 +1,6 @@
 openapi: 3.1.0
 servers:
-  - url: /apiv1alpha1
+  - url: /api/v1alpha1
     description: Default server
 info:
   title: NetBird REST API

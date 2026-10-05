@@ -51,7 +51,7 @@ import (
 
 const (
 	apiPrefix   = "/api"
-	apiV1Prefix = "/apiv1alpha1"
+	apiV1Prefix = "/api/v1alpha1"
 )
 
 var (
@@ -171,6 +171,16 @@ func (s *BaseServer) APIHandler() http.Handler {
 		router := s.Router()
 		router.Use(routerMiddleware...)
 
+		_ = CreateNamed(s, "http_v1api", func() http.Handler {
+			apiv1Router := router.PathPrefix(apiV1Prefix).Subrouter()
+			_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
+			if err != nil {
+				log.Fatalf("failed to create API handler: %v", err)
+			}
+
+			return apiv1Router
+		})
+
 		_ = CreateNamed(s, "http_v0api", func() http.Handler {
 			apiRouter := router.PathPrefix(apiPrefix).Subrouter()
 			_, err := nbhttp.NewAPIHandler(
@@ -183,16 +193,6 @@ func (s *BaseServer) APIHandler() http.Handler {
 				log.Fatalf("failed to create API handler: %v", err)
 			}
 			return apiRouter
-		})
-
-		_ = CreateNamed(s, "http_v1api", func() http.Handler {
-			apiv1Router := router.PathPrefix(apiV1Prefix).Subrouter()
-			_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
-			if err != nil {
-				log.Fatalf("failed to create API handler: %v", err)
-			}
-
-			return apiv1Router
 		})
 
 		return router
