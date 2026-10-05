@@ -97,7 +97,7 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 	}
 
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 }
 
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
