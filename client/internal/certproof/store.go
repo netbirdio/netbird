@@ -13,8 +13,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/tpm"
 )
 
 const (
@@ -202,7 +200,7 @@ func parsePEM(data []byte) ([]*x509.Certificate, crypto.Signer, error) {
 				return nil, nil, fmt.Errorf("parse certificate: %w", err)
 			}
 			chain = append(chain, cert)
-		case "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY", tpm.KeyPEMType:
+		case "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY", tss2KeyPEMType:
 			key, err := parsePrivateKey(block)
 			if err != nil {
 				return nil, nil, err
@@ -216,8 +214,8 @@ func parsePrivateKey(block *pem.Block) (crypto.Signer, error) {
 	var key any
 	var err error
 	switch block.Type {
-	case tpm.KeyPEMType:
-		return tpm.ParseKey(block.Bytes)
+	case tss2KeyPEMType:
+		return parseTSS2Key(block.Bytes)
 	case "EC PRIVATE KEY":
 		key, err = x509.ParseECPrivateKey(block.Bytes)
 	case "RSA PRIVATE KEY":
