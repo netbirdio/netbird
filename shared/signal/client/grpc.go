@@ -53,6 +53,7 @@ type ConnStateNotifier interface {
 // GrpcClient Wraps the Signal Exchange Service gRpc client
 type GrpcClient struct {
 	key        wgtypes.Key
+	sharedKeys *encryption.SharedKeyCache
 	realClient proto.SignalExchangeClient
 	signalConn *grpc.ClientConn
 	ctx        context.Context
@@ -107,6 +108,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	c := &GrpcClient{
 		ctx:                   ctx,
 		key:                   key,
+		sharedKeys:            encryption.NewSharedKeyCache(key),
 		mux:                   sync.Mutex{},
 		status:                StreamDisconnected,
 		connStateCallbackLock: sync.RWMutex{},
@@ -158,6 +160,7 @@ func (c *GrpcClient) Close() error {
 	}
 	c.decryptionWg.Wait()
 	c.decryptionWorker = nil
+	c.sharedKeys.Close()
 
 	return c.signalConn.Close()
 }
@@ -418,7 +421,7 @@ func (c *GrpcClient) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message
 	}
 
 	body := &proto.Body{}
-	err = encryption.DecryptMessage(remoteKey, c.key, msg.GetBody(), body)
+	err = c.sharedKeys.DecryptMessage(remoteKey, msg.GetBody(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +441,7 @@ func (c *GrpcClient) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage
 		return nil, err
 	}
 
-	encryptedBody, err := encryption.EncryptMessage(remoteKey, c.key, msg.Body)
+	encryptedBody, err := c.sharedKeys.EncryptMessage(remoteKey, msg.Body)
 	if err != nil {
 		return nil, err
 	}

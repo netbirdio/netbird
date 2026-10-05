@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
 type EnsureAccountFunc func(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
@@ -33,7 +34,7 @@ type AuthMiddleware struct {
 	ensureAccount       EnsureAccountFunc
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
-	rateLimiter         *APIRateLimiter
+	rateLimiter         *ratelimit.APIRateLimiter
 	patUsageTracker     *PATUsageTracker
 	isValidChildAccount IsValidChildAccountFunc
 }
@@ -44,7 +45,7 @@ func NewAuthMiddleware(
 	ensureAccount EnsureAccountFunc,
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
-	rateLimiter *APIRateLimiter,
+	rateLimiter *ratelimit.APIRateLimiter,
 	meter metric.Meter,
 	isValidChildAccount IsValidChildAccountFunc,
 ) *AuthMiddleware {
