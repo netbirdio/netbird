@@ -1,6 +1,7 @@
 package stdnet
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -102,6 +103,9 @@ func TestInterfaceFilter(t *testing.T) {
 	})
 
 	t.Run("a disallowed interface is rejected without probing", func(t *testing.T) {
+		if runtime.GOOS == "ios" {
+			t.Skip("the disallow list is not applied on iOS")
+		}
 		filter := InterfaceFilter([]string{"wt"}, wgDetector)
 		assert.False(t, filter("wt0"), "a blacklisted interface must be rejected")
 		assert.Equal(t, int64(0), calls.Load(), "a name settled by the disallow list must not reach the probe")
