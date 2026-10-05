@@ -36,6 +36,38 @@ func TestInfoSource_CurrentReusesRefreshedFiles(t *testing.T) {
 	assert.Equal(t, refreshed.Files, info.Files)
 }
 
+// TestInfoSource_RefreshSkipsWhileEarlierGatheringRuns stands in for a gathering that
+// timed out and is still blocked in a system call: no second one starts on top of it,
+// and gathering works again once it exits.
+func TestInfoSource_RefreshSkipsWhileEarlierGatheringRuns(t *testing.T) {
+	var src InfoSource
+	src.gathering.Store(true)
+
+	_, ok := src.Refresh(context.Background(), 15*time.Second, nil)
+	assert.False(t, ok, "no gathering starts while an earlier one is still running")
+
+	src.gathering.Store(false)
+	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
+	require.True(t, ok, "gathering runs once the earlier one exited")
+
+	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
+	assert.True(t, ok, "a gathering that finished in time does not block the next one")
+}
+
+// TestInfoSource_RefreshReleasesAfterTimedOutGatheringExits checks that a gathering that
+// timed out releases the source once its goroutine finishes, not before.
+func TestInfoSource_RefreshReleasesAfterTimedOutGatheringExits(t *testing.T) {
+	var src InfoSource
+
+	_, ok := src.Refresh(context.Background(), time.Nanosecond, nil)
+	require.False(t, ok, "gathering cannot finish within a nanosecond")
+
+	require.Eventually(t, func() bool { return !src.gathering.Load() }, 10*time.Second, 10*time.Millisecond,
+		"the source is released when the abandoned gathering exits")
+	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
+	assert.True(t, ok, "gathering works again after the abandoned one exited")
+}
+
 func TestInfoSource_CurrentExcludesAddresses(t *testing.T) {
 	addrs := GetInfo(context.Background()).NetworkAddresses
 	if len(addrs) == 0 {
