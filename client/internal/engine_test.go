@@ -404,8 +404,15 @@ func TestEngine_PendingChecksRetriedAfterInfoTimeout(t *testing.T) {
 	assert.Nil(t, engine.checks, "timed-out checks are not applied")
 	require.True(t, engine.hasPendingChecks.Load(), "timed-out checks are kept pending")
 
+	// The timed-out gathering keeps running in the background, and no new one starts
+	// until it exits, so the retry may time out again before it goes through.
 	engine.infoTimeout = 0
-	require.NoError(t, engine.retryPendingChecks())
+	var retryErr error
+	require.Eventually(t, func() bool {
+		retryErr = engine.retryPendingChecks()
+		return retryErr == nil || !errors.Is(retryErr, errSystemInfoTimeout)
+	}, 10*time.Second, 10*time.Millisecond, "the pending checks are sent once the earlier gathering exits")
+	require.NoError(t, retryErr)
 	require.Len(t, synced, 1, "the retry sends the meta sync")
 	assert.Len(t, synced[0].Files, 1, "the retry evaluates the pending checks")
 	assert.Equal(t, checks, engine.checks, "the retried checks are applied")

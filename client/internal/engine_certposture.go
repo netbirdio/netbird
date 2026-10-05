@@ -132,11 +132,10 @@ func (e *Engine) watchCertificatePosture(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := e.retryPendingChecks(); err != nil {
-				if !errors.Is(err, errSystemInfoTimeout) {
-					log.Warnf("failed to sync posture checks that timed out before: %v", err)
-				}
-				continue
+			// A pending update that times out again stays pending; the applied checks'
+			// proofs are still refreshed so a lost certificate is reported meanwhile.
+			if err := e.retryPendingChecks(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
+				log.Warnf("failed to sync posture checks that timed out before: %v", err)
 			}
 			if err := e.recollectCertificateProofsIfStale(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
 				log.Warnf("failed to refresh certificate posture proofs: %v", err)
@@ -163,7 +162,7 @@ func (e *Engine) retryPendingChecks() error {
 	if err := e.syncChecksMeta(checks); err != nil {
 		return err
 	}
-	e.checks = checks
+	e.setAppliedChecks(checks)
 	e.clearPendingChecks()
 	return nil
 }

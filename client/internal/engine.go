@@ -273,8 +273,10 @@ type Engine struct {
 
 	dnsServer dns.Server
 
-	// checks are the client-applied posture checks that need to be evaluated on the client
-	checks []*mgmProto.Checks
+	// checks are the client-applied posture checks that need to be evaluated on the client.
+	// Writers hold syncMsgMux and checksMu; readers hold either, see appliedChecks.
+	checks   []*mgmProto.Checks
+	checksMu sync.RWMutex
 	// pendingChecks are received checks whose meta sync timed out gathering the system
 	// info; the posture watcher retries them. Both are guarded by syncMsgMux, and
 	// hasPendingChecks lets the watcher skip the lock when nothing is pending.
@@ -1265,9 +1267,24 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		}
 		return err
 	}
-	e.checks = checks
+	e.setAppliedChecks(checks)
 	e.clearPendingChecks()
 	return nil
+}
+
+// appliedChecks returns the posture checks in effect, for callers that do not hold
+// syncMsgMux. The slice is replaced, never modified, so it may be read after return.
+func (e *Engine) appliedChecks() []*mgmProto.Checks {
+	e.checksMu.RLock()
+	defer e.checksMu.RUnlock()
+	return e.checks
+}
+
+// setAppliedChecks replaces the posture checks in effect. The caller holds syncMsgMux.
+func (e *Engine) setAppliedChecks(checks []*mgmProto.Checks) {
+	e.checksMu.Lock()
+	defer e.checksMu.Unlock()
+	e.checks = checks
 }
 
 // clearPendingChecks drops checks whose meta sync was still owed. The caller holds
@@ -1310,7 +1327,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
 	e.applyInfoFlags(info)
-	e.attachCertificateProofs(info, e.checks)
+	e.attachCertificateProofs(info, e.appliedChecks())
 	return info
 }
 
@@ -1326,7 +1343,7 @@ func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) 
 		info := refreshed
 		refreshed = nil
 		e.applyInfoFlags(info)
-		e.attachCertificateProofs(info, e.checks)
+		e.attachCertificateProofs(info, e.appliedChecks())
 		return info
 	}
 }
@@ -1524,7 +1541,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.appliedChecks(), e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
