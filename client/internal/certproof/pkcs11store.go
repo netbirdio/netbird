@@ -203,6 +203,10 @@ func (s *PKCS11Store) open() (*pkcs11.Session, error) {
 		return module.OpenSession(s.uri.Token, nil)
 	}
 
+	// The check, the login and recording a rejection happen under one lock, so two
+	// collections running at once cannot both send a PIN the token is about to refuse.
+	pinLoginMu.Lock()
+	defer pinLoginMu.Unlock()
 	key := rejectedPINKey(s.uri.Module(), s.uri.Token, pin)
 	if rejectedPINs.has(key) {
 		return nil, errPINRejectedBefore

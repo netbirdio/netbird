@@ -18,6 +18,10 @@ var errPINNeedsToken = errors.New("a PKCS#11 PIN needs the token named in CertPK
 // rejectedPINs outlives a single store, since a store is built for each collection.
 var rejectedPINs = &pinLatch{keys: map[[sha256.Size]byte]struct{}{}}
 
+// pinLoginMu serializes logging in to a PKCS#11 token with a PIN, from checking the latch
+// to recording a rejection.
+var pinLoginMu sync.Mutex
+
 // pinLatch remembers PINs a token rejected. Keys are hashes, so the PIN itself is not
 // kept in memory any longer than the store that read it.
 type pinLatch struct {
