@@ -35,7 +35,7 @@ func (Pin) Type() auth.Method {
 // so that it can be injected into a request from the UI so that
 // authentication may be successful.
 func (p Pin) Authenticate(r *http.Request) (string, string, error) {
-	pin := r.FormValue(pinFormId)
+	pin := credentialFormValue(r, pinFormId)
 
 	if pin == "" {
 		// No PIN submitted; return the form ID so the UI can prompt the user.

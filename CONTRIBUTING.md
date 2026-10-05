@@ -192,7 +192,7 @@ dependencies are installed. Here is a short guide on how that can be done.
 
 ### Requirements
 
-#### Go 1.25
+#### Go 1.26
 
 Follow the installation guide from https://go.dev/
 
@@ -200,7 +200,7 @@ Follow the installation guide from https://go.dev/
 
 The desktop UI client (`client/ui`) is built with [Wails v3](https://v3.wails.io/) and a React frontend rendered in a WebView. To build it you need:
 
-- Go ≥ 1.25
+- Go ≥ 1.26
 - Node ≥ 20 and **pnpm** (`corepack enable && corepack prepare pnpm@latest --activate`)
 - The `wails3` CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
 - The `task` runner: `go install github.com/go-task/task/v3/cmd/task@latest`
