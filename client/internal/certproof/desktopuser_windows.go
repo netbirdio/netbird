@@ -57,19 +57,34 @@ func CurrentDesktopUser(owner string) (DesktopUser, bool) {
 		log.Debugf("cannot enumerate terminal sessions: %v", err)
 		return DesktopUser{}, false
 	}
+	var found DesktopUser
+	var ok bool
 	for _, session := range sessions {
-		user, ok := desktopUser(session)
-		if !ok {
+		user, signedIn := desktopUser(session)
+		if !signedIn {
 			continue
 		}
-		if sameAccountName(user.Name, owner) {
-			return user, true
+		switch {
+		case !sameAccountName(user.Name, owner):
+			user.Close()
+		case !ok:
+			found, ok = user, true
+		case strings.EqualFold(user.Name, found.Name):
+			// Another session of the same account; the first one in preference order wins.
+			user.Close()
+		default:
+			// An owner recorded without a domain matches accounts of several domains here.
+			// Picking one would let another domain's user answer for the owner.
+			log.Debugf("certificate posture: profile owner %s matches both %s and %s, no user certificate store is used", owner, found.Name, user.Name)
+			user.Close()
+			found.Close()
+			return DesktopUser{}, false
 		}
-		user.Close()
 	}
-
-	log.Debugf("certificate posture: profile owner %s has no signed-in session, no user certificate store is reachable", owner)
-	return DesktopUser{}, false
+	if !ok {
+		log.Debugf("certificate posture: profile owner %s has no signed-in session, no user certificate store is reachable", owner)
+	}
+	return found, ok
 }
 
 func consoleUser(console uint32) (DesktopUser, bool) {
