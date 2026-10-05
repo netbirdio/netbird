@@ -45,6 +45,11 @@ service DaemonService {
   // Deselect specific routes
   rpc DeselectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
+  // Unused; the ingress port-forwarding feature was discontinued.
+  rpc ForwardingRules(EmptyRequest) returns (ForwardingRulesResponse) {
+    option deprecated = true;
+  }
+
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
 
@@ -466,9 +471,8 @@ message FullStatus {
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
-  // 8 was NumberOfForwardingRules (int32), removed with the ingress port-forwarding feature.
-  reserved 8;
-  reserved "NumberOfForwardingRules";
+  // Unused; the ingress port-forwarding feature was discontinued.
+  int32 NumberOfForwardingRules = 8 [deprecated = true];
 
   repeated SystemEvent events = 7;
 
@@ -509,6 +513,38 @@ message Network {
   bool selected = 3;
   repeated string domains = 4;
   map<string, IPList> resolvedIPs = 5;
+}
+
+// PortInfo, ForwardingRule and ForwardingRulesResponse are unused; the ingress
+// port-forwarding feature was discontinued.
+message PortInfo {
+  option deprecated = true;
+
+  oneof portSelection {
+    uint32 port = 1;
+    Range range = 2;
+  }
+
+  message Range {
+    uint32 start = 1;
+    uint32 end = 2;
+  }
+}
+
+message ForwardingRule {
+  option deprecated = true;
+
+  string protocol = 1;
+  PortInfo destinationPort = 2;
+  string translatedAddress = 3;
+  string translatedHostname = 4;
+  PortInfo translatedPort = 5;
+}
+
+message ForwardingRulesResponse {
+  option deprecated = true;
+
+  repeated ForwardingRule rules = 1;
 }
 
 // DebugBundler

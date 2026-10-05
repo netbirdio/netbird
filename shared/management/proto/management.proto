@@ -471,9 +471,8 @@ message NetworkMap {
   // RoutesFirewallRulesIsEmpty indicates whether RouteFirewallRule array is empty or not to bypass protobuf null and empty array equality.
   bool routesFirewallRulesIsEmpty = 11;
 
-  // 12 was forwardingRules (repeated ForwardingRule), removed with the ingress port-forwarding feature.
-  reserved 12;
-  reserved "forwardingRules";
+  // Unused; the ingress port-forwarding feature was discontinued.
+  repeated ForwardingRule forwardingRules = 12 [deprecated = true];
 
   // SSHAuth represents SSH authorization configuration
   SSHAuth sshAuth = 13;
@@ -754,6 +753,16 @@ message RouteFirewallRule {
   string RouteID = 10;
 }
 
+// ForwardingRule is unused; the ingress port-forwarding feature was discontinued.
+message ForwardingRule {
+  option deprecated = true;
+
+  RuleProtocol protocol = 1;
+  PortInfo destinationPort = 2;
+  bytes translatedAddress = 3;
+  PortInfo translatedPort = 4;
+}
+
 enum ExposeProtocol {
   EXPOSE_HTTP = 0;
   EXPOSE_HTTPS = 1;
@@ -899,9 +908,8 @@ message NetworkMapComponentsFull {
   // versions; clients fold it into their Calculate() DNS output.
   int64 dns_forwarder_port = 23;
 
-  // 24 was proxy_patch (ProxyPatch), removed with the ingress port-forwarding feature.
-  reserved 24;
-  reserved "proxy_patch";
+  // Unused; the ingress port-forwarding feature was discontinued.
+  ProxyPatch proxy_patch = 24 [deprecated = true];
 
   // SSH UserIDClaim — server-side HttpServerConfig.AuthUserIDClaim, or
   // "sub" by default. Populated in proto.SSHAuth.UserIDClaim when the
@@ -912,6 +920,18 @@ message NetworkMapComponentsFull {
   // Reserved for future component additions (incremental_serial, parent_seq,
   // etc.) without forcing a renumber.
   reserved 26 to 50;
+}
+
+// ProxyPatch is unused; the ingress port-forwarding feature was discontinued.
+message ProxyPatch {
+  option deprecated = true;
+
+  repeated RemotePeerConfig peers = 1;
+  repeated RemotePeerConfig offline_peers = 2;
+  repeated FirewallRule firewall_rules = 3;
+  repeated Route routes = 4;
+  repeated RouteFirewallRule route_firewall_rules = 5;
+  repeated ForwardingRule forwarding_rules = 6;
 }
 
 // AccountSettingsCompact carries the account-level settings the client needs
