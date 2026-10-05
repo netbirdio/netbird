@@ -38,7 +38,15 @@ type Listener struct {
 }
 
 func (l *Listener) Bind() error {
-	listener, err := net.Listen("tcp", l.Address)
+	addr := l.Address
+	if addr == "" {
+		addr = ":http"
+		if l.TLSConfig != nil {
+			addr = ":https"
+		}
+	}
+
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -53,7 +61,7 @@ func (l *Listener) Bind() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Infof("WS server listening address: %s", l.Address)
+	log.Infof("WS server listening address: %s", addr)
 	return nil
 }
 
