@@ -186,10 +186,12 @@ Each operation opens a session, logs in, works, logs out and closes, so no token
 outlives a call, and the PEM directory keeps working when the token does not: the two are
 queried together and a failing token is logged rather than hiding file certificates.
 
-Two consequences of the PIN are worth knowing. It lives in the service definition
-(the systemd unit environment, for one), so it stays out of the profile config and the
-debug bundle, which only records whether `CertPKCS11URI` is set because a URI may carry
-`pin-value`. And a wrong PIN
+Two consequences of the PIN are worth knowing. Set through `NB_TPM_PIN` it lives in the
+service definition (the systemd unit environment, for one), so it stays out of the
+profile config and the debug bundle, which only records whether `CertPKCS11URI` is set
+because a URI may carry `pin-value`. A `pin-value` inline in the URI is stored in the
+profile config instead, which the daemon writes readable by root alone (mode 0600, through
+a temporary file renamed into place), next to the WireGuard private key. And a wrong PIN
 counts against the TPM's dictionary-attack lockout, which is shared with everything else
 on the machine that uses the TPM.
 
