@@ -161,8 +161,16 @@ PIN is not a profile config field or a command-line flag; set it on the service:
 "CertPKCS11URI": "pkcs11:token=netbird?module-path=/usr/lib/x86_64-linux-gnu/libtpm2_pkcs11.so"
 ```
 
+On systemd, keep the PIN in a root-only environment file loaded by a drop-in, rather
+than on a command line where it lands in shell history and the process list:
+
 ```sh
-netbird service install --service-env NB_TPM_PIN=1234
+install -m 0600 /dev/null /etc/netbird/tpm-pin.env
+echo 'NB_TPM_PIN=1234' > /etc/netbird/tpm-pin.env
+mkdir -p /etc/systemd/system/netbird.service.d
+printf '[Service]\nEnvironmentFile=/etc/netbird/tpm-pin.env\n' \
+  > /etc/systemd/system/netbird.service.d/tpm-pin.conf
+systemctl daemon-reload && systemctl restart netbird
 ```
 
 `token` selects the token by label and is required whenever a PIN is set, from any source:

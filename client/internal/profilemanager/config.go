@@ -192,9 +192,10 @@ type Config struct {
 	CertStoreDir string
 
 	// CertPKCS11URI is the RFC 7512 URI selecting the PKCS#11 token, tpm2-pkcs11 for one,
-	// and its module, whose certificates answer certificate posture checks on Linux.
-	// Empty means the first token the p11-kit proxy exposes. The token's user PIN comes
-	// from NB_TPM_PIN, never from this file; see client/internal/certproof/README.md.
+	// and its module, whose certificates answer certificate posture checks on Linux. A
+	// PIN, from NB_TPM_PIN or the URI's pin-value or pin-source, requires token=<label>;
+	// without a PIN, empty means the first token the p11-kit proxy exposes. NB_TPM_PIN
+	// takes precedence over a PIN in the URI; see client/internal/certproof/README.md.
 	CertPKCS11URI string
 
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
