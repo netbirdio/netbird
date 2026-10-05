@@ -76,6 +76,11 @@
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />
 		<util:CloseApplication Id="CloseNetBirdUI" CloseMessage="no" Target="netbird-ui.exe" RebootPrompt="no" TerminateProcess="0" />
 
+		<!-- Kill the UI before InstallValidate, otherwise its Restart Manager
+		     check sees netbird-ui.exe in use and schedules the replacement for
+		     the next reboot (3010). Keep it immediate and before InstallValidate.
+		     CloseNetBirdUI above stays as a deferred LocalSystem fallback for UIs
+		     in other sessions that this action cannot terminate. -->
 		<SetProperty Id="WixQuietExecCmdLine" Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM netbird-ui.exe" Before="KillNetBirdUI" Sequence="execute" />
 		<CustomAction Id="KillNetBirdUI" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec" Execute="immediate" Return="ignore" />
 
