@@ -138,7 +138,7 @@ func newWatcher(lead time.Duration, r *fakeRecorder) *Watcher {
 // newWatcherWithLeads builds a watcher that evaluates on testInterval. The
 // interval is set before Update, so the evaluation loop does not exist yet
 // and the write cannot race it.
-func newWatcherWithLeads(lead, final time.Duration, r *fakeRecorder) *Watcher {
+func newWatcherWithLeads(lead, final time.Duration, r StatusRecorder) *Watcher {
 	w := NewWithLeads(lead, final, r)
 	w.interval = testInterval
 	return w
@@ -839,5 +839,71 @@ func TestUpdateWakesTheLoopWithoutWaitingForATick(t *testing.T) {
 	events := waitForEvents(t, r, 2)
 	if !events[1].isWarning() {
 		t.Fatalf("expected the warning on the wake-up, got %+v", events[1])
+	}
+}
+
+// blockingRecorder holds a publish open until the test releases it, so the
+// evaluation loop can be parked mid-publish while Close is called.
+type blockingRecorder struct {
+	fakeRecorder
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingRecorder) PublishEvent(
+	severity cProto.SystemEvent_Severity,
+	category cProto.SystemEvent_Category,
+	message string,
+	userMessage string,
+	metadata map[string]string,
+) {
+	select {
+	case r.entered <- struct{}{}:
+	default:
+	}
+	<-r.release
+	r.fakeRecorder.PublishEvent(severity, category, message, userMessage, metadata)
+}
+
+// TestConcurrentCloseWaitsForTheLoop pins the contract for the caller that
+// loses the race: Close returns only once the loop is done, whichever of the
+// two calls got there first.
+func TestConcurrentCloseWaitsForTheLoop(t *testing.T) {
+	r := &blockingRecorder{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
+	w.interval = time.Hour
+
+	d := time.Now().Add(5 * time.Minute).Round(0)
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	// The loop is now parked inside the warning publish.
+	select {
+	case <-r.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the loop never reached the publish")
+	}
+
+	first := make(chan struct{})
+	second := make(chan struct{})
+	go func() { w.Close(); close(first) }()
+	go func() { w.Close(); close(second) }()
+
+	select {
+	case <-first:
+		t.Fatal("Close returned while the loop was still publishing")
+	case <-second:
+		t.Fatal("Close returned while the loop was still publishing")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(r.release)
+	for _, done := range []chan struct{}{first, second} {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Close did not return after the publish completed")
+		}
 	}
 }

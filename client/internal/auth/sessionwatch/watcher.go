@@ -289,7 +289,14 @@ func (w *Watcher) Dismiss() {
 func (w *Watcher) Close() {
 	w.mu.Lock()
 	if w.closed {
+		// A concurrent Close is already tearing down. w.done outlives it,
+		// so this caller waits for the same loop rather than returning
+		// while a warning is still on its way to the recorder.
+		done := w.done
 		w.mu.Unlock()
+		if done != nil {
+			<-done
+		}
 		return
 	}
 	w.closed = true
@@ -298,11 +305,11 @@ func (w *Watcher) Close() {
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
 	w.announcedAt = time.Time{}
-	// Copy the channels out and drop them before releasing the lock: the
-	// loop takes w.mu on every tick, so waiting for it while holding the
-	// lock would deadlock.
+	// Copy the channels out before releasing the lock: the loop takes w.mu
+	// on every tick, so waiting for it while holding the lock would
+	// deadlock. w.done stays on the receiver for the branch above.
 	stop, done := w.stop, w.done
-	w.stop, w.done, w.wake = nil, nil, nil
+	w.stop, w.wake = nil, nil
 	w.mu.Unlock()
 
 	if stop == nil {
