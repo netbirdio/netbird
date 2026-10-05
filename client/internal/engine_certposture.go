@@ -25,6 +25,10 @@ const (
 	certRetryInterval = 5 * time.Minute
 )
 
+// undeliveredContext never matches a real user context, so a collection whose meta sync
+// failed is seen as stale on the next poll.
+const undeliveredContext = "\x00undelivered"
+
 // errSystemInfoTimeout reports that gathering the system info for a meta sync timed out,
 // so the sync was skipped rather than holding syncMsgMux on a stuck system call.
 var errSystemInfoTimeout = errors.New("system info gathering timed out")
@@ -51,6 +55,16 @@ func (s *certPostureState) record(userContext string, proven bool, now time.Time
 	s.userContext = userContext
 	s.proven = proven
 	return changed
+}
+
+// undelivered marks the last collection as not having reached management, so the next
+// poll collects and sends again instead of treating it as current.
+func (s *certPostureState) undelivered() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.attempted {
+		s.userContext = undeliveredContext
+	}
 }
 
 // stale reports whether the last collection no longer reflects what the device can
@@ -153,6 +167,7 @@ func (e *Engine) syncChecksMeta(checks []*mgmProto.Checks) error {
 	e.attachCertificateProofs(info, checks)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
+		e.certState.undelivered()
 		return fmt.Errorf("sync meta: %w", err)
 	}
 	return nil

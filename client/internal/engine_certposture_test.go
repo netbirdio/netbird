@@ -105,3 +105,17 @@ func TestEngine_AttachCertificateProofsReportsLostAndRegainedProofs(t *testing.T
 	e.attachCertificateProofs(&system.Info{}, []*mgmProto.Checks{{Files: []string{"/bin/agent"}}})
 	assert.Len(t, recorder.GetEventHistory(), len(events), "checks without a certificate challenge collect and report nothing")
 }
+
+func TestCertPostureState_UndeliveredIsStale(t *testing.T) {
+	now := time.Now()
+	var s certPostureState
+
+	s.record("501:alice", true, now)
+	require.False(t, s.stale("501:alice", now), "precondition: a delivered proof for the same user is fresh")
+
+	s.undelivered()
+	assert.True(t, s.stale("501:alice", now), "a proof management never received is collected and sent again")
+
+	s.record("501:alice", true, now)
+	assert.False(t, s.stale("501:alice", now), "a later successful collection is fresh again")
+}
