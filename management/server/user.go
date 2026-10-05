@@ -1448,6 +1448,25 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	return updateAccountPeers, nil
 }
 
+// pendingApprovalError refuses a user awaiting approval, naming the owner who
+// can approve them when their address resolves. Failing to resolve one is not a
+// reason to withhold the refusal, so the lookup is best effort.
+func (am *DefaultAccountManager) pendingApprovalError(ctx context.Context, accountID string) error {
+	owner, err := am.GetOwnerInfo(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("pending approval refusal: owner of account %s did not resolve: %v", accountID, err)
+		return status.NewUserPendingApprovalError()
+	}
+
+	masked := types.MaskEmail(owner.Email)
+	if masked == "" {
+		log.WithContext(ctx).Debugf("pending approval refusal: no address found for the owner of account %s", accountID)
+		return status.NewUserPendingApprovalError()
+	}
+
+	return status.NewUserPendingApprovalByOwnerError(masked)
+}
+
 // GetOwnerInfo retrieves the owner information for a given account ID.
 func (am *DefaultAccountManager) GetOwnerInfo(ctx context.Context, accountID string) (*types.UserInfo, error) {
 	owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
@@ -1503,6 +1522,14 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	// A user pending approval is blocked too, and the dashboard needs to tell
+	// the two apart: one is a dead end, the other resolves by itself once the
+	// owner acts. Naming that owner needs the address the IdP holds, which is
+	// why this is answered here rather than in the permission gate.
+	if user.IsBlocked() && user.PendingApproval {
+		return nil, am.pendingApprovalError(ctx, user.AccountID)
 	}
 
 	if user.IsBlocked() {

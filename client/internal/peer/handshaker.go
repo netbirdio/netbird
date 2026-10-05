@@ -159,7 +159,7 @@ func (h *Handshaker) notifyListeners(remoteOfferAnswer *OfferAnswer) {
 }
 
 func (h *Handshaker) handleRemoteOffer(remoteOfferAnswer OfferAnswer) {
-	h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+	h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t, relay server: %s, relay IP: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials(), remoteOfferAnswer.RelaySrvAddress, remoteOfferAnswer.RelaySrvIP)
 	h.onSignalReceived(&remoteOfferAnswer)
 
 	// If we are the controller running the KEM, a responder's offer is handled by
@@ -180,7 +180,7 @@ func (h *Handshaker) handleRemoteOffer(remoteOfferAnswer OfferAnswer) {
 }
 
 func (h *Handshaker) handleRemoteAnswer(remoteOfferAnswer OfferAnswer) {
-	h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+	h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t, relay server: %s, relay IP: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials(), remoteOfferAnswer.RelaySrvAddress, remoteOfferAnswer.RelaySrvIP)
 	h.onSignalReceived(&remoteOfferAnswer)
 
 	// Feed the KEM answer (derive+store PSK) BEFORE bringing up the connection so the WG
@@ -309,7 +309,7 @@ func (h *Handshaker) sendOffer() error {
 	if h.config.PQ != nil {
 		offer.MlkemPayload, offer.MlkemPort = h.config.PQ.OfferPayload(h.config.Key)
 	}
-	h.log.Debugf("sending offer with serial: %s", offer.SessionIDString())
+	h.log.Debugf("sending offer with serial: %s, relay server: %s, relay IP: %s", offer.SessionIDString(), offer.RelaySrvAddress, offer.RelaySrvIP)
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
@@ -323,7 +323,7 @@ func (h *Handshaker) sendAnswer(remoteOffer *OfferAnswer) error {
 		}
 		answer.MlkemPayload, answer.MlkemPort = h.config.PQ.AnswerPayload(h.config.Key, recvOffer)
 	}
-	h.log.Debugf("sending answer with serial: %s", answer.SessionIDString())
+	h.log.Debugf("sending answer with serial: %s, relay server: %s, relay IP: %s", answer.SessionIDString(), answer.RelaySrvAddress, answer.RelaySrvIP)
 
 	return h.signaler.SignalAnswer(answer, h.config.Key)
 }

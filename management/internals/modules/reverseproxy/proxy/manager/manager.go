@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	nbversion "github.com/netbirdio/netbird/version"
 )
 
 // store defines the interface for proxy persistence operations
@@ -22,12 +23,15 @@ type store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
+
+const minSessionCodeVersion = "0.81.0"
 
 // Manager handles all proxy operations
 type Manager struct {
@@ -50,7 +54,7 @@ func NewManager(store store, meter metric.Meter) (*Manager, error) {
 
 // Connect registers a new proxy connection in the database.
 // capabilities may be nil for old proxies that do not report them.
-func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, accountID *string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
+func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress, version string, accountID *string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
 	now := time.Now()
 	var caps proxy.Capabilities
 	if capabilities != nil {
@@ -61,6 +65,7 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		SessionID:      sessionID,
 		ClusterAddress: clusterAddress,
 		IPAddress:      ipAddress,
+		Version:        truncateVersion(version),
 		AccountID:      accountID,
 		LastSeen:       now,
 		ConnectedAt:    &now,
@@ -78,6 +83,7 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		"sessionID":      sessionID,
 		"clusterAddress": clusterAddress,
 		"ipAddress":      ipAddress,
+		"version":        p.Version,
 	}).Info("proxy connected")
 
 	return p, nil
@@ -143,6 +149,22 @@ func (m Manager) ClusterSupportsPrivate(ctx context.Context, clusterAddr string)
 	return m.store.GetClusterSupportsPrivate(ctx, clusterAddr)
 }
 
+// ClusterSupportsSessionCode reports whether all active proxies support session codes.
+func (m Manager) ClusterSupportsSessionCode(ctx context.Context, clusterAddr string) bool {
+	versions, err := m.store.GetActiveProxyVersions(ctx, clusterAddr)
+	if err != nil || len(versions) == 0 {
+		return false
+	}
+
+	for _, version := range versions {
+		if supported, err := nbversion.MeetsMinVersion(minSessionCodeVersion, version); err != nil || !supported {
+			return false
+		}
+	}
+
+	return true
+}
+
 // CleanupStale removes proxies that haven't sent heartbeat in the specified duration
 func (m *Manager) CleanupStale(ctx context.Context, inactivityDuration time.Duration) error {
 	if err := m.store.CleanupStaleProxies(ctx, inactivityDuration); err != nil {
@@ -183,4 +205,14 @@ func (m *Manager) DeleteAccountCluster(ctx context.Context, clusterAddress, acco
 		return err
 	}
 	return nil
+}
+
+// truncateVersion cuts a proxy-reported version to the column width so an
+// oversized value cannot fail the save and block the connect.
+func truncateVersion(version string) string {
+	runes := []rune(version)
+	if len(runes) <= proxy.MaxVersionLength {
+		return version
+	}
+	return string(runes[:proxy.MaxVersionLength])
 }

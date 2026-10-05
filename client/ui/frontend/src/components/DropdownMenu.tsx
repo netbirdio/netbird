@@ -1,6 +1,6 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { cva } from "class-variance-authority";
-import { Check, ChevronRight, Circle } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
@@ -16,7 +16,7 @@ const menuItemVariants = cva("", {
         variant: {
             default:
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50 focus-visible:bg-nb-gray-900 focus-visible:text-nb-gray-50 data-[state=open]:bg-nb-gray-900 data-[state=open]:text-nb-gray-50",
-            danger: "text-red-500 hover:bg-red-900/20 hover:text-red-500 focus-visible:bg-red-900/20 focus-visible:text-red-500",
+            danger: "text-red-500 hover:bg-red-500/10 hover:text-red-500 focus-visible:bg-red-500/10 focus-visible:text-red-500 dark:hover:bg-red-900/20 dark:focus-visible:bg-red-900/20",
         },
     },
     defaultVariants: { variant: "default" },
@@ -159,19 +159,23 @@ const DropdownMenuRadioItem = React.forwardRef<
     <DropdownMenuPrimitive.RadioItem
         ref={ref}
         className={cn(
-            "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
-            "text-nb-gray-200 transition-colors hover:bg-nb-gray-900 hover:text-nb-gray-50 focus-visible:bg-nb-gray-900 focus-visible:text-nb-gray-50",
+            "my-0.5 flex cursor-default select-none items-center gap-2 rounded-md px-2 py-2 outline-none",
+            "text-xs font-semibold text-nb-gray-200 transition-colors",
+            "data-[highlighted]:bg-nb-gray-850 data-[highlighted]:text-nb-gray-50",
             "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
             className,
         )}
         {...props}
     >
-        <span className={"absolute left-2 flex h-3.5 w-3.5 items-center justify-center"}>
+        {children}
+        <span
+            aria-hidden={"true"}
+            className={"ml-auto flex w-4 shrink-0 items-center justify-center"}
+        >
             <DropdownMenuPrimitive.ItemIndicator>
-                <Circle className={"h-2 w-2 fill-current"} />
+                <Check size={14} className={"text-netbird"} />
             </DropdownMenuPrimitive.ItemIndicator>
         </span>
-        {children}
     </DropdownMenuPrimitive.RadioItem>
 ));
 DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;

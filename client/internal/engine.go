@@ -671,10 +671,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.wgDevice.Store(e.wgInterface.GetWGDevice())
 
-	// Set up notrack rules immediately after proxy is listening to prevent
-	// conntrack entries from being created before the rules are in place
-	e.setupWGProxyNoTrack()
-
 	// Start after interface is up since port may have been resolved from 0 or changed if occupied
 	e.shutdownWg.Add(1)
 	go func() {
@@ -839,23 +835,6 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
-}
-
-// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
-// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
-func (e *Engine) setupWGProxyNoTrack() {
-	if e.firewall == nil {
-		return
-	}
-
-	proxyPort := e.wgInterface.GetProxyPort()
-	if proxyPort == 0 {
-		return
-	}
-
-	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
-		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
-	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -1104,7 +1083,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			// back to empty if the FQDN doesn't have the expected shape.
 			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
 		}
-		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		// With the firewall disabled there is no ACL manager to program, so
+		// RoutesFirewallRules would be built and then dropped. On a peer that
+		// routes many network resources that is the single most expensive
+		// step of the sync.
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
 		if err != nil {
 			return fmt.Errorf("decode network map envelope: %w", err)
 		}

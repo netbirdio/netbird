@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/lifecycle"
+	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/util/wsproxy"
 	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
@@ -36,6 +38,8 @@ const (
 	DefaultSelfHostedDomain = "netbird.selfhosted"
 
 	ContainerKeyBaseServer = "baseServer"
+
+	applicationName = "management"
 )
 
 type Server interface {
@@ -66,7 +70,8 @@ type BaseServer struct {
 	disableLegacyManagementPort bool
 	autoResolveDomains          bool
 
-	proxyAuthClose func()
+	proxyAuthClose    func()
+	domainCleanupStop func()
 
 	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
 	// hooks registered by external modules via RegisterGRPCExtension. Populated
@@ -81,6 +86,8 @@ type BaseServer struct {
 	errCh  chan error
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
+
+	lifecycle.StopHandlers
 }
 
 // Config holds the configuration parameters for creating a new server
@@ -116,6 +123,9 @@ func NewServer(cfg *Config) *BaseServer {
 	}
 	s.container[ContainerKeyBaseServer] = s
 
+	stopProfiling := profiling.Start(applicationName)
+	s.OnStop(stopProfiling)
+
 	return s
 }
 
@@ -125,6 +135,14 @@ func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
 
 // Start begins listening for HTTP requests on the configured address
 func (s *BaseServer) Start(ctx context.Context) error {
+	if err := s.start(ctx); err != nil {
+		s.RunStopHandlers()
+		return err
+	}
+	return nil
+}
+
+func (s *BaseServer) start(ctx context.Context) error {
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
@@ -227,8 +245,25 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.update.SetOnUpdateListener(func() {
 		log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
 	})
+	s.startDomainCleanup(srvCtx)
 
 	return nil
+}
+func (s *BaseServer) startDomainCleanup(ctx context.Context) {
+	if s.domainCleanupStop != nil {
+		return
+	}
+	mgr := s.ReverseProxyDomainManager()
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	s.domainCleanupStop = func() {
+		cancel()
+		<-done
+	}
+	go func() {
+		defer close(done)
+		mgr.RunValidationCleanup(ctx)
+	}()
 }
 
 // setupTLS resolves the listener's TLS source: an injected config wins over the HttpConfig certificate settings
@@ -260,6 +295,10 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	defer s.RunStopHandlers()
+	if s.domainCleanupStop != nil {
+		s.domainCleanupStop()
+	}
 
 	s.IntegratedValidator().Stop(ctx)
 	if s.GeoLocationManager() != nil {

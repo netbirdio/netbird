@@ -120,7 +120,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv, servers.metricsServer)
+	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv, servers.signalSrv, servers.metricsServer)
 	wg.Wait()
 	return err
 }
@@ -399,7 +399,7 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 	}
 }
 
-func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, metricsServer *sharedMetrics.Metrics) error {
+func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, signalSrv *signalServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
@@ -423,6 +423,10 @@ func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthche
 		if err := mgmtSrv.Stop(); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to close management server: %w", err))
 		}
+	}
+
+	if signalSrv != nil {
+		signalSrv.Stop()
 	}
 
 	if metricsServer != nil {

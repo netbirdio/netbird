@@ -24,6 +24,7 @@ const (
 	tableFilter = "filter"
 	tableNat    = "nat"
 	tableMangle = "mangle"
+	tableRaw    = "raw"
 
 	// chainACLInput is the peer ACL chain that holds installed
 	// peer-filtering rules.
@@ -34,6 +35,7 @@ const (
 	mangleForwardKey chainKey = "MANGLE-FORWARD"
 
 	chainInput       = "INPUT"
+	chainOutput      = "OUTPUT"
 	chainPostrouting = "POSTROUTING"
 	chainPrerouting  = "PREROUTING"
 	chainForward     = "FORWARD"
