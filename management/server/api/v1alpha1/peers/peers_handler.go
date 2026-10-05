@@ -80,7 +80,7 @@ func (h *Handler) deleteTestPeer(ctx context.Context, accountID, userID, peerID 
 
 func (h *Handler) GetTestAllPeers(w http.ResponseWriter, r *http.Request) {
 	respBody := []*apiv1alpha1.PeerBatch{
-		{PeerComponents: apiv1alpha1.PeerComponents{PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"}}},
+		{Peer: apiv1alpha1.Peer{PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"}}},
 	}
 
 	fmt.Println("page: " + r.URL.Query().Get("page"))
@@ -458,7 +458,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMin
 	return &apiv1alpha1.PeerBatch{
 		CreatedAt:            peer.CreatedAt,
 		AccessiblePeersCount: accessiblePeersCount,
-		PeerComponents: apiv1alpha1.PeerComponents{
+		Peer: apiv1alpha1.Peer{
 			PeerMinimum: apiv1alpha1.PeerMinimum{
 				Id:   peer.ID,
 				Name: peer.Name,

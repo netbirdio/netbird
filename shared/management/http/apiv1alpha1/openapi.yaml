@@ -151,16 +151,6 @@ components:
           type: string
           description: A human-readable error message.
           example: "couldn't parse JSON request"
-    GroupMinimum:
-      $ref: './group/components.yaml#/components/schemas/GroupMinimum'
-    PeerRequest:
-      $ref: './peer/components.yaml#/components/schemas/PeerRequest'
-    Peer:
-      $ref: './peer/components.yaml#/components/schemas/Peer'
-    PeerBatch:
-      $ref: './peer/components.yaml#/components/schemas/PeerBatch'
-    PeerMinumum:
-      $ref: './peer/components.yaml#/components/schemas/PeerMinimum'
   responses:
     not_found:
       description: Resource not found
@@ -226,3 +216,7 @@ paths:
     $ref: './peer/peers.yaml'
   /peers/{peerId}:
     $ref: './peer/peer.yaml'
+  /users:
+    $ref: './user/user_paths.yaml#/UsersPath'
+  /users/{userId}:
+    $ref: './user/user_paths.yaml#/UserPath'

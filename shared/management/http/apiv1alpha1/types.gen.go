@@ -2,7 +2,10 @@
 
 package apiv1alpha1
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country.
 // CountryCode example value is defined in the OpenAPI schema.
@@ -37,27 +40,36 @@ type ErrorResponse struct {
 	Message *string `json:"message,omitempty"`
 }
 
-type GroupMinimum = GroupMinimumComponents
+type PeerBatch struct {
+	Peer
+	// CreatedAt Peer creation date (UTC).
+	// CreatedAt example value is defined in the OpenAPI schema.
+	CreatedAt time.Time `json:"created_at"`
+	// AccessiblePeersCount Number of accessible peers.
+	// AccessiblePeersCount example value is defined in the OpenAPI schema.
+	AccessiblePeersCount int `json:"accessible_peers_count"`
+}
 
-type PeerRequest = PeerRequestComponents
+type PeerMinimum struct {
+	// Id Peer ID.
+	// Id example value is defined in the OpenAPI schema.
+	Id string `json:"id"`
+	// Name Peer's hostname.
+	// Name example value is defined in the OpenAPI schema.
+	Name string `json:"name"`
+}
 
-type Peer = PeerComponents
-
-type PeerBatch = PeerBatchComponents
-
-type PeerMinumum = PeerMinimum
-
-// GroupMinimumComponentsIssued How the group was issued (api, integration, jwt).
-// GroupMinimumComponentsIssued example value is defined in the OpenAPI schema.
-type GroupMinimumComponentsIssued string
+// GroupMinimumIssued How the group was issued (api, integration, jwt).
+// GroupMinimumIssued example value is defined in the OpenAPI schema.
+type GroupMinimumIssued string
 
 const (
-	GroupMinimumComponentsIssuedAPI         GroupMinimumComponentsIssued = "api"
-	GroupMinimumComponentsIssuedIntegration GroupMinimumComponentsIssued = "integration"
-	GroupMinimumComponentsIssuedJWT         GroupMinimumComponentsIssued = "jwt"
+	GroupMinimumIssuedAPI         GroupMinimumIssued = "api"
+	GroupMinimumIssuedIntegration GroupMinimumIssued = "integration"
+	GroupMinimumIssuedJWT         GroupMinimumIssued = "jwt"
 )
 
-type GroupMinimumComponents struct {
+type GroupMinimum struct {
 	// Id Group ID.
 	// Id example value is defined in the OpenAPI schema.
 	Id string `json:"id"`
@@ -72,30 +84,46 @@ type GroupMinimumComponents struct {
 	ResourcesCount int `json:"resources_count"`
 	// Issued How the group was issued (api, integration, jwt).
 	// Issued example value is defined in the OpenAPI schema.
-	Issued *GroupMinimumComponentsIssued `json:"issued,omitempty"`
+	Issued *GroupMinimumIssued `json:"issued,omitempty"`
 }
 
-type PeerRequestComponents struct {
-	// Name example value is defined in the OpenAPI schema.
-	Name string `json:"name"`
-	// SshEnabled example value is defined in the OpenAPI schema.
-	SshEnabled bool `json:"ssh_enabled"`
-	// LoginExpirationEnabled example value is defined in the OpenAPI schema.
-	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
-	// InactivityExpirationEnabled example value is defined in the OpenAPI schema.
-	InactivityExpirationEnabled bool `json:"inactivity_expiration_enabled"`
-	// ApprovalRequired (Cloud only) Indicates whether peer needs approval.
-	// ApprovalRequired example value is defined in the OpenAPI schema.
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
-	// Ip Peer's IP address.
-	// Ip example value is defined in the OpenAPI schema.
-	Ip *string `json:"ip,omitempty"`
-	// Ipv6 Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
-	// Ipv6 example value is defined in the OpenAPI schema.
-	Ipv6 *string `json:"ipv6,omitempty"`
+type PeerLocalFlags struct {
+	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer.
+	// RosenpassEnabled example value is defined in the OpenAPI schema.
+	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
+	// RosenpassPermissive Indicates whether Rosenpass is in permissive mode or not.
+	// RosenpassPermissive example value is defined in the OpenAPI schema.
+	RosenpassPermissive *bool `json:"rosenpass_permissive,omitempty"`
+	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not.
+	// ServerSshAllowed example value is defined in the OpenAPI schema.
+	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
+	// RemoteJobsAllowed Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles).
+	// RemoteJobsAllowed example value is defined in the OpenAPI schema.
+	RemoteJobsAllowed *bool `json:"remote_jobs_allowed,omitempty"`
+	// DisableClientRoutes Indicates whether client routes are disabled on this peer or not.
+	// DisableClientRoutes example value is defined in the OpenAPI schema.
+	DisableClientRoutes *bool `json:"disable_client_routes,omitempty"`
+	// DisableServerRoutes Indicates whether server routes are disabled on this peer or not.
+	// DisableServerRoutes example value is defined in the OpenAPI schema.
+	DisableServerRoutes *bool `json:"disable_server_routes,omitempty"`
+	// DisableDns Indicates whether DNS management is disabled on this peer or not.
+	// DisableDns example value is defined in the OpenAPI schema.
+	DisableDns *bool `json:"disable_dns,omitempty"`
+	// DisableFirewall Indicates whether firewall management is disabled on this peer or not.
+	// DisableFirewall example value is defined in the OpenAPI schema.
+	DisableFirewall *bool `json:"disable_firewall,omitempty"`
+	// BlockLanAccess Indicates whether LAN access is blocked on this peer when used as a routing peer.
+	// BlockLanAccess example value is defined in the OpenAPI schema.
+	BlockLanAccess *bool `json:"block_lan_access,omitempty"`
+	// BlockInbound Indicates whether inbound traffic is blocked on this peer.
+	// BlockInbound example value is defined in the OpenAPI schema.
+	BlockInbound *bool `json:"block_inbound,omitempty"`
+	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer.
+	// LazyConnectionEnabled example value is defined in the OpenAPI schema.
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 }
 
-type PeerComponents struct {
+type Peer struct {
 	PeerMinimum
 	// CreatedAt Peer creation date (UTC).
 	// CreatedAt example value is defined in the OpenAPI schema.
@@ -128,7 +156,7 @@ type PeerComponents struct {
 	// Version example value is defined in the OpenAPI schema.
 	Version string `json:"version"`
 	// Groups Groups that the peer belongs to.
-	Groups []GroupMinimumComponents `json:"groups"`
+	Groups []GroupMinimum `json:"groups"`
 	// SshEnabled Indicates whether SSH server is enabled on this peer.
 	// SshEnabled example value is defined in the OpenAPI schema.
 	SshEnabled bool `json:"ssh_enabled"`
@@ -174,57 +202,213 @@ type PeerComponents struct {
 	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 }
 
-type PeerBatchComponents struct {
-	PeerComponents
-	// CreatedAt Peer creation date (UTC).
-	// CreatedAt example value is defined in the OpenAPI schema.
-	CreatedAt time.Time `json:"created_at"`
-	// AccessiblePeersCount Number of accessible peers.
-	// AccessiblePeersCount example value is defined in the OpenAPI schema.
-	AccessiblePeersCount int `json:"accessible_peers_count"`
-}
-
-type PeerMinimum struct {
-	// Id Peer ID.
-	// Id example value is defined in the OpenAPI schema.
-	Id string `json:"id"`
-	// Name Peer's hostname.
+type PeerRequest struct {
 	// Name example value is defined in the OpenAPI schema.
 	Name string `json:"name"`
+	// SshEnabled example value is defined in the OpenAPI schema.
+	SshEnabled bool `json:"ssh_enabled"`
+	// LoginExpirationEnabled example value is defined in the OpenAPI schema.
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+	// InactivityExpirationEnabled example value is defined in the OpenAPI schema.
+	InactivityExpirationEnabled bool `json:"inactivity_expiration_enabled"`
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval.
+	// ApprovalRequired example value is defined in the OpenAPI schema.
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	// Ip Peer's IP address.
+	// Ip example value is defined in the OpenAPI schema.
+	Ip *string `json:"ip,omitempty"`
+	// Ipv6 Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+	// Ipv6 example value is defined in the OpenAPI schema.
+	Ipv6 *string `json:"ipv6,omitempty"`
 }
 
-type PeerLocalFlags struct {
-	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer.
-	// RosenpassEnabled example value is defined in the OpenAPI schema.
-	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
-	// RosenpassPermissive Indicates whether Rosenpass is in permissive mode or not.
-	// RosenpassPermissive example value is defined in the OpenAPI schema.
-	RosenpassPermissive *bool `json:"rosenpass_permissive,omitempty"`
-	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not.
-	// ServerSshAllowed example value is defined in the OpenAPI schema.
-	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
-	// RemoteJobsAllowed Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles).
-	// RemoteJobsAllowed example value is defined in the OpenAPI schema.
-	RemoteJobsAllowed *bool `json:"remote_jobs_allowed,omitempty"`
-	// DisableClientRoutes Indicates whether client routes are disabled on this peer or not.
-	// DisableClientRoutes example value is defined in the OpenAPI schema.
-	DisableClientRoutes *bool `json:"disable_client_routes,omitempty"`
-	// DisableServerRoutes Indicates whether server routes are disabled on this peer or not.
-	// DisableServerRoutes example value is defined in the OpenAPI schema.
-	DisableServerRoutes *bool `json:"disable_server_routes,omitempty"`
-	// DisableDns Indicates whether DNS management is disabled on this peer or not.
-	// DisableDns example value is defined in the OpenAPI schema.
-	DisableDns *bool `json:"disable_dns,omitempty"`
-	// DisableFirewall Indicates whether firewall management is disabled on this peer or not.
-	// DisableFirewall example value is defined in the OpenAPI schema.
-	DisableFirewall *bool `json:"disable_firewall,omitempty"`
-	// BlockLanAccess Indicates whether LAN access is blocked on this peer when used as a routing peer.
-	// BlockLanAccess example value is defined in the OpenAPI schema.
-	BlockLanAccess *bool `json:"block_lan_access,omitempty"`
-	// BlockInbound Indicates whether inbound traffic is blocked on this peer.
-	// BlockInbound example value is defined in the OpenAPI schema.
-	BlockInbound *bool `json:"block_inbound,omitempty"`
-	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer.
-	// LazyConnectionEnabled example value is defined in the OpenAPI schema.
-	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+// UserStatus User's status.
+// UserStatus example value is defined in the OpenAPI schema.
+type UserStatus string
+
+const (
+	UserStatusActive  UserStatus = "active"
+	UserStatusInvited UserStatus = "invited"
+	UserStatusBlocked UserStatus = "blocked"
+)
+
+type User struct {
+	// Id User ID.
+	// Id example value is defined in the OpenAPI schema.
+	Id string `json:"id"`
+	// Email User's email address.
+	// Email example value is defined in the OpenAPI schema.
+	Email string `json:"email"`
+	// Password User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+	// Password example value is defined in the OpenAPI schema.
+	Password *string `json:"password,omitempty"`
+	// Name User's name from idp provider.
+	// Name example value is defined in the OpenAPI schema.
+	Name string `json:"name"`
+	// Role User's NetBird account role.
+	// Role example value is defined in the OpenAPI schema.
+	Role string `json:"role"`
+	// Status User's status.
+	// Status example value is defined in the OpenAPI schema.
+	Status UserStatus `json:"status"`
+	// LastLogin Last time this user performed a login to the dashboard.
+	// LastLogin example value is defined in the OpenAPI schema.
+	LastLogin *time.Time `json:"last_login,omitempty"`
+	// AutoGroups Group IDs to auto-assign to peers registered by this user.
+	AutoGroups []string `json:"auto_groups"`
+	// IsCurrent Is true if authenticated user is the same as this user.
+	// IsCurrent readOnly.
+	// IsCurrent example value is defined in the OpenAPI schema.
+	IsCurrent *bool `json:"is_current,omitempty"`
+	// IsServiceUser Is true if this user is a service user.
+	// IsServiceUser readOnly.
+	// IsServiceUser example value is defined in the OpenAPI schema.
+	IsServiceUser *bool `json:"is_service_user,omitempty"`
+	// IsBlocked Is true if this user is blocked. Blocked users can't use the system.
+	// IsBlocked example value is defined in the OpenAPI schema.
+	IsBlocked bool `json:"is_blocked"`
+	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
+	// PendingApproval example value is defined in the OpenAPI schema.
+	PendingApproval bool `json:"pending_approval"`
+	// Issued How user was issued by API or Integration.
+	// Issued example value is defined in the OpenAPI schema.
+	Issued *string `json:"issued,omitempty"`
+	// IdpId Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+	// IdpId example value is defined in the OpenAPI schema.
+	IdpId       *string          `json:"idp_id,omitempty"`
+	Permissions *UserPermissions `json:"permissions,omitempty"`
+}
+
+type UserCreateRequest struct {
+	// Email User's Email to send invite to.
+	// Email example value is defined in the OpenAPI schema.
+	Email *string `json:"email,omitempty"`
+	// Name User's full name.
+	// Name example value is defined in the OpenAPI schema.
+	Name *string `json:"name,omitempty"`
+	// Role User's NetBird account role.
+	// Role example value is defined in the OpenAPI schema.
+	Role string `json:"role"`
+	// AutoGroups Group IDs to auto-assign to peers registered by this user.
+	AutoGroups []string `json:"auto_groups"`
+	// IsServiceUser Is true if this user is a service user.
+	// IsServiceUser example value is defined in the OpenAPI schema.
+	IsServiceUser bool `json:"is_service_user"`
+}
+
+type UserRequest struct {
+	// Role User's NetBird account role.
+	// Role example value is defined in the OpenAPI schema.
+	Role string `json:"role"`
+	// AutoGroups Group IDs to auto-assign to peers registered by this user.
+	AutoGroups []string `json:"auto_groups"`
+	// IsBlocked If set to true then user is blocked and can't use the system.
+	// IsBlocked example value is defined in the OpenAPI schema.
+	IsBlocked bool `json:"is_blocked"`
+}
+
+type UserPermissionsModulesAdditionalProperty struct {
+	AdditionalProperties map[string]bool `json:"-"`
+}
+
+func (m *UserPermissionsModulesAdditionalProperty) UnmarshalJSON(data []byte) error {
+	type Alias UserPermissionsModulesAdditionalProperty
+	var known Alias
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	*m = UserPermissionsModulesAdditionalProperty(known)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	m.AdditionalProperties = make(map[string]bool, len(raw))
+	for key, value := range raw {
+		var decoded bool
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			return err
+		}
+		m.AdditionalProperties[key] = decoded
+	}
+	return nil
+}
+
+func (m UserPermissionsModulesAdditionalProperty) MarshalJSON() ([]byte, error) {
+	type Alias UserPermissionsModulesAdditionalProperty
+	encoded, err := json.Marshal(Alias(m))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	for key, value := range m.AdditionalProperties {
+		encodedValue, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		object[key] = encodedValue
+	}
+	return json.Marshal(object)
+}
+
+// UserPermissionsModules example value is defined in the OpenAPI schema.
+type UserPermissionsModules struct {
+	AdditionalProperties map[string]map[string]bool `json:"-"`
+}
+
+func (m *UserPermissionsModules) UnmarshalJSON(data []byte) error {
+	type Alias UserPermissionsModules
+	var known Alias
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	*m = UserPermissionsModules(known)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	m.AdditionalProperties = make(map[string]map[string]bool, len(raw))
+	for key, value := range raw {
+		var decoded map[string]bool
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			return err
+		}
+		m.AdditionalProperties[key] = decoded
+	}
+	return nil
+}
+
+func (m UserPermissionsModules) MarshalJSON() ([]byte, error) {
+	type Alias UserPermissionsModules
+	encoded, err := json.Marshal(Alias(m))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	for key, value := range m.AdditionalProperties {
+		encodedValue, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		object[key] = encodedValue
+	}
+	return json.Marshal(object)
+}
+
+type UserPermissions struct {
+	// IsRestricted Indicates whether this User's Peers view is restricted.
+	IsRestricted bool `json:"is_restricted"`
+	// Modules example value is defined in the OpenAPI schema.
+	Modules map[string]map[string]bool `json:"modules"`
 }

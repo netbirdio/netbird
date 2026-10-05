@@ -149,17 +149,38 @@ components:
           type: string
           description: A human-readable error message.
           example: "couldn't parse JSON request"
-    GroupMinimum:
-      $ref: '#/components/schemas/GroupMinimum__components'
-    PeerRequest:
-      $ref: '#/components/schemas/PeerRequest__components'
-    Peer:
-      $ref: '#/components/schemas/Peer__components'
     PeerBatch:
-      $ref: '#/components/schemas/PeerBatch__components'
-    PeerMinumum:
-      $ref: '#/components/schemas/PeerMinimum'
-    GroupMinimum__components:
+      allOf:
+        - $ref: '#/components/schemas/Peer'
+        - type: object
+          properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            accessible_peers_count:
+              description: Number of accessible peers
+              type: integer
+              example: 5
+          required:
+            - created_at
+            - accessible_peers_count
+    PeerMinimum:
+      type: object
+      properties:
+        id:
+          description: Peer ID
+          type: string
+          example: chacbco6lnnbn6cg5s90
+        name:
+          description: Peer's hostname
+          type: string
+          example: stage-host-1
+      required:
+        - id
+        - name
+    GroupMinimum:
       type: object
       properties:
         id:
@@ -191,41 +212,54 @@ components:
         - name
         - peers_count
         - resources_count
-    PeerRequest__components:
+    PeerLocalFlags:
       type: object
       properties:
-        name:
-          type: string
-          example: stage-host-1
-        ssh_enabled:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
           type: boolean
           example: true
-        login_expiration_enabled:
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
           type: boolean
           example: false
-        inactivity_expiration_enabled:
-          type: boolean
-          example: false
-        approval_required:
-          description: (Cloud only) Indicates whether peer needs approval
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
           type: boolean
           example: true
-        ip:
-          description: Peer's IP address
-          type: string
-          format: ipv4
-          example: 100.64.0.15
-        ipv6:
-          description: Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
-          type: string
-          format: ipv6
-          example: "fd00:4e42:ab12::1"
-      required:
-        - name
-        - ssh_enabled
-        - login_expiration_enabled
-        - inactivity_expiration_enabled
-    Peer__components:
+        remote_jobs_allowed:
+          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
+    Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
         - type: object
@@ -277,7 +311,7 @@ components:
               description: Groups that the peer belongs to
               type: array
               items:
-                $ref: '#/components/schemas/GroupMinimum__components'
+                $ref: '#/components/schemas/GroupMinimum'
             ssh_enabled:
               description: Indicates whether SSH server is enabled on this peer
               type: boolean
@@ -368,84 +402,191 @@ components:
             - serial_number
             - extra_dns_labels
             - ephemeral
-    PeerBatch__components:
-      allOf:
-        - $ref: '#/components/schemas/Peer__components'
-        - type: object
-          properties:
-            created_at:
-              description: Peer creation date (UTC)
-              type: string
-              format: date-time
-              example: "2023-05-05T09:00:35.477782Z"
-            accessible_peers_count:
-              description: Number of accessible peers
-              type: integer
-              example: 5
-          required:
-            - created_at
-            - accessible_peers_count
-    PeerMinimum:
+    PeerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: stage-host-1
+        ssh_enabled:
+          type: boolean
+          example: true
+        login_expiration_enabled:
+          type: boolean
+          example: false
+        inactivity_expiration_enabled:
+          type: boolean
+          example: false
+        approval_required:
+          description: (Cloud only) Indicates whether peer needs approval
+          type: boolean
+          example: true
+        ip:
+          description: Peer's IP address
+          type: string
+          format: ipv4
+          example: 100.64.0.15
+        ipv6:
+          description: Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+          type: string
+          format: ipv6
+          example: "fd00:4e42:ab12::1"
+      required:
+        - name
+        - ssh_enabled
+        - login_expiration_enabled
+        - inactivity_expiration_enabled
+    User:
       type: object
       properties:
         id:
-          description: Peer ID
+          description: User ID
           type: string
-          example: chacbco6lnnbn6cg5s90
+          example: google-oauth2|277474792786460067937
+        email:
+          description: User's email address
+          type: string
+          example: demo@netbird.io
+        password:
+          description: User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+          type: string
+          example: super_secure_password
         name:
-          description: Peer's hostname
+          description: User's name from idp provider
           type: string
-          example: stage-host-1
+          example: Tom Schulz
+        role:
+          description: User's NetBird account role
+          type: string
+          example: admin
+        status:
+          description: User's status
+          type: string
+          enum:
+            - "active"
+            - "invited"
+            - "blocked"
+          example: active
+        last_login:
+          description: Last time this user performed a login to the dashboard
+          type: string
+          format: date-time
+          example: "2023-05-05T09:00:35.477782Z"
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        is_current:
+          description: Is true if authenticated user is the same as this user
+          type: boolean
+          readOnly: true
+          example: true
+        is_service_user:
+          description: Is true if this user is a service user
+          type: boolean
+          readOnly: true
+          example: false
+        is_blocked:
+          description: Is true if this user is blocked. Blocked users can't use the system
+          type: boolean
+          example: false
+        pending_approval:
+          description: Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
+          type: boolean
+          example: false
+        issued:
+          description: How user was issued by API or Integration
+          type: string
+          example: api
+        idp_id:
+          description: Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+          type: string
+          example: okta-abc123
+        permissions:
+          $ref: '#/components/schemas/UserPermissions'
       required:
         - id
+        - email
         - name
-    PeerLocalFlags:
+        - role
+        - auto_groups
+        - status
+        - is_blocked
+        - pending_approval
+    UserCreateRequest:
       type: object
       properties:
-        rosenpass_enabled:
-          description: Indicates whether Rosenpass is enabled on this peer
-          type: boolean
-          example: true
-        rosenpass_permissive:
-          description: Indicates whether Rosenpass is in permissive mode or not
-          type: boolean
-          example: false
-        server_ssh_allowed:
-          description: Indicates whether SSH access this peer is allowed or not
-          type: boolean
-          example: true
-        remote_jobs_allowed:
-          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
-          type: boolean
-          example: true
-        disable_client_routes:
-          description: Indicates whether client routes are disabled on this peer or not
-          type: boolean
-          example: false
-        disable_server_routes:
-          description: Indicates whether server routes are disabled on this peer or not
+        email:
+          description: User's Email to send invite to
+          type: string
+          example: demo@netbird.io
+        name:
+          description: User's full name
+          type: string
+          example: Tom Schulz
+        role:
+          description: User's NetBird account role
+          type: string
+          example: admin
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        is_service_user:
+          description: Is true if this user is a service user
           type: boolean
           example: false
-        disable_dns:
-          description: Indicates whether DNS management is disabled on this peer or not
+      required:
+        - role
+        - auto_groups
+        - is_service_user
+    UserRequest:
+      type: object
+      properties:
+        role:
+          description: User's NetBird account role
+          type: string
+          example: admin
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        is_blocked:
+          description: If set to true then user is blocked and can't use the system
           type: boolean
           example: false
-        disable_firewall:
-          description: Indicates whether firewall management is disabled on this peer or not
+      required:
+        - role
+        - auto_groups
+        - is_blocked
+    UserPermissions:
+      type: object
+      properties:
+        is_restricted:
           type: boolean
-          example: false
-        block_lan_access:
-          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
-          type: boolean
-          example: false
-        block_inbound:
-          description: Indicates whether inbound traffic is blocked on this peer
-          type: boolean
-          example: false
-        lazy_connection_enabled:
-          description: Indicates whether lazy connection is enabled on this peer
-          type: boolean
-          example: false
+          description: Indicates whether this User's Peers view is restricted
+        modules:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: boolean
+            propertyNames:
+              type: string
+              description: The operation type
+          propertyNames:
+            type: string
+            description: The module name
+          example: {"networks": {"read": true, "create": false, "update": false, "delete": false}, "peers": {"read": false, "create": false, "update": false, "delete": false}}
+      required:
+        - modules
+        - is_restricted
   responses:
     not_found:
       description: Resource not found
@@ -530,8 +671,14 @@ components:
             schema:
               type: integer
               minimum: 1
-              maximum: 50000
-              default: 10
+              maximum: 250
+              default: 100
+          - name: connected
+            in: query
+            description: Filter by peer connected status
+            required: false
+            schema:
+              type: boolean
           - name: approval_required
             in: query
             description: Filter by approval_required field
@@ -570,7 +717,7 @@ components:
                 schema:
                   type: array
                   items:
-                    $ref: '#/components/schemas/PeerBatch__components'
+                    $ref: '#/components/schemas/PeerBatch'
           '400':
             "$ref": "#/components/responses/bad_request"
           '401':
@@ -601,7 +748,7 @@ components:
             content:
               application/json:
                 schema:
-                  $ref: '#/components/schemas/Peer__components'
+                  $ref: '#/components/schemas/Peer'
           '400':
             "$ref": '#/components/responses/bad_request'
           '401':
@@ -630,14 +777,14 @@ components:
           content:
             'application/json':
               schema:
-                $ref: '#/components/schemas/PeerRequest__components'
+                $ref: '#/components/schemas/PeerRequest'
         responses:
           '200':
             description: A Peer object
             content:
               application/json:
                 schema:
-                  $ref: '#/components/schemas/Peer__components'
+                  $ref: '#/components/schemas/Peer'
           '400':
             "$ref": '#/components/responses/bad_request'
           '401':
@@ -673,8 +820,137 @@ components:
             "$ref": '#/components/responses/forbidden'
           '500':
             "$ref": '#/components/responses/internal_error'
+    UsersPath:
+      get:
+        summary: List all Users
+        description: Returns a list of all users
+        tags:
+          - Users
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: query
+            name: service_user
+            schema:
+              type: boolean
+            description: Filters users and returns either regular users or service users
+        responses:
+          '200':
+            description: A JSON array of Users
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/User'
+          '400':
+            "$ref": "#/components/responses/bad_request"
+          '401':
+            "$ref": "#/components/responses/requires_authentication"
+          '403':
+            "$ref": "#/components/responses/forbidden"
+          '500':
+            "$ref": "#/components/responses/internal_error"
+      post:
+        summary: Create a User
+        description: Creates a new service user or sends an invite to a regular user
+        tags:
+          - Users
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        requestBody:
+          description: User invite information
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/UserCreateRequest'
+        responses:
+          '200':
+            description: A User object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/User'
+          '400':
+            "$ref": "#/components/responses/bad_request"
+          '401':
+            "$ref": "#/components/responses/requires_authentication"
+          '403':
+            "$ref": "#/components/responses/forbidden"
+          '500':
+            "$ref": "#/components/responses/internal_error"
+    UserPath:
+      put:
+        summary: Update a User
+        description: Update information about a User
+        tags:
+          - Users
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: userId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a user
+        requestBody:
+          description: User update
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/UserRequest'
+        responses:
+          '200':
+            description: A User object
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/User'
+          '400':
+            "$ref": "#/components/responses/bad_request"
+          '401':
+            "$ref": "#/components/responses/requires_authentication"
+          '403':
+            "$ref": "#/components/responses/forbidden"
+          '500':
+            "$ref": "#/components/responses/internal_error"
+      delete:
+        summary: Delete a User
+        description: This method removes a user from accessing the system. For this leaves the IDP user intact unless the `--user-delete-from-idp` is passed to management startup.
+        tags:
+          - Users
+        security:
+          - BearerAuth: []
+          - TokenAuth: []
+        parameters:
+          - in: path
+            name: userId
+            required: true
+            schema:
+              type: string
+            description: The unique identifier of a user
+        responses:
+          '200':
+            description: Delete status code
+            content: {}
+          '400':
+            "$ref": "#/components/responses/bad_request"
+          '401':
+            "$ref": "#/components/responses/requires_authentication"
+          '403':
+            "$ref": "#/components/responses/forbidden"
+          '500':
+            "$ref": "#/components/responses/internal_error"
 paths:
   /peers:
     $ref: '#/components/pathItems/peers'
   /peers/{peerId}:
     $ref: '#/components/pathItems/peer'
+  /users:
+    $ref: '#/components/pathItems/UsersPath'
+  /users/{userId}:
+    $ref: '#/components/pathItems/UserPath'

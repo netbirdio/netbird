@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/peers"
+	"github.com/netbirdio/netbird/management/server/api/v1alpha1/users"
 
 	validator "github.com/pb33f/libopenapi-validator"
 )
@@ -37,8 +38,11 @@ func NewAPIV1Handler(
 
 	router.Use((&V1ValidatorMiddleware{v: v1validator}).Handler)
 
-	handler := peers.NewHandler(accountManager, networkMapController, permissionsManager)
-	return handler.WithEndpointsForRouter(router), nil
+	peersHandler := peers.NewHandler(accountManager, networkMapController, permissionsManager)
+	_ = peersHandler.WithEndpointsForRouter(router)
+
+	usersHandler := users.NewHandler(accountManager)
+	return usersHandler.WithEndpointsForRouter(router), nil
 }
 
 type V1ValidatorMiddleware struct {
