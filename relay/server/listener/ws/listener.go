@@ -80,6 +80,9 @@ func (l *Listener) Serve(acceptFn func(conn relaylistener.Conn)) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
+	if closeErr := l.listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+		log.Debugf("failed to close WS listener: %v", closeErr)
+	}
 	return err
 }
 

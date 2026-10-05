@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"testing"
@@ -47,6 +48,18 @@ func TestListener_ShutdownStopsServe(t *testing.T) {
 	require.NoError(t, l.Shutdown(context.Background()))
 	assert.NoError(t, waitForServeToReturn(t, errChan))
 	requireTCPAddressFree(t, addr)
+}
+
+func TestListener_ServeErrorReleasesSocket(t *testing.T) {
+	// A TLS config without certificates makes ServeTLS fail before it takes
+	// ownership of the listener, so only Serve itself can close the socket.
+	l := &Listener{Address: "127.0.0.1:0", TLSConfig: &tls.Config{}}
+	require.NoError(t, l.Bind())
+	addr := l.listener.Addr().String()
+
+	assert.Error(t, l.Serve(func(relaylistener.Conn) {}), "ServeTLS must fail without a certificate")
+	requireTCPAddressFree(t, addr)
+	assert.NoError(t, l.Shutdown(context.Background()), "Shutdown after a failed Serve must succeed")
 }
 
 func TestListener_Unbound(t *testing.T) {
