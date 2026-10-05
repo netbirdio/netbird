@@ -346,7 +346,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger, srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
+	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
+		func() { s.accountManager.TrackCertificateChallenges(ctx, accountID) },
+		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
 
