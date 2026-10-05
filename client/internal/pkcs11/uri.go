@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -13,7 +14,7 @@ import (
 const DefaultModule = "p11-kit-proxy.so"
 
 // URI is the subset of an RFC 7512 PKCS#11 URI this client understands: the token label,
-// the module to load and where the user PIN comes from. Unknown attributes are ignored.
+// the module to load and where the user PIN comes from.
 type URI struct {
 	Token      string
 	ModulePath string
@@ -21,6 +22,12 @@ type URI struct {
 	pinSource  string
 }
 
+// ParseURI parses raw following RFC 7512 section 2.3. A path attribute other than token
+// is refused rather than ignored: the path narrows which token is used, and ignoring a
+// constraint such as serial would widen the match to whichever token is listed first,
+// where the RFC calls for no match at all. Duplicate attributes are refused, a
+// module-path must be absolute and a module-name must be a bare name. Unknown query
+// attributes are ignored, as the RFC asks.
 func ParseURI(raw string) (*URI, error) {
 	rest, ok := strings.CutPrefix(raw, "pkcs11:")
 	if !ok {
@@ -29,45 +36,66 @@ func ParseURI(raw string) (*URI, error) {
 	path, query, _ := strings.Cut(rest, "?")
 
 	u := &URI{}
-	if err := eachAttribute(path, ";", func(name, value string) {
-		if name == "token" {
-			u.Token = value
-		}
-	}); err != nil {
+	if err := eachAttribute(path, ";", u.setPathAttribute); err != nil {
 		return nil, err
 	}
-	err := eachAttribute(query, "&", func(name, value string) {
-		switch name {
-		case "module-path":
-			u.ModulePath = value
-		case "module-name":
-			u.ModulePath = "lib" + value + ".so"
-		case "pin-value":
-			u.pinValue = &value
-		case "pin-source":
-			u.pinSource = value
-		}
-	})
-	if err != nil {
+	if err := eachAttribute(query, "&", u.setQueryAttribute); err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-func eachAttribute(list, sep string, fn func(name, value string)) error {
+func (u *URI) setPathAttribute(name, value string) error {
+	if name != "token" {
+		return fmt.Errorf("PKCS#11 URI path attribute %q is not supported, only token selects a token", name)
+	}
+	u.Token = value
+	return nil
+}
+
+func (u *URI) setQueryAttribute(name, value string) error {
+	switch name {
+	case "module-path":
+		if !filepath.IsAbs(value) {
+			return fmt.Errorf("PKCS#11 URI module-path %q must be absolute", value)
+		}
+		u.ModulePath = value
+	case "module-name":
+		if value == "" || strings.ContainsAny(value, `/\`) || strings.Contains(value, "..") {
+			return fmt.Errorf("PKCS#11 URI module-name %q must be a module name, not a path", value)
+		}
+		u.ModulePath = "lib" + value + ".so"
+	case "pin-value":
+		u.pinValue = &value
+	case "pin-source":
+		u.pinSource = value
+	}
+	return nil
+}
+
+// eachAttribute splits list on sep and calls fn for every name=value pair, refusing a
+// name that appears twice.
+func eachAttribute(list, sep string, fn func(name, value string) error) error {
 	if list == "" {
 		return nil
 	}
+	seen := make(map[string]struct{})
 	for _, pair := range strings.Split(list, sep) {
 		name, value, ok := strings.Cut(pair, "=")
 		if !ok {
 			return fmt.Errorf("PKCS#11 URI attribute %q has no value", pair)
 		}
+		if _, dup := seen[name]; dup {
+			return fmt.Errorf("PKCS#11 URI attribute %s appears more than once", name)
+		}
+		seen[name] = struct{}{}
 		value, err := url.PathUnescape(value)
 		if err != nil {
 			return fmt.Errorf("PKCS#11 URI attribute %s: %w", name, err)
 		}
-		fn(name, value)
+		if err := fn(name, value); err != nil {
+			return err
+		}
 	}
 	return nil
 }

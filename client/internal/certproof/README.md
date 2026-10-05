@@ -169,8 +169,11 @@ names the library to load; `module-name=tpm2_pkcs11` resolves to `libtpm2_pkcs11
 the loader's search path, and with neither the p11-kit proxy is loaded, which exposes every
 module the system has registered. The URI may carry the PIN itself, as `pin-value` inline
 or `pin-source` naming a file, and `NB_TPM_PIN` takes precedence over both. Without any
-PIN no login happens, and tpm2-pkcs11 then shows no private keys at all. Every other
-attribute is ignored.
+PIN no login happens, and tpm2-pkcs11 then shows no private keys at all. Following RFC 7512
+section 2.3, any other path attribute (`serial`, `model`, `object`, ...) is refused rather
+than ignored, since ignoring it would widen the match, and so is an attribute given twice;
+`module-path` must be absolute and `module-name` a bare name. Unknown query attributes are
+ignored.
 
 The certificate may live on the token or in the PEM directory: `CertStoreDir` in the
 profile config, else `NB_CERT_STORE_DIR`, else `/etc/netbird/certs`. On the token,
