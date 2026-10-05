@@ -310,7 +310,7 @@ func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
 	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
 	req := &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	}
 
 	resp, err := setup.proxyService.ValidateSession(ctx, req)
@@ -343,7 +343,7 @@ func TestValidateSession_UserInDifferentAccount(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -362,7 +362,7 @@ func TestValidateSession_UserNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -381,7 +381,7 @@ func TestValidateSession_ProxyNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "unknown-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -395,7 +395,7 @@ func TestValidateSession_InvalidToken(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: "invalid-token",
+		SessionToken: "invalid-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -408,7 +408,7 @@ func TestValidateSession_MissingDomain(t *testing.T) {
 	defer setup.cleanup()
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
-		SessionToken: "some-token",
+		SessionToken: "some-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
