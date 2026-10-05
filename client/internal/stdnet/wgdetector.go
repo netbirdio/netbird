@@ -70,9 +70,7 @@ func (d *WGDetector) IsWireGuard(iFace string) bool {
 
 		isWireGuard := d.probe(iFace)
 
-		d.mu.Lock()
-		d.cache[iFace] = wgDetectorEntry{isWireGuard: isWireGuard, expireAt: time.Now().Add(d.ttl)}
-		d.mu.Unlock()
+		d.store(iFace, isWireGuard)
 
 		return isWireGuard, nil
 	})
@@ -88,6 +86,22 @@ func (d *WGDetector) cached(iFace string) (isWireGuard, ok bool) {
 		return false, false
 	}
 	return entry.isWireGuard, true
+}
+
+// store records an answer and drops the expired ones, so names of interfaces that came
+// and went, such as container veths, do not pile up for the life of the engine.
+func (d *WGDetector) store(iFace string, isWireGuard bool) {
+	now := time.Now()
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for name, entry := range d.cache {
+		if !now.Before(entry.expireAt) {
+			delete(d.cache, name)
+		}
+	}
+	d.cache[iFace] = wgDetectorEntry{isWireGuard: isWireGuard, expireAt: now.Add(d.ttl)}
 }
 
 func probeWireGuard(iFace string) bool {

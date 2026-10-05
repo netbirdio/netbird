@@ -131,3 +131,18 @@ func TestInterfaceFilterSharesOneProbeAcrossFilters(t *testing.T) {
 
 	assert.Equal(t, int64(2), calls.Load(), "one probe per interface, not per filter")
 }
+
+func TestWGDetectorDropsExpiredEntries(t *testing.T) {
+	d, _ := newCountingDetector(t, time.Millisecond, false)
+
+	for _, name := range []string{"veth1", "veth2", "veth3"} {
+		d.IsWireGuard(name)
+	}
+	time.Sleep(5 * time.Millisecond)
+	d.IsWireGuard("eth0")
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	assert.Len(t, d.cache, 1, "expired entries of vanished interfaces must be dropped")
+	assert.Contains(t, d.cache, "eth0", "the fresh answer must be kept")
+}
