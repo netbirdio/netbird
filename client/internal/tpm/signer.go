@@ -78,7 +78,7 @@ func (s *keySigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 	}
 	defer func() { _ = rwc.Close() }()
 
-	parent := tpmutil.Handle(uint32(s.key.Parent)) //nolint:gosec // validParent bounds it
+	parent := tpmutil.Handle(s.key.Parent)
 	if !persistentHandle(s.key.Parent) {
 		parent, _, err = legacy.CreatePrimary(rwc, parent, legacy.PCRSelection{}, "", "", eccSRKTemplate)
 		if err != nil {
