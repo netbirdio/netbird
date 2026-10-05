@@ -49,8 +49,6 @@ func GenerateV1ApiBindings(openapipath string) ([]byte, *v3.Document, error) {
 		return nil, nil, err
 	}
 
-	slog.Info(string(bundle))
-
 	doc, err := libopenapi.NewDocumentWithConfiguration(bundle, &datamodel.DocumentConfiguration{
 		Logger: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelInfo,

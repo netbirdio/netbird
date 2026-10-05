@@ -67,7 +67,7 @@ func (v *V1ValidatorMiddleware) Handler(h http.Handler) http.Handler {
 				validationErrs = append(validationErrs, validationError(err))
 			}
 
-			log.WithContext(r.Context()).Errorf("error validating request: %s", strings.Join(validationErrs, ", "))
+			log.WithContext(r.Context()).Debugf("error validating request: %s", strings.Join(validationErrs, ", "))
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid request: %s", strings.Join(validationErrs, ", ")), w)
 
 			return

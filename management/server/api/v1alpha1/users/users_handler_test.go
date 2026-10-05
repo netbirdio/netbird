@@ -241,7 +241,7 @@ func TestUpdateUser(t *testing.T) {
 			name:               "Should_Fail_Because_AutoGroups_Is_Absent",
 			requestType:        http.MethodPut,
 			requestPath:        "/users/" + regularUserID,
-			expectedStatusCode: http.StatusBadRequest,
+			expectedStatusCode: http.StatusUnprocessableEntity,
 			expectedUserID:     regularUserID,
 			expectedBlocked:    false,
 			expectedRole:       "admin",
@@ -257,6 +257,7 @@ func TestUpdateUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req.Header.Set("Content-Type", "application/json")
 			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    existingUserID,
 				Domain:    testDomain,
@@ -364,6 +365,7 @@ func TestCreateUser(t *testing.T) {
 				Domain:    testDomain,
 				AccountId: existingAccountID,
 			})
+			req.Header.Set("Content-Type", "application/json")
 
 			v1validator, err := apiv1alpha1.CreateV1ApiValidatingMiddleware()
 			assert.NoError(t, err)
