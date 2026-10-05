@@ -890,6 +890,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		ClientCertKeyPath:             "/tmp/key",
 		LazyConnection:                "on",
 		DebugBundleUploadURL:          "https://upload.example.test/bundle?token=secret",
+		CertPKCS11URI:                 "pkcs11:token=netbird?pin-value=pin-secret",
 		MTU:                           1280,
 		DisableIPv6:                   true,
 		SyncMessageVersion:            func(v int) *int { return &v }(1),
@@ -913,6 +914,12 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 			// field name nor the token — in either anonymize mode.
 			assert.NotContains(t, rendered, "DebugBundleUploadURL:", "MDM upload URL field must not be serialized into the debug bundle")
 			assert.NotContains(t, rendered, "token=secret", "MDM upload URL value must not leak into the debug bundle")
+
+			// CertPKCS11URI may carry the token PIN as pin-value: only whether it is
+			// set is rendered.
+			assert.NotContains(t, rendered, "CertPKCS11URI:", "PKCS#11 URI field must not be serialized into the debug bundle")
+			assert.NotContains(t, rendered, "pin-secret", "PKCS#11 PIN must not leak into the debug bundle")
+			assert.Contains(t, rendered, "CertPKCS11URISet: true", "whether a PKCS#11 URI is set must be rendered")
 
 			val := reflect.ValueOf(cfg).Elem()
 			typ := val.Type()

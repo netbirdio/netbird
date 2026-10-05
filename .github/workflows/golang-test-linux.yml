@@ -241,6 +241,7 @@ jobs:
       - name: Test
         env:
           NB_TEST_PKCS11_URI: "pkcs11:token=netbird?module-path=/usr/lib/softhsm/libsofthsm2.so&pin-value=1234"
+          NB_TEST_PKCS11_DISPOSABLE: "1"
         run: CGO_ENABLED=0 go test -tags pkcs11 -timeout 5m ./client/internal/pkcs11/... ./client/internal/certproof/...
 
   test_client_on_docker:

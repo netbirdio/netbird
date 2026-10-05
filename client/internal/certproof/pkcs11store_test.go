@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"os"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,7 +25,12 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const testPKCS11URIEnv = "NB_TEST_PKCS11_URI"
+const (
+	testPKCS11URIEnv = "NB_TEST_PKCS11_URI"
+	// testPKCS11DisposableEnv marks the token as disposable, allowing tests that spend
+	// attempts of its PIN lockout counter.
+	testPKCS11DisposableEnv = "NB_TEST_PKCS11_DISPOSABLE"
+)
 
 type failingStore struct{}
 
@@ -343,8 +349,14 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 
 // TestPKCS11Store_WrongPINIsTriedOnce logs in to the real token with a wrong PIN: the
 // token refuses it, and the next collection refuses to send the same PIN again rather
-// than spending another attempt of the token's lockout counter.
+// than spending another attempt of the token's lockout counter. The one attempt it does
+// spend counts against a real token's lockout, so it runs only on a token marked
+// disposable through NB_TEST_PKCS11_DISPOSABLE.
 func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
+	disposable, _ := strconv.ParseBool(os.Getenv(testPKCS11DisposableEnv))
+	if !disposable {
+		t.Skipf("set %s=1 to spend a wrong-PIN attempt on the token", testPKCS11DisposableEnv)
+	}
 	_, uri := pkcs11TestStore(t, "")
 
 	wrongPIN := "wrong-pin-" + t.Name()

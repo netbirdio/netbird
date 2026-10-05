@@ -77,7 +77,7 @@ func TestCollect_NothingToProve(t *testing.T) {
 		{"no checks", NewFileStore(dir), nil},
 		{"files only", NewFileStore(dir), []*proto.Checks{{Files: []string{"/bin/x"}}}},
 		{"challenge without nonce", NewFileStore(dir), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{CaCertificates: []string{ca.PEM}}}}},
-		{"missing store dir", NewFileStore(filepath.Join(dir, "missing")), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{ca.PEM}}}}},
+		{"missing store dir", NewFileStore(filepath.Join(dir, "missing")), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: make([]byte, certposture.NonceSize), CaCertificates: []string{ca.PEM}}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
