@@ -74,10 +74,7 @@ func TestFileStore_RefusesFilesOthersCanWrite(t *testing.T) {
 
 			got, err := candidates(t, dir)
 			require.NoError(t, err)
-			if name == "group-writable" && os.Getegid() == 0 {
-				t.Skip("root's own group may write the file")
-			}
-			assert.Empty(t, got, "a key %s may have been replaced by someone else", name)
+			assert.Empty(t, got, "a key %s may have been replaced by someone else, even when the group is root's", name)
 		})
 	}
 }
@@ -108,4 +105,32 @@ func TestReadStoreFile_RefusesOversizedFiles(t *testing.T) {
 
 	_, err := readStoreFile(path)
 	assert.ErrorContains(t, err, "limit")
+}
+
+func TestFileStore_AcceptsASymlinkedDirectoryItsOwnerControls(t *testing.T) {
+	target := storeDir(t)
+	devicePair(t, target)
+	link := filepath.Join(storeDir(t), "certs")
+	require.NoError(t, os.Symlink(target, link))
+
+	// The link belongs to this process's user, as one root creates belongs to root.
+	got, err := candidates(t, link)
+	require.NoError(t, err)
+	assert.Len(t, got, 1, "a certificate directory behind a symlink the owner controls is read")
+}
+
+func TestFileStore_ChecksTheDirectoryBeforeListingIt(t *testing.T) {
+	dir := storeDir(t)
+	devicePair(t, dir)
+	require.NoError(t, os.Chmod(dir, 0o777))
+
+	paths, err := certFiles(dir)
+	assert.ErrorContains(t, err, "refusing certificate store")
+	assert.Nil(t, paths, "nothing in a directory anyone can write to is listed")
+}
+
+func TestFileStore_MissingDirectoryIsEmpty(t *testing.T) {
+	paths, err := certFiles(filepath.Join(storeDir(t), "missing"))
+	assert.NoError(t, err, "a store directory that does not exist yet is not an error")
+	assert.Empty(t, paths)
 }

@@ -49,8 +49,19 @@ func readStoreFile(path string) ([]byte, error) {
 }
 
 // checkStoreDir refuses a PEM directory that someone other than root or this process's
-// user could add files to or rename files in.
+// user could add files to or rename files in. The configured path may be a symlink, as
+// distributions place certificate directories behind them, but only one root or this
+// process's user owns: otherwise whoever owns the link could point it at any directory.
 func checkStoreDir(dir string) error {
+	link, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if link.Mode()&os.ModeSymlink != 0 {
+		if err := checkTrustedUID(link); err != nil {
+			return fmt.Errorf("symlink %s: %w", dir, err)
+		}
+	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		return err
@@ -64,23 +75,27 @@ func checkStoreDir(dir string) error {
 	return nil
 }
 
-// checkTrustedOwner requires info to belong to root or to this process's user, and to be
-// writable by nobody else: not by others, and by its group only when that is root's group.
-// An owner that cannot be read is refused.
+// checkTrustedOwner requires info to belong to root or to this process's user and to be
+// writable by nobody else. Group write is refused even for root's group, which ordinary
+// users may be members of. An owner that cannot be read is refused.
 func checkTrustedOwner(info os.FileInfo) error {
+	if err := checkTrustedUID(info); err != nil {
+		return err
+	}
+	if perm := info.Mode().Perm(); perm&0o022 != 0 {
+		return fmt.Errorf("writable by group or other users (mode %#o)", perm)
+	}
+	return nil
+}
+
+// checkTrustedUID requires info to belong to root or to this process's user.
+func checkTrustedUID(info os.FileInfo) error {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return errors.New("owner cannot be determined")
 	}
 	if st.Uid != 0 && int(st.Uid) != os.Geteuid() {
 		return fmt.Errorf("owned by uid %d, not by root", st.Uid)
-	}
-	perm := info.Mode().Perm()
-	if perm&0o002 != 0 {
-		return fmt.Errorf("writable by any user (mode %#o)", perm)
-	}
-	if perm&0o020 != 0 && st.Gid != 0 {
-		return fmt.Errorf("writable by group %d (mode %#o)", st.Gid, perm)
 	}
 	return nil
 }

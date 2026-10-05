@@ -107,16 +107,22 @@ func (s *FileStore) Candidates(_ context.Context) ([]Candidate, error) {
 }
 
 // certFiles lists the certificate files in dir, none when the directory does not exist.
+// The directory is checked before it is listed, so one that others can write to is
+// refused before its entries are read.
 func certFiles(dir string) ([]string, error) {
+	err := checkStoreDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("refusing certificate store: %w", err)
+	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read certificate store %s: %w", dir, err)
-	}
-	if err := checkStoreDir(dir); err != nil {
-		return nil, fmt.Errorf("refusing certificate store: %w", err)
 	}
 	var paths []string
 	for _, entry := range entries {

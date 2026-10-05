@@ -46,8 +46,11 @@ func (c *Collector) collect(ctx context.Context, checks []*proto.Checks, run fun
 
 	done := make(chan []certposture.Proof, 1)
 	go func() {
-		defer c.busy.Store(false)
-		done <- run(ctx)
+		// The slot is freed before the result is delivered, so a caller that starts the
+		// next collection right after this one returned is not turned away.
+		proofs := run(ctx)
+		c.busy.Store(false)
+		done <- proofs
 	}()
 
 	select {

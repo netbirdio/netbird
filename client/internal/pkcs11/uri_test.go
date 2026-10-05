@@ -70,19 +70,20 @@ func TestParseURI_Rejections(t *testing.T) {
 		"bad percent encoding": "pkcs11:token=%zz",
 		// RFC 7512 2.3: an unrecognized path attribute matches nothing. Ignoring it
 		// instead would let the token listed first answer for the one serial names.
-		"unsupported serial":      "pkcs11:token=netbird;serial=1234",
-		"unsupported model":       "pkcs11:model=SoftHSM%20v2;token=netbird",
-		"object selector":         "pkcs11:token=netbird;object=device",
-		"vendor path attribute":   "pkcs11:token=netbird;vendor-slot=2",
-		"duplicate token":         "pkcs11:token=a;token=b",
-		"duplicate module-path":   "pkcs11:token=a?module-path=" + absModule("a.so") + "&module-path=" + absModule("b.so"),
-		"duplicate pin-value":     "pkcs11:token=a?pin-value=1&pin-value=2",
-		"relative module-path":    "pkcs11:token=a?module-path=lib/x.so",
-		"bare module-path":        "pkcs11:token=a?module-path=libtpm2_pkcs11.so",
-		"module-name with path":   "pkcs11:token=a?module-name=../../tmp/evil",
-		"module-name with slash":  "pkcs11:token=a?module-name=tmp/evil",
-		"module-name with dotdot": "pkcs11:token=a?module-name=..",
-		"empty module-name":       "pkcs11:token=a?module-name=",
+		"unsupported serial":       "pkcs11:token=netbird;serial=1234",
+		"unsupported model":        "pkcs11:model=SoftHSM%20v2;token=netbird",
+		"object selector":          "pkcs11:token=netbird;object=device",
+		"vendor path attribute":    "pkcs11:token=netbird;vendor-slot=2",
+		"duplicate token":          "pkcs11:token=a;token=b",
+		"duplicate module-path":    "pkcs11:token=a?module-path=" + absModule("a.so") + "&module-path=" + absModule("b.so"),
+		"duplicate pin-value":      "pkcs11:token=a?pin-value=1&pin-value=2",
+		"relative module-path":     "pkcs11:token=a?module-path=lib/x.so",
+		"bare module-path":         "pkcs11:token=a?module-path=libtpm2_pkcs11.so",
+		"module-name with path":    "pkcs11:token=a?module-name=../../tmp/evil",
+		"module-name with slash":   "pkcs11:token=a?module-name=tmp/evil",
+		"module-name with dotdot":  "pkcs11:token=a?module-name=..",
+		"empty module-name":        "pkcs11:token=a?module-name=",
+		"pin-value and pin-source": "pkcs11:token=a?pin-value=1&pin-source=file:/etc/pin",
 	}
 	for name, raw := range tests {
 		_, err := ParseURI(raw)

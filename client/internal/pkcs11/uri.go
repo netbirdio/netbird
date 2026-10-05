@@ -42,6 +42,10 @@ func ParseURI(raw string) (*URI, error) {
 	if err := eachAttribute(query, "&", u.setQueryAttribute); err != nil {
 		return nil, err
 	}
+	// RFC 7512 section 2.4: a URI with both pin-value and pin-source should be refused.
+	if u.pinValue != nil && u.pinSource != "" {
+		return nil, errors.New("PKCS#11 URI carries both pin-value and pin-source")
+	}
 	return u, nil
 }
 
