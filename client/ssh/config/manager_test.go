@@ -228,3 +228,36 @@ func TestManager_ForcedSSHConfig(t *testing.T) {
 	assert.Contains(t, configStr, "peer0.nb.internal")
 	assert.Contains(t, configStr, "peer1.nb.internal")
 }
+
+func TestRenderPeerConfig(t *testing.T) {
+	knownHosts := "/dev/null"
+	if runtime.GOOS == "windows" {
+		knownHosts = "NUL"
+	}
+	tmpl := "Match host \"100.125.1.1,peer1\" exec \"%s ssh detect %%h %%p\"\n" +
+		"    PreferredAuthentications password,publickey,keyboard-interactive\n" +
+		"    PasswordAuthentication yes\n" +
+		"    PubkeyAuthentication yes\n" +
+		"    BatchMode no\n" +
+		"    ProxyCommand %s ssh proxy %%h %%p\n" +
+		"    StrictHostKeyChecking no\n" +
+		"    UserKnownHostsFile " + knownHosts + "\n" +
+		"    CheckHostIP no\n" +
+		"    LogLevel ERROR\n\n"
+
+	tests := []struct {
+		name      string
+		execPath  string
+		proxyExec string
+	}{
+		{"path without space", `C:\PROGRA~1\NetBird\netbird.exe`, `C:\PROGRA~1\NetBird\netbird.exe`},
+		{"path with space", `C:\Program Files\NetBird\netbird.exe`, `"C:\Program Files\NetBird\netbird.exe"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := fmt.Sprintf(tmpl, tt.execPath, tt.proxyExec)
+			assert.Equal(t, want, renderPeerConfig("100.125.1.1,peer1", tt.execPath), "rendered config for %s", tt.execPath)
+		})
+	}
+}
