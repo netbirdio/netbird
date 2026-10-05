@@ -10625,6 +10625,28 @@ paths:
           $ref: "#/components/responses/requires_authentication"
         "500":
           $ref: "#/components/responses/internal_error"
+    delete:
+      summary: Delete MSP tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      responses:
+        "200":
+          description: Successfully deleted the tenant
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
   /api/integrations/msp/tenants/{id}/unlink:
     post:
       summary: Unlink a tenant
