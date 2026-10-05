@@ -70,7 +70,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 			t.Errorf("%s: Initial version mismatch, expected %v, got %v", c.name, c.initialLatestVersion.String(), ver)
 		}
 
-		mockUpdate.latestVersion = c.latestVersion
+		mockUpdate.setLatestVersion(c.latestVersion)
 		mockUpdate.onUpdate()
 
 		ver, enforced = waitForUpdateEvent(sub, 500*time.Millisecond)
