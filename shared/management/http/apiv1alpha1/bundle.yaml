@@ -606,6 +606,12 @@ components:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
       content: {}
+    unprocessable:
+      description: Unprocessable Entity
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: {}
     internal_error:
       description: Internal Server Error
       headers:
@@ -803,6 +809,8 @@ components:
             "$ref": '#/components/responses/requires_authentication'
           '403':
             "$ref": '#/components/responses/forbidden'
+          '422':
+            "$ref": "#/components/responses/unprocessable"
           '500':
             "$ref": '#/components/responses/internal_error'
       delete:
@@ -892,6 +900,8 @@ components:
             "$ref": "#/components/responses/requires_authentication"
           '403':
             "$ref": "#/components/responses/forbidden"
+          '422':
+            "$ref": "#/components/responses/unprocessable"
           '500':
             "$ref": "#/components/responses/internal_error"
     UserPath:
@@ -930,6 +940,8 @@ components:
             "$ref": "#/components/responses/requires_authentication"
           '403':
             "$ref": "#/components/responses/forbidden"
+          '422':
+            "$ref": "#/components/responses/unprocessable"
           '500':
             "$ref": "#/components/responses/internal_error"
       delete:

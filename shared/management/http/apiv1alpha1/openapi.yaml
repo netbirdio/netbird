@@ -170,6 +170,12 @@ components:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
       content: { }
+    unprocessable:
+      description: Unprocessable Entity
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
     internal_error:
       description: Internal Server Error
       headers:
