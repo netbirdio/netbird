@@ -92,6 +92,8 @@ require (
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/pb33f/libopenapi v0.41.2
+	github.com/pb33f/libopenapi-validator v0.15.0
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203
 	github.com/pion/ice/v4 v4.0.0-00010101000000-000000000000
 	github.com/pion/logging v0.2.4
@@ -303,8 +305,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/jsonpath v0.8.4 // indirect
-	github.com/pb33f/libopenapi v0.41.2 // indirect
-	github.com/pb33f/libopenapi-validator v0.15.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
