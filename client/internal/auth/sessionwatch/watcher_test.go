@@ -527,3 +527,201 @@ func TestDismissBeforeUpdateIsNoop(t *testing.T) {
 	}
 	t.Fatalf("final-warning did not publish after no-op pre-Update Dismiss, events=%+v", r.snapshot())
 }
+
+func TestIsLate(t *testing.T) {
+	armedFor := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	lead := 2 * time.Minute
+	tests := []struct {
+		name       string
+		now        time.Time
+		cutoffLead time.Duration
+		want       bool
+	}{
+		{"before cutoff", armedFor.Add(-3 * time.Minute), lead, false},
+		{"at cutoff", armedFor.Add(-lead), lead, true},
+		{"after cutoff", armedFor.Add(-time.Minute), lead, true},
+		{"zero lead before deadline", armedFor.Add(-time.Second), 0, false},
+		{"zero lead at deadline", armedFor, 0, true},
+		{"zero lead after deadline", armedFor.Add(time.Second), 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isLate(tt.now, armedFor, tt.cutoffLead); got != tt.want {
+				t.Fatalf("isLate(%s, %s, %s) = %v, want %v", tt.now, armedFor, tt.cutoffLead, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsLateIgnoresMonotonicReading(t *testing.T) {
+	now := time.Now()
+	wallOnly := now.Round(0)
+	if isLate(now, wallOnly.Add(time.Second), 0) {
+		t.Fatalf("now with monotonic reading must compare as wall clock before a later wall-only deadline")
+	}
+	if !isLate(now, wallOnly, 0) {
+		t.Fatalf("now with monotonic reading must compare as wall clock at an equal wall-only deadline")
+	}
+}
+
+func TestLateTimerFiring(t *testing.T) {
+	tests := []struct {
+		name       string
+		final      bool
+		beforeDl   time.Duration
+		wantWarns  int
+		wantFinals int
+	}{
+		{"warning on resume inside window", false, 3 * time.Minute, 1, 0},
+		{"warning promoted to final inside final window", false, time.Minute, 0, 1},
+		{"warning skipped past deadline", false, -time.Minute, 0, 0},
+		{"final on resume before deadline", true, time.Minute, 0, 1},
+		{"final skipped past deadline", true, -time.Minute, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRecorder{}
+			w := New(r)
+			defer w.Close()
+
+			// The deadline is an hour out so the real timers never fire
+			// during the test; the late callback is invoked directly with an
+			// injected clock that simulates a resume near the deadline.
+			d := time.Now().Add(time.Hour).Round(0)
+			w.nowFn = func() time.Time { return d.Add(-tt.beforeDl) }
+			if err := w.Update(d); err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+
+			if tt.final {
+				w.fireFinal(d)
+			} else {
+				w.fire(d)
+			}
+
+			events := r.snapshot()
+			if got := countWhere(events, event.isWarning); got != tt.wantWarns {
+				t.Fatalf("expected %d warning publishes, got %d: %+v", tt.wantWarns, got, events)
+			}
+			if got := countWhere(events, event.isFinalWarning); got != tt.wantFinals {
+				t.Fatalf("expected %d final-warning publishes, got %d: %+v", tt.wantFinals, got, events)
+			}
+		})
+	}
+}
+
+func TestPromotedFinalWarningIsNotRepeated(t *testing.T) {
+	r := &fakeRecorder{}
+	w := New(r)
+	defer w.Close()
+
+	d := time.Now().Add(time.Hour).Round(0)
+	now := d.Add(-time.Minute)
+	w.nowFn = func() time.Time { return now }
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	w.fire(d)
+	// The final timer was suspended too, so it fires even later than the
+	// warning timer, here still just before the deadline.
+	now = d.Add(-30 * time.Second)
+	w.fireFinal(d)
+
+	events := r.snapshot()
+	if got := countWhere(events, event.isFinalWarning); got != 1 {
+		t.Fatalf("expected exactly 1 final-warning publish, got %d: %+v", got, events)
+	}
+	if got := countWhere(events, event.isWarning); got != 0 {
+		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
+	}
+}
+
+func TestPromotionRespectsDismiss(t *testing.T) {
+	r := &fakeRecorder{}
+	w := New(r)
+	defer w.Close()
+
+	d := time.Now().Add(time.Hour).Round(0)
+	w.nowFn = func() time.Time { return d.Add(-time.Minute) }
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	w.Dismiss()
+	w.fire(d)
+
+	events := r.snapshot()
+	if got := countWhere(events, func(e event) bool { return e.kind == publish }); got != 0 {
+		t.Fatalf("expected no publish after dismiss, got %d: %+v", got, events)
+	}
+}
+
+func TestPromotionSkippedWhenFinalAlreadyFired(t *testing.T) {
+	r := &fakeRecorder{}
+	w := New(r)
+	defer w.Close()
+
+	// Both timers fall in the past after a long suspend and are dispatched
+	// with a zero delay, so the final callback can run before the warning one.
+	d := time.Now().Add(time.Hour).Round(0)
+	w.nowFn = func() time.Time { return d.Add(-time.Minute) }
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	w.fireFinal(d)
+	w.fire(d)
+
+	events := r.snapshot()
+	if got := countWhere(events, event.isFinalWarning); got != 1 {
+		t.Fatalf("expected exactly 1 final-warning publish, got %d: %+v", got, events)
+	}
+	if got := countWhere(events, event.isWarning); got != 0 {
+		t.Fatalf("expected no regular warning publish, got %d: %+v", got, events)
+	}
+}
+
+func TestDeadlineOnlyRecordsDeadlineWithoutWarnings(t *testing.T) {
+	r := &fakeRecorder{}
+	w := NewDeadlineOnly(r)
+	defer w.Close()
+
+	// With the default leads this deadline would otherwise fire both
+	// timers on the next tick.
+	d := time.Now().Add(50 * time.Millisecond).Round(0)
+	if err := w.Update(d); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := r.deadline(); !got.Equal(d) {
+		t.Fatalf("expected recorder deadline %v, got %v", d, got)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	events := r.snapshot()
+	if got := countWhere(events, func(e event) bool { return e.kind == publish }); got != 0 {
+		t.Fatalf("expected no publish in deadline-only mode, got %d: %+v", got, events)
+	}
+	if w.timer != nil || w.finalTimer != nil {
+		t.Fatal("expected no timers armed in deadline-only mode")
+	}
+}
+
+func TestDeadlineOnlyStillRejectsOutOfRangeDeadlines(t *testing.T) {
+	r := &fakeRecorder{}
+	w := NewDeadlineOnly(r)
+	defer w.Close()
+
+	if err := w.Update(time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	err := w.Update(time.Now().Add(-maxPastHorizon - time.Hour))
+	if !errors.Is(err, ErrDeadlineInPast) {
+		t.Fatalf("expected ErrDeadlineInPast, got %v", err)
+	}
+	if got := r.deadline(); !got.IsZero() {
+		t.Fatalf("expected recorder cleared after rejection, got %v", got)
+	}
+}
