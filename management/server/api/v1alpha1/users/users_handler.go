@@ -63,7 +63,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := &apiv1alpha1.UserRequest{}
-	err = json.NewDecoder(r.Body).Decode(&req)
+	err = json.NewDecoder(r.Body).Decode(req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -141,7 +141,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	req := &apiv1alpha1.UserCreateRequest{}
-	err = json.NewDecoder(r.Body).Decode(&req)
+	err = json.NewDecoder(r.Body).Decode(req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
