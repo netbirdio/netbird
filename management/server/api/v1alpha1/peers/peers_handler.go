@@ -163,11 +163,10 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	}
 
 	update := &nbpeer.Peer{
-		ID:                     peerID,
-		SSHEnabled:             req.SshEnabled,
-		Name:                   req.Name,
-		LoginExpirationEnabled: req.LoginExpirationEnabled,
-
+		ID:                          peerID,
+		SSHEnabled:                  req.SshEnabled,
+		Name:                        req.Name,
+		LoginExpirationEnabled:      req.LoginExpirationEnabled,
 		InactivityExpirationEnabled: req.InactivityExpirationEnabled,
 	}
 
@@ -288,10 +287,11 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	nameFilter := r.URL.Query().Get("name")
 	ipFilter := r.URL.Query().Get("ip")
+	macFilter := r.URL.Query().Get("mac")
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter)
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter, macFilter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

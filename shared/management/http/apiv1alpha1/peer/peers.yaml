@@ -49,7 +49,7 @@ get:
            - js
     - name: search
       in: query
-      description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names 
+      description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names, mac
       required: false
       schema:
         type: string

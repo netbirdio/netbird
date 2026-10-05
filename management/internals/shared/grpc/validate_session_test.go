@@ -1,5 +1,3 @@
-//go:build integration
-
 package grpc
 
 import (
@@ -631,6 +629,10 @@ func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Cont
 }
 
 func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterAllProxiesPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
 

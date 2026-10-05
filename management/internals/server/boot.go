@@ -165,29 +165,7 @@ func (s *BaseServer) EventStore() activity.Store {
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
 		routerMiddleware := CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
-			toret := make([]mux.MiddlewareFunc, 0)
-			rateLimiter := s.RateLimiter()
-
-			if rateLimiter == nil {
-				log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")
-				rateLimiter = ratelimit.NewAPIRateLimiter(nil)
-				rateLimiter.SetEnabled(false)
-			}
-
-			toret = append(toret, middleware.NewAuthMiddleware(
-				s.AuthManager(),
-				s.AccountManager().GetAccountIDFromUserAuth,
-				s.AccountManager().SyncUserJWTGroups,
-				s.AccountManager().GetUserFromUserAuth,
-				rateLimiter,
-				s.Metrics().GetMeter(),
-				s.IsValidChildAccount,
-			).Handler)
-
-			toret = append(toret, cors.AllowAll().Handler)
-			toret = append(toret, s.Metrics().HTTPMiddleware().Handler)
-
-			return toret
+			return middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)
 		})
 
 		router := s.Router()
@@ -199,7 +177,7 @@ func (s *BaseServer) APIHandler() http.Handler {
 				context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
 				s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
 				s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
-				s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.IsValidChildAccount,
+				s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
 				s.AgentNetworkManager(), nil)
 			if err != nil {
 				log.Fatalf("failed to create API handler: %v", err)
