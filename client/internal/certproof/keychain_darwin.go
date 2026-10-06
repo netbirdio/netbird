@@ -93,11 +93,11 @@ func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 	if err := loadKeychain(); err != nil {
 		return nil, err
 	}
-	searchList, err := openSearchList(s.keychains)
+	searchList, done, err := searchListOf(s.keychains)
 	if err != nil {
 		return nil, err
 	}
-	defer release(searchList)
+	defer done()
 
 	var leaves []*x509.Certificate
 	err = eachIdentity(searchList, func(_ uintptr, der []byte) (bool, error) {
@@ -155,11 +155,11 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 	}
 	log.Debugf("signing certificate posture challenge with keychain key of %q", s.leaf.Subject)
 
-	searchList, err := openSearchList(s.keychains)
+	searchList, done, err := searchListOf(s.keychains)
 	if err != nil {
 		return nil, err
 	}
-	defer release(searchList)
+	defer done()
 
 	algorithm := keychainAlgorithm(scheme)
 	var signature []byte
@@ -221,13 +221,23 @@ func signWithIdentity(identity, algorithm uintptr, digest []byte) ([]byte, error
 	return dataBytes(signature), nil
 }
 
-// openSearchList opens the keychain files at paths as a CFArray for kSecMatchSearchList,
-// or returns 0, the process's own search list, when paths is empty. The caller releases
-// the array.
-func openSearchList(paths []string) (uintptr, error) {
+// searchListOf opens the keychain files at paths as a CFArray for kSecMatchSearchList,
+// or yields 0, the process's own search list, when paths is empty. The caller calls done
+// once it no longer uses the list.
+func searchListOf(paths []string) (searchList uintptr, done func(), err error) {
 	if len(paths) == 0 {
-		return 0, nil
+		return 0, func() {}, nil
 	}
+	list, err := openSearchList(paths)
+	if err != nil {
+		return 0, nil, err
+	}
+	return list, func() { release(list) }, nil
+}
+
+// openSearchList opens the keychain files at paths, at least one, as a CFArray. The
+// caller releases the array.
+func openSearchList(paths []string) (uintptr, error) {
 	refs := make([]uintptr, 0, len(paths))
 	defer func() {
 		for _, ref := range refs {

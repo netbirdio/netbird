@@ -186,13 +186,14 @@ type Config struct {
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
-	// Deprecated: CertStoreDir is ignored. Certificate posture reads NB_CERT_STORE_DIR
-	// from the daemon's environment; the field is kept only to report a stale value.
+	// CertStoreDir is no longer read: certificate posture takes the directory from
+	// NB_CERT_STORE_DIR in the daemon's environment. The field is kept only to report a
+	// value left from an earlier version.
 	CertStoreDir string `json:",omitempty"`
 
-	// Deprecated: CertPKCS11URI is ignored, as the URI may carry the token PIN.
-	// Certificate posture reads NB_CERT_PKCS11_URI from the daemon's environment; the
-	// field is kept only to report a stale value.
+	// CertPKCS11URI is no longer read, as the URI may carry the token PIN: certificate
+	// posture takes it from NB_CERT_PKCS11_URI in the daemon's environment. The field is
+	// kept only to report a value left from an earlier version.
 	CertPKCS11URI string `json:",omitempty"`
 
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").

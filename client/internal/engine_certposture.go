@@ -265,7 +265,7 @@ func (e *Engine) retryPendingChecks() error {
 
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
-	if e.ctx.Err() != nil || !e.hasPendingChecks.Load() {
+	if e.stopping() || !e.hasPendingChecks.Load() {
 		return nil
 	}
 	checks := e.pendingChecks
@@ -283,7 +283,7 @@ func (e *Engine) retryPendingChecks() error {
 // it holds. It holds no engine lock while collecting.
 func (e *Engine) refreshCertificateProofs() error {
 	checks := e.appliedChecks()
-	if e.ctx.Err() != nil || !certproof.HasChallenges(checks) {
+	if e.stopping() || !certproof.HasChallenges(checks) {
 		return nil
 	}
 	key := challengesKey(checks)
@@ -310,6 +310,16 @@ func (e *Engine) refreshCertificateProofs() error {
 	}
 	e.applyInfoFlags(info)
 	return e.sendMetaWithProofs(info, checks)
+}
+
+// stopping reports whether the engine is shutting down.
+func (e *Engine) stopping() bool {
+	select {
+	case <-e.ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // syncChecksMeta gathers the system info that checks evaluate and sends it to management
