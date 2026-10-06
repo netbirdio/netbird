@@ -363,6 +363,47 @@ func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
 // gathering times out: the update is kept pending rather than dropped, and the posture
 // watcher's retry sends it and applies the checks, without waiting for management to
 // send different checks.
+// TestEngine_FailedUpdateReplacesOlderPendingChecks: checks A time out and stay pending,
+// then checks B fail to sync for another reason. B must replace A as pending, or the
+// watcher would later apply the superseded A.
+func TestEngine_FailedUpdateReplacesOlderPendingChecks(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun107",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33102,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{SyncMetaFunc: func(*system.Info) error { return errors.New("management unavailable") }},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checksA := []*mgmtProto.Checks{{Files: []string{"/checks/a"}}}
+	checksB := []*mgmtProto.Checks{{Files: []string{"/checks/b"}}}
+
+	engine.infoTimeout = time.Nanosecond
+	require.NoError(t, engine.updateChecksIfNew(checksA))
+	require.Equal(t, checksA, engine.pendingChecks, "precondition: the timed-out checks are pending")
+
+	// Let the abandoned gathering finish so B gets as far as the meta sync.
+	engine.infoTimeout = 0
+	require.Eventually(t, func() bool {
+		_, ok := engine.infoSource.Refresh(ctx, 10*time.Second, nil)
+		return ok
+	}, 10*time.Second, 10*time.Millisecond)
+
+	require.Error(t, engine.updateChecksIfNew(checksB), "the meta sync of B fails")
+	assert.Equal(t, checksB, engine.pendingChecks, "the newest checks replace the older pending ones")
+}
+
 func TestEngine_PendingChecksRetriedAfterInfoTimeout(t *testing.T) {
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)

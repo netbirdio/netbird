@@ -1265,9 +1265,11 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		return nil
 	}
 	if err := e.syncChecksMeta(checks); err != nil {
+		// The newest checks become the pending ones whatever failed, so the watcher
+		// never retries a set they superseded.
+		e.pendingChecks = checks
+		e.hasPendingChecks.Store(true)
 		if errors.Is(err, errSystemInfoTimeout) {
-			e.pendingChecks = checks
-			e.hasPendingChecks.Store(true)
 			return nil
 		}
 		return err
