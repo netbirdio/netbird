@@ -41,6 +41,7 @@ const (
 // stays under the linter's parameter-count threshold.
 type TrayServices struct {
 	Connection      *services.Connection
+	FileDrop        *services.FileDrop
 	Settings        *services.Settings
 	Profiles        *services.Profiles
 	Networks        *services.Networks
@@ -200,6 +201,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 
 	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
 	app.Event.On(services.EventDaemonNotification, t.onSystemEvent)
+	app.Event.On(services.EventFileDrop, t.onFileDropEvent)
 	// Refresh the Profiles submenu on ProfileSwitcher's change event. A
 	// switch on an idle daemon drives no status transition, so without this
 	// hook a React-initiated switch leaves the tray's submenu stale.
@@ -217,6 +219,8 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// Startup populates appName/registry path on Windows; before app.Run()
 		// the category lookup silently falls back to a plain notification.
 		t.registerSessionWarningCategory()
+		t.registerFileDropCategory()
+		t.registerNotificationResponses()
 	})
 
 	t.loc.Watch(func(i18n.LanguageCode) { t.applyLanguage() })

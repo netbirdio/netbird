@@ -59,3 +59,24 @@ const (
 	// MetadataSourceMDM marks a config_changed driven by an MDM policy diff.
 	MetadataSourceMDM = "mdm"
 )
+
+// SystemEvent metadata markers for file drop transfers. The daemon publishes one
+// per transfer milestone; the UI shows a notification and refreshes its transfer
+// views. Progress is not evented — the UI polls FileDropListTransfers.
+const (
+	// MetadataKindFileDropOffer marks an incoming offer awaiting the user's decision.
+	MetadataKindFileDropOffer = "filedrop-offer"
+	// MetadataKindFileDropCompleted marks a finished transfer in either direction.
+	MetadataKindFileDropCompleted = "filedrop-completed"
+	// MetadataKindFileDropFailed marks a transfer that ended without completing.
+	MetadataKindFileDropFailed = "filedrop-failed"
+	// MetadataKindFileDropWithdrawn marks a pending offer that was cancelled by the
+	// sender or expired, so its consent prompt should be dismissed.
+	MetadataKindFileDropWithdrawn = "filedrop-withdrawn"
+
+	// MetadataFileDropTransferKey carries the transfer ID for the filedrop-* kinds.
+	MetadataFileDropTransferKey = "filedropTransferId"
+	// MetadataFileDropPeerKey carries the remote peer's public key for the
+	// filedrop-* kinds, so notification actions can set per-sender rules.
+	MetadataFileDropPeerKey = "filedropPeerKey"
+)

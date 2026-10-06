@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 func TestProfileAccountPathFor(t *testing.T) {
@@ -158,4 +160,31 @@ func TestWriteProfileEmailIgnoresEmpty(t *testing.T) {
 func ensureDirFor(t *testing.T, path string) error {
 	t.Helper()
 	return os.MkdirAll(filepath.Dir(path), 0o700)
+}
+
+func TestProfileLocationForSplitsConfigPath(t *testing.T) {
+	root := t.TempDir()
+
+	dir, id, err := ProfileLocationFor(filepath.Join(root, defaultConfigFilename))
+	if err != nil {
+		t.Fatalf("default profile: %v", err)
+	}
+	if dir != root || id != profilemanager.DefaultProfileName {
+		t.Fatalf("default profile = (%q, %q), want (%q, %q)", dir, id, root, profilemanager.DefaultProfileName)
+	}
+
+	named := filepath.Join(root, profilesSubdir, "aaaaaaaabbbbbbbbccccccccdddddddd.json")
+	dir, id, err = ProfileLocationFor(named)
+	if err != nil {
+		t.Fatalf("named profile: %v", err)
+	}
+	if dir != root || id != "aaaaaaaabbbbbbbbccccccccdddddddd" {
+		t.Fatalf("named profile = (%q, %q), want (%q, %q)", dir, id, root, "aaaaaaaabbbbbbbbccccccccdddddddd")
+	}
+
+	for _, path := range []string{"", filepath.Join(root, "stray.json"), filepath.Join(root, profilesSubdir, "not-an-id!.json")} {
+		if _, _, err := ProfileLocationFor(path); err == nil {
+			t.Fatalf("expected an error for %q", path)
+		}
+	}
 }
