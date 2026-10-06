@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/lifecycle"
+	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/util/wsproxy"
 	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
@@ -36,6 +38,8 @@ const (
 	DefaultSelfHostedDomain = "netbird.selfhosted"
 
 	ContainerKeyBaseServer = "baseServer"
+
+	applicationName = "management"
 )
 
 type Server interface {
@@ -82,6 +86,8 @@ type BaseServer struct {
 	errCh  chan error
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
+
+	lifecycle.StopHandlers
 }
 
 // Config holds the configuration parameters for creating a new server
@@ -117,6 +123,9 @@ func NewServer(cfg *Config) *BaseServer {
 	}
 	s.container[ContainerKeyBaseServer] = s
 
+	stopProfiling := profiling.Start(applicationName)
+	s.OnStop(stopProfiling)
+
 	return s
 }
 
@@ -126,6 +135,14 @@ func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
 
 // Start begins listening for HTTP requests on the configured address
 func (s *BaseServer) Start(ctx context.Context) error {
+	if err := s.start(ctx); err != nil {
+		s.RunStopHandlers()
+		return err
+	}
+	return nil
+}
+
+func (s *BaseServer) start(ctx context.Context) error {
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
@@ -278,6 +295,7 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	defer s.RunStopHandlers()
 	if s.domainCleanupStop != nil {
 		s.domainCleanupStop()
 	}

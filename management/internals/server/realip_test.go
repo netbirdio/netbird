@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
 const (
@@ -135,8 +136,8 @@ func assertRealIP(t *testing.T, cfg nbconfig.ReverseProxy, want string, kv ...st
 	})
 }
 
-func TestRealIPDefaultIgnoresClientForwardedHeaders(t *testing.T) {
-	assertRealIP(t, nbconfig.ReverseProxy{}, "127.0.0.1",
+func TestRealIPDefaultTrustsForwardedHeaders(t *testing.T) {
+	assertRealIP(t, nbconfig.ReverseProxy{}, "203.0.113.44",
 		realip.XForwardedFor, "203.0.113.44",
 		realip.XRealIp, "203.0.113.44",
 	)
