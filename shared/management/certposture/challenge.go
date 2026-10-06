@@ -23,7 +23,9 @@ const (
 	// window is part of the nonce, so instances that disagree reject each other's.
 	EnvWindow = "NB_CERT_CHALLENGE_WINDOW"
 
-	minWindow = time.Second
+	// minWindow keeps the renewal period, a third of the window, well above the
+	// refresher's one-second tick.
+	minWindow = 30 * time.Second
 	maxWindow = 24 * time.Hour
 
 	challengeDomain = "netbird-cert-challenge-v1"
@@ -56,6 +58,10 @@ func resolveWindow() time.Duration {
 	}
 	if window < minWindow || window > maxWindow {
 		log.Warnf("%s of %s is outside %s..%s, keeping the %s certificate challenge window", EnvWindow, window, minWindow, maxWindow, Window)
+		return Window
+	}
+	if window%time.Second != 0 {
+		log.Warnf("%s of %s is not a whole number of seconds, keeping the %s certificate challenge window", EnvWindow, window, Window)
 		return Window
 	}
 
