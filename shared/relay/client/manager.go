@@ -166,10 +166,6 @@ func (m *Manager) Serve() error {
 // serverIP, when valid and serverAddress is foreign, is used as a dial target if the FQDN-based dial fails.
 // Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
 func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
-	// Hold relayClientMu only long enough to read the home client. Dialing a foreign
-	// relay can take as long as that server's connect timeout, and onServerDisconnected
-	// needs the same lock in write mode: keeping it across the dial lets one unreachable
-	// relay stall every relay operation on the node for the duration of the dial.
 	m.relayClientMu.RLock()
 	homeClient := m.relayClient
 	m.relayClientMu.RUnlock()
@@ -410,10 +406,6 @@ func (m *Manager) evictForeignRelay(serverAddress string) {
 		return
 	}
 
-	// The notification is delivered on its own goroutine and names only the server, so
-	// it can arrive after the track has been rebuilt with a live client. Evicting then
-	// drops a working connection, and the next OpenConn opens a second one to a server
-	// the peer is already connected to, which the relay answers by closing the first.
 	rt.RLock()
 	client := rt.relayClient
 	rt.RUnlock()
@@ -448,9 +440,6 @@ func (m *Manager) storeClient(client *Client) {
 	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
 }
 
-// isForeignServer reports whether address belongs to a relay other than the home one.
-// The home client is passed in rather than read from the receiver so the caller decides
-// how long it holds relayClientMu.
 func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {
 	rAddr, err := homeClient.ServerInstanceURL()
 	if err != nil {
