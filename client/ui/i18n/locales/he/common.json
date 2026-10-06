@@ -551,6 +551,12 @@
     "settings.general.autostart.errorTitle": {
         "message": "שינוי בהפעלה האוטומטית נכשל"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "להישאר מחובר אחרי היציאה"
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "החיבור נשאר פעיל ברקע אחרי סגירת NetBird. הוא נעצר רק כשמתנתקים ממנו ידנית."
+    },
     "settings.general.language.label": {
         "message": "שפת התצוגה"
     },
@@ -562,6 +568,21 @@
     },
     "settings.general.language.empty": {
         "message": "אין שפות תואמות."
+    },
+    "settings.general.theme.label": {
+        "message": "ערכת עיצוב"
+    },
+    "settings.general.theme.help": {
+        "message": "בחירה בין מראה בהיר לכהה, או התאמה למראה המערכת."
+    },
+    "settings.general.theme.system": {
+        "message": "מערכת"
+    },
+    "settings.general.theme.light": {
+        "message": "בהיר"
+    },
+    "settings.general.theme.dark": {
+        "message": "כהה"
     },
     "settings.general.management.label": {
         "message": "שרת ניהול"
@@ -757,6 +778,18 @@
     },
     "settings.troubleshooting.anonymize.help": {
         "message": "הסתרת כתובות IP ציבוריות ושמות תחום שאינם של NetBird מהיומנים."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "ברירת המחדל משאירה כתובות IPv4 פנימיות ושמות עמיתים קריאים לטובת התמיכה. המצב המחמיר מסווה גם כתובות IP פרטיות (RFC 1918), כתובות CGNAT וכתובות link-local, שמות עמיתים ומפתחות ציבוריים של WireGuard. ערכים חוזרים ממופים לאותו מציין מקום, כך שעדיין אפשר להבחין בין העמיתים. כדאי להשתמש במצב המחמיר כשמשתפים את המאגד מחוץ לארגון."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "ללא"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "ברירת מחדל"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "מחמיר"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "לכלול את פרטי המערכת"
@@ -1034,8 +1067,14 @@
     "welcome.title": {
         "message": "כדאי לחפש את NetBird בשורת המשימות שלך"
     },
+    "welcome.titleMac": {
+        "message": "כדאי לחפש את NetBird בשורת התפריטים שלך"
+    },
     "welcome.description": {
         "message": "NetBird שוכן בשורת המשימות שלך. יש ללחוץ על הסמל כדי להתחבר, להחליף פרופילים או כדי לפתוח את ההגדרות."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird שוכן בשורת התפריטים שלך. יש ללחוץ על הסמל כדי להתחבר, להחליף פרופילים או כדי לפתוח את ההגדרות."
     },
     "welcome.continue": {
         "message": "המשך"
@@ -1298,6 +1337,9 @@
     "daemon.outdated.description": {
         "message": "ממשק המשתמש החדש לא תואם ללקוח ישן יותר של NetBird. יש לעדכן את הלקוח שלך כדי להשתמש ביישום החדש"
     },
+    "daemon.outdated.download": {
+        "message": "הורדת הגרסה העדכנית"
+    },
     "error.jwt_clock_skew": {
         "message": "הכניסה נכשלה: השעון של המכשיר הזה לא תואם במדויק את זה של השרת. נא לכוון את שעון המערכת שלך ולנסות שוב."
     },
@@ -1321,5 +1363,29 @@
     },
     "error.unknown": {
         "message": "הפעולה נכשלה."
+    },
+    "error.elevation_unavailable": {
+        "message": "ל־NetBird אין אפשרות לבקש מהמערכת הזאת את ההרשאות שהשינוי דורש. יש להריץ את הפקודה הבאה במקום:"
+    },
+    "error.elevation_failed": {
+        "message": "לא ניתן להחיל את השינוי עם הרשאות מורחבות. יש להריץ את הפקודה הבאה במקום:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "הרשאות root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "הרשאות מנהל מערכת"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "נדרשות {actor}. יש להריץ את הפקודה הבאה במקום:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "אפשר לכבות את זה, אבל הפעלה מחדש דורשת {actor}."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "אפשר להפעיל את זה, אבל כיבוי מחדש דורש {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "בהמתנה לאישור…"
     }
 }

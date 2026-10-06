@@ -25,7 +25,8 @@ import { cn } from "@/lib/cn";
 import { formatShortcut, useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { useViewMode, type ViewMode } from "@/contexts/ViewModeContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
-import { isWindows } from "@/lib/platform.ts";
+import { isMacOS, isWindows } from "@/lib/platform.ts";
+import { useDirection } from "@/hooks/useDirection";
 
 const SETTINGS_SHORTCUT = { key: ",", cmd: true } as const;
 
@@ -35,6 +36,8 @@ export const MainHeader = () => {
     const { viewMode, setViewMode } = useViewMode();
     const { updateAvailable } = useClientVersion();
     const { mdm, features } = useRestrictions();
+    const dir = useDirection();
+    const pinSettingsRight = isMacOS();
 
     const openSettings = useCallback(() => {
         setMenuOpen(false);
@@ -83,7 +86,7 @@ export const MainHeader = () => {
                     />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    align={"end"}
+                    align={pinSettingsRight && dir === "rtl" ? "start" : "end"}
                     sideOffset={8}
                     className={
                         "min-w-52 select-none data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
@@ -138,7 +141,7 @@ export const MainHeader = () => {
                 <span
                     aria-hidden={"true"}
                     className={
-                        "pointer-events-none absolute right-1.5 top-1.5 flex h-2.5 w-2.5 items-center justify-center"
+                        "pointer-events-none absolute end-1.5 top-1.5 flex h-2.5 w-2.5 items-center justify-center"
                     }
                 >
                     <span
@@ -168,10 +171,17 @@ export const MainHeader = () => {
                 )}
             >
                 <div />
-                <div className={"ml-4 flex justify-center"}>{profileSlot}</div>
+                <div className={"ms-4 flex justify-center"}>{profileSlot}</div>
                 <div />
             </div>
-            <div className={"absolute right-[1.3rem] top-1/2 -translate-y-1/2"}>{settingsSlot}</div>
+            <div
+                className={cn(
+                    "absolute top-1/2 -translate-y-1/2",
+                    pinSettingsRight ? "right-[1.3rem]" : "end-[1.3rem]",
+                )}
+            >
+                {settingsSlot}
+            </div>
         </header>
     );
 };
