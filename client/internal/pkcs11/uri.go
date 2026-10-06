@@ -77,33 +77,6 @@ func (u *URI) setQueryAttribute(name, value string) error {
 	return nil
 }
 
-// eachAttribute splits list on sep and calls fn for every name=value pair, refusing a
-// name that appears twice.
-func eachAttribute(list, sep string, fn func(name, value string) error) error {
-	if list == "" {
-		return nil
-	}
-	seen := make(map[string]struct{})
-	for _, pair := range strings.Split(list, sep) {
-		name, value, ok := strings.Cut(pair, "=")
-		if !ok {
-			return fmt.Errorf("PKCS#11 URI attribute %q has no value", pair)
-		}
-		if _, dup := seen[name]; dup {
-			return fmt.Errorf("PKCS#11 URI attribute %s appears more than once", name)
-		}
-		seen[name] = struct{}{}
-		value, err := url.PathUnescape(value)
-		if err != nil {
-			return fmt.Errorf("PKCS#11 URI attribute %s: %w", name, err)
-		}
-		if err := fn(name, value); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Module is the library to load, DefaultModule when the URI names none.
 func (u *URI) Module() string {
 	if u.ModulePath == "" {
@@ -132,4 +105,31 @@ func (u *URI) PIN() ([]byte, error) {
 		return nil, fmt.Errorf("read PIN: %w", err)
 	}
 	return []byte(strings.TrimRight(string(pin), "\r\n")), nil
+}
+
+// eachAttribute splits list on sep and calls fn for every name=value pair, refusing a
+// name that appears twice.
+func eachAttribute(list, sep string, fn func(name, value string) error) error {
+	if list == "" {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, pair := range strings.Split(list, sep) {
+		name, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			return fmt.Errorf("PKCS#11 URI attribute %q has no value", pair)
+		}
+		if _, dup := seen[name]; dup {
+			return fmt.Errorf("PKCS#11 URI attribute %s appears more than once", name)
+		}
+		seen[name] = struct{}{}
+		value, err := url.PathUnescape(value)
+		if err != nil {
+			return fmt.Errorf("PKCS#11 URI attribute %s: %w", name, err)
+		}
+		if err := fn(name, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }

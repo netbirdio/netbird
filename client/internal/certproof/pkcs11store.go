@@ -149,46 +149,6 @@ func (s *PKCS11Store) fileChains() ([][]*x509.Certificate, error) {
 	return chains, nil
 }
 
-type tokenKey struct {
-	id     []byte
-	public crypto.PublicKey
-}
-
-type tokenKeys []tokenKey
-
-func tokenPublicKeys(session *pkcs11.Session) (tokenKeys, error) {
-	objects, err := session.FindObjects(pkcs11.Attribute{Type: pkcs11.AttrClass, Value: pkcs11.ULong(pkcs11.ClassPublicKey)})
-	if err != nil {
-		return nil, err
-	}
-	keys := make(tokenKeys, 0, len(objects))
-	for _, object := range objects {
-		id, err := session.Attribute(object, pkcs11.AttrID)
-		if err != nil {
-			return nil, err
-		}
-		public, err := session.PublicKey(object)
-		if err != nil {
-			log.Debugf("skipping public key on PKCS#11 token: %v", err)
-			continue
-		}
-		keys = append(keys, tokenKey{id: id, public: public})
-	}
-	return keys, nil
-}
-
-// idFor finds the token key whose public half is pub, so a certificate kept outside the
-// token is still signed for by the key inside it.
-func (k tokenKeys) idFor(pub crypto.PublicKey) ([]byte, bool) {
-	for _, key := range k {
-		equaler, ok := key.public.(interface{ Equal(crypto.PublicKey) bool })
-		if ok && len(key.id) > 0 && equaler.Equal(pub) {
-			return key.id, true
-		}
-	}
-	return nil, false
-}
-
 func (s *PKCS11Store) String() string {
 	if s.uri.Token == "" {
 		return "PKCS#11 token"
@@ -230,6 +190,46 @@ func (s *PKCS11Store) userPIN() ([]byte, error) {
 		return []byte(s.pin), nil
 	}
 	return s.uri.PIN()
+}
+
+type tokenKey struct {
+	id     []byte
+	public crypto.PublicKey
+}
+
+type tokenKeys []tokenKey
+
+func tokenPublicKeys(session *pkcs11.Session) (tokenKeys, error) {
+	objects, err := session.FindObjects(pkcs11.Attribute{Type: pkcs11.AttrClass, Value: pkcs11.ULong(pkcs11.ClassPublicKey)})
+	if err != nil {
+		return nil, err
+	}
+	keys := make(tokenKeys, 0, len(objects))
+	for _, object := range objects {
+		id, err := session.Attribute(object, pkcs11.AttrID)
+		if err != nil {
+			return nil, err
+		}
+		public, err := session.PublicKey(object)
+		if err != nil {
+			log.Debugf("skipping public key on PKCS#11 token: %v", err)
+			continue
+		}
+		keys = append(keys, tokenKey{id: id, public: public})
+	}
+	return keys, nil
+}
+
+// idFor finds the token key whose public half is pub, so a certificate kept outside the
+// token is still signed for by the key inside it.
+func (k tokenKeys) idFor(pub crypto.PublicKey) ([]byte, bool) {
+	for _, key := range k {
+		equaler, ok := key.public.(interface{ Equal(crypto.PublicKey) bool })
+		if ok && len(key.id) > 0 && equaler.Equal(pub) {
+			return key.id, true
+		}
+	}
+	return nil, false
 }
 
 type tokenCertificate struct {
