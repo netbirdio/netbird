@@ -216,6 +216,28 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-mysql-migrate
+    dir: tools/mysql-migrate
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-mysql-migrate
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 universal_binaries:
   - id: netbird
 
@@ -232,6 +254,10 @@ archives:
     builds:
       - netbird-idp-migrate
     name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: netbird-mysql-migrate
+    builds:
+      - netbird-mysql-migrate
+    name_template: "netbird-mysql-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
