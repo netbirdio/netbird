@@ -558,6 +558,7 @@ const ResourceRow = ({ value }: { value: string }) => {
 const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) => (
     <TruncatedText
         text={value}
+        dir={mono ? "ltr" : "auto"}
         className={cn(
             "inline-block min-w-0 max-w-[260px] truncate align-middle",
             mono && "font-mono",

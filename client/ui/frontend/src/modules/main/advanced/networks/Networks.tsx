@@ -429,6 +429,7 @@ const Subtitle = ({ network, onKeyDown }: SubtitleProps) => {
                 <CopyToClipboard message={network.range} onKeyDown={onKeyDown}>
                     <TruncatedText
                         text={network.range}
+                        dir={"ltr"}
                         className={
                             "block max-w-[300px] truncate font-mono text-xs text-nb-gray-400"
                         }

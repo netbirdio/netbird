@@ -96,7 +96,7 @@ body {
     @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
 }
 
-[dir="rtl"] :is(.font-mono, code, kbd) {
+[dir="rtl"] :is(.font-mono, code, kbd):not([dir]) {
     direction: ltr;
     unicode-bidi: isolate;
 }

@@ -273,6 +273,7 @@ export const MainConnectionStatusSwitch = () => {
                 >
                     <TruncatedText
                         text={shortenDns(fqdn) || " "}
+                        dir={"ltr"}
                         className={
                             "block h-[18px] max-w-[310px] truncate font-mono text-[0.8rem] leading-tight text-nb-gray-300"
                         }
