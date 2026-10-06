@@ -3,6 +3,8 @@ package certproof
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,7 +23,9 @@ type helperBackoff struct {
 	until map[string]time.Time
 }
 
-var userHelperBackoff = &helperBackoff{until: map[string]time.Time{}}
+func newHelperBackoff() *helperBackoff {
+	return &helperBackoff{until: map[string]time.Time{}}
+}
 
 // allow reports whether the helper may be launched for key now.
 func (b *helperBackoff) allow(key string, now time.Time) bool {
@@ -31,10 +35,16 @@ func (b *helperBackoff) allow(key string, now time.Time) bool {
 }
 
 // record stores the outcome of a helper run for key: one that proved something clears
-// the back-off, one that proved nothing starts it.
+// the back-off, one that proved nothing starts it. Expired entries are dropped, so the
+// map holds only users currently held off.
 func (b *helperBackoff) record(key string, proven bool, now time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for other, until := range b.until {
+		if !now.Before(until) {
+			delete(b.until, other)
+		}
+	}
 	if proven {
 		delete(b.until, key)
 		return
@@ -42,17 +52,27 @@ func (b *helperBackoff) record(key string, proven bool, now time.Time) {
 	b.until[key] = now.Add(helperQuietPeriod)
 }
 
-// helperBackoffKey identifies a user and the CAs the challenges accept, leaving out the
-// nonces, which rotate without changing what the user is asked to prove.
+// helperBackoffKey identifies a user and the set of CAs the challenges accept, in any
+// order, leaving out the nonces, which rotate without changing what the user is asked to
+// prove.
 func helperBackoffKey(user string, challenges []*proto.CertificateChallenge) string {
+	sets := make([]string, 0, len(challenges))
+	for _, challenge := range challenges {
+		cas := make([]string, 0, len(challenge.GetCaCertificates()))
+		for _, ca := range challenge.GetCaCertificates() {
+			sum := sha256.Sum256([]byte(ca))
+			cas = append(cas, hex.EncodeToString(sum[:]))
+		}
+		slices.Sort(cas)
+		sets = append(sets, strings.Join(cas, ","))
+	}
+	slices.Sort(sets)
+
 	h := sha256.New()
 	h.Write([]byte(user))
-	for _, challenge := range challenges {
+	for _, set := range sets {
 		h.Write([]byte{0})
-		for _, ca := range challenge.GetCaCertificates() {
-			h.Write([]byte{1})
-			h.Write([]byte(ca))
-		}
+		h.Write([]byte(set))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

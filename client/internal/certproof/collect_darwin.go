@@ -4,6 +4,7 @@ package certproof
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,9 @@ import (
 )
 
 const helperTimeout = 30 * time.Second
+
+// userHelperBackoff holds off asking a user's keychain again after it proved nothing.
+var userHelperBackoff = newHelperBackoff()
 
 // CollectProofs answers the certificate challenges in checks from every store this Mac
 // can reach. The root daemon reads the System keychain itself, which is where MDM
@@ -100,9 +104,11 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 
 	log.Debugf("certificate posture: asking the desktop session of uid %s to answer %d challenges", uid, len(challenges))
 	proofs, err := runHelperCmd(cmd, helperRequest(challenges, peerKey))
-	// A run cut short by the caller, such as the engine stopping, says nothing about the
-	// keychain and must not hold off the next one.
-	if parent.Err() == nil {
+	// A run that completed, or ran into the timeout waiting on a prompt nobody answered,
+	// tells whether the keychain proves anything. A launch or output failure, or a run the
+	// caller cut short, says nothing about it and must not hold off the next one.
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil
+	if err == nil || timedOut {
 		userHelperBackoff.record(backoffKey, err == nil && len(proofs) > 0, time.Now())
 	}
 	if err != nil {
