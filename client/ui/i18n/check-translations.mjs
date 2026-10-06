@@ -10,6 +10,8 @@
 //     catch up;
 //   - orphaned keys fail — keys left behind after an English key is renamed or
 //     removed are dead weight and a sign the locale is drifting;
+//   - empty messages fail — a present key with an empty or missing message
+//     renders blank instead of falling back to English;
 //   - placeholder mismatches fail — a translation must use exactly the
 //     {placeholders} of its English string, otherwise a value silently never
 //     renders (or a literal "{name}" leaks into the UI).
@@ -40,15 +42,19 @@ function messagesOf(langCode) {
     const entries = readJSON(join(localesDir, langCode, "common.json"));
     const messages = new Map();
     for (const [key, entry] of Object.entries(entries)) {
-        messages.set(key, entry?.message ?? "");
+        // null marks an unusable entry (missing or non-string message).
+        messages.set(key, typeof entry?.message === "string" ? entry.message : null);
     }
     return messages;
 }
 
 function placeholdersOf(message) {
-    return [...new Set([...message.matchAll(PLACEHOLDER)].map((m) => m[1]))].sort((a, b) =>
-        a.localeCompare(b),
-    );
+    // Code-point order: placeholder names are identifiers, not prose.
+    return [...new Set([...message.matchAll(PLACEHOLDER)].map((m) => m[1]))].sort((a, b) => {
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    });
 }
 
 function formatPlaceholders(names) {
@@ -91,19 +97,24 @@ for (const code of declared) {
 
     const missing = sourceKeys.filter((k) => !messages.has(k));
     const extra = [...messages.keys()].filter((k) => !source.has(k));
+    const empty = [];
     const badPlaceholders = [];
     for (const [key, message] of messages) {
         if (!source.has(key)) continue;
+        if (!message) {
+            empty.push(key);
+            continue;
+        }
         const want = placeholdersOf(source.get(key));
         const got = placeholdersOf(message);
-        if (want.join() !== got.join()) {
+        if (want.length !== got.length || want.some((name, i) => name !== got[i])) {
             badPlaceholders.push(`${key} (expected ${formatPlaceholders(want)}, got ${formatPlaceholders(got)})`);
         }
     }
 
-    const translated = sourceKeys.length - missing.length;
+    const translated = sourceKeys.length - missing.length - empty.length;
     const coverage = Math.floor((translated / sourceKeys.length) * 100);
-    const hasErrors = extra.length > 0 || badPlaceholders.length > 0;
+    const hasErrors = extra.length > 0 || empty.length > 0 || badPlaceholders.length > 0;
     let mark = "✓";
     if (hasErrors) mark = "✗";
     else if (missing.length) mark = "⚠";
@@ -118,6 +129,11 @@ for (const code of declared) {
         failed = true;
         console.error(`    extra ${extra.length}: ${extra.join(", ")}`);
         annotate("error", file, `Has ${extra.length} key(s) not present in ${SOURCE}: ${extra.join(", ")}`);
+    }
+    if (empty.length) {
+        failed = true;
+        console.error(`    empty message ${empty.length} (renders blank): ${empty.join(", ")}`);
+        annotate("error", file, `Empty or missing message in ${empty.length} key(s), renders blank: ${empty.join(", ")}`);
     }
     if (badPlaceholders.length) {
         failed = true;
@@ -139,7 +155,7 @@ if (undeclared.length) {
 
 console.log();
 if (failed) {
-    console.error("Translation check FAILED — fix orphaned keys and placeholder mismatches above.");
+    console.error("Translation check FAILED — fix orphaned keys, empty messages and placeholder mismatches above.");
     process.exit(1);
 }
-console.log("Translation check passed — no orphaned keys or placeholder mismatches.");
+console.log("Translation check passed — no orphaned keys, empty messages or placeholder mismatches.");
