@@ -87,7 +87,7 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 	// Absolute paths, because the daemon's PATH is configurable through the service
 	// environment, and sudo selects the user by uid so the name never has to round-trip.
 	uid := strconv.FormatUint(uint64(user.UID), 10)
-	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", binary, "posture", "cert-proof")
+	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", "--", binary, "posture", "cert-proof")
 	killHelperGroupOnCancel(cmd)
 
 	log.Debugf("certificate posture: asking the desktop session of uid %s to answer %d challenges", uid, len(challenges))
