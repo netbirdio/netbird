@@ -18,6 +18,16 @@ var (
 	emailRegex = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 	ssnRegex   = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 	phoneE164  = regexp.MustCompile(`\+\d{8,15}\b`)
+	// phoneIntlRgx finds international candidates: a "+" or "00" prefix, then
+	// digits mixed with the separators people put between digit groups,
+	// including the "(0)" trunk-prefix notation ("+49 (0)30 12345678").
+	phoneIntlRgx = regexp.MustCompile(`(?:\+|\b00)\d[\d\s.\-/()]*\d\b`)
+	// phoneNatRgx finds national-format candidates: a "0" trunk prefix and an
+	// area code, optionally in parentheses ("(030) 12345678"), then the
+	// subscriber number with or without separators.
+	phoneNatRgx = regexp.MustCompile(`\(?\b0\d{1,5}\)?[\s.\-/]*\d[\d\s.\-/]*\d\b`)
+	// dateRgx rejects national candidates that are really dates (05.10.2026).
+	dateRgx = regexp.MustCompile(`^\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}$`)
 	// phoneNARgx accepts the 3-3-4 North-American shape with any of the common
 	// separators (space, dot, dash, slash) or none at all between the area code
 	// and the body. The optional `\(?...\)?` wraps the area code; the separator
@@ -53,6 +63,11 @@ func RedactPII(value string) string {
 	// Prompt-shaped PII the metadata scanner doesn't cover.
 	result = emailRegex.ReplaceAllString(result, "[REDACTED:email]")
 	result = ssnRegex.ReplaceAllString(result, "[REDACTED:ssn]")
+	// International and national phone numbers run before the narrower
+	// E.164 and North-American patterns so those cannot redact only part of
+	// a number and leave the rest behind.
+	result = phoneIntlRgx.ReplaceAllStringFunc(result, redactIntlPhone)
+	result = phoneNatRgx.ReplaceAllStringFunc(result, redactNatPhone)
 	result = phoneE164.ReplaceAllString(result, "[REDACTED:phone]")
 	result = phoneNARgx.ReplaceAllString(result, "[REDACTED:phone]")
 	result = ipv4Regex.ReplaceAllString(result, "[REDACTED:ip]")
@@ -72,4 +87,46 @@ func redactBearer(match string) string {
 	b.WriteString(sub[2])
 	b.WriteString("[REDACTED:bearer]")
 	return b.String()
+}
+
+// redactIntlPhone redacts an international phone candidate with at least 7
+// digits after its prefix. There is no upper bound: a run that also swallows a
+// following number is redacted whole rather than left in the clear.
+func redactIntlPhone(match string) string {
+	n := countDigits(match)
+	if strings.HasPrefix(match, "00") {
+		n -= 2
+	}
+	if n < 7 {
+		return match
+	}
+	return "[REDACTED:phone]"
+}
+
+// redactNatPhone redacts a national phone candidate (trunk prefix "0"). It
+// needs at least 8 digits when the number is written with separators and 10
+// without, since short unseparated digit runs are usually identifiers, and it
+// leaves dates alone.
+func redactNatPhone(match string) string {
+	if dateRgx.MatchString(match) {
+		return match
+	}
+	minDigits := 10
+	if strings.ContainsAny(match, " .-/()") {
+		minDigits = 8
+	}
+	if countDigits(match) < minDigits {
+		return match
+	}
+	return "[REDACTED:phone]"
+}
+
+func countDigits(s string) int {
+	n := 0
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			n++
+		}
+	}
+	return n
 }
