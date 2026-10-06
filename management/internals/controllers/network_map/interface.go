@@ -24,7 +24,7 @@ type Controller interface {
 	UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error
 	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
 	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*nmdata.PostureChecks, int64, error)
-	GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
+	GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, []*nmdata.PostureChecks, int64, error)
 	GetDNSDomain(settings *types.Settings) string
 	StartWarmup(context.Context)
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
