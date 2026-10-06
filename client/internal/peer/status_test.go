@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/route"
 )
 
 func TestAddPeer(t *testing.T) {
@@ -127,6 +129,28 @@ func TestStatus_PeerStateByIP_RemovedPeer(t *testing.T) {
 
 	_, ok = status.PeerStateByIP("fd00::1")
 	req.False(ok, "removed peer must not resolve by IPv6 tunnel address")
+}
+
+// TestStatus_GetPeerStates_IncludesOfflinePeers keeps the snapshot in line with
+// GetFullStatus: offline peers are known peers, so a consumer counting peers
+// must see the same total the status command reports.
+func TestStatus_GetPeerStates_IncludesOfflinePeers(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	req.NoError(status.AddPeer("pk-online", "online.netbird", "100.64.0.10", "fd00::1"))
+	status.ReplaceOfflinePeers([]State{
+		{PubKey: "pk-offline", FQDN: "offline.netbird", IP: "100.64.0.20", ConnStatus: StatusIdle},
+	})
+
+	states := status.GetPeerStates()
+	req.Len(states, 2, "snapshot must carry both the online and the offline peer")
+
+	keys := make([]string, 0, len(states))
+	for _, s := range states {
+		keys = append(keys, s.PubKey)
+	}
+	req.ElementsMatch([]string{"pk-online", "pk-offline"}, keys, "snapshot must carry both peers")
 }
 
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
@@ -349,4 +373,25 @@ func TestMarkServerStateDoesNotNotifyWhenUnchanged(t *testing.T) {
 	require.True(t, notified(ch), "disconnect should notify")
 	status.MarkManagementDisconnected(err)
 	assert.False(t, notified(ch), "redundant disconnect should not notify")
+}
+
+func TestActiveRoutePeers(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	netA := route.HAUniqueID("net-a-10.0.0.0/24")
+	netB := route.HAUniqueID("net-b-10.0.0.0/24")
+
+	status.AddActiveRoutePeer(netA, "peerA")
+	status.AddActiveRoutePeer(netB, "peerB")
+
+	active := status.GetActiveRoutePeers()
+	assert.Equal(t, "peerA", active[netA])
+	assert.Equal(t, "peerB", active[netB])
+
+	status.RemoveActiveRoutePeer(netA)
+	delete(active, netB)
+
+	active = status.GetActiveRoutePeers()
+	_, ok := active[netA]
+	assert.False(t, ok)
+	assert.Equal(t, "peerB", active[netB])
 }

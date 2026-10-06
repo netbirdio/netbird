@@ -5,11 +5,12 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	fwmanager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
@@ -77,9 +78,9 @@ func TestDefaultManager(t *testing.T) {
 	})
 
 	t.Run("add extra rules", func(t *testing.T) {
-		existedPairs := map[string]struct{}{}
+		existedPairs := map[fwmanager.RuleID]struct{}{}
 		for id := range acl.peerRulesPairs {
-			existedPairs[id.ID()] = struct{}{}
+			existedPairs[id] = struct{}{}
 		}
 
 		// remove first rule
@@ -87,7 +88,7 @@ func TestDefaultManager(t *testing.T) {
 		networkMap.FirewallRules = append(
 			networkMap.FirewallRules,
 			&mgmProto.FirewallRule{
-				PeerIP:    "10.93.0.3",
+				PeerIP:    "10.93.0.3", //nolint:staticcheck
 				Direction: mgmProto.RuleDirection_IN,
 				Action:    mgmProto.RuleAction_DROP,
 				Protocol:  mgmProto.RuleProtocol_ICMP,
@@ -106,7 +107,7 @@ func TestDefaultManager(t *testing.T) {
 		// check that old rule was removed
 		previousCount := 0
 		for id := range acl.peerRulesPairs {
-			if _, ok := existedPairs[id.ID()]; ok {
+			if _, ok := existedPairs[id]; ok {
 				previousCount++
 			}
 		}
@@ -556,12 +557,12 @@ func TestApplyFilteringSkipsUnchangedConfig(t *testing.T) {
 
 func buildNetworkMap(peerRules, routeRules int) *mgmProto.NetworkMap {
 	nm := &mgmProto.NetworkMap{
-		FirewallRulesIsEmpty:      peerRules == 0,
+		FirewallRulesIsEmpty:       peerRules == 0,
 		RoutesFirewallRulesIsEmpty: routeRules == 0,
 	}
 	for i := range peerRules {
 		nm.FirewallRules = append(nm.FirewallRules, &mgmProto.FirewallRule{
-			PeerIP:    fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff),
+			PeerIP:    fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff), //nolint:staticcheck
 			Direction: mgmProto.RuleDirection_IN,
 			Action:    mgmProto.RuleAction_ACCEPT,
 			Protocol:  mgmProto.RuleProtocol_TCP,

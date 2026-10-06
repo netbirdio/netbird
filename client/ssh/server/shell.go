@@ -13,6 +13,8 @@ import (
 
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/getent"
 )
 
 const (
@@ -56,7 +58,11 @@ func getUnixUserShell(userID string) string {
 		return shell
 	}
 
-	if shell := getShellFromGetent(userID); shell != "" {
+	shell, err := getent.UserShell(userID)
+	if err != nil {
+		log.Debugf("look up the shell for uid %s through getent: %v", userID, err)
+	}
+	if shell != "" {
 		return shell
 	}
 

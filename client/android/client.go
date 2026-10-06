@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -26,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -39,11 +41,6 @@ const (
 	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
-
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
 
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
@@ -85,18 +82,29 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
+	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run and RunWithoutLogin inject its state and
+	// sweeper into each new ConnectClient.
+	netMgr *netevents.Manager
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Kotlin side). Each Run passes the loader to the resolved Config so
+	// applyMDMPolicy picks up the active overlay. Nil means "MDM
+	// enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
+
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
 
 	stateChangeMu    sync.Mutex
 	stateChangeSubID string
-	eventSub         *peer.EventSubscription
-	// Closed to stop the watch goroutines from delivering buffered items to a
+	// Closed to stop the watch goroutine from delivering buffered ticks to a
 	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
 	stateChangeDone chan struct{}
 
@@ -148,14 +156,17 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
+	system.SetIFaceDiscover(iFaceDiscover)
+	recorder := peer.NewRecorder("")
 	return &Client{
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
 		iFaceDiscover:         iFaceDiscover,
-		recorder:              peer.NewRecorder(""),
+		recorder:              recorder,
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
+		netMgr:                netevents.NewManager(recorder),
 	}
 }
 
@@ -175,6 +186,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -196,8 +208,11 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	}
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	connectClient.SetSyncResponsePersistence(true)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
 	// only once the fresh connect client is installed: until then Status()
@@ -224,6 +239,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -237,8 +253,10 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
@@ -285,11 +303,44 @@ func (c *Client) GetTunSettings() (*TunSettings, error) {
 	}, nil
 }
 
+// SetNetworkAvailable feeds OS-reported network availability into the client.
+// While unavailable, the internal reconnect loops suspend their attempts and
+// the connection listener reports NoNetwork instead of Connecting; when
+// availability returns, the loops resume immediately with a fresh backoff.
+// Losing the last network also sweeps the registered connections: nothing can
+// redial while offline, so the stale sockets would otherwise stay silently
+// "connected" until their own timeouts and the client would keep reporting
+// Connected with no network at all.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netMgr.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange marks the management, signal and relay connections
+// stale after the OS switched networks and schedules a sweep that cuts
+// whatever has not redialed on the new network by then. The engine and the
+// TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	c.netMgr.NotifyNetworkChange()
+}
+
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
 // It works both with and without a running engine. anonymizeLevel is "default"
 // or "strict"; strict also anonymizes internal IP ranges, peer names, and
 // WireGuard public keys, and implies anonymize.
 func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
+	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, true)
+}
+
+// DebugBundleFile generates a debug bundle and returns the path of the zip in
+// the cache directory instead of uploading it, so the app can hand the file to
+// the user for inspection. The caller owns the file and removes it once done;
+// the stale-bundle cleanup of later runs removes it only after a day.
+// anonymize and anonymizeLevel behave as in DebugBundle.
+func (c *Client) DebugBundleFile(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
+	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, false)
+}
+
+func (c *Client) debugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string, upload bool) (string, error) {
 	cfg, cacheDir, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config from disk
@@ -301,8 +352,14 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		if err != nil {
 			return "", fmt.Errorf("load config: %w", err)
 		}
+		c.applyMDMOverlay(cfg)
 		cacheDir = platformFiles.CacheDir()
 	}
+
+	// Clear what an interrupted earlier run may have left in the cache before
+	// adding to it. Remote debug jobs write to the same directory, so anything
+	// younger than an hour is treated as possibly still in use.
+	debug.RemoveStaleBundles(cacheDir, time.Hour)
 
 	deps := debug.GeneratorDependencies{
 		InternalConfig: cfg,
@@ -340,6 +397,9 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 	path, err := bundleGenerator.Generate()
 	if err != nil {
 		return "", fmt.Errorf("generate debug bundle: %w", err)
+	}
+	if !upload {
+		return debug.ExportBundle(path)
 	}
 	defer func() {
 		if err := os.Remove(path); err != nil {
@@ -437,6 +497,7 @@ func (c *Client) Networks() *NetworkArray {
 	routesMap := routeManager.GetClientRoutesWithNetID()
 	v6Merged := route.V6ExitMergeSet(routesMap)
 	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+	activeRoutePeers := c.recorder.GetActiveRoutePeers()
 
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
@@ -450,7 +511,7 @@ func (c *Client) Networks() *NetworkArray {
 			continue
 		}
 
-		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged)
+		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged, activeRoutePeers)
 		if network == nil {
 			continue
 		}
@@ -459,14 +520,14 @@ func (c *Client) Networks() *NetworkArray {
 	return networkArray
 }
 
-func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}) *Network {
+func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}, activeRoutePeers map[route.HAUniqueID]string) *Network {
 	r := routes[0]
 	netStr := r.Network.String()
 	if r.IsDynamic() {
 		netStr = r.Domains.SafeString()
 	}
 
-	routePeer, err := c.findBestRoutePeer(routes)
+	routePeer, err := c.findBestRoutePeer(routes, activeRoutePeers)
 	if err != nil {
 		log.Errorf("could not get peer info for route %s: %v", id, err)
 		return nil
@@ -490,12 +551,9 @@ func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bo
 
 // findBestRoutePeer returns the peer actively routing traffic for the given
 // HA route group. Falls back to the first connected peer, then the first peer.
-func (c *Client) findBestRoutePeer(routes []*route.Route) (peer.State, error) {
-	netStr := routes[0].Network.String()
-
-	fullStatus := c.recorder.GetFullStatus()
-	for _, p := range fullStatus.Peers {
-		if _, ok := p.GetRoutes()[netStr]; ok {
+func (c *Client) findBestRoutePeer(routes []*route.Route, activeRoutePeers map[route.HAUniqueID]string) (peer.State, error) {
+	if peerKey, ok := activeRoutePeers[routes[0].GetHAUniqueID()]; ok {
+		if p, err := c.recorder.GetPeer(peerKey); err == nil {
 			return p, nil
 		}
 	}
@@ -525,7 +583,11 @@ func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+	if listener == nil {
+		c.recorder.RemoveConnectionListener()
+		return
+	}
+	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
 // RemoveConnectionListener remove connection listener

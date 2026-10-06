@@ -45,7 +45,15 @@ func init() {
 	// matching there would let a non-elevated shell of an administrator account
 	// act as an administrator, which is the boundary the token check exists to
 	// keep.
-	selfMayDelegate = !id.IsPrivileged()
+	selfMayDelegate = mayDelegate(id)
+}
+
+// mayDelegate reports whether a daemon running as id may extend its authority to
+// callers sharing its identity. The shared service accounts are excluded: their
+// SID is held by unrelated services, so matching on it would grant them the
+// daemon's authority.
+func mayDelegate(id Identity) bool {
+	return !id.IsPrivileged() && id.SID != sidLocalService && id.SID != sidNetworkService
 }
 
 // IsDaemonSelf reports whether an identity is this very process. The JSON gateway
@@ -91,6 +99,12 @@ func SelfDelegatesTo() (Identity, bool) {
 	return selfIdentity, true
 }
 
+// The values PrivilegedActorKey returns.
+const (
+	ActorKeyAdministrator = "administrator"
+	ActorKeyRoot          = "root"
+)
+
 // PrivilegedActor names the principal a privileged operation requires, for use
 // in messages shown to the user.
 func PrivilegedActor() string {
@@ -98,6 +112,16 @@ func PrivilegedActor() string {
 		return "administrator privileges"
 	}
 	return "root"
+}
+
+// PrivilegedActorKey identifies that principal without wording it, for a client
+// that writes its own message in the user's language. The words PrivilegedActor
+// returns are English, and a translated sentence cannot borrow them.
+func PrivilegedActorKey() string {
+	if runtime.GOOS == "windows" {
+		return ActorKeyAdministrator
+	}
+	return ActorKeyRoot
 }
 
 // ElevatedCommand renders a command so that running it grants the privileges the

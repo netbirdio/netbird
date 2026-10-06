@@ -115,7 +115,7 @@ sequenceDiagram
         Resp->>Resp: parse usage tokens, completion
         Note over Resp: capture_completion gates raw<br/>completion capture
         Resp->>Cost: tokens
-        Cost->>Cost: lookup pricing.yaml + compute cost
+        Cost->>Cost: lookup rates from config-delivered<br/>pricing table + compute cost
         Cost->>Rec: tokens + cost
         Rec->>MgmtGrpc: RecordLLMUsage(provider, model, prompt_t, completion_t, cost, groups, user)
         Rec-->>Log: emit access-log entry<br/>(if EnableLogCollection)

@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -16,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -33,12 +37,15 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	peershandler "github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
@@ -57,6 +64,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -717,7 +725,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "")
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "", "")
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -726,6 +734,71 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 			assert.Len(t, peers, testCase.expectedPeerCount)
 
+		})
+	}
+}
+
+func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
+	ctx := context.Background()
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	account := newAccountWithId(ctx, "mac-account", "mac-admin", "", "", "", false)
+	account.Peers["matching"] = &nbpeer.Peer{
+		ID: "matching", Key: "matching-key", Name: "laptop", DNSLabel: "laptop",
+		IP: netip.MustParseAddr("100.64.0.10"), Status: &nbpeer.PeerStatus{LastSeen: time.Now()},
+		Meta: nbpeer.PeerSystemMeta{NetworkAddresses: []nbpeer.NetworkAddress{
+			{NetIP: netip.MustParsePrefix("192.168.0.11/24"), Mac: "00:93:37:bd:83:0f"},
+			{NetIP: netip.MustParsePrefix("192.168.1.11/24"), Mac: "aa:bb:cc:dd:ee:ff"},
+		}},
+	}
+	account.Peers["other"] = &nbpeer.Peer{
+		ID: "other", Key: "other-key", Name: "desktop", DNSLabel: "desktop",
+		IP: netip.MustParseAddr("100.64.0.20"), Status: &nbpeer.PeerStatus{LastSeen: time.Now()},
+	}
+	require.NoError(t, manager.Store.SaveAccount(ctx, account))
+	otherAccount := newAccountWithId(ctx, "other-account", "other-admin", "", "", "", false)
+	otherPeer := account.Peers["matching"].Copy()
+	otherPeer.ID, otherPeer.Key = "outside-account", "outside-key"
+	otherAccount.Peers[otherPeer.ID] = otherPeer
+	require.NoError(t, manager.Store.SaveAccount(ctx, otherAccount))
+	handler := peershandler.NewHandler(manager, manager.networkMapController, manager.permissionsManager)
+
+	tests := []struct {
+		name, nameFilter, ipFilter, macFilter string
+		wantIDs                               []string
+	}{
+		{name: "no filter", wantIDs: []string{"matching", "other"}},
+		{name: "full MAC", macFilter: "00:93:37:bd:83:0f", wantIDs: []string{"matching"}},
+		{name: "partial MAC", macFilter: "93:37:bd", wantIDs: []string{"matching"}},
+		{name: "second interface", macFilter: "aa:bb:cc:dd:ee:ff", wantIDs: []string{"matching"}},
+		{name: "unknown MAC", macFilter: "11:22:33:44:55:66"},
+		{name: "combined filters", nameFilter: "laptop", ipFilter: "100.64.0.10", macFilter: "00:93:37", wantIDs: []string{"matching"}},
+		{name: "name mismatch", nameFilter: "desktop", macFilter: "00:93:37"},
+		{name: "IP mismatch", ipFilter: "100.64.0.20", macFilter: "00:93:37"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := manager.GetPeers(ctx, account.Id, "mac-admin", tt.nameFilter, tt.ipFilter, tt.macFilter)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(peers))
+			for _, peer := range peers {
+				ids = append(ids, peer.ID)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, ids, "filters should return only matching peers in the account")
+
+			query := url.Values{"name": {tt.nameFilter}, "ip": {tt.ipFilter}, "mac": {tt.macFilter}}
+			req := httptest.NewRequest(http.MethodGet, "/api/peers?"+query.Encode(), nil)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: account.Id, UserId: "mac-admin"})
+			recorder := httptest.NewRecorder()
+			handler.GetAllPeers(recorder, req)
+			require.Equal(t, http.StatusOK, recorder.Code, "peer listing should succeed: %s", recorder.Body.String())
+			var response []api.PeerBatch
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			responseIDs := make([]string, 0, len(response))
+			for _, peer := range response {
+				responseIDs = append(responseIDs, peer.Id)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, responseIDs, "HTTP query filters should reach the store")
 		})
 	}
 }
@@ -933,7 +1006,7 @@ func BenchmarkGetPeers(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "")
+				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "", "")
 				if err != nil {
 					b.Fatalf("GetPeers failed: %v", err)
 				}
@@ -1091,22 +1164,22 @@ func TestToSyncResponse(t *testing.T) {
 		Signature: "turn-pass",
 	}
 	networkMap := &types.NetworkMap{
-		Network: &types.Network{Net: *ipnet, Serial: 1000},
-		Peers: []*types.ComponentPeer{{
+		Network: &nmdata.Network{Net: *ipnet, Serial: 1000},
+		Peers: []*nmdata.Peer{{
 			IP:         netip.MustParseAddr("192.168.1.2"),
 			IPv6:       netip.MustParseAddr("fd00::2"),
 			Key:        "peer2-key",
 			DNSLabel:   "peer2",
 			SSHEnabled: true,
 			SSHKey:     "peer2-ssh-key"}},
-		OfflinePeers: []*types.ComponentPeer{{
+		OfflinePeers: []*nmdata.Peer{{
 			IP:         netip.MustParseAddr("192.168.1.3"),
 			IPv6:       netip.MustParseAddr("fd00::3"),
 			Key:        "peer3-key",
 			DNSLabel:   "peer3",
 			SSHEnabled: true,
 			SSHKey:     "peer3-ssh-key"}},
-		Routes: []*nbroute.Route{
+		Routes: []*nmdata.Route{
 			{
 				ID:          "route1",
 				Network:     netip.MustParsePrefix("10.0.0.0/24"),
@@ -1169,18 +1242,18 @@ func TestToSyncResponse(t *testing.T) {
 		},
 	}
 	dnsName := "example.com"
-	checks := []*posture.Checks{
+	checks := []*nmdata.PostureChecks{
 		{
-			Checks: posture.ChecksDefinition{
-				ProcessCheck: &posture.ProcessCheck{
-					Processes: []posture.Process{{LinuxPath: "/usr/bin/netbird"}},
+			Checks: nmdata.ChecksDefinition{
+				ProcessCheck: &nmdata.ProcessCheck{
+					Processes: []nmdata.Process{{LinuxPath: "/usr/bin/netbird"}},
 				},
 			},
 		},
 	}
 	dnsCache := &cache.DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := grpc.ToSyncResponse(context.Background(), config, config.HttpConfig, config.DeviceAuthorizationFlow, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, int64(dnsForwarderPort))
+	response := grpc.ToSyncResponse(context.Background(), config, config.HttpConfig, config.DeviceAuthorizationFlow, types.TwinPeer(peer), turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, types.TwinAccountSettings(accountSettings), nil, []string{}, int64(dnsForwarderPort))
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1300,7 +1373,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
@@ -1391,7 +1464,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
@@ -1550,7 +1623,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
@@ -1635,7 +1708,7 @@ func Test_LoginPeer(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)

@@ -1,6 +1,6 @@
 package peers
 
-//go:generate go run github.com/golang/mock/mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -97,7 +97,7 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 	}
 
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 }
 
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {

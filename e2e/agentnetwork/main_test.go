@@ -54,3 +54,19 @@ func run(m *testing.M) int {
 
 	return m.Run()
 }
+
+// waitBeforeRetry pauses between attempts of a polling loop and reports
+// whether the caller should keep going. A cancelled context ends the loop
+// where a plain sleep would keep retrying against it: every call fails
+// instantly once ctx is done, so the loop would spend its whole remaining
+// window sleeping between failures nobody is waiting for any more.
+func waitBeforeRetry(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}

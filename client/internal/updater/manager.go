@@ -435,7 +435,7 @@ func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error 
 	}
 
 	inst := installer.New()
-	if err := inst.RunInstallation(ctx, pendingVersion.String()); err != nil {
+	if err := inst.RunInstallation(ctx, pendingVersion.String()); err != nil { //nolint:staticcheck // always errors on platforms without an installer
 		log.Errorf("error triggering update: %v", err)
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,

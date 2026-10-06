@@ -15,6 +15,10 @@ Inside the package: `manager.go` is the CRUD + permissions-gated facade; `synthe
 | ---- | ---- |
 | `agentnetwork/manager.go` | Manager interface + CRUD + permission gates + bootstrap-settings + reconcile trigger |
 | `agentnetwork/synthesizer.go` | Settings/policy → wire-format synthesis; sole writer of the proxy middleware chain |
+| `agentnetwork/synthesizer_pricing.go` | `buildCostMeterConfigJSON` — default table + per-provider prices → `cost_meter` config |
+| `agentnetwork/pricing/defaults.go` | Default pricing table derived from the catalog + supplementals; `DefaultTable`, `LookupDefault`, wire `Entry` |
+| `agentnetwork/pricing/override.go` | `LoadFile`/`StartReloader` for `AgentNetwork.PricingDefaultsFile` (mtime poll, merge over compiled-in base) |
+| `agentnetwork/pricing/{exampleyaml,gen}.go` | Generates `defaults_llm_pricing.example.yaml` from the compiled-in table (golden-tested) |
 | `agentnetwork/policyselect.go` | Per-request policy attribution + account-budget ceiling (min-wins) |
 | `agentnetwork/reconcile.go` | Per-account synth diff vs in-memory cache → Create/Update/Delete |
 | `agentnetwork/catalog/catalog.go` | Static provider catalogue (auth headers, identity-injection shapes) |
@@ -48,6 +52,8 @@ flowchart TD
     I --> J[indexProviderGroups: providerID -> sorted source groups]
     J --> K[buildRouterConfigJSON drops orphan providers]
     J --> L[buildIdentityInjectConfigJSON per catalog entry]
+    J --> K2[buildCostMeterConfigJSON: default table + per-provider prices]
+    K2 --> P
     H --> M[mergeGuardrails: union allowlist, OR redact]
     M --> N[applyAccountCollectionControls account toggle = SOLE capture control]
     N --> O[marshalGuardrailConfig]
@@ -59,6 +65,84 @@ flowchart TD
     R --> S[SendServiceUpdateToCluster CREATE/MODIFY/REMOVE]
     R --> T[accountManager.UpdateAccountPeers — fans synth ACLs into network map]
 ```
+
+### LLM pricing (management is the sole authority)
+
+**The proxy carries no price list.** Management synthesizes the entire pricing
+table and ships it inside `cost_meter`'s `ConfigJSON`, so a price change reaches
+the proxies as an ordinary mapping push — the chain rebuild installs a fresh
+table and there is nothing to reload on the proxy side.
+
+```mermaid
+flowchart TD
+    A[catalog.All — PricingSurfaces x Models] --> B[buildDefaultTable + supplementalDefaults]
+    B --> C{AgentNetwork.PricingDefaultsFile}
+    C -- absent --> D[compiled-in table serves]
+    C -- loaded --> E[LoadFile: merge file entries WHOLE over compiled base]
+    E --> F[mergedTable atomic.Pointer]
+    D --> G[DefaultTable]
+    F --> G
+    G --> H[buildCostMeterConfigJSON — pricing.defaults]
+    I[types.Provider.Models operator prices] --> J[normalizePricingModelID<br/>bedrock ARN/region/version, vertex @version]
+    J --> K[materializeEntry: default entry as base,<br/>operator input/output verbatim,<br/>cache pointers only when non-nil]
+    K --> L[pricing.providers keyed by provider record ID]
+    H --> M[cost_meter ConfigJSON]
+    L --> M
+    G --> N[GET /catalog — applyDefaultPricing prefills dashboard rows]
+    O[StartReloader: mtime poll every ReloadInterval 1m] --> E
+```
+
+**Two tiers, resolved per request on the proxy** (`synthesizer_pricing.go:22-35`):
+
+- `pricing.defaults` — surface (`openai`/`anthropic`/`bedrock`) → normalized model
+  id → rates. The **full** default table ships to every account: it is small
+  (~10 KB) and it is what keeps gateway-style providers (which enumerate no
+  models, so they claim every model) priced.
+- `pricing.providers` — provider **record** id → normalized model id → rates,
+  matched against the `llm.resolved_provider_id` the router stamps. Entries are
+  **fully materialized here**, at synth time: `materializeEntry` starts from the
+  default entry for that model so cache rates the operator didn't state are
+  inherited, overlays operator `input`/`output` verbatim (**including an explicit
+  0**, which prices a self-hosted or internal endpoint as free rather than
+  silently reverting to list price), and overlays cache-rate **pointers only when
+  non-nil** — `nil` means "inherit the default", an explicit `0` means "no
+  discount, bill this bucket at the input rate". The proxy therefore does two map
+  lookups and no merging.
+
+Same orphan rule as the router: a provider no enabled policy authorises is
+unreachable, so its prices aren't shipped. Model ids are normalized with the
+**same** functions the request parser uses (`NormalizeBedrockModel` /
+`NormalizeVertexModel`), which is what makes the per-record lookup key compare
+equal to the `llm.model` the proxy meters. Post-normalization duplicates resolve
+first-occurrence-wins, matching the routing dedup order.
+
+**`AgentNetwork.PricingDefaultsFile`** (`config.go:190-207`) lets an operator
+replace default rates without a rebuild. Schema is `surface → model → rates`
+(`input_per_1k`, `output_per_1k`, and optional `cached_input_per_1k` /
+`cache_read_per_1k` / `cache_creation_per_1k`). Semantics:
+
+- A **relative** path resolves against `<Datadir>`, so a bare filename lands
+  alongside the store. Empty config probes `<Datadir>/defaults_llm_pricing.yaml`.
+- An **explicitly configured** path is *required to load*: a typo or malformed
+  file fails startup, because the operator believes those rates are live. The
+  conventional probe is optional — an absent file just serves compiled-in
+  defaults, and the path stays watched in case it appears later.
+- File entries **replace** the compiled-in entry for the same (surface, model)
+  **whole** — they are not field-merged, so an entry must repeat the cache rates
+  it wants to keep. Everything the file doesn't mention keeps built-in rates.
+- Unknown YAML fields are rejected (`KnownFields(true)`) and every rate must be
+  finite and non-negative — the same constraints the HTTP API enforces on
+  operator per-provider prices.
+- Reload is an mtime poll (`ReloadInterval`, 1 min) and is **lenient at runtime**:
+  a parse error keeps the previous table, a deleted file reverts to compiled-in
+  defaults. A mid-edit save can never take pricing down.
+
+The live table feeds **both** consumers, which is what keeps them consistent: the
+synthesizer (what proxies actually bill with) and `GET /api/agent-network/catalog`
+via `applyDefaultPricing` (what the dashboard's model-row prices prefill with).
+`defaults_llm_pricing.example.yaml` is generated from the compiled-in table
+(`go generate ./management/internals/modules/agentnetwork/pricing`) and
+golden-tested, so operators start from a file matching the built-in rates exactly.
 
 ### Budget rule resolution (min-wins, group+user bound)
 
@@ -124,7 +208,7 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
   | on_request | 3 | `llm_identity_inject` | `{"providers":[{provider_id, header_pair?, json_metadata?, extra_headers?}]}` | **true** |
   | on_request | 4 | `llm_guardrail` | `{"provider_allowlists"?: {providerID: []model}, "prompt_capture":{enabled,redact_pii}}` | – |
   | on_response | 5 | `llm_limit_record` | `{}` (runs LAST at runtime) | – |
-  | on_response | 6 | `cost_meter` | `{}` | – |
+  | on_response | 6 | `cost_meter` | `{"pricing":{"defaults":{surface:{model:rates}},"providers"?:{providerRecordID:{model:rates}}}}` — rates are `{input_per_1k, output_per_1k, cached_input_per_1k?, cache_read_per_1k?, cache_creation_per_1k?}` | – |
   | on_response | 7 | `llm_response_parser` | `{"capture_completion": <bool>, "redact_pii"?: true}` | – |
 - **Synthesized service shape** (`synthesizer.go:739`): `Mode=HTTP`, `Private=true`, `Domain=<subdomain>.<cluster>`, `AccessGroups=unionSourceGroups(enabledPolicies)`, one `TargetTypeCluster` target with `Host=noop.invalid:443` (router rewrites per request), `Options.{DirectUpstream,AgentNetwork}=true`, `DisableAccessLog=!settings.EnableLogCollection`, `CaptureMax{Req,Resp}Bytes=1<<20`, `CaptureContentTypes=["application/json","text/event-stream"]`.
 
@@ -139,6 +223,12 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 - **Orphan providers (no enabled policy authorises them) NEVER reach the router** (`synthesizer.go:351-357`); skipped from `identity_inject` for symmetry.
 - **Provider creation refuses empty `api_key`** (`manager.go:175`); **deletion refuses while any policy still references it** (`manager.go:265-273`).
 - **Session keypair stability across provider edits** (`manager.go:226-228`) — server-managed, copied through every `UpdateProvider`, never API-surfaced.
+- **Management is the sole pricing authority.** The proxy has no embedded price list, so an account whose `cost_meter` config carries no `pricing` block bills **nothing** (`cost.skipped=unknown_model`, $0) rather than falling back to stale built-ins. The top-level `pricing` wrapper is also the feature-detection signal in both directions: an old proxy ignores it as an unknown field, and a new proxy reads its absence as "old management".
+- **Per-provider prices are materialized at synth time, not merged on the proxy** (`synthesizer_pricing.go:114-131`). A per-record entry is always complete, so the proxy's lookup is per-record-then-defaults with no field-level fallback between tiers.
+- **An explicit operator price of `0` prices the model as free** — it must not be treated as "unset" and reverted to list price (`synthesizer_pricing.go:49-54`). Only *cache*-rate fields distinguish unset from zero, via `*float64`.
+- **Pricing model ids are normalized with the same functions the request parser uses** (`normalizePricingModelID`). If the two ever diverge, per-record prices silently stop matching and every request falls through to surface defaults.
+- **The default table's coverage is structural, not curated.** It is derived from the catalog via each provider's `PricingSurfaces`; `TestDefaultTable_CoversEveryCatalogModel` fails on an unpriced catalog model and `TestDefaultTable_NoConflictingContributions` fails if two providers contribute the same (surface, model) at different rates.
+- **A pricing-defaults file failure is fatal only at startup, and only for an explicitly configured path.** Runtime reload failures keep the previous table; a deleted file reverts to compiled-in defaults (`pricing/override.go:62-81, 113-148`).
 
 ## Things to scrutinize
 
@@ -176,10 +266,12 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 - **Capture-pointer semantics (restated):** non-agent-network callers see no field → legacy nil-default emit, identical to pre-PR. Agent-network targets always carry an explicit `capture_*` value.
 - **`TestSynthesizeServices_HappyPath` was updated:** request-parser config moved from `{}` to `{"capture_prompt":false}` (`synthesizer_test.go:174`). External snapshot tests against synth output need updating.
 - **`MergedGuardrails` retains zeroed `TokenLimits`/`Budget`/`Retention`** even though `Policy.Limits` carries the real values now; `llm_limit_check` is the authoritative enforcement. Comment at `synthesizer.go:940-948` calls this out.
+- **`cost_meter`'s `pricing` block is version-skew-safe in both directions.** A proxy predating config-delivered pricing ignores the field as unknown JSON (it previously priced from its own embedded table, so it keeps billing — at its own rates, which is the skew to be aware of during a rolling upgrade). A current proxy paired with old management sees no `pricing` block, logs one warning at chain-build time, and records `cost.skipped=unknown_model` — token counting and cap enforcement are unaffected, only the USD annotation goes to $0.
 
 ### Performance
 
 - **`SynthesizeServices` runs on every controller tick / mutation reconcile.** Cost: 4 store reads + optional per-provider keypair backfill. Sort + index + merge are O(N log N) / O(P × G); dominant cost is JSON marshalling. No nested loops escape these dimensions.
+- **The full default pricing table is marshalled into every account's `cost_meter` config on every synth** (~10 KB serialized). This is a deliberate trade: it keeps gateway-style providers priced for every catalog model, and it is the largest single contributor to the synth JSON. `DefaultTable()` itself is a pointer load (or a `sync.Once`-built map) — the cost is the marshal, not the build.
 - **`reconcile.diffMappings` is O(N + M)** with N=M=1 per account today — effectively constant.
 - **`SynthesizeServicesForCluster`** (`synthesizer.go:71`) walks every account on a cluster; per-account failures are **swallowed** (`synthesizer.go:91-93`) so a single misconfigured account doesn't drop the cluster. Runs per proxy reconnect.
 
@@ -188,6 +280,7 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 - **Activity codes:** `AgentNetwork{Provider,Policy,Guardrail,BudgetRule}{Created,Updated,Deleted}`; `AgentNetworkSettingsUpdated` with `log_collection/prompt_collection/redact_pii` payload (`manager.go:567-571`). **No activity code for `SelectPolicyForRequest` denies** — surfaced via proxy access log only (likely intentional given volume).
 - **Deny codes** namespaced: `llm_policy.{token,budget}_cap_exceeded`, `llm_account.{token,budget}_cap_exceeded` (`policyselect.go:18-26`).
 - **Reconcile failures are logged at warn and swallowed** (`reconcile.go:42-44`). Persistent synth failures (e.g. unknown catalog id) silently keep the proxy out of sync — consider a manager-level synth-health surface if this becomes a support burden.
+- **Pricing-file lifecycle logs at info** (load, reload, revert-to-built-ins) and **at warn** for a runtime reload failure; the mtime check itself is `Debugf`. There is no metric on reload failures, so an operator who breaks the file mid-flight keeps billing at the previous table with only a log line to show it (`pricing/override.go:113-148`).
 
 ## Test coverage
 
@@ -198,6 +291,9 @@ At request time the path is independent: the proxy calls `SelectPolicyForRequest
 | `synthesizer_guardrail_realstore_test.go` | `PromptCaptureAccountIsSoleControl`; `PromptCaptureFlowsWhenAccountOptsIn`; `AccountRedactWithoutGuardrailRedact`; `NoGuardrail_CaptureOff`. |
 | `synthesizer_log_collection_realstore_test.go` | `LogCollection{Off_SuppressesAccessLog,On_PermitsAccessLog}` — verifies `DisableAccessLog` propagation through `ToProtoMapping`. |
 | `synthesizer_parser_redact_realstore_test.go` | **Capture-pointer regression suite:** `ParserConfigsCarryRedactPii`; `ParserConfigsSuppressCaptureWhenLogCollectionOnly` (log=on/prompt=off ⇒ both capture flags false); `ParserConfigsOmitRedactPiiWhenOff`. |
+| `synthesizer_pricing_test.go` | `BuildCostMeterConfig_{BedrockModelNormalization,CacheRateNilVsZero,OrphanAndGatewayProviders}` — the per-record tier's three load-bearing rules: keys normalized like the parser's, `nil` cache pointer inherits vs explicit `0` bills at input rate, and orphan / gateway (empty `Models`) providers ship no per-record entry. |
+| `pricing/defaults_test.go` | `DefaultTable_{CoversEveryCatalogModel,NoConflictingContributions,AllRatesFiniteNonNegative,PinnedRates}`; `LookupDefault_SurfaceOrder`. Catalog-derived coverage + rate sanity are structural, not curated. |
+| `pricing/override_test.go` | `LoadFile_{MergesOverCompiledDefaults,MissingPath,RejectsInvalid}`; `Reload_LifeCycle` (mtime detect, parse error keeps previous, delete reverts to built-ins); `ExampleYAML_InSyncWithBuiltins` golden. |
 | `policyselect_test.go` | Mock-store: `NoApplicablePolicies`; `AllowWithLowestGroupAttribution`; `LargerPoolWinsAcrossUsageLevels`; `StaysOnLargerPoolAfterPartialDrain`; `FallsThroughToSmallerPoolWhenLargerExhausted`; `TiebreakBy{LargerGroupPool,CreatedAt}`; `DeniesWhenAllExhausted`; `UncappedPolicyAlwaysWinsAgainstCapped`; `DisabledPolicyIgnored`; `StoreErrorPropagates`; `RejectsEmptyAccount`; `SharesGroupCounterAcrossPolicies`; `AntiFallThroughOnLowestGroup`; `BudgetOnlyExhaustionDenies`; `BudgetTighterThanTokenWins`. |
 | `policyselect_realstore_test.go` | Real-sqlite regression guard: `NoApplicablePolicies`; `AllowAndLowestGroupAttribution`; `LargerPoolWins_FallsThroughWhenExhausted`; `BudgetCapDenies`; `GroupCounterSharedAcrossPolicies`; `DisabledPolicyIgnored`. |
 | `policyselect_account_realstore_test.go` | Account budget rules: `AccountCeilingBindsEvenWithUncappedPolicy` (min-wins); `AccountGroupCeiling`; `AccountTargetUsersBindsOnlyThatUser`; `AccountRuleRecordsToOwnWindow`. |

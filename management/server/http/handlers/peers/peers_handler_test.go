@@ -13,9 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
-	ugomock "go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -106,7 +105,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	ctrl := ugomock.NewController(t)
+	ctrl := gomock.NewController(t)
 
 	networkMapController := network_map.NewMockController(ctrl)
 	networkMapController.EXPECT().
@@ -174,7 +173,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 					return nil, fmt.Errorf("user not found")
 				}
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
@@ -361,6 +360,50 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
 			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
 			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
+		})
+	}
+}
+
+func TestPeerResponseNetworkAddresses(t *testing.T) {
+	tests := []struct {
+		name      string
+		addresses []nbpeer.NetworkAddress
+		wantJSON  string
+	}{
+		{name: "not reported"},
+		{name: "empty", addresses: []nbpeer.NetworkAddress{}},
+		{
+			name: "multiple interfaces",
+			addresses: []nbpeer.NetworkAddress{
+				{NetIP: netip.MustParsePrefix("192.168.0.11/24"), Mac: "00:93:37:bd:83:0f"},
+				{NetIP: netip.MustParsePrefix("2001:db8::123/64"), Mac: "00:93:37:bd:83:10"},
+			},
+			wantJSON: `[{"net_ip":"192.168.0.11/24","mac":"00:93:37:bd:83:0f"},{"net_ip":"2001:db8::123/64","mac":"00:93:37:bd:83:10"}]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peer := &nbpeer.Peer{
+				Status: &nbpeer.PeerStatus{},
+				Meta:   nbpeer.PeerSystemMeta{NetworkAddresses: tt.addresses},
+			}
+			responses := map[string]any{
+				"single peer": toSinglePeerResponse(peer, nil, "example.com", true, ""),
+				"peer list":   toPeerListItemResponse(peer, nil, "example.com", 0),
+			}
+			for name, response := range responses {
+				t.Run(name, func(t *testing.T) {
+					body, err := json.Marshal(response)
+					require.NoError(t, err)
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(body, &fields))
+					if tt.wantJSON == "" {
+						assert.NotContains(t, fields, "network_addresses", "unreported interfaces should be omitted")
+						return
+					}
+					assert.JSONEq(t, tt.wantJSON, string(fields["network_addresses"]), "response should preserve interface addresses and MACs")
+				})
+			}
 		})
 	}
 }

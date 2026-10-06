@@ -6,9 +6,11 @@ import (
 	"context"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -60,9 +62,19 @@ func (s *Session) RequestExtend(ctx context.Context, p ExtendStartParams) (Exten
 
 	// a request from the UI implies a graphical session, which the daemon cannot detect itself
 	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: true}
-	if p.Hint != "" {
-		h := p.Hint
-		req.Hint = &h
+	hint := p.Hint
+	if hint == "" {
+		pm := profilemanager.NewProfileManager()
+		if active, perr := pm.GetActiveProfile(); perr != nil {
+			log.Debugf("failed to get active profile for login hint: %v", perr)
+		} else if state, serr := pm.GetProfileState(active.ID); serr != nil {
+			log.Debugf("failed to get profile state for login hint: %v", serr)
+		} else {
+			hint = state.Email
+		}
+	}
+	if hint != "" {
+		req.Hint = &hint
 	}
 
 	resp, err := cli.RequestExtendAuthSession(ctx, req)

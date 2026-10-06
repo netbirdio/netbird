@@ -103,3 +103,37 @@ func TestBuildCostMeterConfig_OrphanAndGatewayProviders(t *testing.T) {
 	assert.NotContains(t, cfg.Pricing.Providers, "prov-litellm", "empty-models gateway needs no per-record entry")
 	assert.NotEmpty(t, cfg.Pricing.Defaults["openai"], "defaults still ship so the gateway's catalog-model traffic is priced")
 }
+
+// TestBuildCostMeterConfig_BedrockGeographyOutsideTheOriginalFour is the
+// accounting half of the geography bug. The docs tell operators to register a
+// Bedrock id exactly as AWS issues it, region prefix included, and the cost
+// meter keys its table by the normalized form. While the geography was matched
+// against a list of four, a profile issued anywhere else kept its prefix,
+// missed the catalog entry it was meant to inherit from, and billed with a
+// zero entry underneath the operator's own rates — so every cache bucket
+// metered free and a model priced only by catalog defaults metered at nothing
+// at all.
+func TestBuildCostMeterConfig_BedrockGeographyOutsideTheOriginalFour(t *testing.T) {
+	for _, geo := range []string{"jp", "au", "ca", "sa", "us-gov"} {
+		t.Run(geo, func(t *testing.T) {
+			bedrock := &types.Provider{
+				ID:         "prov-bedrock",
+				ProviderID: "bedrock_api",
+				Enabled:    true,
+				Models: []types.ProviderModel{
+					{ID: geo + ".anthropic.claude-sonnet-5-20260514-v1:0", InputPer1k: 0.003, OutputPer1k: 0.015},
+				},
+			}
+			raw, err := buildCostMeterConfigJSON([]*types.Provider{bedrock}, map[string][]string{"prov-bedrock": {"grp"}})
+			require.NoError(t, err)
+			cfg := decodeCostMeterConfig(t, raw)
+
+			e, ok := cfg.Pricing.Providers["prov-bedrock"]["anthropic.claude-sonnet-5"]
+			require.True(t, ok, "a %s profile must key by the same normalized id the parser emits", geo)
+			assert.InDelta(t, 0.0003, e.CacheReadPer1k, 1e-9,
+				"cache read must be inherited from the bedrock default entry, not left at zero")
+			assert.InDelta(t, 0.00375, e.CacheCreationPer1k, 1e-9,
+				"cache creation must be inherited from the bedrock default entry, not left at zero")
+		})
+	}
+}

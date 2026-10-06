@@ -123,8 +123,16 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	if p.PreSharedKey != "" {
 		req.OptionalPreSharedKey = ptrStr(p.PreSharedKey)
 	}
-	if p.Hint != "" {
-		req.Hint = ptrStr(p.Hint)
+	hint := p.Hint
+	if hint == "" && profileID != "" {
+		if state, serr := profilemanager.NewProfileManager().GetProfileState(profilemanager.ID(profileID)); serr == nil {
+			hint = state.Email
+		} else {
+			log.Debugf("failed to get profile state for login hint: %v", serr)
+		}
+	}
+	if hint != "" {
+		req.Hint = ptrStr(hint)
 	}
 
 	resp, err := cli.Login(ctx, req)
@@ -197,19 +205,7 @@ func (s *Connection) Down(ctx context.Context) error {
 // window.open, so the SSO verification page can't pop inline. Honors $BROWSER
 // before the platform default.
 func (s *Connection) OpenURL(url string) error {
-	if browser := os.Getenv("BROWSER"); browser != "" {
-		return exec.Command(browser, url).Start()
-	}
-	switch runtime.GOOS {
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		return exec.Command("open", url).Start()
-	case "linux":
-		return exec.Command("xdg-open", url).Start()
-	default:
-		return fmt.Errorf("unsupported platform")
-	}
+	return openURL(url)
 }
 
 func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
@@ -226,16 +222,6 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 	}
 	if _, err = cli.Logout(ctx, req); err != nil {
 		return s.classifyDaemonError(err)
-	}
-
-	// The daemon runs as root and can't reach the user-owned per-profile state
-	// file holding the account email (see Profiles.List), so clear the stale
-	// email here; the next SSO login recreates it.
-	if p.ProfileName != "" {
-		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
-			// Non-fatal: the logout itself succeeded.
-			log.Warnf("failed to remove profile state for %s: %v", p.ProfileName, err)
-		}
 	}
 
 	return nil
@@ -261,7 +247,7 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 
 	// Persist the account email the same way the CLI does after its own
 	// WaitSSOLogin: the daemon returns it but cannot store it, since it runs as
-	// root and the per-profile state file is user-owned (see Logout below).
+	// root and the per-profile state file is user-owned (see Profiles.List).
 	// Without this the profile has no email, so Profiles.List shows no account
 	// and later logins and session extends go out without a login_hint —
 	// leaving the IdP to guess which account was meant.
@@ -289,4 +275,20 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 // classifyDaemonError maps a gRPC error to a localised ClientError.
 func (s *Connection) classifyDaemonError(err error) *ClientError {
 	return s.classifier.classify(err)
+}
+
+func openURL(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
 }

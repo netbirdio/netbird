@@ -1,0 +1,4 @@
+{
+  "description": "Geo location posture check in deny mode: matching the list rejects, not matching passes, so peer-ru is excluded and peer-de is admitted. peer-nowhere has no location and fails here as well — a missing location is an error and errors deny in both modes, so deny mode is not a way to admit peers whose location is unknown.",
+  "peers": ["peer-srv", "peer-ru", "peer-nowhere"]
+}

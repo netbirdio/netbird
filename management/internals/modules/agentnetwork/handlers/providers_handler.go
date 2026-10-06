@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/modeldiscovery"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -32,6 +34,7 @@ type handler struct {
 func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	h := &handler{manager: manager}
 	router.HandleFunc("/agent-network/catalog/providers", h.getCatalogProviders).Methods("GET", "OPTIONS")
+	router.HandleFunc("/agent-network/catalog/providers/models", h.discoverProviderModels).Methods("POST", "OPTIONS")
 	router.HandleFunc("/agent-network/providers", h.getAllProviders).Methods("GET", "OPTIONS")
 	router.HandleFunc("/agent-network/providers", h.createProvider).Methods("POST", "OPTIONS")
 	router.HandleFunc("/agent-network/providers/{providerId}", h.getProvider).Methods("GET", "OPTIONS")
@@ -43,6 +46,7 @@ func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	h.addConsumptionEndpoints(router)
 	h.addAccessLogEndpoints(router)
 	h.addBudgetRuleEndpoints(router)
+	h.addAgentConfigEndpoints(router)
 }
 
 func (h *handler) getCatalogProviders(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +63,98 @@ func (h *handler) getCatalogProviders(w http.ResponseWriter, r *http.Request) {
 		out = append(out, resp)
 	}
 	util.WriteJSONObject(r.Context(), w, out)
+}
+
+// discoverProviderModels asks the vendor which models the operator's own
+// credential can reach, so the provider form can offer a live list rather than
+// only the static catalog.
+func (h *handler) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var body api.AgentNetworkModelDiscoveryRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		util.WriteErrorResponse("invalid json", http.StatusBadRequest, w)
+		return
+	}
+	// Trimmed once and carried, not trimmed for the emptiness test and then
+	// discarded: a padded " openai_api " would clear the check here and miss
+	// the catalog lookup, reporting the provider as unknown.
+	catalogID := strings.TrimSpace(body.CatalogProviderId)
+	if catalogID == "" {
+		util.WriteErrorResponse("catalog_provider_id is required", http.StatusBadRequest, w)
+		return
+	}
+
+	recordID := strValue(body.ProviderId)
+	req := modeldiscovery.Request{
+		CatalogID:   catalogID,
+		UpstreamURL: strValue(body.UpstreamUrl),
+		APIKey:      strValue(body.ApiKey),
+	}
+	// One source of credential or the other, never a mix: taking a key from
+	// the request while addressing a saved record would let a caller run an
+	// arbitrary credential against a provider they can only read.
+	if recordID != "" && req.APIKey != "" {
+		util.WriteErrorResponse("provide either provider_id or api_key, not both", http.StatusBadRequest, w)
+		return
+	}
+
+	models, err := h.manager.DiscoverProviderModels(r.Context(), userAuth.AccountId, userAuth.UserId, req, recordID)
+	if err != nil {
+		// A provider with no listing endpoint is a fact about the catalog
+		// entry, not a failure: the caller falls back to the catalog's own
+		// models, so it must be able to tell the two apart.
+		if errors.Is(err, modeldiscovery.ErrNoDiscovery) {
+			util.WriteErrorResponse(err.Error(), http.StatusUnprocessableEntity, w)
+			return
+		}
+		// An unknown provider, an unusable upstream, a missing region or a
+		// missing key are all things the caller sent, reachable from a
+		// well-formed request. Reporting them as 500 tells the operator the
+		// server broke and buries genuine faults in the error rate.
+		if errors.Is(err, modeldiscovery.ErrInvalidRequest) {
+			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+			return
+		}
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	out := api.AgentNetworkModelDiscoveryResponse{Models: make([]api.AgentNetworkDiscoveredModel, 0, len(models))}
+	for _, m := range models {
+		entry := api.AgentNetworkDiscoveredModel{
+			Id:           m.ID,
+			PricingKnown: m.PricingKnown,
+			// Sent even when zero: the form prefills every discovered model as
+			// an editable row, and an unpriced one is shown at zero and flagged
+			// rather than left out.
+			InputPer1k:  m.InputPer1k,
+			OutputPer1k: m.OutputPer1k,
+			// Cache rates stay absent when unset, matching the catalog
+			// response — a zero would read as "free", not "not applicable".
+			CachedInputPer1k:   positiveRatePtr(m.CachedInputPer1k),
+			CacheReadPer1k:     positiveRatePtr(m.CacheReadPer1k),
+			CacheCreationPer1k: positiveRatePtr(m.CacheCreationPer1k),
+		}
+		if m.Label != "" {
+			label := m.Label
+			entry.Label = &label
+		}
+		out.Models = append(out.Models, entry)
+	}
+	util.WriteJSONObject(r.Context(), w, out)
+}
+
+// strValue reads an optional string field, treating absent as empty.
+func strValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v)
 }
 
 // applyDefaultPricing overwrites the catalog response's model rates with
@@ -243,6 +339,14 @@ func validate(req *api.AgentNetworkProviderRequest, requireAPIKey bool) error {
 	}
 	if requireAPIKey && (req.ApiKey == nil || strings.TrimSpace(*req.ApiKey) == "") {
 		return status.Errorf(status.InvalidArgument, "api_key is required")
+	}
+	// An update omits api_key to keep the stored credential. A key that is
+	// present but blank is not that: Provider.FromAPIRequest drops it exactly
+	// as if it were absent, so a rotation the operator believes they performed
+	// would answer 200 having changed nothing. Refuse it here, where the
+	// request still carries the difference between absent and blank.
+	if req.ApiKey != nil && strings.TrimSpace(*req.ApiKey) == "" {
+		return status.Errorf(status.InvalidArgument, "api_key must be omitted to keep the stored credential rather than sent blank")
 	}
 	if req.Models != nil {
 		for i, m := range *req.Models {

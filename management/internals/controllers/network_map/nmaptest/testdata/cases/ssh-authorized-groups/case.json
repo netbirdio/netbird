@@ -1,0 +1,4 @@
+{
+  "description": "netbird-ssh with AuthorizedGroups: grp-admins members may log in as root, grp-oncall (empty local-user list) as any machine user; peer-srv must receive both mappings in SshAuth, clients get plain TCP firewall rules. THE ENVELOPE EXPECTATION CURRENTLY FAILS, and should: encodeAuthorizedGroups/encodeGroupIDToUserIDs translate group keys via components.Groups, which never holds user-only groups, so the wire loses every authorized user while PeerConfig still reports sshEnabled — the peer runs sshd and denies every login. Pre-existing on main since PR #6711, not a regression. Fix the encoder, do not weaken this expectation.",
+  "peers": ["peer-srv", "peer-a"]
+}

@@ -8,6 +8,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -45,16 +47,24 @@ type Auth struct {
 // an earlier call is orphaned on the server. It also breaks a client that enrols and then runs from
 // the persisted config, because the identity it registered is not the one it runs with — the
 // management stream rejects it with "no peer auth method provided".
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
-	inputCfg := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: mgmURL,
+//
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
 	cfg, err := profilemanager.UpdateOrCreateConfig(inputCfg)
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 
 	return &Auth{
 		ctx:     context.Background(),
@@ -74,9 +84,7 @@ func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config, cfgPa
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	go func() {
 		sso, err := a.saveConfigIfSSOSupported()
@@ -100,15 +108,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	if !supportsSSO {
-		return false, nil
-	}
-
-	err = profilemanager.WriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	go func() {
 		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
@@ -133,8 +136,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
 	}
-
-	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // Login try register the client on the server
@@ -181,7 +183,7 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	// Stored after Login, not before: a rejected token must not leave a hint
 	// pointing at an account that cannot be used.
 	if email != "" && a.cfgPath != "" {
-		if err := writeProfileEmail(a.cfgPath, email); err != nil {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
 			log.Warnf("failed to store profile account email: %v", err)
 		}
 	}
@@ -191,39 +193,49 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	return nil
 }
 
-// loginHintSetter is implemented by both concrete flows (PKCE and device code)
-// but absent from the OAuthFlow interface, hence the assertion below — the same
-// way internal/auth wires it in authenticateWithPKCEFlow.
-type loginHintSetter interface {
-	SetLoginHint(hint string)
-}
-
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV)
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, profileLoginHint(a.cfgPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
 
-	// An empty hint is deliberate, not a fallback: a fresh or logged-out profile
-	// leaves the choice to the IdP, which is how accounts get switched.
-	if a.cfgPath != "" {
-		if hint := readProfileEmail(a.cfgPath); hint != "" {
-			if setter, ok := oAuthFlow.(loginHintSetter); ok {
-				setter.SetLoginHint(hint)
-			}
-		}
+	return runOAuthFlow(a.ctx, oAuthFlow, urlOpener, nil)
+}
+
+// profileLoginHint returns the stored account email for the profile at cfgPath.
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return mobile.ReadProfileEmail(cfgPath)
+}
+
+// runOAuthFlow drives an already acquired OAuth flow to a token: requests the
+// flow info, presents the verification URL through the opener and waits for
+// the browser round-trip. Open is called synchronously — it is what marks the
+// surface as opened on the client side, and a fast token's OnLoginSuccess is
+// a no-op until it has, so the dismissal would be dropped rather than
+// delayed. Openers must therefore not block: they post their UI work and
+// return. onWaiting, when set, runs after the URL is shown, right before the
+// blocking wait.
+func runOAuthFlow(ctx context.Context, flow auth.OAuthFlow, urlOpener URLOpener, onWaiting func()) (*auth.TokenInfo, error) {
+	flowInfo, err := flow.RequestAuthInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("request auth info: %w", err)
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
-	if err != nil {
-		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
+	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+
+	if onWaiting != nil {
+		onWaiting()
 	}
 
-	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
-
-	tokenInfo, err := oAuthFlow.WaitToken(a.ctx, flowInfo)
+	tokenInfo, err := flow.WaitToken(ctx, flowInfo)
 	if err != nil {
-		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
+		return nil, fmt.Errorf("wait for token: %w", err)
 	}
 
 	return &tokenInfo, nil

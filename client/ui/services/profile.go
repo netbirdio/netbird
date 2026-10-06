@@ -162,8 +162,9 @@ func (s *Profiles) Remove(ctx context.Context, p ProfileRef) error {
 	}
 
 	// The daemon deletes what it owns but runs as root, so it leaves the
-	// user-owned state file holding the account email behind (same split as
-	// Connection.Logout). Legacy profiles are keyed by name rather than by a
+	// user-owned state file holding the account email behind. Logout keeps the
+	// email on purpose so later logins can pass it as the login_hint; profile
+	// removal is what deletes it. Legacy profiles are keyed by name rather than by a
 	// generated ID, so a recreated profile of the same name would inherit the
 	// deleted one's email and offer it as the login_hint.
 	//

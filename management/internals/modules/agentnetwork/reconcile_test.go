@@ -2,9 +2,11 @@ package agentnetwork
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func newReconcileMgr(t *testing.T, ctrl *gomock.Controller) (*managerImpl, *store.MockStore, *proxy.MockController) {
@@ -287,3 +290,154 @@ func TestDiffMappings_RemovedServiceIsDeletedOnItsOwnCluster(t *testing.T) {
 		assert.Equal(t, "brave-otter.gateway.example.com", deletes[0].cluster)
 	}
 }
+
+// TestRemoveAccountGateway_EmitsRemovedFromStore — account deletion runs on an
+// instance that may never have reconciled the account, so its cache is empty.
+// The mappings are synthesised from the store, still intact before the delete,
+// and each is sent as REMOVED to the cluster that serves it.
+func TestRemoveAccountGateway_EmitsRemovedFromStore(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mgr, mockStore, mockProxy := newReconcileMgr(t, ctrl)
+	provider := newReconcileTestProvider()
+	policy := newReconcileTestPolicy(provider.ID, "grp-eng")
+
+	expectReconcileSynthInputs(mockStore, ctx, []*types.Provider{provider}, []*types.Policy{policy}, []*types.Guardrail{})
+	mockProxy.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{})
+
+	var sent []*proto.ProxyMapping
+	mockProxy.EXPECT().
+		SendServiceUpdateToCluster(ctx, "acct-1", gomock.Any(), "eu.proxy.netbird.io").
+		Do(func(_ context.Context, _ string, m *proto.ProxyMapping, _ string) {
+			sent = append(sent, m)
+		})
+
+	require.NoError(t, mgr.RemoveAccountGateway(ctx, "acct-1"))
+
+	require.Len(t, sent, 1, "the account's one gateway mapping must be removed")
+	assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, sent[0].Type, "the update must be a removal")
+	assert.Equal(t, "agent-net-svc-acct-1", sent[0].Id, "the removal must name the account's gateway service")
+}
+
+// TestRemoveAccountGateway_AlsoRemovesCachedMappings — a mapping this instance
+// last sent but the store no longer synthesises (here, one on another cluster)
+// is removed too, and the account's cache entry is cleared.
+func TestRemoveAccountGateway_AlsoRemovesCachedMappings(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mgr, mockStore, mockProxy := newReconcileMgr(t, ctrl)
+	mgr.reconcileCache["acct-1"] = map[string]syntheticMapping{
+		"stale-svc": {mapping: &proto.ProxyMapping{Id: "stale-svc"}, cluster: "us.proxy.netbird.io"},
+	}
+
+	// Settings but no providers: the store synthesises nothing.
+	mockStore.EXPECT().
+		GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "acct-1").
+		Return(newReconcileTestSettings(), nil)
+	mockStore.EXPECT().
+		GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, "acct-1").
+		Return([]*types.Provider{}, nil)
+	mockProxy.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{})
+
+	var sent []*proto.ProxyMapping
+	mockProxy.EXPECT().
+		SendServiceUpdateToCluster(ctx, "acct-1", gomock.Any(), "us.proxy.netbird.io").
+		Do(func(_ context.Context, _ string, m *proto.ProxyMapping, _ string) {
+			sent = append(sent, m)
+		})
+
+	require.NoError(t, mgr.RemoveAccountGateway(ctx, "acct-1"))
+
+	require.Len(t, sent, 1, "the cached mapping must be removed from its own cluster")
+	assert.Equal(t, "stale-svc", sent[0].Id)
+	assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, sent[0].Type)
+	mgr.reconcileMu.Lock()
+	_, present := mgr.reconcileCache["acct-1"]
+	mgr.reconcileMu.Unlock()
+	assert.False(t, present, "the deleted account's cache entry must be cleared")
+}
+
+// TestRemoveAccountGateway_SynthFailureAbortsDeletion — if the mappings cannot
+// be read, nothing is sent and the error is returned, which as an account
+// deletion hook keeps the account rather than leaving its gateway running.
+func TestRemoveAccountGateway_SynthFailureAbortsDeletion(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mgr, mockStore, _ := newReconcileMgr(t, ctrl)
+	mockStore.EXPECT().
+		GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "acct-1").
+		Return(nil, status.Errorf(status.Internal, "store unavailable"))
+
+	assert.Error(t, mgr.RemoveAccountGateway(ctx, "acct-1"), "a failed synthesis must fail the hook")
+}
+
+func TestRemoveAccountGateway_NilProxyController_NoOp(t *testing.T) {
+	mgr := &managerImpl{reconcileCache: make(map[string]map[string]syntheticMapping)}
+	// Must not panic and must not query the store.
+	assert.NoError(t, mgr.RemoveAccountGateway(context.Background(), "acct-1"))
+}
+
+// TestReconcile_ConcurrentWithGatewayChanges — while an account's gateway
+// flaps (its policy is removed and re-added between reads), concurrent
+// reconciles and RemoveAccountGateway share the cached mappings: one caches a
+// mapping and sends it, another finds it gone and sends its removal. Run under
+// -race: neither path may write a cached mapping, only copies of it.
+func TestReconcile_ConcurrentWithGatewayChanges(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mgr, mockStore, mockProxy := newReconcileMgr(t, ctrl)
+	// gomock serialises every call on the controller's mutex, which would give
+	// the race detector the ordering the code under test lacks. The sends go
+	// through a fake that takes no lock.
+	mgr.proxyController = unsyncedSender{MockController: mockProxy}
+	provider := newReconcileTestProvider()
+	policy := newReconcileTestPolicy(provider.ID, "grp-eng")
+
+	var reads atomic.Int64
+	mockStore.EXPECT().GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "acct-1").Return(newReconcileTestSettings(), nil).AnyTimes()
+	mockStore.EXPECT().GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, "acct-1").Return([]*types.Provider{provider}, nil).AnyTimes()
+	mockStore.EXPECT().GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, "acct-1").
+		DoAndReturn(func(context.Context, store.LockingStrength, string) ([]*types.Policy, error) {
+			if reads.Add(1)%2 == 0 {
+				return []*types.Policy{}, nil
+			}
+			return []*types.Policy{policy}, nil
+		}).AnyTimes()
+	mockStore.EXPECT().GetAccountAgentNetworkGuardrails(ctx, store.LockingStrengthNone, "acct-1").Return([]*types.Guardrail{}, nil).AnyTimes()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(remove bool) {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				if remove && j%10 == 0 {
+					_ = mgr.RemoveAccountGateway(ctx, "acct-1")
+					continue
+				}
+				mgr.reconcile(ctx, "acct-1")
+			}
+		}(i == 0)
+	}
+	wg.Wait()
+}
+
+// unsyncedSender answers the calls reconcile makes on every pass without any
+// locking, so concurrent callers are not ordered by the fake itself.
+type unsyncedSender struct {
+	*proxy.MockController
+}
+
+func (unsyncedSender) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{}
+}
+
+func (unsyncedSender) SendServiceUpdateToCluster(context.Context, string, *proto.ProxyMapping, string) {}

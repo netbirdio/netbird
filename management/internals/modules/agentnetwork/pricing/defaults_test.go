@@ -116,11 +116,13 @@ func TestDefaultTable_PinnedRates(t *testing.T) {
 	assert.InDelta(t, 0.010, fable.InputPer1k, 1e-9, "claude-fable-5 input")
 	assert.InDelta(t, 0.0125, fable.CacheCreationPer1k, 1e-9, "claude-fable-5 cache creation")
 
-	// Supplementals present on their surfaces.
+	// Every id below must stay priced whichever source provides it: the
+	// catalog lineup for the current Claude 5 family, supplementalDefaults
+	// for the ids the dashboard deliberately doesn't offer.
 	for surface, ids := range map[string][]string{
 		"openai":    {"gpt-5", "gpt-5-mini", "gpt-5-nano"},
-		"anthropic": {"claude-opus-5", "kimi-k3[1m]", "kimi-k3"},
-		"bedrock":   {"anthropic.claude-opus-5"},
+		"anthropic": {"claude-opus-5", "claude-sonnet-5", "kimi-k3[1m]", "kimi-k3"},
+		"bedrock":   {"anthropic.claude-opus-5", "anthropic.claude-sonnet-5"},
 	} {
 		for _, id := range ids {
 			_, ok := table[surface][id]

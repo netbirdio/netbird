@@ -57,10 +57,13 @@ type ICEBind struct {
 	endpoints   map[netip.Addr]net.Conn
 	endpointsMu sync.Mutex
 	recvChan    chan recvMessage
-	// every time when Close() is called (i.e. BindUpdate()) we need to close exit from the receiveRelayed and create a
-	// new closed channel. With the closedChanMu we can safely close the channel and create a new one
+	// Close() (i.e. BindUpdate()) closes closedChan to release receiveRelayed,
+	// and the following Open() installs a fresh one. closedChanMu guards both
+	// closedChan and closed: readers only ever hold it long enough to copy the
+	// channel, never across a blocking receive, so Open cannot be starved by a
+	// parked receiver.
 	closedChan       chan struct{}
-	closedChanMu     sync.RWMutex // protect the closeChan recreation from reading from it.
+	closedChanMu     sync.RWMutex
 	closed           bool
 	activityRecorder *ActivityRecorder
 
@@ -92,24 +95,41 @@ func NewICEBind(transportNet transport.Net, address wgaddr.Address, mtu uint16) 
 }
 
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
-	s.closed = false
 	s.closedChanMu.Lock()
-	s.closedChan = make(chan struct{})
-	s.closedChanMu.Unlock()
+	defer s.closedChanMu.Unlock()
+
+	// Open the underlying bind before touching any state, so a failure leaves
+	// the current generation exactly as it was. Publishing the new generation
+	// first would strand it: StdNetBind rejects an Open while it is already
+	// open, and a Close arriving in that window would mark the bind closed
+	// while this call went on to install live sockets, after which every later
+	// Close returns early and never shuts them down.
 	fns, port, err := s.StdNetBind.Open(uport)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// Release whoever is parked on the outgoing generation before replacing it.
+	// An Open that follows an Open rather than a Close would otherwise leave
+	// them waiting on a channel no later Close can reach.
+	if !s.closed {
+		close(s.closedChan)
+	}
+	s.closed = false
+	s.closedChan = make(chan struct{})
+
 	fns = append(fns, s.receiveRelayed)
 	return fns, port, nil
 }
 
 func (s *ICEBind) Close() error {
+	s.closedChanMu.Lock()
+	defer s.closedChanMu.Unlock()
+
 	if s.closed {
 		return nil
 	}
 	s.closed = true
-
 	close(s.closedChan)
 
 	s.muUDPMux.Lock()
@@ -119,6 +139,15 @@ func (s *ICEBind) Close() error {
 	s.muUDPMux.Unlock()
 
 	return s.StdNetBind.Close()
+}
+
+// currentClosedChan copies the channel that signals the current Open
+// generation is closing. Callers select on the copy so the lock is never held
+// across a blocking receive, which would otherwise stall the next Open.
+func (s *ICEBind) currentClosedChan() chan struct{} {
+	s.closedChanMu.RLock()
+	defer s.closedChanMu.RUnlock()
+	return s.closedChan
 }
 
 func (s *ICEBind) ActivityRecorder() *ActivityRecorder {
@@ -150,8 +179,10 @@ func (b *ICEBind) RemoveEndpoint(fakeIP netip.Addr) {
 }
 
 func (b *ICEBind) ReceiveFromEndpoint(ctx context.Context, ep *Endpoint, buf []byte) {
+	closedChan := b.currentClosedChan()
+
 	select {
-	case <-b.closedChan:
+	case <-closedChan:
 		return
 	case <-ctx.Done():
 		return
@@ -333,11 +364,10 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 // receiveRelayed is a receive function that is used to receive packets from the relayed connection and forward to the
 // WireGuard. Critical part is do not block if the Closed() has been called.
 func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
-	c.closedChanMu.RLock()
-	defer c.closedChanMu.RUnlock()
+	closedChan := c.currentClosedChan()
 
 	select {
-	case <-c.closedChan:
+	case <-closedChan:
 		return 0, net.ErrClosed
 	case msg, ok := <-c.recvChan:
 		if !ok {

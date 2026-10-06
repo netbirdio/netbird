@@ -82,7 +82,7 @@ func dnatV6(port uint16) fw.ForwardRule {
 // v4 refcount at zero.
 func TestNftablesDNAT_RefcountBalancedV4(t *testing.T) {
 	m := newNftRefcountManager(t, false)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(dnatV4(8081))
 	require.NoError(t, err, "add v4 dnat 1")
@@ -111,9 +111,9 @@ func TestNftablesDNAT_RefcountBalancedV4(t *testing.T) {
 // and decrements back to zero on Delete.
 func TestNftablesDNAT_RefcountBalancedV6(t *testing.T) {
 	m := newNftRefcountManager(t, true)
-	require.NotNil(t, m.router6, "v6 router")
-	require.Same(t, m.router.ipFwdState, m.router6.ipFwdState, "shared state")
-	state := m.router.ipFwdState
+	require.NotNil(t, m.family6, "v6 family")
+	require.Same(t, m.family4.ipFwdState, m.family6.ipFwdState, "shared state")
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(dnatV6(9091))
 	require.NoError(t, err, "add v6 dnat 1")
@@ -142,7 +142,7 @@ func TestNftablesDNAT_RefcountBalancedV6(t *testing.T) {
 // ForwardRule) does not double-increment the refcount.
 func TestNftablesDNAT_DuplicateAddNoLeak(t *testing.T) {
 	m := newNftRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	rule := dnatV4(8083)
 	r1, err := m.AddDNATRule(rule)
@@ -165,7 +165,7 @@ func TestNftablesDNAT_DuplicateAddNoLeak(t *testing.T) {
 // never added does not underflow the refcount.
 func TestNftablesDNAT_DeleteMissingNoUnderflow(t *testing.T) {
 	m := newNftRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	// Construct a Rule reference for something never added. The router stores
 	// rules by ID(), and DeleteDNATRule looks them up in r.rules; a missing
@@ -195,7 +195,7 @@ func TestNftablesDNAT_DeleteMissingNoUnderflow(t *testing.T) {
 // and a single DisableRouting drops both back to zero.
 func TestNftablesRouting_RepeatedEnableSingleReference(t *testing.T) {
 	m := newNftRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	require.NoError(t, m.EnableRouting(), "first enable")
 	require.NoError(t, m.EnableRouting(), "second enable")
@@ -214,7 +214,7 @@ func TestNftablesRouting_RepeatedEnableSingleReference(t *testing.T) {
 // DisableRouting does not release references held by active DNAT rules.
 func TestNftablesRouting_DisableKeepsDNATReference(t *testing.T) {
 	m := newNftRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(dnatV6(9095))
 	require.NoError(t, err, "add v6 dnat")
@@ -232,7 +232,7 @@ func TestNftablesRouting_DisableKeepsDNATReference(t *testing.T) {
 // twice does not underflow the refcount (the second delete is a no-op).
 func TestNftablesDNAT_DoubleDeleteNoUnderflow(t *testing.T) {
 	m := newNftRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(dnatV6(9093))
 	require.NoError(t, err)

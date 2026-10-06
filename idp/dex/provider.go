@@ -737,6 +737,10 @@ func (p *Provider) UpdateUserPassword(ctx context.Context, userID string, oldPas
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
+	if err := p.storage.DeleteAuthSession(ctx, user.UserID, server.LocalConnector); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		p.logger.Error("failed to revoke local session after password change", "error", err)
+	}
+
 	return nil
 }
 
