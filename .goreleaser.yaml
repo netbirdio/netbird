@@ -307,6 +307,9 @@ nfpms:
       - src: release_files/netbird.sysconfig
         dst: /etc/sysconfig/netbird
         type: config|noreplace
+        # May hold the PKCS#11 token PIN (NB_TPM_PIN), so readable by root alone.
+        file_info:
+          mode: 0600
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
