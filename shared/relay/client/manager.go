@@ -166,14 +166,19 @@ func (m *Manager) Serve() error {
 // serverIP, when valid and serverAddress is foreign, is used as a dial target if the FQDN-based dial fails.
 // Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
 func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
+	// Hold relayClientMu only long enough to read the home client. Dialing a foreign
+	// relay can take as long as that server's connect timeout, and onServerDisconnected
+	// needs the same lock in write mode: keeping it across the dial lets one unreachable
+	// relay stall every relay operation on the node for the duration of the dial.
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.RUnlock()
+	homeClient := m.relayClient
+	m.relayClientMu.RUnlock()
 
-	if m.relayClient == nil {
+	if homeClient == nil {
 		return nil, ErrRelayClientNotConnected
 	}
 
-	foreign, err := m.isForeignServer(m.relayClient, serverAddress)
+	foreign, err := m.isForeignServer(homeClient, serverAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +186,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, s
 	var netConn *Conn
 	if !foreign {
 		log.Debugf("open peer connection via permanent server: %s", peerKey)
-		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
+		netConn, err = homeClient.OpenConn(ctx, peerKey)
 	} else {
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
 		netConn, err = m.openConnVia(ctx, serverAddress, peerKey, serverIP)
