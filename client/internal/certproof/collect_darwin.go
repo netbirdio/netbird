@@ -77,22 +77,34 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 		return nil, nil
 	}
 
+	uid := strconv.FormatUint(uint64(user.UID), 10)
+	backoffKey := helperBackoffKey(uid, challenges)
+	if !userHelperBackoff.allow(backoffKey, time.Now()) {
+		log.Debugf("certificate posture: the keychain of uid %s proved nothing recently, not asking again yet", uid)
+		return nil, nil
+	}
+
 	binary, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve own binary: %w", err)
 	}
 
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
 	defer cancel()
 
 	// Absolute paths, because the daemon's PATH is configurable through the service
 	// environment, and sudo selects the user by uid so the name never has to round-trip.
-	uid := strconv.FormatUint(uint64(user.UID), 10)
 	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", "--", binary, "posture", "cert-proof")
 	killHelperGroupOnCancel(cmd)
 
 	log.Debugf("certificate posture: asking the desktop session of uid %s to answer %d challenges", uid, len(challenges))
 	proofs, err := runHelperCmd(cmd, helperRequest(challenges, peerKey))
+	// A run cut short by the caller, such as the engine stopping, says nothing about the
+	// keychain and must not hold off the next one.
+	if parent.Err() == nil {
+		userHelperBackoff.record(backoffKey, err == nil && len(proofs) > 0, time.Now())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("run helper as uid %s: %w", uid, err)
 	}
