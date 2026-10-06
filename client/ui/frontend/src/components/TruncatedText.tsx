@@ -19,7 +19,7 @@ export const TruncatedText = ({ text, className, tooltipContent, delayDuration =
     }, [text]);
 
     const span = (
-        <span ref={ref} className={className}>
+        <span ref={ref} dir={"auto"} className={className}>
             {text}
         </span>
     );

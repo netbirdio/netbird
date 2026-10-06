@@ -185,7 +185,6 @@ export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: 
                             </div>
                             <Input
                                 id={nameId}
-                                dir={"auto"}
                                 ref={nameRef}
                                 autoFocus
                                 placeholder={t("profile.dialog.placeholder")}

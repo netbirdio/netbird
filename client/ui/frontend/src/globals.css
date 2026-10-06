@@ -97,7 +97,8 @@ body {
 }
 
 [dir="rtl"] :is(.font-mono, code, kbd) {
-    unicode-bidi: plaintext;
+    direction: ltr;
+    unicode-bidi: isolate;
 }
 
 .wails-draggable {
