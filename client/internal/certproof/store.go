@@ -52,9 +52,9 @@ type Store interface {
 	Candidates(ctx context.Context) ([]Candidate, error)
 }
 
-// Config selects where the daemon looks for certificates. Dir is the Linux PEM directory,
-// empty for NB_CERT_STORE_DIR or /etc/netbird/certs, and PKCS11 names a token whose keys
-// sign for certificates on the token or in that directory.
+// Config selects where the daemon looks for certificates. PKCS11 names a token whose keys
+// sign for certificates on the token or in the PEM directory, which NB_CERT_STORE_DIR
+// names on Linux, /etc/netbird/certs by default.
 //
 // ProfileOwner is the OS account the active profile belongs to. On macOS and Windows only
 // that account's certificate store is consulted for user certificates, so on a machine
@@ -63,7 +63,6 @@ type Store interface {
 // OwnerUnknown means the owner could not be determined, and no user store is consulted:
 // guessing would let whoever sits at the console answer for the profile.
 type Config struct {
-	Dir          string
 	PKCS11       PKCS11Config
 	ProfileOwner string
 	OwnerUnknown bool

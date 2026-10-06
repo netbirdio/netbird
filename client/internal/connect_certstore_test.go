@@ -23,5 +23,4 @@ func TestCertStoreConfig_ReadsEnvironmentNotProfile(t *testing.T) {
 
 	assert.Equal(t, "pkcs11:token=env", cfg.PKCS11.URI, "the URI comes from the environment")
 	assert.Equal(t, "1234", cfg.PKCS11.PIN, "the PIN comes from the environment")
-	assert.Empty(t, cfg.Dir, "the directory is left to NB_CERT_STORE_DIR, not the profile")
 }

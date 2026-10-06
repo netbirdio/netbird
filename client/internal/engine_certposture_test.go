@@ -90,13 +90,14 @@ func newCertPostureEngine(t *testing.T, recorder *peer.Status, syncMeta func(*sy
 	// user-private-group umask.
 	dir := t.TempDir()
 	require.NoError(t, os.Chmod(dir, 0o700))
+	t.Setenv(certproof.StoreDirEnv, dir)
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
 	e := &Engine{
 		ctx:            context.Background(),
 		syncMsgMux:     &sync.Mutex{},
-		config:         &EngineConfig{WgPrivateKey: key, CertStore: certproof.Config{Dir: dir}},
+		config:         &EngineConfig{WgPrivateKey: key},
 		statusRecorder: recorder,
 		mgmClient:      &mgmt.MockClient{SyncMetaFunc: syncMeta},
 	}
