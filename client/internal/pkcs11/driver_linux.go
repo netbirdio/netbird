@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+	log "github.com/sirupsen/logrus"
 )
 
 // ulong is CK_ULONG, an unsigned long, which is pointer-sized on the 64-bit Linux ABIs
@@ -126,11 +127,20 @@ func Supported() bool {
 	return true
 }
 
-func load(path string) (driver, error) {
+func load(path string) (_ driver, err error) {
 	lib, err := purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_LOCAL)
 	if err != nil {
 		return nil, fmt.Errorf("open PKCS#11 module %s: %w", path, err)
 	}
+	// A module that loads but cannot be used is not cached, so each later attempt opens
+	// it again; close it here or every attempt keeps another reference to the library.
+	defer func() {
+		if err != nil {
+			if closeErr := purego.Dlclose(lib); closeErr != nil {
+				log.Debugf("failed closing PKCS#11 module %s: %v", path, closeErr)
+			}
+		}
+	}()
 	symbol, err := purego.Dlsym(lib, "C_GetFunctionList")
 	if err != nil {
 		return nil, fmt.Errorf("%s is not a PKCS#11 module: %w", path, err)
