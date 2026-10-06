@@ -3,6 +3,7 @@ package llm_guardrail
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 )
@@ -14,6 +15,13 @@ import (
 // cards — keeping prompt redaction in sync with metadata-value scanning. Email,
 // SSN (dashed form), phone (E.164 + NA), and IPv4 are prompt-shaped patterns
 // the metadata scanner intentionally leaves alone.
+// phoneSep lists the characters accepted between the digit groups of a phone
+// number, for use inside a character class: tab, every Unicode space separator
+// (\p{Zs} covers the ASCII space and the no-break, narrow no-break, thin and
+// figure spaces), the Unicode hyphens and dashes, and dot, hyphen-minus and
+// slash. Line breaks are left out so a candidate never runs into the next line.
+const phoneSep = `\t\p{Zs}\x{2010}-\x{2015}.\-/`
+
 var (
 	emailRegex = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 	ssnRegex   = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
@@ -21,23 +29,24 @@ var (
 	// phoneIntlRgx finds international candidates: a "+" or "00" prefix, then
 	// digits mixed with the separators people put between digit groups,
 	// including the "(0)" trunk-prefix notation ("+49 (0)30 12345678").
-	phoneIntlRgx = regexp.MustCompile(`(?:\+|\b00)\d[\d\s.\-/()]*\d\b`)
+	phoneIntlRgx = regexp.MustCompile(`(?:\+|\b00)\d[\d` + phoneSep + `()]*\d\b`)
 	// phoneNatRgx finds national-format candidates: a "0" trunk prefix and an
 	// area code, either in balanced parentheses ("(030) 12345678") or bare,
 	// then the subscriber number with or without separators.
-	phoneNatRgx = regexp.MustCompile(`(?:\(0\d{1,5}\)|\b0\d{1,5})[\s.\-/]*\d[\d\s.\-/]*\d\b`)
-	// dateRgx rejects national candidates that start with a date (05.10.2026),
-	// including a date followed by a time ("05.10.2026 08:30").
-	dateRgx = regexp.MustCompile(`^\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s|$)`)
-	// phoneNARgx accepts the 3-3-4 North-American shape with any of the common
-	// separators (space, dot, dash, slash) or none at all between the area code
+	phoneNatRgx = regexp.MustCompile(`(?:\(0\d{1,5}\)|\b0\d{1,5})[` + phoneSep + `]*\d[\d` + phoneSep + `]*\d\b`)
+	// dateRgx finds a date (05.10.2026) at the start of a national candidate,
+	// together with the spaces after it, so only the rest is checked for a
+	// number ("05.10.2026 0151 23456789").
+	dateRgx = regexp.MustCompile(`^\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:[\t\p{Zs}]+|$)`)
+	// phoneNARgx accepts the 3-3-4 North-American shape with any of the phoneSep
+	// separators (spaces, dots, dashes, slashes) or none at all between the area code
 	// and the body. The optional `\(?...\)?` wraps the area code; the separator
 	// classes use `*` (not `?`) so multi-char separators ("(202) " followed by
 	// space-and-something) and zero-separator runs ("2025550134") both match.
 	// False-positive tradeoff: 10 consecutive digits in a prompt will be
 	// treated as a phone number. For PII redaction that is the correct way to
 	// err — under-redaction leaks; over-redaction is annoying.
-	phoneNARgx  = regexp.MustCompile(`\(?\b\d{3}\)?[\s.\-/]*\d{3}[\s.\-/]*\d{4}\b`)
+	phoneNARgx  = regexp.MustCompile(`\(?\b\d{3}\)?[` + phoneSep + `]*\d{3}[` + phoneSep + `]*\d{4}\b`)
 	bearerRegex = regexp.MustCompile(`(?i)\b(bearer|token|api[_-]?key|authorization)([\s:=]+)(\S{20,})`)
 	ipv4Regex   = regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b`)
 )
@@ -106,14 +115,14 @@ func redactIntlPhone(match string) string {
 
 // redactNatPhone redacts a national phone candidate (trunk prefix "0"). It
 // needs at least 8 digits when the number is written with separators and 10
-// without, since short unseparated digit runs are usually identifiers, and it
-// leaves dates alone.
+// without, since short unseparated digit runs are usually identifiers. A date
+// at the start is kept and only the rest of the candidate is checked.
 func redactNatPhone(match string) string {
-	if dateRgx.MatchString(match) {
-		return match
+	if loc := dateRgx.FindStringIndex(match); loc != nil {
+		return match[:loc[1]] + phoneNatRgx.ReplaceAllStringFunc(match[loc[1]:], redactNatPhone)
 	}
 	minDigits := 10
-	if strings.ContainsAny(match, " .-/()") {
+	if countDigits(match) != utf8.RuneCountInString(match) {
 		minDigits = 8
 	}
 	if countDigits(match) < minDigits {
