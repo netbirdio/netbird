@@ -710,7 +710,11 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, encodedHashedKey string, peer *nbpeer.Peer, opEvent *activity.Event, config *peerAddAuthConfig) error {
 	sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
 	if err != nil {
-		return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
+		statusErr, ok := err.(*status.Error)
+		if ok && statusErr.ErrorType == status.PreconditionFailed {
+			return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
+		}
+		return err
 	}
 
 	if !sk.IsValid() {

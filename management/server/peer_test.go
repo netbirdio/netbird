@@ -1518,7 +1518,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			name:                      "Absent setup key",
 			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
-			errorType:                 status.NotFound,
+			errorType:                 status.PermissionDenied,
 			expectedErrorMsgSubstring: "couldn't add peer: setup key is invalid",
 		},
 	}
