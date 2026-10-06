@@ -298,6 +298,18 @@ func TestRedactPIIPhoneGerman(t *testing.T) {
 	}
 }
 
+// TestRedactPIIPhoneSpaceSeparatedDate documents an accepted over-redaction. A
+// date written with spaces only ("05 10 2026") is redacted as a phone number,
+// because treating "dd mm yy" with spaces as a date would leave French numbers
+// such as "01 23 45 67 89" in the clear. Leaking a number is worse than hiding a
+// rarely written date.
+func TestRedactPIIPhoneSpaceSeparatedDate(t *testing.T) {
+	assert.Equal(t, "am [REDACTED:phone]", redactPII("am 05 10 2026"),
+		"space-separated date is redacted as a phone number by design")
+	assert.Equal(t, "Tel. [REDACTED:phone]", redactPII("Tel. 01 23 45 67 89"),
+		"French number in pairs must be redacted")
+}
+
 // TestRedactPIIPhoneKeepsSurroundingParentheses checks that a number wrapped in
 // parentheses is redacted without unbalancing them.
 func TestRedactPIIPhoneKeepsSurroundingParentheses(t *testing.T) {
@@ -334,6 +346,11 @@ func TestRedactPIIPhoneFalsePositives(t *testing.T) {
 		"am 05.10.2026 08:30",
 		"05.10.2026 14:00",
 		"05/10/2026 14:00 Uhr",
+		"2026-01-05 08:30:00",
+		"2026-01-05T08:30:00Z",
+		"2026-01-05T08:30:00.123+02:00",
+		"2026/01/05 08:30",
+		"from 2026-01-05 to 2026-02-07",
 	}
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
