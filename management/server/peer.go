@@ -714,7 +714,7 @@ func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, en
 		if ok && statusErr.ErrorType == status.PreconditionFailed {
 			return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 		}
-		return err
+		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
 	}
 
 	if !sk.IsValid() {
