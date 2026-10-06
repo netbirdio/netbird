@@ -1004,7 +1004,7 @@
         "description": "Field label: Port."
     },
     "settings.advanced.port.error": {
-        "message": "נא kמלא פתחה בין {min} ל־{max}.",
+        "message": "נא למלא פתחה בין {min} ל־{max}.",
         "description": "Validation message for the port range. {min} and {max} are numbers; keep them."
     },
     "settings.advanced.port.help": {
