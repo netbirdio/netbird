@@ -54,14 +54,15 @@ async function shippedLanguages(): Promise<string[]> {
     }
 }
 
-// An empty persisted language code is the Go-side signal for first run.
+// An empty persisted language code is the Go-side signal for first run. A
+// persisted code that is no longer shipped is treated the same way.
 export async function initI18n(): Promise<void> {
     const available = await shippedLanguages();
     let language = "en";
     let firstRun = false;
     try {
         const prefs = await Preferences.Get();
-        if (prefs?.language) {
+        if (prefs?.language && available.includes(prefs.language)) {
             language = prefs.language;
         } else {
             firstRun = true;
