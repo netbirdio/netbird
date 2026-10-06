@@ -171,7 +171,7 @@ export const MainHeader = () => {
                 )}
             >
                 <div />
-                <div className={"ms-4 flex justify-center"}>{profileSlot}</div>
+                <div className={"ml-4 flex justify-center rtl:ml-1"}>{profileSlot}</div>
                 <div />
             </div>
             <div
