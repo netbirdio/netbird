@@ -236,11 +236,7 @@ func TestRedactPIIPhoneInternational(t *testing.T) {
 	for _, phone := range cases {
 		t.Run(phone, func(t *testing.T) {
 			out := redactPII("call me at " + phone + " anytime")
-			localDigits := lastSevenDigits(phone)
-			assert.Contains(t, out, "[REDACTED:phone]", "phone marker must appear for %q", phone)
-			// Compare without separators so a partial redaction such as
-			// "[REDACTED:phone] 7946 0958" cannot hide the leftover digits.
-			assert.NotContains(t, stripPhoneSeparators(out), localDigits, "raw phone local digits %q must not survive in %q", localDigits, out)
+			assert.Equal(t, "call me at [REDACTED:phone] anytime", out, "the whole number must be redacted for %q", phone)
 		})
 	}
 }
@@ -270,6 +266,11 @@ func TestRedactPIIPhoneGerman(t *testing.T) {
 		"+49 (0)151 23456789",
 		"0049 30 12345678",
 		"+49-30-12345678",
+		"(0)30 12345678",
+		"(0) 30 12345678",
+		"(0) 151 23456789",
+		"0 30 12345678",
+		"0 151 23456789",
 		// no separators
 		"03012345678",
 		"015123456789",
@@ -319,12 +320,6 @@ func TestRedactPIIPhoneKeepsSurroundingParentheses(t *testing.T) {
 		"international number in parentheses must keep both parentheses")
 }
 
-// stripPhoneSeparators removes the separators people put between the digit
-// groups of a phone number, leaving all other characters in place.
-func stripPhoneSeparators(s string) string {
-	return strings.NewReplacer(" ", "", "-", "", ".", "", "/", "", "(", "", ")", "").Replace(s)
-}
-
 // TestRedactPIIPhoneFalsePositives guards the other direction: digit runs that
 // commonly appear in prompts but are not phone numbers must not be redacted as
 // phones.
@@ -351,6 +346,9 @@ func TestRedactPIIPhoneFalsePositives(t *testing.T) {
 		"2026-01-05T08:30:00.123+02:00",
 		"2026/01/05 08:30",
 		"from 2026-01-05 to 2026-02-07",
+		"vom 05.10.2026\u201330.11.2026",
+		"vom 05.10.2026-30.11.2026",
+		"am 05.10.2026-09:30 Uhr",
 	}
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
