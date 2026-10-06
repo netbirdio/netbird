@@ -215,3 +215,51 @@ func lastSevenDigits(phone string) string {
 	}
 	return string(digits[len(digits)-7:])
 }
+
+// TestRedactPIIPhoneInternational covers numbers outside North America the way
+// people actually write them: with a country code and separators, in national
+// format with a trunk prefix, or with a 00 international prefix. The subscriber
+// digits must not survive, whatever prefix the redactor leaves behind.
+func TestRedactPIIPhoneInternational(t *testing.T) {
+	cases := []string{
+		"+49 151 23456789",
+		"+49-151-23456789",
+		"+49 (0)151 23456789",
+		"+49 30 12345678",
+		"+44 20 7946 0958",
+		"+33 1 23 45 67 89",
+		"+1 202 555 0188",
+		"0049 151 23456789",
+		"0151 23456789",
+		"030 12345678",
+	}
+	for _, phone := range cases {
+		t.Run(phone, func(t *testing.T) {
+			out := redactPII("call me at " + phone + " anytime")
+			localDigits := lastSevenDigits(phone)
+			assert.Contains(t, out, "[REDACTED:phone]", "phone marker must appear for %q", phone)
+			assert.NotContains(t, out, localDigits, "raw phone local digits %q must not survive in %q", localDigits, out)
+		})
+	}
+}
+
+// TestRedactPIIPhoneFalsePositives guards the other direction: digit runs that
+// commonly appear in prompts but are not phone numbers must not be redacted as
+// phones.
+func TestRedactPIIPhoneFalsePositives(t *testing.T) {
+	cases := []string{
+		"born on 1985-03-14",
+		"released 2026-10-06 at 10:45:30",
+		"upgrade to version 1.27.1",
+		"expiry 12/29, CVV 123",
+		"listen on port 51820",
+		"server 203.0.113.42 is down",
+		"invoice #4711 for 1499.00 EUR",
+	}
+	for _, in := range cases {
+		t.Run(in, func(t *testing.T) {
+			out := redactPII(in)
+			assert.NotContains(t, out, "[REDACTED:phone]", "non-phone input must not be redacted as a phone: %q -> %q", in, out)
+		})
+	}
+}
