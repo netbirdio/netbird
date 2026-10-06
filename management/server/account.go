@@ -262,7 +262,6 @@ func BuildManager(
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
-	am.certChallenges.Start(ctx)
 
 	am.networkMapController.StartWarmup(ctx)
 
@@ -304,6 +303,10 @@ func BuildManager(
 	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string, peerIDs []string) {
 		am.onPeersInvalidated(ctx, accountID, peerIDs)
 	})
+
+	// Started last: a manager that fails to build is never returned, so nothing would
+	// stop its refresher.
+	am.certChallenges.Start(ctx)
 
 	return am, nil
 }
