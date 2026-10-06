@@ -3,12 +3,15 @@
 package certproof
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -62,6 +65,29 @@ func TestRunHelperCmd_CapsStderrInError(t *testing.T) {
 	require.Error(t, err)
 	assert.LessOrEqual(t, len(err.Error()), maxHelperStderr+100, "a chatty helper must not blow up the daemon's error or log line")
 	assert.True(t, strings.Contains(err.Error(), "exit status 3"), "the exit status is kept: %v", err)
+}
+
+// TestRunHelperCmd_LogsStderrOfSuccessfulHelper covers a helper that answers but warns,
+// for one about a certificate it could not sign with: the warning reaches the daemon's
+// log, quoted so a helper cannot forge log lines with embedded newlines.
+func TestRunHelperCmd_LogsStderrOfSuccessfulHelper(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	level := log.GetLevel()
+	log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(level)
+	})
+
+	req := HelperRequest{Challenges: []HelperChallenge{{Nonce: []byte("asked")}}}
+	script := "printf 'failed signing certificate proof for CN=user\\nforged line\\n' >&2; " + printJSON(t, HelperResponse{})
+
+	_, err := runHelperCmd(fakeHelper(t, script), req)
+
+	require.NoError(t, err)
+	assert.Contains(t, logged.String(), "failed signing certificate proof for CN=user", "the helper's warning reaches the daemon log")
+	assert.NotContains(t, logged.String(), "\nforged line", "helper output cannot start a log line of its own")
 }
 
 func TestRunHelperCmd_RejectsGarbage(t *testing.T) {
