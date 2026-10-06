@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -457,6 +458,9 @@ func TestIsSensitiveEnvVar(t *testing.T) {
 		{"NB_CLIENT_SECRET", true},
 		{"NB_PASSWORD", true},
 		{"NB_CREDENTIAL", true},
+		// The token PIN, and the token URI, which may carry the PIN as pin-value.
+		{"NB_TPM_PIN", true},
+		{"NB_CERT_PKCS11_URI", true},
 		{"NB_LOG_LEVEL", false},
 		{"NB_MANAGEMENT_URL", false},
 		{"NB_HOSTNAME", false},
@@ -846,7 +850,8 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"Name":                 "non-config: profile name is not needed for debug purposes",
 		"policy":               "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
 		"DebugBundleUploadURL": "sensitive: MDM-provided upload URL may carry credentials or query tokens; kept out of the shared bundle",
-		"CertPKCS11URI":        "sensitive: the URI may carry the token PIN as pin-value; only whether it is set is rendered",
+		"CertPKCS11URI":        "deprecated and ignored; sensitive: the URI may carry the token PIN as pin-value",
+		"CertStoreDir":         "deprecated and ignored: the directory comes from NB_CERT_STORE_DIR",
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")
@@ -890,6 +895,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		ClientCertKeyPath:             "/tmp/key",
 		LazyConnection:                "on",
 		DebugBundleUploadURL:          "https://upload.example.test/bundle?token=secret",
+		CertPKCS11URI:                 "pkcs11:token=netbird?pin-value=pin-secret",
 		MTU:                           1280,
 		DisableIPv6:                   true,
 		SyncMessageVersion:            func(v int) *int { return &v }(1),
@@ -913,6 +919,10 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 			// field name nor the token — in either anonymize mode.
 			assert.NotContains(t, rendered, "DebugBundleUploadURL:", "MDM upload URL field must not be serialized into the debug bundle")
 			assert.NotContains(t, rendered, "token=secret", "MDM upload URL value must not leak into the debug bundle")
+
+			// A leftover CertPKCS11URI may carry the token PIN as pin-value.
+			assert.NotContains(t, rendered, "CertPKCS11URI", "PKCS#11 URI field must not be serialized into the debug bundle")
+			assert.NotContains(t, rendered, "pin-secret", "PKCS#11 PIN must not leak into the debug bundle")
 
 			val := reflect.ValueOf(cfg).Elem()
 			typ := val.Type()
@@ -969,4 +979,53 @@ func renderAddConfigSpecific(g *BundleGenerator) string {
 
 func newAnonymizerForTest() *anonymize.Anonymizer {
 	return anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+}
+
+func TestRemoveStaleBundles(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "netbird.debug.111.zip")
+	fresh := filepath.Join(dir, "netbird.debug.222.zip")
+	other := filepath.Join(dir, "netbird.debug.333.txt")
+	owned := filepath.Join(dir, "netbird.debug.444.zip")
+	abandoned := filepath.Join(dir, "netbird.debug.555.zip")
+	for _, p := range []string{stale, fresh, other, owned, abandoned} {
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+	exported, err := ExportBundle(owned)
+	require.NoError(t, err)
+	exportedAbandoned, err := ExportBundle(abandoned)
+	require.NoError(t, err)
+	old := time.Now().Add(-2 * time.Hour)
+	for _, p := range []string{stale, other, exported} {
+		require.NoError(t, os.Chtimes(p, old, old))
+	}
+	ancient := time.Now().Add(-exportedBundleMaxAge - time.Hour)
+	require.NoError(t, os.Chtimes(exportedAbandoned, ancient, ancient))
+
+	RemoveStaleBundles(dir, time.Hour)
+
+	assert.NoFileExists(t, stale, "bundle older than maxAge should be removed")
+	assert.FileExists(t, fresh, "bundle younger than maxAge must survive, it may still be uploading")
+	assert.FileExists(t, other, "files outside the bundle pattern must not be touched")
+	assert.NoFileExists(t, owned)
+	assert.FileExists(t, exported, "exported bundle is caller-owned and must survive maxAge")
+	assert.NoFileExists(t, exportedAbandoned, "exported bundle older than exportedBundleMaxAge is abandoned")
+}
+
+func TestBundleIncludesNetworkMap(t *testing.T) {
+	for _, anonymize := range []bool{false, true} {
+		t.Run(fmt.Sprintf("anonymize=%t", anonymize), func(t *testing.T) {
+			g := NewBundleGenerator(GeneratorDependencies{
+				SyncResponse: &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 1}},
+			}, BundleConfig{Anonymize: anonymize})
+
+			require.Contains(t, bundleEntries(t, g), "network_map.json")
+		})
+	}
+}
+
+func TestBundleOmitsNetworkMapWithoutSyncResponse(t *testing.T) {
+	g := NewBundleGenerator(GeneratorDependencies{}, BundleConfig{})
+
+	require.NotContains(t, bundleEntries(t, g), "network_map.json")
 }

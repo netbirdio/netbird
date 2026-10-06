@@ -2523,8 +2523,8 @@ func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
 	}
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
-		log.Debugf("no active profile owner for certificate posture: %v", err)
-		return nil
+		log.Warnf("failed to read the active profile owner, no user certificate store is used for certificate posture: %v", err)
+		return []internal.ConnectClientOption{internal.WithUnknownProfileOwner()}
 	}
 	return []internal.ConnectClientOption{internal.WithProfileOwner(activeProf.Username)}
 }

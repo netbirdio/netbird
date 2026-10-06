@@ -19,6 +19,8 @@ import (
 const (
 	minCertChallengeTick = time.Second
 	maxCertChallengeTick = 15 * time.Minute
+
+	maxCertChallengeRefresh = 30 * time.Second
 )
 
 // certChallengePeriod is how often an account whose policies carry a certificate
@@ -38,24 +40,30 @@ func certChallengeTick(period time.Duration) time.Duration {
 	return min(max(period/10, minCertChallengeTick), maxCertChallengeTick)
 }
 
+// certChallengeRefresh is how long one account's refresh is given before it is
+// abandoned. Resolving the target peers reads the store and accounts are swept one
+// after another, so an unbounded refresh lets one wedged read starve all the others.
+func certChallengeRefresh(tick time.Duration) time.Duration {
+	return min(tick, maxCertChallengeRefresh)
+}
+
 // certChallengeRefresher pushes a fresh certificate challenge to the peers of every
 // account that needs one, from a single goroutine.
 //
 // A nonce only reaches a peer attached to a network map, and a quiet account sends no
-// map. Without this the peer re-sends an expired nonce on its next sync, management
-// rejects its whole proof set and drops its certificates, and it loses every policy
-// gated on the check until something else changes.
+// map, so without this the peer eventually re-sends an expired nonce, has its whole
+// proof set rejected, and silently leaves the policies the check gates.
 //
-// Accounts are held in a map rather than a queue ordered by due time: one pass over
-// them every certChallengeTick costs nothing next to a period measured in hours, and it
-// avoids having to re-arm a timer whenever an account that falls due sooner is added.
+// Accounts live in a map rather than a queue ordered by due time: one pass per tick
+// costs nothing next to a period measured in hours, and nothing has to be re-armed.
 type certChallengeRefresher struct {
 	mu  sync.Mutex
 	due map[string]time.Time
 
-	period time.Duration
-	tick   time.Duration
-	now    func() time.Time
+	period  time.Duration
+	tick    time.Duration
+	timeout time.Duration
+	now     func() time.Time
 	// refresh pushes the account's peers an update, and reports whether the account
 	// still wants challenges at all.
 	refresh func(ctx context.Context, accountID string) bool
@@ -63,10 +71,12 @@ type certChallengeRefresher struct {
 
 func newCertChallengeRefresher(refresh func(ctx context.Context, accountID string) bool) *certChallengeRefresher {
 	period := certChallengePeriod()
+	tick := certChallengeTick(period)
 	return &certChallengeRefresher{
 		due:     map[string]time.Time{},
 		period:  period,
-		tick:    certChallengeTick(period),
+		tick:    tick,
+		timeout: certChallengeRefresh(tick),
 		now:     time.Now,
 		refresh: refresh,
 	}
@@ -114,12 +124,21 @@ func (r *certChallengeRefresher) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			for _, accountID := range r.takeDue() {
-				if !r.refresh(ctx, accountID) {
+				if !r.refreshOne(ctx, accountID) {
 					r.Forget(accountID)
 				}
 			}
 		}
 	}
+}
+
+// refreshOne refreshes a single account under the refresh deadline. A refresh that runs
+// out of time reports the account as still wanting challenges, since a deadline says
+// nothing about the account's posture checks; the next sweep tries again.
+func (r *certChallengeRefresher) refreshOne(ctx context.Context, accountID string) bool {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	return r.refresh(ctx, accountID)
 }
 
 // takeDue returns the accounts due now and books their next run straight away, so a
@@ -169,21 +188,19 @@ func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Contex
 	}
 
 	log.WithContext(ctx).Debugf("refreshing certificate challenges for %d peers of account %s", len(peerIDs), accountID)
-	if err := am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs); err != nil {
+	reason := types.UpdateReason{Resource: types.UpdateResourcePostureCheck, Operation: types.UpdateOperationRefresh}
+	if err := am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason); err != nil {
 		log.WithContext(ctx).Warnf("failed refreshing certificate challenges for account %s: %v", accountID, err)
 	}
 	return true
 }
 
 // certificateChallengeTargets returns the peers that are sent a certificate challenge,
-// and whether the account asks for one at all. Only those peers hold a nonce, so only
-// they need the update; pushing to the whole account would wake every peer that has
-// nothing to do with certificates.
+// and whether the account asks for one at all. Only those peers hold a nonce, so
+// pushing to the whole account would wake every peer that never uses the feature.
 //
-// A peer is sent a challenge when it is a source of an enabled policy whose posture
-// checks include a certificate check. This is the inverse of processPeerPostureChecks,
-// which decides the same thing one peer at a time, and the two are held together by
-// TestCertificateChallengeTargets_MatchesThePerPeerRule.
+// It is the inverse of processPeerPostureChecks, which decides the same thing one peer
+// at a time; TestCertificateChallengeTargets_MatchesThePerPeerRule holds them together.
 func (am *DefaultAccountManager) certificateChallengeTargets(ctx context.Context, accountID string) ([]string, bool, error) {
 	certCheckIDs, err := am.certificatePostureCheckIDs(ctx, accountID)
 	if err != nil {
@@ -253,20 +270,9 @@ func (am *DefaultAccountManager) certificatePostureCheckIDs(ctx context.Context,
 	return ids, nil
 }
 
-// trackCertificateChallenges starts refreshing the account's certificate challenges if
-// it has a posture check that asks for one.
-func (am *DefaultAccountManager) trackCertificateChallenges(ctx context.Context, accountID string) {
-	if am.certChallenges.tracked(accountID) {
-		return
-	}
-
-	certCheckIDs, err := am.certificatePostureCheckIDs(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Debugf("cannot tell whether account %s needs certificate challenges: %v", accountID, err)
-		return
-	}
-	if len(certCheckIDs) == 0 {
-		return
-	}
+// TrackCertificateChallenges starts renewing an account's certificate challenges. It is
+// called wherever a nonce is issued, so it has to stay cheap: no store access, just a
+// map the refresher sweeps.
+func (am *DefaultAccountManager) TrackCertificateChallenges(ctx context.Context, accountID string) {
 	am.certChallenges.Track(ctx, accountID)
 }

@@ -1,4 +1,4 @@
-//go:build (!darwin && !windows) || ios
+//go:build ((!darwin && !windows) || ios) && !js
 
 package certproof
 
@@ -24,7 +24,8 @@ func UserContext(Config) string {
 }
 
 // helperStore is the store the helper reads. Nothing launches a helper on these
-// platforms, so it is the platform default.
+// platforms, so it is the store the daemon reads, configured from the same environment,
+// which lets an administrator check a setup by running the helper by hand.
 func helperStore() Store {
-	return DefaultStore()
+	return storeWithToken(Config{PKCS11: PKCS11FromEnv()})
 }

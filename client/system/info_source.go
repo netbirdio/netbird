@@ -4,8 +4,11 @@ import (
 	"context"
 	"net/netip"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -13,26 +16,73 @@ import (
 // InfoSource gathers the system info sent to management, keeping the posture
 // check results from the last Refresh for the cheap Current snapshots.
 type InfoSource struct {
-	files atomic.Pointer[[]File]
+	// started numbers Refresh calls in the order they began.
+	started atomic.Uint64
+	// stuck counts gatherings that timed out and are still blocked in a system call.
+	stuck atomic.Int32
+
+	mu sync.Mutex
+	// files holds the file check results of the latest-started Refresh that succeeded,
+	// filesFrom its number.
+	files     []File
+	filesFrom uint64
 }
 
-// Refresh gathers the info with the posture checks evaluated, bounded by timeout.
+// Refresh gathers the info with the posture checks evaluated, bounded by timeout. It may
+// run concurrently with other calls; the results Current reuses are those of the call
+// that started last, so an older call finishing late cannot replace them. It reports
+// false on a timeout, and also while a gathering that timed out earlier is still blocked
+// in a system call: starting another would only add one more goroutine stuck on it.
 func (s *InfoSource) Refresh(ctx context.Context, timeout time.Duration, checks []*proto.Checks, excludeIPs ...netip.Addr) (*Info, bool) {
-	info, ok := GetInfoWithChecksTimeout(ctx, timeout, checks, excludeIPs...)
-	if !ok {
+	if s.stuck.Load() > 0 {
+		log.Warnf("system info gathering that timed out earlier is still running, skipping this one")
 		return nil, false
 	}
-	files := slices.Clone(info.Files)
-	s.files.Store(&files)
+	seq := s.started.Add(1)
+
+	var mu sync.Mutex
+	var finished, abandoned bool
+	done := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if finished {
+			return
+		}
+		finished = true
+		if abandoned {
+			s.stuck.Add(-1)
+		}
+	}
+	info, ok := getInfoWithChecksTimeout(ctx, timeout, checks, done, excludeIPs...)
+	if !ok {
+		mu.Lock()
+		if !finished {
+			abandoned = true
+			s.stuck.Add(1)
+		}
+		mu.Unlock()
+		return nil, false
+	}
+	s.publishFiles(seq, info.Files)
 	return info, true
+}
+
+func (s *InfoSource) publishFiles(seq uint64, files []File) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if seq < s.filesFrom {
+		return
+	}
+	s.files = slices.Clone(files)
+	s.filesFrom = seq
 }
 
 // Current gathers the info without evaluating the checks, reusing the last Refresh results.
 func (s *InfoSource) Current(ctx context.Context, excludeIPs ...netip.Addr) *Info {
 	info := GetInfo(ctx)
 	info.removeAddresses(excludeIPs...)
-	if files := s.files.Load(); files != nil {
-		info.Files = *files
-	}
+	s.mu.Lock()
+	info.Files = slices.Clone(s.files)
+	s.mu.Unlock()
 	return info
 }

@@ -273,13 +273,26 @@ type Engine struct {
 
 	dnsServer dns.Server
 
-	// checks are the client-applied posture checks that need to be evaluated on the client
-	checks []*mgmProto.Checks
+	// checks are the client-applied posture checks that need to be evaluated on the client.
+	// Writers hold syncMsgMux and checksMu; readers hold either, see appliedChecks.
+	checks   []*mgmProto.Checks
+	checksMu sync.RWMutex
+	// pendingChecks are received checks whose meta sync timed out gathering the system
+	// info; the posture watcher retries them. Both are guarded by syncMsgMux, and
+	// hasPendingChecks lets the watcher skip the lock when nothing is pending.
+	pendingChecks    []*mgmProto.Checks
+	hasPendingChecks atomic.Bool
+	// infoTimeout overrides systemInfoTimeout when set.
+	infoTimeout time.Duration
 
 	// certProofs answers the certificate challenges in checks within a bounded time, and
 	// certState remembers what it last proved.
 	certProofs certproof.Collector
 	certState  certPostureState
+	// certWake wakes the posture watcher, which owns proof collection; certSendMu orders
+	// the meta syncs that carry proofs.
+	certWake   chan struct{}
+	certSendMu sync.Mutex
 
 	infoSource system.InfoSource
 
@@ -383,6 +396,7 @@ func NewEngine(
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
+		certWake:           make(chan struct{}, 1),
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
@@ -669,10 +683,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.wgDevice.Store(e.wgInterface.GetWGDevice())
 
-	// Set up notrack rules immediately after proxy is listening to prevent
-	// conntrack entries from being created before the rules are in place
-	e.setupWGProxyNoTrack()
-
 	// Start after interface is up since port may have been resolved from 0 or changed if occupied
 	e.shutdownWg.Add(1)
 	go func() {
@@ -814,23 +824,6 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
-}
-
-// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
-// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
-func (e *Engine) setupWGProxyNoTrack() {
-	if e.firewall == nil {
-		return
-	}
-
-	proxyPort := e.wgInterface.GetProxyPort()
-	if proxyPort == 0 {
-		return
-	}
-
-	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
-		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
-	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -1075,7 +1068,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			// back to empty if the FQDN doesn't have the expected shape.
 			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
 		}
-		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		// With the firewall disabled there is no ACL manager to program, so
+		// RoutesFirewallRules would be built and then dropped. On a peer that
+		// routes many network resources that is the single most expensive
+		// step of the sync.
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
 		if err != nil {
 			return fmt.Errorf("decode network map envelope: %w", err)
 		}
@@ -1264,16 +1261,52 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	// if checks are equal, we skip the update
 	if isChecksEqual(e.checks, checks) {
+		e.clearPendingChecks()
 		return nil
 	}
-	if err := e.syncChecksMeta(e.ctx, checks); err != nil {
+	if err := e.syncChecksMeta(checks); err != nil {
+		// The newest checks become the pending ones whatever failed, so the watcher
+		// never retries a set they superseded.
+		e.pendingChecks = checks
+		e.hasPendingChecks.Store(true)
 		if errors.Is(err, errSystemInfoTimeout) {
 			return nil
 		}
 		return err
 	}
-	e.checks = checks
+	e.setAppliedChecks(checks)
+	e.clearPendingChecks()
 	return nil
+}
+
+// appliedChecks returns the posture checks in effect, for callers that do not hold
+// syncMsgMux. The slice is replaced, never modified, so it may be read after return.
+func (e *Engine) appliedChecks() []*mgmProto.Checks {
+	e.checksMu.RLock()
+	defer e.checksMu.RUnlock()
+	return e.checks
+}
+
+// setAppliedChecks replaces the posture checks in effect. The caller holds syncMsgMux.
+func (e *Engine) setAppliedChecks(checks []*mgmProto.Checks) {
+	e.checksMu.Lock()
+	e.checks = checks
+	e.checksMu.Unlock()
+	e.wakeCertificatePosture()
+}
+
+// clearPendingChecks drops checks whose meta sync was still owed. The caller holds
+// syncMsgMux.
+func (e *Engine) clearPendingChecks() {
+	e.pendingChecks = nil
+	e.hasPendingChecks.Store(false)
+}
+
+func (e *Engine) infoGatherTimeout() time.Duration {
+	if e.infoTimeout > 0 {
+		return e.infoTimeout
+	}
+	return systemInfoTimeout
 }
 
 // applyInfoFlags sets the engine's config-derived feature flags on the gathered system info.
@@ -1302,18 +1335,8 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
 	e.applyInfoFlags(info)
-	e.attachCertificateProofs(ctx, info, e.checksSnapshot())
+	e.attachCertificateProofs(info, e.appliedChecks())
 	return info
-}
-
-// checksSnapshot returns the posture checks the sync loop last applied. The sync loop
-// writes them while holding syncMsgMux, and the stream's info callbacks read them from
-// another goroutine, so the read takes the same lock. No caller holds it already: the
-// callbacks run on the stream's retry loop, not inside handleSync.
-func (e *Engine) checksSnapshot() []*mgmProto.Checks {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	return e.checks
 }
 
 // syncInfoFunc returns the info callback for the management sync stream. The
@@ -1328,7 +1351,7 @@ func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) 
 		info := refreshed
 		refreshed = nil
 		e.applyInfoFlags(info)
-		e.attachCertificateProofs(ctx, info, e.checksSnapshot())
+		e.attachCertificateProofs(info, e.appliedChecks())
 		return info
 	}
 }
@@ -1526,7 +1549,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checksSnapshot(), e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.appliedChecks(), e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
@@ -2216,10 +2239,7 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
-	transportNet, err := e.newStdNet()
-	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
+	transportNet := e.newStdNet()
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    e.config.WgIfaceName,

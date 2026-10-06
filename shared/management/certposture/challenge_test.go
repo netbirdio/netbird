@@ -59,7 +59,8 @@ func heldNonceAlwaysAccepted(c *Challenger, peerKey []byte, period, offset time.
 	start := time.Unix(0, 0).UTC().Add(offset)
 	var rejected int
 	for elapsed := time.Duration(0); elapsed < 10*Window; elapsed += 7 * time.Minute {
-		lastRefresh := start.Add(elapsed / period * period)
+		periods := int64(elapsed / period)
+		lastRefresh := start.Add(time.Duration(periods) * period)
 		if c.verifyNonce(c.Nonce(peerKey, lastRefresh), peerKey, start.Add(elapsed)) != nil {
 			rejected++
 		}

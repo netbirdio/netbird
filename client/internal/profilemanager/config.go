@@ -186,16 +186,15 @@ type Config struct {
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
-	// CertStoreDir is the directory of PEM certificates, with their keys or with keys a
-	// PKCS#11 token holds, that answer certificate posture checks on Linux. Empty means
-	// NB_CERT_STORE_DIR or /etc/netbird/certs; see client/internal/certproof/README.md.
-	CertStoreDir string
+	// CertStoreDir is no longer read: certificate posture takes the directory from
+	// NB_CERT_STORE_DIR in the daemon's environment. The field is kept only to report a
+	// value left from an earlier version.
+	CertStoreDir string `json:",omitempty"`
 
-	// CertPKCS11URI is the RFC 7512 URI selecting the PKCS#11 token, tpm2-pkcs11 for one,
-	// and its module, whose certificates answer certificate posture checks on Linux.
-	// Empty means the first token the p11-kit proxy exposes. The token's user PIN comes
-	// from NB_TPM_PIN, never from this file; see client/internal/certproof/README.md.
-	CertPKCS11URI string
+	// CertPKCS11URI is no longer read, as the URI may carry the token PIN: certificate
+	// posture takes it from NB_CERT_PKCS11_URI in the daemon's environment. The field is
+	// kept only to report a value left from an earlier version.
+	CertPKCS11URI string `json:",omitempty"`
 
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
 	// Runtime-only: re-derived from MDM policy on each load, never persisted.

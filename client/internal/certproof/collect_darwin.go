@@ -4,16 +4,24 @@ package certproof
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+const helperTimeout = 30 * time.Second
+
+// userHelperBackoff holds off asking a user's keychain again after it proved nothing.
+var userHelperBackoff = newHelperBackoff()
 
 // CollectProofs answers the certificate challenges in checks from every store this Mac
 // can reach. The root daemon reads the System keychain itself, which is where MDM
@@ -34,6 +42,9 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 	}
 
 	proofs := CollectChallenges(ctx, DefaultStore(), challenges, peerKey)
+	if cfg.OwnerUnknown {
+		return proofs
+	}
 
 	userProofs, err := collectAsConsoleUser(ctx, cfg.ProfileOwner, challenges, peerKey)
 	if err != nil {
@@ -46,7 +57,7 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 // user when it owns the active profile, or empty when no user keychain would be asked. A
 // change means a collection made earlier no longer reflects what this Mac can prove.
 func UserContext(cfg Config) string {
-	if os.Geteuid() != 0 {
+	if os.Geteuid() != 0 || cfg.OwnerUnknown {
 		return ""
 	}
 	user, ok := CurrentConsoleUser()
@@ -70,18 +81,36 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 		return nil, nil
 	}
 
+	uid := strconv.FormatUint(uint64(user.UID), 10)
+	backoffKey := helperBackoffKey(uid, challenges)
+	if !userHelperBackoff.allow(backoffKey, time.Now()) {
+		log.Debugf("certificate posture: the keychain of uid %s proved nothing recently, not asking again yet", uid)
+		return nil, nil
+	}
+
 	binary, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve own binary: %w", err)
 	}
 
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
+	defer cancel()
+
 	// Absolute paths, because the daemon's PATH is configurable through the service
 	// environment, and sudo selects the user by uid so the name never has to round-trip.
-	uid := strconv.FormatUint(uint64(user.UID), 10)
-	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", binary, "posture", "cert-proof")
+	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", "--", binary, "posture", "cert-proof")
+	killHelperGroupOnCancel(cmd)
 
 	log.Debugf("certificate posture: asking the desktop session of uid %s to answer %d challenges", uid, len(challenges))
 	proofs, err := runHelperCmd(cmd, helperRequest(challenges, peerKey))
+	// A run that completed, or ran into the timeout waiting on a prompt nobody answered,
+	// tells whether the keychain proves anything. A launch or output failure, or a run the
+	// caller cut short, says nothing about it and must not hold off the next one.
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil
+	if err == nil || timedOut {
+		userHelperBackoff.record(backoffKey, err == nil && len(proofs) > 0, time.Now())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("run helper as uid %s: %w", uid, err)
 	}
@@ -89,8 +118,20 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 	return proofs, nil
 }
 
-// helperStore is the store the helper reads. On macOS the keychain search list of the
-// user's own session already is that user's keychain, so the platform default is right.
+// helperStore is the store the helper reads: the user's login keychain alone. The
+// session's search list also holds the System keychain, which the daemon reads itself,
+// and using a System keychain key from the user's session would ask for an
+// administrator's approval.
 func helperStore() Store {
-	return DefaultStore()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Debugf("certificate posture: no home directory, searching the default keychain list: %v", err)
+		return NewKeychainStore()
+	}
+	login := filepath.Join(home, "Library", "Keychains", "login.keychain-db")
+	if _, err := os.Stat(login); err != nil {
+		// Keychains created before macOS 10.12 keep the old file name.
+		login = filepath.Join(home, "Library", "Keychains", "login.keychain")
+	}
+	return NewKeychainStore(login)
 }

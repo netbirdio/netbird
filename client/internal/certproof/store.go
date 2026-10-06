@@ -13,13 +13,15 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/tpm"
 )
 
 const (
 	StoreDirEnv     = "NB_CERT_STORE_DIR"
 	defaultStoreDir = "/etc/netbird/certs"
+
+	// maxStoreFileSize bounds a certificate or key file of the PEM directory. A chain with
+	// its key is a few kilobytes.
+	maxStoreFileSize = 1 << 20
 )
 
 // errKeyMismatch rejects a key that does not belong to the certificate it sits with: it
@@ -50,18 +52,20 @@ type Store interface {
 	Candidates(ctx context.Context) ([]Candidate, error)
 }
 
-// Config selects where the daemon looks for certificates. Dir is the Linux PEM directory,
-// empty for NB_CERT_STORE_DIR or /etc/netbird/certs, and PKCS11 names a token whose keys
-// sign for certificates on the token or in that directory.
+// Config selects where the daemon looks for certificates. PKCS11 names a token whose keys
+// sign for certificates on the token or in the PEM directory, which NB_CERT_STORE_DIR
+// names on Linux, /etc/netbird/certs by default.
 //
 // ProfileOwner is the OS account the active profile belongs to. On macOS and Windows only
 // that account's certificate store is consulted for user certificates, so on a machine
 // with several people signed in the result does not depend on who else is logged in.
 // Empty means the profile has no owner, and only the user at the physical console counts.
+// OwnerUnknown means the owner could not be determined, and no user store is consulted:
+// guessing would let whoever sits at the console answer for the profile.
 type Config struct {
-	Dir          string
 	PKCS11       PKCS11Config
 	ProfileOwner string
+	OwnerUnknown bool
 }
 
 // FileStore reads PEM files from a directory. A file holds the chain (leaf first) and
@@ -105,7 +109,16 @@ func (s *FileStore) Candidates(_ context.Context) ([]Candidate, error) {
 }
 
 // certFiles lists the certificate files in dir, none when the directory does not exist.
+// The directory is checked before it is listed, so one that others can write to is
+// refused before its entries are read.
 func certFiles(dir string) ([]string, error) {
+	err := checkStoreDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("refusing certificate store: %w", err)
+	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -125,7 +138,7 @@ func certFiles(dir string) ([]string, error) {
 // loadPEM reads a certificate file and its private key, held in the file itself or in
 // the sibling "<name>.key" file. The signer is nil when neither holds a key.
 func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
-	data, err := os.ReadFile(path)
+	data, err := readStoreFile(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -155,7 +168,7 @@ func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
 // siblingKey reads the private key from the "<name>.key" file next to a certificate
 // file, reporting errNoSiblingKey when there is none.
 func siblingKey(path string) (crypto.Signer, error) {
-	keyData, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
+	keyData, err := readStoreFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, errNoSiblingKey
 	}
@@ -193,7 +206,7 @@ func parsePEM(data []byte) ([]*x509.Certificate, crypto.Signer, error) {
 				return nil, nil, fmt.Errorf("parse certificate: %w", err)
 			}
 			chain = append(chain, cert)
-		case "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY", tpm.KeyPEMType:
+		case "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY", tss2KeyPEMType:
 			key, err := parsePrivateKey(block)
 			if err != nil {
 				return nil, nil, err
@@ -207,8 +220,8 @@ func parsePrivateKey(block *pem.Block) (crypto.Signer, error) {
 	var key any
 	var err error
 	switch block.Type {
-	case tpm.KeyPEMType:
-		return tpm.ParseKey(block.Bytes)
+	case tss2KeyPEMType:
+		return parseTSS2Key(block.Bytes)
 	case "EC PRIVATE KEY":
 		key, err = x509.ParseECPrivateKey(block.Bytes)
 	case "RSA PRIVATE KEY":

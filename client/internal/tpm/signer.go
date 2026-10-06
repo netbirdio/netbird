@@ -78,7 +78,7 @@ func (s *keySigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 	}
 	defer func() { _ = rwc.Close() }()
 
-	parent := tpmutil.Handle(uint32(s.key.Parent)) //nolint:gosec // validParent bounds it
+	parent := tpmutil.Handle(s.key.Parent)
 	if !persistentHandle(s.key.Parent) {
 		parent, _, err = legacy.CreatePrimary(rwc, parent, legacy.PCRSelection{}, "", "", eccSRKTemplate)
 		if err != nil {
@@ -129,10 +129,10 @@ func signRSA(rw io.ReadWriter, handle tpmutil.Handle, digest []byte, opts crypto
 
 	scheme := &legacy.SigScheme{Alg: legacy.AlgRSASSA, Hash: hash}
 	if pss, ok := opts.(*rsa.PSSOptions); ok {
-		// The TPM always salts to the hash length, so a caller asking for anything
-		// else would get a signature it did not ask for.
-		if pss.SaltLength != rsa.PSSSaltLengthAuto &&
-			pss.SaltLength != rsa.PSSSaltLengthEqualsHash &&
+		// The TPM chooses the salt length itself, the digest length on most chips, so
+		// only a request for that length is taken. PSSSaltLengthAuto asks for the
+		// largest salt the key allows and is refused. Verify with PSSSaltLengthAuto.
+		if pss.SaltLength != rsa.PSSSaltLengthEqualsHash &&
 			pss.SaltLength != len(digest) {
 			return nil, fmt.Errorf("TPM cannot produce a PSS signature with salt length %d", pss.SaltLength)
 		}

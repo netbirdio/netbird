@@ -15,9 +15,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/pkcs11"
 )
 
-// PINEnv carries the user PIN of the PKCS#11 token. It is read from the daemon's
-// environment only, so the PIN never lands in the profile config or on a command line.
-const PINEnv = "NB_TPM_PIN"
+const (
+	// PINEnv carries the user PIN of the PKCS#11 token. It is read from the daemon's
+	// environment only, so the PIN never lands in the profile config or on a command line.
+	PINEnv = "NB_TPM_PIN"
+	// PKCS11URIEnv carries the RFC 7512 URI of the token. Like the PIN it lives in the
+	// daemon's environment rather than the profile config, since it may carry pin-value.
+	PKCS11URIEnv = "NB_CERT_PKCS11_URI"
+)
 
 // PKCS11Config names the token whose certificates the store yields. URI is an RFC 7512
 // PKCS#11 URI, or empty for the first token the p11-kit proxy exposes. PIN is the user
@@ -27,9 +32,10 @@ type PKCS11Config struct {
 	PIN string
 }
 
-// PINFromEnv returns the token PIN set in NB_TPM_PIN, or empty when it is unset.
-func PINFromEnv() string {
-	return os.Getenv(PINEnv)
+// PKCS11FromEnv returns the token named by NB_CERT_PKCS11_URI with the PIN set in
+// NB_TPM_PIN, either empty when unset.
+func PKCS11FromEnv() PKCS11Config {
+	return PKCS11Config{URI: os.Getenv(PKCS11URIEnv), PIN: os.Getenv(PINEnv)}
 }
 
 // PKCS11Store yields the identities of a PKCS#11 token, which is how tpm2-pkcs11 exposes
@@ -143,6 +149,49 @@ func (s *PKCS11Store) fileChains() ([][]*x509.Certificate, error) {
 	return chains, nil
 }
 
+func (s *PKCS11Store) String() string {
+	if s.uri.Token == "" {
+		return "PKCS#11 token"
+	}
+	return fmt.Sprintf("PKCS#11 token %q", s.uri.Token)
+}
+
+func (s *PKCS11Store) open() (*pkcs11.Session, error) {
+	module, err := pkcs11.Load(s.uri.Module())
+	if err != nil {
+		return nil, err
+	}
+	pin, err := s.userPIN()
+	if err != nil {
+		return nil, err
+	}
+	if pin == nil {
+		return module.OpenSession(s.uri.Token, nil)
+	}
+
+	// The check, the login and recording a rejection happen under one lock, so two
+	// collections running at once cannot both send a PIN the token is about to refuse.
+	pinLoginMu.Lock()
+	defer pinLoginMu.Unlock()
+	key := rejectedPINKey(s.uri.Module(), s.uri.Token, pin)
+	if rejectedPINs.has(key) {
+		return nil, errPINRejectedBefore
+	}
+	session, err := module.OpenSession(s.uri.Token, pin)
+	if pkcs11.PINRejected(err) {
+		rejectedPINs.add(key)
+		return nil, fmt.Errorf("%s rejected the PIN, not retrying it until the daemon restarts: %w", s, err)
+	}
+	return session, err
+}
+
+func (s *PKCS11Store) userPIN() ([]byte, error) {
+	if s.pin != "" {
+		return []byte(s.pin), nil
+	}
+	return s.uri.PIN()
+}
+
 type tokenKey struct {
 	id     []byte
 	public crypto.PublicKey
@@ -181,45 +230,6 @@ func (k tokenKeys) idFor(pub crypto.PublicKey) ([]byte, bool) {
 		}
 	}
 	return nil, false
-}
-
-func (s *PKCS11Store) String() string {
-	if s.uri.Token == "" {
-		return "PKCS#11 token"
-	}
-	return fmt.Sprintf("PKCS#11 token %q", s.uri.Token)
-}
-
-func (s *PKCS11Store) open() (*pkcs11.Session, error) {
-	module, err := pkcs11.Load(s.uri.Module())
-	if err != nil {
-		return nil, err
-	}
-	pin, err := s.userPIN()
-	if err != nil {
-		return nil, err
-	}
-	if pin == nil {
-		return module.OpenSession(s.uri.Token, nil)
-	}
-
-	key := rejectedPINKey(s.uri.Module(), s.uri.Token, pin)
-	if rejectedPINs.has(key) {
-		return nil, errPINRejectedBefore
-	}
-	session, err := module.OpenSession(s.uri.Token, pin)
-	if pkcs11.PINRejected(err) {
-		rejectedPINs.add(key)
-		return nil, fmt.Errorf("%s rejected the PIN, not retrying it until the daemon restarts: %w", s, err)
-	}
-	return session, err
-}
-
-func (s *PKCS11Store) userPIN() ([]byte, error) {
-	if s.pin != "" {
-		return []byte(s.pin), nil
-	}
-	return s.uri.PIN()
 }
 
 type tokenCertificate struct {

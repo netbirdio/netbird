@@ -29,7 +29,7 @@ var oidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
 type tss2KeyDER struct {
 	Type       asn1.ObjectIdentifier
 	EmptyAuth  bool `asn1:"optional,explicit,tag:0"`
-	Parent     int
+	Parent     int64
 	PublicKey  []byte
 	PrivateKey []byte
 }
@@ -38,7 +38,7 @@ type tss2KeyDER struct {
 type Option func(*tss2KeyDER)
 
 // WithParent names the handle the key is wrapped by, instead of the owner hierarchy.
-func WithParent(handle int) Option {
+func WithParent(handle int64) Option {
 	return func(k *tss2KeyDER) { k.Parent = handle }
 }
 
@@ -87,7 +87,7 @@ func EncodePEM(t *testing.T, public, private []byte, opts ...Option) string {
 	key := tss2KeyDER{
 		Type:       oidLoadableKey,
 		EmptyAuth:  true,
-		Parent:     int(tpm2.HandleOwner),
+		Parent:     int64(tpm2.HandleOwner),
 		PublicKey:  prefixTPM2B(public),
 		PrivateKey: prefixTPM2B(private),
 	}

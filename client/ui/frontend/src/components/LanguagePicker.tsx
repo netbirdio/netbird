@@ -89,7 +89,11 @@ export function LanguagePicker() {
                             tabIndex={0}
                             disabled={busy || languages.length === 0}
                             onKeyDown={handleTriggerKeyDown}
-                            aria-label={t("settings.general.language.label")}
+                            aria-label={
+                                current
+                                    ? `${t("settings.general.language.label")}: ${labelFor(current)}`
+                                    : t("settings.general.language.label")
+                            }
                             aria-haspopup={"listbox"}
                             aria-expanded={open}
                             className={cn(

@@ -346,7 +346,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger, srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
+	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
+		func() { s.accountManager.TrackCertificateChallenges(ctx, accountID) },
+		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
 
@@ -729,7 +731,9 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	stampCertificateChallenges(loginResp.Checks, s.challenger, peerKey)
+	if stampCertificateChallenges(loginResp.Checks, s.challenger, peerKey) {
+		s.accountManager.TrackCertificateChallenges(ctx, accountID)
+	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
@@ -981,7 +985,9 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed getting server key")
 	}
 
-	stampCertificateChallenges(plainResp.Checks, s.challenger, peerKey)
+	if stampCertificateChallenges(plainResp.Checks, s.challenger, peerKey) {
+		s.accountManager.TrackCertificateChallenges(ctx, peer.AccountID)
+	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")

@@ -62,8 +62,9 @@ type Manager interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
+	TrackCertificateChallenges(ctx context.Context, accountID string)
 	MarkPeerDisconnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, p *nbpeer.Peer) (*nbpeer.Peer, error)

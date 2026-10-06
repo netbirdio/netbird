@@ -87,12 +87,6 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
-	// The save itself reaches the peers, but an account that stays quiet afterwards
-	// would otherwise wait for a reconnect before its challenges start being renewed.
-	if postureChecks.Checks.CertificateCheck != nil {
-		am.trackCertificateChallenges(ctx, accountID)
-	}
-
 	return postureChecks, nil
 }
 

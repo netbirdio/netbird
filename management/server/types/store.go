@@ -1,10 +1,12 @@
 package types
 
-type Engine string
+import "github.com/netbirdio/netbird/management/internals/shared/db"
+
+type Engine = db.Engine
 
 const (
-	PostgresStoreEngine Engine = "postgres"
+	PostgresStoreEngine        = db.PostgresStoreEngine
 	FileStoreEngine     Engine = "jsonfile"
-	SqliteStoreEngine   Engine = "sqlite"
-	MysqlStoreEngine    Engine = "mysql"
+	SqliteStoreEngine          = db.SqliteStoreEngine
+	MysqlStoreEngine           = db.MysqlStoreEngine
 )

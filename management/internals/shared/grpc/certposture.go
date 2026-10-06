@@ -14,21 +14,14 @@ import (
 
 const certChallengeKeyDomain = "netbird-cert-challenge-key"
 
-// newCertChallenger derives the nonce secret from the data store encryption key, which
-// is generated once and written back to the configuration, so the same secret survives
-// a restart and is shared by every instance reading that configuration. A nonce carries
-// no state of its own, so one instance can only verify what another issued if both
-// derive the same secret.
+// newCertChallenger derives the nonce secret from the data store encryption key:
+// generated once, written back to the configuration, and read by every instance, so a
+// nonce stays verifiable across a restart and between instances.
 //
-// The server's WireGuard key cannot be used for this: it is generated afresh in every
-// process, so it would invalidate every outstanding nonce on restart and make each
-// instance reject the others'. A peer meeting that rejects its whole proof set and
-// loses the policies the certificate check gates until it signs again.
-//
-// Without an encryption key the secret falls back to the WireGuard key, which is still
-// unpredictable but no longer persisted. It must stay unpredictable above all else: a
-// peer that could guess it would mint the nonces of future windows, sign them while its
-// key is present, and keep passing long after the key is gone.
+// Where none is configured it falls back to the server's WireGuard key, which is
+// regenerated per process. Unpredictable is the property that has to hold either way: a
+// peer that could guess the secret would mint future windows' nonces, sign them while
+// its key is present, and keep passing after it is gone.
 func newCertChallenger(encryptionKey string, serverKey wgtypes.Key) *certposture.Challenger {
 	secret := []byte(encryptionKey)
 	if len(secret) == 0 {
@@ -43,8 +36,12 @@ func newCertChallenger(encryptionKey string, serverKey wgtypes.Key) *certposture
 }
 
 // stampCertificateChallenges fills the per-peer nonce into every certificate challenge
-// right before the response is encrypted for that peer.
-func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.Challenger, peerKey wgtypes.Key) {
+// right before the response is encrypted for that peer, reporting whether it issued one.
+//
+// The answer is what registers the account for renewal. A nonce is stateless, but the
+// renewal that keeps it fresh is local: only the instance that served a peer can push
+// to it, so an instance renews exactly the accounts it has issued nonces for.
+func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.Challenger, peerKey wgtypes.Key) bool {
 	var nonce []byte
 	for _, check := range checks {
 		challenge := check.GetCertificateChallenge()
@@ -56,6 +53,7 @@ func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.
 		}
 		challenge.Nonce = nonce
 	}
+	return nonce != nil
 }
 
 // verifiedCertificates turns the peer's proofs into PEM chains for its meta. Possession
