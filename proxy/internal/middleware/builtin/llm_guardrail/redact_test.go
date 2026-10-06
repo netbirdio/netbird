@@ -311,6 +311,19 @@ func TestRedactPIIPhoneSpaceSeparatedDate(t *testing.T) {
 		"French number in pairs must be redacted")
 }
 
+// TestRedactPIIPhoneSeparatedTrunkPrefix documents the boundary of the
+// "0 30 12345678" notation. A run of single digits after a lone 0 stays
+// readable, while a space-separated number list starting with 0 is redacted as
+// a phone number. Redaction only applies to the captured prompt in the access
+// log, never to the request sent upstream, so hiding a list is the cheaper
+// mistake.
+func TestRedactPIIPhoneSeparatedTrunkPrefix(t *testing.T) {
+	assert.Equal(t, "digits 0 1 2 3 4 5 6 7 8", redactPII("digits 0 1 2 3 4 5 6 7 8"),
+		"single digits after a lone 0 must not be redacted")
+	assert.Equal(t, "values [REDACTED:phone]", redactPII("values 0 100 200 300 400"),
+		"a number list starting with 0 is redacted as a phone number by design")
+}
+
 // TestRedactPIIPhoneKeepsSurroundingParentheses checks that a number wrapped in
 // parentheses is redacted without unbalancing them.
 func TestRedactPIIPhoneKeepsSurroundingParentheses(t *testing.T) {
