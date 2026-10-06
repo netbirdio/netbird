@@ -32,6 +32,7 @@ on:
           - all
           - client-rootless
           - reverse-proxy
+          - netbird-server
       version:
         description: "Released version, e.g. v0.80.0"
         type: string
@@ -66,6 +67,7 @@ jobs:
           components=(
             "client-rootless ghcr.io/netbirdio/netbird -rootless-ubi"
             "reverse-proxy ghcr.io/netbirdio/reverse-proxy -ubi"
+            "netbird-server ghcr.io/netbirdio/netbird-server -ubi"
           )
           matrix="[]"
           missing=()
