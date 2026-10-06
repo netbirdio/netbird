@@ -101,6 +101,10 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 	return w.relayManager.HasRelayAddress()
 }
 
+func (w *WorkerRelay) IsTransportConnected() bool {
+	return w.relayManager.Ready()
+}
+
 func (w *WorkerRelay) CloseConn() {
 	w.relayLock.Lock()
 	conn := w.relayedConn

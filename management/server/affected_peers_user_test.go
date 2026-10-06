@@ -107,11 +107,13 @@ func TestAffectedPeers_SaveUser_OnlyAffectedPeersUpdated(t *testing.T) {
 		})
 
 		step(t, "auto group change reassigning IPv6 refreshes the changed peers and their observers", func(t *testing.T) {
-			account, err := manager.Store.GetAccount(ctx, accountID)
-			require.NoError(t, err)
-			account.Settings.IPv6EnabledGroups = []string{"ug-v6"}
-			require.NoError(t, manager.Store.SaveAccount(ctx, account))
-			require.NoError(t, manager.CreateGroup(ctx, accountID, userID, &types.Group{ID: "ug-v6", Name: "ug-v6"}))
+
+			require.NoError(t, manager.CreateGroup(ctx, accountID, userID, &types.Group{ID: "ug-v6", Name: "ug-v6"}))// Apply through the settings API so the reconciliation that strips the other
+		// peers' addresses happens here, leaving the target as the only peer the
+		// user update reassigns.
+		updateIPv6TestSettings(t, manager, accountID, func(s *types.Settings) {
+			s.IPv6EnabledGroups = []string{"ug-v6"}
+		})
 
 			settleAffectedUpdates(updTarget, upd2, upd3)
 
