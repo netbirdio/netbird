@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,12 +42,12 @@ func TestInfoSource_CurrentReusesRefreshedFiles(t *testing.T) {
 // and gathering works again once it exits.
 func TestInfoSource_RefreshSkipsWhileEarlierGatheringRuns(t *testing.T) {
 	var src InfoSource
-	src.gathering.Store(true)
+	src.stuck.Store(1)
 
 	_, ok := src.Refresh(context.Background(), 15*time.Second, nil)
 	assert.False(t, ok, "no gathering starts while an earlier one is still running")
 
-	src.gathering.Store(false)
+	src.stuck.Store(0)
 	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
 	require.True(t, ok, "gathering runs once the earlier one exited")
 
@@ -62,10 +63,27 @@ func TestInfoSource_RefreshReleasesAfterTimedOutGatheringExits(t *testing.T) {
 	_, ok := src.Refresh(context.Background(), time.Nanosecond, nil)
 	require.False(t, ok, "gathering cannot finish within a nanosecond")
 
-	require.Eventually(t, func() bool { return !src.gathering.Load() }, 10*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return src.stuck.Load() == 0 }, 10*time.Second, 10*time.Millisecond,
 		"the source is released when the abandoned gathering exits")
 	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
 	assert.True(t, ok, "gathering works again after the abandoned one exited")
+}
+
+// TestInfoSource_RefreshRunsConcurrently: only a gathering that timed out holds off new
+// ones, callers gathering at the same time are all served.
+func TestInfoSource_RefreshRunsConcurrently(t *testing.T) {
+	var src InfoSource
+	var wg sync.WaitGroup
+	results := make([]bool, 4)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, results[i] = src.Refresh(context.Background(), 15*time.Second, nil)
+		}(i)
+	}
+	wg.Wait()
+	assert.Equal(t, []bool{true, true, true, true}, results, "concurrent gatherings all succeed")
 }
 
 func TestInfoSource_CurrentExcludesAddresses(t *testing.T) {
