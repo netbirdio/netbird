@@ -262,8 +262,7 @@ func BuildManager(
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
-	// The loop outlives this call, so it must not inherit its cancellation.
-	am.certChallenges.Start(context.WithoutCancel(ctx))
+	am.certChallenges.Start(ctx)
 
 	am.networkMapController.StartWarmup(ctx)
 

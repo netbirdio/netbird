@@ -301,3 +301,41 @@ func TestCertificateChallengeTargets_MatchesThePerPeerRule(t *testing.T) {
 	assert.Equal(t, want, got, "the peers the refresher renews must be exactly the peers that are sent a challenge")
 	assert.Equal(t, []string{"p1", "p2", "p4"}, got, "p3 is only reachable through disabled rules, p5 is in no source group")
 }
+
+func TestCertChallengeRefresher_StopsWithItsContext(t *testing.T) {
+	// BuildManager hands the loop the manager's context. A refresher that detached from
+	// it could never be stopped: it would keep sweeping after the server it belongs to
+	// is gone, and leak a goroutine per manager a test builds.
+	var mu sync.Mutex
+	var calls int
+
+	r := newCertChallengeRefresher(func(_ context.Context, _ string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		return true
+	})
+	r.period = time.Millisecond
+	r.tick = time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.Start(ctx)
+	r.Track(ctx, "account-a")
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls > 0
+	}, 3*time.Second, time.Millisecond, "the refresher never ran")
+
+	cancel()
+	time.Sleep(20 * r.tick)
+	mu.Lock()
+	afterCancel := calls
+	mu.Unlock()
+
+	time.Sleep(20 * r.tick)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, afterCancel, calls, "the refresher kept sweeping after its context was cancelled")
+}
