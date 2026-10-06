@@ -155,3 +155,40 @@ func TestCollector_LostCollectionDoesNotBlockForever(t *testing.T) {
 	c.collect(context.Background(), challengeChecks, wedged)
 	assert.Equal(t, int32(2), started.Load(), "no more than maxInFlight collections run")
 }
+
+// TestCollector_LostWindowFollowsTheOldestRunningCollection: A wedges, B starts beside it
+// once A counts as lost, then A returns. B is recent, so a third collection must wait for
+// B to be lost in its own right rather than inherit A's start time.
+func TestCollector_LostWindowFollowsTheOldestRunningCollection(t *testing.T) {
+	now := time.Now()
+	slots := &collectSlots{}
+	c := Collector{timeout: 10 * time.Millisecond, slots: slots, now: func() time.Time { return now }}
+	lost := time.Duration(lostAfter) * c.deadline()
+
+	releaseA := make(chan struct{})
+	releaseB := make(chan struct{})
+	defer close(releaseB)
+	var started atomic.Int32
+	blockOn := func(release chan struct{}) func(context.Context) []certposture.Proof {
+		return func(context.Context) []certposture.Proof {
+			started.Add(1)
+			<-release
+			return nil
+		}
+	}
+
+	c.collect(context.Background(), challengeChecks, blockOn(releaseA))
+	now = now.Add(lost)
+	c.collect(context.Background(), challengeChecks, blockOn(releaseB))
+	require.Equal(t, int32(2), started.Load(), "B starts beside the lost A")
+
+	close(releaseA)
+	require.Eventually(t, func() bool {
+		slots.mu.Lock()
+		defer slots.mu.Unlock()
+		return len(slots.running) == 1
+	}, time.Second, 5*time.Millisecond, "A frees its slot once it returns")
+
+	c.collect(context.Background(), challengeChecks, blockOn(make(chan struct{})))
+	assert.Equal(t, int32(2), started.Load(), "a third collection waits while B is recent")
+}

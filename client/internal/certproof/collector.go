@@ -29,9 +29,10 @@ const (
 // default: a collection abandoned in a token, TPM or keychain call keeps running after
 // the engine that started it has stopped, and the next engine must account for it.
 type collectSlots struct {
-	mu       sync.Mutex
-	inFlight int
-	oldest   time.Time
+	mu   sync.Mutex
+	next uint64
+	// running holds the start time of each collection still running, by slot id.
+	running map[uint64]time.Time
 }
 
 var processSlots collectSlots
@@ -66,7 +67,8 @@ func (c *Collector) collect(ctx context.Context, checks []*proto.Checks, run fun
 		return nil
 	}
 	slots := c.slotsInUse()
-	if !slots.start(c.clock(), time.Duration(lostAfter)*c.deadline()) {
+	slot, ok := slots.start(c.clock(), time.Duration(lostAfter)*c.deadline())
+	if !ok {
 		return nil
 	}
 
@@ -78,7 +80,7 @@ func (c *Collector) collect(ctx context.Context, checks []*proto.Checks, run fun
 		// The slot is freed before the result is delivered, so a caller that starts the
 		// next collection right after this one returned is not turned away.
 		proofs := run(ctx)
-		slots.finish()
+		slots.finish(slot)
 		done <- proofs
 	}()
 
@@ -112,42 +114,55 @@ func (c *Collector) deadline() time.Duration {
 	return collectTimeout
 }
 
-// start claims a slot at now, reporting whether the caller may collect. A collection
-// that has held a slot for lost is taken to be wedged.
-func (s *collectSlots) start(now time.Time, lost time.Duration) bool {
+// start claims a slot at now, reporting its id and whether the caller may collect. A
+// collection that has held a slot for lost is taken to be wedged.
+func (s *collectSlots) start(now time.Time, lost time.Duration) (uint64, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	switch {
-	case s.inFlight == 0:
-		s.oldest = now
-	case s.inFlight >= maxInFlight:
-		log.Warnf("certificate posture: %d proof collections are wedged, sending no proofs", s.inFlight)
-		return false
-	case now.Sub(s.oldest) < lost:
-		log.Warnf("certificate posture: previous proof collection is still running, sending no proofs")
-		return false
-	default:
-		log.Warnf("certificate posture: a proof collection has been stuck since %s, starting another", s.oldest.Format(time.RFC3339))
+	if len(s.running) > 0 {
+		oldest := s.oldest()
+		switch {
+		case len(s.running) >= maxInFlight:
+			log.Warnf("certificate posture: %d proof collections are wedged, sending no proofs", len(s.running))
+			return 0, false
+		case now.Sub(oldest) < lost:
+			log.Warnf("certificate posture: previous proof collection is still running, sending no proofs")
+			return 0, false
+		default:
+			log.Warnf("certificate posture: a proof collection has been stuck since %s, starting another", oldest.Format(time.RFC3339))
+		}
 	}
-	s.inFlight++
-	return true
+	if s.running == nil {
+		s.running = make(map[uint64]time.Time, maxInFlight)
+	}
+	s.next++
+	s.running[s.next] = now
+	return s.next, true
 }
 
-// finish releases a slot. When collections are still running, the wedge their oldest
-// slot measures is kept: it cannot be told which one returned.
-func (s *collectSlots) finish() {
+// finish releases the slot with the given id.
+func (s *collectSlots) finish(slot uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.inFlight--
-	if s.inFlight == 0 {
-		s.oldest = time.Time{}
-	}
+	delete(s.running, slot)
 }
 
 // idle reports whether no collection is running.
 func (s *collectSlots) idle() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inFlight == 0
+	return len(s.running) == 0
+}
+
+// oldest returns the start time of the longest-running collection. The caller holds mu
+// and has checked that one is running.
+func (s *collectSlots) oldest() time.Time {
+	var oldest time.Time
+	for _, started := range s.running {
+		if oldest.IsZero() || started.Before(oldest) {
+			oldest = started
+		}
+	}
+	return oldest
 }
