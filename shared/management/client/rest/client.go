@@ -31,6 +31,19 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+// IsPreconditionFailed returns true if the error represents a 412 Precondition
+// Failed response — an If-Match the server refused, or an endpoint's own
+// precondition. A caller that sent a conditional request can use this to tell
+// "someone else changed it, read again and retry" apart from a real failure;
+// the message distinguishes it from an endpoint's other 412s.
+func IsPreconditionFailed(err error) bool {
+	var apiErr *APIError
+	if ok := errors.As(err, &apiErr); ok {
+		return apiErr.StatusCode == http.StatusPreconditionFailed
+	}
+	return false
+}
+
 // Client Management service HTTP REST API Client
 type Client struct {
 	managementURL string
@@ -218,6 +231,12 @@ func (c *Client) initialize() {
 
 // NewRequest creates and executes new management API request
 func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader, query map[string]string) (*http.Response, error) {
+	return c.newRequest(ctx, method, path, body, query, nil)
+}
+
+// newRequest is NewRequest with request headers, for the endpoints whose
+// contract includes one — conditional requests carrying If-Match.
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader, query, headers map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
 		return nil, err
@@ -230,6 +249,9 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	}
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 
 	if len(query) != 0 {
