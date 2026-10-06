@@ -647,7 +647,7 @@ const (
 	jsonKeyServiceEnv    = "service_env_vars"
 )
 
-var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential", "pin", "pkcs11"}
 
 // addServiceParams reads the service.json file and adds a sanitized version to the bundle.
 // Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.
@@ -772,8 +772,6 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("LocalMetricsEnabled: %v\n", g.internalConfig.LocalMetricsEnabled))
 	configContent.WriteString(fmt.Sprintf("LocalMetricsAddress: %s\n", g.internalConfig.LocalMetricsAddress))
 	configContent.WriteString(fmt.Sprintf("SyncMessageVersion: %v\n", g.internalConfig.SyncMessageVersion))
-	configContent.WriteString(fmt.Sprintf("CertStoreDir: %s\n", g.internalConfig.CertStoreDir))
-	configContent.WriteString(fmt.Sprintf("CertPKCS11URISet: %v\n", g.internalConfig.CertPKCS11URI != ""))
 
 	if g.internalConfig.DisableNotifications != nil {
 		configContent.WriteString(fmt.Sprintf("DisableNotifications: %v\n", *g.internalConfig.DisableNotifications))

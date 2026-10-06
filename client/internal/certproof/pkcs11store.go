@@ -15,9 +15,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/pkcs11"
 )
 
-// PINEnv carries the user PIN of the PKCS#11 token. It is read from the daemon's
-// environment only, so the PIN never lands in the profile config or on a command line.
-const PINEnv = "NB_TPM_PIN"
+const (
+	// PINEnv carries the user PIN of the PKCS#11 token. It is read from the daemon's
+	// environment only, so the PIN never lands in the profile config or on a command line.
+	PINEnv = "NB_TPM_PIN"
+	// PKCS11URIEnv carries the RFC 7512 URI of the token. Like the PIN it lives in the
+	// daemon's environment rather than the profile config, since it may carry pin-value.
+	PKCS11URIEnv = "NB_CERT_PKCS11_URI"
+)
 
 // PKCS11Config names the token whose certificates the store yields. URI is an RFC 7512
 // PKCS#11 URI, or empty for the first token the p11-kit proxy exposes. PIN is the user
@@ -27,9 +32,10 @@ type PKCS11Config struct {
 	PIN string
 }
 
-// PINFromEnv returns the token PIN set in NB_TPM_PIN, or empty when it is unset.
-func PINFromEnv() string {
-	return os.Getenv(PINEnv)
+// PKCS11FromEnv returns the token named by NB_CERT_PKCS11_URI with the PIN set in
+// NB_TPM_PIN, either empty when unset.
+func PKCS11FromEnv() PKCS11Config {
+	return PKCS11Config{URI: os.Getenv(PKCS11URIEnv), PIN: os.Getenv(PINEnv)}
 }
 
 // PKCS11Store yields the identities of a PKCS#11 token, which is how tpm2-pkcs11 exposes

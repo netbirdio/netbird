@@ -689,10 +689,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
-		CertStore: certproof.Config{
-			Dir:    config.CertStoreDir,
-			PKCS11: certproof.PKCS11Config{URI: config.CertPKCS11URI, PIN: certproof.PINFromEnv()},
-		},
+		CertStore: certStoreConfig(config),
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
@@ -719,6 +716,22 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 	return engineConf, nil
 }
+
+// certStoreConfig reads where certificate posture finds certificates from the daemon's
+// environment, NB_CERT_STORE_DIR and NB_CERT_PKCS11_URI with NB_TPM_PIN. The profile
+// config fields that once held them are ignored, and a value left there is reported
+// once, so a setup relying on it does not silently stop proving.
+func certStoreConfig(config *profilemanager.Config) certproof.Config {
+	if config.CertStoreDir != "" || config.CertPKCS11URI != "" {
+		legacyCertConfigOnce.Do(func() {
+			log.Warnf("certificate posture: CertStoreDir and CertPKCS11URI in the profile config are ignored, set %s and %s in the daemon's environment instead",
+				certproof.StoreDirEnv, certproof.PKCS11URIEnv)
+		})
+	}
+	return certproof.Config{PKCS11: certproof.PKCS11FromEnv()}
+}
+
+var legacyCertConfigOnce sync.Once
 
 func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 	var finalMTU uint16 = iface.DefaultMTU
