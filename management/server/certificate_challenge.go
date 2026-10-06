@@ -59,6 +59,9 @@ func certChallengeRefresh(tick time.Duration) time.Duration {
 type certChallengeRefresher struct {
 	mu  sync.Mutex
 	due map[string]time.Time
+	// refreshing holds the accounts whose refresh is running, and whether Track was
+	// called for one meanwhile, which makes its refresh's verdict stale.
+	refreshing map[string]bool
 
 	period  time.Duration
 	tick    time.Duration
@@ -73,12 +76,13 @@ func newCertChallengeRefresher(refresh func(ctx context.Context, accountID strin
 	period := certChallengePeriod()
 	tick := certChallengeTick(period)
 	return &certChallengeRefresher{
-		due:     map[string]time.Time{},
-		period:  period,
-		tick:    tick,
-		timeout: certChallengeRefresh(tick),
-		now:     time.Now,
-		refresh: refresh,
+		due:        map[string]time.Time{},
+		refreshing: map[string]bool{},
+		period:     period,
+		tick:       tick,
+		timeout:    certChallengeRefresh(tick),
+		now:        time.Now,
+		refresh:    refresh,
 	}
 }
 
@@ -93,6 +97,9 @@ func (r *certChallengeRefresher) Start(ctx context.Context) {
 func (r *certChallengeRefresher) Track(ctx context.Context, accountID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, ok := r.refreshing[accountID]; ok {
+		r.refreshing[accountID] = true
+	}
 	if _, ok := r.due[accountID]; ok {
 		return
 	}
@@ -124,9 +131,7 @@ func (r *certChallengeRefresher) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			for _, accountID := range r.takeDue() {
-				if !r.refreshOne(ctx, accountID) {
-					r.Forget(accountID)
-				}
+				r.finish(accountID, r.refreshOne(ctx, accountID))
 			}
 		}
 	}
@@ -139,6 +144,19 @@ func (r *certChallengeRefresher) refreshOne(ctx context.Context, accountID strin
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	return r.refresh(ctx, accountID)
+}
+
+// finish records the outcome of an account's refresh. An account that no longer wants
+// challenges is dropped, unless it was tracked again while the refresh ran: the refresh
+// may have read the store before a certificate check was added.
+func (r *certChallengeRefresher) finish(accountID string, wanted bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	retracked := r.refreshing[accountID]
+	delete(r.refreshing, accountID)
+	if !wanted && !retracked {
+		delete(r.due, accountID)
+	}
 }
 
 // takeDue returns the accounts due now and books their next run straight away, so a
@@ -156,6 +174,7 @@ func (r *certChallengeRefresher) takeDue() []string {
 		}
 		due = append(due, accountID)
 		r.due[accountID] = now.Add(r.period)
+		r.refreshing[accountID] = false
 	}
 	return due
 }

@@ -391,3 +391,23 @@ func TestCertChallengeRefresher_AbandonsAWedgedAccount(t *testing.T) {
 		t.Fatal("a healthy account was never refreshed from behind a wedged one")
 	}
 }
+
+// TestCertChallengeRefresher_KeepsAnAccountTrackedDuringItsRefresh: a refresh reads the
+// store before an admin adds a certificate check; the push that follows the change
+// tracks the account again. The refresh then reports the account as not wanting
+// challenges, which is stale, and must not untrack it.
+func TestCertChallengeRefresher_KeepsAnAccountTrackedDuringItsRefresh(t *testing.T) {
+	r, clock := scheduleRefresher(func(string) bool { return false })
+	r.Track(context.Background(), "account-a")
+	clock.Advance(r.period)
+	require.Equal(t, []string{"account-a"}, r.takeDue(), "the account is due")
+
+	r.Track(context.Background(), "account-a")
+	r.finish("account-a", false)
+	assert.True(t, r.tracked("account-a"), "an account tracked again during its refresh stays tracked")
+
+	clock.Advance(r.period)
+	require.Equal(t, []string{"account-a"}, r.takeDue(), "the account is due again")
+	r.finish("account-a", false)
+	assert.False(t, r.tracked("account-a"), "an account nobody tracked again is dropped once it no longer wants challenges")
+}
