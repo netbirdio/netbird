@@ -245,6 +245,59 @@ func TestRedactPIIPhoneInternational(t *testing.T) {
 	}
 }
 
+// TestRedactPIIPhoneGerman covers German numbers as DIN 5008 writes them and
+// in the older or informal styles still common in signatures and prompts: area
+// codes of two to five digits, mobile and service prefixes, extensions, the
+// "(0)" trunk-prefix notation and numbers without any separators.
+func TestRedactPIIPhoneGerman(t *testing.T) {
+	cases := []string{
+		// DIN 5008
+		"030 12345678",
+		"030 1234567-89",
+		"0151 23456789",
+		"+49 30 12345678",
+		"+49 30 1234567-89",
+		"+49 151 23456789",
+		// older and informal styles
+		"(030) 12345678",
+		"030/12345678",
+		"030-12345678",
+		"030.12345678",
+		"0151/23456789",
+		"0151-23456789",
+		"+49 (0)30 12345678",
+		"+49 (0) 30 12345678",
+		"+49 (0)151 23456789",
+		"0049 30 12345678",
+		"+49-30-12345678",
+		// no separators
+		"03012345678",
+		"015123456789",
+		"+493012345678",
+		// area codes of two to five digits
+		"089 12345",
+		"0221 1234567",
+		"06221 123456",
+		"033203 1234",
+		// mobile prefixes and grouping
+		"0171 1234567",
+		"0160 1234567",
+		"01512 3456789",
+		"0151 2345 6789",
+		"0176 123 456 78",
+		// service numbers
+		"0800 1234567",
+		"0180 5 123456",
+		"0900 1234567",
+	}
+	for _, phone := range cases {
+		t.Run(phone, func(t *testing.T) {
+			out := redactPII("Tel.: " + phone + " (Büro)")
+			assert.Equal(t, "Tel.: [REDACTED:phone] (Büro)", out, "the whole number must be redacted for %q", phone)
+		})
+	}
+}
+
 // stripPhoneSeparators removes the separators people put between the digit
 // groups of a phone number, leaving all other characters in place.
 func stripPhoneSeparators(s string) string {
@@ -263,6 +316,12 @@ func TestRedactPIIPhoneFalsePositives(t *testing.T) {
 		"listen on port 51820",
 		"server 203.0.113.42 is down",
 		"invoice #4711 for 1499.00 EUR",
+		"meeting on 05.10.2026",
+		"meeting on 05/10/26",
+		"build 0.27.1-rc1",
+		"see RFC 0791 section 3",
+		"zip 01067 Dresden",
+		"order 0012345",
 	}
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
