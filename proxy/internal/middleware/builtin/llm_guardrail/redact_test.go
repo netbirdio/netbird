@@ -301,8 +301,10 @@ func TestRedactPIIPhoneGerman(t *testing.T) {
 // TestRedactPIIPhoneKeepsSurroundingParentheses checks that a number wrapped in
 // parentheses is redacted without unbalancing them.
 func TestRedactPIIPhoneKeepsSurroundingParentheses(t *testing.T) {
-	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (0151 23456789) bitte"))
-	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (+49 151 23456789) bitte"))
+	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (0151 23456789) bitte"),
+		"national number in parentheses must keep both parentheses")
+	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (+49 151 23456789) bitte"),
+		"international number in parentheses must keep both parentheses")
 }
 
 // stripPhoneSeparators removes the separators people put between the digit
