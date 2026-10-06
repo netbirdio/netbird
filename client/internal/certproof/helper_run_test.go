@@ -4,12 +4,14 @@ package certproof
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -88,6 +90,24 @@ func TestRunHelperCmd_LogsStderrOfSuccessfulHelper(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, logged.String(), "failed signing certificate proof for CN=user", "the helper's warning reaches the daemon log")
 	assert.NotContains(t, logged.String(), "\nforged line", "helper output cannot start a log line of its own")
+}
+
+// TestRunHelperCmd_KillsHelperBelowLauncher stands in for launchctl and sudo starting the
+// helper: the direct child spawns a grandchild that holds stdout and never exits, like a
+// helper waiting on a keychain prompt. The timeout must end both, not wait for the
+// grandchild.
+func TestRunHelperCmd_KillsHelperBelowLauncher(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", "sleep 30 & cat >/dev/null; wait")
+	killHelperGroupOnCancel(cmd)
+
+	start := time.Now()
+	_, err := runHelperCmd(cmd, HelperRequest{Challenges: []HelperChallenge{{Nonce: []byte("asked")}}})
+
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), 5*time.Second, "the helper is killed at the timeout, not awaited until it exits")
 }
 
 func TestRunHelperCmd_RejectsGarbage(t *testing.T) {
