@@ -2703,6 +2703,8 @@ func TestHandleSetupKeyAddedPeer(t *testing.T) {
 
 		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
 		require.Error(t, err)
+		require.IsType(t, &status.Error{}, err)
+		require.Equal(t, err.(*status.Error).ErrorType, status.PermissionDenied)
 		assert.Contains(t, err.Error(), "setup key is invalid")
 	})
 
@@ -2723,6 +2725,8 @@ func TestHandleSetupKeyAddedPeer(t *testing.T) {
 
 		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
 		require.Error(t, err)
+		require.IsType(t, &status.Error{}, err)
+		require.Equal(t, err.(*status.Error).ErrorType, status.PermissionDenied)
 		assert.Contains(t, err.Error(), "setup key is invalid")
 	})
 
