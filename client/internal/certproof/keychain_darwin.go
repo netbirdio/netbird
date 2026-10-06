@@ -22,8 +22,15 @@ const (
 	securityFramework       = "/System/Library/Frameworks/Security.framework/Security"
 	coreFoundationFramework = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
 
-	errSecItemNotFound = -25300
+	errSecItemNotFound          = -25300
+	errSecInteractionNotAllowed = -25308
 )
+
+// errKeyNeedsApproval reports a key whose access list does not include netbird, so using
+// it needs the user's approval, which a daemon has no UI to ask for.
+var errKeyNeedsApproval = errors.New("the key's access control requires user approval for netbird; " +
+	"import the identity with netbird allowed (security import -T /path/to/netbird), " +
+	"or set AllowAllAppsAccess in the MDM certificate payload")
 
 var (
 	keychainOnce sync.Once
@@ -175,7 +182,11 @@ func signWithIdentity(identity, algorithm uintptr, digest []byte) ([]byte, error
 			return nil, errors.New("SecKeyCreateSignature failed without a CFError")
 		}
 		defer release(cfErr)
-		return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d", cfErrorGetCode(cfErr))
+		code := cfErrorGetCode(cfErr)
+		if code == errSecInteractionNotAllowed {
+			return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d: %w", code, errKeyNeedsApproval)
+		}
+		return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d", code)
 	}
 	defer release(signature)
 	return dataBytes(signature), nil

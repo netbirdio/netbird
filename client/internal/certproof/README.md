@@ -61,6 +61,15 @@ signature and the certificate chain come back.**
 
 `-H` matters: it sets `HOME`, which is how the login keychain path is resolved.
 
+A System keychain identity is only usable when its private key's access list lets
+netbird sign without asking. `security import` grants access to the importing tool
+alone, and an MDM certificate payload grants it to no application unless
+`AllowAllAppsAccess` is set, so signing then fails with `errSecInteractionNotAllowed`
+(-25308): approval needs a user and the daemon has none. Import the identity with
+`security import ... -k /Library/Keychains/System.keychain -T
+/Applications/NetBird.app/Contents/MacOS/netbird`, the binary itself rather than a symlink,
+or set `AllowAllAppsAccess` to true in the payload.
+
 `netbird posture cert-proof` is hidden and not meant to be run by hand. It writes proofs
 to stdout and every log line to stderr, so stdout stays parseable.
 
