@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -99,8 +100,20 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 	return proofs, nil
 }
 
-// helperStore is the store the helper reads. On macOS the keychain search list of the
-// user's own session already is that user's keychain, so the platform default is right.
+// helperStore is the store the helper reads: the user's login keychain alone. The
+// session's search list also holds the System keychain, which the daemon reads itself,
+// and using a System keychain key from the user's session would ask for an
+// administrator's approval.
 func helperStore() Store {
-	return DefaultStore()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Debugf("certificate posture: no home directory, searching the default keychain list: %v", err)
+		return NewKeychainStore()
+	}
+	login := filepath.Join(home, "Library", "Keychains", "login.keychain-db")
+	if _, err := os.Stat(login); err != nil {
+		// Keychains created before macOS 10.12 keep the old file name.
+		login = filepath.Join(home, "Library", "Keychains", "login.keychain")
+	}
+	return NewKeychainStore(login)
 }
