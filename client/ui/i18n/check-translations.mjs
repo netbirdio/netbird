@@ -76,6 +76,11 @@ if (!declared.includes(SOURCE)) {
 
 const source = messagesOf(SOURCE);
 const sourceKeys = [...source.keys()];
+const emptySource = sourceKeys.filter((k) => !source.get(k));
+if (emptySource.length) {
+    console.error(`FATAL: ${SOURCE}/common.json has empty or missing messages: ${emptySource.join(", ")}`);
+    process.exit(1);
+}
 console.log(`Source of truth: ${SOURCE}/common.json — ${sourceKeys.length} keys\n`);
 
 let failed = false;
