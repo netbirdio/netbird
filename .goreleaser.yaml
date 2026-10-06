@@ -385,7 +385,7 @@ dockers_v2:
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+         - cmd: 'sh release_files/collect-licenses.sh -t load_wgnt_from_rsrc "{{ .ContextDir }}/licenses" ./client amd64 arm64'
            env:
              - GOOS=linux
              - CGO_ENABLED=0
@@ -530,7 +530,7 @@ dockers_v2:
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh combined/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+         - cmd: 'sh release_files/collect-licenses.sh -l combined/LICENSE "{{ .ContextDir }}/licenses" ./combined amd64 arm64'
            env:
              - GOOS=linux
              - CGO_ENABLED=1
@@ -587,7 +587,7 @@ dockers_v2:
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh proxy/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+         - cmd: 'sh release_files/collect-licenses.sh -l proxy/LICENSE -w "{{ .ContextDir }}/licenses" ./proxy/cmd/proxy amd64 arm64'
            env:
              - GOOS=linux
              - CGO_ENABLED=0

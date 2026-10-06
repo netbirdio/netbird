@@ -93,6 +93,7 @@ export async function initI18n(): Promise<void> {
 function syncDocumentLang() {
     if (typeof document !== "undefined") {
         document.documentElement.lang = i18next.language;
+        document.documentElement.dir = i18next.dir(i18next.language);
     }
 }
 

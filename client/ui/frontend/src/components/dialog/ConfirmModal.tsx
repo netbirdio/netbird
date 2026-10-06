@@ -54,9 +54,9 @@ export const ConfirmModal = ({
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <div className={"flex flex-col gap-5 px-5"}>
-                    <div className={"flex flex-col gap-1 pl-1"}>
-                        <DialogHeading align={"left"}>{title}</DialogHeading>
-                        <DialogDescription align={"left"} className={"whitespace-pre-line"}>
+                    <div className={"flex flex-col gap-1 ps-1"}>
+                        <DialogHeading align={"start"}>{title}</DialogHeading>
+                        <DialogDescription align={"start"} className={"whitespace-pre-line"}>
                             {description}
                         </DialogDescription>
                     </div>

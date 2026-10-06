@@ -129,7 +129,7 @@ func TestLogout_ForeignUserProfileDoesNotUseTheRunningConfig(t *testing.T) {
 	// refused with PermissionDenied. The namesake profile does not, so the
 	// correct path gets as far as dialing its own unreachable management URL.
 	enableSSHOnProfile(t, cfgPath)
-	running, err := profilemanager.GetConfig(cfgPath)
+	running, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
 	s.config = running
 	s.connectClient = newDummyConnectClient(context.Background())
