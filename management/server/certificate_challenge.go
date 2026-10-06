@@ -193,7 +193,8 @@ func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Contex
 	}
 
 	log.WithContext(ctx).Debugf("refreshing certificate challenges for %d peers of account %s", len(peerIDs), accountID)
-	if err := am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs); err != nil {
+	reason := types.UpdateReason{Resource: types.UpdateResourcePostureCheck, Operation: types.UpdateOperationRefresh}
+	if err := am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason); err != nil {
 		log.WithContext(ctx).Warnf("failed refreshing certificate challenges for account %s: %v", accountID, err)
 	}
 	return true
