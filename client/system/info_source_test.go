@@ -2,9 +2,9 @@ package system
 
 import (
 	"context"
+	"net/netip"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -69,21 +69,72 @@ func TestInfoSource_RefreshReleasesAfterTimedOutGatheringExits(t *testing.T) {
 	assert.True(t, ok, "gathering works again after the abandoned one exited")
 }
 
-// TestInfoSource_RefreshRunsConcurrently: only a gathering that timed out holds off new
-// ones, callers gathering at the same time are all served.
-func TestInfoSource_RefreshRunsConcurrently(t *testing.T) {
-	var src InfoSource
-	var wg sync.WaitGroup
-	results := make([]bool, 4)
-	for i := range results {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, results[i] = src.Refresh(context.Background(), 15*time.Second, nil)
-		}(i)
+// stubGathering replaces the gathering with one that reports a single file check for the
+// path the checks name, and blocks a gathering for blockedPath until release is closed.
+// entered receives once that gathering has started.
+func stubGathering(t *testing.T, blockedPath string) (entered chan struct{}, release chan struct{}) {
+	t.Helper()
+	entered = make(chan struct{}, 1)
+	release = make(chan struct{})
+	original := gatherInfoWithChecks
+	gatherInfoWithChecks = func(_ context.Context, checks []*proto.Checks, _ ...netip.Addr) (*Info, error) {
+		path := checks[0].Files[0]
+		if path == blockedPath {
+			entered <- struct{}{}
+			<-release
+		}
+		return &Info{Files: []File{{Path: path, Exist: true}}}, nil
 	}
-	wg.Wait()
-	assert.Equal(t, []bool{true, true, true, true}, results, "concurrent gatherings all succeed")
+	t.Cleanup(func() { gatherInfoWithChecks = original })
+	return entered, release
+}
+
+func filesCheck(path string) []*proto.Checks {
+	return []*proto.Checks{{Files: []string{path}}}
+}
+
+// TestInfoSource_RefreshRunsConcurrently: only a gathering that timed out holds off new
+// ones; a caller gathering while another gathering is in progress is served.
+func TestInfoSource_RefreshRunsConcurrently(t *testing.T) {
+	entered, release := stubGathering(t, "/slow")
+	var src InfoSource
+
+	slowDone := make(chan bool, 1)
+	go func() {
+		_, ok := src.Refresh(context.Background(), 15*time.Second, filesCheck("/slow"))
+		slowDone <- ok
+	}()
+	<-entered
+
+	_, ok := src.Refresh(context.Background(), 15*time.Second, filesCheck("/fast"))
+	assert.True(t, ok, "a gathering runs while another one is still in progress")
+
+	close(release)
+	assert.True(t, <-slowDone, "the slower gathering completes too")
+}
+
+// TestInfoSource_LateOlderRefreshDoesNotReplaceNewerResults: a Refresh for the previous
+// checks that finishes after one for the current checks must not bring back the old
+// results Current reports.
+func TestInfoSource_LateOlderRefreshDoesNotReplaceNewerResults(t *testing.T) {
+	entered, release := stubGathering(t, "/old")
+	var src InfoSource
+
+	oldDone := make(chan struct{})
+	go func() {
+		defer close(oldDone)
+		_, _ = src.Refresh(context.Background(), 15*time.Second, filesCheck("/old"))
+	}()
+	<-entered
+
+	_, ok := src.Refresh(context.Background(), 15*time.Second, filesCheck("/new"))
+	require.True(t, ok)
+	close(release)
+	<-oldDone
+
+	files := src.Current(context.Background()).Files
+	require.Len(t, files, 1)
+	assert.Equal(t, "/new", files[0].Path, "the results of the refresh that started last are kept")
 }
 
 func TestInfoSource_CurrentExcludesAddresses(t *testing.T) {

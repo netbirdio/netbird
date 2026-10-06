@@ -209,6 +209,10 @@ func GetInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks
 	return getInfoWithChecksTimeout(ctx, timeout, checks, nil, excludeIPs...)
 }
 
+// gatherInfoWithChecks is the gathering getInfoWithChecksTimeout bounds. Tests replace it
+// to control when a gathering finishes.
+var gatherInfoWithChecks = GetInfoWithChecks
+
 // getInfoWithChecksTimeout is GetInfoWithChecksTimeout that calls done, when not nil, once
 // the gathering is over: on return when it finished in time, else when the goroutine
 // exits, which may be well after the timeout. done may be called twice and must be
@@ -222,7 +226,7 @@ func getInfoWithChecksTimeout(ctx context.Context, timeout time.Duration, checks
 		if done != nil {
 			defer done()
 		}
-		info, err := GetInfoWithChecks(ctx, checks, excludeIPs...)
+		info, err := gatherInfoWithChecks(ctx, checks, excludeIPs...)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
