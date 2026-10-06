@@ -46,7 +46,9 @@ function messagesOf(langCode) {
 }
 
 function placeholdersOf(message) {
-    return [...new Set([...message.matchAll(PLACEHOLDER)].map((m) => m[1]))].sort();
+    return [...new Set([...message.matchAll(PLACEHOLDER)].map((m) => m[1]))].sort((a, b) =>
+        a.localeCompare(b),
+    );
 }
 
 function formatPlaceholders(names) {
@@ -102,7 +104,9 @@ for (const code of declared) {
     const translated = sourceKeys.length - missing.length;
     const coverage = Math.floor((translated / sourceKeys.length) * 100);
     const hasErrors = extra.length > 0 || badPlaceholders.length > 0;
-    const mark = hasErrors ? "✗" : missing.length ? "⚠" : "✓";
+    let mark = "✓";
+    if (hasErrors) mark = "✗";
+    else if (missing.length) mark = "⚠";
     const log = hasErrors ? console.error : console.log;
     log(`${mark} ${code}: ${translated}/${sourceKeys.length} keys translated (${coverage}%)`);
 
