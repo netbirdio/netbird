@@ -409,7 +409,11 @@ func (m *Manager) evictForeignRelay(serverAddress string) {
 	rt.RLock()
 	client := rt.relayClient
 	rt.RUnlock()
-	if client != nil && client.Ready() {
+	if client == nil {
+		log.Debugf("keeping foreign relay track with a dial in progress: %s", serverAddress)
+		return
+	}
+	if client.Ready() {
 		log.Debugf("keeping reconnected foreign relay client: %s", serverAddress)
 		return
 	}

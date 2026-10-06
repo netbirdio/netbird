@@ -117,3 +117,44 @@ func TestEvictForeignRelay_KeepsConnectedClient(t *testing.T) {
 	alice.relayClientsMutex.RUnlock()
 	require.True(t, stillTracked, "a late disconnect notice must not evict a connected foreign relay client")
 }
+
+// TestEvictForeignRelay_KeepsDialInProgress asserts that a disconnect notice arriving
+// while a new dial for the same server is still running does not delete the track.
+// openConnVia publishes the track before dialing and only fills relayClient once the
+// dial finishes, so an eviction in that window orphans the client that is about to
+// connect: it is no longer reachable through the map, cleanUpUnusedRelays cannot close
+// it, and the next OpenConn dials a duplicate the relay answers by closing the first.
+func TestEvictForeignRelay_KeepsDialInProgress(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	m := NewManager(ctx, nil, "alice", iface.DefaultMTU)
+	stalling := stallingRelayListener(t)
+
+	dialDone := make(chan struct{})
+	go func() {
+		defer close(dialDone)
+		_, _ = m.openConnVia(ctx, stalling, "bob", netip.Addr{})
+	}()
+
+	require.Eventually(t, func() bool {
+		m.relayClientsMutex.RLock()
+		defer m.relayClientsMutex.RUnlock()
+		_, ok := m.relayClients[stalling]
+		return ok
+	}, 5*time.Second, 5*time.Millisecond, "the foreign relay dial did not start")
+
+	m.evictForeignRelay(stalling)
+
+	m.relayClientsMutex.RLock()
+	_, stillTracked := m.relayClients[stalling]
+	m.relayClientsMutex.RUnlock()
+	require.True(t, stillTracked, "a disconnect notice must not evict a track whose dial is still in progress")
+
+	cancel()
+	select {
+	case <-dialDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("openConnVia did not return after context cancellation")
+	}
+}
