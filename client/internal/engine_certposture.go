@@ -41,9 +41,12 @@ var errSystemInfoTimeout = errors.New("system info gathering timed out")
 
 // certPostureState remembers what the last certificate proof collection saw, so the
 // engine can collect again when it went stale and tell the user when proofs go missing.
-// delivered identifies the chains management last received, so a collection that proves
-// the same chains is not sent again: every meta sync makes management recompute and push
-// network maps to the peer and its neighbours.
+//
+// Collection runs only on the posture watcher, never on the sync path, because a token,
+// a TPM or a user's keychain prompt can take long; the sync path attaches the proofs the
+// last collection cached. delivered identifies the chains management last received, so
+// a collection that proves the same chains is not sent again: every meta sync makes
+// management recompute and push network maps to the peer and its neighbours.
 type certPostureState struct {
 	mu          sync.Mutex
 	attempted   bool
@@ -52,19 +55,25 @@ type certPostureState struct {
 	proven      bool
 	delivered   string
 	hasDelivery bool
+	cached      []certposture.Proof
+	cachedFor   string
 }
 
-// record stores the outcome of a collection and reports whether it changed from proven
-// to unproven or back. The first collection only counts as a change when it proved nothing.
-func (s *certPostureState) record(userContext string, proven bool, now time.Time) (changed bool) {
+// record stores the outcome of a collection for the challenges identified by
+// challengesKey and reports whether it changed from proven to unproven or back. The first
+// collection only counts as a change when it proved nothing.
+func (s *certPostureState) record(challengesKey, userContext string, proofs []certposture.Proof, now time.Time) (changed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	proven := len(proofs) > 0
 	changed = (s.attempted && s.proven != proven) || (!s.attempted && !proven)
 	s.attempted = true
 	s.attemptedAt = now
 	s.userContext = userContext
 	s.proven = proven
+	s.cached = proofs
+	s.cachedFor = challengesKey
 	return changed
 }
 
@@ -96,16 +105,55 @@ func (s *certPostureState) sameAsDelivered(proofs []certposture.Proof) bool {
 	return s.hasDelivery && s.delivered == provenChainsKey(proofs)
 }
 
+// needsCollection reports whether the cached proofs no longer reflect what the device
+// can prove for the challenges identified by challengesKey: they answer other
+// challenges, the user who can answer has changed, or nothing was proven and the retry
+// interval has passed.
+func (s *certPostureState) needsCollection(challengesKey, userContext string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch {
+	case !s.attempted || s.cachedFor != challengesKey:
+		return true
+	case userContext != s.userContext:
+		return true
+	default:
+		return !s.proven && now.Sub(s.attemptedAt) >= certRetryInterval
+	}
+}
+
+// cachedProofs returns the cached proofs management still accepts for the challenges in
+// checks: those whose nonce is current, or from the window before, for one of them. Proofs
+// signed for the previous nonce bridge the time until the watcher has signed the new one.
+func (s *certPostureState) cachedProofs(checks []*mgmProto.Checks) []certposture.Proof {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var nonces [][]byte
+	for _, check := range checks {
+		if challenge := check.GetCertificateChallenge(); challenge != nil {
+			nonces = append(nonces, challenge.GetNonce())
+		}
+	}
+	var accepted []certposture.Proof
+	for _, proof := range s.cached {
+		if slices.ContainsFunc(nonces, func(nonce []byte) bool {
+			return certposture.NonceAcceptedAlongside(proof.Nonce, nonce)
+		}) {
+			accepted = append(accepted, proof)
+		}
+	}
+	return accepted
+}
+
 // provenChainsKey identifies the set of chains in proofs, independent of their order.
 func provenChainsKey(proofs []certposture.Proof) string {
 	keys := make([]string, 0, len(proofs))
 	for _, proof := range proofs {
 		h := sha256.New()
 		for _, cert := range proof.Chain {
-			var size [8]byte
-			binary.BigEndian.PutUint64(size[:], uint64(len(cert)))
-			h.Write(size[:])
-			h.Write(cert)
+			writeLengthPrefixed(h, cert)
 		}
 		keys = append(keys, hex.EncodeToString(h.Sum(nil)))
 	}
@@ -113,47 +161,54 @@ func provenChainsKey(proofs []certposture.Proof) string {
 	return strings.Join(keys, ",")
 }
 
-// stale reports whether the last collection no longer reflects what the device can
-// prove: the user who can answer has changed, or nothing was proven and the retry
-// interval has passed. Before the first collection the sync itself collects.
-func (s *certPostureState) stale(userContext string, now time.Time) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.attempted {
-		return false
+// challengesKey identifies the certificate challenges in checks: their nonces and CAs.
+func challengesKey(checks []*mgmProto.Checks) string {
+	h := sha256.New()
+	for _, check := range checks {
+		challenge := check.GetCertificateChallenge()
+		if challenge == nil {
+			continue
+		}
+		writeLengthPrefixed(h, challenge.GetNonce())
+		for _, ca := range challenge.GetCaCertificates() {
+			writeLengthPrefixed(h, []byte(ca))
+		}
+		writeLengthPrefixed(h, nil)
 	}
-	if userContext != s.userContext {
-		return true
-	}
-	return !s.proven && now.Sub(s.attemptedAt) >= certRetryInterval
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-// attachCertificateProofs answers the certificate challenges in checks with the
-// certificates reachable on this device, signing each challenge nonce for our peer key.
-// Collection is bounded in time because callers hold the sync loop while it runs.
-// The info is about to be sent on the sync stream, which resends it on every reconnect,
-// so its proofs count as delivered.
+func writeLengthPrefixed(h interface{ Write([]byte) (int, error) }, data []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(data)))
+	_, _ = h.Write(size[:])
+	_, _ = h.Write(data)
+}
+
+// attachCertificateProofs attaches the cached proofs management accepts for the
+// challenges in checks, without collecting: the caller is on the sync path. The info is
+// about to be sent on the sync stream, which resends it on every reconnect, so its proofs
+// count as delivered. The watcher is woken to collect when the cache is out of date.
 func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
-	info.CertificateProofs = e.collectCertificateProofs(checks)
+	if !certproof.HasChallenges(checks) {
+		info.CertificateProofs = nil
+		return
+	}
+	info.CertificateProofs = e.certState.cachedProofs(checks)
 	e.certState.markDelivered(info.CertificateProofs)
+	e.wakeCertificatePosture()
 }
 
-// collectCertificateProofs answers the certificate challenges in checks, nil when there
-// are none, and records the outcome.
-func (e *Engine) collectCertificateProofs(checks []*mgmProto.Checks) []certposture.Proof {
-	if !certproof.HasChallenges(checks) {
-		return nil
+// wakeCertificatePosture asks the posture watcher to check its proofs now rather than at
+// its next tick. It never blocks.
+func (e *Engine) wakeCertificatePosture() {
+	if e.certWake == nil {
+		return
 	}
-	userContext := certproof.UserContext(e.config.CertStore)
-	peerKey := e.config.WgPrivateKey.PublicKey()
-	proofs := e.certProofs.Collect(e.ctx, checks, peerKey[:], e.config.CertStore)
-
-	proven := len(proofs) > 0
-	if e.certState.record(userContext, proven, time.Now()) {
-		e.publishCertificatePostureEvent(proven)
+	select {
+	case e.certWake <- struct{}{}:
+	default:
 	}
-	return proofs
 }
 
 // publishCertificatePostureEvent tells the user when the device stops proving any
@@ -175,26 +230,27 @@ func (e *Engine) publishCertificatePostureEvent(proven bool) {
 			"Access to some resources may be blocked until one is available.", nil)
 }
 
-// watchCertificatePosture collects certificate proofs again when the last collection
-// went stale, until ctx is done. Proofs are otherwise only collected when the checks
-// change or the sync stream reconnects, so a daemon started before anyone logged in
-// would not prove a user certificate until the next network map.
+// watchCertificatePosture owns certificate proof collection until ctx is done. It
+// collects when woken by new checks or a sync, and on every tick when the cached proofs
+// went stale, such as after a login following an autostart.
 func (e *Engine) watchCertificatePosture(ctx context.Context) {
 	ticker := time.NewTicker(certContextPollInterval)
 	defer ticker.Stop()
 	for {
+		// A pending update that times out again stays pending; the applied checks'
+		// proofs are still refreshed so a lost certificate is reported meanwhile.
+		if err := e.retryPendingChecks(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
+			log.Warnf("failed to sync posture checks that timed out before: %v", err)
+		}
+		if err := e.refreshCertificateProofs(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
+			log.Warnf("failed to refresh certificate posture proofs: %v", err)
+		}
+
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// A pending update that times out again stays pending; the applied checks'
-			// proofs are still refreshed so a lost certificate is reported meanwhile.
-			if err := e.retryPendingChecks(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
-				log.Warnf("failed to sync posture checks that timed out before: %v", err)
-			}
-			if err := e.recollectCertificateProofsIfStale(); err != nil && !errors.Is(err, errSystemInfoTimeout) {
-				log.Warnf("failed to refresh certificate posture proofs: %v", err)
-			}
+		case <-e.certWake:
 		}
 	}
 }
@@ -222,35 +278,43 @@ func (e *Engine) retryPendingChecks() error {
 	return nil
 }
 
-func (e *Engine) recollectCertificateProofsIfStale() error {
+// refreshCertificateProofs collects the proofs for the applied checks when the cached
+// ones are out of date, and sends them to management when they prove other chains than
+// it holds. It holds no engine lock while collecting.
+func (e *Engine) refreshCertificateProofs() error {
+	checks := e.appliedChecks()
+	if e.ctx.Err() != nil || !certproof.HasChallenges(checks) {
+		return nil
+	}
+	key := challengesKey(checks)
 	userContext := certproof.UserContext(e.config.CertStore)
-	if !e.certState.stale(userContext, time.Now()) {
+	if !e.certState.needsCollection(key, userContext, time.Now()) {
 		return nil
 	}
 
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	if e.ctx.Err() != nil || !certproof.HasChallenges(e.checks) {
-		return nil
+	log.Debugf("certificate posture: collecting proofs")
+	peerKey := e.config.WgPrivateKey.PublicKey()
+	proofs := e.certProofs.Collect(e.ctx, checks, peerKey[:], e.config.CertStore)
+	if e.certState.record(key, userContext, proofs, time.Now()) {
+		e.publishCertificatePostureEvent(len(proofs) > 0)
 	}
-	log.Debugf("certificate posture: proofs are stale, collecting again")
-	proofs := e.collectCertificateProofs(e.checks)
+
 	if e.certState.sameAsDelivered(proofs) {
 		log.Debugf("certificate posture: proofs unchanged since the last meta sync, not sending")
 		return nil
 	}
-	return e.sendChecksMeta(e.checks, proofs)
+	info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), checks, e.overlayAddresses()...)
+	if !ok {
+		e.certState.undelivered()
+		return errSystemInfoTimeout
+	}
+	e.applyInfoFlags(info)
+	return e.sendMetaWithProofs(info, checks)
 }
 
-// syncChecksMeta gathers the system info that checks evaluate, with its certificate
-// proofs, and sends it to management. The caller holds syncMsgMux.
+// syncChecksMeta gathers the system info that checks evaluate and sends it to management
+// with the cached certificate proofs. The caller holds syncMsgMux.
 func (e *Engine) syncChecksMeta(checks []*mgmProto.Checks) error {
-	return e.sendChecksMeta(checks, e.collectCertificateProofs(checks))
-}
-
-// sendChecksMeta gathers the system info that checks evaluate and sends it to management
-// with proofs. The caller holds syncMsgMux.
-func (e *Engine) sendChecksMeta(checks []*mgmProto.Checks, proofs []certposture.Proof) error {
 	info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
@@ -259,12 +323,21 @@ func (e *Engine) sendChecksMeta(checks []*mgmProto.Checks, proofs []certposture.
 		return errSystemInfoTimeout
 	}
 	e.applyInfoFlags(info)
-	info.CertificateProofs = proofs
+	return e.sendMetaWithProofs(info, checks)
+}
 
+// sendMetaWithProofs sends info to management with the cached proofs for checks. Sends
+// are serialized and read the cache under that lock, so a send from the sync path cannot
+// overwrite newer proofs the watcher sent in the meantime.
+func (e *Engine) sendMetaWithProofs(info *system.Info, checks []*mgmProto.Checks) error {
+	e.certSendMu.Lock()
+	defer e.certSendMu.Unlock()
+
+	info.CertificateProofs = e.certState.cachedProofs(checks)
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		e.certState.undelivered()
 		return fmt.Errorf("sync meta: %w", err)
 	}
-	e.certState.markDelivered(proofs)
+	e.certState.markDelivered(info.CertificateProofs)
 	return nil
 }

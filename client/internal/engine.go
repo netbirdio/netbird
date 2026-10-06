@@ -289,6 +289,10 @@ type Engine struct {
 	// certState remembers what it last proved.
 	certProofs certproof.Collector
 	certState  certPostureState
+	// certWake wakes the posture watcher, which owns proof collection; certSendMu orders
+	// the meta syncs that carry proofs.
+	certWake   chan struct{}
+	certSendMu sync.Mutex
 
 	infoSource system.InfoSource
 
@@ -392,6 +396,7 @@ func NewEngine(
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
+		certWake:           make(chan struct{}, 1),
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
@@ -1283,8 +1288,9 @@ func (e *Engine) appliedChecks() []*mgmProto.Checks {
 // setAppliedChecks replaces the posture checks in effect. The caller holds syncMsgMux.
 func (e *Engine) setAppliedChecks(checks []*mgmProto.Checks) {
 	e.checksMu.Lock()
-	defer e.checksMu.Unlock()
 	e.checks = checks
+	e.checksMu.Unlock()
+	e.wakeCertificatePosture()
 }
 
 // clearPendingChecks drops checks whose meta sync was still owed. The caller holds

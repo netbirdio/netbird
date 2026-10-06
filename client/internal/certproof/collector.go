@@ -11,7 +11,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const collectTimeout = 10 * time.Second
+const collectTimeout = 45 * time.Second
 
 // Collector runs CollectProofs with a deadline and at most one collection at a time.
 // Token, TPM and keychain calls cannot be interrupted, so a collection that overruns is

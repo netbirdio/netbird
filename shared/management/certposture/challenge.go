@@ -55,6 +55,18 @@ func (c *Challenger) verifyNonce(nonce, peerKey []byte, now time.Time) error {
 	return nil
 }
 
+// NonceAcceptedAlongside reports whether a proof answering nonce is still accepted while
+// management issues current to the same peer: verification takes a nonce of the current
+// or the previous window.
+func NonceAcceptedAlongside(nonce, current []byte) bool {
+	if len(nonce) != nonceLen || len(current) != nonceLen {
+		return false
+	}
+	window := binary.BigEndian.Uint64(nonce[:windowLen])
+	currentWindow := binary.BigEndian.Uint64(current[:windowLen])
+	return window == currentWindow || window+1 == currentWindow
+}
+
 func (c *Challenger) windowOf(now time.Time) uint64 {
 	return uint64(now.Unix() / int64(c.window.Seconds()))
 }
