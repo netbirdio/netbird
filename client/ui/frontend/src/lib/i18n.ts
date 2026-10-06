@@ -40,9 +40,23 @@ function detectBrowserLanguage(available: string[]): string | null {
     return null;
 }
 
+// Only locales listed in _index.json are shipped. A bundle on disk without an
+// _index.json row (e.g. a new Crowdin language not released yet) must not be
+// auto-detected or loaded, matching the Go side, which rejects saving it.
+async function shippedLanguages(): Promise<string[]> {
+    const onDisk = Object.keys(resources);
+    try {
+        const listed = new Set<string>((await I18n.Languages()).map((l) => l.code));
+        return onDisk.filter((code) => listed.has(code));
+    } catch (e) {
+        console.warn("load shipped languages failed, using all bundled locales", e);
+        return onDisk;
+    }
+}
+
 // An empty persisted language code is the Go-side signal for first run.
 export async function initI18n(): Promise<void> {
-    const available = Object.keys(resources);
+    const available = await shippedLanguages();
     let language = "en";
     let firstRun = false;
     try {
@@ -68,7 +82,7 @@ export async function initI18n(): Promise<void> {
         fallbackLng: "en",
         defaultNS: "common",
         ns: ["common"],
-        resources,
+        resources: Object.fromEntries(available.map((code) => [code, resources[code]])),
         interpolation: {
             prefix: "{",
             suffix: "}",
