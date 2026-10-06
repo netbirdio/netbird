@@ -23,11 +23,12 @@ var (
 	// including the "(0)" trunk-prefix notation ("+49 (0)30 12345678").
 	phoneIntlRgx = regexp.MustCompile(`(?:\+|\b00)\d[\d\s.\-/()]*\d\b`)
 	// phoneNatRgx finds national-format candidates: a "0" trunk prefix and an
-	// area code, optionally in parentheses ("(030) 12345678"), then the
-	// subscriber number with or without separators.
-	phoneNatRgx = regexp.MustCompile(`\(?\b0\d{1,5}\)?[\s.\-/]*\d[\d\s.\-/]*\d\b`)
-	// dateRgx rejects national candidates that are really dates (05.10.2026).
-	dateRgx = regexp.MustCompile(`^\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}$`)
+	// area code, either in balanced parentheses ("(030) 12345678") or bare,
+	// then the subscriber number with or without separators.
+	phoneNatRgx = regexp.MustCompile(`(?:\(0\d{1,5}\)|\b0\d{1,5})[\s.\-/]*\d[\d\s.\-/]*\d\b`)
+	// dateRgx rejects national candidates that start with a date (05.10.2026),
+	// including a date followed by a time ("05.10.2026 08:30").
+	dateRgx = regexp.MustCompile(`^\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s|$)`)
 	// phoneNARgx accepts the 3-3-4 North-American shape with any of the common
 	// separators (space, dot, dash, slash) or none at all between the area code
 	// and the body. The optional `\(?...\)?` wraps the area code; the separator

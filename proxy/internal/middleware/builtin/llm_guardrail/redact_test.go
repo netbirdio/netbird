@@ -298,6 +298,13 @@ func TestRedactPIIPhoneGerman(t *testing.T) {
 	}
 }
 
+// TestRedactPIIPhoneKeepsSurroundingParentheses checks that a number wrapped in
+// parentheses is redacted without unbalancing them.
+func TestRedactPIIPhoneKeepsSurroundingParentheses(t *testing.T) {
+	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (0151 23456789) bitte"))
+	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (+49 151 23456789) bitte"))
+}
+
 // stripPhoneSeparators removes the separators people put between the digit
 // groups of a phone number, leaving all other characters in place.
 func stripPhoneSeparators(s string) string {
@@ -322,6 +329,9 @@ func TestRedactPIIPhoneFalsePositives(t *testing.T) {
 		"see RFC 0791 section 3",
 		"zip 01067 Dresden",
 		"order 0012345",
+		"am 05.10.2026 08:30",
+		"05.10.2026 14:00",
+		"05/10/2026 14:00 Uhr",
 	}
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
