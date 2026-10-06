@@ -173,7 +173,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, s
 		return nil, ErrRelayClientNotConnected
 	}
 
-	foreign, err := m.isForeignServer(serverAddress)
+	foreign, err := m.isForeignServer(m.relayClient, serverAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -427,8 +427,11 @@ func (m *Manager) storeClient(client *Client) {
 	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
 }
 
-func (m *Manager) isForeignServer(address string) (bool, error) {
-	rAddr, err := m.relayClient.ServerInstanceURL()
+// isForeignServer reports whether address belongs to a relay other than the home one.
+// The home client is passed in rather than read from the receiver so the caller decides
+// how long it holds relayClientMu.
+func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {
+	rAddr, err := homeClient.ServerInstanceURL()
 	if err != nil {
 		return false, fmt.Errorf("relay client not connected")
 	}
