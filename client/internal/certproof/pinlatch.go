@@ -13,7 +13,7 @@ import (
 var errPINRejectedBefore = errors.New("PKCS#11 token rejected this PIN before, not trying it again")
 
 // errPINNeedsToken refuses a PIN that names no token to log in to.
-var errPINNeedsToken = errors.New("a PKCS#11 PIN needs the token named in CertPKCS11URI, as token=<label>")
+var errPINNeedsToken = errors.New("a PKCS#11 PIN needs the token named in NB_CERT_PKCS11_URI, as token=<label>")
 
 // rejectedPINs outlives a single store, since a store is built for each collection.
 var rejectedPINs = &pinLatch{keys: map[[sha256.Size]byte]struct{}{}}
