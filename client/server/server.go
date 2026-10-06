@@ -36,6 +36,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/pqkem"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
@@ -302,6 +303,7 @@ func (s *Server) Start() error {
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	s.statusRecorder.UpdateMLKEM(pqkem.Enabled(), pqkem.Strict())
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
 	if s.sessionWatcher == nil {
@@ -1096,6 +1098,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
+	s.statusRecorder.UpdateMLKEM(pqkem.Enabled(), pqkem.Strict())
 	s.localMetrics.Reconcile(s.config.LocalMetricsEnabled, s.config.LocalMetricsAddress)
 
 	s.clientRunning = true
@@ -1698,6 +1701,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
+	s.statusRecorder.UpdateMLKEM(pqkem.Enabled(), pqkem.Strict())
 
 	if msg.GetFullPeerStatus {
 		s.runProbes(ctx, msg.ShouldRunProbes)
