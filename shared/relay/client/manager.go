@@ -404,10 +404,26 @@ func (m *Manager) onServerDisconnected(serverAddress string) {
 func (m *Manager) evictForeignRelay(serverAddress string) {
 	m.relayClientsMutex.Lock()
 	defer m.relayClientsMutex.Unlock()
-	if _, ok := m.relayClients[serverAddress]; ok {
-		delete(m.relayClients, serverAddress)
-		log.Debugf("evicted disconnected foreign relay client: %s", serverAddress)
+
+	rt, ok := m.relayClients[serverAddress]
+	if !ok {
+		return
 	}
+
+	// The notification is delivered on its own goroutine and names only the server, so
+	// it can arrive after the track has been rebuilt with a live client. Evicting then
+	// drops a working connection, and the next OpenConn opens a second one to a server
+	// the peer is already connected to, which the relay answers by closing the first.
+	rt.RLock()
+	client := rt.relayClient
+	rt.RUnlock()
+	if client != nil && client.Ready() {
+		log.Debugf("keeping reconnected foreign relay client: %s", serverAddress)
+		return
+	}
+
+	delete(m.relayClients, serverAddress)
+	log.Debugf("evicted disconnected foreign relay client: %s", serverAddress)
 }
 
 func (m *Manager) listenGuardEvent(ctx context.Context) {
