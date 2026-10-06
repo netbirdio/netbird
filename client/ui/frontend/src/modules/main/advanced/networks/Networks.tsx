@@ -23,6 +23,7 @@ import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { type NetworkFilter, NetworkFilters } from "./NetworkFilters";
+import { useDirection } from "@/hooks/useDirection";
 
 // Daemon renders DNS-route prefixes (zero netip.Prefix) as "invalid Prefix".
 const INVALID_PREFIX = "invalid Prefix";
@@ -70,6 +71,7 @@ const buildOverlapMap = (
 };
 
 export const Networks = () => {
+    const dir = useDirection();
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
@@ -175,7 +177,11 @@ export const Networks = () => {
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                <ScrollArea.Root
+                    dir={dir}
+                    type={"auto"}
+                    className={"min-h-0 flex-1 overflow-hidden"}
+                >
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
                         {scrollParent && (
                             <NetworksList
@@ -343,7 +349,7 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
     return (
         <div
             className={cn(
-                "group relative flex min-w-0 items-start gap-2.5 py-3 pl-6 pr-9",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 pe-9 ps-6",
                 "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
@@ -423,6 +429,7 @@ const Subtitle = ({ network, onKeyDown }: SubtitleProps) => {
                 <CopyToClipboard message={network.range} onKeyDown={onKeyDown}>
                     <TruncatedText
                         text={network.range}
+                        dir={"ltr"}
                         className={
                             "block max-w-[300px] truncate font-mono text-xs text-nb-gray-400"
                         }
@@ -463,7 +470,7 @@ const DomainSubtitle = ({ domain, ips, onKeyDown }: DomainSubtitleProps) => {
                         contentClassName={cn(
                             "max-h-72 max-w-[18rem] overflow-auto",
                             "rounded-lg border border-nb-gray-800 bg-white dark:border-nb-gray-900 dark:bg-nb-gray-935",
-                            "p-2 pr-4",
+                            "p-2 pe-4",
                         )}
                     >
                         {span}
@@ -508,7 +515,9 @@ type ToggleProps = {
 };
 
 const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
-    const checkedTranslate = checked ? "translate-x-[1.125rem]" : "translate-x-0.5";
+    const checkedTranslate = checked
+        ? "translate-x-[1.125rem] rtl:-translate-x-[1.125rem]"
+        : "translate-x-0.5 rtl:-translate-x-0.5";
     return (
         <span
             className={cn(
@@ -521,7 +530,7 @@ const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
             <span
                 className={cn(
                     "inline-block h-4 w-4 rounded-full bg-white transition-transform",
-                    mixed ? "translate-x-2.5" : checkedTranslate,
+                    mixed ? "translate-x-2.5 rtl:-translate-x-2.5" : checkedTranslate,
                 )}
             />
         </span>

@@ -298,10 +298,11 @@ function DoneResult({
             </div>
 
             <div className={"flex w-full max-w-sm flex-col gap-3"}>
-                {showKey && <Input value={result.uploadedKey} readOnly copy />}
+                {showKey && <Input dir={"ltr"} value={result.uploadedKey} readOnly copy />}
 
                 {result.path && !showKey && (
                     <Input
+                        dir={"ltr"}
                         value={result.path}
                         readOnly
                         aria-label={t("settings.troubleshooting.done.savedTitle")}
