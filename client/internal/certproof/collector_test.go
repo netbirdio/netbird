@@ -40,7 +40,7 @@ func TestCollector_ReturnsProofs(t *testing.T) {
 }
 
 func TestCollector_AbandonsStuckCollection(t *testing.T) {
-	c := Collector{timeout: 50 * time.Millisecond, busy: new(atomic.Bool)}
+	c := Collector{timeout: 50 * time.Millisecond, slots: &collectSlots{}}
 	release := make(chan struct{})
 	finished := make(chan struct{})
 
@@ -66,7 +66,7 @@ func TestCollector_AbandonsStuckCollection(t *testing.T) {
 
 	close(release)
 	<-finished
-	require.Eventually(t, func() bool { return !c.busy.Load() }, time.Second, 5*time.Millisecond, "the collector frees up once the stuck call returns")
+	require.Eventually(t, func() bool { return c.slots.idle() }, time.Second, 5*time.Millisecond, "the collector frees up once the stuck call returns")
 
 	want := []certposture.Proof{{Nonce: []byte("nonce")}}
 	assert.Equal(t, want, c.collect(context.Background(), challengeChecks, func(context.Context) []certposture.Proof { return want }),
@@ -74,7 +74,7 @@ func TestCollector_AbandonsStuckCollection(t *testing.T) {
 }
 
 func TestCollector_CancelsContextAtDeadline(t *testing.T) {
-	c := Collector{timeout: 20 * time.Millisecond, busy: new(atomic.Bool)}
+	c := Collector{timeout: 20 * time.Millisecond, slots: &collectSlots{}}
 	cancelled := make(chan struct{})
 
 	c.collect(context.Background(), challengeChecks, func(ctx context.Context) []certposture.Proof {
@@ -94,9 +94,9 @@ func TestCollector_CancelsContextAtDeadline(t *testing.T) {
 // collection stuck in a token call outlives the engine that started it, so the next
 // engine's Collector must not start another one until it has finished.
 func TestCollector_SingleFlightAcrossCollectors(t *testing.T) {
-	shared := new(atomic.Bool)
-	first := Collector{timeout: 20 * time.Millisecond, busy: shared}
-	second := Collector{timeout: time.Second, busy: shared}
+	shared := &collectSlots{}
+	first := Collector{timeout: 20 * time.Millisecond, slots: shared}
+	second := Collector{timeout: time.Second, slots: shared}
 
 	release := make(chan struct{})
 	stuck := func(context.Context) []certposture.Proof {
@@ -114,7 +114,7 @@ func TestCollector_SingleFlightAcrossCollectors(t *testing.T) {
 	assert.False(t, called, "a second collection does not start on top of the abandoned one")
 
 	close(release)
-	require.Eventually(t, func() bool { return !shared.Load() }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return shared.idle() }, time.Second, 5*time.Millisecond)
 	assert.Len(t, second.collect(context.Background(), challengeChecks, func(context.Context) []certposture.Proof { return []certposture.Proof{{}} }), 1,
 		"collections resume once the abandoned one finished")
 }
@@ -122,5 +122,36 @@ func TestCollector_SingleFlightAcrossCollectors(t *testing.T) {
 // TestCollector_ZeroValuesShareTheProcessFlag: the zero value uses the process-wide flag.
 func TestCollector_ZeroValuesShareTheProcessFlag(t *testing.T) {
 	var a, b Collector
-	assert.Same(t, a.flag(), b.flag(), "separate Collectors share one single-flight flag")
+	assert.Same(t, a.slotsInUse(), b.slotsInUse(), "separate Collectors share the process slots")
+}
+
+// TestCollector_LostCollectionDoesNotBlockForever: a store call that never answers, such
+// as a wedged token on Linux where there is no process to kill, must not refuse every
+// later collection. Once it has run for lostAfter deadlines another starts beside it,
+// and no more than maxInFlight ever run.
+func TestCollector_LostCollectionDoesNotBlockForever(t *testing.T) {
+	now := time.Now()
+	slots := &collectSlots{}
+	c := Collector{timeout: 10 * time.Millisecond, slots: slots, now: func() time.Time { return now }}
+
+	release := make(chan struct{})
+	defer close(release)
+	var started atomic.Int32
+	wedged := func(context.Context) []certposture.Proof {
+		started.Add(1)
+		<-release
+		return nil
+	}
+
+	c.collect(context.Background(), challengeChecks, wedged)
+	c.collect(context.Background(), challengeChecks, wedged)
+	assert.Equal(t, int32(1), started.Load(), "a second collection is refused while the first may still finish")
+
+	now = now.Add(time.Duration(lostAfter) * c.deadline())
+	c.collect(context.Background(), challengeChecks, wedged)
+	assert.Equal(t, int32(2), started.Load(), "once the first is lost another starts beside it")
+
+	now = now.Add(time.Duration(lostAfter) * c.deadline())
+	c.collect(context.Background(), challengeChecks, wedged)
+	assert.Equal(t, int32(2), started.Load(), "no more than maxInFlight collections run")
 }
