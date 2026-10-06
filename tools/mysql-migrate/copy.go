@@ -254,53 +254,81 @@ func (r *rowSource) Values() ([]any, error) {
 func convert(v any, pgType string) (any, error) {
 	switch pgType {
 	case "boolean":
-		switch b := v.(type) {
-		case int64:
-			return b != 0, nil
-		case []byte:
-			return strconv.ParseBool(string(b))
-		case string:
-			return strconv.ParseBool(b)
-		}
+		return toBool(v)
 	case "bytea":
-		if s, ok := v.(string); ok {
-			return []byte(s), nil
-		}
+		return toBytes(v), nil
 	case "smallint", "integer", "bigint":
-		switch n := v.(type) {
-		case uint64:
-			if n > math.MaxInt64 {
-				return nil, fmt.Errorf("value %d overflows bigint", n)
-			}
-			return int64(n), nil
-		case []byte:
-			return strconv.ParseInt(string(n), 10, 64)
-		}
+		return toInt64(v)
 	case "real", "double precision":
-		if b, ok := v.([]byte); ok {
-			return strconv.ParseFloat(string(b), 64)
-		}
+		return toFloat64(v)
 	case "numeric":
-		var s string
-		switch x := v.(type) {
-		case []byte:
-			s = string(x)
-		case string:
-			s = x
-		default:
-			return v, nil
-		}
-		var n pgtype.Numeric
-		if err := n.Scan(s); err != nil {
-			return nil, err
-		}
-		return n, nil
+		return toNumeric(v)
 	default:
-		if b, ok := v.([]byte); ok {
-			return string(b), nil
-		}
+		return toText(v), nil
+	}
+}
+
+func toBool(v any) (any, error) {
+	switch b := v.(type) {
+	case int64:
+		return b != 0, nil
+	case []byte:
+		return strconv.ParseBool(string(b))
+	case string:
+		return strconv.ParseBool(b)
 	}
 	return v, nil
+}
+
+func toBytes(v any) any {
+	if s, ok := v.(string); ok {
+		return []byte(s)
+	}
+	return v
+}
+
+func toInt64(v any) (any, error) {
+	switch n := v.(type) {
+	case uint64:
+		if n > math.MaxInt64 {
+			return nil, fmt.Errorf("value %d overflows bigint", n)
+		}
+		return int64(n), nil
+	case []byte:
+		return strconv.ParseInt(string(n), 10, 64)
+	}
+	return v, nil
+}
+
+func toFloat64(v any) (any, error) {
+	if b, ok := v.([]byte); ok {
+		return strconv.ParseFloat(string(b), 64)
+	}
+	return v, nil
+}
+
+func toNumeric(v any) (any, error) {
+	var s string
+	switch x := v.(type) {
+	case []byte:
+		s = string(x)
+	case string:
+		s = x
+	default:
+		return v, nil
+	}
+	var n pgtype.Numeric
+	if err := n.Scan(s); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func toText(v any) any {
+	if b, ok := v.([]byte); ok {
+		return string(b)
+	}
+	return v
 }
 
 func queryStrings(ctx context.Context, db *sql.DB, query string, args ...any) ([]string, error) {
