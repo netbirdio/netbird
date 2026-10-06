@@ -32,17 +32,18 @@ import (
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -84,9 +85,20 @@ func (s *BaseServer) CacheStore() nbcache.Store {
 	})
 }
 
+// DBConn opens the database connection shared by the store and the domain repositories.
+func (s *BaseServer) DBConn() *db.Conn {
+	return Create(s, func() *db.Conn {
+		conn, err := store.OpenConn(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir)
+		if err != nil {
+			log.Fatalf("failed to open database connection: %v", err)
+		}
+		return conn
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -147,7 +159,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager(), nil)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -171,10 +183,10 @@ func (s *BaseServer) Router() *mux.Router {
 	})
 }
 
-func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
-	return Create(s, func() *middleware.APIRateLimiter {
-		cfg, enabled := middleware.RateLimiterConfigFromEnv()
-		limiter := middleware.NewAPIRateLimiter(cfg)
+func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
+	return Create(s, func() *ratelimit.APIRateLimiter {
+		cfg, enabled := ratelimit.RateLimiterConfigFromEnv()
+		limiter := ratelimit.NewAPIRateLimiter(cfg)
 		limiter.SetEnabled(enabled)
 		return limiter
 	})
@@ -236,7 +248,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.SingleUseStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
 			proxyService.SetActivityManager(s.ProxyActivityManager())
@@ -293,9 +305,9 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 	})
 }
 
-func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
-	return Create(s, func() *nbgrpc.PKCEVerifierStore {
-		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+func (s *BaseServer) SingleUseStore() *nbgrpc.SingleUseStore {
+	return Create(s, func() *nbgrpc.SingleUseStore {
+		return nbgrpc.NewSingleUseStore(context.Background(), s.CacheStore())
 	})
 }
 
@@ -308,7 +320,7 @@ func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
 
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
-		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.DBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
 		accessLogManager.StartPeriodicCleanup(
 			context.Background(),
 			s.Config.ReverseProxy.AccessLogRetentionDays,
@@ -366,21 +378,24 @@ func streamInterceptor(
 	return handler(srv, wrapped)
 }
 
-// realIPOptions builds the real-IP middleware options from the reverse proxy config.
+// realIPOptions builds the real-IP middleware options.
 //
-// TrustedPeers controls which transport peers are allowed to supply forwarded-IP
-// headers. If empty, forwarded headers are ignored and the transport peer address
-// is used directly. Operators terminating connections at a reverse proxy should
-// configure TrustedPeers with that proxy's address or network.
+// Empty TrustedPeers trusts all IPv4 and IPv6 sources. Configure TrustedPeers
+// with the reverse proxy address or network.
 //
-// Only X-Forwarded-For is trusted. X-Real-IP contains a single client-supplied
-// address with no proxy chain to validate, and none of the reverse proxies we ship
-// use it on the gRPC path.
+// X-Forwarded-For takes precedence over X-Real-IP.
 func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
-	if idx := slices.IndexFunc(cfg.TrustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
+	trustedPeers := cfg.TrustedPeers
+	if len(trustedPeers) == 0 {
+		trustedPeers = []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/0"),
+			netip.MustParsePrefix("::/0"),
+		}
+	}
+	if idx := slices.IndexFunc(trustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
 		log.WithContext(context.Background()).Warnf("TrustedPeers contains the default route %s, which trusts "+
 			"X-Forwarded-For from every client and allows connection IP spoofing. Set TrustedPeers to the address "+
-			"of your reverse proxy, or leave it empty to use the connection's source address.", cfg.TrustedPeers[idx])
+			"of your reverse proxy.", trustedPeers[idx])
 	}
 	if cfg.TrustedHTTPProxiesCount > 0 {
 		log.WithContext(context.Background()).Warn(
@@ -390,9 +405,9 @@ func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
 	}
 
 	return []realip.Option{
-		realip.WithTrustedPeers(cfg.TrustedPeers),
+		realip.WithTrustedPeers(trustedPeers),
 		realip.WithTrustedProxies(cfg.TrustedHTTPProxies),
 		realip.WithTrustedProxiesCount(cfg.TrustedHTTPProxiesCount),
-		realip.WithHeaders([]string{realip.XForwardedFor}),
+		realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 	}
 }

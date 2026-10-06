@@ -78,7 +78,7 @@ export function ProfilesTab() {
         return items;
     }, [profiles, activeProfileId]);
 
-    const guarded = async (title: string, fn: () => Promise<void>) => {
+    const guarded = async (title: string, fn: () => Promise<unknown>) => {
         if (busy) return;
         setBusy(true);
         try {
@@ -115,14 +115,15 @@ export function ProfilesTab() {
 
     const handleDelete = async (id: string, name: string) => {
         if (id === DEFAULT_PROFILE_ID) return;
-        const ok = await confirm({
-            title: t("profile.delete.title", { name }),
-            description: t("profile.delete.message", { name }),
-            confirmLabel: t("common.delete"),
-            danger: true,
-        });
-        if (!ok) return;
-        void guarded(i18next.t("profile.error.deleteTitle"), () => removeProfile(id));
+        await guarded(i18next.t("profile.error.deleteTitle"), () =>
+            confirm({
+                title: t("profile.delete.title", { name }),
+                description: t("profile.delete.message", { name }),
+                confirmLabel: t("common.delete"),
+                danger: true,
+                onConfirm: () => removeProfile(id),
+            }),
+        );
     };
 
     const handleCreate = async (name: string, managementUrl: string) => {

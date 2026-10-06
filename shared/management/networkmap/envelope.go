@@ -35,7 +35,12 @@ type EnvelopeResult struct {
 //
 // dnsName is the account's DNS domain ("netbird.cloud" etc.); used when
 // rebuilding the per-peer FQDNs that proto.RemotePeerConfig carries.
-func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, localPeerKey, dnsName string) (*EnvelopeResult, error) {
+//
+// skipRouteFirewallRules leaves RoutesFirewallRules empty. Callers that have
+// no firewall to program pass true: the rules are the most expensive part of
+// Calculate on a peer that routes many network resources, and nothing reads
+// them afterwards.
+func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, localPeerKey, dnsName string, skipRouteFirewallRules bool) (*EnvelopeResult, error) {
 	components, err := DecodeEnvelope(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("decode envelope: %w", err)
@@ -53,6 +58,7 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 		return nil, fmt.Errorf("receiving peer (wg_key prefix %q) not found among %d decoded peers — components have no PeerID, Calculate would return empty", trimKey(localPeerKey), len(components.Peers))
 	}
 	components.PeerID = canonicalKey
+	components.SkipRouteFirewallRules = skipRouteFirewallRules
 
 	includeIPv6 := localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
 	useSourcePrefixes := localPeer.SupportsSourcePrefixes()
