@@ -277,8 +277,8 @@ type Engine struct {
 	// Writers hold syncMsgMux and checksMu; readers hold either, see appliedChecks.
 	checks   []*mgmProto.Checks
 	checksMu sync.RWMutex
-	// pendingChecks are received checks whose meta sync timed out gathering the system
-	// info; the posture watcher retries them. Both are guarded by syncMsgMux, and
+	// pendingChecks are the newest received checks whose meta sync failed; the posture
+	// watcher retries them. Both are guarded by syncMsgMux, and
 	// hasPendingChecks lets the watcher skip the lock when nothing is pending.
 	pendingChecks    []*mgmProto.Checks
 	hasPendingChecks atomic.Bool
