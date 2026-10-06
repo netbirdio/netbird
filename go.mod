@@ -42,7 +42,6 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/caddyserver/certmagic v0.21.3
-	github.com/cilium/ebpf v0.19.0
 	github.com/coder/websocket v1.8.14
 	github.com/coreos/go-iptables v0.7.0
 	github.com/coreos/go-oidc/v3 v3.18.0
@@ -190,6 +189,7 @@ require (
 	github.com/caddyserver/zerossl v0.1.3 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cilium/ebpf v0.19.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect

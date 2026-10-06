@@ -159,7 +159,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager(), nil)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -248,7 +248,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.SingleUseStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
 			proxyService.SetActivityManager(s.ProxyActivityManager())
@@ -305,9 +305,9 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 	})
 }
 
-func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
-	return Create(s, func() *nbgrpc.PKCEVerifierStore {
-		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+func (s *BaseServer) SingleUseStore() *nbgrpc.SingleUseStore {
+	return Create(s, func() *nbgrpc.SingleUseStore {
+		return nbgrpc.NewSingleUseStore(context.Background(), s.CacheStore())
 	})
 }
 
