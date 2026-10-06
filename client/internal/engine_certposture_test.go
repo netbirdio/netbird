@@ -4,8 +4,10 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/certposture/certtest"
+	mgmt "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -104,6 +107,75 @@ func TestEngine_AttachCertificateProofsReportsLostAndRegainedProofs(t *testing.T
 
 	e.attachCertificateProofs(&system.Info{}, []*mgmProto.Checks{{Files: []string{"/bin/agent"}}})
 	assert.Len(t, recorder.GetEventHistory(), len(events), "checks without a certificate challenge collect and report nothing")
+}
+
+// TestEngine_RecollectSendsOnlyChangedProofs drives the posture watcher's recollection
+// against a real PEM directory: every meta sync makes management recompute and push
+// network maps, so a recollection that proves the same chains as before must not send,
+// while a new certificate or a failed delivery must.
+func TestEngine_RecollectSendsOnlyChangedProofs(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	var sent [][]certposture.Proof
+	failSync := false
+	e := &Engine{
+		ctx:        context.Background(),
+		syncMsgMux: &sync.Mutex{},
+		config:     &EngineConfig{WgPrivateKey: key, CertStore: certproof.Config{Dir: dir}},
+		mgmClient: &mgmt.MockClient{SyncMetaFunc: func(info *system.Info) error {
+			if failSync {
+				return errors.New("management unavailable")
+			}
+			sent = append(sent, info.CertificateProofs)
+			return nil
+		}},
+	}
+
+	ca := certtest.NewCA(t, "corp-root")
+	peerKey := key.PublicKey()
+	nonce := certposture.NewChallenger([]byte("secret")).Nonce(peerKey[:], time.Now())
+	e.checks = []*mgmProto.Checks{{CertificateChallenge: &mgmProto.CertificateChallenge{Nonce: nonce, CaCertificates: []string{ca.PEM}}}}
+
+	// expire makes the last collection due for the unproven retry.
+	expire := func() { e.certState.attemptedAt = time.Now().Add(-certRetryInterval) }
+	// switchUser makes the last collection stale as if another user signed in.
+	switchUser := func() { e.certState.userContext = "someone else" }
+
+	require.NoError(t, e.syncChecksMeta(e.checks))
+	require.Len(t, sent, 1, "new checks are always sent")
+	assert.Empty(t, sent[0], "nothing to prove yet")
+
+	expire()
+	require.NoError(t, e.recollectCertificateProofsIfStale())
+	assert.Len(t, sent, 1, "still proving nothing is not sent again")
+
+	deviceKey := certtest.ECDSAKey(t)
+	pem := certtest.CertPEM(ca.Issue(t, deviceKey, "device")) + certtest.KeyPEM(t, deviceKey)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.pem"), []byte(pem), 0o600))
+
+	expire()
+	require.NoError(t, e.recollectCertificateProofsIfStale())
+	require.Len(t, sent, 2, "a newly proven certificate is sent")
+	assert.Len(t, sent[1], 1, "the new proof is attached")
+
+	switchUser()
+	require.NoError(t, e.recollectCertificateProofsIfStale())
+	assert.Len(t, sent, 2, "the same chain proven again, with a fresh signature, is not sent")
+
+	failSync = true
+	require.NoError(t, os.Remove(filepath.Join(dir, "device.pem")))
+	switchUser()
+	require.Error(t, e.recollectCertificateProofsIfStale())
+	failSync = false
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.pem"), []byte(pem), 0o600))
+
+	// Management missed the empty proof set, so it still holds the chain the device proves
+	// again now; after a failed delivery the state is unknown, and it is sent regardless.
+	require.NoError(t, e.recollectCertificateProofsIfStale())
+	assert.Len(t, sent, 3, "after a failed delivery the next collection is sent")
 }
 
 func TestCertPostureState_UndeliveredIsStale(t *testing.T) {
