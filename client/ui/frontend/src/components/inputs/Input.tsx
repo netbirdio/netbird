@@ -86,13 +86,13 @@ function buildInputClassName(
         "file:border-0 file:bg-transparent file:text-sm file:font-medium",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
         "disabled:cursor-not-allowed disabled:opacity-40",
-        opts.hasCustomPrefix && "!rounded-l-none !border-l-0",
-        opts.hasSuffix && "!pr-9",
-        opts.hasIcon && "!pl-10",
+        opts.hasCustomPrefix && "!rounded-s-none !border-s-0",
+        opts.hasSuffix && "!pe-9",
+        opts.hasIcon && "!ps-10",
         "border",
         opts.readOnly && "!border-nb-gray-800 !bg-nb-gray-910 text-nb-gray-350",
         opts.showStepper &&
-            "!rounded-r-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            "!rounded-e-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         opts.className,
     );
 }
@@ -107,7 +107,7 @@ function InputAffix({
         <div
             className={cn(
                 inputVariants({ prefixSuffixVariant: error ? "error" : "default" }),
-                "flex h-[40px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
+                "flex h-[40px] w-auto rounded-s-md bg-white px-3 py-2 text-sm",
                 "items-center whitespace-nowrap border",
                 disabled && "opacity-40",
                 className,
@@ -122,7 +122,7 @@ function InputIconSlot({ icon, disabled }: Readonly<{ icon: ReactNode; disabled?
     return (
         <div
             className={cn(
-                "absolute left-0 top-0 flex h-full items-center pl-3 text-xs leading-[0] dark:text-nb-gray-300",
+                "absolute start-0 top-0 flex h-full items-center ps-3 text-xs leading-[0] dark:text-nb-gray-300",
                 disabled && "opacity-40",
             )}
         >
@@ -138,7 +138,7 @@ function InputSuffixSlot({
     return (
         <div
             className={cn(
-                "pointer-events-none absolute right-0 top-0 flex h-full select-none items-center pr-3 text-xs leading-[0] dark:text-nb-gray-300",
+                "pointer-events-none absolute end-0 top-0 flex h-full select-none items-center pe-3 text-xs leading-[0] dark:text-nb-gray-300",
                 disabled && "opacity-30",
             )}
         >
@@ -157,7 +157,7 @@ function NumberStepper({
         <div
             className={cn(
                 "flex h-[40px] shrink-0 flex-col overflow-hidden",
-                "rounded-r-md border border-l-0",
+                "rounded-e-md border border-s-0",
                 "border-neutral-200 bg-white dark:border-nb-gray-700 dark:bg-nb-gray-900",
                 error && "dark:border-red-500",
                 disabled && "pointer-events-none opacity-40",
@@ -226,6 +226,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         showPasswordToggle = false,
         copy = false,
         id,
+        dir,
         ...props
     },
     ref,
@@ -336,7 +337,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     return (
         <div className={"flex w-full min-w-0 flex-col"}>
             {label && <Label htmlFor={inputId}>{label}</Label>}
-            <div className={cn("relative flex h-[40px] w-full", maxWidthClass)}>
+            <div dir={dir} className={cn("relative flex h-[40px] w-full", maxWidthClass)}>
                 {customPrefix && (
                     <InputAffix
                         content={customPrefix}
