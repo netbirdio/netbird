@@ -19,6 +19,8 @@ import (
 const (
 	minCertChallengeTick = time.Second
 	maxCertChallengeTick = 15 * time.Minute
+
+	maxCertChallengeRefresh = 30 * time.Second
 )
 
 // certChallengePeriod is how often an account whose policies carry a certificate
@@ -38,6 +40,16 @@ func certChallengeTick(period time.Duration) time.Duration {
 	return min(max(period/10, minCertChallengeTick), maxCertChallengeTick)
 }
 
+// certChallengeRefresh is how long one account's refresh is given before it is
+// abandoned. Resolving the target peers reads the store, and the accounts are swept one
+// after another, so an unbounded refresh lets one wedged read starve every other account
+// on the instance. Bounding it by the tick keeps the sweep on the cadence it promises,
+// and the cap keeps a long window from granting minutes to a query that should take
+// milliseconds.
+func certChallengeRefresh(tick time.Duration) time.Duration {
+	return min(tick, maxCertChallengeRefresh)
+}
+
 // certChallengeRefresher pushes a fresh certificate challenge to the peers of every
 // account that needs one, from a single goroutine.
 //
@@ -53,9 +65,10 @@ type certChallengeRefresher struct {
 	mu  sync.Mutex
 	due map[string]time.Time
 
-	period time.Duration
-	tick   time.Duration
-	now    func() time.Time
+	period  time.Duration
+	tick    time.Duration
+	timeout time.Duration
+	now     func() time.Time
 	// refresh pushes the account's peers an update, and reports whether the account
 	// still wants challenges at all.
 	refresh func(ctx context.Context, accountID string) bool
@@ -63,10 +76,12 @@ type certChallengeRefresher struct {
 
 func newCertChallengeRefresher(refresh func(ctx context.Context, accountID string) bool) *certChallengeRefresher {
 	period := certChallengePeriod()
+	tick := certChallengeTick(period)
 	return &certChallengeRefresher{
 		due:     map[string]time.Time{},
 		period:  period,
-		tick:    certChallengeTick(period),
+		tick:    tick,
+		timeout: certChallengeRefresh(tick),
 		now:     time.Now,
 		refresh: refresh,
 	}
@@ -114,12 +129,21 @@ func (r *certChallengeRefresher) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			for _, accountID := range r.takeDue() {
-				if !r.refresh(ctx, accountID) {
+				if !r.refreshOne(ctx, accountID) {
 					r.Forget(accountID)
 				}
 			}
 		}
 	}
+}
+
+// refreshOne refreshes a single account under the refresh deadline. A refresh that runs
+// out of time reports the account as still wanting challenges, since a deadline says
+// nothing about the account's posture checks; the next sweep tries again.
+func (r *certChallengeRefresher) refreshOne(ctx context.Context, accountID string) bool {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	return r.refresh(ctx, accountID)
 }
 
 // takeDue returns the accounts due now and books their next run straight away, so a
