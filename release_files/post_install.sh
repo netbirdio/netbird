@@ -11,15 +11,16 @@ fi
 
 # The service environment file may hold the PKCS#11 token PIN (NB_TPM_PIN). Package
 # upgrades keep a locally modified copy with its old mode, so restrict it on every run.
-restrictEnvFile() {
+restrict_env_file() {
     if [ -f /etc/sysconfig/netbird ]; then
       chmod 0600 /etc/sysconfig/netbird
     fi
+    return 0
 }
 
 cleanInstall() {
     printf "\033[32m Post Install of an clean install\033[0m\n"
-    restrictEnvFile
+    restrict_env_file
     # Step 3 (clean install), enable the service in the proper way for this platform
     /usr/bin/netbird service install
     /usr/bin/netbird service start
@@ -27,7 +28,7 @@ cleanInstall() {
 
 upgrade() {
     printf "\033[32m Post Install of an upgrade\033[0m\n"
-    restrictEnvFile
+    restrict_env_file
     if [ "${use_systemctl}" = "True" ]; then
       printf "\033[32m Stopping the service\033[0m\n"
       systemctl stop netbird 2> /dev/null || true
