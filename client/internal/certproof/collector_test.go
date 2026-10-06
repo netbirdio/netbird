@@ -2,6 +2,7 @@ package certproof
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func TestCollector_ReturnsProofs(t *testing.T) {
 }
 
 func TestCollector_AbandonsStuckCollection(t *testing.T) {
-	c := Collector{timeout: 50 * time.Millisecond}
+	c := Collector{timeout: 50 * time.Millisecond, busy: new(atomic.Bool)}
 	release := make(chan struct{})
 	finished := make(chan struct{})
 
@@ -73,7 +74,7 @@ func TestCollector_AbandonsStuckCollection(t *testing.T) {
 }
 
 func TestCollector_CancelsContextAtDeadline(t *testing.T) {
-	c := Collector{timeout: 20 * time.Millisecond}
+	c := Collector{timeout: 20 * time.Millisecond, busy: new(atomic.Bool)}
 	cancelled := make(chan struct{})
 
 	c.collect(context.Background(), challengeChecks, func(ctx context.Context) []certposture.Proof {
@@ -87,4 +88,39 @@ func TestCollector_CancelsContextAtDeadline(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("a collection that honours its context, like the helper process, must see it cancelled")
 	}
+}
+
+// TestCollector_SingleFlightAcrossCollectors: each engine has its own Collector, and a
+// collection stuck in a token call outlives the engine that started it, so the next
+// engine's Collector must not start another one until it has finished.
+func TestCollector_SingleFlightAcrossCollectors(t *testing.T) {
+	shared := new(atomic.Bool)
+	first := Collector{timeout: 20 * time.Millisecond, busy: shared}
+	second := Collector{timeout: time.Second, busy: shared}
+
+	release := make(chan struct{})
+	stuck := func(context.Context) []certposture.Proof {
+		<-release
+		return nil
+	}
+	assert.Nil(t, first.collect(context.Background(), challengeChecks, stuck), "the first collection is abandoned at its deadline")
+
+	called := false
+	proofs := second.collect(context.Background(), challengeChecks, func(context.Context) []certposture.Proof {
+		called = true
+		return []certposture.Proof{{}}
+	})
+	assert.Nil(t, proofs, "no proofs while the abandoned collection still runs")
+	assert.False(t, called, "a second collection does not start on top of the abandoned one")
+
+	close(release)
+	require.Eventually(t, func() bool { return !shared.Load() }, time.Second, 5*time.Millisecond)
+	assert.Len(t, second.collect(context.Background(), challengeChecks, func(context.Context) []certposture.Proof { return []certposture.Proof{{}} }), 1,
+		"collections resume once the abandoned one finished")
+}
+
+// TestCollector_ZeroValuesShareTheProcessFlag: the zero value uses the process-wide flag.
+func TestCollector_ZeroValuesShareTheProcessFlag(t *testing.T) {
+	var a, b Collector
+	assert.Same(t, a.flag(), b.flag(), "separate Collectors share one single-flight flag")
 }
