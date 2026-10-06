@@ -359,3 +359,47 @@ func TestRedactPIIPhoneFalsePositives(t *testing.T) {
 		})
 	}
 }
+
+// TestRedactPIIPhoneUnicodeSeparators covers numbers written with the Unicode
+// spaces and dashes that word processors, chat clients and LLM completions put
+// between digit groups instead of ASCII spaces and hyphens.
+func TestRedactPIIPhoneUnicodeSeparators(t *testing.T) {
+	cases := map[string]string{
+		"narrow no-break space": "+49 151 23456789",
+		"no-break space":        "+49 151 23456789",
+		"thin space":            "0151 23456789",
+		"figure space":          "030 12345678",
+		"non-breaking hyphen":   "030‑1234567‑89",
+		"en dash":               "0151–23456789",
+		"north american nbsp":   "(415) 555 1234",
+	}
+	for name, phone := range cases {
+		t.Run(name, func(t *testing.T) {
+			out := redactPII("Tel.: " + phone + " (Büro)")
+			assert.Equal(t, "Tel.: [REDACTED:phone] (Büro)", out, "the whole number must be redacted for %q", phone)
+		})
+	}
+}
+
+// TestRedactPIIPhoneAfterDate checks that a date directly followed by a number
+// keeps the date and still redacts the number, instead of exempting both.
+func TestRedactPIIPhoneAfterDate(t *testing.T) {
+	cases := map[string]string{
+		"am 05.10.2026 0151 23456789":   "am 05.10.2026 [REDACTED:phone]",
+		"am 05/10/2026 030 12345678":    "am 05/10/2026 [REDACTED:phone]",
+		"am 05.10.2026 +49 30 12345678": "am 05.10.2026 [REDACTED:phone]",
+	}
+	for in, want := range cases {
+		t.Run(in, func(t *testing.T) {
+			assert.Equal(t, want, redactPII(in), "the date must survive and the number must be redacted")
+		})
+	}
+}
+
+// TestRedactPIIPhoneStopsAtLineBreak checks that a candidate does not run
+// across a line break into the next line.
+func TestRedactPIIPhoneStopsAtLineBreak(t *testing.T) {
+	in := "Tel. 030 12345678\n2026 report"
+	assert.Equal(t, "Tel. [REDACTED:phone]\n2026 report", redactPII(in),
+		"redaction must stop at the end of the line")
+}
