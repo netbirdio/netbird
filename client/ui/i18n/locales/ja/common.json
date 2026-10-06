@@ -1407,5 +1407,17 @@
     },
     "error.profile_unowned": {
         "message": "このプロファイルにはまだ所有者がいません。"
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "アクセス権なし"
+    },
+    "daemon.accessDenied.title": {
+        "message": "NetBird サービスへのアクセス権がありません"
+    },
+    "daemon.accessDenied.description": {
+        "message": "管理者がこのデバイスの NetBird サービスを特定のユーザーまたはグループに制限しており、お使いのアカウントは含まれていません。アクセスについては管理者にお問い合わせください。"
+    },
+    "error.daemon_access_denied": {
+        "message": "お使いのアカウントには、このデバイスで NetBird サービスを使用する権限がありません。アクセスについては管理者にお問い合わせください。"
     }
 }

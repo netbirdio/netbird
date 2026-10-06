@@ -47,7 +47,7 @@ export const MainConnectionStatusSwitch = () => {
 
     const daemonState = status?.status ?? "Idle";
     const needsLogin = NEEDS_LOGIN_STATES.has(daemonState);
-    const unreachable = daemonState === "DaemonUnavailable";
+    const unreachable = daemonState === "DaemonUnavailable" || daemonState === "DaemonAccessDenied";
 
     type Action = "connect" | "logging-in" | "disconnect" | null;
     const [action, setAction] = useState<Action>(null);
@@ -81,6 +81,7 @@ export const MainConnectionStatusSwitch = () => {
             case "LoginFailed":
             case "SessionExpired":
             case "DaemonUnavailable":
+            case "DaemonAccessDenied":
                 return ConnectionState.Disconnected;
             default:
                 return ConnectionState.Disconnected;

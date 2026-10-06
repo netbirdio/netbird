@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 
 	"github.com/Microsoft/go-winio"
@@ -16,13 +17,17 @@ import (
 )
 
 // dialPipePaths connects to the first path that answers with a pipe server this
-// client may trust, and returns the last error when none does.
+// client may trust. When none does, it returns an access-denied error if any
+// path gave one, and the last error otherwise.
 func dialPipePaths(ctx context.Context, paths []string) (net.Conn, error) {
-	var lastErr error
+	var lastErr, deniedErr error
 	for _, path := range paths {
 		conn, err := dialPipe(ctx, path)
 		if err != nil {
 			log.Debugf("dial daemon pipe %s: %v", path, err)
+			if deniedErr == nil && errors.Is(err, fs.ErrPermission) {
+				deniedErr = err
+			}
 			lastErr = err
 			continue
 		}
@@ -43,6 +48,9 @@ func dialPipePaths(ctx context.Context, paths []string) (net.Conn, error) {
 		return conn, nil
 	}
 
+	if deniedErr != nil {
+		return nil, deniedErr
+	}
 	if lastErr == nil {
 		lastErr = errors.New("no daemon pipe to connect to")
 	}
