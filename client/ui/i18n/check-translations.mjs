@@ -10,8 +10,8 @@
 //     catch up;
 //   - orphaned keys fail — keys left behind after an English key is renamed or
 //     removed are dead weight and a sign the locale is drifting;
-//   - empty messages fail — a present key with an empty or missing message
-//     renders blank instead of falling back to English;
+//   - empty messages fail — a present key with an empty, whitespace-only or
+//     missing message renders blank instead of falling back to English;
 //   - placeholder mismatches fail — a translation must use exactly the
 //     {placeholders} of its English string, otherwise a value silently never
 //     renders (or a literal "{name}" leaks into the UI).
@@ -76,7 +76,7 @@ if (!declared.includes(SOURCE)) {
 
 const source = messagesOf(SOURCE);
 const sourceKeys = [...source.keys()];
-const emptySource = sourceKeys.filter((k) => !source.get(k));
+const emptySource = sourceKeys.filter((k) => !source.get(k)?.trim());
 if (emptySource.length) {
     console.error(`FATAL: ${SOURCE}/common.json has empty or missing messages: ${emptySource.join(", ")}`);
     process.exit(1);
@@ -106,7 +106,7 @@ for (const code of declared) {
     const badPlaceholders = [];
     for (const [key, message] of messages) {
         if (!source.has(key)) continue;
-        if (!message) {
+        if (!message?.trim()) {
             empty.push(key);
             continue;
         }
