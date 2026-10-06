@@ -359,10 +359,6 @@ func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
 	assert.Equal(t, 2, syncMetaCalls)
 }
 
-// TestEngine_PendingChecksRetriedAfterInfoTimeout covers a check update whose system info
-// gathering times out: the update is kept pending rather than dropped, and the posture
-// watcher's retry sends it and applies the checks, without waiting for management to
-// send different checks.
 // TestEngine_FailedUpdateReplacesOlderPendingChecks: checks A time out and stay pending,
 // then checks B fail to sync for another reason. B must replace A as pending, or the
 // watcher would later apply the superseded A.
@@ -404,6 +400,10 @@ func TestEngine_FailedUpdateReplacesOlderPendingChecks(t *testing.T) {
 	assert.Equal(t, checksB, engine.pendingChecks, "the newest checks replace the older pending ones")
 }
 
+// TestEngine_PendingChecksRetriedAfterInfoTimeout covers a check update whose system info
+// gathering times out: the update is kept pending rather than dropped, and the posture
+// watcher's retry sends it and applies the checks, without waiting for management to
+// send different checks.
 func TestEngine_PendingChecksRetriedAfterInfoTimeout(t *testing.T) {
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
