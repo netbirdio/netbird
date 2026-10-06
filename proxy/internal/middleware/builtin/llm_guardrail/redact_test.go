@@ -238,9 +238,17 @@ func TestRedactPIIPhoneInternational(t *testing.T) {
 			out := redactPII("call me at " + phone + " anytime")
 			localDigits := lastSevenDigits(phone)
 			assert.Contains(t, out, "[REDACTED:phone]", "phone marker must appear for %q", phone)
-			assert.NotContains(t, out, localDigits, "raw phone local digits %q must not survive in %q", localDigits, out)
+			// Compare without separators so a partial redaction such as
+			// "[REDACTED:phone] 7946 0958" cannot hide the leftover digits.
+			assert.NotContains(t, stripPhoneSeparators(out), localDigits, "raw phone local digits %q must not survive in %q", localDigits, out)
 		})
 	}
+}
+
+// stripPhoneSeparators removes the separators people put between the digit
+// groups of a phone number, leaving all other characters in place.
+func stripPhoneSeparators(s string) string {
+	return strings.NewReplacer(" ", "", "-", "", ".", "", "/", "", "(", "", ")", "").Replace(s)
 }
 
 // TestRedactPIIPhoneFalsePositives guards the other direction: digit runs that
