@@ -29,8 +29,9 @@ const (
 // errKeyNeedsApproval reports a key whose access list does not include netbird, so using
 // it needs the user's approval, which a daemon has no UI to ask for.
 var errKeyNeedsApproval = errors.New("the key's access control requires user approval for netbird; " +
-	"import the identity with netbird allowed (security import -T /path/to/netbird), " +
-	"or set AllowAllAppsAccess in the MDM certificate payload")
+	"import the identity with netbird allowed (security import <identity.p12> -k <keychain> " +
+	"-T /Applications/NetBird.app/Contents/MacOS/netbird), " +
+	"or set AllowAllAppsAccess in the MDM certificate payload, which allows every application")
 
 var (
 	keychainOnce sync.Once
