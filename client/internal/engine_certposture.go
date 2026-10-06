@@ -295,6 +295,11 @@ func (e *Engine) refreshCertificateProofs() error {
 	log.Debugf("certificate posture: collecting proofs")
 	peerKey := e.config.WgPrivateKey.PublicKey()
 	proofs := e.certProofs.Collect(e.ctx, checks, peerKey[:], e.config.CertStore)
+	// A collection cut short by the engine stopping proved nothing about the device, and
+	// must not be reported to the user as a lost certificate.
+	if e.stopping() {
+		return nil
+	}
 	if e.certState.record(key, userContext, proofs, time.Now()) {
 		e.publishCertificatePostureEvent(len(proofs) > 0)
 	}
