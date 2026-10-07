@@ -12,10 +12,14 @@ import (
 	"time"
 
 	dexstorage "github.com/dexidp/dex/storage"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -30,7 +34,7 @@ func TestRun(t *testing.T) {
 	if os.Getenv("CI") == "true" && runtime.GOOS != "linux" {
 		t.Skip("needs Docker for the MySQL and Postgres containers")
 	}
-	// MySQL returns times in the local zone and Postgres in UTC.
+	// Seed in UTC to match the --mysql-timezone default.
 	time.Local = time.UTC
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -150,4 +154,71 @@ func accountJSON(t *testing.T, ctx context.Context, s store.Store) string {
 	out, err := json.Marshal(account)
 	require.NoError(t, err)
 	return string(out)
+}
+
+func TestMySQLTimezone(t *testing.T) {
+	if os.Getenv("CI") == "true" && runtime.GOOS != "linux" {
+		t.Skip("needs Docker for the MySQL and Postgres containers")
+	}
+	ctx := context.Background()
+	mysqlDSN := newMySQLDatabase(t, "tz_src")
+	pgDSN := newPostgresDatabase(t, ctx, "tz_dst")
+
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
+	seed, cleanup, err := store.NewTestStoreFromSQL(ctx, "../../management/server/testdata/extended-store.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+	ms, err := store.NewMysqlStoreFromSqlStore(ctx, seed.(*store.SqlStore), mysqlDSN, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ms.Close(ctx) })
+	require.NoError(t, ms.GetDB().Exec("UPDATE accounts SET created_at = '2026-01-02 03:04:05' WHERE id = ?", testAccountID).Error)
+
+	cfg, err := parseFlags([]string{
+		"--mysql-dsn", mysqlDSN,
+		"--postgres-dsn", pgDSN,
+		"--mysql-timezone", "Asia/Tokyo",
+		"--events-db", filepath.Join(t.TempDir(), "none.db"),
+		"--auth-db", filepath.Join(t.TempDir(), "none.db"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, run(ctx, cfg))
+
+	pool, err := pgxpool.New(ctx, pgDSN)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	var got time.Time
+	require.NoError(t, pool.QueryRow(ctx, "SELECT created_at FROM accounts WHERE id = $1", testAccountID).Scan(&got))
+	want := time.Date(2026, 1, 1, 18, 4, 5, 0, time.UTC)
+	assert.True(t, want.Equal(got), "created_at must keep the instant the server wrote, got %s", got.UTC())
+}
+
+func TestParseFlagsRejectsUnknownTimezone(t *testing.T) {
+	_, err := parseFlags([]string{"--mysql-dsn", "m", "--postgres-dsn", "p", "--mysql-timezone", "Mars/Base"})
+	assert.ErrorContains(t, err, "--mysql-timezone")
+}
+
+func newMySQLDatabase(t *testing.T, name string) string {
+	t.Helper()
+	_, base, err := testutil.CreateMysqlTestContainer()
+	require.NoError(t, err)
+	admin, err := gorm.Open(mysql.Open(db.MysqlDSN(base)), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, admin.Exec("CREATE DATABASE "+name).Error)
+	if sqlDB, err := admin.DB(); err == nil {
+		_ = sqlDB.Close()
+	}
+	return base[:strings.LastIndex(base, "/")] + "/" + name
+}
+
+func newPostgresDatabase(t *testing.T, ctx context.Context, name string) string {
+	t.Helper()
+	_, base, err := testutil.CreatePostgresTestContainer()
+	require.NoError(t, err)
+	base = strings.TrimSuffix(base, "?")
+	admin, err := pgxpool.New(ctx, base+"?sslmode=disable")
+	require.NoError(t, err)
+	defer admin.Close()
+	_, err = admin.Exec(ctx, "CREATE DATABASE "+name)
+	require.NoError(t, err)
+	return base[:strings.LastIndex(base, "/")] + "/" + name + "?sslmode=disable"
 }

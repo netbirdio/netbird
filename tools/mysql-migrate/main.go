@@ -7,7 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +34,7 @@ type config struct {
 	authPostgresDSN   string
 	eventsDB          string
 	authDB            string
+	mysqlTimezone     string
 }
 
 type storeMigration struct {
@@ -70,8 +74,12 @@ func parseFlags(args []string) (*config, error) {
 	fs.StringVar(&cfg.authPostgresDSN, "auth-postgres-dsn", "", "Postgres DSN for the embedded IdP (default --postgres-dsn)")
 	fs.StringVar(&cfg.eventsDB, "events-db", "/var/lib/netbird/events.db", "SQLite file of the activity events, skipped when missing")
 	fs.StringVar(&cfg.authDB, "auth-db", "/var/lib/netbird/idp.db", "SQLite file of the embedded IdP, skipped when missing")
+	fs.StringVar(&cfg.mysqlTimezone, "mysql-timezone", "UTC", "time zone the management server ran in, e.g. Europe/Berlin")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
+	}
+	if _, err := time.LoadLocation(cfg.mysqlTimezone); err != nil {
+		return nil, fmt.Errorf("--mysql-timezone: %w", err)
 	}
 
 	if cfg.mysqlDSN == "" || cfg.postgresDSN == "" {
@@ -167,7 +175,7 @@ func openSources(cfg *config) ([]storeMigration, func(), error) {
 		return g.DB()
 	}
 
-	mysqlDB, err := open(mysql.Open(db.MysqlDSN(cfg.mysqlDSN)))
+	mysqlDB, err := open(mysql.Open(mysqlDSN(cfg.mysqlDSN, cfg.mysqlTimezone)))
 	if err != nil {
 		closeAll()
 		return nil, nil, fmt.Errorf("open MySQL: %w", err)
@@ -197,6 +205,10 @@ func openSources(cfg *config) ([]storeMigration, func(), error) {
 	}
 
 	return migrations, closeAll, nil
+}
+
+func mysqlDSN(dsn, timezone string) string {
+	return strings.TrimSuffix(db.MysqlDSN(dsn), "&loc=Local") + "&loc=" + url.QueryEscape(timezone)
 }
 
 func createManagementSchema(ctx context.Context, dsn string) error {
