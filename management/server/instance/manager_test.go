@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -379,7 +380,21 @@ func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
 			password:    "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffffgggggggghhhhhhhhiiiiiiiij",
 			userName:    "Admin User",
 			expectError: true,
-			errorMsg:    "password must be at most 72 characters",
+			errorMsg:    "password must be at most 72 bytes",
+		},
+		{
+			name:     "multibyte password exactly 72 bytes",
+			email:    "admin@example.com",
+			password: strings.Repeat("é", 36),
+			userName: "Admin User",
+		},
+		{
+			name:        "multibyte password 73 bytes",
+			email:       "admin@example.com",
+			password:    strings.Repeat("é", 36) + "x",
+			userName:    "Admin User",
+			expectError: true,
+			errorMsg:    "password must be at most 72 bytes",
 		},
 	}
 
