@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
@@ -104,6 +105,25 @@ func TestStartFailsWithoutManagement(t *testing.T) {
 	err = srv.Start(ctx)
 	require.Error(t, err, "second Start must reject")
 	assert.Contains(t, err.Error(), "already started", "error must explain why the call was rejected")
+}
+
+func TestStartFailureReleasesManagementConnection(t *testing.T) {
+	srv := New(t.Context(), Config{
+		Logger:               quietLifecycleLogger(),
+		ListenAddr:           "127.0.0.1:0",
+		ManagementAddress:    "https://127.0.0.1:1",
+		CertificateDirectory: t.TempDir(),
+		CertificateFile:      "missing.crt",
+		CertificateKeyFile:   "missing.key",
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := srv.Start(ctx)
+	require.Error(t, err, "Start must fail on the missing certificate")
+	require.NotNil(t, srv.mgmtConn, "the management connection is created before the certificate step")
+	assert.Equal(t, connectivity.Shutdown, srv.mgmtConn.GetState(), "a failed Start must close the management connection it opened")
 }
 
 func TestStopIsIdempotent(t *testing.T) {

@@ -284,7 +284,7 @@ func (r *family) addPostroutingRules() {
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkMasquerade),
 		},
 
-		// We need to exclude the loopback interface as this changes the ebpf proxy port
+		// We need to exclude the loopback interface as this changes the wg proxy port
 		&expr.Meta{
 			Key:      expr.MetaKeyOIFNAME,
 			Register: 1,
@@ -568,41 +568,6 @@ func (r *family) RemoveAllLegacyRouteRules() error {
 		}
 	}
 
-	return nberrors.FormatErrorOrNil(merr)
-}
-
-func (r *family) removeNatPreroutingRules() error {
-	table := &nftables.Table{
-		Name:   tableNat,
-		Family: r.af.tableFamily,
-	}
-	chain := &nftables.Chain{
-		Name:     chainNameNatPrerouting,
-		Table:    table,
-		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityNATDest,
-		Type:     nftables.ChainTypeNAT,
-	}
-	rules, err := r.conn.GetRules(table, chain)
-	if err != nil {
-		return fmt.Errorf("get rules from nat table: %w", err)
-	}
-
-	var merr *multierror.Error
-
-	// Delete rules that have our UserData suffix
-	for _, rule := range rules {
-		if len(rule.UserData) == 0 || !strings.HasSuffix(string(rule.UserData), string(dnatSuffix)) {
-			continue
-		}
-		if err := r.conn.DelRule(rule); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("delete rule %s: %w", rule.UserData, err))
-		}
-	}
-
-	if err := r.conn.Flush(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
-	}
 	return nberrors.FormatErrorOrNil(merr)
 }
 

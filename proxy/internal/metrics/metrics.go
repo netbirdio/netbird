@@ -196,6 +196,21 @@ func (m *Metrics) RecordAddPeerDuration(d time.Duration, err error) {
 	))
 }
 
+// RegisterClientObserver reports the number of embedded clients as a gauge.
+// clientCount runs on every collection cycle, so it must stay cheap.
+func (m *Metrics) RegisterClientObserver(clientCount func() int) error {
+	_, err := m.meter.Int64ObservableGauge(
+		"proxy.clients.count",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current number of embedded NetBird clients running on the netbird proxy"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			o.Observe(int64(clientCount()))
+			return nil
+		}),
+	)
+	return err
+}
+
 func (m *Metrics) initL4Metrics(meter metric.Meter) error {
 	var err error
 

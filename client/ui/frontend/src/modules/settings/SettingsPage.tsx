@@ -17,6 +17,7 @@ import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
+import { useDirection } from "@/hooks/useDirection";
 
 const EVENT_SETTINGS_OPEN = "netbird:settings:open";
 
@@ -43,6 +44,7 @@ const TAB_CONTENT: Record<Tab, ReactNode> = {
 };
 
 export const SettingsPage = () => {
+    const dir = useDirection();
     const location = useLocation();
     const navState = location.state as { tab?: string } | null;
     const { mdm, features } = useRestrictions();
@@ -94,6 +96,7 @@ export const SettingsPage = () => {
                         <AutostartSettingsProvider>
                             <SettingsProvider>
                                 <ScrollArea.Root
+                                    dir={dir}
                                     key={active}
                                     type={"auto"}
                                     className={"min-h-0 flex-1 overflow-hidden"}
