@@ -1839,15 +1839,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 // validatePeerDelete checks if the peer can be deleted.
 func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transaction store.Store, accountId, peerId string) error {
-	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
-	if err != nil {
-		return err
-	}
-
-	if linkedInIngressPorts {
-		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
-	}
-
 	linked, router := isPeerLinkedToNetworkRouter(ctx, transaction, accountId, peerId)
 	if linked {
 		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)
