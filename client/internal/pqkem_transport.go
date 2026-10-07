@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -20,6 +21,7 @@ const DefaultPort = 51833
 type pqTransport struct {
 	conn *net.UDPConn
 	port int
+	wg   sync.WaitGroup
 }
 
 // newPQTransport binds a UDP socket on the WG overlay IP, preferring DefaultPort and
@@ -58,7 +60,9 @@ func (t *pqTransport) LocalPort() int { return t.port }
 // Run implements pqkem.Transport: the receive loop, delivering each datagram as
 // (source endpoint, msg). Exits when the socket is closed.
 func (t *pqTransport) Run(onInbound func(src netip.AddrPort, msg []byte)) {
+	t.wg.Add(1)
 	go func() {
+		defer t.wg.Done()
 		buf := make([]byte, 2048)
 		for {
 			n, src, err := t.conn.ReadFromUDPAddrPort(buf)
@@ -72,5 +76,10 @@ func (t *pqTransport) Run(onInbound func(src netip.AddrPort, msg []byte)) {
 	}()
 }
 
-// Close implements pqkem.Transport.
-func (t *pqTransport) Close() error { return t.conn.Close() }
+// Close implements pqkem.Transport. It closes the socket (unblocking the read) and drains
+// the receive loop, so no onInbound callback is still running when Close returns.
+func (t *pqTransport) Close() error {
+	err := t.conn.Close()
+	t.wg.Wait()
+	return err
+}

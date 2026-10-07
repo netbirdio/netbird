@@ -57,7 +57,8 @@ type Transport interface {
 	// Run starts delivering inbound datagrams as (source endpoint, msg) to onInbound
 	// and returns immediately; it runs until Close.
 	Run(onInbound func(src netip.AddrPort, msg []byte))
-	// Close stops delivery and releases the socket.
+	// Close stops delivery, drains any in-flight onInbound callback, and releases the
+	// socket, so no callback is still running when Close returns.
 	Close() error
 }
 
@@ -281,19 +282,25 @@ func (m *Manager) Stop() {
 	// has cancelled here no new Add can race Wait.
 	m.mu.Lock()
 	m.rootCancel()
-	m.mu.Unlock()
-	m.wait.Wait()
-	m.mu.Lock()
 	t := m.transport
 	m.transport = nil
-	m.exchanges = make(map[RemoteID]*exchangeCtl)
-	m.psks = make(map[RemoteID]PSK)
 	m.mu.Unlock()
+
+	// Close and drain the data-path receive loop BEFORE clearing peer state: Close waits
+	// for any in-flight onInbound to return, so no inbound message can derive a PSK into a
+	// cleared map, and the engine only tears the WireGuard interface down after this Stop
+	// returns, so no late SetPresharedKey hits a torn-down device.
 	if t != nil {
 		if err := t.Close(); err != nil {
 			m.logger.Warn("pqkem: closing data-path transport", "err", err)
 		}
 	}
+	m.wait.Wait()
+
+	m.mu.Lock()
+	m.exchanges = make(map[RemoteID]*exchangeCtl)
+	m.psks = make(map[RemoteID]PSK)
+	m.mu.Unlock()
 }
 
 // ---- Signalling channel (host-driven; rides the host's negotiation) ----
