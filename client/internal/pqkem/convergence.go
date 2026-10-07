@@ -153,8 +153,19 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 
 	m.debug("pqkem: PSK derived", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "via", via, "kind", kind, "psk_fp", pskFingerprint(psk))
 
-	// Commit optimistically so our data path can rekey to the new PSK.
+	// Commit optimistically so our data path can rekey to the new PSK. Applying the PSK is
+	// part of the commit: if the host can't program it, drop the exchange and do NOT send
+	// the answer, so the initiator times out and re-bootstraps instead of converging on a
+	// key we could not apply. Route it through the failure path.
 	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
+		m.mu.Lock()
+		if c := m.exchanges[remoteID]; c != nil && c.id == o.ExchangeID {
+			delete(m.exchanges, remoteID)
+		}
+		initial := !m.established[remoteID]
+		fail := m.registerFailureLocked(remoteID)
+		m.mu.Unlock()
+		m.raiseFailure(remoteID, fail, initial)
 		return nil, err
 	}
 	m.trace("pqkem: answer sent", "peer", remoteID, "exchange", idHex(o.ExchangeID))
@@ -226,6 +237,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 		m.trace("pqkem: exchange superseded during finish, dropping PSK", "peer", remoteID, "exchange", idHex(a.ExchangeID))
 		return nil
 	}
+	wasEstablished := m.established[remoteID]
 	cur.state = stateAwaitingRekey
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
@@ -235,7 +247,21 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 
 	m.debug("pqkem: PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "via", via, "kind", kind, "psk_fp", pskFingerprint(psk))
 
-	return m.cbHandler.OnNewPSKReady(remoteID, psk)
+	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
+		// Applying the PSK is part of the commit: if the host fails to program it, the
+		// exchange is not really converged. Drop it and route the failure through recovery
+		// so a re-bootstrap re-derives and re-applies, instead of leaving the peer parked
+		// in awaitingRekey on a key the data path never adopted.
+		m.mu.Lock()
+		if c := m.exchanges[remoteID]; c != nil && c.id == a.ExchangeID {
+			delete(m.exchanges, remoteID)
+		}
+		fail := m.registerFailureLocked(remoteID)
+		m.mu.Unlock()
+		m.raiseFailure(remoteID, fail, !wasEstablished)
+		return err
+	}
+	return nil
 }
 
 // ackConverged (responder) records convergence of the exchange named by ackID: a
