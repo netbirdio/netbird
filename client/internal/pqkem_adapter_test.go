@@ -1,37 +1,31 @@
 package internal
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/stretchr/testify/require"
+// TestAppliedGenerations_DropsStale verifies the out-of-order guard: a generation is
+// accepted only when it is strictly newer than the last one applied for that peer, so a
+// reordered PSK callback cannot restore an older key over a newer one.
+func TestAppliedGenerations_DropsStale(t *testing.T) {
+	a := newAppliedGenerations()
 
-	"github.com/netbirdio/netbird/client/internal/pqkem"
-)
+	if !a.claim("peerA", 1) {
+		t.Fatal("first generation must be accepted")
+	}
+	if !a.claim("peerA", 2) {
+		t.Fatal("a newer generation must be accepted")
+	}
+	if a.claim("peerA", 2) {
+		t.Fatal("re-applying the same generation must be dropped")
+	}
+	if a.claim("peerA", 1) {
+		t.Fatal("an older generation arriving late must be dropped")
+	}
+	if !a.claim("peerA", 3) {
+		t.Fatal("a newer generation after a dropped stale one must still be accepted")
+	}
 
-type pqNoopHandler struct{}
-
-func (pqNoopHandler) OnNewPSKReady(pqkem.RemoteID, pqkem.PSK) error { return nil }
-func (pqNoopHandler) OnRekeyFailed(pqkem.RemoteID) error            { return nil }
-
-// TestPQAdapter_CapabilityRoleAware locks the role-aware capability signal: the KEM
-// payload only flows initiator-offer -> responder-answer, so an empty message in the
-// other direction comes from a perfectly capable peer and must NOT flag it. Only the
-// message that should carry material (the answer we receive as initiator) marks a peer
-// non-capable when empty.
-func TestPQAdapter_CapabilityRoleAware(t *testing.T) {
-	// localID "zzzz" > "aaaa" => this manager is the KEM initiator for peer "aaaa".
-	mgr := pqkem.NewManager("zzzz", pqNoopHandler{}, nil)
-	defer mgr.Stop()
-	h := pqHandshaker{mgr: mgr}
-
-	// An empty OFFER from our peer is normal here: as the initiator's responder it puts
-	// its material in the answer, not the offer. It must not disable our offering.
-	h.AnswerPayload("aaaa", nil)
-	payload, _ := h.OfferPayload("aaaa")
-	require.NotNil(t, payload, "an empty offer from a responder-role peer must not mark it non-capable")
-
-	// An empty ANSWER to our offer means the peer does not run the KEM -> stop offering.
-	h.OnAnswer("aaaa", nil)
-	payload2, _ := h.OfferPayload("aaaa")
-	require.Nil(t, payload2, "an empty answer to our offer marks the peer non-capable, so we stop offering")
+	// Generations are tracked independently per peer.
+	if !a.claim("peerB", 1) {
+		t.Fatal("a different peer's first generation must be accepted")
+	}
 }

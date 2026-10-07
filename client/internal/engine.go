@@ -589,7 +589,8 @@ func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
 		return nil
 	}
 	cbHandler := pqCallbackHandler{
-		wg: e.wgInterface,
+		wg:      e.wgInterface,
+		applied: newAppliedGenerations(),
 		// On a persistent rekey failure, re-bootstrap the KEM over Signal: a fresh
 		// signalling offer starts a new exchange that overwrites the stalled PSK on both
 		// sides, recovering from a data-path desync.

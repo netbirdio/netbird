@@ -11,7 +11,12 @@ type CallbackHandler interface {
 	// fires it right after deriving the PSK from the offer and before sending that
 	// answer. A fired callback therefore means the key is derived locally, not that the
 	// peer has confirmed it — the next offer is the later acknowledgement.
-	OnNewPSKReady(remoteID RemoteID, psk PSK) error
+	//
+	// gen is a per-peer monotonic generation: a later exchange always carries a higher
+	// gen. Callbacks can be applied out of order (two exchanges deriving concurrently),
+	// so the host must ignore a call whose gen is not newer than the one it last applied
+	// for that peer, or it may restore an older PSK over a newer one and split the tunnel.
+	OnNewPSKReady(remoteID RemoteID, gen uint64, psk PSK) error
 
 	// OnRekeyFailed fires when an exchange fails to converge within the allotted time.
 	// Recovery is host-defined: the library reports the event and does not dictate the

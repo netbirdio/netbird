@@ -74,7 +74,7 @@ func (m *Manager) startExchangeTest(remoteID RemoteID, viaSignal bool, ackID Exc
 	return m.startExchangeLocked(remoteID, viaSignal, ackID)
 }
 
-func (f *fakeWG) OnNewPSKReady(remoteID RemoteID, psk PSK) error {
+func (f *fakeWG) OnNewPSKReady(remoteID RemoteID, _ uint64, psk PSK) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.psks[remoteID] = psk

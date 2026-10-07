@@ -2,6 +2,7 @@ package internal
 
 import (
 	"net/netip"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -9,6 +10,31 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/pqkem"
 )
+
+// appliedGenerations records the newest PSK generation applied per peer, so an
+// out-of-order OnNewPSKReady (two exchanges deriving concurrently) can't restore an
+// older PSK over a newer one.
+type appliedGenerations struct {
+	mu   sync.Mutex
+	last map[string]uint64
+}
+
+func newAppliedGenerations() *appliedGenerations {
+	return &appliedGenerations{last: make(map[string]uint64)}
+}
+
+// claim reports whether gen is newer than the last applied for the peer; when it is, it
+// records gen as the newest and returns true. The check and record are atomic, so the
+// slow SetPresharedKey call runs outside this lock.
+func (a *appliedGenerations) claim(peer string, gen uint64) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if gen <= a.last[peer] {
+		return false
+	}
+	a.last[peer] = gen
+	return true
+}
 
 // pqPresharedKeySetter is the subset of the WireGuard interface the ML-KEM callback
 // needs: programming a peer's preshared key. *iface.WGIface satisfies it.
@@ -20,18 +46,27 @@ type pqPresharedKeySetter interface {
 // engine-side implementation of pqkem.CallbackHandler.
 type pqCallbackHandler struct {
 	wg pqPresharedKeySetter
+	// applied drops an out-of-order PSK apply so a stale callback can't overwrite a newer
+	// key. Nil disables the guard.
+	applied *appliedGenerations
 	// reoffer re-bootstraps the KEM over Signal for a peer (a fresh signalling offer)
 	// to recover from a persistent data-path rekey failure. Nil disables recovery.
 	reoffer func(remoteKey string)
 }
 
 // OnNewPSKReady programs the freshly derived PSK for the peer (updateOnly: a no-op
-// if the peer is not present, mirroring Rosenpass).
-func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, psk pqkem.PSK) error {
+// if the peer is not present, mirroring Rosenpass). A callback whose generation is not
+// newer than the last applied for the peer is dropped, so a reordered apply can't
+// restore an older PSK over a newer one.
+func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, gen uint64, psk pqkem.PSK) error {
+	if h.applied != nil && !h.applied.claim(string(remoteID), gen) {
+		log.Tracef("pqkem: dropping stale PSK apply for peer %s (gen %d)", remoteID, gen)
+		return nil
+	}
 	// updateOnly: applies to an already-configured peer (rotation). At bootstrap the
 	// peer is not configured yet, so this is a no-op there and the PSK is instead
 	// pulled at peer-config time (pqHandshaker.PSK / conn.presharedKey).
-	log.Tracef("pqkem: programming PSK for peer %s", remoteID)
+	log.Tracef("pqkem: programming PSK for peer %s (gen %d)", remoteID, gen)
 	return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
 }
 

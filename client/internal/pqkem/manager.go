@@ -82,6 +82,7 @@ const (
 type exchangeCtl struct {
 	id         ExchangeID
 	state      exchangeState
+	gen        uint64 // local, per-peer monotonic generation; lets the host reject a stale PSK apply
 	cancel     context.CancelFunc
 	lastSent   []byte
 	initiator  *Initiator
@@ -116,7 +117,17 @@ type Manager struct {
 	capable     map[RemoteID]bool           // peer runs the KEM (advertised a PQ port); false = known non-capable
 	peerAddrs   map[RemoteID]netip.AddrPort // remoteID -> data-path endpoint (send routing)
 	peersByAddr map[netip.AddrPort]RemoteID // reverse: source endpoint -> remoteID (inbound)
+	genCounter  map[RemoteID]uint64         // per-peer monotonic exchange generation
 	wait        sync.WaitGroup
+}
+
+// nextGenLocked returns the next monotonic generation for a peer's exchange. Assumes
+// m.mu is held. Because exchanges for a given peer are created under the lock in order,
+// a later exchange always carries a higher generation, so the host can drop a PSK apply
+// that arrives out of order (generation <= the one it already applied).
+func (m *Manager) nextGenLocked(remoteID RemoteID) uint64 {
+	m.genCounter[remoteID]++
+	return m.genCounter[remoteID]
 }
 
 // NewManager builds a manager for the local peer identified by its peer identity key
@@ -143,6 +154,7 @@ func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manage
 		capable:          make(map[RemoteID]bool),
 		peerAddrs:        make(map[RemoteID]netip.AddrPort),
 		peersByAddr:      make(map[netip.AddrPort]RemoteID),
+		genCounter:       make(map[RemoteID]uint64),
 	}
 }
 

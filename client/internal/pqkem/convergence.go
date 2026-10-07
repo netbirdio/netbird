@@ -67,6 +67,7 @@ func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID E
 	m.exchanges[remoteID] = &exchangeCtl{
 		id:        id,
 		state:     stateAwaitingAnswer,
+		gen:       m.nextGenLocked(remoteID),
 		cancel:    cancel,
 		lastSent:  raw,
 		initiator: init,
@@ -117,7 +118,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 		return last, nil
 	}
 	// Reserve the slot so a concurrent duplicate offer bails.
-	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved}
+	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, gen: m.nextGenLocked(remoteID)}
 	m.mu.Unlock()
 
 	answerBytes, psk, err := Respond(o.KEMOffer, m.binding(remoteID))
@@ -147,6 +148,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 	ex.state = stateAwaitingAck
 	ex.lastSent = raw
 	ex.pendingPSK = psk
+	gen := ex.gen
 	m.psks[remoteID] = psk
 	m.capable[remoteID] = true // a real KEM offer proves the peer runs the exchange
 	m.mu.Unlock()
@@ -157,7 +159,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 	// part of the commit: if the host can't program it, drop the exchange and do NOT send
 	// the answer, so the initiator times out and re-bootstraps instead of converging on a
 	// key we could not apply. Route it through the failure path.
-	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
+	if err := m.cbHandler.OnNewPSKReady(remoteID, gen, psk); err != nil {
 		m.mu.Lock()
 		if c := m.exchanges[remoteID]; c != nil && c.id == o.ExchangeID {
 			delete(m.exchanges, remoteID)
@@ -238,6 +240,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 		return nil
 	}
 	wasEstablished := m.established[remoteID]
+	gen := cur.gen
 	cur.state = stateAwaitingRekey
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
@@ -247,7 +250,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 
 	m.debug("pqkem: PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "via", via, "kind", kind, "psk_fp", pskFingerprint(psk))
 
-	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
+	if err := m.cbHandler.OnNewPSKReady(remoteID, gen, psk); err != nil {
 		// Applying the PSK is part of the commit: if the host fails to program it, the
 		// exchange is not really converged. Drop it and route the failure through recovery
 		// so a re-bootstrap re-derives and re-applies, instead of leaving the peer parked
