@@ -471,7 +471,8 @@ message NetworkMap {
   // RoutesFirewallRulesIsEmpty indicates whether RouteFirewallRule array is empty or not to bypass protobuf null and empty array equality.
   bool routesFirewallRulesIsEmpty = 11;
 
-  repeated ForwardingRule forwardingRules = 12;
+  // Unused; the ingress port-forwarding feature was discontinued.
+  repeated ForwardingRule forwardingRules = 12 [deprecated = true];
 
   // SSHAuth represents SSH authorization configuration
   SSHAuth sshAuth = 13;
@@ -762,17 +763,13 @@ message RouteFirewallRule {
   string RouteID = 10;
 }
 
+// ForwardingRule is unused; the ingress port-forwarding feature was discontinued.
 message ForwardingRule {
-  // Protocol of the forwarding rule
+  option deprecated = true;
+
   RuleProtocol protocol = 1;
-
-  // portInfo is the ingress destination port information, where the traffic arrives in the gateway node
   PortInfo destinationPort = 2;
-
-  // IP address of the translated address (remote peer) to send traffic to
   bytes translatedAddress = 3;
-
-  // Translated port information, where the traffic should be forwarded to
   PortInfo translatedPort = 4;
 }
 
@@ -818,7 +815,7 @@ message StopExposeResponse {}
 // Component-based NetworkMap wire format (PeerCapabilityComponentNetworkMap).
 //
 // Peers that advertise this capability receive NetworkMap building blocks
-// (peers + groups + policies + routes + dns + ssh + forwarding) and run the
+// (peers + groups + policies + routes + dns + ssh) and run the
 // expansion (Calculate) locally instead of receiving a fully-expanded
 // NetworkMap from the server.
 // =====================================================================
@@ -836,8 +833,8 @@ message NetworkMapEnvelope {
 // client decodes it into a types.NetworkMapComponents and runs Calculate()
 // locally to produce the same NetworkMap the legacy server path would have
 // produced. Every field carries RAW component data — no server-side
-// expansion (firewall rules, DNS config, SSH auth, route firewall rules,
-// forwarding rules) is shipped; the client computes those itself.
+// expansion (firewall rules, DNS config, SSH auth, route firewall rules)
+// is shipped; the client computes those itself.
 message NetworkMapComponentsFull {
   uint64 serial = 1;
 
@@ -921,12 +918,8 @@ message NetworkMapComponentsFull {
   // versions; clients fold it into their Calculate() DNS output.
   int64 dns_forwarder_port = 23;
 
-  // Pre-expanded NetworkMap fragments injected post-Calculate by external
-  // controllers (BYOP / port-forwarding proxies). The receiving client
-  // merges these into its locally-computed NetworkMap the same way the
-  // legacy server does via NetworkMap.Merge — so downstream consumers see
-  // a unified merged result regardless of source.
-  ProxyPatch proxy_patch = 24;
+  // Unused; the ingress port-forwarding feature was discontinued.
+  ProxyPatch proxy_patch = 24 [deprecated = true];
 
   // SSH UserIDClaim — server-side HttpServerConfig.AuthUserIDClaim, or
   // "sub" by default. Populated in proto.SSHAuth.UserIDClaim when the
@@ -939,12 +932,10 @@ message NetworkMapComponentsFull {
   reserved 26 to 50;
 }
 
-// ProxyPatch carries NetworkMap fragments that don't fit the component-graph
-// model — they're pre-expanded by external controllers (BYOP /
-// port-forwarding proxies) and injected post-Calculate. Fields use the
-// legacy wire types because the proxy delivers them pre-formed; there is
-// no raw component shape to convert from. Empty when no proxy is active.
+// ProxyPatch is unused; the ingress port-forwarding feature was discontinued.
 message ProxyPatch {
+  option deprecated = true;
+
   repeated RemotePeerConfig peers = 1;
   repeated RemotePeerConfig offline_peers = 2;
   repeated FirewallRule firewall_rules = 3;
