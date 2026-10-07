@@ -920,7 +920,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 				// we validate at the end to not block the setup key for too long
 				if !sk.IsValid() {
-					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+					return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 				}
 
 				err = transaction.IncrementSetupKeyUsage(ctx, peerAddConfig.SetupKeyID)
