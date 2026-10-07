@@ -163,18 +163,8 @@ func (s *BaseServer) EventStore() activity.Store {
 }
 
 func (s *BaseServer) APIHandler() http.Handler {
-	// init (sub)routers in the order below
-	router := s.Router()
-	apiv1Router := s.ApiV1Router()
-	apiRouter := s.ApiRouter()
-
-	_ = CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
-		m := middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)
-		router.Use(m...)
-		return m
-	})
-
 	_ = CreateNamed(s, "http_v1api", func() http.Handler {
+		apiv1Router := s.ApiV1Router()
 		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
@@ -184,6 +174,7 @@ func (s *BaseServer) APIHandler() http.Handler {
 	})
 
 	_ = CreateNamed(s, "http_v0api", func() http.Handler {
+		apiRouter := s.ApiRouter()
 		_, err := nbhttp.NewAPIHandler(
 			context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
 			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
@@ -196,7 +187,7 @@ func (s *BaseServer) APIHandler() http.Handler {
 		return apiRouter
 	})
 
-	return router
+	return s.Router()
 }
 
 // IDPHandler returns the HTTP handler for the embedded IdP (Dex), or nil if
@@ -209,18 +200,27 @@ func (s *BaseServer) IDPHandler() http.Handler {
 	return cors.AllowAll().Handler(embeddedIdP.Handler())
 }
 
+// Router returns the root HTTP router with the shared API middleware applied.
 func (s *BaseServer) Router() *mux.Router {
-	return Create(s, mux.NewRouter)
+	return Create(s, func() *mux.Router {
+		router := mux.NewRouter()
+		router.Use(middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)...)
+		return router
+	})
 }
 
+// ApiV1Router returns the subrouter for the versioned API under apiV1Prefix.
 func (s *BaseServer) ApiV1Router() *mux.Router {
 	return CreateNamed(s, "apiv1_router", func() *mux.Router {
 		return s.Router().PathPrefix(apiV1Prefix).Subrouter()
 	})
 }
 
+// ApiRouter returns the subrouter for the unversioned API under apiPrefix.
 func (s *BaseServer) ApiRouter() *mux.Router {
 	return CreateNamed(s, "apiv0_router", func() *mux.Router {
+		// The nested versioned prefix must be registered before the broader apiPrefix.
+		s.ApiV1Router()
 		return s.Router().PathPrefix(apiPrefix).Subrouter()
 	})
 }
