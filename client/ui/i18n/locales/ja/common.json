@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "一致する言語がありません。"
     },
+    "settings.general.theme.label": {
+        "message": "テーマ"
+    },
+    "settings.general.theme.help": {
+        "message": "ライト、ダーク、またはシステムの外観に従います。"
+    },
+    "settings.general.theme.system": {
+        "message": "システム"
+    },
+    "settings.general.theme.light": {
+        "message": "ライト"
+    },
+    "settings.general.theme.dark": {
+        "message": "ダーク"
+    },
     "settings.general.management.label": {
         "message": "管理サーバー"
     },
@@ -1347,6 +1362,12 @@
     },
     "error.daemon_unreachable": {
         "message": "NetBird デーモンが応答していません。サービスが実行されているか確認してください。"
+    },
+    "error.settings_locked": {
+        "message": "この端末では設定を変更できません。管理者によってロックされています。"
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "この設定は組織によって管理されているため、変更できません。"
     },
     "error.unknown": {
         "message": "操作に失敗しました。"

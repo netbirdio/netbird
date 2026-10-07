@@ -47,7 +47,7 @@ const (
 
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	}
 
 	if allowed {
-		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter, macFilter)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -1494,9 +1494,12 @@ func checkAuth(ctx context.Context, loginUserID string, peer *nbpeer.Peer) error
 
 func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Settings) bool {
 	expired, expiresIn := peer.LoginExpired(settings.PeerLoginExpiration)
-	expired = settings.PeerLoginExpirationEnabled && expired
-	if expired || peer.Status.LoginExpired {
-		log.WithContext(ctx).Debugf("peer's %s login expired %v ago", peer.ID, expiresIn)
+	if settings.PeerLoginExpirationEnabled && expired {
+		log.WithContext(ctx).Debugf("peer's %s login expired %v ago", peer.ID, -expiresIn)
+		return true
+	}
+	if peer.Status.LoginExpired {
+		log.WithContext(ctx).Debugf("peer's %s login is marked as expired", peer.ID)
 		return true
 	}
 	return false
@@ -1643,7 +1646,9 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
 // If there is no peer that expires this function returns false and a duration of 0.
-// This function only considers peers that haven't been expired yet and that are connected.
+// This function only considers peers that haven't been expired yet. Offline peers count too:
+// a running job is never re-armed on connect, so a peer that reconnects with an old login
+// must already be part of the scheduled run.
 func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
 	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -1663,8 +1668,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 
 	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
-		// consider only connected peers because others will require login on connecting to the management server
-		if peer.Status.LoginExpired || !peer.Status.Connected {
+		if peer.Status.LoginExpired {
 			continue
 		}
 		_, duration := peer.LoginExpired(settings.PeerLoginExpiration)
@@ -1835,15 +1839,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 // validatePeerDelete checks if the peer can be deleted.
 func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transaction store.Store, accountId, peerId string) error {
-	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
-	if err != nil {
-		return err
-	}
-
-	if linkedInIngressPorts {
-		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
-	}
-
 	linked, router := isPeerLinkedToNetworkRouter(ctx, transaction, accountId, peerId)
 	if linked {
 		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)

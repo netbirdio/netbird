@@ -125,7 +125,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	cfgPath, err := profState.FilePath()
 	require.NoError(t, err)
 
-	cfg, err := profilemanager.GetConfig(cfgPath)
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
 
 	require.Equal(t, "https://new-api.netbird.io:443", cfg.ManagementURL.String())

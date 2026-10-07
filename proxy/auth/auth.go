@@ -30,6 +30,14 @@ const (
 	SessionJWTIssuer     = "netbird-management"
 )
 
+// Query parameters management uses to hand the OIDC session to the proxy. The
+// proxy strips them before forwarding, so they must not collide with names the
+// proxied service uses itself.
+const (
+	SessionCodeQueryParam  = "nb_session_code"
+	SessionTokenQueryParam = "session_token"
+)
+
 // HeaderUserID is the synthetic user id recorded for header-authenticated
 // requests. Header auth validates a per-service secret and resolves no user
 // record, so proxy access logs and management-minted session tokens both
@@ -66,7 +74,7 @@ func ValidateSessionJWT(tokenString, domain string, publicKey ed25519.PublicKey)
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
-	}, jwt.WithAudience(domain), jwt.WithIssuer(SessionJWTIssuer))
+	}, jwt.WithAudience(domain), jwt.WithIssuer(SessionJWTIssuer), jwt.WithStrictDecoding())
 	if err != nil {
 		return "", "", "", nil, nil, fmt.Errorf("parse token: %w", err)
 	}

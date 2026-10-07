@@ -101,10 +101,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
 
-		for _, peerID := range newGroup.Peers {
-			if err := transaction.AddPeerToGroup(ctx, accountID, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
-			}
+		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, newGroup.Peers, nil); err != nil {
+			return err
 		}
 
 		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
@@ -168,9 +166,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID})
+		if err != nil {
 			return err
 		}
+		change.ChangedPeerIDs = ipv6Changed
 
 		// A membership change does not alter which entities reference the group, so
 		// the dependency walk runs once against the post-change snapshot. The new
@@ -200,6 +200,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 // syncGroupMembership applies the peer membership delta for a group within a transaction.
 func syncGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
+	if err := validateGroupPeers(ctx, transaction, accountID, peersToAdd); err != nil {
+		return err
+	}
 	for _, peerID := range peersToAdd {
 		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, groupID, err)
@@ -210,6 +213,25 @@ func syncGroupMembership(ctx context.Context, transaction store.Store, accountID
 			return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, groupID, err)
 		}
 	}
+	return nil
+}
+
+func validateGroupPeers(ctx context.Context, transaction store.Store, accountID string, peerIDs []string) error {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	peers, err := transaction.GetPeersByIDs(ctx, store.LockingStrengthNone, accountID, peerIDs)
+	if err != nil {
+		return err
+	}
+
+	for _, peerID := range peerIDs {
+		if _, ok := peers[peerID]; !ok {
+			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+		}
+	}
+
 	return nil
 }
 
@@ -301,7 +323,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	var globalErr error
 	for _, newGroup := range groups {
 		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
-		events, snap, err := am.updateSingleGroup(ctx, accountID, userID, newGroup, change)
+		events, snap, change, err := am.updateSingleGroup(ctx, accountID, userID, newGroup, change)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
 			if len(groups) == 1 {
@@ -324,7 +346,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	return globalErr
 }
 
-func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, error) {
+func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, affectedpeers.Change, error) {
 	var events []func()
 	var snap *affectedpeers.Snapshot
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -344,9 +366,11 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 			return err
 		}
 
-		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID})
+		if err != nil {
 			return err
 		}
+		change.ChangedPeerIDs = ipv6Changed
 
 		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
@@ -357,7 +381,7 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
 		return err
 	})
-	return events, snap, err
+	return events, snap, change, err
 }
 
 // prepareGroupEvents prepares a list of event functions to be stored.
@@ -460,8 +484,8 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	var allErrors error
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group
-	var snap *affectedpeers.Snapshot
-	var change affectedpeers.Change
+	var snap, ipv6Snap *affectedpeers.Snapshot
+	var change, ipv6Change affectedpeers.Change
 
 	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
@@ -490,8 +514,18 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			return err
 		}
 
-		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, groupIDsToDelete); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, groupIDsToDelete)
+		if err != nil {
 			return err
+		}
+
+		// Members of a deleted IPv6-enabled group lose their address, which the
+		// pre-delete snapshot cannot see, so they are resolved post-delete.
+		if len(ipv6Changed) > 0 {
+			ipv6Change = affectedpeers.Change{ChangedPeerIDs: ipv6Changed}
+			if ipv6Snap, err = affectedpeers.Load(ctx, transaction, accountID, ipv6Change); err != nil {
+				return err
+			}
 		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
@@ -504,7 +538,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	go am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap, ipv6Snap}, []affectedpeers.Change{change, ipv6Change})
 
 	return allErrors
 }
@@ -540,15 +574,18 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+		if err := syncGroupMembership(ctx, transaction, accountID, groupID, []string{peerID}, nil); err != nil {
 			return err
 		}
 
-		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID})
+		if err != nil {
 			return err
 		}
+		// A peer whose IPv6 address changed is visible to every peer that reaches it
+		// through any of its groups, not only through this one.
+		change.ChangedPeerIDs = ipv6Changed
 
-		var err error
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
@@ -614,11 +651,14 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID})
+		if err != nil {
 			return err
 		}
+		// A peer whose IPv6 address changed is visible to every peer that reaches it
+		// through any of its groups, not only through this one.
+		change.ChangedPeerIDs = ipv6Changed
 
-		var err error
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
@@ -752,6 +792,14 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 
 	if isLinked, linkedPolicy := isGroupLinkedToAgentNetworkPolicy(ctx, transaction, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"agent network policy", linkedPolicy.Name}
+	}
+
+	isLinked, linkedRule, err := isGroupLinkedToAgentNetworkBudgetRule(ctx, transaction, group.AccountID, group.ID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to check agent network budget rules")
+	}
+	if isLinked {
+		return &GroupLinkError{"agent network budget rule", linkedRule.Name}
 	}
 
 	return checkGroupLinkedToSettings(ctx, transaction, group)
@@ -923,6 +971,26 @@ func isGroupLinkedToAgentNetworkPolicy(ctx context.Context, transaction store.St
 		}
 	}
 	return false, nil
+}
+
+// isGroupLinkedToAgentNetworkBudgetRule checks if a group is a target of any
+// account-level agent network budget rule.
+func isGroupLinkedToAgentNetworkBudgetRule(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *agentNetworkTypes.AccountBudgetRule, error) {
+	rules, err := transaction.GetAccountAgentNetworkBudgetRules(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving agent network budget rules while checking group linkage: %v", err)
+		return false, nil, err
+	}
+
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		if slices.Contains(rule.TargetGroups, groupID) {
+			return true, rule, nil
+		}
+	}
+	return false, nil, nil
 }
 
 // areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
