@@ -9,8 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -145,10 +143,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	err = WithBackOff(func() error {
 		var backOffErr error
 		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
+		if terminalLoginError(backOffErr) {
 			loginErr = backOffErr
 			return nil
 		}
@@ -327,10 +322,28 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 
 	}
 
-	config, err := profilemanager.ReadConfig(configFilePath)
+	config, err := profilemanager.ReadConfigOrDefault(configFilePath)
 	if err != nil {
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
+	// Reading a config does not provision one: this login is about to dial
+	// management with the profile's identity, so mint the keys if the profile
+	// has none yet and put them on disk — a key that stayed in memory would
+	// come back different on the next run and register a second peer.
+	//
+	// Before the MDM overlay below, on purpose: the file must keep the
+	// profile's own values. The overlay is runtime-only and re-derived on
+	// every load, so persisting it would turn an enforced management URL or
+	// pre-shared key into one the user appears to own once the policy is
+	// withdrawn.
+	if generated, err := config.EnsureIdentity(); err != nil {
+		return fmt.Errorf("ensure profile identity: %v", err)
+	} else if generated {
+		if err := profilemanager.WriteOutConfig(configFilePath, config); err != nil {
+			return fmt.Errorf("write out config file %s: %v", configFilePath, err)
+		}
+	}
+
 	// CLI standalone login: profilemanager no longer auto-applies MDM,
 	// so layer in the OS-native policy here. Desktop builds construct
 	// a Loader with no fetcher — the build-tagged loadPlatform reads

@@ -608,69 +608,6 @@ func (e IdentityProviderType) Valid() bool {
 	}
 }
 
-// Defines values for IngressPortAllocationPortMappingProtocol.
-const (
-	IngressPortAllocationPortMappingProtocolTcp    IngressPortAllocationPortMappingProtocol = "tcp"
-	IngressPortAllocationPortMappingProtocolTcpudp IngressPortAllocationPortMappingProtocol = "tcp/udp"
-	IngressPortAllocationPortMappingProtocolUdp    IngressPortAllocationPortMappingProtocol = "udp"
-)
-
-// Valid indicates whether the value is a known member of the IngressPortAllocationPortMappingProtocol enum.
-func (e IngressPortAllocationPortMappingProtocol) Valid() bool {
-	switch e {
-	case IngressPortAllocationPortMappingProtocolTcp:
-		return true
-	case IngressPortAllocationPortMappingProtocolTcpudp:
-		return true
-	case IngressPortAllocationPortMappingProtocolUdp:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for IngressPortAllocationRequestDirectPortProtocol.
-const (
-	IngressPortAllocationRequestDirectPortProtocolTcp    IngressPortAllocationRequestDirectPortProtocol = "tcp"
-	IngressPortAllocationRequestDirectPortProtocolTcpudp IngressPortAllocationRequestDirectPortProtocol = "tcp/udp"
-	IngressPortAllocationRequestDirectPortProtocolUdp    IngressPortAllocationRequestDirectPortProtocol = "udp"
-)
-
-// Valid indicates whether the value is a known member of the IngressPortAllocationRequestDirectPortProtocol enum.
-func (e IngressPortAllocationRequestDirectPortProtocol) Valid() bool {
-	switch e {
-	case IngressPortAllocationRequestDirectPortProtocolTcp:
-		return true
-	case IngressPortAllocationRequestDirectPortProtocolTcpudp:
-		return true
-	case IngressPortAllocationRequestDirectPortProtocolUdp:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for IngressPortAllocationRequestPortRangeProtocol.
-const (
-	IngressPortAllocationRequestPortRangeProtocolTcp    IngressPortAllocationRequestPortRangeProtocol = "tcp"
-	IngressPortAllocationRequestPortRangeProtocolTcpudp IngressPortAllocationRequestPortRangeProtocol = "tcp/udp"
-	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
-)
-
-// Valid indicates whether the value is a known member of the IngressPortAllocationRequestPortRangeProtocol enum.
-func (e IngressPortAllocationRequestPortRangeProtocol) Valid() bool {
-	switch e {
-	case IngressPortAllocationRequestPortRangeProtocolTcp:
-		return true
-	case IngressPortAllocationRequestPortRangeProtocolTcpudp:
-		return true
-	case IngressPortAllocationRequestPortRangeProtocolUdp:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for IntegrationResponsePlatform.
 const (
 	IntegrationResponsePlatformDatadog     IntegrationResponsePlatform = "datadog"
@@ -2600,15 +2537,6 @@ type AgentNetworkUsageBucket struct {
 	TotalTokens int64 `json:"total_tokens"`
 }
 
-// AvailablePorts defines model for AvailablePorts.
-type AvailablePorts struct {
-	// Tcp Number of available TCP  ports left on the ingress peer
-	Tcp int `json:"tcp"`
-
-	// Udp Number of available UDP ports left on the ingress peer
-	Udp int `json:"udp"`
-}
-
 // AzureIntegration defines model for AzureIntegration.
 type AzureIntegration struct {
 	// ClientId Azure AD application (client) ID
@@ -3461,139 +3389,6 @@ type IdpIntegrationSyncLog struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// IngressPeer defines model for IngressPeer.
-type IngressPeer struct {
-	AvailablePorts AvailablePorts `json:"available_ports"`
-
-	// Connected Indicates if an ingress peer is connected to the management server
-	Connected bool `json:"connected"`
-
-	// Enabled Indicates if an ingress peer is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-
-	// Id ID of the ingress peer
-	Id string `json:"id"`
-
-	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
-	IngressIp string `json:"ingress_ip"`
-
-	// PeerId ID of the peer that is used as an ingress peer
-	PeerId string `json:"peer_id"`
-
-	// Region Region of the ingress peer
-	Region string `json:"region"`
-}
-
-// IngressPeerCreateRequest defines model for IngressPeerCreateRequest.
-type IngressPeerCreateRequest struct {
-	// Enabled Defines if an ingress peer is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-
-	// PeerId ID of the peer that is used as an ingress peer
-	PeerId string `json:"peer_id"`
-}
-
-// IngressPeerUpdateRequest defines model for IngressPeerUpdateRequest.
-type IngressPeerUpdateRequest struct {
-	// Enabled Defines if an ingress peer is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-}
-
-// IngressPortAllocation defines model for IngressPortAllocation.
-type IngressPortAllocation struct {
-	// Enabled Indicates if an ingress port allocation is enabled
-	Enabled bool `json:"enabled"`
-
-	// Id ID of the ingress port allocation
-	Id string `json:"id"`
-
-	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
-	IngressIp string `json:"ingress_ip"`
-
-	// IngressPeerId ID of the ingress peer that forwards the ports
-	IngressPeerId string `json:"ingress_peer_id"`
-
-	// Name Name of the ingress port allocation
-	Name string `json:"name"`
-
-	// PortRangeMappings List of port ranges that are allowed to be used by the ingress peer
-	PortRangeMappings []IngressPortAllocationPortMapping `json:"port_range_mappings"`
-
-	// Region Region of the ingress peer
-	Region string `json:"region"`
-}
-
-// IngressPortAllocationPortMapping defines model for IngressPortAllocationPortMapping.
-type IngressPortAllocationPortMapping struct {
-	// IngressEnd The ending port of the range of ingress ports mapped to the forwarded ports
-	IngressEnd int `json:"ingress_end"`
-
-	// IngressStart The starting port of the range of ingress ports mapped to the forwarded ports
-	IngressStart int `json:"ingress_start"`
-
-	// Protocol Protocol accepted by the ports
-	Protocol IngressPortAllocationPortMappingProtocol `json:"protocol"`
-
-	// TranslatedEnd The ending port of the translated range of forwarded ports
-	TranslatedEnd int `json:"translated_end"`
-
-	// TranslatedStart The starting port of the translated range of forwarded ports
-	TranslatedStart int `json:"translated_start"`
-}
-
-// IngressPortAllocationPortMappingProtocol Protocol accepted by the ports
-type IngressPortAllocationPortMappingProtocol string
-
-// IngressPortAllocationRequest defines model for IngressPortAllocationRequest.
-type IngressPortAllocationRequest struct {
-	DirectPort *IngressPortAllocationRequestDirectPort `json:"direct_port,omitempty"`
-
-	// Enabled Indicates if an ingress port allocation is enabled
-	Enabled bool `json:"enabled"`
-
-	// Name Name of the ingress port allocation
-	Name string `json:"name"`
-
-	// PortRanges List of port ranges that are forwarded by the ingress peer
-	PortRanges *[]IngressPortAllocationRequestPortRange `json:"port_ranges,omitempty"`
-}
-
-// IngressPortAllocationRequestDirectPort defines model for IngressPortAllocationRequestDirectPort.
-type IngressPortAllocationRequestDirectPort struct {
-	// Count The number of ports to be forwarded
-	Count int `json:"count"`
-
-	// Protocol The protocol accepted by the port
-	Protocol IngressPortAllocationRequestDirectPortProtocol `json:"protocol"`
-}
-
-// IngressPortAllocationRequestDirectPortProtocol The protocol accepted by the port
-type IngressPortAllocationRequestDirectPortProtocol string
-
-// IngressPortAllocationRequestPortRange defines model for IngressPortAllocationRequestPortRange.
-type IngressPortAllocationRequestPortRange struct {
-	// End The ending port of the range of forwarded ports
-	End int `json:"end"`
-
-	// Protocol The protocol accepted by the port range
-	Protocol IngressPortAllocationRequestPortRangeProtocol `json:"protocol"`
-
-	// Start The starting port of the range of forwarded ports
-	Start int `json:"start"`
-}
-
-// IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
-type IngressPortAllocationRequestPortRangeProtocol string
-
 // InstanceStatus Instance status information
 type InstanceStatus struct {
 	// SetupRequired Indicates whether the instance requires initial setup
@@ -3827,6 +3622,15 @@ type Network struct {
 
 	// RoutingPeersCount Count of routing peers associated with the network
 	RoutingPeersCount int `json:"routing_peers_count"`
+}
+
+// NetworkAddress defines model for NetworkAddress.
+type NetworkAddress struct {
+	// Mac MAC address of the interface
+	Mac string `json:"mac"`
+
+	// NetIp IP address with CIDR of the interface
+	NetIp string `json:"net_ip"`
 }
 
 // NetworkRequest defines model for NetworkRequest.
@@ -4278,6 +4082,9 @@ type Peer struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
+
 	// Os Peer's operating system and version
 	Os string `json:"os"`
 
@@ -4371,6 +4178,9 @@ type PeerBatch struct {
 
 	// Name Peer's hostname
 	Name string `json:"name"`
+
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
@@ -6294,12 +6104,9 @@ type GetApiPeersParams struct {
 
 	// Ip Filter peers by IP address
 	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
-}
 
-// GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
-type GetApiPeersPeerIdIngressPortsParams struct {
-	// Name Filters ingress port allocations by name
-	Name *string `form:"name,omitempty" json:"name,omitempty"`
+	// Mac Filter peers by MAC address of a network interface
+	Mac *string `form:"mac,omitempty" json:"mac,omitempty"`
 }
 
 // GetApiUsersParams defines parameters for GetApiUsers.
@@ -6382,12 +6189,6 @@ type PostApiIdentityProvidersJSONRequestBody = IdentityProviderRequest
 
 // PutApiIdentityProvidersIdpIdJSONRequestBody defines body for PutApiIdentityProvidersIdpId for application/json ContentType.
 type PutApiIdentityProvidersIdpIdJSONRequestBody = IdentityProviderRequest
-
-// PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
-type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
-
-// PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
-type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
 
 // CreateAzureIntegrationJSONRequestBody defines body for CreateAzureIntegration for application/json ContentType.
 type CreateAzureIntegrationJSONRequestBody = CreateAzureIntegrationRequest
@@ -6496,12 +6297,6 @@ type PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody = NetworkRouterReques
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest
-
-// PostApiPeersPeerIdIngressPortsJSONRequestBody defines body for PostApiPeersPeerIdIngressPorts for application/json ContentType.
-type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationRequest
-
-// PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
-type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
 
 // PostApiPeersPeerIdJobsJSONRequestBody defines body for PostApiPeersPeerIdJobs for application/json ContentType.
 type PostApiPeersPeerIdJobsJSONRequestBody = JobRequest

@@ -15,7 +15,6 @@ import (
 type FirewallRule = sharedtypes.FirewallRule
 
 type NetworkMap = sharedtypes.NetworkMap
-type ForwardingRule = sharedtypes.ForwardingRule
 
 type PolicyTrafficActionType = sharedtypes.PolicyTrafficActionType
 type PolicyRuleProtocolType = sharedtypes.PolicyRuleProtocolType

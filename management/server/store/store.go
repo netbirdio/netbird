@@ -160,7 +160,7 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
@@ -320,6 +320,7 @@ type Store interface {
 	GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error)
 	GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkUsage, error)
 	DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error)
+	GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx context.Context) ([]string, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
@@ -335,6 +336,7 @@ type Store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
@@ -388,6 +390,7 @@ type Store interface {
 	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)
 	GetAgentNetworkConsumptionBatch(ctx context.Context, lockStrength LockingStrength, accountID string, keys []agentNetworkTypes.ConsumptionKey) (map[agentNetworkTypes.ConsumptionKey]*agentNetworkTypes.Consumption, error)
 	ListAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Consumption, error)
+	DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx context.Context) (int64, error)
 	GetAccountAgentNetworkBudgetRules(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.AccountBudgetRule, error)
 	GetAgentNetworkBudgetRuleByID(ctx context.Context, lockStrength LockingStrength, accountID, ruleID string) (*agentNetworkTypes.AccountBudgetRule, error)
 	SaveAgentNetworkBudgetRule(ctx context.Context, rule *agentNetworkTypes.AccountBudgetRule) error

@@ -379,6 +379,35 @@ func (a *Auth) SetConfigFromJSON(jsonStr string) error {
 }
 
 func (a *Auth) setBaseConfig(base *profilemanager.Config) error {
+	// A logged-out profile carries no keys: the mobile logout clears them in
+	// place so the next login registers a new peer instead of resurrecting the
+	// old one. This is that login, and auth.NewAuth parses the WireGuard key
+	// before the SSO flow even starts, so an absent identity fails the login on
+	// key size rather than asking the user to sign in.
+	//
+	// Minted on the base config, which is the one GetConfigJSON hands back for
+	// the caller to store — the overlaid copy below is runtime-only.
+	generated, err := base.EnsureIdentity()
+	if err != nil {
+		return fmt.Errorf("ensure profile identity: %w", err)
+	}
+	if generated {
+		if a.cfgPath != "" {
+			// Non-atomic, like NewAuth's own write: the tvOS App Group sandbox
+			// blocks the temp-file-and-rename an atomic write needs.
+			if err := profilemanager.DirectWriteOutConfig(a.cfgPath, base); err != nil {
+				return fmt.Errorf("write out profile config: %w", err)
+			}
+		} else {
+			// No file to write to — this is the tvOS path, where the profile
+			// lives in the caller's own store. It persists the new identity by
+			// calling GetConfigJSON once the login completes; until then the
+			// keys exist only here, and a login that never completes leaves
+			// nothing behind.
+			log.Infof("provisioned a peer identity for a config with no file on disk")
+		}
+	}
+
 	overlaid, err := copyConfig(base)
 	if err != nil {
 		return err
