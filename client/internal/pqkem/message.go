@@ -28,12 +28,17 @@ const (
 	headerSize = 1 + 1 + ExchangeIDSize
 )
 
-// MsgType tags the two message kinds of the exchange.
+// MsgType tags the message kinds of the exchange.
 type MsgType uint8
 
 const (
 	MsgOffer MsgType = iota + 1
 	MsgAnswer
+	// MsgError is a responder's "I run the KEM but could not answer this offer" reply.
+	// It is a non-empty, payload-less marker so the initiator does not mistake a
+	// transient failure for an empty "peer does not run the KEM" answer and mark the
+	// peer non-capable. The exchange still times out and re-bootstraps.
+	MsgError
 )
 
 // ExchangeID is the per-exchange correlator. The zero value means "none" (an offer
@@ -76,6 +81,17 @@ func (m *AnswerMsg) Encode() ([]byte, error) {
 	return frame(MsgAnswer, m.ExchangeID, m.KEMAnswer), nil
 }
 
+// ErrorMsg is the payload-less marker a responder returns when it runs the KEM but
+// could not answer a given offer, naming the offer's exchange.
+type ErrorMsg struct {
+	ExchangeID ExchangeID
+}
+
+// Encode serialises the error marker (header only, no payload).
+func (m *ErrorMsg) Encode() []byte {
+	return frame(MsgError, m.ExchangeID, nil)
+}
+
 // Decode parses a framed message into one of *OfferMsg / *AnswerMsg.
 func Decode(buf []byte) (MsgType, any, error) {
 	if len(buf) < headerSize {
@@ -103,6 +119,11 @@ func Decode(buf []byte) (MsgType, any, error) {
 			return typ, nil, fmt.Errorf("answer payload: got %d, want %d", len(payload), AnswerSize)
 		}
 		return typ, &AnswerMsg{ExchangeID: id, KEMAnswer: payload}, nil
+	case MsgError:
+		if len(payload) != 0 {
+			return typ, nil, fmt.Errorf("error marker payload: got %d, want 0", len(payload))
+		}
+		return typ, &ErrorMsg{ExchangeID: id}, nil
 	default:
 		return typ, nil, fmt.Errorf("unknown message type %d", typ)
 	}

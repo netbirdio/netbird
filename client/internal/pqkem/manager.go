@@ -365,7 +365,15 @@ func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error)
 	if typ != MsgOffer {
 		return nil, fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
 	}
-	return m.processOffer(remoteID, msg.(*OfferMsg), viaSignalLabel)
+	o := msg.(*OfferMsg)
+	answer, err := m.processOffer(remoteID, o, viaSignalLabel)
+	if err != nil {
+		// Reply with an error marker rather than an empty answer: the initiator must not
+		// read our transient failure as "peer does not run the KEM" and mark us
+		// non-capable. The exchange times out on the initiator and re-bootstraps.
+		return (&ErrorMsg{ExchangeID: o.ExchangeID}).Encode(), err
+	}
+	return answer, nil
 }
 
 // SignalOnAnswer processes a KEM answer the host extracted from an incoming answer.
@@ -374,6 +382,12 @@ func (m *Manager) SignalOnAnswer(remoteID RemoteID, answer []byte) error {
 	typ, msg, err := Decode(answer)
 	if err != nil {
 		return fmt.Errorf("decode signal answer from %s: %w", remoteID, err)
+	}
+	if typ == MsgError {
+		// The responder runs the KEM but failed to answer this offer. It is capable, so
+		// leave the exchange to time out and re-bootstrap; do not mark it non-capable.
+		m.trace("pqkem: peer reported an error answering our offer", "peer", remoteID)
+		return nil
 	}
 	if typ != MsgAnswer {
 		return fmt.Errorf("expected answer from %s, got type %d", remoteID, typ)
@@ -416,6 +430,9 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 		return m.pushDataPath(remoteID, answer)
 	case MsgAnswer:
 		return m.processAnswer(remoteID, msg.(*AnswerMsg), viaDataPathLabel)
+	case MsgError:
+		m.trace("pqkem: peer reported an error over the data path", "peer", remoteID)
+		return nil
 	default:
 		return fmt.Errorf("unhandled data-path message type %d from %s", typ, remoteID)
 	}

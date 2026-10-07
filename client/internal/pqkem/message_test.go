@@ -30,6 +30,15 @@ func TestMessageRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, MsgAnswer, typ)
 	require.Equal(t, answer, decoded.(*AnswerMsg).KEMAnswer)
+
+	// The error marker is a non-empty, payload-less message carrying the exchange id, so
+	// the initiator can tell a responder failure from an empty "no KEM" answer.
+	errBytes := (&ErrorMsg{ExchangeID: id}).Encode()
+	require.NotEmpty(t, errBytes)
+	typ, decoded, err = Decode(errBytes)
+	require.NoError(t, err)
+	require.Equal(t, MsgError, typ)
+	require.Equal(t, id, decoded.(*ErrorMsg).ExchangeID)
 }
 
 func TestDecodeRejects(t *testing.T) {

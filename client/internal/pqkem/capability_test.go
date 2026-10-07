@@ -64,3 +64,35 @@ func TestManager_EstablishedPeerNotDowngraded(t *testing.T) {
 	assert.True(t, ok, "an established peer must keep its PSK despite a stray zero")
 	assert.NotEqual(t, PSK{}, psk)
 }
+
+// TestManager_ErrorMarkerIsBenign verifies finding F's wire half: a responder failure is
+// signalled with an error marker (not an empty answer), so the initiator does not read it
+// as "peer has no KEM". The marker must be benign — it must not disturb the in-flight
+// exchange, which still converges when the real answer arrives.
+func TestManager_ErrorMarkerIsBenign(t *testing.T) {
+	dA, dB, wgA, wgB, _ := pair(t) // dB ("bbbb") initiator, dA ("aaaa") responder
+	defer dA.Stop()
+	defer dB.Stop()
+
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+
+	_, decoded, err := Decode(offer)
+	require.NoError(t, err)
+	offerID := decoded.(*OfferMsg).ExchangeID
+
+	// An error marker for the in-flight offer must be accepted without error and must not
+	// tear the exchange down (unlike an empty answer, which signals non-capability).
+	marker := (&ErrorMsg{ExchangeID: offerID}).Encode()
+	require.NoError(t, dB.SignalOnAnswer("aaaa", marker))
+
+	// The real answer still converges both sides on the same PSK.
+	answer, err := dA.SignalOnOffer("bbbb", offer)
+	require.NoError(t, err)
+	require.NotNil(t, answer)
+	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
+
+	assert.Equal(t, wgB.psk("aaaa"), wgA.psk("bbbb"), "the exchange must still converge after a benign error marker")
+	assert.NotEqual(t, PSK{}, wgB.psk("aaaa"))
+}
