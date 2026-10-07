@@ -163,40 +163,40 @@ func (s *BaseServer) EventStore() activity.Store {
 }
 
 func (s *BaseServer) APIHandler() http.Handler {
-	return Create(s, func() http.Handler {
-		routerMiddleware := CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
-			return middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)
-		})
+	// init (sub)routers in the order below
+	router := s.Router()
+	apiv1Router := s.ApiV1Router()
+	apiRouter := s.ApiRouter()
 
-		router := s.Router()
-		router.Use(routerMiddleware...)
-
-		_ = CreateNamed(s, "http_v1api", func() http.Handler {
-			apiv1Router := router.PathPrefix(apiV1Prefix).Subrouter()
-			_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
-			if err != nil {
-				log.Fatalf("failed to create API handler: %v", err)
-			}
-
-			return apiv1Router
-		})
-
-		_ = CreateNamed(s, "http_v0api", func() http.Handler {
-			apiRouter := router.PathPrefix(apiPrefix).Subrouter()
-			_, err := nbhttp.NewAPIHandler(
-				context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
-				s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
-				s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
-				s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
-				s.AgentNetworkManager(), nil)
-			if err != nil {
-				log.Fatalf("failed to create API handler: %v", err)
-			}
-			return apiRouter
-		})
-
-		return router
+	routerMiddleware := CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
+		return middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)
 	})
+
+	router.Use(routerMiddleware...)
+
+	_ = CreateNamed(s, "http_v1api", func() http.Handler {
+		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
+		if err != nil {
+			log.Fatalf("failed to create API handler: %v", err)
+		}
+
+		return apiv1Router
+	})
+
+	_ = CreateNamed(s, "http_v0api", func() http.Handler {
+		_, err := nbhttp.NewAPIHandler(
+			context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
+			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
+			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
+			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
+			s.AgentNetworkManager(), nil)
+		if err != nil {
+			log.Fatalf("failed to create API handler: %v", err)
+		}
+		return apiRouter
+	})
+
+	return router
 }
 
 // IDPHandler returns the HTTP handler for the embedded IdP (Dex), or nil if
@@ -211,6 +211,18 @@ func (s *BaseServer) IDPHandler() http.Handler {
 
 func (s *BaseServer) Router() *mux.Router {
 	return Create(s, mux.NewRouter)
+}
+
+func (s *BaseServer) ApiV1Router() *mux.Router {
+	return CreateNamed(s, "apiv1_router", func() *mux.Router {
+		return s.Router().PathPrefix(apiV1Prefix).Subrouter()
+	})
+}
+
+func (s *BaseServer) ApiRouter() *mux.Router {
+	return CreateNamed(s, "apiv0_router", func() *mux.Router {
+		return s.Router().PathPrefix(apiPrefix).Subrouter()
+	})
 }
 
 func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
