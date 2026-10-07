@@ -14,8 +14,9 @@ const (
 	// DefaultRetryInterval is how often the initiator retransmits its outstanding
 	// data-path offer while awaiting the answer.
 	DefaultRetryInterval = 2 * time.Second
-	// DefaultMaxRetries bounds how many ticks an exchange may run before it is
-	// declared failed. The convergence deadline is thus MaxRetries * RetryInterval.
+	// DefaultMaxRetries is how many times the initiator retransmits its outstanding
+	// offer while awaiting the answer. Failure is declared on the tick after the last
+	// retransmit, so the convergence deadline is (MaxRetries+1) * RetryInterval.
 	DefaultMaxRetries = 10
 	// DefaultMaxRekeyFailures is how many consecutive rekey (non-initial) failures
 	// are tolerated before OnRekeyFailed. The initial exchange fails immediately.
