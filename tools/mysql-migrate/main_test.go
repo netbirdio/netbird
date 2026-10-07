@@ -13,6 +13,7 @@ import (
 
 	dexstorage "github.com/dexidp/dex/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -41,14 +42,11 @@ func TestRun(t *testing.T) {
 	key, err := crypt.GenerateKey()
 	require.NoError(t, err)
 
-	mysqlDSN, mysqlStore := seedMySQL(t, ctx)
+	mysqlDSN := newMySQLDatabase(t, "run_src")
+	pgDSN := newPostgresDatabase(t, ctx, "run_dst")
+	mysqlStore := seedMySQL(t, ctx, mysqlDSN)
 	eventID := seedEvents(t, ctx, dir, key)
 	seedIdP(t, ctx, filepath.Join(dir, "idp.db"))
-
-	_, pgDSN, err := testutil.CreatePostgresTestContainer()
-	require.NoError(t, err)
-	// Dex connects through lib/pq, which requires TLS unless told otherwise.
-	pgDSN = strings.TrimSuffix(pgDSN, "?") + "?sslmode=disable"
 
 	cfg, err := parseFlags([]string{
 		"--mysql-dsn", mysqlDSN,
@@ -101,19 +99,17 @@ func TestRun(t *testing.T) {
 	})
 }
 
-func seedMySQL(t *testing.T, ctx context.Context) (string, store.Store) {
+func seedMySQL(t *testing.T, ctx context.Context, dsn string) *store.SqlStore {
 	t.Helper()
 	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	seed, cleanup, err := store.NewTestStoreFromSQL(ctx, "../../management/server/testdata/extended-store.sql", t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
-	_, dsn, err := testutil.CreateMysqlTestContainer()
-	require.NoError(t, err)
 	mysqlStore, err := store.NewMysqlStoreFromSqlStore(ctx, seed.(*store.SqlStore), dsn, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mysqlStore.Close(ctx) })
-	return dsn, mysqlStore
+	return mysqlStore
 }
 
 func seedEvents(t *testing.T, ctx context.Context, dir, key string) uint64 {
@@ -163,14 +159,7 @@ func TestMySQLTimezone(t *testing.T) {
 	ctx := context.Background()
 	mysqlDSN := newMySQLDatabase(t, "tz_src")
 	pgDSN := newPostgresDatabase(t, ctx, "tz_dst")
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
-	seed, cleanup, err := store.NewTestStoreFromSQL(ctx, "../../management/server/testdata/extended-store.sql", t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	ms, err := store.NewMysqlStoreFromSqlStore(ctx, seed.(*store.SqlStore), mysqlDSN, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ms.Close(ctx) })
+	ms := seedMySQL(t, ctx, mysqlDSN)
 	require.NoError(t, ms.GetDB().Exec("UPDATE accounts SET created_at = '2026-01-02 03:04:05' WHERE id = ?", testAccountID).Error)
 
 	cfg, err := parseFlags([]string{
@@ -197,28 +186,40 @@ func TestParseFlagsRejectsUnknownTimezone(t *testing.T) {
 	assert.ErrorContains(t, err, "--mysql-timezone")
 }
 
-func newMySQLDatabase(t *testing.T, name string) string {
+// newMySQLDatabase creates a database unique to this run in the shared
+// container, so repeated runs (-count) don't collide, and drops it afterwards.
+func newMySQLDatabase(t *testing.T, prefix string) string {
 	t.Helper()
 	_, base, err := testutil.CreateMysqlTestContainer()
 	require.NoError(t, err)
 	admin, err := gorm.Open(mysql.Open(db.MysqlDSN(base)), &gorm.Config{})
 	require.NoError(t, err)
+	name := prefix + "_" + xid.New().String()
 	require.NoError(t, admin.Exec("CREATE DATABASE "+name).Error)
-	if sqlDB, err := admin.DB(); err == nil {
-		_ = sqlDB.Close()
-	}
+	t.Cleanup(func() {
+		_ = admin.Exec("DROP DATABASE IF EXISTS " + name).Error
+		if sqlDB, err := admin.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	return base[:strings.LastIndex(base, "/")] + "/" + name
 }
 
-func newPostgresDatabase(t *testing.T, ctx context.Context, name string) string {
+// newPostgresDatabase is the Postgres counterpart of newMySQLDatabase.
+func newPostgresDatabase(t *testing.T, ctx context.Context, prefix string) string {
 	t.Helper()
 	_, base, err := testutil.CreatePostgresTestContainer()
 	require.NoError(t, err)
+	// Dex connects through lib/pq, which requires TLS unless told otherwise.
 	base = strings.TrimSuffix(base, "?")
 	admin, err := pgxpool.New(ctx, base+"?sslmode=disable")
 	require.NoError(t, err)
-	defer admin.Close()
+	name := prefix + "_" + xid.New().String()
 	_, err = admin.Exec(ctx, "CREATE DATABASE "+name)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+		admin.Close()
+	})
 	return base[:strings.LastIndex(base, "/")] + "/" + name + "?sslmode=disable"
 }
