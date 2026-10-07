@@ -210,6 +210,13 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	page := r.URL.Query().Get("page")
+	pageSize := r.URL.Query().Get("page_size")
+	isConnected := r.URL.Query().Get("connected")
+	approvalRequired := r.URL.Query().Get("approval_required")
+	os := r.URL.Query().Get("os")
+	kind := r.URL.Query().Get("kind")
+	search := r.URL.Query().Get("search")
 	nameFilter := r.URL.Query().Get("name")
 	ipFilter := r.URL.Query().Get("ip")
 	macFilter := r.URL.Query().Get("mac")
