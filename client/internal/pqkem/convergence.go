@@ -191,7 +191,11 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 	if ex.viaSignal {
 		kind = "bootstrap"
 	}
-	ex.state = stateAwaitingRekey
+	// Move to an intermediate state while the PSK is being derived: the exchange is not
+	// committed yet, so OnDataPathRekeyed must not chain the next rotation off it. If we
+	// advanced straight to stateAwaitingRekey, a rekey firing before Finish returns would
+	// let the responder commit PSK N+1 before this side commits PSK N.
+	ex.state = stateFinishing
 	init := ex.initiator
 	ex.initiator = nil
 	m.mu.Unlock()
@@ -200,10 +204,8 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 
 	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteID))
 	if err != nil {
-		// The state already advanced to stateAwaitingRekey and the initiator was cleared,
-		// so initiatorLoop would exit its default branch without registering a failure —
-		// leaving the peer desynced (the responder committed its PSK in processOffer).
-		// Drop the exchange and raise the failure so recovery re-bootstraps.
+		// Finish failed: drop the exchange and raise the failure so recovery re-bootstraps
+		// (the responder already committed its PSK in processOffer, so the peers are split).
 		m.mu.Lock()
 		if cur := m.exchanges[remoteID]; cur != nil && cur.id == a.ExchangeID {
 			delete(m.exchanges, remoteID)
@@ -215,8 +217,16 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 		return err
 	}
 
-	// The initiator has converged: the responder must have derived the key to answer.
+	// Commit only if the exchange we were finishing is still current: a supersede (a signal
+	// re-bootstrap) could have replaced it while Finish ran, in which case this PSK is stale.
 	m.mu.Lock()
+	cur := m.exchanges[remoteID]
+	if cur == nil || cur.id != a.ExchangeID || cur.state != stateFinishing {
+		m.mu.Unlock()
+		m.trace("pqkem: exchange superseded during finish, dropping PSK", "peer", remoteID, "exchange", idHex(a.ExchangeID))
+		return nil
+	}
+	cur.state = stateAwaitingRekey
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
 	m.psks[remoteID] = psk

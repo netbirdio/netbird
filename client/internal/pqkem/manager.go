@@ -67,6 +67,7 @@ type exchangeState uint8
 const (
 	stateReserved       exchangeState = iota // responder: deriving the answer
 	stateAwaitingAnswer                      // initiator: offer sent, awaiting the answer
+	stateFinishing                           // initiator: answer in, deriving the PSK (not yet committed)
 	stateAwaitingRekey                       // initiator: PSK derived+set, awaiting OnDataPathRekeyed to chain the next offer
 	stateAwaitingAck                         // responder: answer sent, awaiting the next offer that acks this exchange
 )
