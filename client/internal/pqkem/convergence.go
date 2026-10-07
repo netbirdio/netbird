@@ -108,7 +108,8 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 	}
 
 	m.mu.Lock()
-	if ex := m.exchanges[remoteID]; ex != nil && ex.id == o.ExchangeID {
+	ex := m.exchanges[remoteID]
+	if ex != nil && ex.id == o.ExchangeID {
 		state, last := ex.state, ex.lastSent
 		m.mu.Unlock()
 		if state == stateReserved {
@@ -116,6 +117,17 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 		}
 		m.trace("pqkem: duplicate offer, resending cached answer", "peer", remoteID, "exchange", idHex(o.ExchangeID))
 		return last, nil
+	}
+	// A data-path chain offer acknowledges the exchange we are awaiting-ack on, and
+	// ackConverged above deletes that exchange when the ack matches. So if a chain offer
+	// (non-zero AckID) did NOT match — our current exchange is still here and is a
+	// different one — it is a rotation a newer signal re-bootstrap has already superseded.
+	// Drop it, so a late stale offer can't revert us off the new round. A bootstrap
+	// (zero AckID) is an authoritative fresh start and always proceeds.
+	if o.AckID != (ExchangeID{}) && ex != nil {
+		m.mu.Unlock()
+		m.trace("pqkem: stale chain offer superseded by a newer round, dropping", "peer", remoteID, "exchange", idHex(o.ExchangeID), "acks", idHex(o.AckID))
+		return nil, nil
 	}
 	// Reserve the slot so a concurrent duplicate offer bails.
 	m.exchanges[remoteID] = &exchangeCtl{id: o.ExchangeID, state: stateReserved, gen: m.nextGenLocked(remoteID)}
@@ -139,7 +151,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 	}
 
 	m.mu.Lock()
-	ex := m.exchanges[remoteID]
+	ex = m.exchanges[remoteID]
 	if ex == nil || ex.id != o.ExchangeID {
 		m.mu.Unlock()
 		m.trace("pqkem: exchange superseded during respond, dropping answer", "peer", remoteID, "exchange", idHex(o.ExchangeID))

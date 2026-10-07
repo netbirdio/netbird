@@ -446,11 +446,27 @@ func (m *Manager) OnDataPathRekeyed(remoteID RemoteID, sinceActivity time.Durati
 	// Hold the lock across the awaitingRekey check and the install so two rekey clocks
 	// can't each start a chained exchange for the same peer.
 	offer, err := m.startExchangeLocked(remoteID, false, ex.id)
+	var chainID ExchangeID
+	if nc := m.exchanges[remoteID]; nc != nil {
+		chainID = nc.id
+	}
 	m.mu.Unlock()
 
 	m.trace("pqkem: data-path rekey signal", "peer", remoteID, "chaining", true)
 	if err != nil {
 		m.logger.Error("pqkem: chain offer failed to start", "peer", remoteID, "err", err)
+		return
+	}
+	// A signal re-bootstrap can supersede this chain exchange in the gap between building
+	// the offer and sending it. Don't put the stale offer on the wire: the responder would
+	// otherwise reserve and commit an abandoned exchange, splitting the keys. A newer
+	// signal round always wins. (A supersede landing after this check still leaks one
+	// harmless offer; the responder's answer for it is rejected as superseded.)
+	m.mu.Lock()
+	stillCurrent := m.exchanges[remoteID] != nil && m.exchanges[remoteID].id == chainID
+	m.mu.Unlock()
+	if !stillCurrent {
+		m.trace("pqkem: chain offer superseded before send, dropping", "peer", remoteID, "exchange", idHex(chainID))
 		return
 	}
 	if err := m.pushDataPath(remoteID, offer); err != nil {
