@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,51 +42,92 @@ func x5cCertificate(t *testing.T, pub crypto.PublicKey, signer crypto.Signer) st
 	return base64.StdEncoding.EncodeToString(der)
 }
 
-// TestValidateAndParse_ECDSA_X5c reproduces #5302: an EC/ES256 signing key whose
-// JWKS entry carries an x5c certificate must still validate tokens end to end.
-func TestValidateAndParse_ECDSA_X5c(t *testing.T) {
+// TestValidateAndParse_X5c verifies signatures with certificate-backed keys
+// fetched from a JWKS endpoint.
+func TestValidateAndParse_X5c(t *testing.T) {
 	const (
-		kid      = "es256-x5c-kid"
+		kid      = "x5c-kid"
 		issuer   = "https://issuer.example.com/"
 		audience = "netbird"
 	)
 
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
+	for _, tc := range []struct {
+		method jwt.SigningMethod
+		curve  elliptic.Curve
+	}{
+		{jwt.SigningMethodES256, elliptic.P256()},
+		{jwt.SigningMethodES384, elliptic.P384()},
+		{jwt.SigningMethodES512, elliptic.P521()},
+		{jwt.SigningMethodRS256, nil},
+	} {
+		t.Run(tc.method.Alg(), func(t *testing.T) {
+			var signer crypto.Signer
+			var key JSONWebKey
+			if tc.curve != nil {
+				priv, err := ecdsa.GenerateKey(tc.curve, rand.Reader)
+				require.NoError(t, err)
+				signer = priv
+				key = ecdsaJWK(t, kid, &priv.PublicKey, tc.curve.Params().Name, (tc.curve.Params().BitSize+7)/8)
+			} else {
+				priv, err := rsa.GenerateKey(rand.Reader, 2048)
+				require.NoError(t, err)
+				signer = priv
+				key = JSONWebKey{
+					Kty: "RSA", Kid: kid, Use: "sig",
+					N: base64.RawURLEncoding.EncodeToString(priv.N.Bytes()),
+					E: base64.RawURLEncoding.EncodeToString(big.NewInt(int64(priv.E)).Bytes()),
+				}
+			}
+			key.X5c = []string{x5cCertificate(t, signer.Public(), signer)}
 
-	key := ecdsaJWK(t, kid, &priv.PublicKey, p256, 32)
-	key.X5c = []string{x5cCertificate(t, &priv.PublicKey, priv)}
+			jwks, err := json.Marshal(Jwks{Keys: []JSONWebKey{key}})
+			require.NoError(t, err)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, err := w.Write(jwks)
+				assert.NoError(t, err)
+			}))
+			t.Cleanup(srv.Close)
 
-	jwks, err := json.Marshal(Jwks{Keys: []JSONWebKey{key}})
-	require.NoError(t, err)
+			token := jwt.NewWithClaims(tc.method, jwt.MapClaims{
+				"iss": issuer, "aud": audience, "sub": "user-1",
+				"iat": time.Now().Add(-time.Minute).Unix(),
+				"exp": time.Now().Add(time.Hour).Unix(),
+			})
+			token.Header["kid"] = kid
+			signed, err := token.SignedString(signer)
+			require.NoError(t, err)
+			v := NewValidator(issuer, []string{audience}, srv.URL, false)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(jwks)
-	}))
-	defer srv.Close()
+			parsed, err := v.ValidateAndParse(context.Background(), signed)
+			require.NoError(t, err)
+			require.True(t, parsed.Valid, "the certificate key must validate the signed token")
+			claims, ok := parsed.Claims.(jwt.MapClaims)
+			require.True(t, ok, "validated claims must remain available")
+			assert.Equal(t, "user-1", claims["sub"], "validation must preserve the subject")
 
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
-		"iss": issuer,
-		"aud": audience,
-		"sub": "user-1",
-		"iat": time.Now().Add(-time.Minute).Unix(),
-		"exp": time.Now().Add(time.Hour).Unix(),
-	})
-	token.Header["kid"] = kid
+			parts := strings.Split(signed, ".")
+			signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+			require.NoError(t, err)
+			signature[0] ^= 0xff
+			parts[2] = base64.RawURLEncoding.EncodeToString(signature)
+			_, err = v.ValidateAndParse(context.Background(), strings.Join(parts, "."))
+			assert.Error(t, err, "a modified signature must be rejected")
 
-	signed, err := token.SignedString(priv)
-	require.NoError(t, err)
-
-	v := NewValidator(issuer, []string{audience}, srv.URL, false)
-
-	parsed, err := v.ValidateAndParse(context.Background(), signed)
-	require.NoError(t, err)
-	require.True(t, parsed.Valid)
-
-	claims, ok := parsed.Claims.(jwt.MapClaims)
-	require.True(t, ok)
-	assert.Equal(t, "user-1", claims["sub"])
+			for _, method := range []jwt.SigningMethod{jwt.SigningMethodHS256, jwt.SigningMethodNone} {
+				forged := jwt.NewWithClaims(method, token.Claims)
+				forged.Header["kid"] = kid
+				var signingKey any = []byte(key.X5c[0])
+				if method == jwt.SigningMethodNone {
+					signingKey = jwt.UnsafeAllowNoneSignatureType
+				}
+				signed, err := forged.SignedString(signingKey)
+				require.NoError(t, err)
+				_, err = v.ValidateAndParse(context.Background(), signed)
+				assert.Error(t, err, "certificate-backed keys must not permit %s tokens", method.Alg())
+			}
+		})
+	}
 }
 
 // TestGetPublicKey_X5c covers the certificate-backed key paths. The certificate's
@@ -146,6 +188,25 @@ func TestGetPublicKey_X5c(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, key)
 	})
+
+	t.Run("invalid DER", func(t *testing.T) {
+		key, err := getPublicKey(tokenWithKid(), &Jwks{Keys: []JSONWebKey{{
+			Kty: "EC", Kid: kid, Crv: p256,
+			X5c: []string{base64.StdEncoding.EncodeToString([]byte("not a DER certificate"))},
+		}}})
+		require.ErrorContains(t, err, "parse x5c certificate")
+		assert.Nil(t, key, "malformed DER must not produce a public key")
+	})
+
+	for _, crv := range []string{"", "P-224", "unknown"} {
+		t.Run("unsupported curve "+crv, func(t *testing.T) {
+			key, err := getPublicKey(tokenWithKid(), &Jwks{Keys: []JSONWebKey{{
+				Kty: "EC", Kid: kid, Crv: crv, X5c: []string{ecCert},
+			}}})
+			require.ErrorContains(t, err, "unsupported elliptic curve")
+			assert.Nil(t, key, "an unsupported JWK curve must be rejected")
+		})
+	}
 
 	// D: EC kty with an RSA certificate is rejected.
 	t.Run("ec kty with rsa certificate", func(t *testing.T) {
