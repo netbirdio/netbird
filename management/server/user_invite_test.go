@@ -743,7 +743,7 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.expectedMsg)
 			sErr, ok := status.FromError(err)
 			require.True(t, ok, "password validation must return a typed error")
-			assert.Equal(t, status.InvalidArgument, sErr.Type(), "invalid passwords must map to HTTP 422")
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "invalid passwords must return InvalidArgument")
 		})
 	}
 
@@ -777,7 +777,7 @@ func TestUpdateUserPassword_RejectsOverLength(t *testing.T) {
 			require.Error(t, err)
 			sErr, ok := status.FromError(err)
 			require.True(t, ok, "password validation must return a typed error")
-			assert.Equal(t, status.InvalidArgument, sErr.Type(), "invalid passwords must map to HTTP 422")
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "invalid passwords must return InvalidArgument")
 			assert.Contains(t, err.Error(), "at most 72 bytes", "validation must reject the password before hashing")
 
 			err = am.UpdateUserPassword(ctx, testAccountID, user.ID, user.ID, "OldPass1!", tc.password)
