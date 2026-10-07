@@ -710,11 +710,11 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, encodedHashedKey string, peer *nbpeer.Peer, opEvent *activity.Event, config *peerAddAuthConfig) error {
 	sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
 	if err != nil {
-		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+		return err
 	}
 
 	if !sk.IsValid() {
-		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+		return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 	}
 
 	if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
@@ -915,12 +915,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			case addedBySetupKey:
 				sk, err := transaction.GetSetupKeyBySecret(ctx, store.LockingStrengthUpdate, encodedHashedKey)
 				if err != nil {
-					return fmt.Errorf("failed to get setup key: %w", err)
+					return err
 				}
 
 				// we validate at the end to not block the setup key for too long
 				if !sk.IsValid() {
-					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+					return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 				}
 
 				err = transaction.IncrementSetupKeyUsage(ctx, peerAddConfig.SetupKeyID)

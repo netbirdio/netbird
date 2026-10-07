@@ -1495,7 +1495,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			name:                      "Absent setup key",
 			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
-			errorType:                 status.NotFound,
+			errorType:                 status.PermissionDenied,
 			expectedErrorMsgSubstring: "couldn't add peer: setup key is invalid",
 		},
 	}
@@ -2642,6 +2642,8 @@ func TestHandleSetupKeyAddedPeer(t *testing.T) {
 
 		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
 		require.Error(t, err)
+		require.IsType(t, &status.Error{}, err)
+		require.Equal(t, err.(*status.Error).ErrorType, status.PermissionDenied)
 		assert.Contains(t, err.Error(), "setup key is invalid")
 	})
 
@@ -2662,6 +2664,8 @@ func TestHandleSetupKeyAddedPeer(t *testing.T) {
 
 		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
 		require.Error(t, err)
+		require.IsType(t, &status.Error{}, err)
+		require.Equal(t, err.(*status.Error).ErrorType, status.PermissionDenied)
 		assert.Contains(t, err.Error(), "setup key is invalid")
 	})
 
