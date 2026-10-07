@@ -131,10 +131,16 @@ var (
 			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
 
 			var certListener net.Listener
-			if certManager != nil {
+			switch {
+			case certManager == nil:
+			case signalPort != 443 && signalLetsencryptListen == "":
+				// The main TLS listener uses the cert manager's TLS config, so it still
+				// answers TLS-ALPN-01 challenges when public port 443 is forwarded to it.
+				log.Infof("LetsEncrypt challenge server disabled, challenges are answered on port %d", signalPort)
+			default:
 				certListener, err = startServerWithCertManager(certManager, grpcRootHandler)
 				if err != nil {
-					return err
+					log.Errorf("LetsEncrypt challenge server not started: %v", err)
 				}
 			}
 
@@ -178,7 +184,7 @@ var (
 
 			SetupCloseHandler()
 
-			stopCode := <-stopCh
+			<-stopCh
 			if certListener != nil {
 				_ = certListener.Close()
 				log.Infof("stopped LetsEncrypt challenge server")
@@ -205,9 +211,6 @@ var (
 
 			log.Infof("stopped Signal Service")
 
-			if stopCode != 0 {
-				return errors.New("signal service stopped after a server failure")
-			}
 			return nil
 		},
 	}
@@ -272,13 +275,6 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 		return httpListener, nil
 	}
 
-	if signalLetsencryptListen == "" {
-		// The main TLS listener uses the cert manager's TLS config, so it still
-		// answers TLS-ALPN-01 challenges when public port 443 is forwarded to it.
-		log.Infof("LetsEncrypt challenge server disabled, challenges are answered on port %d", signalPort)
-		return nil, nil
-	}
-
 	httpListener, err := tls.Listen("tcp", signalLetsencryptListen, certManager.TLSConfig())
 	if err != nil {
 		return nil, fmt.Errorf("create LetsEncrypt challenge listener on %s: %w", signalLetsencryptListen, err)
@@ -319,8 +315,7 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 			Handler: h2c.NewHandler(handler, &http2.Server{}),
 		}
 		err := h1s.Serve(httpListener)
-		// Closing the listener on shutdown is not a failure.
-		if err != nil && !errors.Is(err, net.ErrClosed) {
+		if err != nil {
 			notifyStop(fmt.Sprintf("failed running HTTP server %v", err))
 		}
 	}()
@@ -333,7 +328,7 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	}
 	go func() {
 		err := grpcServer.Serve(listener)
-		if err != nil && !errors.Is(err, net.ErrClosed) {
+		if err != nil {
 			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
 		}
 	}()

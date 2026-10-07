@@ -22,7 +22,7 @@ func TestServeLetsEncryptChallenges_Disabled(t *testing.T) {
 	srv := newLetsEncryptTestServer("")
 
 	require.NoError(t, srv.serveLetsEncryptChallenges(context.Background()))
-	require.Nil(t, srv.certListener)
+	require.Nil(t, srv.certListener, "no challenge listener should be created when the address is empty")
 }
 
 func TestServeLetsEncryptChallenges_CustomAddress(t *testing.T) {
@@ -30,12 +30,14 @@ func TestServeLetsEncryptChallenges_CustomAddress(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() {
 		cancel()
-		_ = srv.certListener.Close()
+		if srv.certListener != nil {
+			_ = srv.certListener.Close()
+		}
 		srv.wg.Wait()
 	})
 
 	require.NoError(t, srv.serveLetsEncryptChallenges(ctx))
-	require.NotNil(t, srv.certListener)
+	require.NotNil(t, srv.certListener, "challenge listener should be created on the configured address")
 
 	conn, err := net.DialTimeout("tcp", srv.certListener.Addr().String(), time.Second)
 	require.NoError(t, err)
@@ -49,5 +51,5 @@ func TestServeLetsEncryptChallenges_BindFailure(t *testing.T) {
 	srv := newLetsEncryptTestServer(occupied.Addr().String())
 
 	require.Error(t, srv.serveLetsEncryptChallenges(context.Background()))
-	require.Nil(t, srv.certListener)
+	require.Nil(t, srv.certListener, "no challenge listener should be stored when the bind fails")
 }

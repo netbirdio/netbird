@@ -434,7 +434,7 @@ func (s *BaseServer) serveLetsEncryptChallenges(ctx context.Context) error {
 
 	cml, err := tls.Listen("tcp", s.letsEncryptListenAddress, s.certManager.TLSConfig())
 	if err != nil {
-		return fmt.Errorf("failed creating LetsEncrypt challenge listener on %s: %v", s.letsEncryptListenAddress, err)
+		return fmt.Errorf("create LetsEncrypt challenge listener on %s: %w", s.letsEncryptListenAddress, err)
 	}
 	s.certListener = cml
 	log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
