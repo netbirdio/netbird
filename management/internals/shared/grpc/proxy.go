@@ -1723,6 +1723,35 @@ func sameAccount(userAccountID, serviceAccountID string) bool {
 	return userAccountID != "" && serviceAccountID != "" && userAccountID == serviceAccountID
 }
 
+// resolveUserEmail returns the user's stored email, or the IdP's email when
+// the stored one is empty. An IdP failure yields an empty string.
+func (s *ProxyServiceServer) resolveUserEmail(ctx context.Context, accountID string, user *types.User) string {
+	if user.Email != "" {
+		return user.Email
+	}
+	return s.idpEmail(ctx, accountID, user.Id)
+}
+
+// idpEmail looks up a user's email at the IdP, scoped to the given account.
+// It returns an empty string when no IdP is configured, the lookup fails or
+// the IdP knows no email for the user.
+func (s *ProxyServiceServer) idpEmail(ctx context.Context, accountID, userID string) string {
+	if s.idpManager == nil {
+		return ""
+	}
+
+	userData, err := s.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
+	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{"user_id": userID, "error": err.Error()}).Debug("IdP email lookup failed; using stored identity")
+		return ""
+	}
+	if userData == nil {
+		return ""
+	}
+
+	return userData.Email
+}
+
 // GenerateSessionToken creates a signed session JWT for the given domain and
 // user. The user's group memberships are embedded in the token so policy-aware
 // middlewares on the proxy can authorise without an extra management round-trip.
@@ -1778,7 +1807,7 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
-		user.Email,
+		s.resolveUserEmail(ctx, service.AccountID, user),
 		domain,
 		method,
 		groupIDs,
@@ -1932,12 +1961,13 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
+	userEmail := s.resolveUserEmail(ctx, service.AccountID, user)
 
 	if reason := s.accountUserDeniedReason(domain, service, user); reason != "" {
 		return &proto.ValidateSessionResponse{
 			Valid:          false,
 			UserId:         user.Id,
-			UserEmail:      user.Email,
+			UserEmail:      userEmail,
 			DeniedReason:   reason,
 			PeerGroupIds:   groupIDs,
 			PeerGroupNames: groupNames,
@@ -1947,13 +1977,13 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	log.WithFields(log.Fields{
 		"domain":  domain,
 		"user_id": userID,
-		"email":   user.Email,
+		"email":   userEmail,
 	}).Debug("ValidateSession: access granted")
 
 	return &proto.ValidateSessionResponse{
 		Valid:          true,
 		UserId:         user.Id,
-		UserEmail:      user.Email,
+		UserEmail:      userEmail,
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 		SessionToken:   mintedToken,
@@ -2272,12 +2302,8 @@ func (s *ProxyServiceServer) getTunnelPeerInfo(ctx context.Context, domain strin
 	// IdP enrichment wins when available — the stored email column is a
 	// best-effort cache and is frequently empty for OIDC users. Enrichment
 	// failures must never fail the RPC; we simply keep the stored/peer identity.
-	if s.idpManager != nil {
-		if ud, uerr := s.idpManager.GetUserDataByID(ctx, peer.UserID, idp.AppMetadata{WTAccountID: service.AccountID}); uerr == nil && ud != nil && ud.Email != "" {
-			displayIdentity = ud.Email
-		} else if uerr != nil {
-			log.WithFields(log.Fields{"domain": domain, "user_id": peer.UserID, "error": uerr.Error()}).Debug("ValidateTunnelPeer: IdP user enrichment failed; using stored/peer identity")
-		}
+	if email := s.idpEmail(ctx, service.AccountID, peer.UserID); email != "" {
+		displayIdentity = email
 	}
 
 	return principalID, displayIdentity
