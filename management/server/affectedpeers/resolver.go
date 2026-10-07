@@ -22,6 +22,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -50,6 +51,7 @@ type Snapshot struct {
 	policies       []*types.Policy
 	routes         []*route.Route
 	nsGroups       []*nbdns.NameServerGroup
+	zones          []*zones.Zone
 	dnsSettings    *types.DNSSettings
 	routers        []*routerTypes.NetworkRouter
 	resources      []*resourceTypes.NetworkResource
@@ -127,10 +129,13 @@ func (snap *Snapshot) loadRoutesAndProxy(ctx context.Context, s store.Store, acc
 	return snap.loadProxyServices(ctx, s, accountID)
 }
 
-// loadDNS loads the nameserver groups and account DNS settings.
+// loadDNS loads the nameserver groups, custom DNS zones and account DNS settings.
 func (snap *Snapshot) loadDNS(ctx context.Context, s store.Store, accountID string) error {
 	var err error
 	if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	if snap.zones, err = s.GetAccountZones(ctx, store.LockingStrengthNone, accountID); err != nil {
 		return err
 	}
 	snap.dnsSettings, err = s.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
@@ -357,7 +362,7 @@ func (s policySide) opposite() policySide {
 //   - a changed router/resource/network sits on a NETWORK -> fold the SOURCE side of
 //     the policies whose destination reaches it (and the routers it implies).
 //
-// Routes, nameserver groups, DNS and embedded-proxy services distribute to their own
+// Routes, nameserver groups, DNS zones, DNS and embedded-proxy services distribute to their own
 // member peers, outside the policy graph, and are folded here too.
 func (r *resolver) walk() {
 	for _, policy := range r.bothSidesPolicies() {
@@ -369,6 +374,7 @@ func (r *resolver) walk() {
 		r.collectFromPolicies()
 		r.collectFromRoutes()
 		r.collectFromNameServers()
+		r.collectFromZones()
 		r.collectFromDNSSettings()
 		r.collectFromNetworkRouters()
 		r.collectFromProxyServices()
@@ -825,6 +831,25 @@ func (r *resolver) collectFromNameServers() {
 			// elsewhere). Fold the referenced groups only on a whole-group change.
 			log.WithContext(r.ctx).Tracef("collectFromNameServers: nameserver group %s references a linked group -> folding its groups %v (outputGroups only)", ns.ID, ns.Groups)
 			r.foldOutputGroups(ns.Groups)
+		}
+	}
+}
+
+// collectFromZones folds the distribution groups of the custom DNS zones that
+// reference a linked group. Like nameserver groups, a zone has no opposite side, so
+// only a whole-group change folds its groups. Zones the network map does not ship
+// (disabled or without records) are skipped.
+func (r *resolver) collectFromZones() {
+	if len(r.linkGroups) == 0 {
+		return
+	}
+	for _, zone := range r.snap.zones {
+		if !zone.Enabled || len(zone.Records) == 0 {
+			continue
+		}
+		if anyInSet(zone.DistributionGroups, r.linkGroups) {
+			log.WithContext(r.ctx).Tracef("collectFromZones: zone %s references a linked group -> folding its groups %v (outputGroups only)", zone.ID, zone.DistributionGroups)
+			r.foldOutputGroups(zone.DistributionGroups)
 		}
 	}
 }

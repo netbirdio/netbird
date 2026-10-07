@@ -12,6 +12,8 @@ type notifier struct {
 	serverStateLock    sync.Mutex
 	listenersLock      sync.Mutex
 	listener           Listener
+	peerListWake       chan struct{}
+	peerListStop       chan struct{}
 	currentClientState bool
 	lastNotification   ClientState
 	lastNumberOfPeers  int
@@ -62,7 +64,6 @@ func (n *notifier) setNetworkAvailable(available bool) {
 func (n *notifier) setListener(listener Listener) {
 	n.serverStateLock.Lock()
 	lastNotification := n.effectiveState(n.lastNotification)
-	numOfPeers := n.lastNumberOfPeers
 	fqdnAddress := n.lastFqdnAddress
 	address := n.lastIPAddress
 	n.serverStateLock.Unlock()
@@ -70,17 +71,19 @@ func (n *notifier) setListener(listener Listener) {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
 
+	n.stopPeerListDelivererLocked()
 	n.listener = listener
 
 	listener.OnAddressChanged(fqdnAddress, address)
 	notifyListener(listener, lastNotification)
-	// run on go routine to avoid on Java layer to call go functions on same thread
-	go listener.OnPeersListChanged(numOfPeers)
+	n.startPeerListDelivererLocked(listener)
+	n.wakePeerListDelivererLocked()
 }
 
 func (n *notifier) removeListener() {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
+	n.stopPeerListDelivererLocked()
 	n.listener = nil
 }
 
@@ -178,15 +181,56 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 	n.serverStateLock.Unlock()
 
 	n.listenersLock.Lock()
-	listener := n.listener
-	n.listenersLock.Unlock()
+	defer n.listenersLock.Unlock()
+	n.wakePeerListDelivererLocked()
+}
 
-	if listener == nil {
+func (n *notifier) startPeerListDelivererLocked(listener Listener) {
+	wake := make(chan struct{}, 1)
+	stop := make(chan struct{})
+	n.peerListWake = wake
+	n.peerListStop = stop
+	go n.deliverPeerListChanges(listener, wake, stop)
+}
+
+func (n *notifier) stopPeerListDelivererLocked() {
+	if n.peerListStop == nil {
 		return
 	}
+	close(n.peerListStop)
+	n.peerListStop = nil
+	n.peerListWake = nil
+}
 
-	// run on go routine to avoid on Java layer to call go functions on same thread
-	go listener.OnPeersListChanged(numOfPeers)
+func (n *notifier) wakePeerListDelivererLocked() {
+	if n.peerListWake == nil {
+		return
+	}
+	select {
+	case n.peerListWake <- struct{}{}:
+	default:
+	}
+}
+
+func (n *notifier) deliverPeerListChanges(listener Listener, wake <-chan struct{}, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-wake:
+		}
+		select {
+		case <-stop:
+			return
+		default:
+		}
+
+		n.serverStateLock.Lock()
+		numOfPeers := n.lastNumberOfPeers
+		n.serverStateLock.Unlock()
+
+		listener.OnPeersListChanged(numOfPeers)
+	}
 }
 
 func (n *notifier) localAddressChanged(fqdn, address string) {

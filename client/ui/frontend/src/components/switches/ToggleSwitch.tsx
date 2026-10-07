@@ -18,8 +18,8 @@ const switchVariants = cva("", {
             default: [
                 "dark:data-[state=checked]:bg-netbird dark:data-[state=unchecked]:bg-nb-gray-700",
                 "dark:data-[state=checked]:hover:bg-netbird-500 dark:data-[state=unchecked]:hover:bg-nb-gray-600",
-                "data-[state=checked]:bg-neutral-900 data-[state=unchecked]:bg-neutral-200",
-                "data-[state=checked]:hover:bg-neutral-800 data-[state=unchecked]:hover:bg-neutral-300",
+                "data-[state=checked]:bg-netbird data-[state=unchecked]:bg-nb-gray-700",
+                "data-[state=checked]:hover:bg-netbird-500 data-[state=unchecked]:hover:bg-nb-gray-600/60",
             ],
             "red-green": [
                 "dark:data-[state=checked]:bg-red-600 dark:data-[state=unchecked]:bg-nb-gray-700",
@@ -36,9 +36,9 @@ const switchVariants = cva("", {
         },
         "thumb-size": {
             default:
-                "h-5 w-5 data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0",
-            small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px] data-[state=unchecked]:translate-x-0",
-            large: "h-[30px] w-[30px] data-[state=checked]:translate-x-[31px] data-[state=unchecked]:translate-x-[1px]",
+                "h-5 w-5 data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0 rtl:data-[state=checked]:-translate-x-5",
+            small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px] data-[state=unchecked]:translate-x-0 rtl:data-[state=checked]:-translate-x-[17px]",
+            large: "h-[30px] w-[30px] data-[state=checked]:translate-x-[31px] data-[state=unchecked]:translate-x-[1px] rtl:data-[state=checked]:-translate-x-[31px] rtl:data-[state=unchecked]:-translate-x-[1px]",
         },
     },
 });
@@ -52,7 +52,7 @@ const ToggleSwitch = React.forwardRef<
         disabled={disabled}
         tabIndex={disabled ? -1 : 0}
         className={cn(
-            "wails-no-draggable peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940 disabled:cursor-not-allowed disabled:opacity-50",
+            "wails-no-draggable peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940 disabled:cursor-not-allowed disabled:opacity-50",
             className,
             switchVariants({ size, variant }),
         )}

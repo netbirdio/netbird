@@ -36,13 +36,13 @@ export default function FancyToggleSwitch({
 
     if (loading) {
         const shimmer =
-            "text-transparent select-none rounded bg-[#25282d] box-decoration-clone animate-pulse";
+            "text-transparent select-none rounded bg-nb-gray-920 box-decoration-clone animate-pulse";
         return (
             <div
                 role={"status"}
                 aria-busy={"true"}
                 aria-live={"polite"}
-                className={cn("inline-block w-full text-left", className)}
+                className={cn("inline-block w-full text-start", className)}
             >
                 <div className={"flex justify-between gap-10"}>
                     <div className={cn(textWrapperClassName)}>
@@ -55,10 +55,12 @@ export default function FancyToggleSwitch({
                             </span>
                         </HelpText>
                     </div>
-                    <div className={"mt-2 pr-1"}>
+                    <div className={"mt-2 pe-1"}>
                         <div
                             aria-hidden={"true"}
-                            className={"h-[24px] w-[44px] animate-pulse rounded-full bg-[#25282d]"}
+                            className={
+                                "h-[24px] w-[44px] animate-pulse rounded-full bg-nb-gray-920"
+                            }
                         />
                     </div>
                 </div>
@@ -71,7 +73,7 @@ export default function FancyToggleSwitch({
             {...(disabled ? { inert: "" } : {})}
             className={cn(
                 "relative z-[1] cursor-default transition-all duration-300",
-                "inline-block w-full text-left",
+                "inline-block w-full text-start",
                 disabled && "pointer-events-none opacity-30",
                 className,
             )}
@@ -85,7 +87,7 @@ export default function FancyToggleSwitch({
                         <span id={descriptionId}>{helpText}</span>
                     </HelpText>
                 </div>
-                <div className={"mt-2 pr-1"}>
+                <div className={"mt-2 pe-1"}>
                     <ToggleSwitch
                         id={switchId}
                         checked={value}
