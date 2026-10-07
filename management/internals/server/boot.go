@@ -168,11 +168,11 @@ func (s *BaseServer) APIHandler() http.Handler {
 	apiv1Router := s.ApiV1Router()
 	apiRouter := s.ApiRouter()
 
-	routerMiddleware := CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
-		return middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)
+	_ = CreateNamed(s, "http_middleware", func() []mux.MiddlewareFunc {
+		m := middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)
+		router.Use(m...)
+		return m
 	})
-
-	router.Use(routerMiddleware...)
 
 	_ = CreateNamed(s, "http_v1api", func() http.Handler {
 		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
