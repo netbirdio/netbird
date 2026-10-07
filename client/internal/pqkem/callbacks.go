@@ -13,8 +13,10 @@ type CallbackHandler interface {
 	// peer has confirmed it — the next offer is the later acknowledgement.
 	OnNewPSKReady(remoteID RemoteID, psk PSK) error
 
-	// OnRekeyFailed fires when an exchange fails to converge within the allotted
-	// time. The host should tear the peer connection down so it re-establishes, and
-	// log a WARN. The library reports the event; it does not dictate the reaction.
+	// OnRekeyFailed fires when an exchange fails to converge within the allotted time.
+	// Recovery is host-defined: the library reports the event and does not dictate the
+	// reaction. The shipped NetBird host, for instance, re-bootstraps the KEM over
+	// signalling and keeps the tunnel on its previous PSK rather than tearing the
+	// connection down.
 	OnRekeyFailed(remoteID RemoteID) error
 }
