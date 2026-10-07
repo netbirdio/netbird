@@ -411,7 +411,7 @@ dockers_v2:
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+         - cmd: 'sh release_files/collect-licenses.sh -t load_wgnt_from_rsrc "{{ .ContextDir }}/licenses" ./client amd64 arm64'
            env:
              - GOOS=linux
              - CGO_ENABLED=0
@@ -537,6 +537,41 @@ dockers_v2:
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
        "maintainer": "dev@netbird.io"
+   - id: netbird-server-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-server
+     images:
+       - netbirdio/netbird-server
+       - ghcr.io/netbirdio/netbird-server
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: combined/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l combined/LICENSE "{{ .ContextDir }}/licenses" ./combined amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=1
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
    - id: netbird-proxy
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
      ids:
@@ -578,7 +613,7 @@ dockers_v2:
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh proxy/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+         - cmd: 'sh release_files/collect-licenses.sh -l proxy/LICENSE -w "{{ .ContextDir }}/licenses" ./proxy/cmd/proxy amd64 arm64'
            env:
              - GOOS=linux
              - CGO_ENABLED=0
