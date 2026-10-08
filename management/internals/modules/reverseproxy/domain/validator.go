@@ -2,6 +2,8 @@ package domain
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"strings"
 
@@ -14,6 +16,33 @@ type resolver interface {
 
 type Validator struct {
 	Resolver resolver
+}
+
+// ValidationReason classifies why a custom domain failed validation.
+type ValidationReason string
+
+const (
+	ValidationReasonCNAMENotFound   ValidationReason = "cname_not_found"
+	ValidationReasonCNAMEMismatch   ValidationReason = "cname_mismatch"
+	ValidationReasonLookupFailed    ValidationReason = "lookup_failed"
+	ValidationReasonExpired         ValidationReason = "validation_expired"
+	ValidationReasonNoTargetCluster ValidationReason = "no_target_cluster"
+)
+
+// ValidationError is a validation failure whose message is safe to show to the user.
+type ValidationError struct {
+	Reason  ValidationReason
+	Message string
+}
+
+// Error returns the user-facing message.
+func (e *ValidationError) Error() string {
+	return e.Message
+}
+
+// NewValidationError returns a ValidationError with a formatted message.
+func NewValidationError(reason ValidationReason, format string, args ...any) *ValidationError {
+	return &ValidationError{Reason: reason, Message: fmt.Sprintf(format, args...)}
 }
 
 // NewValidator initializes a validator with a specific DNS Resolver.
@@ -39,6 +68,13 @@ func (v *Validator) IsValid(ctx context.Context, domain string, accept []string)
 // ValidateWithCluster validates a custom domain and returns the matched cluster address.
 // Returns the cluster address and true if valid, or empty string and false if invalid.
 func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, accept []string) (string, bool) {
+	cluster, err := v.Validate(ctx, domain, accept)
+	return cluster, err == nil
+}
+
+// Validate validates a custom domain and returns the matched cluster address.
+// On failure it returns a *ValidationError whose message is safe to show to the user.
+func (v *Validator) Validate(ctx context.Context, domain string, accept []string) (string, error) {
 	if v.Resolver == nil {
 		v.Resolver = net.DefaultResolver
 	}
@@ -56,10 +92,19 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 			"domain":       domain,
 			"lookupDomain": lookupDomain,
 		}).WithError(err).Warn("CNAME lookup failed for domain validation")
-		return "", false
+		// Never forward the resolver error: its text includes the resolver address.
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			return "", cnameNotFound(lookupDomain, accept)
+		}
+		return "", NewValidationError(ValidationReasonLookupFailed, "DNS lookup for %s failed; retry the validation", lookupDomain)
 	}
 
 	nakedCNAME := strings.TrimSuffix(cname, ".")
+	// A name without a CNAME record resolves to itself.
+	if nakedCNAME == lookupDomain {
+		return "", cnameNotFound(lookupDomain, accept)
+	}
 	log.WithFields(log.Fields{
 		"domain":     domain,
 		"cname":      cname,
@@ -75,7 +120,7 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 				"cname":   nakedCNAME,
 				"cluster": acceptDomain,
 			}).Info("domain CNAME matched cluster")
-			return acceptDomain, true
+			return acceptDomain, nil
 		}
 	}
 
@@ -84,5 +129,11 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 		"cname":      nakedCNAME,
 		"acceptList": accept,
 	}).Warn("domain CNAME does not match any accepted cluster")
-	return "", false
+	return "", NewValidationError(ValidationReasonCNAMEMismatch, "CNAME record %s points to %s; point it to %s",
+		lookupDomain, nakedCNAME, strings.Join(accept, ", "))
+}
+
+func cnameNotFound(lookupDomain string, accept []string) *ValidationError {
+	return NewValidationError(ValidationReasonCNAMENotFound, "no CNAME record found for %s; point it to %s",
+		lookupDomain, strings.Join(accept, ", "))
 }
