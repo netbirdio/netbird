@@ -504,6 +504,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 	query := tx.Where(accountIDCondition, accountID)
+	query = pagination.AsScope(query)
 
 	// if nameFilter != "" {
 	// 	query = query.Where("name LIKE ?", "%"+nameFilter+"%")
@@ -528,6 +529,15 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 type PaginationState struct {
 	Page     int
 	PageSize int
+}
+
+func (p *PaginationState) AsScope(db *gorm.DB) *gorm.DB {
+	// empty pagination state
+	if p.PageSize == 0 {
+		return db
+	}
+	offset := (p.Page - 1) * p.PageSize
+	return db.Offset(offset).Limit(p.PageSize)
 }
 
 type PeerFilters struct {
