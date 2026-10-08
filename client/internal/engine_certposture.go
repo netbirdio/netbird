@@ -57,6 +57,9 @@ type certPostureState struct {
 	hasDelivery bool
 	cached      []certposture.Proof
 	cachedFor   string
+	// stuck is whether the collector was last seen with every slot held by a lost
+	// collection.
+	stuck bool
 }
 
 // record stores the outcome of a collection for the challenges identified by
@@ -121,6 +124,15 @@ func (s *certPostureState) needsCollection(challengesKey, userContext string, no
 	default:
 		return !s.proven && now.Sub(s.attemptedAt) >= certRetryInterval
 	}
+}
+
+// setStuck records whether the collector is stuck and reports whether it just became so.
+func (s *certPostureState) setStuck(stuck bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	became := stuck && !s.stuck
+	s.stuck = stuck
+	return became
 }
 
 // cachedProofs returns the cached proofs management still accepts for the challenges in
@@ -230,6 +242,18 @@ func (e *Engine) publishCertificatePostureEvent(proven bool) {
 			"Access to some resources may be blocked until one is available.", nil)
 }
 
+// publishCertificateStoreStuckEvent tells the user that reading the certificate store
+// stopped answering, which no retry recovers from: only a restart frees the collector.
+func (e *Engine) publishCertificateStoreStuckEvent() {
+	if e.statusRecorder == nil {
+		return
+	}
+	e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM,
+		"certificate posture: the certificate store stopped responding",
+		"NetBird cannot read the certificates required by your organization's device policy because "+
+			"the certificate store stopped responding. Restart the NetBird service to try again.", nil)
+}
+
 // watchCertificatePosture owns certificate proof collection until ctx is done. It
 // collects when woken by new checks or a sync, and on every tick when the cached proofs
 // went stale, such as after a login following an autostart.
@@ -302,6 +326,9 @@ func (e *Engine) refreshCertificateProofs() error {
 	}
 	if e.certState.record(key, userContext, proofs, time.Now()) {
 		e.publishCertificatePostureEvent(len(proofs) > 0)
+	}
+	if e.certState.setStuck(e.certProofs.Stuck()) {
+		e.publishCertificateStoreStuckEvent()
 	}
 
 	if e.certState.sameAsDelivered(proofs) {

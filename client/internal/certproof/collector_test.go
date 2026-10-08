@@ -146,6 +146,7 @@ func TestCollector_LostCollectionDoesNotBlockForever(t *testing.T) {
 	c.collect(context.Background(), challengeChecks, wedged)
 	c.collect(context.Background(), challengeChecks, wedged)
 	assert.Equal(t, int32(1), started.Load(), "a second collection is refused while the first may still finish")
+	assert.False(t, c.Stuck(), "one slow collection is not stuck yet")
 
 	now = now.Add(time.Duration(lostAfter) * c.deadline())
 	c.collect(context.Background(), challengeChecks, wedged)
@@ -154,6 +155,7 @@ func TestCollector_LostCollectionDoesNotBlockForever(t *testing.T) {
 	now = now.Add(time.Duration(lostAfter) * c.deadline())
 	c.collect(context.Background(), challengeChecks, wedged)
 	assert.Equal(t, int32(2), started.Load(), "no more than maxInFlight collections run")
+	assert.True(t, c.Stuck(), "with every slot held by a lost collection the collector reports itself stuck")
 }
 
 // TestCollector_LostWindowFollowsTheOldestRunningCollection: A wedges, B starts beside it
