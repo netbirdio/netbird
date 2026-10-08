@@ -180,7 +180,12 @@ func generateSessionKeyPair(t *testing.T) (string, string) {
 
 func createSessionToken(t *testing.T, privKeyB64, userID, domain string) string {
 	t.Helper()
-	token, err := sessionkey.SignToken(privKeyB64, userID, "", domain, auth.MethodOIDC, nil, nil, time.Hour)
+	return createSessionTokenWithEmail(t, privKeyB64, userID, "", domain)
+}
+
+func createSessionTokenWithEmail(t *testing.T, privKeyB64, userID, email, domain string) string {
+	t.Helper()
+	token, err := sessionkey.SignToken(privKeyB64, userID, email, domain, auth.MethodOIDC, nil, nil, time.Hour)
 	require.NoError(t, err)
 	return token
 }
@@ -771,6 +776,7 @@ func TestValidateSession_EmailResolution(t *testing.T) {
 	tests := []struct {
 		name        string
 		storedEmail string
+		tokenEmail  string
 		idp         *mockTunnelIdpManager
 		expectEmail string
 		expectCalls int
@@ -778,11 +784,18 @@ func TestValidateSession_EmailResolution(t *testing.T) {
 		{
 			name:        "stored email wins without IdP call",
 			storedEmail: "stored@example.com",
+			tokenEmail:  "claim@example.com",
 			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
 			expectEmail: "stored@example.com",
 		},
 		{
-			name:        "empty stored email falls back to IdP",
+			name:        "token email claim is reused without IdP call",
+			tokenEmail:  "claim@example.com",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "claim@example.com",
+		},
+		{
+			name:        "empty stored email and claim fall back to IdP",
 			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
 			expectEmail: "idp@example.com",
 			expectCalls: 1,
@@ -814,7 +827,7 @@ func TestValidateSession_EmailResolution(t *testing.T) {
 
 			svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "testProxyId")
 			require.NoError(t, err)
-			token := createSessionToken(t, svc.SessionPrivateKey, "allowedUserId", "test-proxy.example.com")
+			token := createSessionTokenWithEmail(t, svc.SessionPrivateKey, "allowedUserId", tt.tokenEmail, "test-proxy.example.com")
 
 			resp, err := setup.proxyService.ValidateSession(ctx, &proto.ValidateSessionRequest{
 				Domain:       "test-proxy.example.com",
