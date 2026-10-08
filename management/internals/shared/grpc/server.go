@@ -318,7 +318,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
-	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort)
+	trackChallenge := func() { s.accountManager.TrackCertificateChallenges(ctx, accountID, peer.ID, syncStart) }
+	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort, trackChallenge)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
@@ -347,7 +348,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	s.syncSem.Add(-1)
 
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
-		func() { s.accountManager.TrackCertificateChallenges(ctx, accountID) },
+		trackChallenge,
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
@@ -456,6 +457,7 @@ func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID st
 	}
 	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
+	s.accountManager.UntrackCertificateChallenges(accountID, peer.ID, streamStartTime)
 
 	log.WithContext(ctx).Debugf("peer %s has been disconnected", peer.Key)
 }
@@ -731,9 +733,8 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	if stampCertificateChallenges(loginResp.Checks, s.challenger, peerKey) {
-		s.accountManager.TrackCertificateChallenges(ctx, accountID)
-	}
+	// Renewal is tracked by the sync stream that follows, on whichever instance it lands.
+	stampCertificateChallenges(loginResp.Checks, s.challenger, peerKey)
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
@@ -913,7 +914,7 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
+func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64, onChallengeStamped func()) error {
 	var err error
 	var turnToken *Token
 
@@ -986,7 +987,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	if stampCertificateChallenges(plainResp.Checks, s.challenger, peerKey) {
-		s.accountManager.TrackCertificateChallenges(ctx, peer.AccountID)
+		onChallengeStamped()
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {

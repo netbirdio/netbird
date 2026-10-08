@@ -38,9 +38,9 @@ func newCertChallenger(encryptionKey string, serverKey wgtypes.Key) *certposture
 // stampCertificateChallenges fills the per-peer nonce into every certificate challenge
 // right before the response is encrypted for that peer, reporting whether it issued one.
 //
-// The answer is what registers the account for renewal. A nonce is stateless, but the
-// renewal that keeps it fresh is local: only the instance that served a peer can push
-// to it, so an instance renews exactly the accounts it has issued nonces for.
+// On a sync stream the answer registers the peer for renewal. A nonce is stateless, but
+// the renewal that keeps it fresh is local: only the instance holding a peer's stream
+// can push to it, so an instance renews exactly the peers it streams nonces to.
 func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.Challenger, peerKey wgtypes.Key) bool {
 	var nonce []byte
 	for _, check := range checks {
