@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateAccessPath(t *testing.T) {
@@ -76,6 +77,31 @@ func TestValidateAccessPath(t *testing.T) {
 				return
 			}
 			assert.NoError(t, err, "ordinary URL path must remain supported")
+		})
+	}
+}
+
+func TestValidateAccessPath_RejectsEncodedTraversal(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawPath string
+	}{
+		{name: "encoded parent segment", rawPath: "/public/%2E%2E/private"},
+		{
+			name: "UTF-16LE encoded traversal",
+			rawPath: "%2f%00%70%00%75%00%62%00%6c%00%69%00%63%00%2f%00" +
+				"%2e%00%2e%00%2f%00%70%00%72%00%69%00%76%00%61%00%74%00%65%00",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Preserve percent-decoded bytes, including NULs, without transcoding UTF-16.
+			path, err := url.PathUnescape(tt.rawPath)
+			require.NoError(t, err)
+
+			err = validateAccessPath(&url.URL{Path: path, RawPath: tt.rawPath})
+			assert.ErrorIs(t, err, ErrUnsafeRequestPath, "encoded traversal must be rejected")
 		})
 	}
 }
