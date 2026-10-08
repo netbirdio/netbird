@@ -1248,287 +1248,291 @@ func sortFunc() func(a *types.FirewallRule, b *types.FirewallRule) int {
 }
 
 func TestPolicyAccountPeersUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	g := []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer3.ID},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupC",
-			Name:  "GroupC",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupD",
-			Name:  "GroupD",
-			Peers: []string{peer1.ID, peer2.ID},
-		},
-	}
-	for _, group := range g {
-		err := manager.CreateGroup(context.Background(), account.Id, userID, group)
-		assert.NoError(t, err)
-	}
-
-	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	var policyWithGroupRulesNoPeers *types.Policy
-	var policyWithDestinationPeersOnly *types.Policy
-	var policyWithSourceAndDestinationPeers *types.Policy
-	var err error
-
-	// Saving policy with rule groups with no peers should not update account's peers and not send peer update
-	t.Run("saving policy with rule groups with no peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		policyWithGroupRulesNoPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
-			AccountID: account.Id,
-			Enabled:   true,
-			Rules: []*types.PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"groupB"},
-					Destinations:  []string{"groupC"},
-					Bidirectional: true,
-					Action:        types.PolicyTrafficActionAccept,
-				},
+		g := []*types.Group{
+			{
+				ID:    "groupA",
+				Name:  "GroupA",
+				Peers: []string{peer1.ID, peer3.ID},
 			},
-		}, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Saving policy with source group containing peers, but destination group without peers should
-	// update account's peers and send peer update
-	t.Run("saving policy where source has peers but destination does not", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
-			AccountID: account.Id,
-			Enabled:   true,
-			Rules: []*types.PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"groupA"},
-					Destinations:  []string{"groupB"},
-					Protocol:      types.PolicyRuleProtocolTCP,
-					Bidirectional: true,
-					Action:        types.PolicyTrafficActionAccept,
-				},
+			{
+				ID:    "groupB",
+				Name:  "GroupB",
+				Peers: []string{},
 			},
-		}, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Saving policy with destination group containing peers, but source group without peers should
-	// update account's peers and send peer update
-	t.Run("saving policy where destination has peers but source does not", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		policyWithDestinationPeersOnly, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
-			AccountID: account.Id,
-			Enabled:   true,
-			Rules: []*types.PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"groupC"},
-					Destinations:  []string{"groupD"},
-					Bidirectional: true,
-					Protocol:      types.PolicyRuleProtocolTCP,
-					Action:        types.PolicyTrafficActionAccept,
-				},
+			{
+				ID:    "groupC",
+				Name:  "GroupC",
+				Peers: []string{},
 			},
-		}, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Saving policy with destination and source groups containing peers should update account's peers
-	// and send peer update
-	t.Run("saving policy with source and destination groups with peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
-			AccountID: account.Id,
-			Enabled:   true,
-			Rules: []*types.PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"groupA"},
-					Destinations:  []string{"groupD"},
-					Bidirectional: true,
-					Action:        types.PolicyTrafficActionAccept,
-				},
+			{
+				ID:    "groupD",
+				Name:  "GroupD",
+				Peers: []string{peer1.ID, peer2.ID},
 			},
-		}, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
-	})
-
-	// Disabling policy with destination and source groups containing peers should update account's peers
-	// and send peer update
-	t.Run("disabling policy with source and destination groups with peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		policyWithSourceAndDestinationPeers.Enabled = false
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Updating disabled policy with destination and source groups containing peers should still update account's peers
-	// because affected peer resolution does not filter by policy enabled state
-	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
-		drainPeerUpdates(updMsg)
-
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		policyWithSourceAndDestinationPeers.Description = "updated description"
-		policyWithSourceAndDestinationPeers.Rules[0].Destinations = []string{"groupA"}
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Enabling policy with destination and source groups containing peers should update account's peers
-	// and send peer update
-	t.Run("enabling policy with source and destination groups with peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		policyWithSourceAndDestinationPeers.Enabled = true
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Deleting policy should trigger account peers update and send peer update
-	t.Run("deleting policy with source and destination groups with peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.DeletePolicy(context.Background(), account.Id, policyWithSourceAndDestinationPeers.ID, userID)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		for _, group := range g {
+			err := manager.CreateGroup(context.Background(), account.Id, userID, group)
+			assert.NoError(t, err)
 		}
 
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
+
+		var policyWithGroupRulesNoPeers *types.Policy
+		var policyWithDestinationPeersOnly *types.Policy
+		var policyWithSourceAndDestinationPeers *types.Policy
+		var err error
+
+		// Saving policy with rule groups with no peers should not update account's peers and not send peer update
+		step(t, "saving policy with rule groups with no peers", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			policyWithGroupRulesNoPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+				AccountID: account.Id,
+				Enabled:   true,
+				Rules: []*types.PolicyRule{
+					{
+						Enabled:       true,
+						Sources:       []string{"groupB"},
+						Destinations:  []string{"groupC"},
+						Bidirectional: true,
+						Action:        types.PolicyTrafficActionAccept,
+					},
+				},
+			}, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// Saving policy with source group containing peers, but destination group without peers should
+		// update account's peers and send peer update
+		step(t, "saving policy where source has peers but destination does not", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+				AccountID: account.Id,
+				Enabled:   true,
+				Rules: []*types.PolicyRule{
+					{
+						Enabled:       true,
+						Sources:       []string{"groupA"},
+						Destinations:  []string{"groupB"},
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Bidirectional: true,
+						Action:        types.PolicyTrafficActionAccept,
+					},
+				},
+			}, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Saving policy with destination group containing peers, but source group without peers should
+		// update account's peers and send peer update
+		step(t, "saving policy where destination has peers but source does not", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			policyWithDestinationPeersOnly, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+				AccountID: account.Id,
+				Enabled:   true,
+				Rules: []*types.PolicyRule{
+					{
+						Enabled:       true,
+						Sources:       []string{"groupC"},
+						Destinations:  []string{"groupD"},
+						Bidirectional: true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+					},
+				},
+			}, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Saving policy with destination and source groups containing peers should update account's peers
+		// and send peer update
+		step(t, "saving policy with source and destination groups with peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+				AccountID: account.Id,
+				Enabled:   true,
+				Rules: []*types.PolicyRule{
+					{
+						Enabled:       true,
+						Sources:       []string{"groupA"},
+						Destinations:  []string{"groupD"},
+						Bidirectional: true,
+						Action:        types.PolicyTrafficActionAccept,
+					},
+				},
+			}, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Disabling policy with destination and source groups containing peers should update account's peers
+		// and send peer update
+		step(t, "disabling policy with source and destination groups with peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			policyWithSourceAndDestinationPeers.Enabled = false
+			policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Updating disabled policy with destination and source groups containing peers should still update account's peers
+		// because affected peer resolution does not filter by policy enabled state
+		step(t, "updating disabled policy with source and destination groups with peers", func(t *testing.T) {
+			drainPeerUpdates(updMsg)
+
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			policyWithSourceAndDestinationPeers.Description = "updated description"
+			policyWithSourceAndDestinationPeers.Rules[0].Destinations = []string{"groupA"}
+			policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Enabling policy with destination and source groups containing peers should update account's peers
+		// and send peer update
+		step(t, "enabling policy with source and destination groups with peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			policyWithSourceAndDestinationPeers.Enabled = true
+			policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Deleting policy should trigger account peers update and send peer update
+		step(t, "deleting policy with source and destination groups with peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.DeletePolicy(context.Background(), account.Id, policyWithSourceAndDestinationPeers.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+
+		})
+
+		// Deleting policy with destination group containing peers, but source group without peers should
+		// update account's peers and send peer update
+		step(t, "deleting policy where destination has peers but source does not", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.DeletePolicy(context.Background(), account.Id, policyWithDestinationPeersOnly.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Deleting policy with no peers in groups should not update account's peers and not send peer update
+		step(t, "deleting policy with no peers in groups", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.DeletePolicy(context.Background(), account.Id, policyWithGroupRulesNoPeers.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
 	})
-
-	// Deleting policy with destination group containing peers, but source group without peers should
-	// update account's peers and send peer update
-	t.Run("deleting policy where destination has peers but source does not", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.DeletePolicy(context.Background(), account.Id, policyWithDestinationPeersOnly.ID, userID)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Deleting policy with no peers in groups should not update account's peers and not send peer update
-	t.Run("deleting policy with no peers in groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.DeletePolicy(context.Background(), account.Id, policyWithGroupRulesNoPeers.ID, userID)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
 }

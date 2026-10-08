@@ -1,5 +1,3 @@
-//go:build integration
-
 package grpc
 
 import (
@@ -40,9 +38,9 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	proxyManager := &testValidateSessionProxyManager{}
 
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
-	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, nil, proxyManager, nil)
+	proxyService := NewProxyServiceServer(nil, tokenStore, singleUseStore, ProxyOIDCConfig{}, nil, usersManager, nil, proxyManager, nil)
 	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
@@ -195,7 +193,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -216,7 +214,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -240,7 +238,7 @@ func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -265,7 +263,7 @@ func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) 
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "all-users-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -288,7 +286,7 @@ func TestValidateSession_BlockedUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -312,7 +310,7 @@ func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
 	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
 	req := &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	}
 
 	resp, err := setup.proxyService.ValidateSession(ctx, req)
@@ -345,7 +343,7 @@ func TestValidateSession_UserInDifferentAccount(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -364,7 +362,7 @@ func TestValidateSession_UserNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -383,7 +381,7 @@ func TestValidateSession_ProxyNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "unknown-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -397,7 +395,7 @@ func TestValidateSession_InvalidToken(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: "invalid-token",
+		SessionToken: "invalid-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -410,7 +408,7 @@ func TestValidateSession_MissingDomain(t *testing.T) {
 	defer setup.cleanup()
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
-		SessionToken: "some-token",
+		SessionToken: "some-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -491,15 +489,15 @@ func (m *testValidateSessionServiceManager) GetAllServices(_ context.Context, _,
 }
 
 func (m *testValidateSessionServiceManager) GetService(_ context.Context, _, _, _ string) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) DeleteService(_ context.Context, _, _, _ string) error {
@@ -543,7 +541,7 @@ func (m *testValidateSessionServiceManager) GetServiceIDByTargetID(_ context.Con
 }
 
 func (m *testValidateSessionServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
@@ -570,8 +568,8 @@ func (m *testValidateSessionServiceManager) DeleteAccountCluster(_ context.Conte
 
 type testValidateSessionProxyManager struct{}
 
-func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _, _ string, _ *string, _ *proxy.Capabilities) (*proxy.Proxy, error) {
-	return nil, nil
+func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _, _, _ string, _ *string, _ *proxy.Capabilities) (*proxy.Proxy, error) {
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _, _ string) error {
@@ -603,7 +601,7 @@ func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time
 }
 
 func (m *testValidateSessionProxyManager) GetAccountProxy(_ context.Context, _ string) (*proxy.Proxy, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
@@ -634,6 +632,14 @@ func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Conte
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterAllProxiesPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return false
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
@@ -661,4 +667,48 @@ func (m *testValidateSessionUsersManager) GetUserWithGroups(ctx context.Context,
 		}
 	}
 	return user, groups, nil
+}
+
+func TestValidateSession_RedeemsSessionCode(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, "allowedUserId", "test-proxy.example.com")
+	code, ok := setup.proxyService.GenerateSessionCode(token)
+	require.True(t, ok)
+	require.NotEqual(t, token, code, "code must not be the token itself")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: code,
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Valid, "redeemed code should authorize the user")
+	assert.Equal(t, "allowedUserId", resp.UserId)
+	assert.Equal(t, token, resp.GetSessionToken(), "response must carry the durable token for the cookie")
+
+	// Single-use: the same code must not redeem again.
+	resp2, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: code,
+	})
+	require.NoError(t, err)
+	assert.False(t, resp2.Valid, "a consumed code must be rejected")
+	assert.Empty(t, resp2.GetSessionToken())
+}
+
+func TestValidateSession_InvalidSessionCode(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: "does-not-exist",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.Valid)
+	assert.Empty(t, resp.GetSessionToken())
 }

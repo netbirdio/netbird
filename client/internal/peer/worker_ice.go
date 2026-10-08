@@ -121,11 +121,8 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			}
 		}
 
-		sessionID, err := NewICESessionID()
-		if err != nil {
-			w.log.Errorf("failed to create new session ID: %s", err)
-		}
-		w.sessionID = sessionID
+		// Keep the ID already advertised to the remote. Answers do not get a
+		// reply, so changing it here makes the next offer restart both sides.
 		w.abandonNegotiation()
 	}
 
@@ -205,6 +202,9 @@ func (w *WorkerICE) Close() {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
+	if w.agent != nil || w.agentConnecting {
+		w.renewSessionID()
+	}
 	if w.agent != nil {
 		w.agentDialerCancel()
 		if err := w.agent.Close(); err != nil {
@@ -366,14 +366,21 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	// Only the owner of the current session may reset its state: a stale dial
 	// goroutine waking after a newer attempt must not clobber it.
 	if w.agent == agent {
-		sessionID, err := NewICESessionID()
-		if err != nil {
-			w.log.Errorf("failed to create new session ID: %s", err)
-		}
-		w.sessionID = sessionID
+		w.renewSessionID()
 		w.abandonNegotiation()
 	}
 	return sessionChanged
+}
+
+// renewSessionID starts a new local session, so the remote treats our next offer
+// or answer as a restart. Caller holds muxAgent.
+func (w *WorkerICE) renewSessionID() {
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		w.log.Errorf("failed to create new session ID: %s", err)
+		return
+	}
+	w.sessionID = sessionID
 }
 
 // abandonNegotiation drops all recorded ICE session state so the worker treats the

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -24,6 +25,30 @@ var serviceCmd = &cobra.Command{
 }
 
 const defaultJSONSocket = "unix:///var/run/netbird-http.sock"
+
+// forbiddenServiceEnvVars are the environment variables the service is never
+// registered with, keyed in upper case since these are Windows names. Each one
+// decides where the daemon resolves something it then uses with the privileges
+// of the account it runs under — LocalSystem on Windows, root elsewhere: the
+// executables it runs (PATH, PATHEXT, COMSPEC, SystemRoot, windir) or the
+// directory it writes temporary files in (TEMP, TMP). The daemon needs none of
+// them, and the utilities it shells out to are resolved by absolute path.
+var forbiddenServiceEnvVars = map[string]struct{}{
+	"PATH":       {},
+	"PATHEXT":    {},
+	"SYSTEMROOT": {},
+	"WINDIR":     {},
+	"COMSPEC":    {},
+	"TEMP":       {},
+	"TMP":        {},
+}
+
+// forbiddenServiceEnvPrefixes are the dynamic-loader families, refused whole
+// rather than by name: LD_PRELOAD, DYLD_INSERT_LIBRARIES and their siblings all
+// reach the loader of the process, the set differs per platform and libc, and
+// new members arrive with new OS releases. Listing them one by one is a list
+// that is wrong the moment it is written.
+var forbiddenServiceEnvPrefixes = []string{"LD_", "DYLD_"}
 
 var (
 	serviceName      string
@@ -127,8 +152,33 @@ func parseServiceEnvVars(envVars []string) (map[string]string, error) {
 			return nil, fmt.Errorf("empty environment variable key in: %s", env)
 		}
 
+		if isForbiddenServiceEnvVar(key) {
+			return nil, fmt.Errorf("environment variable %s cannot be set on the service: it decides where the service resolves the executables, libraries or temporary files it uses", key)
+		}
+
 		envMap[key] = value
 	}
 
 	return envMap, nil
+}
+
+// isForbiddenServiceEnvVar reports whether name is one the service must not be
+// registered with.
+//
+// The names are matched case-insensitively only on Windows, where they are the
+// same variable however they are spelled. Elsewhere the environment is
+// case-sensitive, so Path and PATH are two different variables and only the
+// exact spelling is the one the loader reads.
+func isForbiddenServiceEnvVar(name string) bool {
+	if runtime.GOOS == "windows" {
+		name = strings.ToUpper(name)
+	}
+
+	if _, forbidden := forbiddenServiceEnvVars[name]; forbidden {
+		return true
+	}
+
+	return slices.ContainsFunc(forbiddenServiceEnvPrefixes, func(prefix string) bool {
+		return strings.HasPrefix(name, prefix)
+	})
 }
