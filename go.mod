@@ -356,7 +356,7 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2024
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
 
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261001164855-f9a2ed0f4b23
+replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261008122457-d2b1ce9bfee9
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
