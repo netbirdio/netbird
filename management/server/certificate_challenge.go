@@ -108,7 +108,8 @@ func (r *certChallengeRefresher) Start(ctx context.Context) {
 // Track renews the challenge of peerID, which was stamped one on the sync stream that
 // started at streamStart. An account seen for the first time has its first run spread
 // over one period, so that a global window rollover does not fan out to every account in
-// the same moment; an account already tracked keeps its schedule.
+// the same moment; an account already tracked keeps its schedule. A stamp from an older
+// stream than the one recorded for the peer is ignored.
 func (r *certChallengeRefresher) Track(ctx context.Context, accountID, peerID string, streamStart time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -123,6 +124,9 @@ func (r *certChallengeRefresher) Track(ctx context.Context, accountID, peerID st
 		}
 		r.accounts[accountID] = account
 		log.WithContext(ctx).Debugf("tracking certificate challenge refresh for account %s", accountID)
+	}
+	if started, ok := account.peers[peerID]; ok && streamStart.Before(started) {
+		return
 	}
 	account.peers[peerID] = streamStart
 }
