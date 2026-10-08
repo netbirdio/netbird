@@ -1644,6 +1644,22 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 // state and re-applies them from the new mapping.
 func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	if old := s.loadMapping(types.ServiceID(mapping.GetId())); old != nil {
+		if !types.ServiceMode(old.GetMode()).IsL4() &&
+			!types.ServiceMode(mapping.GetMode()).IsL4() &&
+			old.GetDomain() == mapping.GetDomain() &&
+			len(old.GetPath()) > 0 && len(mapping.GetPath()) > 0 {
+			if err := s.updateMapping(ctx, mapping); err != nil {
+				// A rejected policy must not leave an older, potentially more
+				// permissive route serving requests. Keep the peer, but remove
+				// the snapshot so a later valid update installs routes again.
+				s.cleanupMappingRoutes(old)
+				s.deleteMapping(types.ServiceID(mapping.GetId()))
+				return err
+			}
+			s.storeMapping(mapping)
+			s.hijackTracker.CloseByHost(mapping.GetDomain())
+			return nil
+		}
 		s.cleanupMappingRoutes(old)
 		if mode := types.ServiceMode(old.GetMode()); mode.IsL4() {
 			s.meter.L4ServiceRemoved(mode)
@@ -2060,13 +2076,16 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 }
 
 func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	// Very simple implementation here, we don't touch the existing peer
-	// connection or any existing TLS configuration, we simply overwrite
-	// the auth and proxy mappings.
-	// Note: this does require the management server to always send a
-	// full mapping rather than deltas during a modification.
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcID := types.ServiceID(mapping.GetId())
+	m, err := s.protoToMapping(ctx, mapping)
+	if err != nil {
+		return err
+	}
+	resolver, err := proxy.NewTargetResolver(m)
+	if err != nil {
+		return fmt.Errorf("prepare target routes: %w", err)
+	}
 
 	var schemes []auth.Scheme
 	if mapping.GetAuth().GetPassword() {
@@ -2084,19 +2103,19 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds()); err != nil {
+	config, err := auth.NewDomainConfig(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds(), auth.WithTargetResolver(resolver))
+	if err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
-	m := s.protoToMapping(ctx, mapping)
-	// The chain is published before the route that leads to it. A request
-	// arriving at a target whose chain has not been rebuilt yet is served
-	// straight through, so a provider update that added the route first left a
-	// window in which an inference could complete unrouted and unmetered.
-	// Rebuilding first inverts that: the worst a request in the window meets is
-	// the new chain in front of the previous target, which is still counted.
-	if err := s.rebuildMiddlewareChains(svcID, m); err != nil {
+	revision, err := s.rebuildMiddlewareChains(svcID, m)
+	if err != nil {
 		return err
 	}
+	m.MiddlewareRevision = revision
+	config.TargetResolver = resolver.WithMiddlewareRevision(revision)
+	// The auth snapshot owns its resolver, so an in-flight request cannot
+	// authorize an old target and then forward to a replacement target.
+	s.auth.AddDomainConfig(mapping.GetDomain(), config)
 	s.meter.AddMapping(m)
 	s.proxy.AddMapping(m)
 	return nil
@@ -2161,22 +2180,17 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 	return nil
 }
 
-// rebuildMiddlewareChains converts m into per-path bindings and calls
-// Manager.Rebuild. Short-circuits when the middleware manager is unset, which
-// is a deployment without middleware rather than a failure to install it.
-//
-// A rebuild that fails is reported rather than logged: the caller publishes
-// the route once this returns, and a route published over chains that were
-// not installed serves requests with no policy enforcement and no metering.
-func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) error {
+// rebuildMiddlewareChains installs the service's policies before its routing snapshot.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) (middleware.Revision, error) {
 	if s.middlewareManager == nil {
-		return nil
+		return 0, nil
 	}
 	bindings := buildMiddlewareBindings(svcID, m)
-	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
-		return fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
+	revision, err := s.middlewareManager.RebuildSnapshot(string(svcID), bindings)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
 	}
-	return nil
+	return revision, nil
 }
 
 // isLiveService reports whether svcID is currently present in the live
@@ -2261,10 +2275,10 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 		if s.acme != nil {
 			s.acme.RemoveDomain(d)
 		}
-		s.auth.RemoveDomain(host)
 		if s.proxy.RemoveMapping(proxy.Mapping{Host: host}) {
 			s.meter.RemoveMapping(proxy.Mapping{Host: host})
 		}
+		s.auth.RemoveDomain(host)
 		// Close hijacked connections (WebSocket) for this domain.
 		if n := s.hijackTracker.CloseByHost(host); n > 0 {
 			s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
@@ -2337,23 +2351,33 @@ func (s *Server) deleteMapping(svcID types.ServiceID) *proto.ProxyMapping {
 	return m
 }
 
-func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) proxy.Mapping {
+func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) (proxy.Mapping, error) {
+	pathMappings := mapping.GetPath()
+	actions, strictPaths, err := parseTargetAccessActions(pathMappings)
+	if err != nil {
+		return proxy.Mapping{}, err
+	}
+
 	paths := make(map[string]*proxy.PathTarget)
-	for _, pathMapping := range mapping.GetPath() {
+	for i, pathMapping := range pathMappings {
+		path := pathMapping.GetPath()
+		if strictPaths && path == "" {
+			path = "/"
+		}
+		if strictPaths {
+			if _, exists := paths[path]; exists {
+				return proxy.Mapping{}, fmt.Errorf("duplicate target location %q", path)
+			}
+		}
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
-			s.Logger.WithFields(log.Fields{
-				"service_id": mapping.GetId(),
-				"account_id": mapping.GetAccountId(),
-				"domain":     mapping.GetDomain(),
-				"path":       pathMapping.GetPath(),
-				"target":     pathMapping.GetTarget(),
-			}).WithError(err).Error("failed to parse target URL for path, skipping")
-			s.notifyError(ctx, mapping, fmt.Errorf("invalid target URL %q for path %q: %w", pathMapping.GetTarget(), pathMapping.GetPath(), err))
-			continue
+			return proxy.Mapping{}, fmt.Errorf("parse target URL for location %q: %w", path, err)
+		}
+		if targetURL.Host == "" || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
+			return proxy.Mapping{}, fmt.Errorf("invalid HTTP target URL for location %q", path)
 		}
 
-		pt := &proxy.PathTarget{URL: targetURL}
+		pt := &proxy.PathTarget{URL: targetURL, AccessAction: actions[i]}
 		if opts := pathMapping.GetOptions(); opts != nil {
 			pt.SkipTLSVerify = opts.GetSkipTlsVerify()
 			pt.PathRewrite = protoToPathRewrite(opts.GetPathRewrite())
@@ -2370,7 +2394,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 			pt.DisableAccessLog = opts.GetDisableAccessLog()
 		}
 		pt.RequestTimeout = s.clampDialTimeout(pt.RequestTimeout)
-		paths[pathMapping.GetPath()] = pt
+		paths[path] = pt
 	}
 	m := proxy.Mapping{
 		ID:               types.ServiceID(mapping.GetId()),
@@ -2383,7 +2407,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 	for _, ha := range mapping.GetAuth().GetHeaderAuths() {
 		m.StripAuthHeaders = append(m.StripAuthHeaders, ha.GetHeader())
 	}
-	return m
+	return m, nil
 }
 
 func protoToPathRewrite(mode proto.PathRewriteMode) proxy.PathRewriteMode {
