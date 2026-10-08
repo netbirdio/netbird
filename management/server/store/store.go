@@ -160,7 +160,8 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string, filters PeerFilters) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)

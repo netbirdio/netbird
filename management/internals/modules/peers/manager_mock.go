@@ -74,21 +74,6 @@ func (mr *MockManagerMockRecorder) DeletePeers(ctx, accountID, peerIDs, userID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePeers", reflect.TypeOf((*MockManager)(nil).DeletePeers), ctx, accountID, peerIDs, userID, checkConnected)
 }
 
-// GetAllPeers mocks base method.
-func (m *MockManager) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllPeers", ctx, accountID, userID)
-	ret0, _ := ret[0].([]*peer.Peer)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAllPeers indicates an expected call of GetAllPeers.
-func (mr *MockManagerMockRecorder) GetAllPeers(ctx, accountID, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllPeers", reflect.TypeOf((*MockManager)(nil).GetAllPeers), ctx, accountID, userID)
-}
-
 // GetPeer mocks base method.
 func (m *MockManager) GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error) {
 	m.ctrl.T.Helper()

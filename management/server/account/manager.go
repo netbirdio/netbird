@@ -62,7 +62,8 @@ type Manager interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID string, filters store.PeerFilters) ([]*nbpeer.Peer, error)
+	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
+	GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error

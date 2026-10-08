@@ -28,7 +28,6 @@ import (
 type Manager interface {
 	GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error)
 	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
-	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
 	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error
 	SetNetworkMapController(networkMapController network_map.Controller)
@@ -85,19 +84,6 @@ func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID str
 	}
 
 	return m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-}
-
-func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-	}
-
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 }
 
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {

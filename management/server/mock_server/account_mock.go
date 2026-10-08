@@ -39,7 +39,7 @@ type MockAccountManager struct {
 	GetAccountIDByUserIdFunc              func(ctx context.Context, userAuth auth.UserAuth) (string, error)
 	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
+	GetPeersFunc                          func(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
@@ -807,11 +807,19 @@ func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, user
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
-func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
+func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
 	if am.GetPeersFunc != nil {
-		return am.GetPeersFunc(ctx, accountID, userID, nameFilter, ipFilter, macFilter)
+		peers, _, err := am.GetPeersFunc(ctx, accountID, userID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
+		return peers, err
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
+}
+
+func (am *MockAccountManager) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
+	if am.GetPeersFunc != nil {
+		return am.GetPeersFunc(ctx, accountID, userID, pagination, filters, sorting)
+	}
+	return nil, 0, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }
 
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface

@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -321,7 +322,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter, macFilter)
+	peers, _, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, store.PaginationState{}, store.PeerFilters{Hostname: nameFilter, IP: ipFilter, MAC: macFilter}, store.PeerSorting{})
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

@@ -491,8 +491,13 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	return &peer, nil
 }
 
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	peers, _, err := s.GetAccountPeersPaginated(ctx, lockStrength, accountID, PaginationState{}, PeerFilters{}, PeerSorting{})
+	return peers, err
+}
+
 // GetAccountPeers retrieves peers for an account.
-func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string, filters PeerFilters) ([]*nbpeer.Peer, error) {
+func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
@@ -500,24 +505,27 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 	}
 	query := tx.Where(accountIDCondition, accountID)
 
-	if nameFilter != "" {
-		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
-	}
-	if ipFilter != "" {
-		query = query.Where("ip LIKE ? OR ipv6 LIKE ?", "%"+ipFilter+"%", "%"+ipFilter+"%")
-	}
-	// MAC addresses live in the JSON-serialized meta_network_addresses column,
-	// so we match the raw JSON text rather than a dedicated column.
-	if macFilter != "" {
-		query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
-	}
+	// if nameFilter != "" {
+	// 	query = query.Where("name LIKE ?", "%"+nameFilter+"%")
+	// }
+	// if ipFilter != "" {
+	// 	query = query.Where("ip LIKE ? OR ipv6 LIKE ?", "%"+ipFilter+"%", "%"+ipFilter+"%")
+	// }
+	// // MAC addresses live in the JSON-serialized meta_network_addresses column,
+	// // so we match the raw JSON text rather than a dedicated column.
+	// if macFilter != "" {
+	// 	query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
+	// }
 
 	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
-		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+		return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
-	return peers, nil
+	return peers, 0, nil
+}
+
+type PaginationState struct {
 }
 
 type PeerFilters struct {
@@ -531,6 +539,9 @@ type PeerFilters struct {
 	MAC              string
 	Hostname         string
 	Kind             string
+}
+
+type PeerSorting struct {
 }
 
 // GetUserPeers retrieves peers for a user.

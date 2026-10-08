@@ -724,7 +724,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "", "")
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -777,7 +777,7 @@ func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := manager.GetPeers(ctx, account.Id, "mac-admin", tt.nameFilter, tt.ipFilter, tt.macFilter)
+			peers, _, err := manager.GetPeersPaginated(ctx, account.Id, "mac-admin", store.PaginationState{}, store.PeerFilters{Hostname: tt.nameFilter, IP: tt.ipFilter, MAC: tt.macFilter}, store.PeerSorting{})
 			require.NoError(t, err)
 			ids := make([]string, 0, len(peers))
 			for _, peer := range peers {
@@ -1005,7 +1005,7 @@ func BenchmarkGetPeers(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "", "")
+				_, err := manager.GetPeers(context.Background(), accountID, userID)
 				if err != nil {
 					b.Fatalf("GetPeers failed: %v", err)
 				}

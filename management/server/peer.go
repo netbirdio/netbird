@@ -47,31 +47,38 @@ const (
 
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID string, filters store.PeerFilters) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+	peers, _, err := am.GetPeersPaginated(ctx, accountID, userID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
+	return peers, err
+}
+
+func (am *DefaultAccountManager) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
+		return nil, 0, status.NewPermissionValidationError(err)
 	}
 
 	if allowed {
-		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, store.PeerFilters{})
+		return am.Store.GetAccountPeersPaginated(ctx, store.LockingStrengthNone, accountID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get account settings: %w", err)
+		return nil, 0, fmt.Errorf("failed to get account settings: %w", err)
 	}
 
 	if user.IsRestrictable() && settings.RegularUsersViewBlocked {
-		return []*nbpeer.Peer{}, nil
+		return []*nbpeer.Peer{}, 0, nil
 	}
 
-	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	peers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
+	return peers, len(peers), err
 }
 
 // MarkPeerConnected marks a peer as connected with optimistic-locked
