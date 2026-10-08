@@ -15,7 +15,7 @@ import (
 //   - NetworkMap is the *proto.NetworkMap shape the engine reads today via
 //     update.GetNetworkMap() — built from the envelope's components by
 //     running Calculate() locally + converting back through the shared
-//     proto helpers + merging the optional ProxyPatch.
+//     proto helpers.
 //   - Components is the *types.NetworkMapComponents the engine retains so
 //     future incremental delta updates have a base to apply changes
 //     against. The client keeps it under its sync lock.
@@ -26,8 +26,8 @@ type EnvelopeResult struct {
 
 // EnvelopeToNetworkMap is the full client-side pipeline: decode the
 // component envelope back to a typed NetworkMapComponents, run Calculate()
-// locally to produce the typed NetworkMap, convert it to the wire form the
-// engine consumes, and fold in any ProxyPatch the server attached.
+// locally to produce the typed NetworkMap and convert it to the wire form the
+// engine consumes.
 //
 // localPeerKey is the receiving peer's WG pub key (used to derive
 // includeIPv6 / useSourcePrefixes from the receiving peer's own record in
@@ -35,7 +35,12 @@ type EnvelopeResult struct {
 //
 // dnsName is the account's DNS domain ("netbird.cloud" etc.); used when
 // rebuilding the per-peer FQDNs that proto.RemotePeerConfig carries.
-func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, localPeerKey, dnsName string) (*EnvelopeResult, error) {
+//
+// skipRouteFirewallRules leaves RoutesFirewallRules empty. Callers that have
+// no firewall to program pass true: the rules are the most expensive part of
+// Calculate on a peer that routes many network resources, and nothing reads
+// them afterwards.
+func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, localPeerKey, dnsName string, skipRouteFirewallRules bool) (*EnvelopeResult, error) {
 	components, err := DecodeEnvelope(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("decode envelope: %w", err)
@@ -53,6 +58,7 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 		return nil, fmt.Errorf("receiving peer (wg_key prefix %q) not found among %d decoded peers — components have no PeerID, Calculate would return empty", trimKey(localPeerKey), len(components.Peers))
 	}
 	components.PeerID = canonicalKey
+	components.SkipRouteFirewallRules = skipRouteFirewallRules
 
 	includeIPv6 := localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
 	useSourcePrefixes := localPeer.SupportsSourcePrefixes()
@@ -101,72 +107,10 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 		}
 	}
 
-	if typedNM.ForwardingRules != nil {
-		forwardingRules := make([]*proto.ForwardingRule, 0, len(typedNM.ForwardingRules))
-		for _, rule := range typedNM.ForwardingRules {
-			forwardingRules = append(forwardingRules, rule.ToProto())
-		}
-		protoNM.ForwardingRules = forwardingRules
-	}
-
-	// Merge the proxy patch the server attached. Mirrors the legacy
-	// NetworkMap.Merge step that the server runs after Calculate().
-	if full != nil && full.ProxyPatch != nil {
-		mergeProxyPatch(protoNM, full.ProxyPatch)
-	}
-
 	return &EnvelopeResult{
 		NetworkMap: protoNM,
 		Components: components,
 	}, nil
-}
-
-// mergeProxyPatch folds a ProxyPatch's pre-expanded fragments into the
-// proto.NetworkMap that Calculate() produced. Mirrors types.NetworkMap.Merge
-// — same six collections, deduplicated where the legacy merge dedupes.
-func mergeProxyPatch(nm *proto.NetworkMap, patch *proto.ProxyPatch) {
-	nm.RemotePeers = appendUniquePeers(nm.RemotePeers, patch.Peers)
-	nm.OfflinePeers = appendUniquePeers(nm.OfflinePeers, patch.OfflinePeers)
-	nm.FirewallRules = append(nm.FirewallRules, patch.FirewallRules...)
-	nm.Routes = append(nm.Routes, patch.Routes...)
-	nm.RoutesFirewallRules = append(nm.RoutesFirewallRules, patch.RouteFirewallRules...)
-	nm.ForwardingRules = append(nm.ForwardingRules, patch.ForwardingRules...)
-	if len(nm.RemotePeers) > 0 {
-		nm.RemotePeersIsEmpty = false
-	}
-	if len(nm.FirewallRules) > 0 {
-		nm.FirewallRulesIsEmpty = false
-	}
-	if len(nm.RoutesFirewallRules) > 0 {
-		nm.RoutesFirewallRulesIsEmpty = false
-	}
-}
-
-// appendUniquePeers dedupes by WgPubKey — mirrors legacy
-// mergeUniquePeersByID's intent (legacy keyed off Peer.ID; in proto form the
-// closest stable identifier is WgPubKey).
-func appendUniquePeers(dst, extra []*proto.RemotePeerConfig) []*proto.RemotePeerConfig {
-	if len(extra) == 0 {
-		return dst
-	}
-	seen := make(map[string]struct{}, len(dst))
-	for _, p := range dst {
-		if p == nil {
-			continue
-		}
-		seen[p.WgPubKey] = struct{}{}
-	}
-	for _, p := range extra {
-		if p == nil {
-			continue
-		}
-		if _, ok := seen[p.WgPubKey]; ok {
-			continue
-		}
-		seen[p.WgPubKey] = struct{}{}
-		dst = append(dst, p)
-	}
-	return dst
 }
 
 func trimKey(s string) string {

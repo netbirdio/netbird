@@ -58,6 +58,13 @@ type NetworkMapComponents struct {
 	// domain targets.
 	ForceRoutingPeerDNSResolution bool
 
+	// SkipRouteFirewallRules drops the route firewall rule computation from
+	// Calculate. A receiver without a firewall manager never reads
+	// RoutesFirewallRules, and on a routing peer with many network resources
+	// building them dominates the cost of a sync. Defaults to false so the
+	// management server keeps producing them.
+	SkipRouteFirewallRules bool
+
 	routesByPeerOnce sync.Once
 	routesByPeerIdx  map[string][]routeIndexEntry
 
@@ -149,11 +156,15 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		includeIPv6 = p.SupportsIPv6() && p.IPv6.IsValid()
 	}
 	routesUpdate := filterAndExpandRoutes(c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups), includeIPv6)
-	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
+
+	var routesFirewallRules []*RouteFirewallRule
+	if !c.SkipRouteFirewallRules {
+		routesFirewallRules = c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
+	}
 
 	isRouter, networkResourcesRoutes, sourcePeers := c.getNetworkResourcesRoutesToSync(targetPeerID)
 	var networkResourcesFirewallRules []*RouteFirewallRule
-	if isRouter {
+	if isRouter && !c.SkipRouteFirewallRules {
 		networkResourcesFirewallRules = c.getPeerNetworkResourceFirewallRules(ctx, targetPeerID, networkResourcesRoutes, includeIPv6)
 	}
 
@@ -230,13 +241,13 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID)
+				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID, policy.SourcePostureChecks)
 			} else {
 				sourcePeers, peerInSources = c.getAllPeersFromGroups(rule.Sources, targetPeerID, policy.SourcePostureChecks)
 			}
 
 			if rule.DestinationResource.Type == string(ResourceTypePeer) && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID)
+				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID, nil)
 			} else {
 				destinationPeers, peerInDestinations = c.getAllPeersFromGroups(rule.Destinations, targetPeerID, nil)
 			}
@@ -373,8 +384,21 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nmdata.Peer) (
 }
 
 func (c *NetworkMapComponents) getAllPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
+	return c.filterPolicyPeers(c.getUniquePeerIDsFromGroupsIDs(groups), peerID, sourcePostureChecksIDs)
+}
+
+// getPeerFromResource resolves a rule side that names a peer directly. The peer is
+// subject to the same admission as a group member, so a direct peer behaves exactly
+// like a group holding only that peer.
+func (c *NetworkMapComponents) getPeerFromResource(resource nmdata.Resource, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
+	return c.filterPolicyPeers([]string{resource.ID}, peerID, sourcePostureChecksIDs)
+}
+
+// filterPolicyPeers admits the peers of one rule side: known to the components and
+// passing the rule's posture checks. It reports the admitted peers other than peerID
+// and whether peerID itself is admitted on that side.
+func (c *NetworkMapComponents) filterPolicyPeers(uniquePeerIDs []string, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := c.getUniquePeerIDsFromGroupsIDs(groups)
 	filteredPeers := make([]*nmdata.Peer, 0, len(uniquePeerIDs))
 
 	for _, p := range uniquePeerIDs {
@@ -425,19 +449,6 @@ func (c *NetworkMapComponents) getUniquePeerIDsFromGroupsIDs(groups []string) []
 	}
 
 	return ids
-}
-
-func (c *NetworkMapComponents) getPeerFromResource(resource nmdata.Resource, peerID string) ([]*nmdata.Peer, bool) {
-	if resource.ID == peerID {
-		return []*nmdata.Peer{}, true
-	}
-
-	peerInfo := c.GetPeerInfo(resource.ID)
-	if peerInfo == nil {
-		return []*nmdata.Peer{}, false
-	}
-
-	return []*nmdata.Peer{peerInfo}, false
 }
 
 func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nmdata.Peer) ([]*nmdata.Peer, []*nmdata.Peer) {

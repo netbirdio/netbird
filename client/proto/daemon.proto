@@ -45,7 +45,10 @@ service DaemonService {
   // Deselect specific routes
   rpc DeselectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
-  rpc ForwardingRules(EmptyRequest) returns (ForwardingRulesResponse) {}
+  // Unused; the ingress port-forwarding feature was discontinued.
+  rpc ForwardingRules(EmptyRequest) returns (ForwardingRulesResponse) {
+    option deprecated = true;
+  }
 
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
@@ -242,6 +245,12 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  optional bool enable_local_metrics = 41;
+  optional string local_metrics_address = 42;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 43;
 }
 
 message LoginResponse {
@@ -362,6 +371,8 @@ message GetConfigResponse {
 
   bool disable_ipv6 = 27;
 
+  bool remoteJobsAllowed = 29;
+
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
   // (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
@@ -460,7 +471,8 @@ message FullStatus {
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
-  int32 NumberOfForwardingRules = 8;
+  // Unused; the ingress port-forwarding feature was discontinued.
+  int32 NumberOfForwardingRules = 8 [deprecated = true];
 
   repeated SystemEvent events = 7;
 
@@ -503,8 +515,11 @@ message Network {
   map<string, IPList> resolvedIPs = 5;
 }
 
-// ForwardingRules
+// PortInfo, ForwardingRule and ForwardingRulesResponse are unused; the ingress
+// port-forwarding feature was discontinued.
 message PortInfo {
+  option deprecated = true;
+
   oneof portSelection {
     uint32 port = 1;
     Range range = 2;
@@ -517,6 +532,8 @@ message PortInfo {
 }
 
 message ForwardingRule {
+  option deprecated = true;
+
   string protocol = 1;
   PortInfo destinationPort = 2;
   string translatedAddress = 3;
@@ -525,9 +542,10 @@ message ForwardingRule {
 }
 
 message ForwardingRulesResponse {
+  option deprecated = true;
+
   repeated ForwardingRule rules = 1;
 }
-
 
 // DebugBundler
 message DebugBundleRequest {
@@ -766,6 +784,12 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  optional bool enable_local_metrics = 36;
+  optional string local_metrics_address = 37;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 38;
 }
 
 message SetConfigResponse{}

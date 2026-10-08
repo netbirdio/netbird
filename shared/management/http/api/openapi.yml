@@ -31,9 +31,6 @@ tags:
     description: View information about the account and network events.
   - name: Accounts
     description: View information about the accounts.
-  - name: Ingress Ports
-    description: Interact with and view information about the ingress peers and ports.
-    x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
   - name: Services
@@ -154,6 +151,14 @@ components:
           type: boolean
           description: Whether sensitive data should be anonymized in the bundle.
           example: false
+        anonymize_level:
+          type: string
+          description: How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+          example: strict
+        upload_url:
+          type: string
+          description: Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+          example: https://upload.debug.netbird.io
       required:
         - bundle_for
         - bundle_for_time
@@ -818,6 +823,20 @@ components:
         - ssh_enabled
         - login_expiration_enabled
         - inactivity_expiration_enabled
+    NetworkAddress:
+      type: object
+      properties:
+        net_ip:
+          description: IP address with CIDR of the interface
+          type: string
+          example: 192.168.0.11/24
+        mac:
+          description: MAC address of the interface
+          type: string
+          example: "00:93:37:bd:83:0f"
+      required:
+        - net_ip
+        - mac
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -837,6 +856,11 @@ components:
               type: string
               format: ipv6
               example: "fd00:4e42:ab12::1"
+            network_addresses:
+              description: Network interfaces (IP + MAC) reported by the peer
+              type: array
+              items:
+                $ref: '#/components/schemas/NetworkAddress'
             connection_ip:
               description: Peer's public connection IP address
               type: string
@@ -974,6 +998,10 @@ components:
           example: false
         server_ssh_allowed:
           description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        remote_jobs_allowed:
+          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
           type: boolean
           example: true
         disable_client_routes:
@@ -2408,222 +2436,6 @@ components:
         - initiator_email
         - target_id
         - meta
-    IngressPeerCreateRequest:
-      type: object
-      properties:
-        peer_id:
-          description: ID of the peer that is used as an ingress peer
-          type: string
-          example: ch8i4ug6lnn4g9hqv7m0
-        enabled:
-          description: Defines if an ingress peer is enabled
-          type: boolean
-          example: true
-        fallback:
-          description: Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-          type: boolean
-          example: true
-      required:
-        - peer_id
-        - enabled
-        - fallback
-    IngressPeerUpdateRequest:
-      type: object
-      properties:
-        enabled:
-          description: Defines if an ingress peer is enabled
-          type: boolean
-          example: true
-        fallback:
-          description: Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-          type: boolean
-          example: true
-      required:
-        - enabled
-        - fallback
-    IngressPeer:
-      type: object
-      properties:
-        id:
-          description: ID of the ingress peer
-          type: string
-          example: ch8i4ug6lnn4g9hqv7m0
-        peer_id:
-          description: ID of the peer that is used as an ingress peer
-          type: string
-          example: x7p3kqf2rdd8j5zxw4n9
-        ingress_ip:
-          description: Ingress IP address of the ingress peer where the traffic arrives
-          type: string
-          example: 192.34.0.123
-        available_ports:
-          $ref: '#/components/schemas/AvailablePorts'
-        enabled:
-          description: Indicates if an ingress peer is enabled
-          type: boolean
-          example: true
-        connected:
-          description: Indicates if an ingress peer is connected to the management server
-          type: boolean
-          example: true
-        fallback:
-          description: Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-          type: boolean
-          example: true
-        region:
-          description: Region of the ingress peer
-          type: string
-          example: germany
-      required:
-        - id
-        - peer_id
-        - ingress_ip
-        - available_ports
-        - enabled
-        - connected
-        - fallback
-        - region
-    AvailablePorts:
-      type: object
-      properties:
-        tcp:
-          description: Number of available TCP  ports left on the ingress peer
-          type: integer
-          example: 45765
-        udp:
-          description: Number of available UDP ports left on the ingress peer
-          type: integer
-          example: 50000
-      required:
-        - tcp
-        - udp
-    IngressPortAllocationRequest:
-      type: object
-      properties:
-        name:
-          description: Name of the ingress port allocation
-          type: string
-          example: Ingress Port Allocation 1
-        enabled:
-          description: Indicates if an ingress port allocation is enabled
-          type: boolean
-          example: true
-        port_ranges:
-          description: List of port ranges that are forwarded by the ingress peer
-          type: array
-          items:
-            $ref: '#/components/schemas/IngressPortAllocationRequestPortRange'
-        direct_port:
-          description: Direct port allocation
-          $ref: '#/components/schemas/IngressPortAllocationRequestDirectPort'
-      required:
-        - name
-        - enabled
-    IngressPortAllocationRequestPortRange:
-      type: object
-      properties:
-        start:
-          description: The starting port of the range of forwarded ports
-          type: integer
-          example: 80
-        end:
-          description: The ending port of the range of forwarded ports
-          type: integer
-          example: 320
-        protocol:
-          description: The protocol accepted by the port range
-          type: string
-          enum: [ "tcp", "udp", "tcp/udp" ]
-          example: tcp
-      required:
-        - start
-        - end
-        - protocol
-    IngressPortAllocationRequestDirectPort:
-      type: object
-      properties:
-        count:
-          description: The number of ports to be forwarded
-          type: integer
-          example: 5
-        protocol:
-          description: The protocol accepted by the port
-          type: string
-          enum: [ "tcp", "udp", "tcp/udp" ]
-          example: udp
-      required:
-        - count
-        - protocol
-    IngressPortAllocation:
-      type: object
-      properties:
-        id:
-          description: ID of the ingress port allocation
-          type: string
-          example: ch8i4ug6lnn4g9hqv7m0
-        name:
-          description: Name of the ingress port allocation
-          type: string
-          example: Ingress Peer Allocation 1
-        ingress_peer_id:
-          description: ID of the ingress peer that forwards the ports
-          type: string
-          example: x7p3kqf2rdd8j5zxw4n9
-        region:
-          description: Region of the ingress peer
-          type: string
-          example: germany
-        enabled:
-          description: Indicates if an ingress port allocation is enabled
-          type: boolean
-          example: true
-        ingress_ip:
-          description: Ingress IP address of the ingress peer where the traffic arrives
-          type: string
-          example: 192.34.0.123
-        port_range_mappings:
-          description: List of port ranges that are allowed to be used by the ingress peer
-          type: array
-          items:
-            $ref: '#/components/schemas/IngressPortAllocationPortMapping'
-      required:
-        - id
-        - name
-        - ingress_peer_id
-        - region
-        - enabled
-        - ingress_ip
-        - port_range_mappings
-    IngressPortAllocationPortMapping:
-      type: object
-      properties:
-        translated_start:
-          description: The starting port of the translated range of forwarded ports
-          type: integer
-          example: 80
-        translated_end:
-          description: The ending port of the translated range of forwarded ports
-          type: integer
-          example: 320
-        ingress_start:
-          description: The starting port of the range of ingress ports mapped to the forwarded ports
-          type: integer
-          example: 1080
-        ingress_end:
-          description: The ending port of the range of ingress ports mapped to the forwarded ports
-          type: integer
-          example: 1320
-        protocol:
-          description: Protocol accepted by the ports
-          type: string
-          enum: [ "tcp", "udp", "tcp/udp" ]
-          example: tcp
-      required:
-        - translated_start
-        - translated_end
-        - ingress_start
-        - ingress_end
-        - protocol
     NetworkTrafficLocation:
       type: object
       properties:
@@ -5345,7 +5157,7 @@ components:
         upstream_url:
           type: string
           description: |
-            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
           example: "https://bedrock-runtime.eu-central-1.amazonaws.com"
         api_key:
           type: string
@@ -5353,7 +5165,7 @@ components:
           example: "sk-..."
         provider_id:
           type: string
-          description: Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+          description: Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
           example: "ch8i4ug6lnn4g9hqv7m0"
       required:
         - catalog_provider_id
@@ -5807,6 +5619,57 @@ components:
       required:
         - name
         - checks
+    AgentNetworkAgentConfig:
+      type: object
+      description: The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
+      properties:
+        configured:
+          type: boolean
+          description: False only when the account has no Agent Network set up. A caller that no policy covers yet still reads as configured, with an empty providers list.
+        endpoint:
+          type: string
+          description: The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
+          example: https://calm-otter.proxy.example.com
+        providers:
+          type: array
+          description: The providers at least one of the caller's policies authorizes, in creation order. Empty when no policy covers the caller.
+          items:
+            $ref: '#/components/schemas/AgentNetworkAgentConfigProvider'
+      required:
+        - configured
+        - endpoint
+        - providers
+    AgentNetworkAgentConfigProvider:
+      type: object
+      description: One provider the caller may use, reduced to what a local tool needs for configuration.
+      properties:
+        name:
+          type: string
+          description: Operator-assigned provider label.
+          example: Bedrock prod
+        catalog_id:
+          type: string
+          description: Catalog entry id naming the provider type.
+          example: bedrock_api
+        api_flavor:
+          type: string
+          description: Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+          example: anthropic
+        all_models_allowed:
+          type: boolean
+          description: True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+        models:
+          type: array
+          description: The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+          items:
+            type: string
+          example: [ "anthropic.claude-sonnet-4-5" ]
+      required:
+        - name
+        - catalog_id
+        - api_flavor
+        - all_models_allowed
+        - models
     AgentNetworkConsumption:
       type: object
       description: One per-(dimension, window) consumption counter row. The proxy ticks one row per dimension on every served LLM request; the dashboard reads this listing to surface live counter growth.
@@ -6380,6 +6243,44 @@ components:
         - enable_prompt_collection
         - redact_pii
         - access_log_retention_days
+    AgentNetworkManagedProxy:
+      type: object
+      description: A NetBird-managed Agent Network gateway deployment.
+      properties:
+        id:
+          type: string
+          description: Managed proxy deployment ID.
+          example: "d1m3kebd9pcs0c1pnu7g"
+        state:
+          type: string
+          description: Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
+          enum: [ "provisioning", "ready", "failed", "disabled" ]
+          example: "ready"
+        endpoint:
+          type: string
+          description: The account's gateway hostname.
+          example: "brave-otter.gateway.netbird.io"
+        region:
+          type: string
+          description: Region of the cluster hosting the deployment.
+          example: "us-east"
+        message:
+          type: string
+          description: Failure detail reported by the rollout. Only set when state is `failed`.
+      required:
+        - id
+        - state
+        - endpoint
+    AgentNetworkManagedProxyConflict:
+      type: object
+      description: Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
+      properties:
+        endpoint:
+          type: string
+          description: The Agent Network endpoint already assigned to the account.
+          example: "llm.example.com"
+      required:
+        - endpoint
     AgentNetworkBudgetRule:
       type: object
       description: Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.
@@ -7415,6 +7316,11 @@ paths:
           schema:
             type: string
           description: Filter peers by IP address
+        - in: query
+          name: mac
+          schema:
+            type: string
+          description: Filter peers by MAC address of a network interface
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -7586,341 +7492,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PeerTemporaryAccessResponse'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/peers/{peerId}/ingress/ports:
-    get:
-      x-cloud-only: true
-      summary: List all Port Allocations
-      description: Returns a list of all ingress port allocations for a peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: query
-          name: name
-          schema:
-            type: string
-          description: Filters ingress port allocations by name
-      responses:
-        '200':
-          description: A JSON Array of Ingress Port Allocations
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    post:
-      x-cloud-only: true
-      summary: Create a Port Allocation
-      description: Creates a new ingress port allocation for a peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-      requestBody:
-        description: New Ingress Port Allocation request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/IngressPortAllocationRequest'
-      responses:
-        '200':
-          description: A Ingress Port Allocation object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/peers/{peerId}/ingress/ports/{allocationId}:
-    get:
-      x-cloud-only: true
-      summary: Retrieve a Port Allocation
-      description: Get information about an ingress port allocation
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: path
-          name: allocationId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress port allocation
-      responses:
-        '200':
-          description: A Ingress Port Allocation object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      x-cloud-only: true
-      summary: Update a Port Allocation
-      description: Update information about an ingress port allocation
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: path
-          name: allocationId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress port allocation
-      requestBody:
-        description: update an ingress port allocation
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/IngressPortAllocationRequest'
-      responses:
-        '200':
-          description: A Ingress Port Allocation object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      x-cloud-only: true
-      summary: Delete a Port Allocation
-      description: Delete an ingress port allocation
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: path
-          name: allocationId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress port allocation
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/ingress/peers:
-    get:
-      x-cloud-only: true
-      summary: List all Ingress Peers
-      description: Returns a list of all ingress peers
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      responses:
-        '200':
-          description: A JSON Array of Ingress Peers
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    post:
-      x-cloud-only: true
-      summary: Create a Ingress Peer
-      description: Creates a new ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      requestBody:
-        description: New Ingress Peer request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/IngressPeerCreateRequest'
-      responses:
-        '200':
-          description: A Ingress Peer object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/ingress/peers/{ingressPeerId}:
-    get:
-      x-cloud-only: true
-      summary: Retrieve a Ingress Peer
-      description: Get information about an ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ingressPeerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress peer
-      responses:
-        '200':
-          description: A Ingress Peer object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      x-cloud-only: true
-      summary: Update a Ingress Peer
-      description: Update information about an ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ingressPeerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress peer
-      requestBody:
-        description: update an ingress peer
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/IngressPeerUpdateRequest'
-      responses:
-        '200':
-          description: A Ingress Peer object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      x-cloud-only: true
-      summary: Delete a Ingress Peer
-      description: Delete an ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ingressPeerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress peer
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -10498,6 +10069,28 @@ paths:
           $ref: "#/components/responses/bad_request"
         "403":
           $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+    delete:
+      summary: Delete MSP tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      responses:
+        "200":
+          description: Successfully deleted the tenant
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
         "500":
           $ref: "#/components/responses/internal_error"
   /api/integrations/msp/tenants/{id}/unlink:
@@ -13246,7 +12839,7 @@ paths:
   /api/reverse-proxies/domains/{domainId}:
     delete:
       summary: Delete a Custom domain
-      description: Delete an existing service custom domain
+      description: Delete an existing service custom domain after removing or moving all services that use it or its subdomains, including disabled services.
       tags: [ Services ]
       security:
         - BearerAuth: [ ]
@@ -13269,6 +12862,9 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '412':
+          description: The domain or one of its subdomains is still used by a service
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/domains/{domainId}/validate:
@@ -13468,10 +13064,71 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/integrations/agent-network/managed-proxy:
+    post:
+      summary: Provision a managed Agent Network gateway
+      description: Starts provisioning of a NetBird-managed Agent Network gateway for the account, allocating its endpoint under the managed zone on the first call. Idempotent — answers 202 when this call started (or, after a failure, restarted) provisioning and 200 when a deployment already exists, reporting current state either way. A disabled deployment answers 200 with state `disabled` and stays disabled. Returns 409 when the account already has an Agent Network endpoint that managed provisioning does not own, and 503 when endpoint allocation is temporarily exhausted.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A managed gateway deployment already exists; reports its current state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkManagedProxy'
+        '202':
+          description: Provisioning started, or restarted after a reported failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkManagedProxy'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          description: The account already has an Agent Network endpoint not owned by managed provisioning
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkManagedProxyConflict'
+        '500':
+          "$ref": "#/components/responses/internal_error"
+        '503':
+          description: Endpoint allocation is temporarily exhausted; retry later
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: Retrieve managed Agent Network gateway status
+      description: Reports the account's managed gateway deployment and its derived state, including `disabled` for a deployment that is turned off. Returns 404 when the account has no managed deployment.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: The account's managed gateway deployment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkManagedProxy'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/agent-network/access-logs:
     get:
       summary: List Agent Network access logs
-      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained.
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained. Callers without the account-wide grant are not denied - the response is scoped to their own requests (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13586,7 +13243,7 @@ paths:
   /api/agent-network/access-log-sessions:
     get:
       summary: List Agent Network access logs grouped by session
-      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled.
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled. Callers without the account-wide grant are not denied - the response is scoped to their own requests (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13701,7 +13358,7 @@ paths:
   /api/agent-network/usage/overview:
     get:
       summary: Agent Network usage overview
-      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection).
+      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection). Callers without the account-wide grant are not denied - the response is scoped to their own usage (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13799,6 +13456,25 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/agent-config:
+    get:
+      summary: Retrieve the caller's Agent Network agent config
+      description: Returns everything the caller needs to configure a local AI tool and nothing more - the account's Agent Network endpoint plus the providers and models the caller's own policies allow. Available to every authenticated user regardless of role; the response never contains provider credentials, policy or guardrail configuration, or providers the caller cannot reach.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: The caller-scoped Agent Network agent config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkAgentConfig'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/settings:
@@ -14143,7 +13819,14 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Create an Agent Network Provider
-      description: Connects a new Agent Network AI provider for the account.
+      description: |
+        Connects a new Agent Network AI provider for the account.
+
+        The credential is checked against the vendor's model listing before the provider is stored, so a record the vendor will not accept is refused rather than saved. A rejected credential, a listing endpoint that does not resolve or answer, a vendor outage, and a timeout all block the write and return 422.
+
+        What that proves about the upstream URL is narrower than the URL itself. Only its host is used: the listing is requested over HTTPS at the path the catalog entry declares, so a configured scheme or path is neither used nor validated here. Where the catalog entry has a listing host of its own — Bedrock, whose listing comes from the control plane — even the host is only resolved, never contacted, so a public host that does not answer is still stored.
+
+        Only what cannot be checked at all is exempt and stored unverified: a catalog provider with no listing endpoint, one with no host to derive a listing from, an upstream resolving to a private address the management service will not dial, and a provider configured to skip TLS verification.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14169,6 +13852,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '409':
           "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/providers/{providerId}:
@@ -14205,7 +13890,10 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update an Agent Network Provider
-      description: Update an existing Agent Network AI provider.
+      description: |
+        Update an existing Agent Network AI provider.
+
+        When the upstream URL, the API key or the catalog provider changes, the record is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. Switching TLS verification back on is the fourth trigger: a provider exempt from the check was stored unverified, so the edit that ends the exemption is the first opportunity to check it. Where one of the four does fire, an update that omits the API key is checked against the stored one. Edits touching none of them — a rename, model rows, price edits — are stored without a check, as are the cases the create description lists as unverifiable.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14240,6 +13928,8 @@ paths:
           "$ref": "#/components/responses/not_found"
         '409':
           "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:

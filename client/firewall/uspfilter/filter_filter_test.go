@@ -32,7 +32,7 @@ func TestPeerACLFiltering(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -496,40 +496,32 @@ func TestPeerACLFiltering(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.ruleAction == fw.ActionDrop {
 				// add general accept rule for the same IP to test drop rule precedence
-				rules, err := manager.AddPeerFiltering(
+				rules, err := manager.AddFilterRule(
 					nil,
-					net.ParseIP(tc.ruleIP),
+					pfx(net.ParseIP(tc.ruleIP)), fw.Network{},
 					fw.ProtocolALL,
 					nil,
 					nil,
-					fw.ActionAccept,
-					"",
-				)
+					fw.ActionAccept)
 				require.NoError(t, err)
-				require.NotEmpty(t, rules)
+				require.NotNil(t, rules)
 				t.Cleanup(func() {
-					for _, rule := range rules {
-						require.NoError(t, manager.DeletePeerRule(rule))
-					}
+					require.NoError(t, manager.DeleteFilterRule(rules))
 				})
 			}
 
-			rules, err := manager.AddPeerFiltering(
+			rules, err := manager.AddFilterRule(
 				nil,
-				net.ParseIP(tc.ruleIP),
+				pfx(net.ParseIP(tc.ruleIP)), fw.Network{},
 				tc.ruleProto,
 				tc.ruleSrcPort,
 				tc.ruleDstPort,
-				tc.ruleAction,
-				"",
-			)
+				tc.ruleAction)
 			require.NoError(t, err)
-			require.NotEmpty(t, rules)
+			require.NotNil(t, rules)
 
 			t.Cleanup(func() {
-				for _, rule := range rules {
-					require.NoError(t, manager.DeletePeerRule(rule))
-				}
+				require.NoError(t, manager.DeleteFilterRule(rules))
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
@@ -557,7 +549,7 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
@@ -652,14 +644,24 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 			shouldBeBlocked: false,
 		},
 		{
-			name:            "IPv6: v4 wildcard ICMP rule matches ICMPv6 via protoLayerMatches",
+			name:            "IPv6: v4 wildcard ICMP rule does not match ICMPv6",
 			srcIP:           "fd00::1",
 			dstIP:           "fd00::100",
 			proto:           fw.ProtocolICMP,
 			ruleIP:          "0.0.0.0",
 			ruleProto:       fw.ProtocolICMP,
 			ruleAction:      fw.ActionAccept,
-			shouldBeBlocked: false,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "IPv4: v6 wildcard ICMP rule does not match ICMPv4",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "::",
+			ruleProto:       fw.ProtocolICMP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
 		},
 	}
 
@@ -672,22 +674,18 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.ruleAction == fw.ActionDrop {
-				rules, err := manager.AddPeerFiltering(nil, net.ParseIP(tc.ruleIP), fw.ProtocolALL, nil, nil, fw.ActionAccept, "")
+				rules, err := manager.AddFilterRule(nil, pfx(net.ParseIP(tc.ruleIP)), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
 				require.NoError(t, err)
 				t.Cleanup(func() {
-					for _, rule := range rules {
-						require.NoError(t, manager.DeletePeerRule(rule))
-					}
+					require.NoError(t, manager.DeleteFilterRule(rules))
 				})
 			}
 
-			rules, err := manager.AddPeerFiltering(nil, net.ParseIP(tc.ruleIP), tc.ruleProto, nil, tc.ruleDstPort, tc.ruleAction, "")
+			rules, err := manager.AddFilterRule(nil, pfx(net.ParseIP(tc.ruleIP)), fw.Network{}, tc.ruleProto, nil, tc.ruleDstPort, tc.ruleAction)
 			require.NoError(t, err)
-			require.NotEmpty(t, rules)
+			require.NotNil(t, rules)
 			t.Cleanup(func() {
-				for _, rule := range rules {
-					require.NoError(t, manager.DeletePeerRule(rule))
-				}
+				require.NoError(t, manager.DeleteFilterRule(rules))
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
@@ -800,7 +798,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(tb, err)
 	require.NoError(tb, manager.EnableRouting())
 	require.NotNil(tb, manager)
@@ -1405,7 +1403,7 @@ func TestRouteACLFiltering(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.rule.action == fw.ActionDrop {
 				// add general accept rule to test drop rule
-				rule, err := manager.AddRouteFiltering(
+				rule, err := manager.AddFilterRule(
 					nil,
 					[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 					fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
@@ -1415,13 +1413,13 @@ func TestRouteACLFiltering(t *testing.T) {
 					fw.ActionAccept,
 				)
 				require.NoError(t, err)
-				require.NotNil(t, rule)
+				require.NotEmpty(t, rule)
 				t.Cleanup(func() {
-					require.NoError(t, manager.DeleteRouteRule(rule))
+					require.NoError(t, manager.DeleteFilterRule(rule))
 				})
 			}
 
-			rule, err := manager.AddRouteFiltering(
+			rule, err := manager.AddFilterRule(
 				nil,
 				tc.rule.sources,
 				tc.rule.dest,
@@ -1431,10 +1429,10 @@ func TestRouteACLFiltering(t *testing.T) {
 				tc.rule.action,
 			)
 			require.NoError(t, err)
-			require.NotNil(t, rule)
+			require.NotEmpty(t, rule)
 
 			t.Cleanup(func() {
-				require.NoError(t, manager.DeleteRouteRule(rule))
+				require.NoError(t, manager.DeleteFilterRule(rule))
 			})
 
 			srcIP := netip.MustParseAddr(tc.srcIP)
@@ -1602,9 +1600,9 @@ func TestRouteACLOrder(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var rules []fw.Rule
+			var addedRules []fw.Rule
 			for _, r := range tc.rules {
-				rule, err := manager.AddRouteFiltering(
+				rule, err := manager.AddFilterRule(
 					nil,
 					r.sources,
 					r.dest,
@@ -1615,12 +1613,12 @@ func TestRouteACLOrder(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, rule)
-				rules = append(rules, rule)
+				addedRules = append(addedRules, rule)
 			}
 
 			t.Cleanup(func() {
-				for _, rule := range rules {
-					require.NoError(t, manager.DeleteRouteRule(rule))
+				for _, rule := range addedRules {
+					require.NoError(t, manager.DeleteFilterRule(rule))
 				}
 			})
 
@@ -1646,7 +1644,7 @@ func TestRouteACLSet(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -1655,7 +1653,7 @@ func TestRouteACLSet(t *testing.T) {
 	set := fw.NewDomainSet(domain.List{"example.org"})
 
 	// Add rule that uses the set (initially empty)
-	rule, err := manager.AddRouteFiltering(
+	rule, err := manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 		fw.Network{Set: set},
@@ -1689,7 +1687,7 @@ func TestRouteACLFilteringIPv6(t *testing.T) {
 	manager := setupRoutedManager(t, "10.10.0.100/16")
 
 	v6Dst := netip.MustParsePrefix("fd00:dead:beef::/48")
-	_, err := manager.AddRouteFiltering(
+	_, err := manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("fd00::/16")},
 		fw.Network{Prefix: v6Dst},
@@ -1700,7 +1698,7 @@ func TestRouteACLFilteringIPv6(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = manager.AddRouteFiltering(
+	_, err = manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("fd00::/16")},
 		fw.Network{Prefix: netip.MustParsePrefix("fd00:dead:beef:1::/64")},

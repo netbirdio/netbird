@@ -486,22 +486,6 @@ func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	return ^uint16(sum)
 }
 
-// AddDNATRule adds outbound DNAT rule for forwarding external traffic to NetBird network.
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if m.nativeFirewall == nil {
-		return nil, errNatNotSupported
-	}
-	return m.nativeFirewall.AddDNATRule(rule)
-}
-
-// DeleteDNATRule deletes outbound DNAT rule.
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	if m.nativeFirewall == nil {
-		return errNatNotSupported
-	}
-	return m.nativeFirewall.DeleteDNATRule(rule)
-}
-
 // addPortRedirection adds a port redirection rule.
 func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, originalPort, translatedPort uint16) error {
 	m.portDNATMutex.Lock()
@@ -521,7 +505,6 @@ func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.Laye
 }
 
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
-// TODO: also delegate to nativeFirewall when available for kernel WG mode
 func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	var layerType gopacket.LayerType
 	switch protocol {
@@ -567,20 +550,16 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	return m.removePortRedirection(localAddr, layerType, originalPort, translatedPort)
 }
 
-// AddOutputDNAT delegates to the native firewall if available.
-func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
-	if m.nativeFirewall == nil {
-		return fmt.Errorf("output DNAT not supported without native firewall")
-	}
-	return m.nativeFirewall.AddOutputDNAT(localAddr, protocol, originalPort, translatedPort)
+// AddOutputDNAT is not supported by the userspace firewall: it backs kernel DNS
+// redirection, but userspace DNS is served in-process on the gVisor netstack, so
+// this should never be called.
+func (m *Manager) AddOutputDNAT(netip.Addr, firewall.Protocol, uint16, uint16) error {
+	return errNotSupported
 }
 
-// RemoveOutputDNAT delegates to the native firewall if available.
-func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
-	if m.nativeFirewall == nil {
-		return nil
-	}
-	return m.nativeFirewall.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
+// RemoveOutputDNAT is a no-op for the userspace firewall (see AddOutputDNAT).
+func (m *Manager) RemoveOutputDNAT(netip.Addr, firewall.Protocol, uint16, uint16) error {
+	return nil
 }
 
 // translateInboundPortDNAT applies port-specific DNAT translation to inbound packets.

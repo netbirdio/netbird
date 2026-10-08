@@ -17,23 +17,30 @@ import (
 // are mutually exclusive: if the selection activates an exit node, every other
 // available exit node is deselected so two can't be active at once. With
 // appendRoute=false the previous selection is replaced instead of extended.
+// A partial failure (e.g. an unknown ID mixed with valid ones) still applies
+// the valid IDs to the routing table; the unknown ones are reported in the
+// returned error.
 func (m *DefaultManager) SelectRoutes(ids []route.NetID, appendRoute bool) error {
-	if err := m.selectRoutes(ids, appendRoute); err != nil {
-		return err
-	}
+	err := m.selectRoutes(ids, appendRoute)
+	// Apply regardless of err: selectRoutes already selects the valid part of a
+	// partial request, and skipping this on error would leave those routes
+	// selected in the selector but never installed in the routing table.
 	m.TriggerSelection(m.GetClientRoutes())
-	return nil
+	return err
 }
 
 // DeselectRoutes removes the routes with the given network IDs from the
 // selection and applies the change. V4/v6 exit-node pairs are expanded
-// automatically.
+// automatically. A partial failure (e.g. an unknown ID mixed with valid ones)
+// still applies the valid IDs to the routing table; the unknown ones are
+// reported in the returned error.
 func (m *DefaultManager) DeselectRoutes(ids []route.NetID) error {
-	if err := m.deselectRoutes(ids); err != nil {
-		return err
-	}
+	err := m.deselectRoutes(ids)
+	// Apply regardless of err: deselectRoutes already deselects the valid part
+	// of a partial request, and skipping this on error would leave those routes
+	// installed in the routing table despite being marked deselected.
 	m.TriggerSelection(m.GetClientRoutes())
-	return nil
+	return err
 }
 
 func (m *DefaultManager) deselectRoutes(ids []route.NetID) error {

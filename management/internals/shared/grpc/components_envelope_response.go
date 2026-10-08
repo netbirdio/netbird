@@ -7,10 +7,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
-	"github.com/netbirdio/netbird/shared/management/networkmap"
 	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -35,9 +33,8 @@ func ToComponentSyncResponse(
 	turnCredentials *Token,
 	relayCredentials *Token,
 	components *types.NetworkMapComponents,
-	proxyPatch *types.NetworkMap,
 	dnsName string,
-	checks []*posture.Checks,
+	checks []*nmdata.PostureChecks,
 	settings *nmdata.AccountSettingsInfo,
 	extraSettings *types.ExtraSettings,
 	peerGroups []string,
@@ -52,9 +49,6 @@ func ToComponentSyncResponse(
 	enableSSH := computeSSHEnabledForPeer(components, peer)
 	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
 
-	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
-	useSourcePrefixes := peer.SupportsSourcePrefixes()
-
 	userIDClaim := auth.DefaultUserIDClaim
 	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
 		userIDClaim = httpConfig.AuthUserIDClaim
@@ -66,7 +60,6 @@ func ToComponentSyncResponse(
 		DNSDomain:        dnsName,
 		DNSForwarderPort: dnsFwdPort,
 		UserIDClaim:      userIDClaim,
-		ProxyPatch:       toProxyPatch(proxyPatch, dnsName, includeIPv6, useSourcePrefixes, peer.ProxyMeta.Embedded),
 	})
 
 	resp := &proto.SyncResponse{
@@ -90,43 +83,6 @@ func ToComponentSyncResponse(
 	}
 
 	return resp
-}
-
-// toProxyPatch converts a proxy-injected *types.NetworkMap into the wire
-// patch the components envelope ships alongside. Returns nil when there are
-// no fragments to merge — proto3 omits a nil message field, so the receiver
-// sees no patch and skips the merge step entirely.
-//
-// We reuse the legacy proto-conversion helpers (toProtocolRoutes,
-// toProtocolFirewallRules, toProtocolRoutesFirewallRules,
-// appendRemotePeerConfig, ForwardingRule.ToProto) because the proxy
-// delivers fragments pre-expanded — there's no raw component shape to
-// derive them from. Components purity isn't violated: proxy data isn't
-// policy-graph-derived, it's externally injected post-Calculate, so the
-// client merges it on top of its locally-computed NetworkMap.
-func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePrefixes, localIsProxy bool) *proto.ProxyPatch {
-	if nm == nil {
-		return nil
-	}
-	if len(nm.Peers) == 0 && len(nm.OfflinePeers) == 0 && len(nm.FirewallRules) == 0 &&
-		len(nm.Routes) == 0 && len(nm.RoutesFirewallRules) == 0 && len(nm.ForwardingRules) == 0 {
-		return nil
-	}
-
-	patch := &proto.ProxyPatch{
-		Peers:              networkmap.AppendRemotePeerConfig(nil, nm.Peers, dnsName, includeIPv6, localIsProxy),
-		OfflinePeers:       networkmap.AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6, localIsProxy),
-		FirewallRules:      networkmap.ToProtocolFirewallRules(nm.FirewallRules, includeIPv6, useSourcePrefixes),
-		Routes:             networkmap.ToProtocolRoutes(nm.Routes),
-		RouteFirewallRules: networkmap.ToProtocolRoutesFirewallRules(nm.RoutesFirewallRules),
-	}
-	if len(nm.ForwardingRules) > 0 {
-		patch.ForwardingRules = make([]*proto.ForwardingRule, 0, len(nm.ForwardingRules))
-		for _, r := range nm.ForwardingRules {
-			patch.ForwardingRules = append(patch.ForwardingRules, r.ToProto())
-		}
-	}
-	return patch
 }
 
 // computeSSHEnabledForPeer mirrors the SSH-server-activation bit that

@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -41,7 +42,6 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -81,6 +81,7 @@ func TestEngine_SSH(t *testing.T) {
 			WgAddr:           wgaddr.MustParseWGAddress("100.64.0.1/24"),
 			WgPrivateKey:     key,
 			WgPort:           33100,
+			IFaceBlackList:   profilemanager.DefaultInterfaceBlacklist,
 			ServerSSHAllowed: true,
 			MTU:              iface.DefaultMTU,
 			SSHKey:           sshKey,
@@ -193,7 +194,7 @@ func TestEngine_Sync(t *testing.T) {
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
-	syncFunc := func(ctx context.Context, info *system.Info, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
+	syncFunc := func(ctx context.Context, _ func(context.Context) *system.Info, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 		for msg := range updates {
 			err := msgHandler(msg)
 			if err != nil {
@@ -204,11 +205,12 @@ func TestEngine_Sync(t *testing.T) {
 	}
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(ctx, cancel, &EngineConfig{
-		WgIfaceName:  "utun103",
-		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
-		WgPrivateKey: key,
-		WgPort:       33100,
-		MTU:          iface.DefaultMTU,
+		WgIfaceName:    "utun103",
+		WgAddr:         wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey:   key,
+		WgPort:         33100,
+		IFaceBlackList: profilemanager.DefaultInterfaceBlacklist,
+		MTU:            iface.DefaultMTU,
 	}, EngineServices{
 		SignalClient:   &signal.MockClient{},
 		MgmClient:      &mgmt.MockClient{SyncFunc: syncFunc},
@@ -412,11 +414,12 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 
 	wgPort := 33100 + i
 	conf := &EngineConfig{
-		WgIfaceName:  ifaceName,
-		WgAddr:       wgaddr.MustParseWGAddress(resp.PeerConfig.Address),
-		WgPrivateKey: key,
-		WgPort:       wgPort,
-		MTU:          iface.DefaultMTU,
+		WgIfaceName:    ifaceName,
+		WgAddr:         wgaddr.MustParseWGAddress(resp.PeerConfig.Address),
+		WgPrivateKey:   key,
+		WgPort:         wgPort,
+		IFaceBlackList: profilemanager.DefaultInterfaceBlacklist,
+		MTU:            iface.DefaultMTU,
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
@@ -519,8 +522,8 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := server.NewAccountRequestBuffer(context.Background(), store)
-	networkMapController := controller.NewController(context.Background(), store, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersManager), config, nil)
-	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
+	networkMapController := controller.NewController(context.Background(), store, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(store, peersManager), config, nil)
+	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, "", err
 	}
