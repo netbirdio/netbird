@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	// Window is the default challenge window. A nonce is accepted for its own window
-	// and the one before it, so a peer re-proves possession of its key between once
-	// and twice per window.
+	// Window is the default challenge window. A nonce stays valid through the window
+	// after the one it was issued in, so a peer re-proves possession of its key between
+	// once and twice per window. One window early is accepted too, for clock skew.
 	Window = 12 * time.Hour
 
 	// EnvWindow overrides Window, for end-to-end tests that cannot wait half a day to

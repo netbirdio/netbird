@@ -243,7 +243,8 @@ func (e *Engine) publishCertificatePostureEvent(proven bool) {
 }
 
 // publishCertificateStoreStuckEvent tells the user that reading the certificate store
-// stopped answering, which no retry recovers from: only a restart frees the collector.
+// stopped answering. Collection resumes only once a stuck call returns, which a store
+// that hangs for good never does short of a restart.
 func (e *Engine) publishCertificateStoreStuckEvent() {
 	if e.statusRecorder == nil {
 		return
@@ -251,7 +252,7 @@ func (e *Engine) publishCertificateStoreStuckEvent() {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM,
 		"certificate posture: the certificate store stopped responding",
 		"NetBird cannot read the certificates required by your organization's device policy because "+
-			"the certificate store stopped responding. Restart the NetBird service to try again.", nil)
+			"the certificate store stopped responding. If this persists, restart the NetBird service.", nil)
 }
 
 // watchCertificatePosture owns certificate proof collection until ctx is done. It
