@@ -31,9 +31,6 @@ tags:
     description: View information about the account and network events.
   - name: Accounts
     description: View information about the accounts.
-  - name: Ingress Ports
-    description: Interact with and view information about the ingress peers and ports.
-    x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
   - name: Services
@@ -826,6 +823,20 @@ components:
         - ssh_enabled
         - login_expiration_enabled
         - inactivity_expiration_enabled
+    NetworkAddress:
+      type: object
+      properties:
+        net_ip:
+          description: IP address with CIDR of the interface
+          type: string
+          example: 192.168.0.11/24
+        mac:
+          description: MAC address of the interface
+          type: string
+          example: "00:93:37:bd:83:0f"
+      required:
+        - net_ip
+        - mac
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -845,6 +856,11 @@ components:
               type: string
               format: ipv6
               example: "fd00:4e42:ab12::1"
+            network_addresses:
+              description: Network interfaces (IP + MAC) reported by the peer
+              type: array
+              items:
+                $ref: '#/components/schemas/NetworkAddress'
             connection_ip:
               description: Peer's public connection IP address
               type: string
@@ -2420,222 +2436,6 @@ components:
         - initiator_email
         - target_id
         - meta
-    IngressPeerCreateRequest:
-      type: object
-      properties:
-        peer_id:
-          description: ID of the peer that is used as an ingress peer
-          type: string
-          example: ch8i4ug6lnn4g9hqv7m0
-        enabled:
-          description: Defines if an ingress peer is enabled
-          type: boolean
-          example: true
-        fallback:
-          description: Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-          type: boolean
-          example: true
-      required:
-        - peer_id
-        - enabled
-        - fallback
-    IngressPeerUpdateRequest:
-      type: object
-      properties:
-        enabled:
-          description: Defines if an ingress peer is enabled
-          type: boolean
-          example: true
-        fallback:
-          description: Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-          type: boolean
-          example: true
-      required:
-        - enabled
-        - fallback
-    IngressPeer:
-      type: object
-      properties:
-        id:
-          description: ID of the ingress peer
-          type: string
-          example: ch8i4ug6lnn4g9hqv7m0
-        peer_id:
-          description: ID of the peer that is used as an ingress peer
-          type: string
-          example: x7p3kqf2rdd8j5zxw4n9
-        ingress_ip:
-          description: Ingress IP address of the ingress peer where the traffic arrives
-          type: string
-          example: 192.34.0.123
-        available_ports:
-          $ref: '#/components/schemas/AvailablePorts'
-        enabled:
-          description: Indicates if an ingress peer is enabled
-          type: boolean
-          example: true
-        connected:
-          description: Indicates if an ingress peer is connected to the management server
-          type: boolean
-          example: true
-        fallback:
-          description: Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-          type: boolean
-          example: true
-        region:
-          description: Region of the ingress peer
-          type: string
-          example: germany
-      required:
-        - id
-        - peer_id
-        - ingress_ip
-        - available_ports
-        - enabled
-        - connected
-        - fallback
-        - region
-    AvailablePorts:
-      type: object
-      properties:
-        tcp:
-          description: Number of available TCP  ports left on the ingress peer
-          type: integer
-          example: 45765
-        udp:
-          description: Number of available UDP ports left on the ingress peer
-          type: integer
-          example: 50000
-      required:
-        - tcp
-        - udp
-    IngressPortAllocationRequest:
-      type: object
-      properties:
-        name:
-          description: Name of the ingress port allocation
-          type: string
-          example: Ingress Port Allocation 1
-        enabled:
-          description: Indicates if an ingress port allocation is enabled
-          type: boolean
-          example: true
-        port_ranges:
-          description: List of port ranges that are forwarded by the ingress peer
-          type: array
-          items:
-            $ref: '#/components/schemas/IngressPortAllocationRequestPortRange'
-        direct_port:
-          description: Direct port allocation
-          $ref: '#/components/schemas/IngressPortAllocationRequestDirectPort'
-      required:
-        - name
-        - enabled
-    IngressPortAllocationRequestPortRange:
-      type: object
-      properties:
-        start:
-          description: The starting port of the range of forwarded ports
-          type: integer
-          example: 80
-        end:
-          description: The ending port of the range of forwarded ports
-          type: integer
-          example: 320
-        protocol:
-          description: The protocol accepted by the port range
-          type: string
-          enum: [ "tcp", "udp", "tcp/udp" ]
-          example: tcp
-      required:
-        - start
-        - end
-        - protocol
-    IngressPortAllocationRequestDirectPort:
-      type: object
-      properties:
-        count:
-          description: The number of ports to be forwarded
-          type: integer
-          example: 5
-        protocol:
-          description: The protocol accepted by the port
-          type: string
-          enum: [ "tcp", "udp", "tcp/udp" ]
-          example: udp
-      required:
-        - count
-        - protocol
-    IngressPortAllocation:
-      type: object
-      properties:
-        id:
-          description: ID of the ingress port allocation
-          type: string
-          example: ch8i4ug6lnn4g9hqv7m0
-        name:
-          description: Name of the ingress port allocation
-          type: string
-          example: Ingress Peer Allocation 1
-        ingress_peer_id:
-          description: ID of the ingress peer that forwards the ports
-          type: string
-          example: x7p3kqf2rdd8j5zxw4n9
-        region:
-          description: Region of the ingress peer
-          type: string
-          example: germany
-        enabled:
-          description: Indicates if an ingress port allocation is enabled
-          type: boolean
-          example: true
-        ingress_ip:
-          description: Ingress IP address of the ingress peer where the traffic arrives
-          type: string
-          example: 192.34.0.123
-        port_range_mappings:
-          description: List of port ranges that are allowed to be used by the ingress peer
-          type: array
-          items:
-            $ref: '#/components/schemas/IngressPortAllocationPortMapping'
-      required:
-        - id
-        - name
-        - ingress_peer_id
-        - region
-        - enabled
-        - ingress_ip
-        - port_range_mappings
-    IngressPortAllocationPortMapping:
-      type: object
-      properties:
-        translated_start:
-          description: The starting port of the translated range of forwarded ports
-          type: integer
-          example: 80
-        translated_end:
-          description: The ending port of the translated range of forwarded ports
-          type: integer
-          example: 320
-        ingress_start:
-          description: The starting port of the range of ingress ports mapped to the forwarded ports
-          type: integer
-          example: 1080
-        ingress_end:
-          description: The ending port of the range of ingress ports mapped to the forwarded ports
-          type: integer
-          example: 1320
-        protocol:
-          description: Protocol accepted by the ports
-          type: string
-          enum: [ "tcp", "udp", "tcp/udp" ]
-          example: tcp
-      required:
-        - translated_start
-        - translated_end
-        - ingress_start
-        - ingress_end
-        - protocol
     NetworkTrafficLocation:
       type: object
       properties:
@@ -7522,6 +7322,11 @@ paths:
           schema:
             type: string
           description: Filter peers by IP address
+        - in: query
+          name: mac
+          schema:
+            type: string
+          description: Filter peers by MAC address of a network interface
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -7693,341 +7498,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PeerTemporaryAccessResponse'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/peers/{peerId}/ingress/ports:
-    get:
-      x-cloud-only: true
-      summary: List all Port Allocations
-      description: Returns a list of all ingress port allocations for a peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: query
-          name: name
-          schema:
-            type: string
-          description: Filters ingress port allocations by name
-      responses:
-        '200':
-          description: A JSON Array of Ingress Port Allocations
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    post:
-      x-cloud-only: true
-      summary: Create a Port Allocation
-      description: Creates a new ingress port allocation for a peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-      requestBody:
-        description: New Ingress Port Allocation request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/IngressPortAllocationRequest'
-      responses:
-        '200':
-          description: A Ingress Port Allocation object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/peers/{peerId}/ingress/ports/{allocationId}:
-    get:
-      x-cloud-only: true
-      summary: Retrieve a Port Allocation
-      description: Get information about an ingress port allocation
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: path
-          name: allocationId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress port allocation
-      responses:
-        '200':
-          description: A Ingress Port Allocation object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      x-cloud-only: true
-      summary: Update a Port Allocation
-      description: Update information about an ingress port allocation
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: path
-          name: allocationId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress port allocation
-      requestBody:
-        description: update an ingress port allocation
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/IngressPortAllocationRequest'
-      responses:
-        '200':
-          description: A Ingress Port Allocation object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPortAllocation'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      x-cloud-only: true
-      summary: Delete a Port Allocation
-      description: Delete an ingress port allocation
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: peerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a peer
-        - in: path
-          name: allocationId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress port allocation
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/ingress/peers:
-    get:
-      x-cloud-only: true
-      summary: List all Ingress Peers
-      description: Returns a list of all ingress peers
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      responses:
-        '200':
-          description: A JSON Array of Ingress Peers
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    post:
-      x-cloud-only: true
-      summary: Create a Ingress Peer
-      description: Creates a new ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      requestBody:
-        description: New Ingress Peer request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/IngressPeerCreateRequest'
-      responses:
-        '200':
-          description: A Ingress Peer object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/ingress/peers/{ingressPeerId}:
-    get:
-      x-cloud-only: true
-      summary: Retrieve a Ingress Peer
-      description: Get information about an ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ingressPeerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress peer
-      responses:
-        '200':
-          description: A Ingress Peer object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      x-cloud-only: true
-      summary: Update a Ingress Peer
-      description: Update information about an ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ingressPeerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress peer
-      requestBody:
-        description: update an ingress peer
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/IngressPeerUpdateRequest'
-      responses:
-        '200':
-          description: A Ingress Peer object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngressPeer'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      x-cloud-only: true
-      summary: Delete a Ingress Peer
-      description: Delete an ingress peer
-      tags: [ Ingress Ports ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ingressPeerId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of an ingress peer
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -10605,6 +10075,28 @@ paths:
           $ref: "#/components/responses/bad_request"
         "403":
           $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+    delete:
+      summary: Delete MSP tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      responses:
+        "200":
+          description: Successfully deleted the tenant
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
         "500":
           $ref: "#/components/responses/internal_error"
   /api/integrations/msp/tenants/{id}/unlink:

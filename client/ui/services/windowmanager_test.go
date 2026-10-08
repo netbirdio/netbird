@@ -17,7 +17,63 @@ func newTestWindowManager() *WindowManager {
 		creating:     map[string]bool{},
 		pendingOps:   map[string][]windowOp{},
 		pendingClose: map[string]windowCloser{},
+		restoreGen:   map[string]uint64{},
+		hiding:       map[string]bool{},
+		generation:   map[string]uint64{},
 	}
+}
+
+type fakeWindow struct {
+	name    string
+	visible bool
+	shown   int
+	hidden  int
+}
+
+func newFakeWindow(name string) *fakeWindow {
+	return &fakeWindow{name: name, visible: true}
+}
+
+func (f *fakeWindow) Show() application.Window {
+	f.visible = true
+	f.shown++
+	return nil
+}
+
+func (f *fakeWindow) Hide() application.Window {
+	f.visible = false
+	f.hidden++
+	return nil
+}
+
+func (f *fakeWindow) IsVisible() bool { return f.visible }
+
+func (f *fakeWindow) Name() string { return f.name }
+
+type fakeDesktop struct {
+	windows []*fakeWindow
+	raised  int
+}
+
+func newFakeDesktop(s *WindowManager, windows ...*fakeWindow) *fakeDesktop {
+	d := &fakeDesktop{windows: windows}
+	s.allWindows = func() []hideableWindow {
+		all := make([]hideableWindow, 0, len(d.windows))
+		for _, w := range d.windows {
+			all = append(all, w)
+		}
+		return all
+	}
+	s.raiseMain = func() { d.raised++ }
+	return d
+}
+
+func ownersOf(hidden []hiddenWindow) []string {
+	owners := make([]string, 0, len(hidden))
+	for _, h := range hidden {
+		owners = append(owners, h.owner)
+	}
+	return owners
 }
 
 func waitDone(t *testing.T, done <-chan struct{}, msg string) {
@@ -339,12 +395,245 @@ func TestCloseRenewFlowDuringBrowserLoginCreationRestoresHiddenWindows(t *testin
 		// Seeded after the call so the deferred closer, not CloseRenewFlow's own
 		// immediate restore, is what has to drain it. A nil entry is skipped by
 		// restoreHiddenWindows, so no Wails window is needed.
-		s.hiddenForLogin = []application.Window{nil}
+		s.hiddenWindows = []hiddenWindow{{owner: windowBrowserLogin}}
 		return &application.WebviewWindow{}
 	}, func(*application.WebviewWindow, bool) {})
 
 	require.Nil(t, s.browserLogin)
-	require.Empty(t, s.hiddenForLogin)
+	require.Empty(t, s.hiddenWindows)
 	require.Empty(t, s.creating)
 	require.Empty(t, s.pendingClose)
+}
+
+func TestHideOtherWindowsSkipsKeepNameAndInvisible(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	settings := newFakeWindow(windowSettings)
+	settings.visible = false
+	popup := newFakeWindow(windowBrowserLogin)
+	s := newTestWindowManager()
+	newFakeDesktop(s, main, settings, popup)
+
+	s.hideOtherWindows(windowBrowserLogin)
+
+	require.False(t, main.visible)
+	require.Equal(t, 1, main.hidden)
+	require.Equal(t, 0, settings.hidden, "an already hidden window must not be recorded")
+	require.Equal(t, 0, popup.hidden, "the popup itself must stay visible")
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
+}
+
+func TestInstallDuringLoginKeepsMainHiddenUntilLoginCloses(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	login := newFakeWindow(windowBrowserLogin)
+	install := newFakeWindow(windowInstallProgress)
+	install.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, login, install)
+
+	s.hideOtherWindows(windowBrowserLogin)
+	require.False(t, main.visible)
+
+	install.visible = true
+	s.hideOtherWindows(windowInstallProgress)
+	require.False(t, login.visible, "the install popup hides the login popup")
+
+	s.restoreHiddenWindows(windowInstallProgress)
+	require.True(t, login.visible, "the install popup restores the login popup it hid")
+	require.False(t, main.visible, "the main window stays hidden for the login popup")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
+
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.True(t, main.visible)
+	require.Equal(t, 1, d.raised, "restoring the main window raises it above the SSO browser")
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestLoginClosingUnderInstallHandsMainToInstall(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	login := newFakeWindow(windowBrowserLogin)
+	install := newFakeWindow(windowInstallProgress)
+	install.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, login, install)
+
+	s.hideOtherWindows(windowBrowserLogin)
+	install.visible = true
+	s.hideOtherWindows(windowInstallProgress)
+	require.False(t, main.visible)
+	require.False(t, login.visible, "the install popup hides the login popup")
+
+	// The login popup closes while the install popup is still up: the main window it
+	// hid must not resurface under the install popup, it is handed over instead.
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.False(t, main.visible, "the install popup still covers the main window")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowInstallProgress, windowInstallProgress}, ownersOf(s.hiddenWindows))
+
+	s.restoreHiddenWindows(windowInstallProgress)
+	require.True(t, main.visible, "the install popup restores the handed-over main window")
+	require.Equal(t, 1, d.raised)
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestInstallClosingUnderLoginHandsMainToLogin(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	install := newFakeWindow(windowInstallProgress)
+	login := newFakeWindow(windowBrowserLogin)
+	login.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, install, login)
+
+	s.hideOtherWindows(windowInstallProgress)
+	login.visible = true
+	s.hideOtherWindows(windowBrowserLogin)
+	require.False(t, install.visible, "the login popup hides the install popup")
+
+	s.restoreHiddenWindows(windowInstallProgress)
+	require.False(t, main.visible, "the login popup still covers the main window")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowBrowserLogin, windowBrowserLogin}, ownersOf(s.hiddenWindows))
+
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.True(t, main.visible)
+	require.Equal(t, 1, d.raised)
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestPopupClosingReshowsTheCoveringPopupItself(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	install := newFakeWindow(windowInstallProgress)
+	login := newFakeWindow(windowBrowserLogin)
+	login.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, install, login)
+
+	s.hideOtherWindows(windowInstallProgress)
+	login.visible = true
+	s.hideOtherWindows(windowBrowserLogin)
+
+	// The login popup hid the install popup itself; closing the login popup must bring
+	// the install popup back rather than hand it over to its own owner.
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.True(t, install.visible, "a popup is never handed over to itself")
+	require.False(t, main.visible, "the main window stays with the install popup")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowInstallProgress}, ownersOf(s.hiddenWindows))
+}
+
+func TestRestoreHiddenWindowsUnknownOwnerKeepsEverything(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main)
+	s.hideOtherWindows(windowBrowserLogin)
+
+	s.restoreHiddenWindows(windowWelcome)
+
+	require.False(t, main.visible)
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
+	require.Equal(t, 0, d.raised)
+}
+
+func TestRestoreHiddenWindowsWithoutMainDoesNotRaise(t *testing.T) {
+	settings := newFakeWindow(windowSettings)
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, settings)
+	s.hideOtherWindows(windowBrowserLogin)
+
+	s.restoreHiddenWindows(windowBrowserLogin)
+
+	require.True(t, settings.visible)
+	require.Equal(t, 0, d.raised)
+}
+
+func TestRestoreHiddenWindowsEmptyIsNoop(t *testing.T) {
+	s := newTestWindowManager()
+	require.NotPanics(t, func() { s.restoreHiddenWindows(windowBrowserLogin) })
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestHideOtherWindowsRacingOwnRestoreReshowsWhatItHid(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main)
+	enumerate := s.allWindows
+	// A restore for the same owner lands between the generation snapshot and the record.
+	s.allWindows = func() []hideableWindow {
+		s.restoreHiddenWindows(windowBrowserLogin)
+		return enumerate()
+	}
+
+	s.hideOtherWindows(windowBrowserLogin)
+
+	require.True(t, main.visible)
+	require.Equal(t, 1, main.hidden)
+	require.Empty(t, s.hiddenWindows)
+	require.Equal(t, 0, d.raised)
+}
+
+func TestHideOtherWindowsIgnoresRestoreOfAnotherOwner(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	newFakeDesktop(s, main)
+	enumerate := s.allWindows
+	s.allWindows = func() []hideableWindow {
+		s.restoreHiddenWindows(windowInstallProgress)
+		return enumerate()
+	}
+
+	s.hideOtherWindows(windowBrowserLogin)
+
+	require.False(t, main.visible)
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
+}
+
+func TestRestoringCloserRestoresOnlyItsOwner(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	newFakeDesktop(s, main)
+	s.hideOtherWindows(windowBrowserLogin)
+	s.hiddenWindows = append(s.hiddenWindows, hiddenWindow{owner: windowInstallProgress})
+
+	s.restoringCloser(windowBrowserLogin)(&application.WebviewWindow{})
+
+	require.True(t, main.visible)
+	require.Equal(t, []string{windowInstallProgress}, ownersOf(s.hiddenWindows))
+}
+
+func TestStampGenerationTracksLatestPerWindow(t *testing.T) {
+	s := newTestWindowManager()
+
+	first := s.stampGeneration(windowBrowserLogin, "/#/dialog/browser-login")
+	require.Equal(t, "/#/dialog/browser-login?gen=1", first)
+	require.True(t, s.matchesGeneration(windowBrowserLogin, 1))
+
+	second := s.stampGeneration(windowBrowserLogin, "/#/dialog/browser-login?uri=x")
+	require.Equal(t, "/#/dialog/browser-login?uri=x&gen=2", second)
+	require.False(t, s.matchesGeneration(windowBrowserLogin, 1))
+	require.True(t, s.matchesGeneration(windowBrowserLogin, 2))
+}
+
+func TestMatchesGenerationUntrackedWindowAccepts(t *testing.T) {
+	s := newTestWindowManager()
+	require.True(t, s.matchesGeneration(windowMain, 0))
+}
+
+func TestPaintedGeneration(t *testing.T) {
+	tests := []struct {
+		name string
+		data any
+		want uint64
+	}{
+		{"string", "7", 7},
+		{"float", float64(7), 7},
+		{"slice", []any{"7"}, 7},
+		{"empty slice", []any{}, 0},
+		{"unparsable", "abc", 0},
+		{"nil", nil, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, paintedGeneration(tc.data))
+		})
+	}
 }
