@@ -828,10 +828,12 @@ func TestValidateSession_EmailResolution(t *testing.T) {
 			svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "testProxyId")
 			require.NoError(t, err)
 			token := createSessionTokenWithEmail(t, svc.SessionPrivateKey, "allowedUserId", tt.tokenEmail, "test-proxy.example.com")
+			code, ok := setup.proxyService.GenerateSessionCode(token)
+			require.True(t, ok)
 
 			resp, err := setup.proxyService.ValidateSession(ctx, &proto.ValidateSessionRequest{
-				Domain:       "test-proxy.example.com",
-				SessionToken: token,
+				Domain:      "test-proxy.example.com",
+				SessionCode: code,
 			})
 			require.NoError(t, err)
 			assert.True(t, resp.GetValid())
