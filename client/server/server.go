@@ -1393,6 +1393,8 @@ func (s *Server) dropPendingAuthFlows() {
 	// would submit the resulting token against the new profile's engine.
 	s.extendAuthSessionFlow.CancelWait()
 	s.extendAuthSessionFlow.Clear()
+
+	s.jwtCache.clear()
 }
 
 // SwitchProfile switches the active profile in the daemon.
@@ -1425,8 +1427,6 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 	s.config = config
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
-
-	s.jwtCache.clear()
 
 	s.dropPendingAuthFlows()
 

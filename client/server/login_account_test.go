@@ -153,6 +153,8 @@ func TestLogin_ProfileSwitchDropsAccountPromptAndPendingFlow(t *testing.T) {
 	s.extendAuthSessionFlow.Set(&stubOAuthFlow{}, auth.AuthFlowInfo{DeviceCode: "device"})
 	s.extendAuthSessionFlow.SetWaitCancel(func() { extendCancelled = true })
 
+	generation := s.jwtCache.currentGeneration()
+
 	_, err = s.Login(userCtx(), &proto.LoginRequest{ProfileName: &other, Username: &username})
 	require.Error(t, err, "the broken key must stop the login before a flow is built")
 
@@ -168,6 +170,8 @@ func TestLogin_ProfileSwitchDropsAccountPromptAndPendingFlow(t *testing.T) {
 	require.True(t, extendCancelled, "the pending extend wait was not cancelled")
 	_, _, pending := s.extendAuthSessionFlow.Get()
 	require.False(t, pending, "the previous profile's extend flow leaked across a login-driven profile switch")
+
+	require.Greater(t, s.jwtCache.currentGeneration(), generation, "the previous profile's JWT cache survived a login-driven profile switch")
 }
 
 func TestLogin_SameProfileKeepsPendingFlow(t *testing.T) {
