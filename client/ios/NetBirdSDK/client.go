@@ -479,7 +479,7 @@ func (c *Client) LoginForMobile() string {
 	}
 	c.applyMDMOverlay(cfg)
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "", false)
 	if err != nil {
 		return err.Error()
 	}
