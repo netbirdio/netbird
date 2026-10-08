@@ -722,7 +722,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 	}()
 
-	ctx, activeProf, err := s.authorizeAndPrepareLogin(callerCtx, msg, activeProf)
+	ctx, activeProf, switched, err := s.authorizeAndPrepareLogin(callerCtx, msg, activeProf)
 	if err != nil {
 		// The RPC boundary is where this gets recorded: nothing logs handler
 		// errors for us, and a caller that retries would otherwise leave no
@@ -752,6 +752,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 	s.mutex.Lock()
 	s.config = config
+	if switched {
+		s.jwtCache.clear()
+	}
 	s.mutex.Unlock()
 
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
@@ -2872,7 +2875,7 @@ var afterLoginPreCheck func()
 // of this is reached; this one exists because that check is not synchronized
 // against a concurrent privileged request that enables the SSH server, and a
 // caller refused here must not have cancelled or switched anything either.
-func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, error) {
+func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, bool, error) {
 	if afterLoginPreCheck != nil {
 		afterLoginPreCheck()
 	}
@@ -2882,10 +2885,10 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 
 	stored, err := s.storedLoginConfig(activeProf, msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
 	// The update-settings decision is re-taken here for the same reason as the
@@ -2894,7 +2897,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	// authoritative check, and it is the last read before persistLoginOverrides
 	// writes.
 	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
-		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
+		return nil, nil, false, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	s.mutex.Lock()
@@ -2912,10 +2915,11 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		log.Warnf(errRestoreResidualState, err)
 	}
 
+	switched := false
 	if msg.ProfileName != nil {
-		switched, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf)
+		switched, err = s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf)
 		if err != nil {
-			return nil, nil, fmt.Errorf("switch profile: %w", err)
+			return nil, nil, false, fmt.Errorf("switch profile: %w", err)
 		}
 		if switched {
 			s.mutex.Lock()
@@ -2926,11 +2930,11 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
-		return nil, nil, fmt.Errorf("active profile state: %w", err)
+		return nil, nil, false, fmt.Errorf("active profile state: %w", err)
 	}
 
 	if err := persistLoginOverrides(activeProf, msg); err != nil {
-		return nil, nil, fmt.Errorf("persist login overrides: %w", err)
+		return nil, nil, false, fmt.Errorf("persist login overrides: %w", err)
 	}
 
 	// Provisioning under the same lock as the decision above, and next to the
@@ -2939,10 +2943,10 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	// had already answered its caller would be overwritten by the config this
 	// login read before it landed.
 	if _, _, err := provisionProfileIdentity(activeProf); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
-	return ctx, activeProf, nil
+	return ctx, activeProf, switched, nil
 }
 
 // persistLoginOverrides writes the config fields a login request is allowed to
