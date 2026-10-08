@@ -5,13 +5,20 @@ package harness
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -24,6 +31,7 @@ const (
 	// pulled as a published image; a bare tag is built under that name.
 	defaultProxyImage = "netbird-reverse-proxy:e2e"
 	proxyAlias        = "proxy"
+	proxyHTTPSPort    = "443/tcp"
 
 	// AgentNetworkCluster is the proxy cluster the e2e provider bootstraps and
 	// the proxy serves. It must equal the management's exposed domain
@@ -34,8 +42,10 @@ const (
 
 // Proxy is a running agent-network gateway (netbird proxy) container.
 type Proxy struct {
-	container testcontainers.Container
-	workDir   string
+	container    testcontainers.Container
+	workDir      string
+	httpsAddress string
+	tlsRootCAs   *x509.CertPool
 }
 
 // StartProxy builds the proxy image and runs it on the combined server's
@@ -63,14 +73,27 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverride
 	// MkdirTemp creates the dir 0700; widen it so the non-root proxy container
 	// can traverse the bind-mounted cert dir on Linux CI runners.
 	if err := os.Chmod(workDir, 0o755); err != nil { //nolint:gosec // throwaway e2e cert dir, must be traversable by the proxy container uid
+		_ = os.RemoveAll(workDir)
 		return nil, fmt.Errorf("chmod proxy cert dir: %w", err)
 	}
 	if err := writeSelfSignedCert(workDir, []string{"*." + AgentNetworkCluster, AgentNetworkCluster}); err != nil {
+		_ = os.RemoveAll(workDir)
 		return nil, err
+	}
+	certPEM, err := os.ReadFile(filepath.Join(workDir, "tls.crt"))
+	if err != nil {
+		_ = os.RemoveAll(workDir)
+		return nil, fmt.Errorf("read proxy certificate: %w", err)
+	}
+	tlsRootCAs := x509.NewCertPool()
+	if !tlsRootCAs.AppendCertsFromPEM(certPEM) {
+		_ = os.RemoveAll(workDir)
+		return nil, fmt.Errorf("parse proxy certificate")
 	}
 
 	req := testcontainers.ContainerRequest{
 		Image:          proxyImage,
+		ExposedPorts:   []string{proxyHTTPSPort},
 		Networks:       []string{c.network.Name},
 		NetworkAliases: map[string][]string{c.network.Name: {proxyAlias}},
 		Env: map[string]string{
@@ -112,10 +135,76 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverride
 		Started:          true,
 	})
 	if err != nil {
+		_ = os.RemoveAll(workDir)
 		return nil, fmt.Errorf("start proxy container: %w", err)
 	}
 
-	return &Proxy{container: ctr, workDir: workDir}, nil
+	host, err := ctr.Host(ctx)
+	if err != nil {
+		_ = ctr.Terminate(ctx)
+		_ = os.RemoveAll(workDir)
+		return nil, fmt.Errorf("proxy container host: %w", err)
+	}
+	mapped, err := ctr.MappedPort(ctx, nat.Port(proxyHTTPSPort))
+	if err != nil {
+		_ = ctr.Terminate(ctx)
+		_ = os.RemoveAll(workDir)
+		return nil, fmt.Errorf("proxy mapped HTTPS port: %w", err)
+	}
+
+	return &Proxy{
+		container:    ctr,
+		workDir:      workDir,
+		httpsAddress: net.JoinHostPort(host, mapped.Port()),
+		tlsRootCAs:   tlsRootCAs,
+	}, nil
+}
+
+// HTTPSGet reaches a public service through the proxy's host-mapped HTTPS
+// listener while retaining domain as the request Host and TLS server name.
+// Connections are not reused so callers can observe mapping removal without
+// an existing connection outliving the route.
+func (p *Proxy) HTTPSGet(ctx context.Context, domain, path string, headers http.Header) (int, string, error) {
+	requestURL := &url.URL{Scheme: "https", Host: domain, Path: path}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	if err != nil {
+		return 0, "", fmt.Errorf("create proxy request: %w", err)
+	}
+	req.Header = headers.Clone()
+
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp", p.httpsAddress)
+		},
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    p.tlsRootCAs,
+			ServerName: domain,
+		},
+		DisableKeepAlives:     true,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	}
+	defer transport.CloseIdleConnections()
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   15 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", fmt.Errorf("request public proxy service: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", fmt.Errorf("read public proxy response: %w", err)
+	}
+	return resp.StatusCode, string(body), nil
 }
 
 // ProxyDebugClient is one per-account embedded client the proxy runs, as the
