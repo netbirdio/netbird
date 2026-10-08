@@ -38,6 +38,12 @@ func TestIsValid(t *testing.T) {
 			accept:   []string{"bar.example.com"},
 			expect:   false,
 		},
+		"match in other case": {
+			resolver: resolver{"Bar.Example.COM."},
+			domain:   "foo.example.com",
+			accept:   []string{"bar.example.com"},
+			expect:   true,
+		},
 		"accept trailing dot": {
 			resolver: resolver{"bar.example.com."},
 			domain:   "foo.example.com",

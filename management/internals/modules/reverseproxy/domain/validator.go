@@ -114,7 +114,7 @@ func (v *Validator) Validate(ctx context.Context, domain string, accept []string
 
 	for _, acceptDomain := range accept {
 		normalizedAccept := strings.TrimSuffix(acceptDomain, ".")
-		if nakedCNAME == normalizedAccept {
+		if strings.EqualFold(nakedCNAME, normalizedAccept) {
 			log.WithFields(log.Fields{
 				"domain":  domain,
 				"cname":   nakedCNAME,
