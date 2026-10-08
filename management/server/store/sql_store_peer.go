@@ -526,6 +526,8 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 }
 
 type PaginationState struct {
+	Page     int
+	PageSize int
 }
 
 type PeerFilters struct {

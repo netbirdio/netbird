@@ -213,24 +213,23 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := r.URL.Query().Get("page")
-	pageSize := r.URL.Query().Get("page_size")
+	pagination, err := paginationFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
 
 	filters, err := filtersFromQuery(r.URL.Query())
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, err.Error()), w)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
 		return
 	}
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, _, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, store.PaginationState{}, filters, store.PeerSorting{})
-
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
+	peers, _, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, store.PeerSorting{})
 
 	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
@@ -281,6 +280,23 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 		MAC:              v.Get("mac"),
 		Hostname:         v.Get("hostname"),
 		Kind:             v.Get("kind"),
+	}, nil
+}
+
+func paginationFromQuery(v url.Values) (store.PaginationState, error) {
+	page, err := strconv.Atoi(v.Get("page"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	pageSize, err := strconv.Atoi(v.Get("page_size"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	return store.PaginationState{
+		Page:     page,
+		PageSize: pageSize,
 	}, nil
 }
 
