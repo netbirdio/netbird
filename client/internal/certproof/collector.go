@@ -96,7 +96,7 @@ func (c *Collector) collect(ctx context.Context, checks []*proto.Checks, run fun
 // Stuck reports whether lost collections hold every slot. No collection starts again
 // until one of them returns, which for a store that never answers means a restart.
 func (c *Collector) Stuck() bool {
-	return c.slotsInUse().full()
+	return c.slotsInUse().allLost(c.clock(), time.Duration(lostAfter)*c.deadline())
 }
 
 func (c *Collector) slotsInUse() *collectSlots {
@@ -154,11 +154,19 @@ func (s *collectSlots) finish(slot uint64) {
 	delete(s.running, slot)
 }
 
-// full reports whether every slot is held.
-func (s *collectSlots) full() bool {
+// allLost reports whether every slot is held by a collection that has run for lost.
+func (s *collectSlots) allLost(now time.Time, lost time.Duration) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.running) >= maxInFlight
+	if len(s.running) < maxInFlight {
+		return false
+	}
+	for _, started := range s.running {
+		if now.Sub(started) < lost {
+			return false
+		}
+	}
+	return true
 }
 
 // idle reports whether no collection is running.

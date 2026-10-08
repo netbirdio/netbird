@@ -144,13 +144,15 @@ func TestCollector_LostCollectionDoesNotBlockForever(t *testing.T) {
 	}
 
 	c.collect(context.Background(), challengeChecks, wedged)
+	waitStarted(t, &started, 1)
 	c.collect(context.Background(), challengeChecks, wedged)
 	assert.Equal(t, int32(1), started.Load(), "a second collection is refused while the first may still finish")
 	assert.False(t, c.Stuck(), "one slow collection is not stuck yet")
 
 	now = now.Add(time.Duration(lostAfter) * c.deadline())
 	c.collect(context.Background(), challengeChecks, wedged)
-	assert.Equal(t, int32(2), started.Load(), "once the first is lost another starts beside it")
+	waitStarted(t, &started, 2)
+	assert.False(t, c.Stuck(), "the second collection may still return, so the collector is not stuck yet")
 
 	now = now.Add(time.Duration(lostAfter) * c.deadline())
 	c.collect(context.Background(), challengeChecks, wedged)
@@ -180,9 +182,10 @@ func TestCollector_LostWindowFollowsTheOldestRunningCollection(t *testing.T) {
 	}
 
 	c.collect(context.Background(), challengeChecks, blockOn(releaseA))
+	waitStarted(t, &started, 1)
 	now = now.Add(lost)
 	c.collect(context.Background(), challengeChecks, blockOn(releaseB))
-	require.Equal(t, int32(2), started.Load(), "B starts beside the lost A")
+	waitStarted(t, &started, 2)
 
 	close(releaseA)
 	require.Eventually(t, func() bool {
@@ -193,4 +196,12 @@ func TestCollector_LostWindowFollowsTheOldestRunningCollection(t *testing.T) {
 
 	c.collect(context.Background(), challengeChecks, blockOn(make(chan struct{})))
 	assert.Equal(t, int32(2), started.Load(), "a third collection waits while B is recent")
+}
+
+// waitStarted waits for the collections the test launched to have started. collect may
+// return at its deadline before the goroutine running the store call was scheduled.
+func waitStarted(t *testing.T, started *atomic.Int32, n int32) {
+	t.Helper()
+	require.Eventually(t, func() bool { return started.Load() == n }, time.Second, time.Millisecond,
+		"%d collections should have started", n)
 }
