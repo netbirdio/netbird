@@ -25,8 +25,7 @@ func TestCancelPeerRoutines_SessionOwnership(t *testing.T) {
 	}{
 		{name: "owning session tears everything down", session: session, ownsPeer: true, cancelRefresh: true},
 		{name: "stale session keeps the newer session's refresh", session: session, ownsPeer: false, cancelRefresh: false},
-		{name: "failed sync without a channel next to a live session", session: nil, ownsPeer: false, cancelRefresh: false},
-		{name: "failed sync without a channel and no other session", session: nil, ownsPeer: true, cancelRefresh: true},
+		{name: "failed sync without a channel closes the older session", session: nil, ownsPeer: true, cancelRefresh: true},
 	}
 
 	for _, tt := range tests {

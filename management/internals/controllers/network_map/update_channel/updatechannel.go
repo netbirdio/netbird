@@ -135,7 +135,8 @@ func (p *PeersUpdateManager) CloseChannel(ctx context.Context, peerID string) {
 
 // CloseSessionChannel closes the peer's updates channel only while it is still session's channel.
 // It returns false when a newer stream has registered a different channel, which the stale
-// session must leave to its new owner.
+// session must leave to its new owner. A nil session belongs to a stream that failed before
+// registering its own channel; it is the newest session and closes any channel still registered.
 func (p *PeersUpdateManager) CloseSessionChannel(ctx context.Context, peerID string, session chan *network_map.UpdateMessage) bool {
 	start := time.Now()
 
@@ -147,7 +148,7 @@ func (p *PeersUpdateManager) CloseSessionChannel(ctx context.Context, peerID str
 		}
 	}()
 
-	if channel, ok := p.peerChannels[peerID]; ok && channel != session {
+	if channel, ok := p.peerChannels[peerID]; ok && session != nil && channel != session {
 		log.WithContext(ctx).Debugf("skipped closing updates channel: peer %s is owned by a newer session", peerID)
 		return false
 	}

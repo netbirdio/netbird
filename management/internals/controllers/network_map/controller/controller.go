@@ -132,7 +132,8 @@ func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peer
 }
 
 // OnPeerDisconnected closes the session's updates channel and schedules an ephemeral peer for
-// cleanup. It returns false without touching anything when a newer session owns the peer.
+// cleanup. It returns false without touching anything when a newer session owns the peer. A nil
+// session closes any registered channel.
 func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string, session chan *network_map.UpdateMessage) bool {
 	if !c.peersUpdateManager.CloseSessionChannel(ctx, peerID, session) {
 		return false

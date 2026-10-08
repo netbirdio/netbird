@@ -129,11 +129,13 @@ func TestCloseSessionChannel(t *testing.T) {
 		assert.True(t, peersUpdater.CloseSessionChannel(ctx, peer, nil))
 	})
 
-	t.Run("nil session with a registered channel", func(t *testing.T) {
+	t.Run("nil session closes the registered channel", func(t *testing.T) {
 		peersUpdater := NewPeersUpdateManager(nil)
 		current := peersUpdater.CreateChannel(ctx, peer)
 
-		require.False(t, peersUpdater.CloseSessionChannel(ctx, peer, nil))
-		assert.Equal(t, current, peersUpdater.peerChannels[peer])
+		require.True(t, peersUpdater.CloseSessionChannel(ctx, peer, nil))
+		assert.False(t, peersUpdater.HasChannel(peer))
+		_, open := <-current
+		assert.False(t, open, "registered channel must be closed")
 	})
 }

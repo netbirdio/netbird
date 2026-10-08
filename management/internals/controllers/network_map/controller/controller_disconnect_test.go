@@ -39,6 +39,23 @@ func TestOnPeerDisconnected_OwnSession(t *testing.T) {
 	assert.Equal(t, []string{"peer-1"}, ephemeralManager.disconnected)
 }
 
+func TestOnPeerDisconnected_NilSessionClosesOlderChannel(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMockRepository(gomock.NewController(t))
+	ephemeralManager := &recordingEphemeralManager{}
+	updateManager := update_channel.NewPeersUpdateManager(nil)
+	c := Controller{repo: repo, peersUpdateManager: updateManager, EphemeralPeersManager: ephemeralManager}
+
+	older := updateManager.CreateChannel(ctx, "peer-1")
+	repo.EXPECT().GetPeerByID(gomock.Any(), "account-1", "peer-1").Return(&nbpeer.Peer{ID: "peer-1", Ephemeral: true}, nil)
+
+	require.True(t, c.OnPeerDisconnected(ctx, "account-1", "peer-1", nil))
+	assert.False(t, updateManager.HasChannel("peer-1"))
+	_, open := <-older
+	assert.False(t, open, "older channel must be closed")
+	assert.Equal(t, []string{"peer-1"}, ephemeralManager.disconnected)
+}
+
 func TestOnPeerDisconnected_NewerSessionOwnsPeer(t *testing.T) {
 	ctx := context.Background()
 	ephemeralManager := &recordingEphemeralManager{}

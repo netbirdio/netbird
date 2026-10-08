@@ -439,7 +439,8 @@ func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer 
 }
 
 // cancelPeerRoutinesWithoutLock tears down the stream of the session identified by streamStartTime
-// and its updates channel. A nil session means the stream failed before it registered a channel.
+// and its updates channel. A nil session means the stream failed before it registered a channel;
+// the controller then closes any channel still registered.
 func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
 	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key, streamStartTime)
 	if err != nil {
