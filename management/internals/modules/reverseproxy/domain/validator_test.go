@@ -84,6 +84,11 @@ func TestValidate_Reason(t *testing.T) {
 			reason:   domain.ValidationReasonCNAMENotFound,
 			message:  notFound,
 		},
+		"no cname resolves to itself in other case": {
+			resolver: resolver{"Validation.Foo.example.com."},
+			reason:   domain.ValidationReasonCNAMENotFound,
+			message:  notFound,
+		},
 		"not found": {
 			resolver: errResolver{&net.DNSError{Err: "no such host", Name: "validation.foo.example.com", Server: "10.0.0.2:53", IsNotFound: true}},
 			reason:   domain.ValidationReasonCNAMENotFound,

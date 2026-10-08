@@ -12895,10 +12895,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '412':
           description: Precondition failed - the custom domain could not be validated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/integrations/notifications/types:

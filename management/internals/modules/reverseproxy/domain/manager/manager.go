@@ -230,7 +230,7 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 // ValidateDomain checks the domain's validation CNAME and marks it validated. A failure
 // the user can act on is returned as PreconditionFailed carrying the reason.
 func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) error {
-	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -243,7 +243,7 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		"domainID":  domainID,
 	}).Info("starting domain validation")
 
-	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
+	d, err := m.store.GetCustomDomain(ctx, accountID, domainID)
 	if err != nil {
 		return fmt.Errorf("get domain from store: %w", err)
 	}
@@ -269,12 +269,12 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		"targetCluster": targetCluster,
 	}).Info("validating domain against target cluster")
 
-	_, err = m.validator.Validate(context.Background(), d.Domain, []string{targetCluster})
+	_, err = m.validator.Validate(ctx, d.Domain, []string{targetCluster})
 	if err == nil {
 		d.Validated = true
-		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
+		if _, err := m.store.UpdateCustomDomain(ctx, accountID, d); err != nil {
 			// A concurrent request may have validated the domain first.
-			if current, getErr := m.store.GetCustomDomain(context.Background(), accountID, domainID); getErr == nil && current.Validated {
+			if current, getErr := m.store.GetCustomDomain(ctx, accountID, domainID); getErr == nil && current.Validated {
 				return nil
 			}
 			return fmt.Errorf("update domain in store: %w", err)
@@ -282,7 +282,7 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
 			Info("custom domain validated successfully")
 
-		m.accountManager.StoreEvent(context.Background(), userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
+		m.accountManager.StoreEvent(ctx, userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
 		return nil
 	}
 

@@ -102,7 +102,7 @@ func (v *Validator) Validate(ctx context.Context, domain string, accept []string
 
 	nakedCNAME := strings.TrimSuffix(cname, ".")
 	// A name without a CNAME record resolves to itself.
-	if nakedCNAME == lookupDomain {
+	if strings.EqualFold(nakedCNAME, lookupDomain) {
 		return "", cnameNotFound(lookupDomain, accept)
 	}
 	log.WithFields(log.Fields{
