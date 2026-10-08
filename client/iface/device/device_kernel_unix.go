@@ -76,6 +76,9 @@ func (t *TunKernelDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 
+	if t.configurer != nil {
+		t.configurer.Close()
+	}
 	t.configurer = cfg
 	return cfg, nil
 }
