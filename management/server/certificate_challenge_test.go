@@ -478,3 +478,16 @@ func TestCertChallengeRefresher_StaleStreamKeepsTheNewerOne(t *testing.T) {
 	r.Untrack("account-a", "peer-1", newer)
 	assert.False(t, r.tracked("account-a"), "the newer stream's teardown untracks the peer")
 }
+
+// TestCertChallengeRefresher_LateStampFromAStaleStream: the old stream of a reconnected
+// peer can still deliver a stamped update after the new stream started. Its Track must
+// not take the peer over, or the old stream's teardown would untrack the live one.
+func TestCertChallengeRefresher_LateStampFromAStaleStream(t *testing.T) {
+	r, _ := scheduleRefresher(func(string) bool { return true })
+	newer := streamStart.Add(time.Minute)
+	r.Track(context.Background(), "account-a", "peer-1", newer)
+
+	r.Track(context.Background(), "account-a", "peer-1", streamStart)
+	r.Untrack("account-a", "peer-1", streamStart)
+	assert.True(t, r.tracked("account-a"), "a late stamp from the stale stream must leave the newer stream tracked")
+}
