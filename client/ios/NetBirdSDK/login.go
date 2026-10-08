@@ -330,7 +330,7 @@ func profileLoginHint(cfgPath string) string {
 const authInfoRequestTimeout = 30 * time.Second
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, profileLoginHint(a.cfgPath))
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, false, profileLoginHint(a.cfgPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}

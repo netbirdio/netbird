@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"testing"
 	"time"
 
@@ -189,7 +190,12 @@ func generateSessionKeyPair(t *testing.T) (string, string) {
 
 func createSessionToken(t *testing.T, privKeyB64, userID, domain string) string {
 	t.Helper()
-	token, err := sessionkey.SignToken(privKeyB64, userID, "", domain, auth.MethodOIDC, nil, nil, time.Hour)
+	return createSessionTokenWithEmail(t, privKeyB64, userID, "", domain)
+}
+
+func createSessionTokenWithEmail(t *testing.T, privKeyB64, userID, email, domain string) string {
+	t.Helper()
+	token, err := sessionkey.SignToken(privKeyB64, userID, email, domain, auth.MethodOIDC, nil, nil, time.Hour)
 	require.NoError(t, err)
 	return token
 }
@@ -727,4 +733,126 @@ func TestValidateSession_InvalidSessionCode(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, resp.Valid)
 	assert.Empty(t, resp.GetSessionToken())
+}
+
+// TestGenerateSessionToken_EmailFallsBackToIdP covers users whose stored email
+// column is empty: the token's email claim comes from the IdP so the proxy can
+// still stamp X-NetBird-User.
+func TestGenerateSessionToken_EmailFallsBackToIdP(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	idpMock := &mockTunnelIdpManager{email: "idp@example.com", hasData: true}
+	setup.proxyService.idpManager = idpMock
+
+	token, err := setup.proxyService.GenerateSessionToken(ctx, "restricted-proxy.example.com", "allowedUserId", auth.MethodOIDC)
+	require.NoError(t, err)
+
+	pubKey, err := base64.StdEncoding.DecodeString(svc.SessionPublicKey)
+	require.NoError(t, err)
+
+	_, email, _, _, _, err := auth.ValidateSessionJWT(token, "restricted-proxy.example.com", pubKey)
+	require.NoError(t, err)
+	assert.Equal(t, "idp@example.com", email)
+	require.Len(t, idpMock.gotMeta, 1)
+	assert.Equal(t, "testAccountId", idpMock.gotMeta[0].WTAccountID, "IdP lookup must be scoped to the service's account")
+}
+
+// TestGenerateSessionToken_IdPFailureStillIssuesToken pins the fail-soft
+// behaviour: an unreachable IdP costs the email claim, not the login.
+func TestGenerateSessionToken_IdPFailureStillIssuesToken(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	setup.proxyService.idpManager = &mockTunnelIdpManager{err: errors.New("idp down")}
+
+	token, err := setup.proxyService.GenerateSessionToken(ctx, "restricted-proxy.example.com", "allowedUserId", auth.MethodOIDC)
+	require.NoError(t, err)
+
+	pubKey, err := base64.StdEncoding.DecodeString(svc.SessionPublicKey)
+	require.NoError(t, err)
+
+	userID, email, _, _, _, err := auth.ValidateSessionJWT(token, "restricted-proxy.example.com", pubKey)
+	require.NoError(t, err)
+	assert.Equal(t, "allowedUserId", userID)
+	assert.Empty(t, email)
+}
+
+func TestValidateSession_EmailResolution(t *testing.T) {
+	tests := []struct {
+		name        string
+		storedEmail string
+		tokenEmail  string
+		idp         *mockTunnelIdpManager
+		expectEmail string
+		expectCalls int
+	}{
+		{
+			name:        "stored email wins without IdP call",
+			storedEmail: "stored@example.com",
+			tokenEmail:  "claim@example.com",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "stored@example.com",
+		},
+		{
+			name:        "token email claim is reused without IdP call",
+			tokenEmail:  "claim@example.com",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "claim@example.com",
+		},
+		{
+			name:        "empty stored email and claim fall back to IdP",
+			idp:         &mockTunnelIdpManager{email: "idp@example.com", hasData: true},
+			expectEmail: "idp@example.com",
+			expectCalls: 1,
+		},
+		{
+			name:        "IdP error leaves email empty but session valid",
+			idp:         &mockTunnelIdpManager{err: errors.New("idp down")},
+			expectCalls: 1,
+		},
+		{
+			name:        "IdP without data leaves email empty",
+			idp:         &mockTunnelIdpManager{},
+			expectCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupValidateSessionTest(t)
+			defer setup.cleanup()
+
+			ctx := context.Background()
+			user, err := setup.store.GetUserByUserID(ctx, store.LockingStrengthNone, "allowedUserId")
+			require.NoError(t, err)
+			user.Email = tt.storedEmail
+			require.NoError(t, setup.store.SaveUser(ctx, user))
+
+			setup.proxyService.idpManager = tt.idp
+
+			svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "testProxyId")
+			require.NoError(t, err)
+			token := createSessionTokenWithEmail(t, svc.SessionPrivateKey, "allowedUserId", tt.tokenEmail, "test-proxy.example.com")
+			code, ok := setup.proxyService.GenerateSessionCode(token)
+			require.True(t, ok)
+
+			resp, err := setup.proxyService.ValidateSession(ctx, &proto.ValidateSessionRequest{
+				Domain:      "test-proxy.example.com",
+				SessionCode: code,
+			})
+			require.NoError(t, err)
+			assert.True(t, resp.GetValid())
+			assert.Equal(t, tt.expectEmail, resp.GetUserEmail())
+			assert.Equal(t, tt.expectCalls, tt.idp.gotCalls)
+		})
+	}
 }
