@@ -32,8 +32,8 @@ import (
 const testAccountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
 func TestRun(t *testing.T) {
-	if os.Getenv("CI") == "true" && runtime.GOOS != "linux" {
-		t.Skip("needs Docker for the MySQL and Postgres containers")
+	if runtime.GOOS == "windows" || (os.Getenv("CI") == "true" && runtime.GOOS != "linux") {
+		t.Skip("needs Docker with Linux containers for MySQL and Postgres")
 	}
 	// Seed in UTC to match the --mysql-timezone default.
 	time.Local = time.UTC
@@ -153,8 +153,8 @@ func accountJSON(t *testing.T, ctx context.Context, s store.Store) string {
 }
 
 func TestMySQLTimezone(t *testing.T) {
-	if os.Getenv("CI") == "true" && runtime.GOOS != "linux" {
-		t.Skip("needs Docker for the MySQL and Postgres containers")
+	if runtime.GOOS == "windows" || (os.Getenv("CI") == "true" && runtime.GOOS != "linux") {
+		t.Skip("needs Docker with Linux containers for MySQL and Postgres")
 	}
 	ctx := context.Background()
 	mysqlDSN := newMySQLDatabase(t, "tz_src")
