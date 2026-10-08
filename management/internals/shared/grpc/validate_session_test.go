@@ -1,5 +1,3 @@
-//go:build integration
-
 package grpc
 
 import (
@@ -207,7 +205,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -228,7 +226,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -252,7 +250,7 @@ func TestValidateSession_PendingApprovalUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -277,7 +275,7 @@ func TestValidateSession_PendingApprovalUserInAllUsersGroupDenied(t *testing.T) 
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "all-users-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -300,7 +298,7 @@ func TestValidateSession_BlockedUserDenied(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck
 	})
 
 	require.NoError(t, err)
@@ -324,7 +322,7 @@ func TestValidateSession_UserAllowedAfterApproval(t *testing.T) {
 	token := createSessionToken(t, proxy.SessionPrivateKey, pendingUserID, "restricted-proxy.example.com")
 	req := &proto.ValidateSessionRequest{
 		Domain:       "restricted-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	}
 
 	resp, err := setup.proxyService.ValidateSession(ctx, req)
@@ -357,7 +355,7 @@ func TestValidateSession_UserInDifferentAccount(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -376,7 +374,7 @@ func TestValidateSession_UserNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -395,7 +393,7 @@ func TestValidateSession_ProxyNotFound(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "unknown-proxy.example.com",
-		SessionToken: token,
+		SessionToken: token, //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -409,7 +407,7 @@ func TestValidateSession_InvalidToken(t *testing.T) {
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 		Domain:       "test-proxy.example.com",
-		SessionToken: "invalid-token",
+		SessionToken: "invalid-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -422,7 +420,7 @@ func TestValidateSession_MissingDomain(t *testing.T) {
 	defer setup.cleanup()
 
 	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
-		SessionToken: "some-token",
+		SessionToken: "some-token", //nolint:staticcheck,
 	})
 
 	require.NoError(t, err)
@@ -503,15 +501,15 @@ func (m *testValidateSessionServiceManager) GetAllServices(_ context.Context, _,
 }
 
 func (m *testValidateSessionServiceManager) GetService(_ context.Context, _, _, _ string) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) DeleteService(_ context.Context, _, _, _ string) error {
@@ -555,7 +553,7 @@ func (m *testValidateSessionServiceManager) GetServiceIDByTargetID(_ context.Con
 }
 
 func (m *testValidateSessionServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
@@ -587,7 +585,7 @@ func (m *testValidateSessionServiceManager) DeleteAccountCluster(_ context.Conte
 type testValidateSessionProxyManager struct{}
 
 func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _, _, _ string, _ *string, _ *proxy.Capabilities) (*proxy.Proxy, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _, _ string) error {
@@ -619,7 +617,7 @@ func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time
 }
 
 func (m *testValidateSessionProxyManager) GetAccountProxy(_ context.Context, _ string) (*proxy.Proxy, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (m *testValidateSessionProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
@@ -647,6 +645,10 @@ func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Cont
 }
 
 func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterAllProxiesPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
 

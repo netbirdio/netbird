@@ -95,7 +95,7 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                         {showClose && (
                             <DialogPrimitive.Close
                                 className={cn(
-                                    "absolute right-3 top-3 z-10 rounded-md p-3 transition-colors",
+                                    "absolute end-3 top-3 z-10 rounded-md p-3 transition-colors",
                                     "text-nb-gray-300 hover:text-nb-gray-100",
                                     "focus:outline-none disabled:pointer-events-none",
                                 )}
