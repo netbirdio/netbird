@@ -226,6 +226,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	peers, _, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, store.PaginationState{}, filters, store.PeerSorting{})
+
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

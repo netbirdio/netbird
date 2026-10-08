@@ -455,7 +455,7 @@ func (e *Engine) stopLocked() {
 	}
 
 	if e.updateManager != nil {
-		e.updateManager.SetDownloadOnly()
+		e.updateManager.ResetMode()
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -951,11 +951,13 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	}
 
 	if autoUpdateSettings == nil {
+		log.Infof("no auto-update settings received, defaulting to download-only")
+		e.updateManager.SetDownloadOnly()
 		return
 	}
 
 	if autoUpdateSettings.Version == disableAutoUpdate {
-		log.Infof("auto-update is disabled")
+		log.Infof("auto-update is disabled, switching to download-only")
 		e.updateManager.SetDownloadOnly()
 		return
 	}
