@@ -64,6 +64,22 @@ type DomainConfig struct {
 	// groups claim intersects this set. Empty means group membership does not
 	// restrict access.
 	AllowedGroups map[string]struct{}
+	// TargetResolver pins the target and access action used by this auth snapshot.
+	TargetResolver *proxy.TargetResolver
+}
+
+// DomainOption configures a domain authentication snapshot.
+type DomainOption func(*DomainConfig) error
+
+// WithTargetResolver attaches an immutable target-routing snapshot to a domain.
+func WithTargetResolver(resolver *proxy.TargetResolver) DomainOption {
+	return func(config *DomainConfig) error {
+		if resolver == nil {
+			return errors.New("target resolver is nil")
+		}
+		config.TargetResolver = resolver
+		return nil
+	}
 }
 
 type validationResult struct {
@@ -132,6 +148,12 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
+		resolvedRequest, handled := mw.handleTargetAccess(w, r, config, next)
+		if handled {
+			return
+		}
+		r = resolvedRequest
+
 		// Private services bypass operator schemes and gate on tunnel peer.
 		if config.Private {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
@@ -169,6 +191,66 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 
 		mw.authenticateWithSchemes(w, r, host, config)
 	})
+}
+
+func (mw *Middleware) handleTargetAccess(w http.ResponseWriter, r *http.Request, config DomainConfig, next http.Handler) (*http.Request, bool) {
+	if config.TargetResolver == nil {
+		return r, false
+	}
+	resolvedRequest, action, err := config.TargetResolver.ResolveRequest(r)
+	if err != nil {
+		mw.rejectUnsafePath(w, r, err)
+		return r, true
+	}
+	r = resolvedRequest
+	switch action {
+	case proxy.AccessActionInherit:
+		return r, false
+	case proxy.AccessActionBypass:
+		if config.Private {
+			mw.logger.Error("private domain reached a bypass target; denying")
+			denyPrivate(w)
+			return r, true
+		}
+		markAccessAction(r, action)
+		next.ServeHTTP(w, r)
+	case proxy.AccessActionBlock:
+		markAccessAction(r, action)
+		w.Header().Set("Cache-Control", "no-store")
+		denyForbidden(w, config)
+	default:
+		mw.logger.Errorf("resolved unknown access action %q; denying", action)
+		markAccessAction(r, action)
+		w.Header().Set("Cache-Control", "no-store")
+		denyForbidden(w, config)
+	}
+	return r, true
+}
+
+func (mw *Middleware) rejectUnsafePath(w http.ResponseWriter, r *http.Request, err error) {
+	mw.logger.WithFields(log.Fields{
+		"host": r.Host,
+		"path": r.URL.EscapedPath(),
+	}).Debugf("rejecting request path: %v", err)
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(proxy.OriginAuth)
+		cd.SetMetadata("access_action", "invalid_path")
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "Bad Request", http.StatusBadRequest)
+}
+
+func markAccessAction(r *http.Request, action proxy.AccessAction) {
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetMetadata("access_action", string(action))
+		switch action {
+		case proxy.AccessActionBypass:
+			cd.SetAuthMethod("path_bypass")
+		case proxy.AccessActionBlock:
+			cd.SetAuthMethod("path_block")
+			cd.SetOrigin(proxy.OriginAuth)
+		}
+	}
 }
 
 // requestIsPlainHTTP reports whether the request arrived without TLS.
@@ -666,36 +748,10 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	return false
 }
 
-// AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
-// private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
-// allowedGroups restricts OIDC sessions to the given group ids; empty means unrestricted.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string) error {
-	if len(schemes) == 0 {
-		mw.domainsMux.Lock()
-		defer mw.domainsMux.Unlock()
-		mw.domains[domain] = DomainConfig{
-			AccountID:      accountID,
-			ServiceID:      serviceID,
-			IPRestrictions: ipRestrictions,
-			Private:        private,
-			AllowedGroups:  groupSet(allowedGroups),
-		}
-		return nil
-	}
-
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
-	if err != nil {
-		return fmt.Errorf("decode session public key for domain %s: %w", domain, err)
-	}
-	if len(pubKeyBytes) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
-	}
-
-	mw.domainsMux.Lock()
-	defer mw.domainsMux.Unlock()
-	mw.domains[domain] = DomainConfig{
-		Schemes:           schemes,
-		SessionPublicKey:  pubKeyBytes,
+// NewDomainConfig validates and builds an immutable domain configuration.
+func NewDomainConfig(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string, opts ...DomainOption) (DomainConfig, error) {
+	config := DomainConfig{
+		Schemes:           append([]Scheme(nil), schemes...),
 		SessionExpiration: expiration,
 		AccountID:         accountID,
 		ServiceID:         serviceID,
@@ -703,7 +759,61 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 		Private:           private,
 		AllowedGroups:     groupSet(allowedGroups),
 	}
+	if len(schemes) > 0 {
+		pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
+		if err != nil {
+			return DomainConfig{}, fmt.Errorf("decode session public key for domain %s: %w", domain, err)
+		}
+		if len(pubKeyBytes) != ed25519.PublicKeySize {
+			return DomainConfig{}, fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
+		}
+		config.SessionPublicKey = append(ed25519.PublicKey(nil), pubKeyBytes...)
+	}
+	for _, option := range opts {
+		if option == nil {
+			return DomainConfig{}, fmt.Errorf("nil domain option for domain %s", domain)
+		}
+		if err := option(&config); err != nil {
+			return DomainConfig{}, fmt.Errorf("configure domain %s: %w", domain, err)
+		}
+	}
+	if config.Private && config.TargetResolver != nil && config.TargetResolver.HasBypass() {
+		return DomainConfig{}, fmt.Errorf("authentication bypass is not allowed for private domain %s", domain)
+	}
+	return config, nil
+}
+
+// AddDomainConfig atomically publishes a validated domain configuration.
+func (mw *Middleware) AddDomainConfig(domain string, config DomainConfig) {
+	config.Schemes = append([]Scheme(nil), config.Schemes...)
+	config.SessionPublicKey = append(ed25519.PublicKey(nil), config.SessionPublicKey...)
+	config.AllowedGroups = cloneGroupSet(config.AllowedGroups)
+	mw.domainsMux.Lock()
+	defer mw.domainsMux.Unlock()
+	mw.domains[domain] = config
+}
+
+// AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
+// private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
+// allowedGroups restricts OIDC sessions to the given group ids; empty means unrestricted.
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string, opts ...DomainOption) error {
+	config, err := NewDomainConfig(domain, schemes, publicKeyB64, expiration, accountID, serviceID, ipRestrictions, private, allowedGroups, opts...)
+	if err != nil {
+		return err
+	}
+	mw.AddDomainConfig(domain, config)
 	return nil
+}
+
+func cloneGroupSet(groups map[string]struct{}) map[string]struct{} {
+	if groups == nil {
+		return nil
+	}
+	cloned := make(map[string]struct{}, len(groups))
+	for group := range groups {
+		cloned[group] = struct{}{}
+	}
+	return cloned
 }
 
 // RemoveDomain unregisters authentication for the given domain.
