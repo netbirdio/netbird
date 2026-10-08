@@ -97,8 +97,7 @@ func (c *Challenger) verifyNonce(nonce, peerKey []byte, now time.Time) error {
 		return ErrNonceMalformed
 	}
 	window := binary.BigEndian.Uint64(nonce[:windowLen])
-	current := c.windowOf(now)
-	if window != current && window+1 != current {
+	if !windowAccepted(window, c.windowOf(now)) {
 		return ErrNonceExpired
 	}
 	if !hmac.Equal(nonce, c.nonceForWindow(peerKey, window)) {
@@ -123,13 +122,18 @@ func (c *Challenger) nonceForWindow(peerKey []byte, window uint64) []byte {
 }
 
 // NonceAcceptedAlongside reports whether a proof answering nonce is still accepted while
-// management issues current to the same peer: verification takes a nonce of the current
-// or the previous window.
+// management issues current to the same peer, by the same window rule verification uses.
 func NonceAcceptedAlongside(nonce, current []byte) bool {
 	if len(nonce) != nonceLen || len(current) != nonceLen {
 		return false
 	}
 	window := binary.BigEndian.Uint64(nonce[:windowLen])
-	currentWindow := binary.BigEndian.Uint64(current[:windowLen])
-	return window == currentWindow || window+1 == currentWindow
+	return windowAccepted(window, binary.BigEndian.Uint64(current[:windowLen]))
+}
+
+// windowAccepted reports whether a nonce of window is accepted in window current: the
+// current window, the previous one so a nonce outlives a rollover, and the next one so an
+// instance whose clock runs slightly ahead is not rejected by the others.
+func windowAccepted(window, current uint64) bool {
+	return window == current || window+1 == current || window == current+1
 }

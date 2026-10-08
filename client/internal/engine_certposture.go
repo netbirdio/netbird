@@ -124,7 +124,7 @@ func (s *certPostureState) needsCollection(challengesKey, userContext string, no
 }
 
 // cachedProofs returns the cached proofs management still accepts for the challenges in
-// checks: those whose nonce is current, or from the window before, for one of them. Proofs
+// checks: those whose nonce is current, or from an adjacent window, for one of them. Proofs
 // signed for the previous nonce bridge the time until the watcher has signed the new one.
 func (s *certPostureState) cachedProofs(checks []*mgmProto.Checks) []certposture.Proof {
 	s.mu.Lock()
