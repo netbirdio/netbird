@@ -267,12 +267,13 @@ export const MainConnectionStatusSwitch = () => {
                     tabIndex={show && fqdn ? 0 : -1}
                     className={cn(
                         "mt-1 max-h-[1em] min-h-[1em] max-w-full transition-opacity duration-300",
-                        "relative left-[0.55rem]",
+                        "relative start-[0.55rem]",
                         show && fqdn ? "opacity-100" : "pointer-events-none opacity-0",
                     )}
                 >
                     <TruncatedText
                         text={shortenDns(fqdn) || " "}
+                        dir={"ltr"}
                         className={
                             "block h-[18px] max-w-[310px] truncate font-mono text-[0.8rem] leading-tight text-nb-gray-300"
                         }
@@ -298,7 +299,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                 tabIndex={show && ip ? 0 : -1}
                 className={cn(
                     "mt-1 max-h-[1em] min-h-[1em] transition-opacity duration-300",
-                    "relative left-[0.55rem]",
+                    "relative start-[0.55rem]",
                     show && ip ? "opacity-100" : "pointer-events-none opacity-0",
                 )}
             >
@@ -345,7 +346,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                             size={14}
                             aria-hidden={"true"}
                             className={cn(
-                                "absolute -right-5 top-1/2 -translate-y-1/2",
+                                "absolute -end-5 top-1/2 -translate-y-1/2",
                                 "shrink-0 text-nb-gray-300 transition-colors",
                                 "group-hover:text-nb-gray-200",
                                 "group-data-[state=open]:text-nb-gray-200",
@@ -398,7 +399,7 @@ const IpRow = ({ value }: { value: string }) => {
             aria-label={`${t("common.copy")} ${value}`}
             className={cn(
                 "group/iprow relative flex items-center justify-between gap-3",
-                "rounded-md px-2 py-1.5 text-left",
+                "rounded-md px-2 py-1.5 text-start",
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
                 "cursor-default outline-none transition-colors",
                 isFocusVisible &&

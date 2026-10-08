@@ -36,9 +36,11 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
+	"github.com/netbirdio/netbird/management/server/api/v1alpha1"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -47,7 +49,10 @@ import (
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
-const apiPrefix = "/api"
+const (
+	apiPrefix   = "/api"
+	apiV1Prefix = "/api/v1alpha1"
+)
 
 var (
 	kaep = keepalive.EnforcementPolicy{
@@ -158,13 +163,31 @@ func (s *BaseServer) EventStore() activity.Store {
 }
 
 func (s *BaseServer) APIHandler() http.Handler {
-	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager(), nil)
+	_ = CreateNamed(s, "http_v1api", func() http.Handler {
+		apiv1Router := s.ApiV1Router()
+		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
-		return httpAPIHandler
+
+		return apiv1Router
 	})
+
+	_ = CreateNamed(s, "http_v0api", func() http.Handler {
+		apiRouter := s.ApiRouter()
+		_, err := nbhttp.NewAPIHandler(
+			context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
+			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
+			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
+			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
+			s.AgentNetworkManager(), nil)
+		if err != nil {
+			log.Fatalf("failed to create API handler: %v", err)
+		}
+		return apiRouter
+	})
+
+	return s.Router()
 }
 
 // IDPHandler returns the HTTP handler for the embedded IdP (Dex), or nil if
@@ -177,9 +200,28 @@ func (s *BaseServer) IDPHandler() http.Handler {
 	return cors.AllowAll().Handler(embeddedIdP.Handler())
 }
 
+// Router returns the root HTTP router with the shared API middleware applied.
 func (s *BaseServer) Router() *mux.Router {
 	return Create(s, func() *mux.Router {
-		return mux.NewRouter().PathPrefix(apiPrefix).Subrouter()
+		router := mux.NewRouter()
+		router.Use(middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)...)
+		return router
+	})
+}
+
+// ApiV1Router returns the subrouter for the versioned API under apiV1Prefix.
+func (s *BaseServer) ApiV1Router() *mux.Router {
+	return CreateNamed(s, "apiv1_router", func() *mux.Router {
+		return s.Router().PathPrefix(apiV1Prefix).Subrouter()
+	})
+}
+
+// ApiRouter returns the subrouter for the unversioned API under apiPrefix.
+func (s *BaseServer) ApiRouter() *mux.Router {
+	return CreateNamed(s, "apiv0_router", func() *mux.Router {
+		// The nested versioned prefix must be registered before the broader apiPrefix.
+		s.ApiV1Router()
+		return s.Router().PathPrefix(apiPrefix).Subrouter()
 	})
 }
 

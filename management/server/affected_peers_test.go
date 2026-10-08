@@ -955,73 +955,77 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 }
 
 func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "ap-grpA", Name: "AP-A", Peers: []string{peer1.ID}},
-		{ID: "ap-grpB", Name: "AP-B", Peers: []string{peer2.ID}},
-		{ID: "ap-grpC", Name: "AP-C", Peers: []string{peer3.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
-		Enabled: true,
-		Rules: []*types.PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"ap-grpA"},
-				Destinations:  []string{"ap-grpB"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
-			},
-		},
-	}, true)
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	result := manager.resolveAffectedPeersForPeerChanges(ctx, manager.Store, accountID, []string{peer1.ID})
-	assert.ElementsMatch(t, []string{peer1.ID, peer2.ID}, result)
-
-	t.Run("group change updates all peers in policy groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
-			ID:    "ap-grpA",
-			Name:  "AP-A",
-			Peers: []string{peer1.ID, peer3.ID},
-		})
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "ap-grpA", Name: "AP-A", Peers: []string{peer1.ID}},
+			{ID: "ap-grpB", Name: "AP-B", Peers: []string{peer2.ID}},
+			{ID: "ap-grpC", Name: "AP-C", Peers: []string{peer3.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"ap-grpA"},
+					Destinations:  []string{"ap-grpB"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}, true)
+		require.NoError(t, err)
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		result := manager.resolveAffectedPeersForPeerChanges(ctx, manager.Store, accountID, []string{peer1.ID})
+		assert.ElementsMatch(t, []string{peer1.ID, peer2.ID}, result)
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "group change updates all peers in policy groups", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldReceiveUpdate(t, updMsg2)
+				peerShouldReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
+				ID:    "ap-grpA",
+				Name:  "AP-A",
+				Peers: []string{peer1.ID, peer3.ID},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
@@ -1037,243 +1041,259 @@ func TestAffectedPeers_UnlinkedPeerChange_RefreshesSelfOnly(t *testing.T) {
 // TestAffectedPeers_PolicyChange_UnrelatedPeerNoUpdate verifies that creating/deleting a
 // policy only sends updates to peers in the policy's groups, not to unrelated peers.
 func TestAffectedPeers_PolicyChange_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "pol-grpA", Name: "Pol-A", Peers: []string{peer1.ID}},
-		{ID: "pol-grpB", Name: "Pol-B", Peers: []string{peer2.ID}},
-		{ID: "pol-grpC", Name: "Pol-C", Peers: []string{peer3.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("create policy only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
-			Enabled: true,
-			Rules: []*types.PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"pol-grpA"},
-					Destinations:  []string{"pol-grpB"},
-					Bidirectional: true,
-					Action:        types.PolicyTrafficActionAccept,
-				},
-			},
-		}, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "pol-grpA", Name: "Pol-A", Peers: []string{peer1.ID}},
+			{ID: "pol-grpB", Name: "Pol-B", Peers: []string{peer2.ID}},
+			{ID: "pol-grpC", Name: "Pol-C", Peers: []string{peer3.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "create policy only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						Enabled:       true,
+						Sources:       []string{"pol-grpA"},
+						Destinations:  []string{"pol-grpB"},
+						Bidirectional: true,
+						Action:        types.PolicyTrafficActionAccept,
+					},
+				},
+			}, true)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_RouteChange_UnrelatedPeerNoUpdate verifies that creating a route
 // only sends updates to peers in the route's groups, not to unrelated peers.
 func TestAffectedPeers_RouteChange_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "rt-grpA", Name: "Rt-A", Peers: []string{peer1.ID}},
-		{ID: "rt-grpB", Name: "Rt-B", Peers: []string{peer2.ID}},
-		{ID: "rt-grpC", Name: "Rt-C", Peers: []string{peer3.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("create route only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		_, err := manager.CreateRoute(ctx, accountID,
-			netip.MustParsePrefix("10.10.0.0/24"),
-			route.IPv4Network,
-			nil,
-			"",
-			[]string{"rt-grpA"},
-			"test route",
-			"routenoaffect",
-			false,
-			9999,
-			[]string{"rt-grpB"},
-			nil,
-			true,
-			userID,
-			false,
-			false,
-		)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "rt-grpA", Name: "Rt-A", Peers: []string{peer1.ID}},
+			{ID: "rt-grpB", Name: "Rt-B", Peers: []string{peer2.ID}},
+			{ID: "rt-grpC", Name: "Rt-C", Peers: []string{peer3.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "create route only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			_, err := manager.CreateRoute(ctx, accountID,
+				netip.MustParsePrefix("10.10.0.0/24"),
+				route.IPv4Network,
+				nil,
+				"",
+				[]string{"rt-grpA"},
+				"test route",
+				"routenoaffect",
+				false,
+				9999,
+				[]string{"rt-grpB"},
+				nil,
+				true,
+				userID,
+				false,
+				false,
+			)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_NameServerChange_UnrelatedPeerNoUpdate verifies that creating a
 // nameserver group only sends updates to peers in its groups, not to unrelated peers.
 func TestAffectedPeers_NameServerChange_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "ns-grpA", Name: "NS-A", Peers: []string{peer1.ID}},
-		{ID: "ns-grpB", Name: "NS-B", Peers: []string{peer2.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("create nameserver group only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldNotReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		_, err := manager.CreateNameServerGroup(ctx, accountID, "ns-unrelated", "NS Unrelated",
-			[]nbdns.NameServer{{
-				IP:     netip.MustParseAddr("1.1.1.1"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			}},
-			[]string{"ns-grpA"},
-			true, nil, true, userID, false,
-		)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "ns-grpA", Name: "NS-A", Peers: []string{peer1.ID}},
+			{ID: "ns-grpB", Name: "NS-B", Peers: []string{peer2.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "create nameserver group only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldNotReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			_, err := manager.CreateNameServerGroup(ctx, accountID, "ns-unrelated", "NS Unrelated",
+				[]nbdns.NameServer{{
+					IP:     netip.MustParseAddr("1.1.1.1"),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				}},
+				[]string{"ns-grpA"},
+				true, nil, true, userID, false,
+			)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_DNSSettingsChange_UnrelatedPeerNoUpdate verifies that changing DNS
 // settings only sends updates to peers in the affected groups, not to unrelated peers.
 func TestAffectedPeers_DNSSettingsChange_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "dns-grpA", Name: "DNS-A", Peers: []string{peer1.ID}},
-		{ID: "dns-grpB", Name: "DNS-B", Peers: []string{peer2.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("dns settings change only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldNotReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.SaveDNSSettings(ctx, accountID, userID, &types.DNSSettings{
-			DisabledManagementGroups: []string{"dns-grpA"},
-		})
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "dns-grpA", Name: "DNS-A", Peers: []string{peer1.ID}},
+			{ID: "dns-grpB", Name: "DNS-B", Peers: []string{peer2.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "dns settings change only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldNotReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.SaveDNSSettings(ctx, accountID, userID, &types.DNSSettings{
+				DisabledManagementGroups: []string{"dns-grpA"},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
@@ -1281,429 +1301,451 @@ func TestAffectedPeers_DNSSettingsChange_UnrelatedPeerNoUpdate(t *testing.T) {
 // updating a group that is NOT referenced by any policy/route/ns/dns should not send
 // updates to any peer.
 func TestAffectedPeers_UnlinkedGroupChange_NoUpdateIntegration(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
+		}
 
-	err = manager.CreateGroup(ctx, accountID, userID, &types.Group{
-		ID:    "unlinked-grp",
-		Name:  "Unlinked",
-		Peers: []string{peer1.ID},
-	})
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("updating unlinked group sends no peer updates", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
-			peerShouldNotReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
+		err = manager.CreateGroup(ctx, accountID, userID, &types.Group{
 			ID:    "unlinked-grp",
 			Name:  "Unlinked",
-			Peers: []string{peer1.ID, peer2.ID},
+			Peers: []string{peer1.ID},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
-		}
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "updating unlinked group sends no peer updates", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg1)
+				peerShouldNotReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
+				ID:    "unlinked-grp",
+				Name:  "Unlinked",
+				Peers: []string{peer1.ID, peer2.ID},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_NetworkRouterUnlinkedPeerNoUpdate: a network router with peer
 // groups updates only those groups' peers (and resource policy sources), not others.
 func TestAffectedPeers_NetworkRouterUnlinkedPeerNoUpdate(t *testing.T) {
-	// Delete the default policy before adding peers so AddPeer schedules no async
-	// update that races with the test.
-	manager, updateManager, err := createManager(t)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	account, err := createAccount(manager, "nr_test_account", userID, "")
-	require.NoError(t, err)
-	accountID := account.Id
-
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		// Delete the default policy before adding peers so AddPeer schedules no async
+		// update that races with the test.
+		manager, updateManager, err := createManager(t)
 		require.NoError(t, err)
-	}
 
-	setupKey, err := manager.CreateSetupKey(ctx, accountID, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
-	require.NoError(t, err)
+		ctx := context.Background()
 
-	peer1 := addPeerToAccount(t, manager, accountID, setupKey.Key)
-	peer2 := addPeerToAccount(t, manager, accountID, setupKey.Key)
-	peer3 := addPeerToAccount(t, manager, accountID, setupKey.Key)
-
-	for _, g := range []*types.Group{
-		{ID: "nr-grpA", Name: "NR-A", Peers: []string{peer1.ID}},
-		{ID: "nr-grpB", Name: "NR-B", Peers: []string{peer2.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
+		account, err := createAccount(manager, "nr_test_account", userID, "")
 		require.NoError(t, err)
-	}
+		accountID := account.Id
 
-	net1 := &networkTypes.Network{
-		ID:        "nr-net-test",
-		AccountID: accountID,
-		Name:      "nr-test-network",
-	}
-	err = manager.Store.SaveNetwork(ctx, net1)
-	require.NoError(t, err)
-
-	err = manager.Store.CreateNetworkRouter(ctx, &routerTypes.NetworkRouter{
-		ID:         "nr-router-test",
-		NetworkID:  net1.ID,
-		AccountID:  accountID,
-		PeerGroups: []string{"nr-grpA"},
-		Enabled:    true,
-	})
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("network router group change only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldNotReceiveUpdate(t, updMsg2)
-			peerShouldReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err = manager.UpdateGroup(ctx, accountID, userID, &types.Group{
-			ID:    "nr-grpA",
-			Name:  "NR-A",
-			Peers: []string{peer1.ID, peer3.ID},
-		})
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+		require.NoError(t, err)
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		setupKey, err := manager.CreateSetupKey(ctx, accountID, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+		require.NoError(t, err)
+
+		peer1 := addPeerToAccount(t, manager, accountID, setupKey.Key)
+		peer2 := addPeerToAccount(t, manager, accountID, setupKey.Key)
+		peer3 := addPeerToAccount(t, manager, accountID, setupKey.Key)
+
+		for _, g := range []*types.Group{
+			{ID: "nr-grpA", Name: "NR-A", Peers: []string{peer1.ID}},
+			{ID: "nr-grpB", Name: "NR-B", Peers: []string{peer2.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		net1 := &networkTypes.Network{
+			ID:        "nr-net-test",
+			AccountID: accountID,
+			Name:      "nr-test-network",
+		}
+		err = manager.Store.SaveNetwork(ctx, net1)
+		require.NoError(t, err)
+
+		err = manager.Store.CreateNetworkRouter(ctx, &routerTypes.NetworkRouter{
+			ID:         "nr-router-test",
+			NetworkID:  net1.ID,
+			AccountID:  accountID,
+			PeerGroups: []string{"nr-grpA"},
+			Enabled:    true,
+		})
+		require.NoError(t, err)
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "network router group change only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldNotReceiveUpdate(t, updMsg2)
+				peerShouldReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err = manager.UpdateGroup(ctx, accountID, userID, &types.Group{
+				ID:    "nr-grpA",
+				Name:  "NR-A",
+				Peers: []string{peer1.ID, peer3.ID},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_IsolatedEntitiesOnlyAffectTheirPeers: with a policy (peer1<->peer2)
 // and a separate route (peer3), changing one entity's groups affects only its peers.
 func TestAffectedPeers_IsolatedEntitiesOnlyAffectTheirPeers(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "iso-grpA", Name: "ISO-A", Peers: []string{peer1.ID}},
-		{ID: "iso-grpB", Name: "ISO-B", Peers: []string{peer2.ID}},
-		{ID: "iso-grpC", Name: "ISO-C", Peers: []string{peer3.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
-		Enabled: true,
-		Rules: []*types.PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"iso-grpA"},
-				Destinations:  []string{"iso-grpB"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
-			},
-		},
-	}, true)
-	require.NoError(t, err)
-
-	_, err = manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.20.0.0/24"),
-		route.IPv4Network,
-		nil,
-		"",
-		[]string{"iso-grpC"},
-		"isolated route",
-		"isonet2",
-		false,
-		9999,
-		[]string{"iso-grpC"},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	// The setup policy/route above dispatch affected-peer updates asynchronously;
-	// drain any in-flight ones so the assertions only observe the UpdateGroup below.
-	settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
-
-	t.Run("policy group change does not affect route-only peer", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
-			ID:    "iso-grpA",
-			Name:  "ISO-A-updated",
-			Peers: []string{peer1.ID},
-		})
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "iso-grpA", Name: "ISO-A", Peers: []string{peer1.ID}},
+			{ID: "iso-grpB", Name: "ISO-B", Peers: []string{peer2.ID}},
+			{ID: "iso-grpC", Name: "ISO-C", Peers: []string{peer3.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"iso-grpA"},
+					Destinations:  []string{"iso-grpB"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}, true)
+		require.NoError(t, err)
+
+		_, err = manager.CreateRoute(ctx, accountID,
+			netip.MustParsePrefix("10.20.0.0/24"),
+			route.IPv4Network,
+			nil,
+			"",
+			[]string{"iso-grpC"},
+			"isolated route",
+			"isonet2",
+			false,
+			9999,
+			[]string{"iso-grpC"},
+			nil,
+			true,
+			userID,
+			false,
+			false,
+		)
+		require.NoError(t, err)
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		// The setup policy/route above dispatch affected-peer updates asynchronously;
+		// drain any in-flight ones so the assertions only observe the UpdateGroup below.
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "policy group change does not affect route-only peer", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
+				ID:    "iso-grpA",
+				Name:  "ISO-A-updated",
+				Peers: []string{peer1.ID},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_DeleteRoute_UnrelatedPeerNoUpdate verifies that deleting a route
 // only sends updates to peers in the route's groups.
 func TestAffectedPeers_DeleteRoute_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "del-rt-grpA", Name: "Del-Rt-A", Peers: []string{peer1.ID}},
-		{ID: "del-rt-grpB", Name: "Del-Rt-B", Peers: []string{peer2.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	newRoute, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.30.0.0/24"),
-		route.IPv4Network,
-		nil,
-		"",
-		[]string{"del-rt-grpA"},
-		"deletable route",
-		"delnet",
-		false,
-		9999,
-		[]string{"del-rt-grpB"},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("delete route only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.DeleteRoute(ctx, accountID, newRoute.ID, userID)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "del-rt-grpA", Name: "Del-Rt-A", Peers: []string{peer1.ID}},
+			{ID: "del-rt-grpB", Name: "Del-Rt-B", Peers: []string{peer2.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		newRoute, err := manager.CreateRoute(ctx, accountID,
+			netip.MustParsePrefix("10.30.0.0/24"),
+			route.IPv4Network,
+			nil,
+			"",
+			[]string{"del-rt-grpA"},
+			"deletable route",
+			"delnet",
+			false,
+			9999,
+			[]string{"del-rt-grpB"},
+			nil,
+			true,
+			userID,
+			false,
+			false,
+		)
+		require.NoError(t, err)
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "delete route only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.DeleteRoute(ctx, accountID, newRoute.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_DeletePolicy_UnrelatedPeerNoUpdate verifies that deleting a policy
 // only sends updates to peers in the policy's groups.
 func TestAffectedPeers_DeletePolicy_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	for _, g := range []*types.Group{
-		{ID: "del-pol-grpA", Name: "Del-Pol-A", Peers: []string{peer1.ID}},
-		{ID: "del-pol-grpB", Name: "Del-Pol-B", Peers: []string{peer2.ID}},
-	} {
-		err := manager.CreateGroup(ctx, accountID, userID, g)
-		require.NoError(t, err)
-	}
-
-	policy, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
-		Enabled: true,
-		Rules: []*types.PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"del-pol-grpA"},
-				Destinations:  []string{"del-pol-grpB"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
-			},
-		},
-	}, true)
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("delete policy only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.DeletePolicy(ctx, accountID, policy.ID, userID)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		for _, g := range []*types.Group{
+			{ID: "del-pol-grpA", Name: "Del-Pol-A", Peers: []string{peer1.ID}},
+			{ID: "del-pol-grpB", Name: "Del-Pol-B", Peers: []string{peer2.ID}},
+		} {
+			err := manager.CreateGroup(ctx, accountID, userID, g)
+			require.NoError(t, err)
+		}
+
+		policy, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"del-pol-grpA"},
+					Destinations:  []string{"del-pol-grpB"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}, true)
+		require.NoError(t, err)
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "delete policy only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.DeletePolicy(ctx, accountID, policy.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
 // TestAffectedPeers_DeleteNameServer_UnrelatedPeerNoUpdate verifies that deleting a
 // nameserver group only sends updates to peers in its groups.
 func TestAffectedPeers_DeleteNameServer_UnrelatedPeerNoUpdate(t *testing.T) {
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
-	ctx := context.Background()
-	accountID := account.Id
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+		ctx := context.Background()
+		accountID := account.Id
 
-	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	require.NoError(t, err)
-	for _, p := range policies {
-		err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+		policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 		require.NoError(t, err)
-	}
-
-	err = manager.CreateGroup(ctx, accountID, userID, &types.Group{
-		ID:    "del-ns-grpA",
-		Name:  "Del-NS-A",
-		Peers: []string{peer1.ID},
-	})
-	require.NoError(t, err)
-
-	nsGroup, err := manager.CreateNameServerGroup(ctx, accountID, "del-ns", "Del NS",
-		[]nbdns.NameServer{{
-			IP:     netip.MustParseAddr("8.8.4.4"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   nbdns.DefaultDNSPort,
-		}},
-		[]string{"del-ns-grpA"},
-		true, nil, true, userID, false,
-	)
-	require.NoError(t, err)
-
-	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
-	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
-	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(ctx, peer1.ID)
-		updateManager.CloseChannel(ctx, peer2.ID)
-		updateManager.CloseChannel(ctx, peer3.ID)
-	})
-
-	t.Run("delete nameserver group only affects linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
-			peerShouldNotReceiveUpdate(t, updMsg2)
-			peerShouldNotReceiveUpdate(t, updMsg3)
-			close(done)
-		}()
-
-		err := manager.DeleteNameServerGroup(ctx, accountID, nsGroup.ID, userID)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout")
+		for _, p := range policies {
+			err := manager.Store.DeletePolicy(ctx, accountID, p.ID)
+			require.NoError(t, err)
 		}
+
+		err = manager.CreateGroup(ctx, accountID, userID, &types.Group{
+			ID:    "del-ns-grpA",
+			Name:  "Del-NS-A",
+			Peers: []string{peer1.ID},
+		})
+		require.NoError(t, err)
+
+		nsGroup, err := manager.CreateNameServerGroup(ctx, accountID, "del-ns", "Del NS",
+			[]nbdns.NameServer{{
+				IP:     netip.MustParseAddr("8.8.4.4"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			}},
+			[]string{"del-ns-grpA"},
+			true, nil, true, userID, false,
+		)
+		require.NoError(t, err)
+
+		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
+		updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
+		updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(ctx, peer1.ID)
+			updateManager.CloseChannel(ctx, peer2.ID)
+			updateManager.CloseChannel(ctx, peer3.ID)
+		})
+
+		settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
+		step(t, "delete nameserver group only affects linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg1)
+				peerShouldNotReceiveUpdate(t, updMsg2)
+				peerShouldNotReceiveUpdate(t, updMsg3)
+				close(done)
+			}()
+
+			err := manager.DeleteNameServerGroup(ctx, accountID, nsGroup.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout")
+			}
+		})
 	})
 }
 
