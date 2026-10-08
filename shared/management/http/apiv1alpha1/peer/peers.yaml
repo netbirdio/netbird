@@ -91,9 +91,9 @@ get:
       required: false
       schema:
         type: string
-          enum:
-           - server
-           - user_device
+        enum:
+          - server
+          - user_device
   security:
     - BearerAuth: [ ]
     - TokenAuth: [ ]

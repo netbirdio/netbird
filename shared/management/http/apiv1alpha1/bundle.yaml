@@ -701,6 +701,20 @@ components:
               minimum: 1
               maximum: 250
               default: 100
+          - name: user_id
+            in: query
+            description: filter peers by their user_id
+            required: false
+            schema:
+              type: string
+          - name: group_ids
+            in: query
+            description: filter peers by group_ids
+            required: false
+            schema:
+              type: array
+              items:
+                type: string
           - name: connected
             in: query
             description: Filter by peer connected status
@@ -728,12 +742,39 @@ components:
                   - android
                   - ios
                   - js
-          - name: search
+          - name: ip
             in: query
-            description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names, mac
+            description: filter peers by ip
             required: false
             schema:
               type: string
+          - name: ipv6
+            in: query
+            description: filter peers by ipv6
+            required: false
+            schema:
+              type: string
+          - name: mac
+            in: query
+            description: filter peers by mac address
+            required: false
+            schema:
+              type: string
+          - name: hostname
+            in: query
+            description: filter peers by hostname
+            required: false
+            schema:
+              type: string
+          - name: kind
+            in: query
+            description: filter peers by host kind
+            required: false
+            schema:
+              type: string
+              enum:
+                - server
+                - user_device
         security:
           - BearerAuth: []
           - TokenAuth: []

@@ -492,7 +492,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 }
 
 // GetAccountPeers retrieves peers for an account.
-func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string, filters PeerFilters) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
@@ -518,6 +518,19 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 	}
 
 	return peers, nil
+}
+
+type PeerFilters struct {
+	UserId           string
+	GroupIds         []string
+	Connected        bool
+	ApprovalRequried bool
+	Os               []string
+	IP               string
+	IPv6             string
+	MAC              string
+	Hostname         string
+	Kind             string
 }
 
 // GetUserPeers retrieves peers for a user.

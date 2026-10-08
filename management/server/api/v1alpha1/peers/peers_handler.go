@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -17,6 +19,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -212,18 +215,17 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	page := r.URL.Query().Get("page")
 	pageSize := r.URL.Query().Get("page_size")
-	isConnected := r.URL.Query().Get("connected")
-	approvalRequired := r.URL.Query().Get("approval_required")
-	os := r.URL.Query().Get("os")
-	kind := r.URL.Query().Get("kind")
-	search := r.URL.Query().Get("search")
-	nameFilter := r.URL.Query().Get("name")
-	ipFilter := r.URL.Query().Get("ip")
-	macFilter := r.URL.Query().Get("mac")
+
+	filters, err := filtersFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, err.Error()), w)
+		return
+	}
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter, macFilter)
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, filters)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -256,6 +258,29 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	h.setApprovalRequiredFlag(respBody, validPeersMap, invalidPeersMap)
 
 	util.WriteJSONObject(r.Context(), w, respBody)
+}
+
+func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
+	connected, err := strconv.ParseBool(v.Get("connected"))
+	if err != nil {
+		return store.PeerFilters{}, err
+	}
+	approvalRequired, err := strconv.ParseBool(v.Get("approval_required"))
+	if err != nil {
+		return store.PeerFilters{}, err
+	}
+	return store.PeerFilters{
+		UserId:           v.Get("user_id"),
+		GroupIds:         v["group_ids"],
+		Connected:        connected,
+		ApprovalRequried: approvalRequired,
+		Os:               v["os"],
+		IP:               v.Get("ip"),
+		IPv6:             v.Get("ipv6"),
+		MAC:              v.Get("mac"),
+		Hostname:         v.Get("hostname"),
+		Kind:             v.Get("kind"),
+	}, nil
 }
 
 func (h *Handler) setApprovalRequiredFlag(respBody []*apiv1alpha1.PeerBatch, validPeersMap map[string]struct{}, invalidPeersMap map[string]string) {
