@@ -310,6 +310,12 @@ func publicKeyFromX5c(jwk JSONWebKey) (interface{}, error) {
 		if !ok {
 			return nil, errors.New("x5c certificate does not contain an RSA public key")
 		}
+		if err := validateX5cKeyParameter("n", jwk.N, key.N); err != nil {
+			return nil, err
+		}
+		if err := validateX5cKeyParameter("e", jwk.E, big.NewInt(int64(key.E))); err != nil {
+			return nil, err
+		}
 		return key, nil
 	case "EC":
 		key, ok := cert.PublicKey.(*ecdsa.PublicKey)
@@ -322,10 +328,36 @@ func publicKeyFromX5c(jwk JSONWebKey) (interface{}, error) {
 		if key.Curve.Params().Name != jwk.Crv {
 			return nil, fmt.Errorf("x5c certificate curve %q does not match JWK curve %q", key.Curve.Params().Name, jwk.Crv)
 		}
+		point, err := key.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("encode x5c public key: %w", err)
+		}
+		size := (len(point) - 1) / 2
+		if err := validateX5cKeyParameter("x", jwk.X, new(big.Int).SetBytes(point[1:1+size])); err != nil {
+			return nil, err
+		}
+		if err := validateX5cKeyParameter("y", jwk.Y, new(big.Int).SetBytes(point[1+size:])); err != nil {
+			return nil, err
+		}
 		return key, nil
 	default:
 		return nil, fmt.Errorf("unsupported JWK key type %q for x5c certificate", jwk.Kty)
 	}
+}
+
+// RFC 7517 section 4.7 requires supplied JWK parameters to match the certificate key.
+func validateX5cKeyParameter(name, value string, expected *big.Int) error {
+	if value == "" {
+		return nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return fmt.Errorf("decode JWK %s: %w", name, err)
+	}
+	if new(big.Int).SetBytes(decoded).Cmp(expected) != 0 {
+		return fmt.Errorf("x5c certificate does not match JWK %s", name)
+	}
+	return nil
 }
 
 func curveFromName(crv string) (elliptic.Curve, error) {

@@ -52,15 +52,22 @@ func TestValidateAndParse_X5c(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		method jwt.SigningMethod
-		curve  elliptic.Curve
+		method       jwt.SigningMethod
+		curve        elliptic.Curve
+		differentKey bool
 	}{
-		{jwt.SigningMethodES256, elliptic.P256()},
-		{jwt.SigningMethodES384, elliptic.P384()},
-		{jwt.SigningMethodES512, elliptic.P521()},
-		{jwt.SigningMethodRS256, nil},
+		{jwt.SigningMethodES256, elliptic.P256(), false},
+		{jwt.SigningMethodES384, elliptic.P384(), false},
+		{jwt.SigningMethodES512, elliptic.P521(), false},
+		{jwt.SigningMethodRS256, nil, false},
+		{jwt.SigningMethodES256, elliptic.P256(), true},
+		{jwt.SigningMethodRS256, nil, true},
 	} {
-		t.Run(tc.method.Alg(), func(t *testing.T) {
+		name := tc.method.Alg()
+		if tc.differentKey {
+			name += " with different JWK key"
+		}
+		t.Run(name, func(t *testing.T) {
 			var signer crypto.Signer
 			var key JSONWebKey
 			if tc.curve != nil {
@@ -68,6 +75,11 @@ func TestValidateAndParse_X5c(t *testing.T) {
 				require.NoError(t, err)
 				signer = priv
 				key = ecdsaJWK(t, kid, &priv.PublicKey, tc.curve.Params().Name, (tc.curve.Params().BitSize+7)/8)
+				if tc.differentKey {
+					other, err := ecdsa.GenerateKey(tc.curve, rand.Reader)
+					require.NoError(t, err)
+					key = ecdsaJWK(t, kid, &other.PublicKey, tc.curve.Params().Name, (tc.curve.Params().BitSize+7)/8)
+				}
 			} else {
 				priv, err := rsa.GenerateKey(rand.Reader, 2048)
 				require.NoError(t, err)
@@ -76,6 +88,11 @@ func TestValidateAndParse_X5c(t *testing.T) {
 					Kty: "RSA", Kid: kid, Use: "sig",
 					N: base64.RawURLEncoding.EncodeToString(priv.N.Bytes()),
 					E: base64.RawURLEncoding.EncodeToString(big.NewInt(int64(priv.E)).Bytes()),
+				}
+				if tc.differentKey {
+					other, err := rsa.GenerateKey(rand.Reader, 2048)
+					require.NoError(t, err)
+					key.N = base64.RawURLEncoding.EncodeToString(other.N.Bytes())
 				}
 			}
 			key.X5c = []string{x5cCertificate(t, signer.Public(), signer)}
@@ -100,6 +117,10 @@ func TestValidateAndParse_X5c(t *testing.T) {
 			v := NewValidator(issuer, []string{audience}, srv.URL, false)
 
 			parsed, err := v.ValidateAndParse(context.Background(), signed)
+			if tc.differentKey {
+				assert.Error(t, err, "the certificate key must match the supplied JWK key")
+				return
+			}
 			require.NoError(t, err)
 			require.True(t, parsed.Valid, "the certificate key must validate the signed token")
 			claims, ok := parsed.Claims.(jwt.MapClaims)
@@ -149,6 +170,37 @@ func TestGetPublicKey_X5c(t *testing.T) {
 	ecCert := x5cCertificate(t, &ecPriv.PublicKey, ecPriv)
 	ec384Cert := x5cCertificate(t, &ec384Priv.PublicKey, ec384Priv)
 	rsaCert := x5cCertificate(t, &rsaPriv.PublicKey, rsaPriv)
+	largeExponent := new(big.Int).Lsh(big.NewInt(1), 64)
+	largeExponent.Add(largeExponent, big.NewInt(int64(rsaPriv.E)))
+	for _, tc := range []struct {
+		name   string
+		key    JSONWebKey
+		set    func(*JSONWebKey, string)
+		values []string
+	}{
+		{"EC x", JSONWebKey{Kty: "EC", Crv: p256, X5c: []string{ecCert}},
+			func(k *JSONWebKey, v string) { k.X = v }, []string{"AA", "!"}},
+		{"EC y", JSONWebKey{Kty: "EC", Crv: p256, X5c: []string{ecCert}},
+			func(k *JSONWebKey, v string) { k.Y = v }, []string{"AA", "!"}},
+		{"RSA n", JSONWebKey{Kty: "RSA", X5c: []string{rsaCert}},
+			func(k *JSONWebKey, v string) { k.N = v }, []string{"AA", "!"}},
+		{"RSA e", JSONWebKey{Kty: "RSA", X5c: []string{rsaCert}},
+			func(k *JSONWebKey, v string) { k.E = v },
+			[]string{"AA", "!", base64.RawURLEncoding.EncodeToString(largeExponent.Bytes())}},
+	} {
+		t.Run(tc.name+" must match certificate", func(t *testing.T) {
+			for _, value := range tc.values {
+				key := tc.key
+				key.Kid = kid
+				tc.set(&key, value)
+				token := jwt.New(jwt.SigningMethodES256)
+				token.Header["kid"] = kid
+				publicKey, err := getPublicKey(token, &Jwks{Keys: []JSONWebKey{key}})
+				assert.Error(t, err, "mismatched or malformed %s must be rejected", tc.name)
+				assert.Nil(t, publicKey, "invalid %s must not yield a public key", tc.name)
+			}
+		})
+	}
 
 	tokenWithKid := func() *jwt.Token {
 		tok := jwt.New(jwt.SigningMethodES256)
