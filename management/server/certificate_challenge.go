@@ -47,38 +47,56 @@ func certChallengeRefresh(tick time.Duration) time.Duration {
 	return min(tick, maxCertChallengeRefresh)
 }
 
-// certChallengeRefresher pushes a fresh certificate challenge to the peers of every
-// account that needs one, from a single goroutine.
+// certChallengeRefresher pushes a fresh certificate challenge to the peers connected to
+// this instance that answer one, from a single goroutine.
 //
 // A nonce only reaches a peer attached to a network map, and a quiet account sends no
 // map, so without this the peer eventually re-sends an expired nonce, has its whole
 // proof set rejected, and silently leaves the policies the check gates.
 //
-// Accounts live in a map rather than a queue ordered by due time: one pass per tick
-// costs nothing next to a period measured in hours, and nothing has to be re-armed.
+// Each instance renews only the peers whose sync stream it holds, so a peer is renewed
+// once however many instances run, and an account is dropped as soon as none of its
+// peers here answers a challenge.
 type certChallengeRefresher struct {
-	mu  sync.Mutex
-	due map[string]time.Time
+	mu       sync.Mutex
+	accounts map[string]*certChallengeAccount
+	// refreshing holds the accounts whose refresh is running, and whether Track was
+	// called for one meanwhile, which makes its refresh's verdict stale.
+	refreshing map[string]bool
 
 	period  time.Duration
 	tick    time.Duration
 	timeout time.Duration
 	now     func() time.Time
-	// refresh pushes the account's peers an update, and reports whether the account
-	// still wants challenges at all.
-	refresh func(ctx context.Context, accountID string) bool
+	// refresh pushes an update to those of peerIDs that answer a certificate challenge,
+	// and reports whether any of them does.
+	refresh func(ctx context.Context, accountID string, peerIDs []string) bool
 }
 
-func newCertChallengeRefresher(refresh func(ctx context.Context, accountID string) bool) *certChallengeRefresher {
+// certChallengeAccount is one account's renewal schedule and the peers it covers, each
+// with the start of the sync stream it was stamped on.
+type certChallengeAccount struct {
+	due   time.Time
+	peers map[string]time.Time
+}
+
+// certChallengeDue is an account handed out for refresh, with its peers at that moment.
+type certChallengeDue struct {
+	accountID string
+	peerIDs   []string
+}
+
+func newCertChallengeRefresher(refresh func(ctx context.Context, accountID string, peerIDs []string) bool) *certChallengeRefresher {
 	period := certChallengePeriod()
 	tick := certChallengeTick(period)
 	return &certChallengeRefresher{
-		due:     map[string]time.Time{},
-		period:  period,
-		tick:    tick,
-		timeout: certChallengeRefresh(tick),
-		now:     time.Now,
-		refresh: refresh,
+		accounts:   map[string]*certChallengeAccount{},
+		refreshing: map[string]bool{},
+		period:     period,
+		tick:       tick,
+		timeout:    certChallengeRefresh(tick),
+		now:        time.Now,
+		refresh:    refresh,
 	}
 }
 
@@ -87,30 +105,58 @@ func (r *certChallengeRefresher) Start(ctx context.Context) {
 	go r.run(ctx)
 }
 
-// Track starts refreshing accountID, spreading its first run over one period so that a
-// global window rollover does not fan out to every account in the same moment. An
-// account already tracked keeps the schedule it has.
-func (r *certChallengeRefresher) Track(ctx context.Context, accountID string) {
+// Track renews the challenge of peerID, which was stamped one on the sync stream that
+// started at streamStart. An account seen for the first time has its first run spread
+// over one period, so that a global window rollover does not fan out to every account in
+// the same moment; an account already tracked keeps its schedule.
+func (r *certChallengeRefresher) Track(ctx context.Context, accountID, peerID string, streamStart time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.due[accountID]; ok {
+	if _, ok := r.refreshing[accountID]; ok {
+		r.refreshing[accountID] = true
+	}
+	account, ok := r.accounts[accountID]
+	if !ok {
+		account = &certChallengeAccount{
+			due:   r.now().Add(offsetWithin(accountID, r.period)),
+			peers: map[string]time.Time{},
+		}
+		r.accounts[accountID] = account
+		log.WithContext(ctx).Debugf("tracking certificate challenge refresh for account %s", accountID)
+	}
+	account.peers[peerID] = streamStart
+}
+
+// Untrack stops renewing peerID once the sync stream that started at streamStart ends.
+// A newer stream of the same peer keeps it tracked. The account is dropped with its
+// last peer.
+func (r *certChallengeRefresher) Untrack(accountID, peerID string, streamStart time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	account, ok := r.accounts[accountID]
+	if !ok {
 		return
 	}
-	r.due[accountID] = r.now().Add(offsetWithin(accountID, r.period))
-	log.WithContext(ctx).Debugf("tracking certificate challenge refresh for account %s", accountID)
+	if started, ok := account.peers[peerID]; !ok || !started.Equal(streamStart) {
+		return
+	}
+	delete(account.peers, peerID)
+	if len(account.peers) == 0 {
+		delete(r.accounts, accountID)
+	}
 }
 
 // Forget stops refreshing accountID.
 func (r *certChallengeRefresher) Forget(accountID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.due, accountID)
+	delete(r.accounts, accountID)
 }
 
 func (r *certChallengeRefresher) tracked(accountID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.due[accountID]
+	_, ok := r.accounts[accountID]
 	return ok
 }
 
@@ -123,10 +169,8 @@ func (r *certChallengeRefresher) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			for _, accountID := range r.takeDue() {
-				if !r.refreshOne(ctx, accountID) {
-					r.Forget(accountID)
-				}
+			for _, due := range r.takeDue() {
+				r.finish(due.accountID, r.refreshOne(ctx, due))
 			}
 		}
 	}
@@ -135,27 +179,42 @@ func (r *certChallengeRefresher) run(ctx context.Context) {
 // refreshOne refreshes a single account under the refresh deadline. A refresh that runs
 // out of time reports the account as still wanting challenges, since a deadline says
 // nothing about the account's posture checks; the next sweep tries again.
-func (r *certChallengeRefresher) refreshOne(ctx context.Context, accountID string) bool {
+func (r *certChallengeRefresher) refreshOne(ctx context.Context, due certChallengeDue) bool {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	return r.refresh(ctx, accountID)
+	return r.refresh(ctx, due.accountID, due.peerIDs)
+}
+
+// finish records the outcome of an account's refresh. An account none of whose peers
+// answers a challenge any more is dropped, unless one was tracked again while the
+// refresh ran: the refresh may have read the store before a certificate check was added.
+// A dropped peer is tracked again the next time it is stamped a challenge.
+func (r *certChallengeRefresher) finish(accountID string, wanted bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	retracked := r.refreshing[accountID]
+	delete(r.refreshing, accountID)
+	if !wanted && !retracked {
+		delete(r.accounts, accountID)
+	}
 }
 
 // takeDue returns the accounts due now and books their next run straight away, so a
 // slow refresh cannot make an account fall due twice, and so the refresh itself runs
 // without the lock.
-func (r *certChallengeRefresher) takeDue() []string {
+func (r *certChallengeRefresher) takeDue() []certChallengeDue {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	now := r.now()
-	var due []string
-	for accountID, at := range r.due {
-		if at.After(now) {
+	var due []certChallengeDue
+	for accountID, account := range r.accounts {
+		if account.due.After(now) {
 			continue
 		}
-		due = append(due, accountID)
-		r.due[accountID] = now.Add(r.period)
+		due = append(due, certChallengeDue{accountID: accountID, peerIDs: slices.Collect(maps.Keys(account.peers))})
+		account.due = now.Add(r.period)
+		r.refreshing[accountID] = false
 	}
 	return due
 }
@@ -168,23 +227,20 @@ func offsetWithin(key string, period time.Duration) time.Duration {
 	return time.Duration(binary.BigEndian.Uint64(h.Sum(nil)) % uint64(period))
 }
 
-// refreshCertificateChallenges pushes an update to the peers that answer a certificate
-// challenge, so each is stamped with a nonce for the current window. It reports whether
-// the account still has a certificate posture check to refresh for.
-func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Context, accountID string) bool {
-	peerIDs, wanted, err := am.certificateChallengeTargets(ctx, accountID)
+// refreshCertificateChallenges pushes an update to those of peerIDs that answer a
+// certificate challenge, so each is stamped with a nonce for the current window. It
+// reports whether any of them answers one.
+func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Context, accountID string, peerIDs []string) bool {
+	targets, err := am.certificateChallengeTargets(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("cannot resolve the certificate challenge targets of account %s: %v", accountID, err)
 		// Keep the account tracked: a store error now says nothing about its checks.
 		return true
 	}
-	if !wanted {
-		log.WithContext(ctx).Debugf("account %s has no certificate posture check left, stopping challenge refresh", accountID)
-		return false
-	}
+	peerIDs = slices.DeleteFunc(peerIDs, func(id string) bool { return !slices.Contains(targets, id) })
 	if len(peerIDs) == 0 {
-		log.WithContext(ctx).Tracef("account %s has a certificate posture check but no peer answers it yet", accountID)
-		return true
+		log.WithContext(ctx).Debugf("no peer of account %s on this instance answers a certificate challenge, stopping challenge refresh", accountID)
+		return false
 	}
 
 	log.WithContext(ctx).Debugf("refreshing certificate challenges for %d peers of account %s", len(peerIDs), accountID)
@@ -195,35 +251,35 @@ func (am *DefaultAccountManager) refreshCertificateChallenges(ctx context.Contex
 	return true
 }
 
-// certificateChallengeTargets returns the peers that are sent a certificate challenge,
-// and whether the account asks for one at all. Only those peers hold a nonce, so
-// pushing to the whole account would wake every peer that never uses the feature.
+// certificateChallengeTargets returns the peers that are sent a certificate challenge.
+// Only those peers hold a nonce, so pushing to the whole account would wake every peer
+// that never uses the feature.
 //
 // It is the inverse of processPeerPostureChecks, which decides the same thing one peer
 // at a time; TestCertificateChallengeTargets_MatchesThePerPeerRule holds them together.
-func (am *DefaultAccountManager) certificateChallengeTargets(ctx context.Context, accountID string) ([]string, bool, error) {
+func (am *DefaultAccountManager) certificateChallengeTargets(ctx context.Context, accountID string) ([]string, error) {
 	certCheckIDs, err := am.certificatePostureCheckIDs(ctx, accountID)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if len(certCheckIDs) == 0 {
-		return nil, false, nil
+		return nil, nil
 	}
 
 	policies, err := am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	groupPeers := make(map[string][]string, len(groups))
 	for _, g := range groups {
 		groupPeers[g.ID] = g.Peers
 	}
 
-	return certificateChallengeTargets(policies, groupPeers, certCheckIDs), true, nil
+	return certificateChallengeTargets(policies, groupPeers, certCheckIDs), nil
 }
 
 // certificateChallengeTargets collects the source peers of every enabled policy whose
@@ -270,9 +326,15 @@ func (am *DefaultAccountManager) certificatePostureCheckIDs(ctx context.Context,
 	return ids, nil
 }
 
-// TrackCertificateChallenges starts renewing an account's certificate challenges. It is
-// called wherever a nonce is issued, so it has to stay cheap: no store access, just a
-// map the refresher sweeps.
-func (am *DefaultAccountManager) TrackCertificateChallenges(ctx context.Context, accountID string) {
-	am.certChallenges.Track(ctx, accountID)
+// TrackCertificateChallenges starts renewing the certificate challenge of a peer that was
+// stamped one on the sync stream started at streamStart. It is called on every stamped
+// update, so it has to stay cheap: no store access, just a map the refresher sweeps.
+func (am *DefaultAccountManager) TrackCertificateChallenges(ctx context.Context, accountID, peerID string, streamStart time.Time) {
+	am.certChallenges.Track(ctx, accountID, peerID, streamStart)
+}
+
+// UntrackCertificateChallenges stops renewing the certificate challenge of a peer whose
+// sync stream started at streamStart has ended.
+func (am *DefaultAccountManager) UntrackCertificateChallenges(accountID, peerID string, streamStart time.Time) {
+	am.certChallenges.Untrack(accountID, peerID, streamStart)
 }

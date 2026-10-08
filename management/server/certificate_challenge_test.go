@@ -36,7 +36,7 @@ func (c *fakeClock) Advance(d time.Duration) {
 // loop, so the schedule can be checked by calling takeDue directly.
 func scheduleRefresher(refresh func(accountID string) bool) (*certChallengeRefresher, *fakeClock) {
 	clock := &fakeClock{at: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
-	r := newCertChallengeRefresher(func(_ context.Context, accountID string) bool {
+	r := newCertChallengeRefresher(func(_ context.Context, accountID string, _ []string) bool {
 		return refresh(accountID)
 	})
 	r.now = clock.Now
@@ -47,13 +47,36 @@ func scheduleRefresher(refresh func(accountID string) bool) (*certChallengeRefre
 // in a test, and starts its loop.
 func runningRefresher(t *testing.T, refresh func(accountID string) bool) *certChallengeRefresher {
 	t.Helper()
-	r := newCertChallengeRefresher(func(_ context.Context, accountID string) bool {
+	r := newCertChallengeRefresher(func(_ context.Context, accountID string, _ []string) bool {
 		return refresh(accountID)
 	})
 	r.period = 10 * time.Millisecond
 	r.tick = time.Millisecond
 	r.Start(t.Context())
 	return r
+}
+
+// streamStart is the start of the sync stream the tests' peers are stamped on.
+var streamStart = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+// track tracks one peer of accountID, as a stamped sync stream does.
+func track(r *certChallengeRefresher, accountID string) {
+	r.Track(context.Background(), accountID, accountID+"-peer", streamStart)
+}
+
+// dueAccounts returns the IDs of the accounts takeDue hands out.
+func dueAccounts(r *certChallengeRefresher) []string {
+	var ids []string
+	for _, due := range r.takeDue() {
+		ids = append(ids, due.accountID)
+	}
+	return ids
+}
+
+func (r *certChallengeRefresher) dueAt(accountID string) time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.accounts[accountID].due
 }
 
 func TestCertChallengePeriod_LeavesRoomForAMissedRun(t *testing.T) {
@@ -86,13 +109,13 @@ func TestCertChallengeRefresher_SpreadsAccountsOverThePeriod(t *testing.T) {
 
 	ids := []string{"account-a", "account-b", "account-c", "account-d", "account-e", "account-f"}
 	for _, id := range ids {
-		r.Track(context.Background(), id)
+		track(r, id)
 	}
 
 	start := clock.Now()
 	offsets := map[time.Duration]bool{}
 	for _, id := range ids {
-		offset := r.due[id].Sub(start)
+		offset := r.dueAt(id).Sub(start)
 		assert.GreaterOrEqual(t, offset, time.Duration(0), "account %s is due in the past", id)
 		assert.Less(t, offset, r.period, "account %s is due beyond one period", id)
 		offsets[offset] = true
@@ -109,25 +132,25 @@ func TestCertChallengeOffset_IsStablePerAccount(t *testing.T) {
 
 func TestCertChallengeRefresher_RenewsOncePerPeriod(t *testing.T) {
 	r, clock := scheduleRefresher(func(string) bool { return true })
-	r.Track(context.Background(), "account-a")
+	track(r, "account-a")
 
 	assert.Empty(t, r.takeDue(), "an account just tracked is not due before its offset elapses")
 
 	clock.Advance(r.period)
-	assert.Equal(t, []string{"account-a"}, r.takeDue(), "the account is due once its offset has elapsed")
+	assert.Equal(t, []string{"account-a"}, dueAccounts(r), "the account is due once its offset has elapsed")
 
 	clock.Advance(r.period / 2)
 	assert.Empty(t, r.takeDue(), "the next run is booked a full period out")
 
 	clock.Advance(r.period / 2)
-	assert.Equal(t, []string{"account-a"}, r.takeDue(), "the account is due again one period later")
+	assert.Equal(t, []string{"account-a"}, dueAccounts(r), "the account is due again one period later")
 }
 
 func TestCertChallengeRefresher_BooksTheNextRunBeforeRefreshing(t *testing.T) {
 	// takeDue reserves the next run while it holds the lock, so a refresh that outlives
 	// a tick cannot have the same account handed out twice.
 	r, clock := scheduleRefresher(func(string) bool { return true })
-	r.Track(context.Background(), "account-a")
+	track(r, "account-a")
 	clock.Advance(r.period)
 
 	require.Len(t, r.takeDue(), 1, "the account is due")
@@ -137,13 +160,13 @@ func TestCertChallengeRefresher_BooksTheNextRunBeforeRefreshing(t *testing.T) {
 func TestCertChallengeRefresher_TrackIsIdempotent(t *testing.T) {
 	r, clock := scheduleRefresher(func(string) bool { return true })
 
-	r.Track(context.Background(), "account-a")
-	first := r.due["account-a"]
+	track(r, "account-a")
+	first := r.dueAt("account-a")
 
 	clock.Advance(certChallengePeriod())
-	r.Track(context.Background(), "account-a")
+	track(r, "account-a")
 
-	assert.Equal(t, first, r.due["account-a"], "re-tracking must not push the next run further out")
+	assert.Equal(t, first, r.dueAt("account-a"), "re-tracking must not push the next run further out")
 }
 
 func TestCertChallengeRefresher_RefreshesATrackedAccount(t *testing.T) {
@@ -155,7 +178,7 @@ func TestCertChallengeRefresher_RefreshesATrackedAccount(t *testing.T) {
 		}
 		return true
 	})
-	r.Track(context.Background(), "account-a")
+	track(r, "account-a")
 
 	select {
 	case got := <-refreshed:
@@ -176,7 +199,7 @@ func TestCertChallengeRefresher_DropsAnAccountThatNoLongerWantsChallenges(t *tes
 		calls++
 		return false
 	})
-	r.Track(context.Background(), "account-a")
+	track(r, "account-a")
 
 	require.Eventually(t, func() bool { return !r.tracked("account-a") }, 3*time.Second, time.Millisecond,
 		"an account whose refresh reports it no longer wants challenges must be dropped")
@@ -197,7 +220,7 @@ func TestCertChallengeRefresher_RefreshesWithoutHoldingTheLock(t *testing.T) {
 	r := newCertChallengeRefresher(nil)
 	r.period = 10 * time.Millisecond
 	r.tick = time.Millisecond
-	r.refresh = func(_ context.Context, accountID string) bool {
+	r.refresh = func(_ context.Context, accountID string, _ []string) bool {
 		once.Do(func() {
 			answered := make(chan bool, 1)
 			go func() { answered <- r.tracked(accountID) }()
@@ -211,7 +234,7 @@ func TestCertChallengeRefresher_RefreshesWithoutHoldingTheLock(t *testing.T) {
 		return true
 	}
 	r.Start(t.Context())
-	r.Track(context.Background(), "account-a")
+	track(r, "account-a")
 
 	select {
 	case ok := <-reentered:
@@ -309,7 +332,7 @@ func TestCertChallengeRefresher_StopsWithItsContext(t *testing.T) {
 	var mu sync.Mutex
 	var calls int
 
-	r := newCertChallengeRefresher(func(_ context.Context, _ string) bool {
+	r := newCertChallengeRefresher(func(_ context.Context, _ string, _ []string) bool {
 		mu.Lock()
 		defer mu.Unlock()
 		calls++
@@ -320,7 +343,7 @@ func TestCertChallengeRefresher_StopsWithItsContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	r.Start(ctx)
-	r.Track(ctx, "account-a")
+	track(r, "account-a")
 
 	require.Eventually(t, func() bool {
 		mu.Lock()
@@ -354,7 +377,7 @@ func TestCertChallengeRefresher_AbandonsAWedgedAccount(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	refreshed := make(chan string, 4)
 
-	r := newCertChallengeRefresher(func(ctx context.Context, accountID string) bool {
+	r := newCertChallengeRefresher(func(ctx context.Context, accountID string, _ []string) bool {
 		if accountID == "account-wedged" {
 			select {
 			case entered <- struct{}{}:
@@ -374,7 +397,7 @@ func TestCertChallengeRefresher_AbandonsAWedgedAccount(t *testing.T) {
 	r.timeout = 20 * time.Millisecond
 	r.Start(t.Context())
 
-	r.Track(context.Background(), "account-wedged")
+	track(r, "account-wedged")
 	select {
 	case <-entered:
 	case <-time.After(3 * time.Second):
@@ -383,11 +406,75 @@ func TestCertChallengeRefresher_AbandonsAWedgedAccount(t *testing.T) {
 
 	// Tracked only once the sweep is already stuck, so reaching it proves the deadline
 	// released the loop rather than the map happening to hand this one out first.
-	r.Track(context.Background(), "account-healthy")
+	track(r, "account-healthy")
 	select {
 	case got := <-refreshed:
 		assert.Equal(t, "account-healthy", got)
 	case <-time.After(3 * time.Second):
 		t.Fatal("a healthy account was never refreshed from behind a wedged one")
 	}
+}
+
+// TestCertChallengeRefresher_KeepsAnAccountTrackedDuringItsRefresh: a refresh reads the
+// store before an admin adds a certificate check; the push that follows the change
+// tracks the account again. The refresh then reports the account as not wanting
+// challenges, which is stale, and must not untrack it.
+func TestCertChallengeRefresher_KeepsAnAccountTrackedDuringItsRefresh(t *testing.T) {
+	r, clock := scheduleRefresher(func(string) bool { return false })
+	track(r, "account-a")
+	clock.Advance(r.period)
+	require.Equal(t, []string{"account-a"}, dueAccounts(r), "the account is due")
+
+	track(r, "account-a")
+	r.finish("account-a", false)
+	assert.True(t, r.tracked("account-a"), "an account tracked again during its refresh stays tracked")
+
+	clock.Advance(r.period)
+	require.Equal(t, []string{"account-a"}, dueAccounts(r), "the account is due again")
+	r.finish("account-a", false)
+	assert.False(t, r.tracked("account-a"), "an account nobody tracked again is dropped once it no longer wants challenges")
+}
+
+// TestCertChallengeRefresher_RenewsOnlyThePeersStreamedHere: every instance runs its
+// own refresher, and a push fans out to all of them, so an instance must hand out only
+// the peers whose sync stream it holds. Otherwise each peer is pushed once per instance.
+func TestCertChallengeRefresher_RenewsOnlyThePeersStreamedHere(t *testing.T) {
+	r, clock := scheduleRefresher(func(string) bool { return true })
+	r.Track(context.Background(), "account-a", "peer-1", streamStart)
+	r.Track(context.Background(), "account-a", "peer-2", streamStart)
+	clock.Advance(r.period)
+
+	due := r.takeDue()
+	require.Len(t, due, 1, "the account is due")
+	assert.ElementsMatch(t, []string{"peer-1", "peer-2"}, due[0].peerIDs, "only the peers tracked here are renewed")
+}
+
+// TestCertChallengeRefresher_DropsAnAccountWithItsLastPeer: an instance whose peers of an
+// account have all disconnected has nobody left to renew, and must not keep sweeping it.
+func TestCertChallengeRefresher_DropsAnAccountWithItsLastPeer(t *testing.T) {
+	r, _ := scheduleRefresher(func(string) bool { return true })
+	r.Track(context.Background(), "account-a", "peer-1", streamStart)
+	r.Track(context.Background(), "account-a", "peer-2", streamStart)
+
+	r.Untrack("account-a", "peer-1", streamStart)
+	assert.True(t, r.tracked("account-a"), "the account stays tracked while a peer is still streamed here")
+
+	r.Untrack("account-a", "peer-2", streamStart)
+	assert.False(t, r.tracked("account-a"), "the account is dropped with its last peer")
+}
+
+// TestCertChallengeRefresher_StaleStreamKeepsTheNewerOne: a peer that reconnects to the
+// same instance opens its new stream before the old one is torn down. The old stream's
+// teardown must not untrack the peer the new stream is renewing.
+func TestCertChallengeRefresher_StaleStreamKeepsTheNewerOne(t *testing.T) {
+	r, _ := scheduleRefresher(func(string) bool { return true })
+	newer := streamStart.Add(time.Minute)
+	r.Track(context.Background(), "account-a", "peer-1", streamStart)
+	r.Track(context.Background(), "account-a", "peer-1", newer)
+
+	r.Untrack("account-a", "peer-1", streamStart)
+	assert.True(t, r.tracked("account-a"), "the stale stream's teardown must leave the newer stream tracked")
+
+	r.Untrack("account-a", "peer-1", newer)
+	assert.False(t, r.tracked("account-a"), "the newer stream's teardown untracks the peer")
 }

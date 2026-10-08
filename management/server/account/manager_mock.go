@@ -1633,15 +1633,27 @@ func (mr *MockManagerMockRecorder) SyncUserJWTGroups(ctx, userAuth any) *gomock.
 }
 
 // TrackCertificateChallenges mocks base method.
-func (m *MockManager) TrackCertificateChallenges(ctx context.Context, accountID string) {
+func (m *MockManager) TrackCertificateChallenges(ctx context.Context, accountID, peerID string, streamStart time.Time) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "TrackCertificateChallenges", ctx, accountID)
+	m.ctrl.Call(m, "TrackCertificateChallenges", ctx, accountID, peerID, streamStart)
 }
 
 // TrackCertificateChallenges indicates an expected call of TrackCertificateChallenges.
-func (mr *MockManagerMockRecorder) TrackCertificateChallenges(ctx, accountID any) *gomock.Call {
+func (mr *MockManagerMockRecorder) TrackCertificateChallenges(ctx, accountID, peerID, streamStart any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrackCertificateChallenges", reflect.TypeOf((*MockManager)(nil).TrackCertificateChallenges), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrackCertificateChallenges", reflect.TypeOf((*MockManager)(nil).TrackCertificateChallenges), ctx, accountID, peerID, streamStart)
+}
+
+// UntrackCertificateChallenges mocks base method.
+func (m *MockManager) UntrackCertificateChallenges(accountID, peerID string, streamStart time.Time) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UntrackCertificateChallenges", accountID, peerID, streamStart)
+}
+
+// UntrackCertificateChallenges indicates an expected call of UntrackCertificateChallenges.
+func (mr *MockManagerMockRecorder) UntrackCertificateChallenges(accountID, peerID, streamStart any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UntrackCertificateChallenges", reflect.TypeOf((*MockManager)(nil).UntrackCertificateChallenges), accountID, peerID, streamStart)
 }
 
 // UpdateAccountOnboarding mocks base method.
