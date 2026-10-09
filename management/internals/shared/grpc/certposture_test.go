@@ -60,9 +60,17 @@ func TestCertificateChallenge_StampAndVerifyRoundTrip(t *testing.T) {
 		peer := &Server{challenger: newCertChallenger(encryptionKey, generateKey(t))}
 		assert.Len(t, peer.verifiedCertificates(ctx, peerKey, proofs), 1)
 	})
-	t.Run("one invalid proof rejects the whole set", func(t *testing.T) {
+	t.Run("an invalid proof is dropped without the valid ones", func(t *testing.T) {
+		// A device proving its machine certificate while a user store answers with a key
+		// it cannot use must keep the machine certificate.
 		bad := &proto.CertificateProof{Nonce: nonce, Chain: [][]byte{leaf.Raw}, SigAlg: sigAlg, Signature: []byte("junk")}
-		assert.Nil(t, s.verifiedCertificates(ctx, peerKey, append(proofs, bad)))
+		chains := s.verifiedCertificates(ctx, peerKey, append([]*proto.CertificateProof{bad}, proofs...))
+		require.Len(t, chains, 1, "the valid proof survives the invalid one")
+		assert.True(t, certposture.ChainMatchesCAs(chains[0], []string{ca.PEM}, time.Now()))
+	})
+	t.Run("only invalid proofs yield no certificates", func(t *testing.T) {
+		bad := &proto.CertificateProof{Nonce: nonce, Chain: [][]byte{leaf.Raw}, SigAlg: sigAlg, Signature: []byte("junk")}
+		assert.Empty(t, s.verifiedCertificates(ctx, peerKey, []*proto.CertificateProof{bad}))
 	})
 	t.Run("no proofs yields no certificates", func(t *testing.T) {
 		assert.Nil(t, s.verifiedCertificates(ctx, peerKey, nil))
