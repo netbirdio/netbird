@@ -484,15 +484,15 @@ dockers_v2:
      dockerfile: signal/Dockerfile.ubi
      platforms:
        - linux/amd64
+       - linux/arm64
      build_args:
        VERSION: "{{ .Version }}"
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh signal/collect-licenses.sh "{{ .ContextDir }}/licenses"'
+         - cmd: 'sh release_files/collect-licenses.sh -l signal/LICENSE "{{ .ContextDir }}/licenses" ./signal amd64 arm64'
            env:
              - GOOS=linux
-             - GOARCH=amd64
              - CGO_ENABLED=0
      labels:
        "org.opencontainers.image.created": "{{.Date}}"
