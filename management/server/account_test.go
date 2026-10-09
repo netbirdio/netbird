@@ -855,7 +855,7 @@ func (m setupOwnerInstanceManager) CreateOwnerUser(context.Context, string, stri
 }
 
 // The /api/setup owner account must get the single account mode domain, so later
-// users join that account instead of forking a new one (#7197).
+// users join that account instead of forking a new one.
 func TestSetupOwner_SingleAccountMode_LaterUsersJoinSetupAccount(t *testing.T) {
 	t.Setenv(instance.SetupPATEnabledEnvKey, "true")
 

@@ -505,7 +505,7 @@ func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
-	account := &types.Account{Id: "acc-1"}
+	account := &types.Account{Id: "acc-1", CreatedBy: "owner-id"}
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
 	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(nil)
 

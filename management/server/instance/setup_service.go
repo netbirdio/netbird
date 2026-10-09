@@ -147,7 +147,7 @@ func (m *SetupService) rollbackSetup(ctx context.Context, userID, reason string,
 	}
 
 	if accountID != "" {
-		if err := m.rollbackSetupAccount(ctx, accountID); err != nil {
+		if err := m.rollbackSetupAccount(ctx, accountID, userID); err != nil {
 			rollbackErr := fmt.Errorf("roll back setup account %s: %w", accountID, err)
 			log.WithContext(ctx).Errorf("failed to roll back setup account %s for user %s after %s: original error: %v, rollback error: %v", accountID, userID, reason, origErr, rollbackErr)
 			return rollbackErr
@@ -188,8 +188,9 @@ func (m *SetupService) lookupSetupAccountIDForRollback(ctx context.Context, user
 // rollbackSetupAccount removes only the setup-created account data from the
 // store. It intentionally avoids accountManager.DeleteAccount because the normal
 // account deletion path also deletes users from the IdP; embedded IdP cleanup is
-// owned by instanceManager.RollbackSetup.
-func (m *SetupService) rollbackSetupAccount(ctx context.Context, accountID string) error {
+// owned by instanceManager.RollbackSetup. It keeps an account another user
+// created, which a concurrent first login can produce.
+func (m *SetupService) rollbackSetupAccount(ctx context.Context, accountID, userID string) error {
 	if m.accountManager == nil {
 		return fmt.Errorf("account manager is required to roll back setup account")
 	}
@@ -205,6 +206,11 @@ func (m *SetupService) rollbackSetupAccount(ctx context.Context, accountID strin
 			return nil
 		}
 		return fmt.Errorf("get setup account for rollback: %w", err)
+	}
+
+	if account.CreatedBy != userID {
+		log.WithContext(ctx).Warnf("keeping account %s on setup rollback: created by another user", accountID)
+		return nil
 	}
 
 	if err := accountStore.DeleteAccount(ctx, account); err != nil {
