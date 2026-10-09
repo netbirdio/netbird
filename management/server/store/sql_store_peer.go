@@ -536,21 +536,59 @@ func (p *PaginationState) AsScope(db *gorm.DB) *gorm.DB {
 	if p.PageSize == 0 {
 		return db
 	}
-	offset := (p.Page - 1) * p.PageSize
+	offset := p.Page * p.PageSize
 	return db.Offset(offset).Limit(p.PageSize)
 }
 
 type PeerFilters struct {
 	UserId           string
 	GroupIds         []string
-	Connected        bool
-	ApprovalRequried bool
+	Connected        *bool
+	ApprovalRequried *bool
 	Os               []string
 	IP               string
 	IPv6             string
 	MAC              string
 	Hostname         string
 	Kind             string
+}
+
+func (f *PeerFilters) AsWhere(db *gorm.DB) *gorm.DB {
+	if f.UserId != "" {
+		db = db.Where("user_id = ?", f.UserId)
+	}
+	if f.Connected != nil {
+		db = db.Where("peer_status_connected = ?", *f.Connected)
+	}
+	if f.ApprovalRequried != nil {
+		db = db.Where("peer_status_requires_approval = ?", *f.ApprovalRequried)
+	}
+	if len(f.Os) > 0 {
+		var sub *gorm.DB
+		for i, os := range f.Os {
+			if i == 0 {
+				sub = db.Where("os = ?", os)
+			}
+			db = db.Or("os = ?", os)
+		}
+		db = db.Where(sub)
+	}
+	if f.IP != "" {
+		db = db.Where("ip like ?", fmt.Sprintf("%%%s%%", f.IP))
+	}
+	if f.IPv6 != "" {
+		db = db.Where("ipv6 like ?", fmt.Sprintf("%%%s%%", f.IPv6))
+	}
+	if f.MAC != "" {
+		db = db.Where("meta_network_addresses like ?", fmt.Sprintf("%%%s%%", f.MAC))
+	}
+	if f.Hostname != "" {
+		db = db.Where("name like ?", fmt.Sprintf("%%%s%%", f.Hostname))
+	}
+	if f.Kind == "server" {
+		// catch incompatible kind/user_id
+	}
+	return db
 }
 
 type PeerSorting struct {
