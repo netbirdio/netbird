@@ -259,6 +259,27 @@ func TestRoutedUpstreamGateIgnoresDynamicRoutes(t *testing.T) {
 	assert.True(t, gate.allow(nsGroupWith("10.10.0.53"), snap))
 }
 
+// The first decision of a session runs before the route manager has the routes,
+// so every nameserver looks unrouted. In startup mode that must not latch: the
+// latch is for "a route was proven to exist", and nothing was proven yet.
+func TestRoutedUpstreamGateStartupDoesNotLatchBeforeRoutesAreKnown(t *testing.T) {
+	group := nsGroupWith("10.10.0.53")
+	gate := newRoutedUpstreamGate(gatingStartup)
+
+	// Routes not delivered yet: the address cannot be classified as routed.
+	assert.True(t, gate.allow(group, routeSnapshot{}), "nothing is known, so nothing is withheld")
+
+	// The route manager hands over the routes; the peer carries none of them.
+	withoutRoute := routeSnapshot{selected: haMapWith("10.10.0.0/24"), installed: nil}
+	assert.False(t, gate.allow(group, withoutRoute),
+		"startup must still withhold: the earlier pass proved nothing")
+
+	// Once a route really exists, the latch closes and holds.
+	withRoute := routeSnapshot{selected: haMapWith("10.10.0.0/24"), installed: prefixes("10.10.0.0/24")}
+	assert.True(t, gate.allow(group, withRoute))
+	assert.True(t, gate.allow(group, withoutRoute), "latched for good once a route existed")
+}
+
 // gatingStartup withholds a group until a route exists once, then keeps it
 // configured even after the route goes away. gatingAlways withdraws it again.
 func TestRoutedUpstreamGateLatch(t *testing.T) {

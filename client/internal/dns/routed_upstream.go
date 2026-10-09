@@ -134,9 +134,14 @@ func (g *routedUpstreamGate) allow(nsGroup *nbdns.NameServerGroup, snap routeSna
 
 		// The prefix that would carry traffic to this address is the most
 		// specific one covering it, not just any one that happens to.
+		// Deliberately not latched: "no route covers this address" is also what
+		// the very first pass of a session sees, because the DNS configuration
+		// is applied before the route manager has the routes. Latching there
+		// would pin the group as allowed for the rest of the session, which is
+		// exactly the startup case the gate exists for. The latch is for a
+		// route that was proven to exist, and nothing is proven here.
 		want, routed := haMapLongestMatch(snap.selected, ip)
 		if !routed {
-			g.remember(key)
 			return true
 		}
 
