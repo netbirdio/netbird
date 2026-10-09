@@ -313,7 +313,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
 		return err
 	}
 
@@ -321,7 +321,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
 		return err
 	}
 
@@ -337,7 +337,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv, syncStart)
+	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
+		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -382,7 +383,7 @@ func (s *Server) startResponseReceiver(ctx context.Context, srv proto.Management
 
 func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *job.Channel, srv proto.ManagementService_JobServer) error {
 	// todo figure out better error handling strategy
-	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
+	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID, updates)
 
 	for {
 		event, err := updates.Event(ctx)
@@ -402,91 +403,6 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 			return nil
 		}
 	}
-}
-
-// handleUpdates sends updates to the connected peer until the updates channel is closed.
-// It implements a backpressure mechanism that sends the first update immediately,
-// then debounces subsequent rapid updates, ensuring only the latest update is sent
-// after a quiet period.
-func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
-	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
-
-	// Create a debouncer for this peer connection
-	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
-	defer debouncer.Stop()
-
-	for {
-		select {
-		// condition when there are some updates
-		// todo set the updates channel size to 1
-		case update, open := <-updates:
-			if s.appMetrics != nil {
-				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
-			}
-
-			if !open {
-				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-				return nil
-			}
-
-			log.WithContext(ctx).Tracef("received an update for peer %s", peerKey.String())
-			if debouncer.ProcessUpdate(update) {
-				// Send immediately (first update or after quiet period)
-				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
-					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-					return err
-				}
-			}
-
-		// Timer expired - quiet period reached, send pending updates if any
-		case <-debouncer.TimerChannel():
-			pendingUpdates := debouncer.GetPendingUpdates()
-			if len(pendingUpdates) == 0 {
-				continue
-			}
-			log.WithContext(ctx).Debugf("sending %d debounced update(s) for peer %s", len(pendingUpdates), peerKey.String())
-			for _, pendingUpdate := range pendingUpdates {
-				if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv, streamStartTime); err != nil {
-					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-					return err
-				}
-			}
-
-		// condition when client <-> server connection has been terminated
-		case <-srv.Context().Done():
-			// happens when connection drops, e.g. client disconnects
-			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-			return srv.Context().Err()
-		}
-	}
-}
-
-// sendUpdate encrypts the update message using the peer key and the server's wireguard key,
-// then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
-	key, err := s.secretsManager.GetWGKey()
-	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-		return status.Errorf(codes.Internal, "failed processing update message")
-	}
-
-	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
-	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-		return status.Errorf(codes.Internal, "failed processing update message")
-	}
-	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: key.PublicKey().String(),
-		Body:     encryptedResp,
-	})
-	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-		return status.Errorf(codes.Internal, "failed sending update message")
-	}
-	log.WithContext(ctx).Tracef("sent an update to peer %s", peerKey.String())
-	return nil
 }
 
 // sendJob encrypts the update message using the peer key and the server's wireguard key,
@@ -514,20 +430,26 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 	return nil
 }
 
-func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
+func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
 	uncanceledCTX := context.WithoutCancel(ctx)
 	unlock := s.acquirePeerLockByUID(uncanceledCTX, peer.Key)
 	defer unlock()
 
-	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime)
+	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime, session)
 }
 
-func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
+// cancelPeerRoutinesWithoutLock tears down the stream of the session identified by streamStartTime
+// and its updates channel. A nil session means the stream failed before it registered a channel;
+// the controller then closes any channel still registered.
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
 	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key, streamStartTime)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
 	}
-	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
+	if !s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID, session) {
+		log.WithContext(ctx).Debugf("skipped peer routines teardown for %s: a newer session owns the peer", peer.Key)
+		return
+	}
 	s.secretsManager.CancelRefresh(peer.ID)
 
 	log.WithContext(ctx).Debugf("peer %s has been disconnected", peer.Key)
@@ -1039,12 +961,12 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		// stops doing duplicate work. Deferred until the client-side
 		// decoder lands and there's a real deployment of capability=3 peers
 		// worth optimizing for.
-		freshPeer, components, proxyPatch, freshPostureChecks, freshDnsFwdPort, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
+		freshPeer, components, freshPostureChecks, freshDnsFwdPort, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to build components for peer %s on initial sync: %v", peer.ID, err)
 			return status.Errorf(codes.Internal, "failed to build initial sync envelope")
 		}
-		plainResp = ToComponentSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, types.TwinPeer(freshPeer), turnToken, relayToken, components, proxyPatch, dnsName, freshPostureChecks, types.TwinAccountSettings(settings), settings.Extra, peerGroups, freshDnsFwdPort)
+		plainResp = ToComponentSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, types.TwinPeer(freshPeer), turnToken, relayToken, components, dnsName, freshPostureChecks, types.TwinAccountSettings(settings), settings.Extra, peerGroups, freshDnsFwdPort)
 	} else {
 		plainResp = ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, types.TwinPeer(peer), turnToken, relayToken, networkMap, dnsName, postureChecks, nil, types.TwinAccountSettings(settings), settings.Extra, peerGroups, dnsFwdPort)
 	}
@@ -1172,7 +1094,8 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		return nil, status.Errorf(codes.Internal, "failed to get server key")
 	}
 
-	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.PKCEAuthorizationFlowRequest{})
+	flowReq := &proto.PKCEAuthorizationFlowRequest{}
+	err = encryption.DecryptMessage(peerKey, key, req.Body, flowReq)
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
@@ -1216,6 +1139,7 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 	}
 
 	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
+	applySessionExtendFlowPolicy(flowInfoResp, flowReq.GetSessionExtend())
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
@@ -1226,6 +1150,40 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+// applySessionExtendFlowPolicy forces a prompt=login flow for a session extend.
+//
+// An extend renews the session of one specific peer, so its token has to come
+// from the account that peer is registered under. A flow that does not prompt
+// leaves the choice to the IdP, which answers a silent authorization from any
+// session it already holds — not necessarily this peer's account when several
+// are signed in, and login_hint is a suggestion the IdP may ignore. The token
+// then fails the jwt.UserID == peer.UserID check in ExtendAuthSession, and the
+// user is given no opportunity to pick a different account.
+//
+// LoginFlagPromptLogin rather than max_age=0: both re-authenticate, but with
+// prompt=login the IdP honours login_hint and offers the peer's own account,
+// whereas max_age=0 leaves the user to find it among every account signed in.
+//
+// DisablePromptLogin is left alone. It is set for IdPs that break on
+// prompt=login — Authentik triggers a double authentication, and social logins
+// fail outright — so overriding it would trade a recoverable session extend for
+// a login that cannot complete at all. Those deployments keep the silent flow
+// and, with several accounts signed in, an extend answered from the wrong one
+// still fails the user match.
+//
+// Called after ValidateFlowResponse so that a per-peer override cannot reinstate
+// the silent flow for an extend.
+func applySessionExtendFlowPolicy(flow *proto.PKCEAuthorizationFlow, sessionExtend bool) {
+	if !sessionExtend {
+		return
+	}
+	cfg := flow.GetProviderConfig()
+	if cfg == nil || cfg.GetDisablePromptLogin() {
+		return
+	}
+	cfg.LoginFlag = uint32(common.LoginFlagPromptLogin)
 }
 
 // SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,

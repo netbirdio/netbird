@@ -31,14 +31,13 @@ func TestPreferences_DefaultValues(t *testing.T) {
 		t.Errorf("invalid default management url: %s", defaultVar)
 	}
 
-	var preSharedKey string
-	preSharedKey, err = p.GetPreSharedKey()
+	hasPSK, err := p.HasPreSharedKey()
 	if err != nil {
-		t.Fatalf("failed to read default preshared key: %s", err)
+		t.Fatalf("failed to read default preshared key presence: %s", err)
 	}
 
-	if preSharedKey != "" {
-		t.Errorf("invalid preshared key: %s", preSharedKey)
+	if hasPSK {
+		t.Errorf("unexpected preshared key presence on fresh config")
 	}
 }
 
@@ -69,13 +68,13 @@ func TestPreferences_ReadUncommitedValues(t *testing.T) {
 	}
 
 	p.SetPreSharedKey(exampleString)
-	resp, err = p.GetPreSharedKey()
+	hasPSK, err := p.HasPreSharedKey()
 	if err != nil {
-		t.Fatalf("failed to read preshared key: %s", err)
+		t.Fatalf("failed to read preshared key presence: %s", err)
 	}
 
-	if resp != exampleString {
-		t.Errorf("unexpected preshared key: %s", resp)
+	if !hasPSK {
+		t.Errorf("expected preshared key presence after staging one")
 	}
 }
 
@@ -114,12 +113,12 @@ func TestPreferences_Commit(t *testing.T) {
 		t.Errorf("unexpected management url: %s", resp)
 	}
 
-	resp, err = p.GetPreSharedKey()
+	hasPSK, err := p.HasPreSharedKey()
 	if err != nil {
-		t.Fatalf("failed to read preshared key: %s", err)
+		t.Fatalf("failed to read preshared key presence: %s", err)
 	}
 
-	if resp != examplePresharedKey {
-		t.Errorf("unexpected preshared key: %s", resp)
+	if !hasPSK {
+		t.Errorf("expected preshared key presence after commit")
 	}
 }

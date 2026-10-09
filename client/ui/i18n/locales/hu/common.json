@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "Nincs találat."
     },
+    "settings.general.theme.label": {
+        "message": "Téma"
+    },
+    "settings.general.theme.help": {
+        "message": "Válassza a világos vagy sötét témát, vagy kövesse a rendszer beállítását."
+    },
+    "settings.general.theme.system": {
+        "message": "Rendszer"
+    },
+    "settings.general.theme.light": {
+        "message": "Világos"
+    },
+    "settings.general.theme.dark": {
+        "message": "Sötét"
+    },
     "settings.general.management.label": {
         "message": "Felügyeleti szerver"
     },
@@ -1347,6 +1362,12 @@
     },
     "error.daemon_unreachable": {
         "message": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás."
+    },
+    "error.settings_locked": {
+        "message": "A beállítások ezen az eszközön nem módosíthatók: egy rendszergazda zárolta őket."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Ezt a beállítást a szervezete kezeli, ezért nem módosítható."
     },
     "error.unknown": {
         "message": "A művelet meghiúsult."

@@ -42,7 +42,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 	ignore := []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
 		"Tailscale", "tailscale"}
 
-	filter := stdnet.InterfaceFilter(ignore)
+	filter := stdnet.InterfaceFilter(ignore, nil)
 
 	for _, s := range ignore {
 		assert.Equal(t, filter(s), false)

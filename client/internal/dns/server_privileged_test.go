@@ -9,9 +9,9 @@ import (
 	"os"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -23,6 +23,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
+
+// testIFaceBlackList mirrors the overlay prefixes profilemanager.DefaultInterfaceBlacklist
+// carries. Declared here rather than imported because profilemanager imports this package.
+var testIFaceBlackList = []string{"wt", "utun", "tun0"}
 
 func TestUpdateDNSServer(t *testing.T) {
 
@@ -243,10 +247,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			privKey, _ := wgtypes.GenerateKey()
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun230%d", n),
@@ -348,11 +349,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
-	if err != nil {
-		t.Errorf("create stdnet: %v", err)
-		return
-	}
+	newNet := stdnet.NewNet(context.Background(), []string{"utun2301"}, nil)
 
 	privKey, _ := wgtypes.GeneratePrivateKey()
 	opts := iface.WGIFaceOpts{

@@ -2,13 +2,17 @@
 
 package mdm
 
-// loadPlatformPolicy returns no policy on platforms without an MDM channel
-// (Linux, FreeBSD). MDM enforcement is off and the client behaves as if
-// the feature did not exist. Returns (nil, nil) — the platform-absent
-// sentinel the caller (LoadPolicy in policy.go) treats as "no MDM
-// source present"; an error here would just translate to the same
-// outcome with an extra log line.
-func loadPlatformPolicy() (map[string]any, error) {
-	//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see LoadPolicy.
+// loadPlatform reads the MDM policy on platforms without a native MDM
+// channel (Linux, FreeBSD). When no fetcher was injected the policy is
+// (nil, nil) — the platform-absent sentinel that Loader.Load treats as
+// "MDM enforcement disabled". A non-nil fetcher takes precedence: it
+// is the test-seam used by unit tests to inject a scripted policy
+// without touching the OS, and the same hook supports any future
+// non-mobile OS that grows an out-of-band MDM channel.
+func (l *Loader) loadPlatform() (map[string]any, error) {
+	if l != nil && l.fetcher != nil {
+		return l.fetcher.Fetch(), nil
+	}
+	//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see Loader.Load.
 	return nil, nil
 }
