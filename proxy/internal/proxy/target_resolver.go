@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -163,21 +164,10 @@ func clonePathTarget(target *PathTarget) *PathTarget {
 	cloned := *target
 	clonedURL := *target.URL
 	cloned.URL = &clonedURL
-	cloned.CustomHeaders = cloneStringMap(target.CustomHeaders)
+	cloned.CustomHeaders = maps.Clone(target.CustomHeaders)
 	cloned.Middlewares = cloneMiddlewareSpecs(target.Middlewares)
 	cloned.CaptureConfig = cloneCaptureConfig(target.CaptureConfig)
 	return &cloned
-}
-
-func cloneStringMap(values map[string]string) map[string]string {
-	if values == nil {
-		return nil
-	}
-	cloned := make(map[string]string, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 func cloneMiddlewareSpecs(specs []middleware.Spec) []middleware.Spec {
