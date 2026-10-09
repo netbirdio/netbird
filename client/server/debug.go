@@ -27,8 +27,13 @@ import (
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
+	// One source of truth for "this request uploads", used by both the gate and
+	// the local-only early return below. A client older than the upload flag asks
+	// for an upload by naming a URL and nothing else, so the two must not drift.
+	wantsUpload := req.GetUpload() || req.GetUploadURL() != ""
+
 	mdmUploadURL := s.mdmDebugUploadURL()
-	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure(), req.GetUpload(), mdmUploadURL != ""); err != nil {
+	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure(), wantsUpload, mdmUploadURL != ""); err != nil {
 		return nil, err
 	}
 
@@ -42,7 +47,7 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 		return nil, err
 	}
 
-	if !req.GetUpload() && req.GetUploadURL() == "" {
+	if !wantsUpload {
 		return &proto.DebugBundleResponse{Path: path}, nil
 	}
 

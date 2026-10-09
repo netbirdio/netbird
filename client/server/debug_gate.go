@@ -58,6 +58,13 @@ func uiLogOpener(id ipcauth.Identity, identified bool) debug.LogOpener {
 // that was going to the pinned host anyway into a refusal. Transport security
 // still is gated: relaxing TLS towards the pinned host is a real weakening.
 func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure, upload, mdmPinned bool) error {
+	// A named URL is itself a request to upload, since DebugBundle uploads when
+	// either the flag or the URL is set and a client older than the flag sends
+	// only the URL. Derived here rather than taken on trust from the caller:
+	// blanking rawURL below would otherwise turn an absent flag into "no upload
+	// to weaken" and let an unprivileged caller relax TLS on a root-run upload.
+	upload = upload || rawURL != ""
+
 	if mdmPinned {
 		rawURL = ""
 	}
