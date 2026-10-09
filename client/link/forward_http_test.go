@@ -485,7 +485,7 @@ func TestParseForwardRedactsPasswordWithAtSign(t *testing.T) {
 // matters is an explicit Content-Length the sender never satisfies: a body
 // handed to http.Client is sent chunked, which exercises a different path in
 // the server's post-handler drain.
-func stalledBodyProbe(t *testing.T, addr, host string, wait time.Duration) string {
+func stalledBodyProbe(t *testing.T, addr, host string, wait time.Duration) (status string, released bool) {
 	t.Helper()
 
 	conn, err := net.Dial("tcp", addr)
@@ -500,9 +500,20 @@ func stalledBodyProbe(t *testing.T, addr, host string, wait time.Duration) strin
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return ""
+		return "", false
 	}
-	return strings.SplitN(string(buf[:n]), "\r\n", 2)[0]
+	status = strings.SplitN(string(buf[:n]), "\r\n", 2)[0]
+
+	// Read on until the connection ends. The answer going out is not the same
+	// thing as the connection being let go: the server drains the rest of the
+	// body afterwards, and that drain is where a stalled caller actually holds
+	// a descriptor and a goroutine. A timeout here means it is still held.
+	for {
+		if _, err := conn.Read(buf); err != nil {
+			var timeout net.Error
+			return status, !(errors.As(err, &timeout) && timeout.Timeout())
+		}
+	}
 }
 
 // A caller that declares a body and then stops sending must still be answered,
@@ -515,6 +526,12 @@ func stalledBodyProbe(t *testing.T, addr, host string, wait time.Duration) strin
 func TestStalledRequestBodyIsAnsweredOnEveryPath(t *testing.T) {
 	// The dial target refuses, so a request that passes the guard reaches the
 	// proxy's error handler instead of an upstream.
+	// Shortened so the test observes the bound rather than waiting out the
+	// production one.
+	previous := bodyIdleTimeout
+	bodyIdleTimeout = time.Second
+	t.Cleanup(func() { bodyIdleTimeout = previous })
+
 	base := serveForward(t, "http://127.0.0.1:0=http://grafana.internal", "127.0.0.1:1")
 	addr := strings.TrimPrefix(base, "http://")
 
@@ -536,9 +553,11 @@ func TestStalledRequestBodyIsAnsweredOnEveryPath(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := stalledBodyProbe(t, addr, tc.host, 8*time.Second)
+			got, released := stalledBodyProbe(t, addr, tc.host, 8*time.Second)
 			assert.Equal(t, tc.want, got,
 				"the caller must be answered rather than left waiting out a drain with no deadline")
+			assert.True(t, released,
+				"the connection must be let go as well as answered, or a stalled caller still holds it")
 		})
 	}
 }

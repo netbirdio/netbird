@@ -38,6 +38,12 @@ const (
 	tlsHandshakeTimeout   = 10 * time.Second
 	expectContinueTimeout = time.Second
 	maxIdleConns          = 100
+
+	// maxHeaderBytes caps the request headers a caller may send.
+	maxHeaderBytes = 32 << 10
+
+	// maxLoggedPath caps how much of a caller-supplied path reaches the log.
+	maxLoggedPath = 128
 )
 
 // bodyIdleTimeout bounds how long a request body may stall without delivering
@@ -90,9 +96,13 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 			r.Out.Host = upstream.Host
 		},
 		Transport: &http.Transport{
-			DialContext:           boundedDial(dial),
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          maxIdleConns,
+			DialContext:       boundedDial(dial),
+			ForceAttemptHTTP2: true,
+			MaxIdleConns:      maxIdleConns,
+			// Without this the per-host default of two applies and MaxIdleConns
+			// never binds, so concurrent requests re-dial the overlay instead
+			// of reusing a connection.
+			MaxIdleConnsPerHost:   maxIdleConns,
 			IdleConnTimeout:       idleConnTimeout,
 			TLSHandshakeTimeout:   tlsHandshakeTimeout,
 			ExpectContinueTimeout: expectContinueTimeout,
@@ -101,10 +111,11 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			log.Warnf("%s %s %s: %v", fwd.Listen, r.Method, r.URL.Path, err)
-			// Nothing read the request body on this path, and the server
-			// drains what is left before reusing the connection. Closing it
-			// answers the caller now instead of waiting out that drain.
+			log.Debugf("%s %s %s: %v", fwd.Listen, r.Method, truncatePath(r.URL.Path), err)
+			// No upstream answered, so the connection is closed rather than
+			// kept for a next request. What is left of the body is still
+			// drained afterwards, bounded by the deadline armed in
+			// withBodyIdleTimeout.
 			rejectRequest(w, "upstream unreachable over the overlay", http.StatusBadGateway)
 		},
 	}
@@ -120,6 +131,9 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 			// uploads and downloads still run as long as they need.
 			ReadHeaderTimeout: readHeaderTimeout,
 			IdleTimeout:       idleConnTimeout,
+			// Go's default allows about a megabyte of headers per connection,
+			// which a caller on a published port can spend freely.
+			MaxHeaderBytes: maxHeaderBytes,
 		},
 	}, nil
 }
@@ -254,11 +268,16 @@ func withBodyIdleTimeout(next http.Handler) http.Handler {
 				controller: http.NewResponseController(w),
 				idle:       bodyIdleTimeout,
 			}
-			// Armed before the handler runs rather than on the first read. A
-			// handler that never touches the body still leaves the server to
-			// drain it afterwards, and that drain reads the connection with
-			// whatever deadline is on it: without one it waits forever on a
-			// caller that stopped sending.
+			// Armed before the handler runs rather than on the first read,
+			// because it is the only bound on the drain the server performs
+			// after the handler returns. That drain reads the connection
+			// directly and no response header suppresses it, so a handler
+			// that never touches the body would otherwise leave the
+			// connection and its goroutine held until the caller goes away.
+			//
+			// Replacing r.Body also hides it from net/http's own type-based
+			// checks, which short-circuit that drain for a body it recognises,
+			// so this deadline stands in for those too.
 			if err := b.setDeadline(time.Now().Add(b.idle)); err != nil {
 				log.Debugf("arm request body deadline: %v", err)
 			}
@@ -315,11 +334,13 @@ func guardRebinding(next http.Handler, loopbackOnly bool, allowedHosts []string)
 // rejectRequest answers a request the forwarder will not proxy and closes the
 // connection.
 //
-// On a keep-alive connection the server drains whatever is left of the request
-// body before reading the next request. It drains the original body rather
-// than the handler's wrapper, so the idle deadline that bounds an accepted
-// upload is never armed for a rejected one, and a caller that stopped sending
-// would hold the connection and its goroutine. Closing skips that drain.
+// Closing stops the connection being reused; it does not stop the server
+// draining what is left of the request body. That drain runs from
+// finishRequest whatever the response said, and it reads the original body
+// rather than the handler's wrapper, so the only thing bounding it is the
+// deadline withBodyIdleTimeout arms on the connection before the handler
+// chain runs. Without that deadline a caller that stopped sending holds the
+// connection and its goroutine even though the answer already went out.
 func rejectRequest(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Connection", "close")
 	http.Error(w, msg, code)
@@ -389,4 +410,13 @@ func normalizeAuthority(authority string) string {
 		host, port = authority, defaultHTTPPort
 	}
 	return strings.ToLower(strings.Trim(host, "[]")) + ":" + port
+}
+
+// truncatePath shortens a caller-supplied path so a log line cannot be made
+// arbitrarily long by the request that produced it.
+func truncatePath(path string) string {
+	if len(path) <= maxLoggedPath {
+		return path
+	}
+	return path[:maxLoggedPath] + "..."
 }
