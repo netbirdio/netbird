@@ -40,6 +40,17 @@ const (
 	maxIdleConns          = 100
 )
 
+// bodyIdleTimeout bounds how long a request body may stall without delivering
+// more bytes. It is a variable so tests can shorten it.
+var bodyIdleTimeout = 30 * time.Second
+
+// foreignFetchSites are the Sec-Fetch-Site values a browser sends when a page
+// other than this listener's own initiated the request. A page on another port
+// is same-site here, because a bare address or localhost is its own site, yet
+// it is a different application with no more claim on this listener than any
+// other page has.
+var foreignFetchSites = map[string]bool{"cross-site": true, "same-site": true}
+
 // DialFunc establishes a connection inside the overlay. The embedded client
 // supplies the real implementation; tests supply their own.
 type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -50,6 +61,15 @@ type httpForwarder struct {
 	forward  Forward
 	server   *http.Server
 	listener net.Listener
+}
+
+// idleTimeoutBody applies a fresh read deadline before every read, so a
+// transfer that keeps progressing runs as long as it needs while a stalled one
+// is cut off.
+type idleTimeoutBody struct {
+	io.ReadCloser
+	controller *http.ResponseController
+	idle       time.Duration
 }
 
 // newHTTPForwarder binds the local listener and prepares the reverse proxy.
@@ -104,24 +124,6 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 	}, nil
 }
 
-// listenNetwork pins the address family to the literal the operator wrote.
-// Plain "tcp" turns 0.0.0.0 into a dual-stack wildcard that also accepts IPv6,
-// which exposes more than the spec asked for. A "6" network binds IPv6 only.
-func listenNetwork(addr string) string {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "tcp"
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return "tcp"
-	}
-	if ip.Is4() {
-		return "tcp4"
-	}
-	return "tcp6"
-}
-
 // Addr returns the address actually bound, which differs from the spec when
 // the operator asked for port 0.
 func (f *httpForwarder) Addr() string {
@@ -149,79 +151,6 @@ func (f *httpForwarder) Close(ctx context.Context) error {
 		return err
 	}
 	return shutdownErr
-}
-
-// boundedDial applies dialTimeout to connection establishment without
-// constraining the lifetime of the connection it returns.
-func boundedDial(dial DialFunc) DialFunc {
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		ctx, cancel := context.WithTimeout(ctx, dialTimeout)
-		defer cancel()
-
-		start := time.Now()
-		conn, err := dial(ctx, network, addr)
-		if err != nil {
-			log.Debugf("dial %s over the overlay failed after %s: %v",
-				addr, time.Since(start).Truncate(time.Millisecond), err)
-			return nil, err
-		}
-		log.Debugf("dial %s over the overlay took %s, remote %s",
-			addr, time.Since(start).Truncate(time.Millisecond), conn.RemoteAddr())
-		return conn, nil
-	}
-}
-
-// bindHint adds the likely cause when a bind fails for a reason an operator
-// can act on. The privileged-port boundary is detected from the error rather
-// than assumed from the port number, because containers often lower it to zero.
-func bindHint(addr string, err error) error {
-	if errors.Is(err, os.ErrPermission) {
-		return fmt.Errorf("%w (nblink runs unprivileged, so %s likely needs a port above 1023)", err, addr)
-	}
-	return err
-}
-
-// bodyIdleTimeout bounds how long a request body may stall without delivering
-// more bytes. It is a variable so tests can shorten it.
-var bodyIdleTimeout = 30 * time.Second
-
-// withBodyIdleTimeout cuts off a caller that sends request headers and then
-// stops sending the body.
-//
-// ReadHeaderTimeout covers only the headers, and IdleTimeout applies between
-// requests rather than during one, so without this a caller could hold a
-// connection and its handler open indefinitely. A total ReadTimeout would
-// close that gap but would also break legitimate long uploads, so the deadline
-// is refreshed on every read that makes progress instead.
-func withBodyIdleTimeout(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil && r.Body != http.NoBody {
-			b := &idleTimeoutBody{
-				ReadCloser: r.Body,
-				controller: http.NewResponseController(w),
-				idle:       bodyIdleTimeout,
-			}
-			// Armed before the handler runs rather than on the first read. A
-			// handler that never touches the body still leaves the server to
-			// drain it afterwards, and that drain reads the connection with
-			// whatever deadline is on it: without one it waits forever on a
-			// caller that stopped sending.
-			if err := b.setDeadline(time.Now().Add(b.idle)); err != nil {
-				log.Debugf("arm request body deadline: %v", err)
-			}
-			r.Body = b
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// idleTimeoutBody applies a fresh read deadline before every read, so a
-// transfer that keeps progressing runs as long as it needs while a stalled one
-// is cut off.
-type idleTimeoutBody struct {
-	io.ReadCloser
-	controller *http.ResponseController
-	idle       time.Duration
 }
 
 func (b *idleTimeoutBody) Read(p []byte) (int, error) {
@@ -259,6 +188,84 @@ func (b *idleTimeoutBody) clearDeadline() {
 	if err := b.setDeadline(time.Time{}); err != nil {
 		log.Debugf("clear read deadline: %v", err)
 	}
+}
+
+// listenNetwork pins the address family to the literal the operator wrote.
+// Plain "tcp" turns 0.0.0.0 into a dual-stack wildcard that also accepts IPv6,
+// which exposes more than the spec asked for. A "6" network binds IPv6 only.
+func listenNetwork(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "tcp"
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return "tcp"
+	}
+	if ip.Is4() {
+		return "tcp4"
+	}
+	return "tcp6"
+}
+
+// boundedDial applies dialTimeout to connection establishment without
+// constraining the lifetime of the connection it returns.
+func boundedDial(dial DialFunc) DialFunc {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+		defer cancel()
+
+		start := time.Now()
+		conn, err := dial(ctx, network, addr)
+		if err != nil {
+			log.Debugf("dial %s over the overlay failed after %s: %v",
+				addr, time.Since(start).Truncate(time.Millisecond), err)
+			return nil, err
+		}
+		log.Debugf("dial %s over the overlay took %s, remote %s",
+			addr, time.Since(start).Truncate(time.Millisecond), conn.RemoteAddr())
+		return conn, nil
+	}
+}
+
+// bindHint adds the likely cause when a bind fails for a reason an operator
+// can act on. The privileged-port boundary is detected from the error rather
+// than assumed from the port number, because containers often lower it to zero.
+func bindHint(addr string, err error) error {
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("%w (nblink runs unprivileged, so %s likely needs a port above 1023)", err, addr)
+	}
+	return err
+}
+
+// withBodyIdleTimeout cuts off a caller that sends request headers and then
+// stops sending the body.
+//
+// ReadHeaderTimeout covers only the headers, and IdleTimeout applies between
+// requests rather than during one, so without this a caller could hold a
+// connection and its handler open indefinitely. A total ReadTimeout would
+// close that gap but would also break legitimate long uploads, so the deadline
+// is refreshed on every read that makes progress instead.
+func withBodyIdleTimeout(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && r.Body != http.NoBody {
+			b := &idleTimeoutBody{
+				ReadCloser: r.Body,
+				controller: http.NewResponseController(w),
+				idle:       bodyIdleTimeout,
+			}
+			// Armed before the handler runs rather than on the first read. A
+			// handler that never touches the body still leaves the server to
+			// drain it afterwards, and that drain reads the connection with
+			// whatever deadline is on it: without one it waits forever on a
+			// caller that stopped sending.
+			if err := b.setDeadline(time.Now().Add(b.idle)); err != nil {
+				log.Debugf("arm request body deadline: %v", err)
+			}
+			r.Body = b
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // guardRebinding rejects requests that a browser issued on behalf of some
@@ -317,13 +324,6 @@ func rejectRequest(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Connection", "close")
 	http.Error(w, msg, code)
 }
-
-// foreignFetchSites are the Sec-Fetch-Site values a browser sends when a page
-// other than this listener's own initiated the request. A page on another port
-// is same-site here, because a bare address or localhost is its own site, yet
-// it is a different application with no more claim on this listener than any
-// other page has.
-var foreignFetchSites = map[string]bool{"cross-site": true, "same-site": true}
 
 // isLocalCaller reports whether a request may be proxied, from what the
 // browser says about where it came from.

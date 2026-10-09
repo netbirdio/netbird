@@ -46,12 +46,6 @@ var (
 	urlPassword = regexp.MustCompile(`(//[^/:\s]*):[^/\s]*@`)
 )
 
-// redactSpec replaces any password inside a forward spec, so an error may
-// still name the spec it refers to.
-func redactSpec(spec string) string {
-	return urlPassword.ReplaceAllString(spec, "$1:xxxxx@")
-}
-
 // Forward is one local listener and the overlay address it carries traffic to.
 type Forward struct {
 	// Proto is the listener type, taken from the scheme on the left of the spec.
@@ -114,6 +108,12 @@ func ParseForward(spec string) (Forward, error) {
 	}
 
 	return Forward{Proto: proto, Listen: listen, Upstream: upstream, Spec: spec}, nil
+}
+
+// redactSpec replaces any password inside a forward spec, so an error may
+// still name the spec it refers to.
+func redactSpec(spec string) string {
+	return urlPassword.ReplaceAllString(spec, "$1:xxxxx@")
 }
 
 // parseListen normalizes the listener side of a spec to host:port, defaulting

@@ -55,6 +55,11 @@ const (
 	nblinkStateDir = "/var/lib/nblink"
 )
 
+// ChatPath and ChatBody are the request the forwarder is driven with. They are
+// exported so a test can send the very same request with one header changed
+// and attribute the difference in the answer to that header alone.
+const ChatPath = "/v1/chat/completions"
+
 // NBLink is a running nblink container: a NetBird peer in userspace mode
 // forwarding a local port to an upstream reached inside the tunnel.
 type NBLink struct {
@@ -79,52 +84,11 @@ type nblinkOptions struct {
 // NBLinkOption adjusts how StartNBLink runs the forwarder.
 type NBLinkOption func(*nblinkOptions)
 
-// WithNBLinkName names the forwarder, setting both its network alias and its
-// container hostname. The hostname is what the peer registers under, so it is
-// the name the peer appears beneath in the peers API.
-//
-// Required to run a second forwarder against the same server: the default name
-// is shared and two containers cannot hold one alias on a network.
-func WithNBLinkName(name string) NBLinkOption {
-	return func(o *nblinkOptions) { o.name = name }
-}
-
-// WithNBLinkForwards adds forwards to the one StartNBLink is given. They are
-// passed in the same comma-separated NB_FORWARD, so one process serves all of
-// them over one session.
-func WithNBLinkForwards(specs ...string) NBLinkOption {
-	return func(o *nblinkOptions) { o.extra = append(o.extra, specs...) }
-}
-
-// WithNBLinkSetupKeyFile delivers the setup key as a file in the container and
-// points NB_SETUP_KEY at it with the file: prefix, instead of putting the key
-// itself in the environment.
-func WithNBLinkSetupKeyFile() NBLinkOption {
-	return func(o *nblinkOptions) { o.keyAsFile = true }
-}
-
-// WithNBLinkStateVolume mounts the named Docker volume as the state directory
-// and sets NB_STATE_DIR, so the peer identity outlives the container. The
-// volume is created on first use; RemoveDockerVolume deletes it.
-func WithNBLinkStateVolume(volume string) NBLinkOption {
-	return func(o *nblinkOptions) { o.stateVolume = volume }
-}
-
-// WithNBLinkUser runs the forwarder as uid:gid instead of the image's user,
-// the way OpenShift assigns an arbitrary UID in group 0.
-func WithNBLinkUser(user string) NBLinkOption {
-	return func(o *nblinkOptions) { o.user = user }
-}
-
-// WithNBLinkEnv sets an extra environment variable on the forwarder, for
-// settings such as NB_ALLOW_PUBLIC_BIND that have no option of their own.
-func WithNBLinkEnv(key, value string) NBLinkOption {
-	return func(o *nblinkOptions) {
-		if o.env == nil {
-			o.env = map[string]string{}
-		}
-		o.env[key] = value
-	}
+// NBLinkCheckResult is what a --check run printed and how it exited.
+type NBLinkCheckResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
 }
 
 // StartNBLink builds the nblink image and runs it on the combined server's
@@ -230,41 +194,6 @@ func StartNBLink(ctx context.Context, c *Combined, setupKey, forward, caCertPath
 	return &NBLink{container: ctr, keyVolume: keyVolume, network: c.network.Name, name: o.name, port: o.port}, nil
 }
 
-// writeKeyVolume creates a volume holding the setup key as a root-owned file
-// of mode 0440. The key goes in on stdin so it never appears in a process
-// listing.
-func writeKeyVolume(ctx context.Context, volume, key string) error {
-	if out, err := exec.CommandContext(ctx, "docker", "volume", "create", volume).CombinedOutput(); err != nil {
-		return fmt.Errorf("create key volume: %w: %s", err, out)
-	}
-	script := fmt.Sprintf("cat > /k/%[1]s && chown 0:0 /k/%[1]s && chmod 440 /k/%[1]s", nblinkKeyFile)
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "-v", volume+":/k", keyWriterImage, "sh", "-c", script)
-	cmd.Stdin = strings.NewReader(key + "\n")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = RemoveDockerVolume(context.Background(), volume)
-		return fmt.Errorf("write key volume: %w: %s", err, out)
-	}
-	return nil
-}
-
-// hardenNBLink takes away what Docker grants a container by default: every
-// capability, a writable root filesystem, and the ability to gain privileges.
-// nblink claims to need none of them, and this is where that claim is held to.
-// State, when kept, goes to a mounted volume.
-func hardenNBLink(hc *container.HostConfig) {
-	hc.CapDrop = []string{"ALL"}
-	hc.ReadonlyRootfs = true
-	hc.SecurityOpt = append(hc.SecurityOpt, "no-new-privileges")
-}
-
-func nblinkImage(ctx context.Context) (string, error) {
-	root, err := repoRoot(ctx)
-	if err != nil {
-		return "", err
-	}
-	return resolveImage(ctx, root, "NB_E2E_NBLINK_IMAGE", defaultNBLinkImage, nblinkDockerfile)
-}
-
 // Hostname returns the container hostname the embedded client reports to
 // management — the name the registered peer appears under in the peers API.
 func (n *NBLink) Hostname() string {
@@ -288,16 +217,6 @@ func (n *NBLink) Get(ctx context.Context, path string, extraHeaders []string) (i
 	return n.do(ctx, n.port, http.MethodGet, path, "", extraHeaders)
 }
 
-// ChatPath and ChatBody are the request the forwarder is driven with. They are
-// exported so a test can send the very same request with one header changed
-// and attribute the difference in the answer to that header alone.
-const ChatPath = "/v1/chat/completions"
-
-// ChatBody builds an OpenAI-shaped chat completion request body.
-func ChatBody(model, prompt string) string {
-	return fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
-}
-
 // Chat issues an OpenAI-shaped chat completion to the forwarder, which proxies
 // it to the agent-network endpoint over the tunnel. A non-empty sessionID is
 // sent as the x-session-id header the proxy records.
@@ -315,39 +234,6 @@ func (n *NBLink) Chat(ctx context.Context, model, prompt, sessionID string) (int
 func (n *NBLink) do(ctx context.Context, port int, method, path, body string, extraHeaders []string) (int, string, error) {
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
 	return curlStatus(ctx, []string{"--network", "container:" + n.container.GetContainerID()}, url, method, body, extraHeaders)
-}
-
-// curlStatus runs curl in a throwaway container with the given docker run
-// network arguments and returns the status and body.
-func curlStatus(ctx context.Context, network []string, url, method, body string, extraHeaders []string) (int, string, error) {
-	args := append([]string{"run", "--rm"}, network...)
-	args = append(args,
-		curlImage,
-		"-s", "--connect-timeout", "5", "--max-time", "90",
-		"-o", "/dev/stderr", "-w", "%{http_code}",
-		"-X", method, url,
-		"-H", "Content-Type: application/json",
-	)
-	for _, h := range extraHeaders {
-		args = append(args, "-H", h)
-	}
-	if body != "" {
-		args = append(args, "--data", body)
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	// -w writes the status to stdout, -o /dev/stderr the body to stderr, so
-	// the two come back separately.
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return 0, stderr.String(), fmt.Errorf("curl through nblink: %w", err)
-	}
-
-	code := 0
-	_, _ = fmt.Sscanf(strings.TrimSpace(stdout.String()), "%d", &code)
-	return code, stderr.String(), nil
 }
 
 // PostFromNetwork issues a JSON POST to the forwarder by its network alias from
@@ -394,11 +280,57 @@ func (n *NBLink) Terminate(ctx context.Context) error {
 	return err
 }
 
-// NBLinkCheckResult is what a --check run printed and how it exited.
-type NBLinkCheckResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
+// WithNBLinkName names the forwarder, setting both its network alias and its
+// container hostname. The hostname is what the peer registers under, so it is
+// the name the peer appears beneath in the peers API.
+//
+// Required to run a second forwarder against the same server: the default name
+// is shared and two containers cannot hold one alias on a network.
+func WithNBLinkName(name string) NBLinkOption {
+	return func(o *nblinkOptions) { o.name = name }
+}
+
+// WithNBLinkForwards adds forwards to the one StartNBLink is given. They are
+// passed in the same comma-separated NB_FORWARD, so one process serves all of
+// them over one session.
+func WithNBLinkForwards(specs ...string) NBLinkOption {
+	return func(o *nblinkOptions) { o.extra = append(o.extra, specs...) }
+}
+
+// WithNBLinkSetupKeyFile delivers the setup key as a file in the container and
+// points NB_SETUP_KEY at it with the file: prefix, instead of putting the key
+// itself in the environment.
+func WithNBLinkSetupKeyFile() NBLinkOption {
+	return func(o *nblinkOptions) { o.keyAsFile = true }
+}
+
+// WithNBLinkStateVolume mounts the named Docker volume as the state directory
+// and sets NB_STATE_DIR, so the peer identity outlives the container. The
+// volume is created on first use; RemoveDockerVolume deletes it.
+func WithNBLinkStateVolume(volume string) NBLinkOption {
+	return func(o *nblinkOptions) { o.stateVolume = volume }
+}
+
+// WithNBLinkUser runs the forwarder as uid:gid instead of the image's user,
+// the way OpenShift assigns an arbitrary UID in group 0.
+func WithNBLinkUser(user string) NBLinkOption {
+	return func(o *nblinkOptions) { o.user = user }
+}
+
+// WithNBLinkEnv sets an extra environment variable on the forwarder, for
+// settings such as NB_ALLOW_PUBLIC_BIND that have no option of their own.
+func WithNBLinkEnv(key, value string) NBLinkOption {
+	return func(o *nblinkOptions) {
+		if o.env == nil {
+			o.env = map[string]string{}
+		}
+		o.env[key] = value
+	}
+}
+
+// ChatBody builds an OpenAI-shaped chat completion request body.
+func ChatBody(model, prompt string) string {
+	return fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 }
 
 // RunNBLinkCheck runs the nblink image with --check and the given environment.
@@ -438,20 +370,6 @@ func RunNBLinkIsolated(ctx context.Context, env map[string]string, extraArgs ...
 		return res, fmt.Errorf("run nblink: %w", err)
 	}
 	return res, nil
-}
-
-// isolatedRunArgs is docker run with no network and the same hardening
-// StartNBLink applies.
-func isolatedRunArgs(mode string) []string {
-	return []string{"run", mode, "--network", "none", "--cap-drop", "ALL", "--read-only", "--security-opt", "no-new-privileges"}
-}
-
-func envArgs(env map[string]string) []string {
-	var args []string
-	for k, v := range env {
-		args = append(args, "-e", k+"="+v)
-	}
-	return args
 }
 
 // StopNBLinkDuringStartup starts the nblink image with no network, so the
@@ -505,4 +423,86 @@ func RemoveDockerVolume(ctx context.Context, volume string) error {
 		return fmt.Errorf("remove volume %s: %w: %s", volume, err, out)
 	}
 	return nil
+}
+
+// writeKeyVolume creates a volume holding the setup key as a root-owned file
+// of mode 0440. The key goes in on stdin so it never appears in a process
+// listing.
+func writeKeyVolume(ctx context.Context, volume, key string) error {
+	if out, err := exec.CommandContext(ctx, "docker", "volume", "create", volume).CombinedOutput(); err != nil {
+		return fmt.Errorf("create key volume: %w: %s", err, out)
+	}
+	script := fmt.Sprintf("cat > /k/%[1]s && chown 0:0 /k/%[1]s && chmod 440 /k/%[1]s", nblinkKeyFile)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "-v", volume+":/k", keyWriterImage, "sh", "-c", script)
+	cmd.Stdin = strings.NewReader(key + "\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = RemoveDockerVolume(context.Background(), volume)
+		return fmt.Errorf("write key volume: %w: %s", err, out)
+	}
+	return nil
+}
+
+// hardenNBLink takes away what Docker grants a container by default: every
+// capability, a writable root filesystem, and the ability to gain privileges.
+// nblink claims to need none of them, and this is where that claim is held to.
+// State, when kept, goes to a mounted volume.
+func hardenNBLink(hc *container.HostConfig) {
+	hc.CapDrop = []string{"ALL"}
+	hc.ReadonlyRootfs = true
+	hc.SecurityOpt = append(hc.SecurityOpt, "no-new-privileges")
+}
+
+func nblinkImage(ctx context.Context) (string, error) {
+	root, err := repoRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return resolveImage(ctx, root, "NB_E2E_NBLINK_IMAGE", defaultNBLinkImage, nblinkDockerfile)
+}
+
+// curlStatus runs curl in a throwaway container with the given docker run
+// network arguments and returns the status and body.
+func curlStatus(ctx context.Context, network []string, url, method, body string, extraHeaders []string) (int, string, error) {
+	args := append([]string{"run", "--rm"}, network...)
+	args = append(args,
+		curlImage,
+		"-s", "--connect-timeout", "5", "--max-time", "90",
+		"-o", "/dev/stderr", "-w", "%{http_code}",
+		"-X", method, url,
+		"-H", "Content-Type: application/json",
+	)
+	for _, h := range extraHeaders {
+		args = append(args, "-H", h)
+	}
+	if body != "" {
+		args = append(args, "--data", body)
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	// -w writes the status to stdout, -o /dev/stderr the body to stderr, so
+	// the two come back separately.
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return 0, stderr.String(), fmt.Errorf("curl through nblink: %w", err)
+	}
+
+	code := 0
+	_, _ = fmt.Sscanf(strings.TrimSpace(stdout.String()), "%d", &code)
+	return code, stderr.String(), nil
+}
+
+// isolatedRunArgs is docker run with no network and the same hardening
+// StartNBLink applies.
+func isolatedRunArgs(mode string) []string {
+	return []string{"run", mode, "--network", "none", "--cap-drop", "ALL", "--read-only", "--security-opt", "no-new-privileges"}
+}
+
+func envArgs(env map[string]string) []string {
+	var args []string
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+	return args
 }

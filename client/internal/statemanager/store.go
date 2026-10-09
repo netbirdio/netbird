@@ -32,6 +32,11 @@ type fileStore struct {
 	path string
 }
 
+// memoryStore keeps nothing. An embedded client in netstack mode changes
+// nothing on the host, so there is no state a later run has to restore, and
+// writing one would mean reading and overwriting another installation's file.
+type memoryStore struct{}
+
 func (f *fileStore) load(deleteCorrupt bool) (map[string]json.RawMessage, error) {
 	data, err := os.ReadFile(f.path)
 	if err != nil {
@@ -76,11 +81,6 @@ func (f *fileStore) handleCorrupted(deleteCorrupt bool) {
 
 	log.Infof("Created backup of corrupted state file at: %s", backupPath)
 }
-
-// memoryStore keeps nothing. An embedded client in netstack mode changes
-// nothing on the host, so there is no state a later run has to restore, and
-// writing one would mean reading and overwriting another installation's file.
-type memoryStore struct{}
 
 func (memoryStore) load(bool) (map[string]json.RawMessage, error) {
 	return map[string]json.RawMessage{}, nil

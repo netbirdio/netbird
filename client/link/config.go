@@ -55,6 +55,82 @@ type rawConfig struct {
 	check           bool
 }
 
+// Resolve validates the raw flag values and produces a runtime configuration.
+// It reports every problem it can rather than stopping at the first, so an
+// operator fixing a container environment sees the whole list in one run.
+func (r *rawConfig) Resolve() (*Config, error) {
+	cfg := &Config{
+		ManagementURL:   r.managementURL,
+		Hostname:        r.hostname,
+		StateDir:        r.stateDir,
+		LogLevel:        r.logLevel,
+		AllowPublicBind: r.allowPublicBind,
+		NoBrowser:       r.noBrowser,
+		Check:           r.check,
+	}
+
+	setupKey, err := resolveSecret(r.setupKey)
+	if err != nil {
+		return nil, fmt.Errorf("setup key: %w", err)
+	}
+	cfg.SetupKey = setupKey
+
+	if len(r.forwards) == 0 {
+		return nil, fmt.Errorf("at least one --forward is required (env %s)", FlagNameToEnvVar("forward"))
+	}
+
+	var problems []string
+	cfg.AllowedHosts, problems = parseAllowedHosts(r.allowedHosts)
+
+	seen := make(map[string]string, len(r.forwards))
+	for _, spec := range r.forwards {
+		fwd, err := ParseForward(spec)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		// Port 0 means the OS assigns one, so several such forwards do not
+		// collide even though they share a spec.
+		if prev, dup := seen[fwd.Listen]; dup && !strings.HasSuffix(fwd.Listen, ":0") {
+			problems = append(problems, fmt.Sprintf("forward %q: %s is already bound by %q", spec, fwd.Listen, prev))
+			continue
+		}
+		if !cfg.AllowPublicBind && !isLoopback(fwd.Listen) {
+			problems = append(problems, fmt.Sprintf(
+				"forward %q: %s is not loopback, pass --allow-public-bind (env %s) to expose it",
+				spec, fwd.Listen, FlagNameToEnvVar("allow-public-bind")))
+			continue
+		}
+		seen[fwd.Listen] = spec
+		fwd.AllowedHosts = cfg.AllowedHosts
+		cfg.Forwards = append(cfg.Forwards, fwd)
+	}
+
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("invalid configuration:\n  %s", strings.Join(problems, "\n  "))
+	}
+
+	return cfg, nil
+}
+
+// ConfigPath returns where the peer identity is persisted, or an empty string
+// when the client should keep it in memory only.
+func (c *Config) ConfigPath() string {
+	if c.StateDir == "" {
+		return ""
+	}
+	return filepath.Join(c.StateDir, "config.json")
+}
+
+// StatePath returns where runtime state is persisted, or an empty string when
+// no state directory was configured.
+func (c *Config) StatePath() string {
+	if c.StateDir == "" {
+		return ""
+	}
+	return filepath.Join(c.StateDir, "state.json")
+}
+
 // BindFlags registers nblink's flags on cmd and returns the backing values.
 // Every flag gains an NB_-prefixed environment variable of the same name, so
 // the container configuration cannot drift from the command line.
@@ -115,64 +191,6 @@ func FlagNameToEnvVar(name string) string {
 	return envPrefix + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
-// Resolve validates the raw flag values and produces a runtime configuration.
-// It reports every problem it can rather than stopping at the first, so an
-// operator fixing a container environment sees the whole list in one run.
-func (r *rawConfig) Resolve() (*Config, error) {
-	cfg := &Config{
-		ManagementURL:   r.managementURL,
-		Hostname:        r.hostname,
-		StateDir:        r.stateDir,
-		LogLevel:        r.logLevel,
-		AllowPublicBind: r.allowPublicBind,
-		NoBrowser:       r.noBrowser,
-		Check:           r.check,
-	}
-
-	setupKey, err := resolveSecret(r.setupKey)
-	if err != nil {
-		return nil, fmt.Errorf("setup key: %w", err)
-	}
-	cfg.SetupKey = setupKey
-
-	if len(r.forwards) == 0 {
-		return nil, fmt.Errorf("at least one --forward is required (env %s)", FlagNameToEnvVar("forward"))
-	}
-
-	var problems []string
-	cfg.AllowedHosts, problems = parseAllowedHosts(r.allowedHosts)
-
-	seen := make(map[string]string, len(r.forwards))
-	for _, spec := range r.forwards {
-		fwd, err := ParseForward(spec)
-		if err != nil {
-			problems = append(problems, err.Error())
-			continue
-		}
-		// Port 0 means the OS assigns one, so several such forwards do not
-		// collide even though they share a spec.
-		if prev, dup := seen[fwd.Listen]; dup && !strings.HasSuffix(fwd.Listen, ":0") {
-			problems = append(problems, fmt.Sprintf("forward %q: %s is already bound by %q", spec, fwd.Listen, prev))
-			continue
-		}
-		if !cfg.AllowPublicBind && !isLoopback(fwd.Listen) {
-			problems = append(problems, fmt.Sprintf(
-				"forward %q: %s is not loopback, pass --allow-public-bind (env %s) to expose it",
-				spec, fwd.Listen, FlagNameToEnvVar("allow-public-bind")))
-			continue
-		}
-		seen[fwd.Listen] = spec
-		fwd.AllowedHosts = cfg.AllowedHosts
-		cfg.Forwards = append(cfg.Forwards, fwd)
-	}
-
-	if len(problems) > 0 {
-		return nil, fmt.Errorf("invalid configuration:\n  %s", strings.Join(problems, "\n  "))
-	}
-
-	return cfg, nil
-}
-
 // parseAllowedHosts normalizes the names given with --allowed-host and reports
 // every entry that is not a plain hostname.
 func parseAllowedHosts(raw []string) ([]string, []string) {
@@ -198,24 +216,6 @@ func parseAllowedHosts(raw []string) ([]string, []string) {
 // spellings a client may send compare equal.
 func normalizeHostname(name string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
-}
-
-// ConfigPath returns where the peer identity is persisted, or an empty string
-// when the client should keep it in memory only.
-func (c *Config) ConfigPath() string {
-	if c.StateDir == "" {
-		return ""
-	}
-	return filepath.Join(c.StateDir, "config.json")
-}
-
-// StatePath returns where runtime state is persisted, or an empty string when
-// no state directory was configured.
-func (c *Config) StatePath() string {
-	if c.StateDir == "" {
-		return ""
-	}
-	return filepath.Join(c.StateDir, "state.json")
 }
 
 // resolveSecret reads a value that may carry a file: prefix naming the file
