@@ -68,7 +68,7 @@ require (
 	github.com/google/go-tpm v0.9.8
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.3.0
-	github.com/gopacket/gopacket v1.4.0
+	github.com/gopacket/gopacket v1.7.4
 	github.com/grafana/pyroscope-go v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.2-0.20240212192251-757544f21357
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3
