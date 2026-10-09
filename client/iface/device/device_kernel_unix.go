@@ -32,6 +32,7 @@ type TunKernelDevice struct {
 	link       *wgLink
 	udpMuxConn net.PacketConn
 	udpMux     *udpmux.UniversalUDPMuxDefault
+	configurer WGConfigurer
 }
 
 func NewKernelDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, transportNet transport.Net) *TunKernelDevice {
@@ -68,13 +69,18 @@ func (t *TunKernelDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("set mtu: %w", err)
 	}
 
-	configurer := configurer.NewKernelConfigurer(t.name)
+	cfg := configurer.NewKernelConfigurer(t.name)
 
-	if err := configurer.ConfigureInterface(t.key, t.wgPort); err != nil {
+	if err := cfg.ConfigureInterface(t.key, t.wgPort); err != nil {
+		cfg.Close()
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 
-	return configurer, nil
+	if t.configurer != nil {
+		t.configurer.Close()
+	}
+	t.configurer = cfg
+	return cfg, nil
 }
 
 func (t *TunKernelDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
@@ -130,6 +136,10 @@ func (t *TunKernelDevice) Close() error {
 	if err := t.link.Close(); err != nil {
 		log.Debugf("failed to close link: %s", err)
 		closErr = err
+	}
+
+	if t.configurer != nil {
+		t.configurer.Close()
 	}
 
 	if t.udpMux != nil {
