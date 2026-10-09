@@ -24,6 +24,14 @@ func TestGetAppliedZoneCandidatesViaPgxConnection(t *testing.T) {
 	execQuery(t, ctx,
 		`insert into zones (id, account_id, domain, enabled, enable_search_domain, distribution_groups)
 		VALUES('zone-3','account-1','test-3.com',false,true,'["group-one-resource-id"]')`)
+	// nil distribution_groups, shouldn't error out
+	execQuery(t, ctx,
+		`insert into zones (id, account_id, domain, enabled, enable_search_domain, distribution_groups)
+		VALUES('zone-4','account-1','test-4.com',true,true,null)`)
+	// empty distribution_groups, shouldn't error out
+	execQuery(t, ctx,
+		`insert into zones (id, account_id, domain, enabled, enable_search_domain, distribution_groups)
+		VALUES('zone-5','account-1','test-5.com',true,true,'')`)
 	execQuery(t, ctx,
 		`insert into records (id, account_id, zone_id, name, type, ttl, content)
 		VALUES('record-1','account-1','zone-1','test.test-1.com','A',1800,'1.1.1.1')`)
@@ -39,6 +47,12 @@ func TestGetAppliedZoneCandidatesViaPgxConnection(t *testing.T) {
 	execQuery(t, ctx,
 		`insert into records (id, account_id, zone_id, name, type, ttl, content)
 		VALUES('record-5','account-1','zone-3','test.test-3.com','A',1800,'1.1.1.3')`)
+	execQuery(t, ctx,
+		`insert into records (id, account_id, zone_id, name, type, ttl, content)
+		VALUES('record-6','account-1','zone-4','test.test-4.com','A',1800,'1.1.1.3')`)
+	execQuery(t, ctx,
+		`insert into records (id, account_id, zone_id, name, type, ttl, content)
+		VALUES('record-7','account-1','zone-5','test.test-5.com','A',1800,'1.1.1.3')`)
 
 	zoneCandidates, err := conn(t, ctx).GetAppliedZoneCandidates(ctx, "account-1")
 	assert.NoError(t, err)

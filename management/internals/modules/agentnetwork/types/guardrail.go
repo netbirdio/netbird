@@ -31,7 +31,7 @@ type Guardrail struct {
 	AccountID   string `gorm:"index"`
 	Name        string
 	Description string
-	Checks      GuardrailChecks `gorm:"serializer:json"`
+	Checks      GuardrailChecks `gorm:"serializer:json;default:'{}'"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

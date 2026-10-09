@@ -54,11 +54,11 @@ type Provider struct {
 	// proxy's identity-inject middleware (anti-spoof Remove + Add).
 	// Empty / missing keys = no header stamped. Stored as a JSON
 	// blob so the schema doesn't grow per-catalog-entry.
-	ExtraValues map[string]string `gorm:"serializer:json;column:extra_values"`
+	ExtraValues map[string]string `gorm:"serializer:json;column:extra_values;default:'{}'"`
 	// Models is the operator's curated list of models exposed by this
 	// provider together with their per-1k input/output prices (USD).
 	// Empty means all catalog models are allowed at catalog prices.
-	Models  []ProviderModel `gorm:"serializer:json"`
+	Models  []ProviderModel `gorm:"serializer:json;default:'[]'"`
 	Enabled bool
 	// SkipTLSVerification disables upstream TLS certificate verification for
 	// this provider's URL. For self-hosted / internal gateways fronted by a

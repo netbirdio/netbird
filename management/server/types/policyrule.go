@@ -31,16 +31,16 @@ type PolicyRule struct {
 	Action PolicyTrafficActionType
 
 	// Destinations policy destination groups
-	Destinations []string `gorm:"serializer:json"`
+	Destinations []string `gorm:"serializer:json;default:'[]'"`
 
 	// DestinationResource policy destination resource that the rule is applied to
-	DestinationResource Resource `gorm:"serializer:json"`
+	DestinationResource Resource `gorm:"serializer:json;default:'{}'"`
 
 	// Sources policy source groups
-	Sources []string `gorm:"serializer:json"`
+	Sources []string `gorm:"serializer:json;default:'[]'"`
 
 	// SourceResource policy source resource that the rule is applied to
-	SourceResource Resource `gorm:"serializer:json"`
+	SourceResource Resource `gorm:"serializer:json;default:'{}'"`
 
 	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
 	Bidirectional bool
@@ -49,13 +49,13 @@ type PolicyRule struct {
 	Protocol PolicyRuleProtocolType
 
 	// Ports or it ranges list
-	Ports []string `gorm:"serializer:json"`
+	Ports []string `gorm:"serializer:json;default:'[]'"`
 
 	// PortRanges a list of port ranges.
-	PortRanges []RulePortRange `gorm:"serializer:json"`
+	PortRanges []RulePortRange `gorm:"serializer:json;default:'[]'"`
 
 	// AuthorizedGroups is a map of groupIDs and their respective access to local users via ssh
-	AuthorizedGroups map[string][]string `gorm:"serializer:json"`
+	AuthorizedGroups map[string][]string `gorm:"serializer:json;default:'{}'"`
 
 	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
 	AuthorizedUser string

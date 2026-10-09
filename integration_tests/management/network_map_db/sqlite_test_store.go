@@ -24,7 +24,9 @@ func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, fun
 		storeStr = storeSqliteFileName
 	}
 
-	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{
+		// Logger: logger.Default.LogMode(logger.Info),
+	})
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}

@@ -20,10 +20,10 @@ type Policy struct {
 	Name                   string
 	Description            string
 	Enabled                bool
-	SourceGroups           []string     `gorm:"serializer:json;column:source_groups"`
-	DestinationProviderIDs []string     `gorm:"serializer:json;column:destination_provider_ids"`
-	GuardrailIDs           []string     `gorm:"serializer:json;column:guardrail_ids"`
-	Limits                 PolicyLimits `gorm:"serializer:json;column:limits"`
+	SourceGroups           []string     `gorm:"serializer:json;column:source_groups;default:'[]'"`
+	DestinationProviderIDs []string     `gorm:"serializer:json;column:destination_provider_ids;default:'[]'"`
+	GuardrailIDs           []string     `gorm:"serializer:json;column:guardrail_ids;default:'[]'"`
+	Limits                 PolicyLimits `gorm:"serializer:json;column:limits;default:'{}'"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

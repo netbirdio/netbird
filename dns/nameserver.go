@@ -59,13 +59,13 @@ type NameServerGroup struct {
 	// Description group description
 	Description string
 	// NameServers list of nameservers
-	NameServers []NameServer `gorm:"serializer:json"`
+	NameServers []NameServer `gorm:"serializer:json;default:'[]'"`
 	// Groups list of peer group IDs to distribute the nameservers information
-	Groups []string `gorm:"serializer:json"`
+	Groups []string `gorm:"serializer:json;default:'[]'"`
 	// Primary indicates that the nameserver group is the primary resolver for any dns query
 	Primary bool
 	// Domains indicate the dns query domains to use with this nameserver group
-	Domains []string `gorm:"serializer:json"`
+	Domains []string `gorm:"serializer:json;default:'[]'"`
 	// Enabled group status
 	Enabled bool
 	// SearchDomainsEnabled indicates whether to add match domains to search domains list or not

@@ -47,7 +47,7 @@ type Policy struct {
 	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// SourcePostureChecks are ID references to Posture checks for policy source groups
-	SourcePostureChecks []string `gorm:"serializer:json"`
+	SourcePostureChecks []string `gorm:"serializer:json;default:'[]'"`
 }
 
 // Copy returns a copy of the policy.

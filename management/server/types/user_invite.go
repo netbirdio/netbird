@@ -37,7 +37,7 @@ type UserInviteRecord struct {
 	Email       string    `gorm:"index;not null"`
 	Name        string    `gorm:"not null"`
 	Role        string    `gorm:"not null"`
-	AutoGroups  []string  `gorm:"serializer:json"`
+	AutoGroups  []string  `gorm:"serializer:json;default:'[]'"`
 	HashedToken string    `gorm:"index;not null"` // SHA-256 hash of the token (base64 encoded)
 	ExpiresAt   time.Time `gorm:"not null"`
 	CreatedAt   time.Time `gorm:"not null"`

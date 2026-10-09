@@ -24,6 +24,9 @@ func TestGetPrivateServices(t *testing.T) {
 	execQuery(t, ctx,
 		`insert into services (id, account_id, enabled, private, access_groups, proxy_cluster, domain)
 		 values('service-3','account-1',null,null,null,null,null)`)
+	execQuery(t, ctx,
+		`insert into services (id, account_id, enabled, private, access_groups, proxy_cluster, domain)
+		 values('service-4','account-1',null,null,'',null,'test-5.com')`)
 
 	services, err := conn(t, ctx).GetPrivateServices(ctx, "account-1")
 	assert.NoError(t, err)
@@ -47,6 +50,13 @@ func TestGetPrivateServices(t *testing.T) {
 		AccessGroups: []string{},
 		ProxyCluster: sql.NullString{String: "", Valid: false},
 		Domain:       sql.NullString{String: "", Valid: false},
+	})
+	assert.Contains(t, services, networkmapdb.Service{
+		Enabled:      sql.NullBool{Bool: false, Valid: false},
+		Private:      sql.NullBool{Bool: false, Valid: false},
+		AccessGroups: []string{},
+		ProxyCluster: sql.NullString{String: "", Valid: false},
+		Domain:       sql.NullString{String: "test-5.com", Valid: true},
 	})
 }
 

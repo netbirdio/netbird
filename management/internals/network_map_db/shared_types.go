@@ -243,8 +243,10 @@ func ZonesToAppliedZoneCandidates(zones []Zone) ([]networkmap.AppliedZoneCandida
 		}
 
 		var distributionGroups []string
-		if err := json.Unmarshal(z.DistributionGroups, &distributionGroups); err != nil {
-			return nil, err
+		if len(z.DistributionGroups) > 0 {
+			if err := json.Unmarshal(z.DistributionGroups, &distributionGroups); err != nil {
+				return nil, err
+			}
 		}
 
 		if z.Id != currentZoneId {
