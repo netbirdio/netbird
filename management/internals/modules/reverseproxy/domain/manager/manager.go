@@ -227,22 +227,15 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 	return nil
 }
 
-func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) {
-	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+// ValidateDomain checks the domain's validation CNAME and marks it validated. A failure
+// the user can act on is returned as PreconditionFailed carrying the reason.
+func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) error {
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-		}).WithError(err).Error("validate domain")
-		return
+		return status.NewPermissionValidationError(err)
 	}
 	if !ok {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-			"userID":    userID,
-		}).Error("validate domain: permission denied")
-		return
+		return status.NewPermissionDeniedError()
 	}
 
 	log.WithFields(log.Fields{
@@ -250,32 +243,23 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		"domainID":  domainID,
 	}).Info("starting domain validation")
 
-	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
+	d, err := m.store.GetCustomDomain(ctx, accountID, domainID)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-		}).WithError(err).Error("get custom domain from store")
-		return
+		return fmt.Errorf("get domain from store: %w", err)
 	}
 	if d.Validated {
-		return
+		return nil
 	}
 	if d.ValidationExpiresAt == nil || !time.Now().Before(*d.ValidationExpiresAt) {
-		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
-			Debug("custom domain validation window has expired")
-		return
+		return validationFailed(domain.NewValidationError(domain.ValidationReasonExpired,
+			"custom domain %s validation window has expired; delete and add the domain again", d.Domain))
 	}
 
 	// Validate only against the domain's target cluster
 	targetCluster := d.TargetCluster
 	if targetCluster == "" {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-			"domain":    d.Domain,
-		}).Warn("domain has no target cluster set, skipping validation")
-		return
+		return validationFailed(domain.NewValidationError(domain.ValidationReasonNoTargetCluster,
+			"custom domain %s has no target cluster", d.Domain))
 	}
 
 	log.WithFields(log.Fields{
@@ -285,32 +269,33 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		"targetCluster": targetCluster,
 	}).Info("validating domain against target cluster")
 
-	if m.validator.IsValid(context.Background(), d.Domain, []string{targetCluster}) {
+	_, err = m.validator.Validate(ctx, d.Domain, []string{targetCluster})
+	if err == nil {
 		d.Validated = true
-		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
-			entry := log.WithFields(log.Fields{
-				"accountID": accountID,
-				"domainID":  domainID,
-			}).WithError(err)
-			if sErr, ok := status.FromError(err); ok && sErr.Type() == status.PreconditionFailed {
-				entry.Debug("custom domain registration is no longer pending validation")
-				return
+		if _, err := m.store.UpdateCustomDomain(ctx, accountID, d); err != nil {
+			// A concurrent request may have validated the domain first.
+			if current, getErr := m.store.GetCustomDomain(ctx, accountID, domainID); getErr == nil && current.Validated {
+				return nil
 			}
-			entry.Error("update custom domain in store")
-			return
+			return fmt.Errorf("update domain in store: %w", err)
 		}
 		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
 			Info("custom domain validated successfully")
 
-		m.accountManager.StoreEvent(context.Background(), userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
-	} else {
-		log.WithFields(log.Fields{
-			"accountID":     accountID,
-			"domainID":      domainID,
-			"domain":        d.Domain,
-			"targetCluster": targetCluster,
-		}).Warn("domain validation failed - CNAME does not match target cluster")
+		m.accountManager.StoreEvent(ctx, userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
+		return nil
 	}
+
+	return validationFailed(err)
+}
+
+// validationFailed shows a classified failure to the user and keeps anything else internal.
+func validationFailed(err error) error {
+	var vErr *domain.ValidationError
+	if errors.As(err, &vErr) {
+		return status.Errorf(status.PreconditionFailed, "%s", vErr.Message)
+	}
+	return fmt.Errorf("validate domain: %w", err)
 }
 
 // GetClusterDomains returns a list of proxy cluster domains.

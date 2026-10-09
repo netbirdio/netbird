@@ -12870,7 +12870,7 @@ paths:
   /api/reverse-proxies/domains/{domainId}/validate:
     get:
       summary: Validate a custom domain
-      description: Trigger domain ownership validation for a custom domain
+      description: Validate domain ownership for a custom domain
       tags: [ Services ]
       security:
         - BearerAuth: [ ]
@@ -12883,8 +12883,8 @@ paths:
             type: string
           description: The custom domain ID
       responses:
-        '202':
-          description: Reverse proxy custom domain validation triggered
+        '204':
+          description: Reverse proxy custom domain validated
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -12893,6 +12893,9 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '412':
+          description: Precondition failed - the custom domain could not be validated
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/integrations/notifications/types:
