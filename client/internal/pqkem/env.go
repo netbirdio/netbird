@@ -94,6 +94,7 @@ func logLevel() slog.Level {
 // instead of stdout. Verbosity is gated by EnvLogLevel via logLevel().
 type slogToLogrus struct {
 	fields log.Fields
+	prefix string // open-group path (e.g. "a.b."), prepended to attribute keys
 }
 
 func (h slogToLogrus) Enabled(_ context.Context, level slog.Level) bool {
@@ -106,7 +107,7 @@ func (h slogToLogrus) Handle(_ context.Context, r slog.Record) error {
 		fields[k] = v
 	}
 	r.Attrs(func(a slog.Attr) bool {
-		fields[a.Key] = a.Value.Any()
+		fields[h.prefix+a.Key] = a.Value.Any()
 		return true
 	})
 	entry := log.WithFields(fields)
@@ -131,9 +132,16 @@ func (h slogToLogrus) WithAttrs(attrs []slog.Attr) slog.Handler {
 		fields[k] = v
 	}
 	for _, a := range attrs {
-		fields[a.Key] = a.Value.Any()
+		fields[h.prefix+a.Key] = a.Value.Any()
 	}
-	return slogToLogrus{fields: fields}
+	return slogToLogrus{fields: fields, prefix: h.prefix}
 }
 
-func (h slogToLogrus) WithGroup(_ string) slog.Handler { return h }
+// WithGroup opens a nested namespace: subsequent attributes are keyed under the group
+// path (joined with "."). An empty name is a no-op, per the slog contract.
+func (h slogToLogrus) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	return slogToLogrus{fields: h.fields, prefix: h.prefix + name + "."}
+}
