@@ -2632,6 +2632,12 @@ type BypassResponse struct {
 	PeerId string `json:"peer_id"`
 }
 
+// CertificateCheck Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+type CertificateCheck struct {
+	// CaCertificates PEM encoded CA certificates the peer's certificate must chain to
+	CaCertificates []string `json:"ca_certificates"`
+}
+
 // CheckoutResponse defines model for CheckoutResponse.
 type CheckoutResponse struct {
 	// SessionId The unique identifier for the checkout session.
@@ -2643,6 +2649,9 @@ type CheckoutResponse struct {
 
 // Checks List of objects that perform the actual checks
 type Checks struct {
+	// CertificateCheck Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+	CertificateCheck *CertificateCheck `json:"certificate_check,omitempty"`
+
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
 

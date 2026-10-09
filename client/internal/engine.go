@@ -37,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/certproof"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -57,6 +58,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
@@ -169,6 +171,8 @@ type EngineConfig struct {
 
 	MTU uint16
 
+	CertStore certproof.Config
+
 	// for debug bundle generation
 	ProfileConfig *profilemanager.Config
 
@@ -244,6 +248,9 @@ type Engine struct {
 	wgDevice atomic.Pointer[wgdevice.Device]
 
 	udpMux *udpmux.UniversalUDPMuxDefault
+
+	// wgDetector is shared by every ICE agent through the ICE config.
+	wgDetector *stdnet.WGDetector
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -362,6 +369,7 @@ func NewEngine(
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
 		peerStore:          peerstore.NewConnStore(),
+		wgDetector:         stdnet.NewWGDetector(),
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
@@ -1235,6 +1243,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		return nil
 	}
 	e.applyInfoFlags(info)
+	e.attachCertificateProofs(info, checks)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("could not sync meta: error %s", err)
@@ -1266,9 +1275,17 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 	)
 }
 
+// attachCertificateProofs answers the certificate challenges in checks with the
+// certificates reachable on this device, signing each challenge nonce for our peer key.
+func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
+	peerKey := e.config.WgPrivateKey.PublicKey()
+	info.CertificateProofs = certproof.CollectProofs(e.ctx, checks, peerKey[:], e.config.CertStore)
+}
+
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
 	e.applyInfoFlags(info)
+	e.attachCertificateProofs(info, e.checks)
 	return info
 }
 
@@ -1284,6 +1301,7 @@ func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) 
 		info := refreshed
 		refreshed = nil
 		e.applyInfoFlags(info)
+		e.attachCertificateProofs(info, e.checks)
 		return info
 	}
 }
@@ -2741,6 +2759,11 @@ func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
 			sortedFiles := slices.Clone(check.Files)
 			sort.Strings(sortedFiles)
 			normalized[i] = strings.Join(sortedFiles, "|")
+			if challenge := check.GetCertificateChallenge(); challenge != nil {
+				sortedCAs := slices.Clone(challenge.GetCaCertificates())
+				sort.Strings(sortedCAs)
+				normalized[i] += fmt.Sprintf("#%x|%s", challenge.GetNonce(), strings.Join(sortedCAs, "|"))
+			}
 		}
 
 		sort.Strings(normalized)

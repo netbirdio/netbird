@@ -688,7 +688,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				StatusRecorder: peer.NewRecorder("https://mgm"),
 			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist, nil)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
@@ -893,7 +893,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist, nil)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
 				Address:      wgaddr.MustParseWGAddress(wgAddr),
@@ -1176,6 +1176,32 @@ func Test_CheckFilesEqual(t *testing.T) {
 						"testfile2",
 					},
 				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Same files with rotated certificate challenge nonce should return false",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files:                []string{"testfile1"},
+					CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-a"}},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files:                []string{"testfile1"},
+					CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{2}, CaCertificates: []string{"ca-a"}},
+				},
+			},
+			expectedBool: false,
+		},
+		{
+			name: "Same certificate challenge with CA certificates in different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-a", "ca-b"}}},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-b", "ca-a"}}},
 			},
 			expectedBool: true,
 		},
