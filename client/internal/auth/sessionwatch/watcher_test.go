@@ -872,13 +872,16 @@ func TestConcurrentCloseWaitsForTheLoop(t *testing.T) {
 	r := &blockingRecorder{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(r.release) }) }
-	// Every exit path has to unblock the publish, or a t.Fatal below strands
-	// the loop and both Close calls for the rest of the package run.
-	t.Cleanup(release)
 
 	w := newWatcherWithLeads(WarningLead, FinalWarningLead, r)
 	w.interval = time.Hour
-	t.Cleanup(w.Close)
+	// Order matters: Close waits for the loop, which stays parked in the
+	// publish until the release, so a t.Fatal below would hang the cleanup
+	// instead of reporting the failure.
+	t.Cleanup(func() {
+		release()
+		w.Close()
+	})
 
 	d := time.Now().Add(5 * time.Minute).Round(0)
 	if err := w.Update(d); err != nil {
