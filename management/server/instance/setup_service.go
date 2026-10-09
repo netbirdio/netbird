@@ -111,7 +111,9 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 		Name:   userData.Name,
 	}
 
-	accountID, err := m.accountManager.GetAccountIDByUserID(ctx, userAuth)
+	// Resolve through the same path as a first login so single account mode
+	// stamps the configured domain, private category and primary flag.
+	accountID, _, err := m.accountManager.GetAccountIDFromUserAuth(ctx, userAuth)
 	if err != nil {
 		err = fmt.Errorf("create account for setup user: %w", err)
 		if rollbackErr := m.rollbackSetup(ctx, userData.ID, "account provisioning failed", err, ""); rollbackErr != nil {

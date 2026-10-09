@@ -50,6 +50,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/job"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -842,6 +843,49 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected an error when user ID is empty")
 	}
+}
+
+type setupOwnerInstanceManager struct {
+	instance.Manager
+	user *idp.UserData
+}
+
+func (m setupOwnerInstanceManager) CreateOwnerUser(context.Context, string, string, string) (*idp.UserData, error) {
+	return m.user, nil
+}
+
+// The /api/setup owner account must get the single account mode domain, so later
+// users join that account instead of forking a new one (#7197).
+func TestSetupOwner_SingleAccountMode_LaterUsersJoinSetupAccount(t *testing.T) {
+	t.Setenv(instance.SetupPATEnabledEnvKey, "true")
+
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	manager.singleAccountMode = true
+	manager.singleAccountModeDomain = "netbird.selfhosted"
+
+	ctx := context.Background()
+	owner := &idp.UserData{ID: "owner", Email: "owner@example.com", Name: "Owner"}
+	setup := instance.NewSetupService(setupOwnerInstanceManager{user: owner}, manager)
+	_, err = setup.SetupOwner(ctx, owner.Email, "password", owner.Name, instance.SetupOptions{CreatePAT: true})
+	require.NoError(t, err)
+
+	ownerAccountID, err := manager.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, owner.ID)
+	require.NoError(t, err)
+	acc, err := manager.Store.GetAccount(ctx, ownerAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, "netbird.selfhosted", acc.Domain)
+	assert.Equal(t, types.PrivateCategory, acc.DomainCategory)
+	assert.True(t, acc.IsDomainPrimaryAccount)
+
+	jitAccountID, _, err := manager.GetAccountIDFromUserAuth(ctx, auth.UserAuth{
+		UserId:         "jit-user",
+		Email:          "jit@gmail.com",
+		Domain:         "gmail.com",
+		DomainCategory: types.PublicCategory,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ownerAccountID, jitAccountID)
 }
 
 func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*types.Account, error) {

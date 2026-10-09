@@ -363,9 +363,9 @@ func TestSetup_PAT_MissingExpireIn_DefaultsToOneDay(t *testing.T) {
 		},
 	}
 	accountMgr := &mock_server.MockAccountManager{
-		GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+		GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 			assert.Equal(t, "u1", userAuth.UserId)
-			return "acc-1", nil
+			return "acc-1", "u1", nil
 		},
 		CreatePATFunc: func(_ context.Context, accountID, initiator, target, name string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 			assert.Equal(t, "acc-1", accountID)
@@ -425,10 +425,10 @@ func TestSetup_PAT_Success(t *testing.T) {
 		email  string
 	}{}
 	accountMgr := &mock_server.MockAccountManager{
-		GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+		GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 			gotAccountArgs.userID = userAuth.UserId
 			gotAccountArgs.email = userAuth.Email
-			return "acc-1", nil
+			return "acc-1", "u1", nil
 		},
 		CreatePATFunc: func(_ context.Context, accountID, initiator, target, name string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 			assert.Equal(t, "acc-1", accountID)
@@ -479,8 +479,8 @@ func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 		},
 	}
 	accountMgr := &mock_server.MockAccountManager{
-		GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
-			return "", errors.New("db down")
+		GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+			return "", "", errors.New("db down")
 		},
 		GetStoreFunc: func() nbstore.Store {
 			return accountStore
@@ -521,8 +521,8 @@ func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 		},
 	}
 	accountMgr := &mock_server.MockAccountManager{
-		GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
-			return "acc-1", nil
+		GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+			return "acc-1", "u1", nil
 		},
 		CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
 			return nil, status.Errorf(status.Internal, "token store unavailable")

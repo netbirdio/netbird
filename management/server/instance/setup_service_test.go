@@ -87,9 +87,9 @@ func TestSetupOwner_PATFeatureEnabled_MissingExpireDefaultsToOneDay(t *testing.T
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 				assert.Equal(t, "owner-id", userAuth.UserId)
-				return "acc-1", nil
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, accountID, initiatorUserID, targetUserID, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 				assert.Equal(t, "acc-1", accountID)
@@ -163,9 +163,9 @@ func TestSetupOwner_AccountProvisioningFails_RollsBackSideEffectAccountAndUser(t
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 				assert.Equal(t, "owner-id", userAuth.UserId)
-				return "", errors.New("metadata update failed")
+				return "", "", errors.New("metadata update failed")
 			},
 			GetStoreFunc: func() nbstore.Store {
 				return accountStore
@@ -204,9 +204,9 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, userAuth auth.UserAuth) (string, string, error) {
 				assert.Equal(t, "owner-id", userAuth.UserId)
-				return "acc-1", nil
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, accountID, initiatorUserID, targetUserID, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 				assert.Equal(t, "acc-1", accountID)
@@ -251,8 +251,8 @@ func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testi
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
-				return "acc-1", nil
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
 				return nil, errors.New("token failure")
@@ -293,8 +293,8 @@ func TestSetupOwner_CreatePATFails_AccountRollbackFailureStopsBeforeUserRollback
 			},
 		},
 		&mock_server.MockAccountManager{
-			GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
-				return "acc-1", nil
+			GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+				return "acc-1", "owner-id", nil
 			},
 			CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
 				return nil, errors.New("token failure")
