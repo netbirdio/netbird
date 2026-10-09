@@ -215,3 +215,202 @@ func lastSevenDigits(phone string) string {
 	}
 	return string(digits[len(digits)-7:])
 }
+
+// TestRedactPIIPhoneInternational covers numbers outside North America the way
+// people actually write them: with a country code and separators, in national
+// format with a trunk prefix, or with a 00 international prefix. The subscriber
+// digits must not survive, whatever prefix the redactor leaves behind.
+func TestRedactPIIPhoneInternational(t *testing.T) {
+	cases := []string{
+		"+49 151 23456789",
+		"+49-151-23456789",
+		"+49 (0)151 23456789",
+		"+49 30 12345678",
+		"+44 20 7946 0958",
+		"+33 1 23 45 67 89",
+		"+1 202 555 0188",
+		"0049 151 23456789",
+		"0151 23456789",
+		"030 12345678",
+	}
+	for _, phone := range cases {
+		t.Run(phone, func(t *testing.T) {
+			out := redactPII("call me at " + phone + " anytime")
+			assert.Equal(t, "call me at [REDACTED:phone] anytime", out, "the whole number must be redacted for %q", phone)
+		})
+	}
+}
+
+// TestRedactPIIPhoneGerman covers German numbers as DIN 5008 writes them and
+// in the older or informal styles still common in signatures and prompts: area
+// codes of two to five digits, mobile and service prefixes, extensions, the
+// "(0)" trunk-prefix notation and numbers without any separators.
+func TestRedactPIIPhoneGerman(t *testing.T) {
+	cases := []string{
+		// DIN 5008
+		"030 12345678",
+		"030 1234567-89",
+		"0151 23456789",
+		"+49 30 12345678",
+		"+49 30 1234567-89",
+		"+49 151 23456789",
+		// older and informal styles
+		"(030) 12345678",
+		"030/12345678",
+		"030-12345678",
+		"030.12345678",
+		"0151/23456789",
+		"0151-23456789",
+		"+49 (0)30 12345678",
+		"+49 (0) 30 12345678",
+		"+49 (0)151 23456789",
+		"0049 30 12345678",
+		"+49-30-12345678",
+		"(0)30 12345678",
+		"(0) 30 12345678",
+		"(0) 151 23456789",
+		"0 30 12345678",
+		"0 151 23456789",
+		// no separators
+		"03012345678",
+		"015123456789",
+		"+493012345678",
+		// area codes of two to five digits
+		"089 12345",
+		"0221 1234567",
+		"06221 123456",
+		"033203 1234",
+		// mobile prefixes and grouping
+		"0171 1234567",
+		"0160 1234567",
+		"01512 3456789",
+		"0151 2345 6789",
+		"0176 123 456 78",
+		// service numbers
+		"0800 1234567",
+		"0180 5 123456",
+		"0900 1234567",
+	}
+	for _, phone := range cases {
+		t.Run(phone, func(t *testing.T) {
+			out := redactPII("Tel.: " + phone + " (Büro)")
+			assert.Equal(t, "Tel.: [REDACTED:phone] (Büro)", out, "the whole number must be redacted for %q", phone)
+		})
+	}
+}
+
+// TestRedactPIIPhoneSpaceSeparatedDate documents an accepted over-redaction. A
+// date written with spaces only ("05 10 2026") is redacted as a phone number,
+// because treating "dd mm yy" with spaces as a date would leave French numbers
+// such as "01 23 45 67 89" in the clear. Leaking a number is worse than hiding a
+// rarely written date.
+func TestRedactPIIPhoneSpaceSeparatedDate(t *testing.T) {
+	assert.Equal(t, "am [REDACTED:phone]", redactPII("am 05 10 2026"),
+		"space-separated date is redacted as a phone number by design")
+	assert.Equal(t, "Tel. [REDACTED:phone]", redactPII("Tel. 01 23 45 67 89"),
+		"French number in pairs must be redacted")
+}
+
+// TestRedactPIIPhoneSeparatedTrunkPrefix documents the boundary of the
+// "0 30 12345678" notation. A run of single digits after a lone 0 stays
+// readable, while a space-separated number list starting with 0 is redacted as
+// a phone number. Redaction only applies to the captured prompt in the access
+// log, never to the request sent upstream, so hiding a list is the cheaper
+// mistake.
+func TestRedactPIIPhoneSeparatedTrunkPrefix(t *testing.T) {
+	assert.Equal(t, "digits 0 1 2 3 4 5 6 7 8", redactPII("digits 0 1 2 3 4 5 6 7 8"),
+		"single digits after a lone 0 must not be redacted")
+	assert.Equal(t, "values [REDACTED:phone]", redactPII("values 0 100 200 300 400"),
+		"a number list starting with 0 is redacted as a phone number by design")
+}
+
+// TestRedactPIIPhoneKeepsSurroundingParentheses checks that a number wrapped in
+// parentheses is redacted without unbalancing them.
+func TestRedactPIIPhoneKeepsSurroundingParentheses(t *testing.T) {
+	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (0151 23456789) bitte"),
+		"national number in parentheses must keep both parentheses")
+	assert.Equal(t, "Rückruf ([REDACTED:phone]) bitte", redactPII("Rückruf (+49 151 23456789) bitte"),
+		"international number in parentheses must keep both parentheses")
+}
+
+// TestRedactPIIPhoneFalsePositives guards the other direction: digit runs that
+// commonly appear in prompts but are not phone numbers must not be redacted as
+// phones.
+func TestRedactPIIPhoneFalsePositives(t *testing.T) {
+	cases := []string{
+		"born on 1985-03-14",
+		"released 2026-10-06 at 10:45:30",
+		"upgrade to version 1.27.1",
+		"expiry 12/29, CVV 123",
+		"listen on port 51820",
+		"server 203.0.113.42 is down",
+		"invoice #4711 for 1499.00 EUR",
+		"meeting on 05.10.2026",
+		"meeting on 05/10/26",
+		"build 0.27.1-rc1",
+		"see RFC 0791 section 3",
+		"zip 01067 Dresden",
+		"order 0012345",
+		"am 05.10.2026 08:30",
+		"05.10.2026 14:00",
+		"05/10/2026 14:00 Uhr",
+		"2026-01-05 08:30:00",
+		"2026-01-05T08:30:00Z",
+		"2026-01-05T08:30:00.123+02:00",
+		"2026/01/05 08:30",
+		"from 2026-01-05 to 2026-02-07",
+		"vom 05.10.2026\u201330.11.2026",
+		"vom 05.10.2026-30.11.2026",
+		"am 05.10.2026-09:30 Uhr",
+	}
+	for _, in := range cases {
+		t.Run(in, func(t *testing.T) {
+			out := redactPII(in)
+			assert.NotContains(t, out, "[REDACTED:phone]", "non-phone input must not be redacted as a phone: %q -> %q", in, out)
+		})
+	}
+}
+
+// TestRedactPIIPhoneUnicodeSeparators covers numbers written with the Unicode
+// spaces and dashes that word processors, chat clients and LLM completions put
+// between digit groups instead of ASCII spaces and hyphens.
+func TestRedactPIIPhoneUnicodeSeparators(t *testing.T) {
+	cases := map[string]string{
+		"narrow no-break space": "+49 151 23456789",
+		"no-break space":        "+49 151 23456789",
+		"thin space":            "0151 23456789",
+		"figure space":          "030 12345678",
+		"non-breaking hyphen":   "030‑1234567‑89",
+		"en dash":               "0151–23456789",
+		"north american nbsp":   "(415) 555 1234",
+	}
+	for name, phone := range cases {
+		t.Run(name, func(t *testing.T) {
+			out := redactPII("Tel.: " + phone + " (Büro)")
+			assert.Equal(t, "Tel.: [REDACTED:phone] (Büro)", out, "the whole number must be redacted for %q", phone)
+		})
+	}
+}
+
+// TestRedactPIIPhoneAfterDate checks that a date directly followed by a number
+// keeps the date and still redacts the number, instead of exempting both.
+func TestRedactPIIPhoneAfterDate(t *testing.T) {
+	cases := map[string]string{
+		"am 05.10.2026 0151 23456789":   "am 05.10.2026 [REDACTED:phone]",
+		"am 05/10/2026 030 12345678":    "am 05/10/2026 [REDACTED:phone]",
+		"am 05.10.2026 +49 30 12345678": "am 05.10.2026 [REDACTED:phone]",
+	}
+	for in, want := range cases {
+		t.Run(in, func(t *testing.T) {
+			assert.Equal(t, want, redactPII(in), "the date must survive and the number must be redacted")
+		})
+	}
+}
+
+// TestRedactPIIPhoneStopsAtLineBreak checks that a candidate does not run
+// across a line break into the next line.
+func TestRedactPIIPhoneStopsAtLineBreak(t *testing.T) {
+	in := "Tel. 030 12345678\n2026 report"
+	assert.Equal(t, "Tel. [REDACTED:phone]\n2026 report", redactPII(in),
+		"redaction must stop at the end of the line")
+}
