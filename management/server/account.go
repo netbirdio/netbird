@@ -2697,6 +2697,8 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
+		am.reloadServicesTargetingPeer(ctx, accountID, peerID)
+
 		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
@@ -2707,7 +2709,6 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 		if err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
-		am.reloadServicesTargetingPeer(ctx, accountID, peerID)
 	}
 	return nil
 }
