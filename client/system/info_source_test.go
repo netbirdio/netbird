@@ -42,12 +42,12 @@ func TestInfoSource_CurrentReusesRefreshedFiles(t *testing.T) {
 // and gathering works again once it exits.
 func TestInfoSource_RefreshSkipsWhileEarlierGatheringRuns(t *testing.T) {
 	var src InfoSource
-	src.stuck.Store(1)
+	src.abandoned = map[uint64]time.Time{1: time.Now()}
 
 	_, ok := src.Refresh(context.Background(), 15*time.Second, nil)
 	assert.False(t, ok, "no gathering starts while an earlier one is still running")
 
-	src.stuck.Store(0)
+	src.abandoned = nil
 	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
 	require.True(t, ok, "gathering runs once the earlier one exited")
 
@@ -63,7 +63,7 @@ func TestInfoSource_RefreshReleasesAfterTimedOutGatheringExits(t *testing.T) {
 	_, ok := src.Refresh(context.Background(), time.Nanosecond, nil)
 	require.False(t, ok, "gathering cannot finish within a nanosecond")
 
-	require.Eventually(t, func() bool { return src.stuck.Load() == 0 }, 10*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return src.abandonedCount() == 0 }, 10*time.Second, 10*time.Millisecond,
 		"the source is released when the abandoned gathering exits")
 	_, ok = src.Refresh(context.Background(), 15*time.Second, nil)
 	assert.True(t, ok, "gathering works again after the abandoned one exited")
@@ -156,5 +156,43 @@ func TestInfoSource_CurrentExcludesAddresses(t *testing.T) {
 	assert.Len(t, info.NetworkAddresses, len(addrs)-matching)
 	for _, addr := range info.NetworkAddresses {
 		assert.NotEqual(t, excluded, addr.NetIP.Addr())
+	}
+}
+
+// TestInfoSource_LostGatheringDoesNotBlockForever: a gathering blocked for good, such as
+// an os.Stat on a dead network mount, must not stop every later meta sync. Once it has
+// run for lostAfter timeouts another starts beside it, and no more than maxAbandoned
+// are ever left running.
+func TestInfoSource_LostGatheringDoesNotBlockForever(t *testing.T) {
+	entered, release := stubGathering(t, "/wedged")
+	t.Cleanup(func() { close(release) })
+	now := time.Now()
+	src := InfoSource{now: func() time.Time { return now }}
+	const timeout = 10 * time.Millisecond
+	lost := time.Duration(infoLostAfter) * timeout
+
+	_, ok := src.Refresh(context.Background(), timeout, filesCheck("/wedged"))
+	require.False(t, ok, "the wedged gathering times out")
+	<-entered
+
+	_, ok = src.Refresh(context.Background(), timeout, filesCheck("/wedged"))
+	assert.False(t, ok, "a gathering that may still finish holds off the next one")
+
+	now = now.Add(lost)
+	_, ok = src.Refresh(context.Background(), timeout, filesCheck("/wedged"))
+	require.False(t, ok, "the second wedged gathering times out too")
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("once the first gathering is lost another one starts")
+	}
+
+	now = now.Add(lost)
+	_, ok = src.Refresh(context.Background(), timeout, filesCheck("/wedged"))
+	assert.False(t, ok, "no more than maxAbandoned gatherings are left running")
+	select {
+	case <-entered:
+		t.Fatal("a third gathering started beside two lost ones")
+	case <-time.After(50 * time.Millisecond):
 	}
 }
