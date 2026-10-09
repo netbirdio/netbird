@@ -849,6 +849,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"ClientCertKeyPair":    "non-config: parsed cert pair, not serialized",
 		"Name":                 "non-config: profile name is not needed for debug purposes",
 		"policy":               "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
+		"probing":              "non-config: marks a throwaway copy built to be diffed against; never set on a config anyone runs with",
 		"DebugBundleUploadURL": "sensitive: MDM-provided upload URL may carry credentials or query tokens; kept out of the shared bundle",
 		"CertPKCS11URI":        "deprecated and ignored; sensitive: the URI may carry the token PIN as pin-value",
 		"CertStoreDir":         "deprecated and ignored: the directory comes from NB_CERT_STORE_DIR",

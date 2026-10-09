@@ -96,6 +96,11 @@ body {
     @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
 }
 
+[dir="rtl"] :is(.font-mono, code, kbd):not([dir]) {
+    direction: ltr;
+    unicode-bidi: isolate;
+}
+
 .wails-draggable {
     --wails-draggable: drag;
     cursor: default;
