@@ -40,7 +40,28 @@ builds:
     tags:
       - load_wgnt_from_rsrc
 
-  # Single-arch builds: nfpm provides is not templated, so the RPM splits per arch.
+  # deb and rpm packages target glibc distributions, so they carry the PKCS#11 store, which
+  # links libc. Tarballs and the Alpine-based images keep the static build above.
+  - id: netbird-pkcs11
+    dir: client
+    binary: netbird
+    env: [CGO_ENABLED=0]
+    goos:
+      - linux
+    goarch:
+      - arm
+      - amd64
+      - arm64
+      - 386
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - load_wgnt_from_rsrc
+      - pkcs11
+
+  # Single-arch builds: nfpm provides is not templated, so the RPM splits per arch. They
+  # carry the PKCS#11 store like the deb build above.
   - &netbird_rpm_build
     id: netbird-rpm-amd64
     dir: client
@@ -53,6 +74,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     tags:
       - load_wgnt_from_rsrc
+      - pkcs11
 
   - <<: *netbird_rpm_build
     id: netbird-rpm-arm64
@@ -268,7 +290,7 @@ nfpms:
     id: netbird_deb
     bindir: /usr/bin
     builds:
-      - netbird
+      - netbird-pkcs11
     formats:
       - deb
     scripts:
@@ -311,6 +333,9 @@ nfpms:
       - src: release_files/netbird.sysconfig
         dst: /etc/sysconfig/netbird
         type: config|noreplace
+        # May hold the PKCS#11 token PIN (NB_TPM_PIN), so readable by root alone.
+        file_info:
+          mode: 0600
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"

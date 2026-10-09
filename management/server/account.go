@@ -100,6 +100,8 @@ type DefaultAccountManager struct {
 
 	peerInactivityExpiry Scheduler
 
+	certChallenges *certChallengeRefresher
+
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
 
@@ -255,6 +257,8 @@ func BuildManager(
 		disableDefaultPolicy:     disableDefaultPolicy,
 	}
 
+	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
+
 	am.networkMapController.StartWarmup(ctx)
 
 	accountsCounter, err := store.GetAccountsCounter(ctx)
@@ -295,6 +299,10 @@ func BuildManager(
 	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string, peerIDs []string) {
 		am.onPeersInvalidated(ctx, accountID, peerIDs)
 	})
+
+	// Started last: a manager that fails to build is never returned, so nothing would
+	// stop its refresher.
+	am.certChallenges.Start(ctx)
 
 	return am, nil
 }
@@ -961,6 +969,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 	// cancel peer login expiry job
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
+	am.certChallenges.Forget(account.Id)
 
 	meta := map[string]any{"account_id": account.Id, "domain": account.Domain, "created_at": account.CreatedAt}
 	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDeleted, meta)
@@ -2705,6 +2714,8 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
+		am.reloadServicesTargetingPeer(ctx, accountID, peerID)
+
 		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
@@ -2717,6 +2728,19 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 		}
 	}
 	return nil
+}
+
+// reloadServicesTargetingPeer resends the account's reverse proxy services unless none of them targets the peer.
+func (am *DefaultAccountManager) reloadServicesTargetingPeer(ctx context.Context, accountID, peerID string) {
+	serviceID, err := am.serviceManager.GetServiceIDByTargetID(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to look up services targeting peer %s, reloading all: %v", peerID, err)
+	} else if serviceID == "" {
+		return
+	}
+	if err := am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+		log.WithContext(ctx).Warnf("failed to reload services for account %s: %v", accountID, err)
+	}
 }
 
 func (am *DefaultAccountManager) updatePeerIPInTransaction(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) (bool, error) {

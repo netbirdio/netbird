@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -4478,6 +4479,86 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 		newAddr := netip.MustParseAddr("100.64.0.101")
 		err := manager.UpdatePeerIP(context.Background(), accountID, userID, "invalid-peer-id", newAddr)
 		require.Error(t, err, "should fail with invalid peer ID")
+	})
+}
+
+func TestDefaultAccountManager_UpdatePeerIP_ReloadsTargetingServices(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	ctx := context.Background()
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peer, _, _, _, err := manager.AddPeer(ctx, "", "", userID, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "proxied-peer"},
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	account, err := manager.Store.GetAccount(ctx, accountID)
+	require.NoError(t, err, "unable to get account")
+	network := netip.MustParsePrefix(account.Network.Net.String())
+
+	t.Run("targeted peer reloads services", func(t *testing.T) {
+		serviceManager := service.NewMockManager(gomock.NewController(t))
+		manager.SetServiceManager(serviceManager)
+		serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, peer.ID).Return("svc-1", nil)
+		serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil)
+
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		require.NoError(t, err)
+		newIP, err := types.AllocatePeerIP(network, []netip.Addr{current.IP})
+		require.NoError(t, err)
+		require.NoError(t, manager.UpdatePeerIP(ctx, accountID, userID, peer.ID, newIP))
+	})
+
+	t.Run("untargeted peer skips reload", func(t *testing.T) {
+		serviceManager := service.NewMockManager(gomock.NewController(t))
+		manager.SetServiceManager(serviceManager)
+		serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, peer.ID).Return("", nil)
+
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		require.NoError(t, err)
+		newIP, err := types.AllocatePeerIP(network, []netip.Addr{current.IP})
+		require.NoError(t, err)
+		require.NoError(t, manager.UpdatePeerIP(ctx, accountID, userID, peer.ID, newIP))
+	})
+
+	t.Run("lookup failure reloads services", func(t *testing.T) {
+		serviceManager := service.NewMockManager(gomock.NewController(t))
+		manager.SetServiceManager(serviceManager)
+		serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, peer.ID).Return("", errors.New("store unavailable"))
+		serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil)
+
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		require.NoError(t, err)
+		newIP, err := types.AllocatePeerIP(network, []netip.Addr{current.IP})
+		require.NoError(t, err)
+		require.NoError(t, manager.UpdatePeerIP(ctx, accountID, userID, peer.ID, newIP))
+	})
+
+	t.Run("network map notification failure still reloads services", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		serviceManager := service.NewMockManager(ctrl)
+		manager.SetServiceManager(serviceManager)
+		serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, peer.ID).Return("svc-1", nil)
+		serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil)
+
+		originalController := manager.networkMapController
+		t.Cleanup(func() { manager.networkMapController = originalController })
+		networkMapController := network_map.NewMockController(ctrl)
+		networkMapController.EXPECT().GetDNSDomain(gomock.Any()).Return("netbird.cloud").AnyTimes()
+		networkMapController.EXPECT().OnPeersUpdated(gomock.Any(), accountID, []string{peer.ID}, gomock.Any()).Return(errors.New("notify failed"))
+		manager.networkMapController = networkMapController
+
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		require.NoError(t, err)
+		newIP, err := types.AllocatePeerIP(network, []netip.Addr{current.IP})
+		require.NoError(t, err)
+		require.Error(t, manager.UpdatePeerIP(ctx, accountID, userID, peer.ID, newIP))
 	})
 }
 
