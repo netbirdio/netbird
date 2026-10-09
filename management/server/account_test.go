@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/push"
@@ -40,6 +41,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
+	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
@@ -47,7 +49,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -958,6 +959,101 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 	assert.Len(t, pats, 0)
 }
 
+func TestAccountManager_DeleteAccount_RunsDeletionHooks(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	// Each hook records its call and checks the account is still in the store, which is
+	// the point of running before deletion: a hook must be able to read what it cleans up.
+	var calls []string
+	hook := func(name string) nbAccount.DeletionHook {
+		return func(ctx context.Context, accountID string) error {
+			calls = append(calls, name+":"+accountID)
+			_, err := manager.Store.GetAccount(ctx, accountID)
+			assert.NoError(t, err, "account should still exist while hook %s runs", name)
+			return nil
+		}
+	}
+	manager.AddAccountDeletionHook(hook("first"))
+	manager.AddAccountDeletionHook(hook("second"))
+
+	require.NoError(t, manager.DeleteAccount(context.Background(), account.Id, ownerID))
+
+	assert.Equal(t, []string{"first:" + account.Id, "second:" + account.Id}, calls,
+		"hooks should run once each, in registration order, with the deleted account's ID")
+	_, err = manager.Store.GetAccount(context.Background(), account.Id)
+	assert.Error(t, err, "account should be deleted after the hooks succeed")
+}
+
+func TestAccountManager_DeleteAccount_DeletionHookErrorAbortsDeletion(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		return status.Errorf(status.PreconditionFailed, "teardown refused")
+	})
+	secondCalled := false
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		secondCalled = true
+		return nil
+	})
+
+	err = manager.DeleteAccount(context.Background(), account.Id, ownerID)
+	require.Error(t, err)
+
+	// The hook's status type has to survive the wrapping, since the HTTP layer maps it
+	// to the response code.
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "error should carry the hook's status error, got %v", err)
+	assert.Equal(t, status.PreconditionFailed, sErr.Type(), "status type should be the hook's")
+	assert.False(t, secondCalled, "hooks after a failing one should not run")
+
+	_, err = manager.Store.GetAccount(context.Background(), account.Id)
+	assert.NoError(t, err, "account should survive a failing hook")
+	_, err = manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, ownerID)
+	assert.NoError(t, err, "account owner should survive a failing hook")
+}
+
+func TestAccountManager_AddAccountDeletionHook_RejectsNil(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	assert.PanicsWithValue(t, "nil account deletion hook", func() {
+		manager.AddAccountDeletionHook(nil)
+	}, "registering a nil hook should panic instead of breaking a later deletion")
+}
+
+func TestAccountManager_DeleteAccount_DeletionHooksSkippedWithoutPermission(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	adminID := "regular_admin"
+	account.Users[adminID] = types.NewAdminUser(adminID)
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	called := false
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		called = true
+		return nil
+	})
+
+	err = manager.DeleteAccount(context.Background(), account.Id, adminID)
+	require.Error(t, err, "only the owner may delete the account")
+	assert.False(t, called, "hooks should not run for a caller who may not delete the account")
+}
+
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	claims := auth.UserAuth{
 		Domain:         "example.com",
@@ -1202,7 +1298,9 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
-	testAccountManager_NetworkUpdates_SaveGroup(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		testAccountManager_NetworkUpdates_SaveGroup(t)
+	})
 }
 
 func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
@@ -1235,6 +1333,8 @@ func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	defer updateManager.CloseChannel(context.Background(), peer1.ID)
 
+	settleAffectedUpdates(updMsg)
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -1257,7 +1357,9 @@ func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
-	testAccountManager_NetworkUpdates_DeletePolicy(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		testAccountManager_NetworkUpdates_DeletePolicy(t)
+	})
 }
 
 func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
@@ -1266,13 +1368,7 @@ func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	defer updateManager.CloseChannel(context.Background(), peer1.ID)
 
-	// Ensure that we do not receive an update message before the policy is deleted
-	time.Sleep(time.Second)
-	select {
-	case <-updMsg:
-		t.Logf("received addPeer update message before policy deletion")
-	default:
-	}
+	settleAffectedUpdates(updMsg)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -1295,7 +1391,9 @@ func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
-	testAccountManager_NetworkUpdates_SavePolicy(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		testAccountManager_NetworkUpdates_SavePolicy(t)
+	})
 }
 
 func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
@@ -1314,6 +1412,8 @@ func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 
 	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	defer updateManager.CloseChannel(context.Background(), peer1.ID)
+
+	settleAffectedUpdates(updMsg)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -1348,7 +1448,9 @@ func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
-	testAccountManager_NetworkUpdates_DeletePeer(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		testAccountManager_NetworkUpdates_DeletePeer(t)
+	})
 }
 
 func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
@@ -1387,6 +1489,8 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	defer updateManager.CloseChannel(context.Background(), peer1.ID)
 
+	settleAffectedUpdates(updMsg)
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -1408,7 +1512,9 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
-	testAccountManager_NetworkUpdates_DeleteGroup(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		testAccountManager_NetworkUpdates_DeleteGroup(t)
+	})
 }
 
 func testAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
@@ -1454,6 +1560,8 @@ func testAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 			drained = true
 		}
 	}
+
+	settleAffectedUpdates(updMsg)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -1920,6 +2028,154 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	}
 }
 
+func TestDefaultAccountManager_SchedulePeerLoginExpiration_IncludesOfflinePeers(t *testing.T) {
+	manager, updateManager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	connectedKey, offlineKey := addExpiringPeers(t, manager)
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	manager.peerLoginExpiry.CancelAll(context.Background())
+
+	// The connected peer logged in just now, so a job computed from connected peers alone
+	// would be armed for an hour. The offline peer's login expires in two seconds; a
+	// reconnect of that peer must not have to wait for the connected peer's tick.
+	now := time.Now().UTC()
+	setPeerLogin(t, manager, accountID, connectedKey, true, now)
+	setPeerLogin(t, manager, accountID, offlineKey, false, now.Add(-time.Hour+2*time.Second))
+
+	offlinePeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, offlineKey)
+	require.NoError(t, err)
+	updateManager.CreateChannel(context.Background(), offlinePeer.ID)
+
+	manager.peerLoginExpiry = NewDefaultScheduler()
+	t.Cleanup(func() { manager.peerLoginExpiry.CancelAll(context.Background()) })
+	manager.schedulePeerLoginExpiration(context.Background(), accountID)
+
+	// The flag is committed per peer before the disconnect fans out, so wait for both.
+	require.Eventually(t, func() bool {
+		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, offlineKey)
+		return err == nil && peer.Status.LoginExpired && !updateManager.HasChannel(offlinePeer.ID)
+	}, 10*time.Second, 100*time.Millisecond, "offline peer should be expired and disconnected at its own deadline")
+
+	connectedPeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, connectedKey)
+	require.NoError(t, err)
+	assert.False(t, connectedPeer.Status.LoginExpired, "connected peer with a fresh login must not expire")
+}
+
+func TestDefaultAccountManager_SchedulePeerLoginExpiration_DetachesRequestContext(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+	connectedKey, _ := addExpiringPeers(t, manager)
+	setPeerLogin(t, manager, accountID, connectedKey, true, time.Now().UTC())
+
+	scheduled := make(chan context.Context, 1)
+	manager.peerLoginExpiry = &MockScheduler{
+		IsSchedulerRunningFunc: func(string) bool { return false },
+		ScheduleFunc: func(ctx context.Context, _ time.Duration, _ string, _ func() (time.Duration, bool)) {
+			scheduled <- ctx
+		},
+	}
+
+	requestCtx, cancel := context.WithCancel(context.Background())
+	manager.schedulePeerLoginExpiration(requestCtx, accountID)
+	cancel()
+
+	select {
+	case jobCtx := <-scheduled:
+		assert.NoError(t, jobCtx.Err(), "the expiration job must outlive the request that armed it")
+	case <-time.After(time.Second):
+		t.Fatal("timeout while waiting for the job to be scheduled")
+	}
+}
+
+func TestDefaultAccountManager_ExpireAndUpdatePeers_SkipsPeerThatLoggedInAgain(t *testing.T) {
+	manager, updateManager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	reloggedKey, staleKey := addExpiringPeers(t, manager)
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	manager.peerLoginExpiry.CancelAll(context.Background())
+
+	expiredLogin := time.Now().UTC().Add(-2 * time.Hour)
+	setPeerLogin(t, manager, accountID, reloggedKey, true, expiredLogin)
+	setPeerLogin(t, manager, accountID, staleKey, true, expiredLogin)
+
+	expiredPeers, err := manager.getExpiredPeers(context.Background(), accountID)
+	require.NoError(t, err)
+	require.Len(t, expiredPeers, 2, "both peers should be due for expiration")
+
+	// The job holds the candidate list while one peer completes a fresh login, which
+	// moves its deadline into the future and must win over the stale candidate entry.
+	setPeerLogin(t, manager, accountID, reloggedKey, true, time.Now().UTC())
+
+	reloggedPeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, reloggedKey)
+	require.NoError(t, err)
+	stalePeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, staleKey)
+	require.NoError(t, err)
+	updateManager.CreateChannel(context.Background(), reloggedPeer.ID)
+	updateManager.CreateChannel(context.Background(), stalePeer.ID)
+
+	err = manager.expireAndUpdatePeers(context.Background(), accountID, expiredPeers, peerExpirationSessionExpired)
+	require.NoError(t, err)
+
+	reloggedPeer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, reloggedKey)
+	require.NoError(t, err)
+	assert.False(t, reloggedPeer.Status.LoginExpired, "a peer that logged in again must not be flagged from the stale candidate list")
+	assert.True(t, reloggedPeer.Status.Connected, "the re-logged peer must keep its connected status")
+	assert.True(t, updateManager.HasChannel(reloggedPeer.ID), "the re-logged peer's update channel must stay open")
+
+	stalePeer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, staleKey)
+	require.NoError(t, err)
+	assert.True(t, stalePeer.Status.LoginExpired, "a peer that is still due must be flagged")
+	assert.False(t, updateManager.HasChannel(stalePeer.ID), "the expired peer's update channel must be closed")
+}
+
+// addExpiringPeers registers two SSO peers with login expiration enabled and returns their public keys.
+func addExpiringPeers(t *testing.T, manager *DefaultAccountManager) (string, string) {
+	t.Helper()
+	keys := make([]string, 0, 2)
+	for _, hostname := range []string{"connected-peer", "offline-peer"} {
+		key, err := wgtypes.GenerateKey()
+		require.NoError(t, err, "unable to generate WireGuard key")
+		_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+			Key:                    key.PublicKey().String(),
+			Meta:                   nbpeer.PeerSystemMeta{Hostname: hostname},
+			LoginExpirationEnabled: true,
+		}, false)
+		require.NoError(t, err, "unable to add peer")
+		keys = append(keys, key.PublicKey().String())
+	}
+	return keys[0], keys[1]
+}
+
+func setPeerLogin(t *testing.T, manager *DefaultAccountManager, accountID, peerKey string, connected bool, lastLogin time.Time) {
+	t.Helper()
+	peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerKey)
+	require.NoError(t, err)
+	peer.Status.Connected = connected
+	peer.LastLogin = &lastLogin
+	require.NoError(t, manager.Store.SavePeer(context.Background(), accountID, peer))
+}
+
 func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
@@ -2314,7 +2570,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) 
 	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, newSettings)
 	require.NoError(t, err)
 
-	accountPeers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	accountPeers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 
 	for _, peer := range accountPeers {
@@ -2702,7 +2958,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			expectedNextExpiration: time.Duration(0),
 		},
 		{
-			name: "No connected peers, no expiration",
+			name: "Offline peer with expiration, return expiration",
 			peers: map[string]*nbpeer.Peer{
 				"peer-1": {
 					Status: &nbpeer.PeerStatus{
@@ -2721,8 +2977,33 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			},
 			expiration:             time.Second,
 			expirationEnabled:      false,
-			expectedNextRun:        false,
-			expectedNextExpiration: time.Duration(0),
+			expectedNextRun:        true,
+			expectedNextExpiration: time.Second,
+		},
+		{
+			name: "Offline peer with the earliest deadline defines the next run",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected: true,
+					},
+					LoginExpirationEnabled: true,
+					LastLogin:              util.ToPtr(time.Now().UTC()),
+					UserID:                 userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected: false,
+					},
+					LoginExpirationEnabled: true,
+					LastLogin:              util.ToPtr(time.Now().UTC().Add(-50 * time.Minute)),
+					UserID:                 userID,
+				},
+			},
+			expiration:             time.Hour,
+			expirationEnabled:      true,
+			expectedNextRun:        true,
+			expectedNextExpiration: 10 * time.Minute,
 		},
 		{
 			name: "Connected peers with disabled expiration, no expiration",
@@ -3314,6 +3595,9 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 
 	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t))
 	require.NoError(t, err)
+	sqliteStore, ok := nmdataStore.Store.(*networkmap_sqlite.SqliteStore)
+	require.True(t, ok, "network map store is %T, want *networkmap_sqlite.SqliteStore", nmdataStore.Store)
+	t.Cleanup(func() { assert.NoError(t, sqliteStore.Db.Close()) })
 
 	manager, updateManager, err := buildTestManager(t, store, nmdataStore)
 	require.NoError(t, err)
@@ -3343,7 +3627,13 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 
 	eventStore := &activity.InMemoryEventStore{}
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	// Everything built here watches this context; cancelling it on cleanup stops
+	// the metrics flushers, caches and controllers instead of leaking them for
+	// the rest of the package run.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3362,22 +3652,24 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 		Return(nil).
 		AnyTimes()
 
-	ctx := context.Background()
-
-	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	// The go-cache janitor only stops via a GC finalizer and would outlive synctest bubbles.
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 0, 100)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nmdataStore)
-	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nmdataStore)
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
 	}
+	cacheManager := manager.cacheManager
+	t.Cleanup(func() { assert.NoError(t, cacheManager.Close()) })
 
 	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, nil, proxyManager, nil)
+	t.Cleanup(proxyGrpcServer.Close)
 	proxyController, err := proxymanager.NewGRPCController(proxyGrpcServer, noop.Meter{})
 	if err != nil {
 		return nil, nil, err
@@ -3471,6 +3763,33 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 // when the channel delivers.
 const peerUpdateTimeout = 5 * time.Second
 
+// peerUpdateSettleTime bounds how far settleAffectedUpdates advances the fake clock. It must exceed
+// the account request and peer update buffer intervals.
+const peerUpdateSettleTime = time.Second
+
+// runPeerUpdateTest runs f inside synctest.Test, so the peer update helpers observe every background
+// goroutine of the test, and lets the updates still in flight when f returns finish before the bubble
+// ends, since the bubble's clock stops with it.
+func runPeerUpdateTest(t *testing.T, f func(t *testing.T)) {
+	synctest.Test(t, func(t *testing.T) {
+		defer settleAffectedUpdates()
+		f(t)
+	})
+}
+
+// settleAffectedUpdates runs the synctest bubble's fake clock past every update buffer interval until
+// all goroutines are blocked, then discards the updates already delivered to chans, so the next
+// assertion only observes updates from the action under test. It must be called inside synctest.Test.
+func settleAffectedUpdates(chans ...<-chan *network_map.UpdateMessage) {
+	time.Sleep(peerUpdateSettleTime)
+	synctest.Wait()
+	for _, ch := range chans {
+		for len(ch) > 0 {
+			<-ch
+		}
+	}
+}
+
 func drainPeerUpdates(ch <-chan *network_map.UpdateMessage) {
 	for {
 		select {
@@ -3482,6 +3801,19 @@ func drainPeerUpdates(ch <-chan *network_map.UpdateMessage) {
 			return
 		}
 	}
+}
+
+// step runs f as one named stage of a test inside synctest.Test, which forbids t.Run, and names the
+// stage when it fails the test. Stages share t, so a fatal failure ends the remaining stages as well.
+func step(t *testing.T, name string, f func(t *testing.T)) {
+	t.Helper()
+	failedBefore := t.Failed()
+	defer func() {
+		if !failedBefore && t.Failed() {
+			t.Logf("step %q failed", name)
+		}
+	}()
+	f(t)
 }
 
 func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.UpdateMessage) {
@@ -4285,7 +4617,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, len(before))
 	for _, p := range peers {
@@ -4303,7 +4635,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change for host-bit-set equivalent range", p.ID)
@@ -4317,7 +4649,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change when NetworkRange omitted", p.ID)
@@ -4333,7 +4665,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.True(t, newRange.Contains(p.IP), "peer %s should be in new range %s, got %s", p.ID, newRange, p.IP)
@@ -4351,7 +4683,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	require.NoError(t, err)
 	require.NotEmpty(t, settings.IPv6EnabledGroups, "new account should have IPv6 enabled for All group")
 
-	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.True(t, p.IPv6.IsValid(), "peer %s should have IPv6 with All group enabled", p.ID)
@@ -4379,7 +4711,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	assert.Equal(t, []string{partialGroup.ID}, updatedSettings.IPv6EnabledGroups)
 
 	// peer1 and peer2 should have IPv6; peer3 should not.
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	peerMap := make(map[string]*nbpeer.Peer, len(peers))
 	for _, p := range peers {
@@ -4399,7 +4731,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	require.NoError(t, err)
 	assert.Empty(t, updatedSettings.IPv6EnabledGroups)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	for _, p := range peers {
 		assert.False(t, p.IPv6.IsValid(), "peer %s should have no IPv6 when groups cleared", p.ID)
@@ -4414,7 +4746,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testin
 	})
 	require.NoError(t, err)
 
-	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	require.NoError(t, err)
 	peerMap = make(map[string]*nbpeer.Peer, len(peers))
 	for _, p := range peers {

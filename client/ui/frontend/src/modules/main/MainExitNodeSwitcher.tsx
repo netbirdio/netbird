@@ -9,10 +9,12 @@ import { TruncatedText } from "@/components/TruncatedText";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { useStatus } from "@/contexts/StatusContext";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
+import { useDirection } from "@/hooks/useDirection";
 
 const NONE_VALUE = "__none__";
 
 export const MainExitNodeSwitcher = () => {
+    const dir = useDirection();
     const { t } = useTranslation();
     const { status } = useStatus();
     const { exitNodes, toggleExitNode } = useNetworks();
@@ -101,7 +103,11 @@ export const MainExitNodeSwitcher = () => {
                             <NoneRow isActive={!active} onSelect={() => handleSelect(NONE_VALUE)} />
                             {hasAny && <div className={"-mx-1 my-1 h-px bg-nb-gray-910"} />}
                             {hasAny && (
-                                <ScrollArea.Root type={"auto"} className={"-mx-1 overflow-hidden"}>
+                                <ScrollArea.Root
+                                    dir={dir}
+                                    type={"auto"}
+                                    className={"-mx-1 overflow-hidden"}
+                                >
                                     <ScrollArea.Viewport className={"max-h-72 px-1"}>
                                         {exitNodes.map((n) => (
                                             <ExitNodeRow
@@ -155,15 +161,15 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 tabIndex={0}
                 disabled={disabled}
                 className={cn(
-                    "flex w-full items-center gap-3 rounded-xl p-2.5 pr-5 text-left outline-none",
-                    "border border-nb-gray-920 bg-nb-gray-940",
+                    "flex w-full items-center gap-3 rounded-xl p-2.5 pe-5 text-start outline-none",
+                    "border border-nb-gray-800 bg-nb-gray-940 dark:border-nb-gray-920",
                     "transition-colors duration-150",
                     "wails-no-draggable",
                     isFocusVisible &&
-                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     disabled
                         ? "cursor-not-allowed opacity-60"
-                        : "cursor-default hover:border-nb-gray-900 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-900 data-[state=open]:bg-nb-gray-935",
+                        : "cursor-default hover:border-nb-gray-700 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-700 data-[state=open]:bg-nb-gray-935 dark:hover:border-nb-gray-900 dark:data-[state=open]:border-nb-gray-900",
                     className,
                 )}
                 {...props}
@@ -212,7 +218,7 @@ const NoneRow = ({ isActive, onSelect }: NoneRowProps) => {
             value={NONE_VALUE}
             onSelect={onSelect}
             className={cn(
-                "flex items-center gap-2 px-2 py-2 pr-3",
+                "flex items-center gap-2 px-2 py-2 pe-3",
                 "cursor-default rounded-md text-sm outline-none",
                 "data-[selected=true]:bg-nb-gray-900",
             )}
@@ -237,7 +243,7 @@ const ExitNodeRow = ({ id, label, isActive, onSelect }: ExitNodeRowProps) => (
         value={id}
         onSelect={onSelect}
         className={cn(
-            "flex items-center gap-2 px-2 py-2 pr-3",
+            "flex items-center gap-2 px-2 py-2 pe-3",
             "cursor-default rounded-md text-sm outline-none",
             "data-[selected=true]:bg-nb-gray-900",
         )}

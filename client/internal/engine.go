@@ -14,12 +14,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -40,7 +42,6 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
-	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -56,6 +57,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
@@ -236,7 +238,16 @@ type Engine struct {
 
 	wgInterface WGIface
 
+	// wgDevice is a lock-free handle on the WireGuard device behind
+	// wgInterface. Reaching the device through wgInterface requires
+	// syncMsgMux, which handleSync holds while it adds and removes peers;
+	// SetPerformance must stay reachable exactly when that work is stuck.
+	wgDevice atomic.Pointer[wgdevice.Device]
+
 	udpMux *udpmux.UniversalUDPMuxDefault
+
+	// wgDetector is shared by every ICE agent through the ICE config.
+	wgDetector *stdnet.WGDetector
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -254,11 +265,10 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall          firewallManager.Manager
-	routeManager      routemanager.Manager
-	acl               acl.Manager
-	dnsForwardMgr     *dnsfwd.Manager
-	ingressGatewayMgr *ingressgw.Manager
+	firewall      firewallManager.Manager
+	routeManager  routemanager.Manager
+	acl           acl.Manager
+	dnsForwardMgr *dnsfwd.Manager
 
 	dnsServer dns.Server
 
@@ -356,6 +366,7 @@ func NewEngine(
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
 		peerStore:          peerstore.NewConnStore(),
+		wgDetector:         stdnet.NewWGDetector(),
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
@@ -440,13 +451,6 @@ func (e *Engine) stopLocked() {
 
 	e.cleanupSSHConfig()
 
-	if e.ingressGatewayMgr != nil {
-		if err := e.ingressGatewayMgr.Close(); err != nil {
-			log.Warnf("failed to cleanup forward rules: %v", err)
-		}
-		e.ingressGatewayMgr = nil
-	}
-
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
 	}
@@ -456,7 +460,7 @@ func (e *Engine) stopLocked() {
 	}
 
 	if e.updateManager != nil {
-		e.updateManager.SetDownloadOnly()
+		e.updateManager.ResetMode()
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -651,10 +655,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		return fmt.Errorf("up wg interface: %w", err)
 	}
-
-	// Set up notrack rules immediately after proxy is listening to prevent
-	// conntrack entries from being created before the rules are in place
-	e.setupWGProxyNoTrack()
+	e.wgDevice.Store(e.wgInterface.GetWGDevice())
 
 	// Start after interface is up since port may have been resolved from 0 or changed if occupied
 	e.shutdownWg.Add(1)
@@ -791,23 +792,6 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
-}
-
-// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
-// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
-func (e *Engine) setupWGProxyNoTrack() {
-	if e.firewall == nil {
-		return
-	}
-
-	proxyPort := e.wgInterface.GetProxyPort()
-	if proxyPort == 0 {
-		return
-	}
-
-	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
-		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
-	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -972,11 +956,13 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	}
 
 	if autoUpdateSettings == nil {
+		log.Infof("no auto-update settings received, defaulting to download-only")
+		e.updateManager.SetDownloadOnly()
 		return
 	}
 
 	if autoUpdateSettings.Version == disableAutoUpdate {
-		log.Infof("auto-update is disabled")
+		log.Infof("auto-update is disabled, switching to download-only")
 		e.updateManager.SetDownloadOnly()
 		return
 	}
@@ -1052,7 +1038,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			// back to empty if the FQDN doesn't have the expected shape.
 			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
 		}
-		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		// With the firewall disabled there is no ACL manager to program, so
+		// RoutesFirewallRules would be built and then dropped. On a peer that
+		// routes many network resources that is the single most expensive
+		// step of the sync.
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
 		if err != nil {
 			return fmt.Errorf("decode network map envelope: %w", err)
 		}
@@ -1635,13 +1625,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
 	done()
 
-	// Ingress forward rules
-	done = e.phase("forward_rules")
-	if _, err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
-		log.Errorf("failed to update forward rules, err: %v", err)
-	}
-	done()
-
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
 	done = e.phase("offline_peers")
@@ -2144,6 +2127,10 @@ func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 
 	if e.wgInterface != nil {
+		// Drop the handle before the close starts: a retune that loads it
+		// afterwards would touch a device on its way out and report success
+		// for an engine that is already gone.
+		e.wgDevice.Store(nil)
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
@@ -2182,10 +2169,7 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
-	transportNet, err := e.newStdNet()
-	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
+	transportNet := e.newStdNet()
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    e.config.WgIfaceName,
@@ -2303,15 +2287,16 @@ type Performance struct {
 }
 
 // SetPerformance applies the given tuning to this engine's live Device.
+//
+// It deliberately does not take syncMsgMux. Raising the buffer pool cap is the
+// recovery path for a device whose pool is exhausted, and an exhausted pool
+// blocks peer removal inside handleSync, which holds syncMsgMux for as long as
+// it stays blocked. Taking the lock here would make the retune unreachable in
+// the one situation that needs it.
 func (e *Engine) SetPerformance(t Performance) error {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	if e.wgInterface == nil {
-		return fmt.Errorf("wg interface not initialized")
-	}
-	dev := e.wgInterface.GetWGDevice()
+	dev := e.wgDevice.Load()
 	if dev == nil {
-		return fmt.Errorf("wg device not initialized")
+		return errors.New("wg device not initialized")
 	}
 	if t.PreallocatedBuffersPerPool != nil {
 		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)
@@ -2737,74 +2722,6 @@ func (e *Engine) setForwarderCapture(pc device.PacketCapture) {
 	if fc, ok := e.firewall.(forwarderCapturer); ok {
 		fc.SetPacketCapture(pc)
 	}
-}
-
-func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
-	if e.firewall == nil {
-		log.Warn("firewall is disabled, not updating forwarding rules")
-		return nil, nil
-	}
-
-	if len(rules) == 0 {
-		if e.ingressGatewayMgr == nil {
-			return nil, nil
-		}
-
-		err := e.ingressGatewayMgr.Close()
-		e.ingressGatewayMgr = nil
-		e.statusRecorder.SetIngressGwMgr(nil)
-		return nil, err
-	}
-
-	if e.ingressGatewayMgr == nil {
-		mgr := ingressgw.NewManager(e.firewall)
-		e.ingressGatewayMgr = mgr
-		e.statusRecorder.SetIngressGwMgr(mgr)
-	}
-
-	var merr *multierror.Error
-	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
-	for _, rule := range rules {
-		proto, err := acl.ConvertToFirewallProtocol(rule.GetProtocol())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
-			continue
-		}
-
-		dstPortInfo, err := convertPortInfo(rule.GetDestinationPort())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("invalid destination port '%v': %w", rule.GetDestinationPort(), err))
-			continue
-		}
-
-		translateIP, err := convertToIP(rule.GetTranslatedAddress())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("failed to convert translated address '%s': %w", rule.GetTranslatedAddress(), err))
-			continue
-		}
-
-		translatePort, err := convertPortInfo(rule.GetTranslatedPort())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("invalid translate port '%v': %w", rule.GetTranslatedPort(), err))
-			continue
-		}
-
-		forwardRule := firewallManager.ForwardRule{
-			Protocol:          proto,
-			DestinationPort:   *dstPortInfo,
-			TranslatedAddress: translateIP,
-			TranslatedPort:    *translatePort,
-		}
-
-		forwardingRules = append(forwardingRules, forwardRule)
-	}
-
-	log.Infof("updating forwarding rules: %d", len(forwardingRules))
-	if err := e.ingressGatewayMgr.Update(forwardingRules); err != nil {
-		log.Errorf("failed to update forwarding rules: %v", err)
-	}
-
-	return forwardingRules, nberrors.FormatErrorOrNil(merr)
 }
 
 // toExcludedLazyPeers returns the peers that must have an always-active

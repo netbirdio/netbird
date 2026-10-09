@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -111,8 +111,8 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, testStore)
-	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(testStore, peersManager), &config.Config{}, nil)
-	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, singleAccountModeDomain, eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
+	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(testStore, peersManager), &config.Config{}, nil)
+	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, singleAccountModeDomain, eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -121,7 +121,7 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 }
 
 func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -233,7 +233,7 @@ func TestUpdateUserAuthWithSingleModeKeepsConfiguredDomain(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -354,4 +354,46 @@ func TestValidateOIDCIssuer_TrailingSlash(t *testing.T) {
 	// This should fail because the issuer returned doesn't have trailing slash
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, types.ErrIdentityProviderIssuerMismatch))
+}
+
+func TestValidateOIDCIssuer_DoesNotFollowRedirects(t *testing.T) {
+	var reached bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(target.Close)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/redirect-target", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.Error(t, err)
+	assert.False(t, reached, "Redirects are not followed")
+}
+
+func TestValidateOIDCIssuer_BoundsResponseSize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"` + strings.Repeat("a", maxDiscoveryDocumentSize) + `"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable)
+	assert.NotErrorIs(t, err, types.ErrIdentityProviderIssuerMismatch)
+}
+
+func TestValidateOIDCIssuer_RejectsTrailingContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"http://` + r.Host + `"} {"issuer":"second"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable,
+		"Content after the first object is not a valid discovery document")
 }

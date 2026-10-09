@@ -31,6 +31,8 @@ const (
 // PasswordRequiredMarker tells Java to prompt for a password and retry. It is
 // a string because gomobile flattens errors to their message, so a sentinel
 // value would not survive the binding.
+//
+//nolint:gosec // G101 false positive: a sentinel marker, not a credential
 const PasswordRequiredMarker = "netbird-ssh-password-required"
 
 // HostKeyUnknownMarker tells Java to show the fingerprint and, on confirmation,
@@ -467,7 +469,7 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config, cfgPath string) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profileLoginHint(cfgPath))
+	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profileLoginHint(cfgPath), false)
 	if err != nil {
 		return "", fmt.Errorf("create oauth flow: %w", err)
 	}

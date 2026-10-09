@@ -721,12 +721,13 @@ func stripSessionCookie(r *httputil.ProxyRequest) {
 	}
 }
 
-// stripSessionTokenQuery removes the OIDC session_token query parameter from
-// the outgoing URL to prevent credential leakage to backends.
+// stripSessionTokenQuery removes the OIDC session hand-off query parameters
+// from the outgoing URL to prevent credential leakage to backends.
 func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 	q := r.Out.URL.Query()
-	if q.Has("session_token") {
-		q.Del("session_token")
+	if q.Has(auth.SessionTokenQueryParam) || q.Has(auth.SessionCodeQueryParam) {
+		q.Del(auth.SessionTokenQueryParam)
+		q.Del(auth.SessionCodeQueryParam)
 		r.Out.URL.RawQuery = q.Encode()
 	}
 }
@@ -805,6 +806,12 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 		errors.Is(err, roundtrip.ErrClientStartFailed):
 		return "Proxy Not Connected",
 			"The proxy is not connected to the NetBird network. Please try again later or contact your administrator.",
+			http.StatusBadGateway,
+			web.ErrorStatus{Proxy: false, Destination: false}
+
+	case errors.Is(err, roundtrip.ErrDirectUpstreamBlocked):
+		return "Destination Not Allowed",
+			"This proxy does not connect to private or internal addresses. Please contact your administrator.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: false, Destination: false}
 
