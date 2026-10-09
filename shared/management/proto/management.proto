@@ -337,8 +337,6 @@ message NetbirdConfig {
   FlowConfig flow = 5;
 
   MetricsConfig metrics = 6;
-
-  DebugConfig debug = 7;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -379,18 +377,6 @@ message FlowConfig {
 
 message MetricsConfig {
   bool enabled = 1;
-}
-
-// DebugConfig carries the deployment-wide debug settings the operator of this
-// management server publishes to its peers.
-message DebugConfig {
-  // upload_url is the debug-bundle upload service this peer's account uses,
-  // taken from the account settings or, failing that, from the management
-  // server config. Setting it keeps a deployment's bundles — which carry peer
-  // logs, routes, DNS and firewall state — inside infrastructure the operator
-  // controls. An empty value means no destination is published, and the peer
-  // uploads to the service NetBird runs.
-  string upload_url = 1;
 }
 
 // JWTConfig represents JWT authentication configuration for validating tokens.
@@ -437,6 +423,18 @@ message PeerConfig {
 
   // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
   bytes address_v6 = 9;
+
+  // debugBundleUploadUrl is the debug-bundle upload service this peer's account
+  // uses, taken from the account settings or, failing that, from the management
+  // server config. Setting it keeps a deployment's bundles — which carry peer
+  // logs, routes, DNS and firewall state — inside infrastructure the operator
+  // controls. An empty value means no destination is published, and the peer
+  // uploads to the service NetBird runs.
+  //
+  // It rides PeerConfig rather than NetbirdConfig because the peer fan-out that
+  // follows a settings change builds its sync with a nil server config, so a
+  // NetbirdConfig field only reaches a peer when that peer reconnects.
+  string debugBundleUploadUrl = 10;
 }
 
 message AutoUpdateSettings {

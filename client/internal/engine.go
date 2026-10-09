@@ -622,12 +622,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, peerConfig *mgmPro
 		log.Warnf("failed to populate DNS cache: %v", err)
 	}
 
-	// The login response carries the same NetbirdConfig a sync does, but Start
-	// does not run it through updateNetbirdConfig. Without this, a bundle
-	// requested between login and the first sync sees no published destination
-	// and falls back to the service NetBird runs, even where the deployment
-	// configured its own.
-	e.handleDebugUploadUpdate(netbirdConfig.GetDebug())
+	// The login response carries the same PeerConfig a sync does, but Start does
+	// not run it through updateNetworkMap. Without this, a bundle requested
+	// between login and the first sync sees no published destination and falls
+	// back to the service NetBird runs, even where the deployment configured its
+	// own — and the first seconds after a start are exactly when someone collects
+	// a bundle about a start that went wrong.
+	e.handleDebugUploadUpdate(peerConfig)
 
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
@@ -1171,8 +1172,6 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 
 	e.handleMetricsUpdate(wCfg.GetMetrics())
 
-	e.handleDebugUploadUpdate(wCfg.GetDebug())
-
 	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
 		log.Warnf("Failed to update DNS server config: %v", err)
 	}
@@ -1251,20 +1250,19 @@ func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
 }
 
 // handleDebugUploadUpdate records the debug-bundle destination the management
-// server published.
+// server published for this peer.
 //
-// A nil DebugConfig carries no information and is left alone: the partial
-// updates that refresh TURN and relay credentials ship a NetbirdConfig holding
-// only those fields, and treating their absent Debug as "no destination" would
-// silently drop the operator's choice on every credential refresh. An operator
-// clearing the destination is an empty UploadUrl on a full config, which does
-// reach the store below.
-func (e *Engine) handleDebugUploadUpdate(config *mgmProto.DebugConfig) {
-	if config == nil {
+// A nil PeerConfig carries no information and is left alone: a partial update
+// ships a SyncResponse without one, and reading that absence as "no
+// destination" would silently drop the operator's choice. An operator clearing
+// the destination sends a PeerConfig with an empty URL, which does reach the
+// store below.
+func (e *Engine) handleDebugUploadUpdate(peerConfig *mgmProto.PeerConfig) {
+	if peerConfig == nil {
 		return
 	}
 
-	url := config.GetUploadUrl()
+	url := peerConfig.GetDebugBundleUploadUrl()
 	e.debugUploadURL.Store(&url)
 }
 
@@ -1635,6 +1633,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, peerConfig.GetLazyConnectionEnabled()); err != nil {
 			log.Errorf("failed to update lazy connection feature flag: %v", err)
 		}
+
+		e.handleDebugUploadUpdate(peerConfig)
 	}
 
 	if e.firewall != nil {

@@ -50,7 +50,7 @@ func ToComponentSyncResponse(
 	// TODO (dmitri) consider using invariants?
 	//
 	enableSSH := computeSSHEnabledForPeer(components, peer)
-	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
+	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution, debugUploadDefault)
 
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
@@ -76,7 +76,7 @@ func ToComponentSyncResponse(
 		Version:            int32(sharedgrpc.ComponentNetworkMap),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings, debugUploadDefault)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	resp.NetbirdConfig = integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 
 	// settings == nil → field stays nil → "no info in this snapshot", client

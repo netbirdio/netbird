@@ -46,7 +46,7 @@ func init() {
 // nil when no server config is set (the fan-out network-map path) because clients treat any
 // non-nil config as authoritative: a config without a relay section is interpreted as relay
 // disabled and wipes the clients' relay URLs.
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *nmdata.AccountSettingsInfo, debugUploadDefault string) *proto.NetbirdConfig {
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *nmdata.AccountSettingsInfo) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -115,19 +115,19 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		}
 	}
 
-	// Always sent, empty included: this is a full config, so the peer can tell an
-	// operator clearing the destination from the partial updates that carry only
-	// TURN or relay credentials and say nothing about it.
-	nbConfig.Debug = &proto.DebugConfig{UploadUrl: resolveDebugUploadURL(settings, debugUploadDefault)}
-
 	return nbConfig
 }
 
-// resolveDebugUploadURL picks the debug-bundle destination a peer is told to
+// resolveDebugUploadURL picks the debug-bundle destination this peer is told to
 // use. The account setting wins; deploymentDefault is the server-config value a
 // self-hosted install sets once for every account. Both are https-validated
 // where they are written, and neither set means the peer falls back to the
 // service NetBird runs.
+//
+// The deployment default is passed in rather than read from the server config
+// here because the peer fan-out builds its sync with a nil server config: left
+// to that, a settings change would publish an empty destination and silently
+// move the deployment's bundles back to NetBird's service.
 func resolveDebugUploadURL(settings *nmdata.AccountSettingsInfo, deploymentDefault string) string {
 	if settings != nil && settings.DebugBundleUploadURL != "" {
 		return settings.DebugBundleUploadURL
@@ -135,7 +135,7 @@ func resolveDebugUploadURL(settings *nmdata.AccountSettingsInfo, deploymentDefau
 	return deploymentDefault
 }
 
-func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool) *proto.PeerConfig {
+func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool, debugUploadDefault string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 
@@ -157,6 +157,7 @@ func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, se
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,
 		},
+		DebugBundleUploadUrl: resolveDebugUploadURL(settings, debugUploadDefault),
 	}
 
 	if peer.SupportsIPv6() && peer.IPv6.IsValid() && network.NetV6.IP != nil {
@@ -179,17 +180,17 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	localIsProxy := peer.ProxyMeta.Embedded
 
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution, debugUploadDefault),
 		NetworkMap: &proto.NetworkMap{
 			Serial:     networkMap.Network.CurrentSerial(),
 			Routes:     networkmap.ToProtocolRoutes(networkMap.Routes),
 			DNSConfig:  networkmap.ToProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution, debugUploadDefault),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings, debugUploadDefault)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 

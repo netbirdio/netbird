@@ -47,18 +47,17 @@ func TestEngineDebugUploadURL(t *testing.T) {
 	e.handleDebugUploadUpdate(nil)
 	assert.Empty(t, e.DebugUploadURL(), "a management server predating the field publishes none")
 
-	e.handleDebugUploadUpdate(&mgmProto.DebugConfig{UploadUrl: "https://upload.example.com/upload-url"})
+	e.handleDebugUploadUpdate(&mgmProto.PeerConfig{DebugBundleUploadUrl: "https://upload.example.com/upload-url"})
 	assert.Equal(t, "https://upload.example.com/upload-url", e.DebugUploadURL())
 
-	// The partial updates that refresh TURN and relay credentials carry a
-	// NetbirdConfig with no Debug at all. Treating that as "no destination"
-	// would drop the operator's choice on every credential refresh.
+	// A partial update ships a SyncResponse with no PeerConfig at all. Treating
+	// that as "no destination" would drop the operator's choice.
 	e.handleDebugUploadUpdate(nil)
 	assert.Equal(t, "https://upload.example.com/upload-url", e.DebugUploadURL(),
-		"a partial config update must not clear the published destination")
+		"a partial update must not clear the published destination")
 
-	// An operator that removes the destination sends an empty UploadUrl on a
-	// full config, and that does reach the peer.
-	e.handleDebugUploadUpdate(&mgmProto.DebugConfig{})
+	// An operator that removes the destination sends a PeerConfig with an empty
+	// URL, and that does reach the peer.
+	e.handleDebugUploadUpdate(&mgmProto.PeerConfig{})
 	assert.Empty(t, e.DebugUploadURL())
 }
