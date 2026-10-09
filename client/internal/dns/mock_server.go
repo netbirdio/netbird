@@ -22,6 +22,7 @@ type MockServer struct {
 	RegisterHandlerFunc    func(domain.List, dns.Handler, int)
 	DeregisterHandlerFunc  func(domain.List, int)
 	UpdateServerConfigFunc func(domains dnsconfig.ServerDomains) error
+	ResolverAddressFunc    func() (netip.AddrPort, bool)
 }
 
 func (m *MockServer) RegisterHandler(domains domain.List, handler dns.Handler, priority int) {
@@ -53,6 +54,14 @@ func (m *MockServer) Stop() {
 
 func (m *MockServer) DnsIP() netip.Addr {
 	return netip.MustParseAddr("100.10.254.255")
+}
+
+// ResolverAddress returns the configured resolver endpoint, when available.
+func (m *MockServer) ResolverAddress() (netip.AddrPort, bool) {
+	if m.ResolverAddressFunc != nil {
+		return m.ResolverAddressFunc()
+	}
+	return netip.AddrPort{}, false
 }
 
 func (m *MockServer) OnUpdatedHostDNSServer(addrs []netip.AddrPort) {
