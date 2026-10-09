@@ -45,7 +45,9 @@ func TestChallenger_VerifyNonce(t *testing.T) {
 		{"current window", nonce, peerKey, now, nil},
 		{"previous window still accepted", nonce, peerKey, now.Add(Window), nil},
 		{"two windows later expired", nonce, peerKey, now.Add(2 * Window), ErrNonceExpired},
-		{"issued in the future rejected", c.Nonce(peerKey, now.Add(Window)), peerKey, now, ErrNonceExpired},
+		// An instance whose clock runs a little ahead issues the next window's nonce early.
+		{"issued one window ahead accepted", c.Nonce(peerKey, now.Add(Window)), peerKey, now, nil},
+		{"issued two windows ahead rejected", c.Nonce(peerKey, now.Add(2*Window)), peerKey, now, ErrNonceExpired},
 		{"other peer", nonce, otherKey, now, ErrNonceMismatch},
 		{"tampered mac", tamper(nonce, len(nonce)-1), peerKey, now, ErrNonceMismatch},
 		{"malformed", nonce[:10], peerKey, now, ErrNonceMalformed},
@@ -67,7 +69,8 @@ func TestNonceAcceptedAlongside(t *testing.T) {
 	assert.True(t, NonceAcceptedAlongside(issued, issued), "the current nonce is accepted")
 	assert.True(t, NonceAcceptedAlongside(issued, c.Nonce(peerKey, now.Add(Window))), "a proof from the previous window is accepted")
 	assert.False(t, NonceAcceptedAlongside(issued, c.Nonce(peerKey, now.Add(2*Window))), "a proof two windows old is not")
-	assert.False(t, NonceAcceptedAlongside(c.Nonce(peerKey, now.Add(Window)), issued), "a nonce from a later window is not")
+	assert.True(t, NonceAcceptedAlongside(c.Nonce(peerKey, now.Add(Window)), issued), "a nonce from an instance one window ahead is accepted")
+	assert.False(t, NonceAcceptedAlongside(c.Nonce(peerKey, now.Add(2*Window)), issued), "a nonce two windows ahead is not")
 	assert.False(t, NonceAcceptedAlongside([]byte("short"), issued), "a malformed nonce is not")
 
 	for _, tt := range []struct {

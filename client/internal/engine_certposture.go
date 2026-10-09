@@ -57,6 +57,9 @@ type certPostureState struct {
 	hasDelivery bool
 	cached      []certposture.Proof
 	cachedFor   string
+	// stuck is whether the collector was last seen with every slot held by a lost
+	// collection.
+	stuck bool
 }
 
 // record stores the outcome of a collection for the challenges identified by
@@ -123,8 +126,17 @@ func (s *certPostureState) needsCollection(challengesKey, userContext string, no
 	}
 }
 
+// setStuck records whether the collector is stuck and reports whether it just became so.
+func (s *certPostureState) setStuck(stuck bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	became := stuck && !s.stuck
+	s.stuck = stuck
+	return became
+}
+
 // cachedProofs returns the cached proofs management still accepts for the challenges in
-// checks: those whose nonce is current, or from the window before, for one of them. Proofs
+// checks: those whose nonce is current, or from an adjacent window, for one of them. Proofs
 // signed for the previous nonce bridge the time until the watcher has signed the new one.
 func (s *certPostureState) cachedProofs(checks []*mgmProto.Checks) []certposture.Proof {
 	s.mu.Lock()
@@ -230,6 +242,19 @@ func (e *Engine) publishCertificatePostureEvent(proven bool) {
 			"Access to some resources may be blocked until one is available.", nil)
 }
 
+// publishCertificateStoreStuckEvent tells the user that reading the certificate store
+// stopped answering. Collection resumes only once a stuck call returns, which a store
+// that hangs for good never does short of a restart.
+func (e *Engine) publishCertificateStoreStuckEvent() {
+	if e.statusRecorder == nil {
+		return
+	}
+	e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM,
+		"certificate posture: the certificate store stopped responding",
+		"NetBird cannot read the certificates required by your organization's device policy because "+
+			"the certificate store stopped responding. If this persists, restart the NetBird service.", nil)
+}
+
 // watchCertificatePosture owns certificate proof collection until ctx is done. It
 // collects when woken by new checks or a sync, and on every tick when the cached proofs
 // went stale, such as after a login following an autostart.
@@ -302,6 +327,9 @@ func (e *Engine) refreshCertificateProofs() error {
 	}
 	if e.certState.record(key, userContext, proofs, time.Now()) {
 		e.publishCertificatePostureEvent(len(proofs) > 0)
+	}
+	if e.certState.setStuck(e.certProofs.Stuck()) {
+		e.publishCertificateStoreStuckEvent()
 	}
 
 	if e.certState.sameAsDelivered(proofs) {
