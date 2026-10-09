@@ -118,14 +118,9 @@ func AllocatePeerIP(prefix netip.Prefix, takenIps []netip.Addr) (netip.Addr, err
 		return netip.Addr{}, err
 	}
 
-	b := prefix.Masked().Addr().As4()
-	baseIP := binary.BigEndian.Uint32(b[:])
-	hostBits := 32 - prefix.Bits()
-	totalIPs := uint32(1 << hostBits)
+	baseIP, firstOffset, lastOffset := ipv4PeerRange(prefix)
 
-	taken := make(map[uint32]struct{}, len(takenIps)+1)
-	taken[baseIP] = struct{}{}            // reserve network IP
-	taken[baseIP+totalIPs-1] = struct{}{} // reserve broadcast IP
+	taken := make(map[uint32]struct{}, len(takenIps))
 
 	for _, ip := range takenIps {
 		if !ip.Is4() {
@@ -135,17 +130,16 @@ func AllocatePeerIP(prefix netip.Prefix, takenIps []netip.Addr) (netip.Addr, err
 		taken[binary.BigEndian.Uint32(ab[:])] = struct{}{}
 	}
 
-	maxAttempts := (int(totalIPs) - len(taken)) / 100
+	maxAttempts := (int(lastOffset-firstOffset+1) - len(taken)) / 100
 
 	for i := 0; i < maxAttempts; i++ {
-		offset := uint32(util.RandIntn(int(totalIPs-2))) + 1
-		candidate := baseIP + offset
+		candidate := baseIP + randomOffset(firstOffset, lastOffset)
 		if _, exists := taken[candidate]; !exists {
 			return uint32ToIP(candidate), nil
 		}
 	}
 
-	for offset := uint32(1); offset < totalIPs-1; offset++ {
+	for offset := firstOffset; offset <= lastOffset; offset++ {
 		candidate := baseIP + offset
 		if _, exists := taken[candidate]; !exists {
 			return uint32ToIP(candidate), nil
@@ -161,15 +155,38 @@ func AllocateRandomPeerIP(prefix netip.Prefix) (netip.Addr, error) {
 		return netip.Addr{}, err
 	}
 
+	baseIP, firstOffset, lastOffset := ipv4PeerRange(prefix)
+	return uint32ToIP(baseIP + randomOffset(firstOffset, lastOffset)), nil
+}
+
+// IsReservedPeerIP reports whether ip is an address of the IPv4 prefix that is never assigned to a peer:
+// the network address, the broadcast address or the address before it, which clients use for their DNS resolver.
+// It returns false if prefix is not a valid IPv4 peer network or ip is not within it.
+func IsReservedPeerIP(prefix netip.Prefix, ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if validateIPv4Prefix(prefix) != nil || !ip.Is4() || !prefix.Contains(ip) {
+		return false
+	}
+
+	baseIP, firstOffset, lastOffset := ipv4PeerRange(prefix)
+	b := ip.As4()
+	offset := binary.BigEndian.Uint32(b[:]) - baseIP
+	return offset < firstOffset || offset > lastOffset
+}
+
+// ipv4PeerRange returns the network address of the IPv4 prefix as uint32 and the first and last offset
+// from it that can be assigned to a peer. Reserved are the network address, the broadcast address and the
+// address before it, which clients in userspace and netstack mode use for their DNS resolver.
+func ipv4PeerRange(prefix netip.Prefix) (baseIP, firstOffset, lastOffset uint32) {
 	b := prefix.Masked().Addr().As4()
-	baseIP := binary.BigEndian.Uint32(b[:])
-	hostBits := 32 - prefix.Bits()
-	totalIPs := uint32(1 << hostBits)
+	broadcastOffset := uint32(1)<<(32-prefix.Bits()) - 1
+	dnsResolverOffset := broadcastOffset - 1
+	return binary.BigEndian.Uint32(b[:]), 1, dnsResolverOffset - 1
+}
 
-	offset := uint32(util.RandIntn(int(totalIPs-2))) + 1
-
-	candidate := baseIP + offset
-	return uint32ToIP(candidate), nil
+// randomOffset returns a random offset in [firstOffset, lastOffset].
+func randomOffset(firstOffset, lastOffset uint32) uint32 {
+	return firstOffset + uint32(util.RandIntn(int(lastOffset-firstOffset+1)))
 }
 
 // AllocateRandomPeerIPv6 picks a random host address within the given IPv6 prefix.
