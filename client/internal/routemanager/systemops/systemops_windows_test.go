@@ -239,7 +239,7 @@ func addDummyRoute(t *testing.T, dstCIDR string) {
 		Intf: &net.Interface{Index: 1},
 	}
 
-	if err = addRoute(prefix, nexthop); err != nil {
+	if err = addRoute(prefix, nexthop, exclusionRouteMetric); err != nil {
 		t.Fatalf("Failed to add dummy route: %v", err)
 	}
 
