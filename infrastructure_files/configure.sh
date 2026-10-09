@@ -233,14 +233,16 @@ if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
     export NETBIRD_AUTH_PKCE_AUDIENCE=
 fi
 
-# Read the encryption key
-if test -f 'management.json'; then
-    encKey=$(jq -r  ".DataStoreEncryptionKey" management.json)
-    if [[ "$encKey" != "null" ]]; then
-        export NETBIRD_DATASTORE_ENC_KEY=$encKey
-
+# Read the encryption key from existing config (check artifacts/ first, then root)
+for mgmt_file in "${artifacts_path}/management.json" "management.json"; do
+    if test -f "$mgmt_file"; then
+        encKey=$(jq -r ".DataStoreEncryptionKey" "$mgmt_file")
+        if [[ "$encKey" != "null" && -n "$encKey" ]]; then
+            export NETBIRD_DATASTORE_ENC_KEY=$encKey
+            break
+        fi
     fi
-fi
+done
 
 env | grep NETBIRD
 
