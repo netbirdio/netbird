@@ -154,8 +154,8 @@ jobs:
       - name: Fail if any check did not pass
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          results=(artifacts/results.json artifacts/*/results.json)
+          shopt -s nullglob globstar
+          results=(artifacts/**/results.json)
           if [[ ${#results[@]} -eq 0 ]]; then
             echo "::error::preflight produced no results.json"
             exit 1
