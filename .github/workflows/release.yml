@@ -199,7 +199,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install proxy web dependencies for license collection
-        # proxy/collect-licenses.sh reads the UI's license terms from node_modules.
+        # release_files/collect-licenses.sh -w reads the proxy UI's license terms from node_modules.
         working-directory: proxy/web
         run: npm ci --ignore-scripts
       - name: Set up QEMU

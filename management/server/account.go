@@ -35,7 +35,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -84,7 +83,6 @@ type DefaultAccountManager struct {
 
 	requestBuffer *AccountRequestBuffer
 
-	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
 	serviceManager  service.Manager
 
@@ -227,7 +225,6 @@ func BuildManager(
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
-	proxyController port_forwarding.Controller,
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
@@ -255,7 +252,6 @@ func BuildManager(
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
-		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
