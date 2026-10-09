@@ -462,15 +462,15 @@ dockers_v2:
      dockerfile: relay/Dockerfile.ubi
      platforms:
        - linux/amd64
+       - linux/arm64
      build_args:
        VERSION: "{{ .Version }}"
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh relay/collect-licenses.sh "{{ .ContextDir }}/licenses"'
+         - cmd: 'sh release_files/collect-licenses.sh -l relay/LICENSE "{{ .ContextDir }}/licenses" ./relay amd64 arm64'
            env:
              - GOOS=linux
-             - GOARCH=amd64
              - CGO_ENABLED=0
      labels:
        "org.opencontainers.image.created": "{{.Date}}"
