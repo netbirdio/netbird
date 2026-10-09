@@ -503,8 +503,9 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
-	query := tx.Where(accountIDCondition, accountID)
+	query := tx.Where("peers.account_id=?", accountID)
 	query = pagination.AsScope(query)
+	query = filters.AsConditions(query)
 
 	// if nameFilter != "" {
 	// 	query = query.Where("name LIKE ?", "%"+nameFilter+"%")
@@ -518,7 +519,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 	// 	query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
 	// }
 
-	if err := query.Find(&peers).Error; err != nil {
+	if err := query.Distinct().Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
 	}
@@ -547,21 +548,23 @@ type PeerFilters struct {
 	ApprovalRequried *bool
 	Os               []string
 	IP               string
-	IPv6             string
 	MAC              string
 	Hostname         string
-	Kind             string
+	IsServer         *bool
 }
 
-func (f *PeerFilters) AsWhere(db *gorm.DB) *gorm.DB {
+func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
+	if len(f.GroupIds) > 0 {
+		db = db.Joins("join group_peers on peers.id=group_peers.peer_id and peers.account_id=group_peers.account_id").Where("group_peers.group_id in (?)", f.GroupIds)
+	}
 	if f.UserId != "" {
-		db = db.Where("user_id = ?", f.UserId)
+		db = db.Where("user_id=?", f.UserId)
 	}
 	if f.Connected != nil {
-		db = db.Where("peer_status_connected = ?", *f.Connected)
+		db = db.Where("peer_status_connected=?", *f.Connected)
 	}
 	if f.ApprovalRequried != nil {
-		db = db.Where("peer_status_requires_approval = ?", *f.ApprovalRequried)
+		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequried)
 	}
 	if len(f.Os) > 0 {
 		var sub *gorm.DB
@@ -574,10 +577,7 @@ func (f *PeerFilters) AsWhere(db *gorm.DB) *gorm.DB {
 		db = db.Where(sub)
 	}
 	if f.IP != "" {
-		db = db.Where("ip like ?", fmt.Sprintf("%%%s%%", f.IP))
-	}
-	if f.IPv6 != "" {
-		db = db.Where("ipv6 like ?", fmt.Sprintf("%%%s%%", f.IPv6))
+		db = db.Where("ip like ? or ipv6 like ?", fmt.Sprintf("%%%s%%", f.IP), fmt.Sprintf("%%%s%%", f.IP))
 	}
 	if f.MAC != "" {
 		db = db.Where("meta_network_addresses like ?", fmt.Sprintf("%%%s%%", f.MAC))
@@ -585,9 +585,14 @@ func (f *PeerFilters) AsWhere(db *gorm.DB) *gorm.DB {
 	if f.Hostname != "" {
 		db = db.Where("name like ?", fmt.Sprintf("%%%s%%", f.Hostname))
 	}
-	if f.Kind == "server" {
-		// catch incompatible kind/user_id
+	if f.IsServer != nil {
+		if *f.IsServer {
+			db = db.Where("user_id='' or user_id is null")
+		} else {
+			db = db.Where("user_id<>'' and user_id is not null")
+		}
 	}
+
 	return db
 }
 

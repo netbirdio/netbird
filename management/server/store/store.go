@@ -23,6 +23,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
@@ -724,7 +725,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 
 	if filename != "" {
-		err = LoadSQL(conn.DB(nil), filename)
+		err = LoadSQL(conn.DB(nil), filename, translaterForSql(kind))
 		if err != nil {
 			_ = conn.Close()
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
@@ -748,7 +749,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
-		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind, dataDir)
 		if err == nil {
 			return sqlStore, cleanup, nil
 		}
@@ -758,6 +759,59 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 	store.Close(ctx)
 	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+}
+
+func NewTestStore(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
+	kind := getStoreEngineFromEnv()
+	if kind == "" {
+		kind = types.SqliteStoreEngine
+	}
+
+	var sqlStore *SqlStore
+	var cleanup func()
+	var err error
+
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, nil, kind, dataDir)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+	}
+
+	if filename != "" {
+		err = LoadSQL(sqlStore.db, filename, translaterForSql(kind))
+		if err != nil {
+			_ = sqlStore.Close(ctx)
+			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
+		}
+	}
+
+	err = addAllGroupToAccount(ctx, sqlStore)
+	if err != nil {
+		_ = sqlStore.Close(ctx)
+		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
+	}
+
+	return sqlStore, cleanup, nil
+}
+
+// use to translate double-quote escaped reserved names (ansi)
+// to mysql tick-escaped ones
+func translaterForSql(kind types.Engine) *strings.Replacer {
+	if kind != types.MysqlStoreEngine {
+		return strings.NewReplacer()
+	}
+	return strings.NewReplacer(
+		"\"key\"", "`key`",
+		"\"groups\"", "`groups`",
+	)
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {
@@ -783,8 +837,8 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 	return nil
 }
 
-func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine) (Store, func(), error) {
-	store := sqliteStore
+func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine, dataDir string) (*SqlStore, func(), error) {
+	var store *SqlStore
 	var cleanup func()
 	var err error
 	switch kind {
@@ -796,6 +850,14 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 		cleanup = func() {
 			// sqlite doesn't need to be cleaned up
 		}
+		store = sqliteStore
+		if store == nil {
+			conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
+			}
+			store, err = NewSqlStore(ctx, conn, nil, false)
+		}
 	}
 	if err != nil {
 		return nil, cleanup, fmt.Errorf("failed to create test store: %v", err)
@@ -804,7 +866,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
-		if store != sqliteStore {
+		if sqliteStore != nil && store != sqliteStore {
 			// The sqlite store only seeded the engine under test; without this
 			// every test leaks its connection and the opener goroutines.
 			sqliteStore.Close(ctx)
@@ -814,7 +876,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
+func newReusedPostgresStore(ctx context.Context, sqliteStore *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
 	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
@@ -847,16 +909,25 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, err
 	}
 
-	store, err = newPostgresqlStoreFromSqlStore(ctx, store, dsn, nil, true)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
+	var store *SqlStore
+	if sqliteStore != nil {
+		store, err = newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, true)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+	} else {
+		store, err = NewPostgresqlStoreForTests(ctx, dsn, nil, false)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
 	}
 
 	return store, cleanup, nil
 }
 
-func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
+func newReusedMysqlStore(ctx context.Context, sqliteStore *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
 	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
@@ -901,10 +972,19 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 		return nil, nil, err
 	}
 
-	store, err = newMysqlStoreFromSqlStore(ctx, store, dsn, nil, true)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
+	var store *SqlStore
+	if sqliteStore != nil {
+		store, err = newMysqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, true)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+	} else {
+		store, err = NewMysqlStore(ctx, dsn, nil, false)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
 	}
 
 	return store, cleanup, nil
@@ -1136,6 +1216,7 @@ func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template st
 			dropDB, err = gorm.Open(postgres.Open(originalDSN), &gorm.Config{
 				SkipDefaultTransaction: true,
 				PrepareStmt:            false,
+				Logger:                 logger.Default.LogMode(logger.Info),
 			})
 			if err != nil {
 				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
@@ -1206,7 +1287,7 @@ func replaceDBName(dsn, newDBName string) string {
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
-func LoadSQL(db *gorm.DB, filepath string) error {
+func LoadSQL(db *gorm.DB, filepath string, translator *strings.Replacer) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
 		return err
@@ -1215,7 +1296,7 @@ func LoadSQL(db *gorm.DB, filepath string) error {
 	queries := strings.Split(string(sqlContent), ";")
 
 	for _, query := range queries {
-		query = strings.TrimSpace(query)
+		query = translator.Replace(strings.TrimSpace(query))
 		if query != "" {
 			err := db.Exec(query).Error
 			if err != nil {

@@ -67,12 +67,6 @@ get:
       required: false
       schema:
         type: string
-    - name: ipv6
-      in: query
-      description: filter peers by ipv6
-      required: false
-      schema:
-        type: string
     - name: mac
       in: query
       description: filter peers by mac address

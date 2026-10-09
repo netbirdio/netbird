@@ -269,17 +269,23 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 	if err != nil {
 		return store.PeerFilters{}, err
 	}
+	var isServer *bool
+	if v.Get("kind") != "" {
+		isServer = new(v.Get("kind") == "server")
+		if *isServer && v.Get("user_id") != "" {
+			return store.PeerFilters{}, fmt.Errorf("incompatible filters: kind == server and a non-empty user_id")
+		}
+	}
 	return store.PeerFilters{
 		UserId:           v.Get("user_id"),
 		GroupIds:         v["group_ids"],
-		Connected:        connected,
-		ApprovalRequried: approvalRequired,
+		Connected:        new(connected),
+		ApprovalRequried: new(approvalRequired),
 		Os:               v["os"],
 		IP:               v.Get("ip"),
-		IPv6:             v.Get("ipv6"),
 		MAC:              v.Get("mac"),
 		Hostname:         v.Get("hostname"),
-		Kind:             v.Get("kind"),
+		IsServer:         isServer,
 	}, nil
 }
 

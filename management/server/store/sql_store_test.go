@@ -42,6 +42,22 @@ func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T
 	}
 }
 
+func runTestForAllEnginesNoSqliteSeed(t *testing.T, testDataFile string, f func(t *testing.T, engine string, store Store)) {
+	t.Helper()
+	for _, engine := range supportedEngines {
+		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
+			continue
+		}
+		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
+		store, cleanUp, err := NewTestStore(context.Background(), testDataFile, t.TempDir())
+		assert.NoError(t, err, "engine: ", string(engine))
+		t.Cleanup(cleanUp)
+		assert.NoError(t, err)
+		f(t, string(engine), store)
+		os.Unsetenv("NETBIRD_STORE_ENGINE")
+	}
+}
+
 func Test_NewStore(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
