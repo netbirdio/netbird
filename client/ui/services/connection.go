@@ -205,19 +205,7 @@ func (s *Connection) Down(ctx context.Context) error {
 // window.open, so the SSO verification page can't pop inline. Honors $BROWSER
 // before the platform default.
 func (s *Connection) OpenURL(url string) error {
-	if browser := os.Getenv("BROWSER"); browser != "" {
-		return exec.Command(browser, url).Start()
-	}
-	switch runtime.GOOS {
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		return exec.Command("open", url).Start()
-	case "linux":
-		return exec.Command("xdg-open", url).Start()
-	default:
-		return fmt.Errorf("unsupported platform")
-	}
+	return openURL(url)
 }
 
 func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
@@ -287,4 +275,20 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 // classifyDaemonError maps a gRPC error to a localised ClientError.
 func (s *Connection) classifyDaemonError(err error) *ClientError {
 	return s.classifier.classify(err)
+}
+
+func openURL(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
 }

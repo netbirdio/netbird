@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -1480,4 +1481,43 @@ func TestReplaceHostByLookup_SkipsClusterTarget(t *testing.T) {
 
 	require.NoError(t, mgr.replaceHostByLookup(ctx, accountID, svc), "cluster target must not trigger peer/resource lookup")
 	assert.Equal(t, "127.0.0.1", svc.Targets[0].Host, "operator-supplied host must be preserved for cluster target")
+}
+
+func TestReloadAllServicesForAccount_ContinuesAfterFailedService(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	proxyController := proxy.NewMockController(ctrl)
+	accountID := "test-account"
+
+	broken := &rpservice.Service{
+		ID:           "svc-broken",
+		AccountID:    accountID,
+		ProxyCluster: "eu.proxy.netbird.io",
+		Targets:      []*rpservice.Target{{TargetId: "x", TargetType: "unknown"}},
+	}
+	healthy := &rpservice.Service{
+		ID:           "svc-healthy",
+		AccountID:    accountID,
+		ProxyCluster: "eu.proxy.netbird.io",
+		Targets:      []*rpservice.Target{{TargetId: "peer-1", TargetType: rpservice.TargetTypePeer, Host: "100.64.0.1", Protocol: "http", Port: 8080, Enabled: true}},
+	}
+
+	mockStore.EXPECT().GetAccountServices(ctx, store.LockingStrengthNone, accountID).Return([]*rpservice.Service{broken, healthy}, nil)
+	mockStore.EXPECT().GetPeerByID(ctx, store.LockingStrengthNone, accountID, "peer-1").
+		Return(&nbpeer.Peer{ID: "peer-1", IP: netip.MustParseAddr("100.70.0.9")}, nil)
+	proxyController.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{})
+	proxyController.EXPECT().SendServiceUpdateToCluster(ctx, accountID, gomock.Any(), "eu.proxy.netbird.io").
+		Do(func(_ context.Context, _ string, mapping *proto.ProxyMapping, _ string) {
+			assert.Equal(t, "svc-healthy", mapping.GetId())
+			require.Len(t, mapping.GetPath(), 1)
+			assert.Contains(t, mapping.GetPath()[0].GetTarget(), "100.70.0.9", "mapping must carry the peer's current IP")
+		})
+
+	mgr := &Manager{store: mockStore, proxyController: proxyController}
+
+	err := mgr.ReloadAllServicesForAccount(ctx, accountID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "svc-broken")
+	assert.NotContains(t, err.Error(), "svc-healthy")
 }

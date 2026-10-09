@@ -37,12 +37,12 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/certproof"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
-	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -58,6 +58,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
@@ -170,6 +171,8 @@ type EngineConfig struct {
 
 	MTU uint16
 
+	CertStore certproof.Config
+
 	// for debug bundle generation
 	ProfileConfig *profilemanager.Config
 
@@ -246,6 +249,9 @@ type Engine struct {
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
+	// wgDetector is shared by every ICE agent through the ICE config.
+	wgDetector *stdnet.WGDetector
+
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
@@ -262,16 +268,33 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall          firewallManager.Manager
-	routeManager      routemanager.Manager
-	acl               acl.Manager
-	dnsForwardMgr     *dnsfwd.Manager
-	ingressGatewayMgr *ingressgw.Manager
+	firewall      firewallManager.Manager
+	routeManager  routemanager.Manager
+	acl           acl.Manager
+	dnsForwardMgr *dnsfwd.Manager
 
 	dnsServer dns.Server
 
-	// checks are the client-applied posture checks that need to be evaluated on the client
-	checks []*mgmProto.Checks
+	// checks are the client-applied posture checks that need to be evaluated on the client.
+	// Writers hold syncMsgMux and checksMu; readers hold either, see appliedChecks.
+	checks   []*mgmProto.Checks
+	checksMu sync.RWMutex
+	// pendingChecks are the newest received checks whose meta sync failed; the posture
+	// watcher retries them. Both are guarded by syncMsgMux, and
+	// hasPendingChecks lets the watcher skip the lock when nothing is pending.
+	pendingChecks    []*mgmProto.Checks
+	hasPendingChecks atomic.Bool
+	// infoTimeout overrides systemInfoTimeout when set.
+	infoTimeout time.Duration
+
+	// certProofs answers the certificate challenges in checks within a bounded time, and
+	// certState remembers what it last proved.
+	certProofs certproof.Collector
+	certState  certPostureState
+	// certWake wakes the posture watcher, which owns proof collection; certSendMu orders
+	// the meta syncs that carry proofs.
+	certWake   chan struct{}
+	certSendMu sync.Mutex
 
 	infoSource system.InfoSource
 
@@ -364,6 +387,7 @@ func NewEngine(
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
 		peerStore:          peerstore.NewConnStore(),
+		wgDetector:         stdnet.NewWGDetector(),
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
@@ -375,6 +399,7 @@ func NewEngine(
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
+		certWake:           make(chan struct{}, 1),
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
@@ -448,13 +473,6 @@ func (e *Engine) stopLocked() {
 
 	e.cleanupSSHConfig()
 
-	if e.ingressGatewayMgr != nil {
-		if err := e.ingressGatewayMgr.Close(); err != nil {
-			log.Warnf("failed to cleanup forward rules: %v", err)
-		}
-		e.ingressGatewayMgr = nil
-	}
-
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
 	}
@@ -464,7 +482,7 @@ func (e *Engine) stopLocked() {
 	}
 
 	if e.updateManager != nil {
-		e.updateManager.SetDownloadOnly()
+		e.updateManager.ResetMode()
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -667,6 +685,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		defer e.shutdownWg.Done()
 		e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
 	}()
+
+	e.shutdownWg.Add(1)
+	go func(ctx context.Context) {
+		defer e.shutdownWg.Done()
+		e.watchCertificatePosture(ctx)
+	}(e.ctx)
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
@@ -960,11 +984,13 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	}
 
 	if autoUpdateSettings == nil {
+		log.Infof("no auto-update settings received, defaulting to download-only")
+		e.updateManager.SetDownloadOnly()
 		return
 	}
 
 	if autoUpdateSettings.Version == disableAutoUpdate {
-		log.Infof("auto-update is disabled")
+		log.Infof("auto-update is disabled, switching to download-only")
 		e.updateManager.SetDownloadOnly()
 		return
 	}
@@ -1233,21 +1259,52 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	// if checks are equal, we skip the update
 	if isChecksEqual(e.checks, checks) {
+		e.clearPendingChecks()
 		return nil
 	}
-	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
-	if !ok {
-		// Gathering timed out; skip the meta sync this cycle rather than blocking the
-		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
-		return nil
+	if err := e.syncChecksMeta(checks); err != nil {
+		// The newest checks become the pending ones whatever failed, so the watcher
+		// never retries a set they superseded.
+		e.pendingChecks = checks
+		e.hasPendingChecks.Store(true)
+		if errors.Is(err, errSystemInfoTimeout) {
+			return nil
+		}
+		return err
 	}
-	e.applyInfoFlags(info)
-
-	if err := e.mgmClient.SyncMeta(info); err != nil {
-		return fmt.Errorf("could not sync meta: error %s", err)
-	}
-	e.checks = checks
+	e.setAppliedChecks(checks)
+	e.clearPendingChecks()
 	return nil
+}
+
+// appliedChecks returns the posture checks in effect, for callers that do not hold
+// syncMsgMux. The slice is replaced, never modified, so it may be read after return.
+func (e *Engine) appliedChecks() []*mgmProto.Checks {
+	e.checksMu.RLock()
+	defer e.checksMu.RUnlock()
+	return e.checks
+}
+
+// setAppliedChecks replaces the posture checks in effect. The caller holds syncMsgMux.
+func (e *Engine) setAppliedChecks(checks []*mgmProto.Checks) {
+	e.checksMu.Lock()
+	e.checks = checks
+	e.checksMu.Unlock()
+	e.wakeCertificatePosture()
+}
+
+// clearPendingChecks drops checks whose meta sync was still owed. The caller holds
+// syncMsgMux.
+func (e *Engine) clearPendingChecks() {
+	e.pendingChecks = nil
+	e.hasPendingChecks.Store(false)
+}
+
+func (e *Engine) infoGatherTimeout() time.Duration {
+	if e.infoTimeout > 0 {
+		return e.infoTimeout
+	}
+	return systemInfoTimeout
 }
 
 // applyInfoFlags sets the engine's config-derived feature flags on the gathered system info.
@@ -1276,6 +1333,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
 	e.applyInfoFlags(info)
+	e.attachCertificateProofs(info, e.appliedChecks())
 	return info
 }
 
@@ -1291,6 +1349,7 @@ func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) 
 		info := refreshed
 		refreshed = nil
 		e.applyInfoFlags(info)
+		e.attachCertificateProofs(info, e.appliedChecks())
 		return info
 	}
 }
@@ -1488,7 +1547,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.appliedChecks(), e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
@@ -1625,13 +1684,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	done = e.phase("dns_forwarder")
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
-	done()
-
-	// Ingress forward rules
-	done = e.phase("forward_rules")
-	if _, err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
-		log.Errorf("failed to update forward rules, err: %v", err)
-	}
 	done()
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
@@ -2733,74 +2785,6 @@ func (e *Engine) setForwarderCapture(pc device.PacketCapture) {
 	}
 }
 
-func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
-	if e.firewall == nil {
-		log.Warn("firewall is disabled, not updating forwarding rules")
-		return nil, nil
-	}
-
-	if len(rules) == 0 {
-		if e.ingressGatewayMgr == nil {
-			return nil, nil
-		}
-
-		err := e.ingressGatewayMgr.Close()
-		e.ingressGatewayMgr = nil
-		e.statusRecorder.SetIngressGwMgr(nil)
-		return nil, err
-	}
-
-	if e.ingressGatewayMgr == nil {
-		mgr := ingressgw.NewManager(e.firewall)
-		e.ingressGatewayMgr = mgr
-		e.statusRecorder.SetIngressGwMgr(mgr)
-	}
-
-	var merr *multierror.Error
-	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
-	for _, rule := range rules {
-		proto, err := acl.ConvertToFirewallProtocol(rule.GetProtocol())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
-			continue
-		}
-
-		dstPortInfo, err := convertPortInfo(rule.GetDestinationPort())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("invalid destination port '%v': %w", rule.GetDestinationPort(), err))
-			continue
-		}
-
-		translateIP, err := convertToIP(rule.GetTranslatedAddress())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("failed to convert translated address '%s': %w", rule.GetTranslatedAddress(), err))
-			continue
-		}
-
-		translatePort, err := convertPortInfo(rule.GetTranslatedPort())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("invalid translate port '%v': %w", rule.GetTranslatedPort(), err))
-			continue
-		}
-
-		forwardRule := firewallManager.ForwardRule{
-			Protocol:          proto,
-			DestinationPort:   *dstPortInfo,
-			TranslatedAddress: translateIP,
-			TranslatedPort:    *translatePort,
-		}
-
-		forwardingRules = append(forwardingRules, forwardRule)
-	}
-
-	log.Infof("updating forwarding rules: %d", len(forwardingRules))
-	if err := e.ingressGatewayMgr.Update(forwardingRules); err != nil {
-		log.Errorf("failed to update forwarding rules: %v", err)
-	}
-
-	return forwardingRules, nberrors.FormatErrorOrNil(merr)
-}
-
 // toExcludedLazyPeers returns the peers that must have an always-active
 // connection: those that are not lazy by policy (the per-peer lazy state or the
 // account flag, subject to the local override).
@@ -2823,6 +2807,11 @@ func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
 			sortedFiles := slices.Clone(check.Files)
 			sort.Strings(sortedFiles)
 			normalized[i] = strings.Join(sortedFiles, "|")
+			if challenge := check.GetCertificateChallenge(); challenge != nil {
+				sortedCAs := slices.Clone(challenge.GetCaCertificates())
+				sort.Strings(sortedCAs)
+				normalized[i] += fmt.Sprintf("#%x|%s", challenge.GetNonce(), strings.Join(sortedCAs, "|"))
+			}
 		}
 
 		sort.Strings(normalized)

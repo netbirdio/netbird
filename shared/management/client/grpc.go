@@ -738,9 +738,13 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return flowInfoResp, nil
 }
 
-// GetPKCEAuthorizationFlow returns a pkce authorization flow information.
+// GetPKCEAuthorizationFlow returns the PKCE authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
+//
+// sessionExtend tells the server the flow will renew an existing peer's session
+// rather than log one in, so it can rule out a configuration that would let the
+// IdP answer from an unrelated account. See PKCEAuthorizationFlowRequest.
+func (c *GrpcClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
 	}
@@ -753,7 +757,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, e
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 
-	message := &proto.PKCEAuthorizationFlowRequest{}
+	message := &proto.PKCEAuthorizationFlowRequest{SessionExtend: sessionExtend}
 	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
 	if err != nil {
 		return nil, err
@@ -1014,6 +1018,19 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	proofs := make([]*proto.CertificateProof, 0, len(info.CertificateProofs))
+	for _, p := range info.CertificateProofs {
+		proofs = append(proofs, &proto.CertificateProof{
+			Nonce:     p.Nonce,
+			Chain:     p.Chain,
+			SigAlg:    p.SigAlg,
+			Signature: p.Signature,
+		})
+	}
+	if len(proofs) > 0 {
+		log.Debugf("peer meta carries %d certificate posture proofs", len(proofs))
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
 		GoOS:             info.GoOS,
@@ -1033,7 +1050,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
-		Files: files,
+		Files:             files,
+		CertificateProofs: proofs,
 
 		Flags: &proto.Flags{
 			RosenpassEnabled:    info.RosenpassEnabled,
