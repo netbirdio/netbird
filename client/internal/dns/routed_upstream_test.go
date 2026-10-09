@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -672,6 +674,80 @@ func TestApplyConfigurationDoesNotLatchAFailedUpdate(t *testing.T) {
 
 	assert.False(t, server.haveUpdate, "a rejected update must not be replayable")
 	assert.Empty(t, server.lastGateDecision, "a rejected update's verdict must not be remembered")
+}
+
+// Every other test drives refreshRoutedUpstreams directly, which leaves the
+// path production actually uses — signal, refresher goroutine, re-apply —
+// unexercised. This drives a real signal through it.
+func TestRouteRefresherDrivesTheReApply(t *testing.T) {
+	group := nsGroupWith("10.10.0.53")
+	group.Domains = []string{"corp.example.com"}
+	update := nbdns.Config{
+		ServiceEnable:    true,
+		NameServerGroups: []*nbdns.NameServerGroup{group},
+	}
+
+	var mu sync.Mutex
+	var captured HostDNSConfig
+	installed := prefixes("10.10.0.0/24")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	server := &DefaultServer{
+		ctx:          ctx,
+		handlerChain: NewHandlerChain(),
+		hostManager: &mockHostConfigurator{
+			applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+				mu.Lock()
+				defer mu.Unlock()
+				captured = config
+				return nil
+			},
+			supportCustomPortFunc: func() bool { return true },
+			stringFunc:            func() string { return "mock" },
+		},
+		localResolver:      &local.Resolver{},
+		service:            &mockService{},
+		wgInterface:        &mocWGIface{},
+		statusRecorder:     peer.NewRecorder("test"),
+		extraDomains:       make(map[domain.Domain]int),
+		currentConfigHash:  ^uint64(0),
+		healthRefresh:      make(chan struct{}, 1),
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+		selectedRoutes:     func() route.HAMap { return haMapWith("10.10.0.0/24") },
+		installedRoutes: func() route.HAMap {
+			mu.Lock()
+			defer mu.Unlock()
+			if len(installed) == 0 {
+				return route.HAMap{}
+			}
+			return haMapWith("10.10.0.0/24")
+		},
+	}
+
+	server.startRouteRefresher()
+	t.Cleanup(func() {
+		cancel()
+		server.shutdownWg.Wait()
+	})
+
+	snap := server.routeSnapshot()
+	require.NoError(t, server.applyConfiguration(update, server.gateNameServerGroups(update.NameServerGroups, snap)))
+	mu.Lock()
+	require.NotEmpty(t, captured.Domains, "configured while the route is installed")
+	mu.Unlock()
+
+	// Withdraw the route and signal exactly as the route watcher does.
+	mu.Lock()
+	installed = nil
+	mu.Unlock()
+	server.OnInstalledRoutesChanged()
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(captured.Domains) == 0
+	}, 5*time.Second, 20*time.Millisecond, "the refresher should have re-applied without the withheld group")
 }
 
 // OnInstalledRoutesChanged is called from the route manager while it holds its
