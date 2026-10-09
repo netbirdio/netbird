@@ -61,7 +61,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-ole/go-ole v1.3.0
 	github.com/gobwas/ws v1.4.0
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
@@ -85,13 +85,15 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20260803100840-78e79ba20f87
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20261006132740-6e6b0cb01f2e
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/pb33f/libopenapi v0.41.2
+	github.com/pb33f/libopenapi-validator v0.15.0
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203
 	github.com/pion/ice/v4 v4.0.0-00010101000000-000000000000
 	github.com/pion/logging v0.2.4
@@ -135,7 +137,7 @@ require (
 	golang.org/x/mod v0.39.0
 	golang.org/x/net v0.58.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/term v0.45.0
 	golang.org/x/time v0.15.0
 	google.golang.org/api v0.276.0
@@ -183,9 +185,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.34.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.2 // indirect
 	github.com/aws/smithy-go v1.23.0 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/basgys/goxml2json v1.1.1-0.20231018121955-e66ee54ceaad // indirect
 	github.com/beevik/etree v1.6.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
+	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/caddyserver/zerossl v0.1.3 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -213,12 +218,13 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/analysis v0.23.0 // indirect
 	github.com/go-openapi/errors v0.22.2 // indirect
-	github.com/go-openapi/jsonpointer v0.21.1 // indirect
+	github.com/go-openapi/jsonpointer v0.23.2 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/loads v0.22.0 // indirect
 	github.com/go-openapi/spec v0.21.0 // indirect
 	github.com/go-openapi/strfmt v0.23.0 // indirect
 	github.com/go-openapi/swag v0.23.1 // indirect
+	github.com/go-openapi/swag/jsonname v0.26.1 // indirect
 	github.com/go-openapi/validate v0.24.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
@@ -297,6 +303,9 @@ require (
 	github.com/openbao/openbao/api/v2 v2.5.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
+	github.com/pb33f/go-yaml v0.1.1 // indirect
+	github.com/pb33f/jsonpath v0.8.4 // indirect
+	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
@@ -314,6 +323,7 @@ require (
 	github.com/russellhaering/goxmldsig v1.6.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect

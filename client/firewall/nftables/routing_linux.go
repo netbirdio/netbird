@@ -459,41 +459,6 @@ func (r *family) RemoveAllLegacyRouteRules() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (r *family) removeNatPreroutingRules() error {
-	table := &nftables.Table{
-		Name:   tableNat,
-		Family: r.af.tableFamily,
-	}
-	chain := &nftables.Chain{
-		Name:     chainNameNatPrerouting,
-		Table:    table,
-		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityNATDest,
-		Type:     nftables.ChainTypeNAT,
-	}
-	rules, err := r.conn.GetRules(table, chain)
-	if err != nil {
-		return fmt.Errorf("get rules from nat table: %w", err)
-	}
-
-	var merr *multierror.Error
-
-	// Delete rules that have our UserData suffix
-	for _, rule := range rules {
-		if len(rule.UserData) == 0 || !strings.HasSuffix(string(rule.UserData), string(dnatSuffix)) {
-			continue
-		}
-		if err := r.conn.DelRule(rule); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("delete rule %s: %w", rule.UserData, err))
-		}
-	}
-
-	if err := r.conn.Flush(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
-	}
-	return nberrors.FormatErrorOrNil(merr)
-}
-
 func (r *family) RemoveNatRule(pair firewall.RouterPair) error {
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)

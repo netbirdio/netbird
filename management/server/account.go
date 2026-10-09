@@ -35,7 +35,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -84,7 +83,6 @@ type DefaultAccountManager struct {
 
 	requestBuffer *AccountRequestBuffer
 
-	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
 	serviceManager  service.Manager
 
@@ -225,7 +223,6 @@ func BuildManager(
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
-	proxyController port_forwarding.Controller,
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
@@ -253,7 +250,6 @@ func BuildManager(
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
-		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
@@ -334,6 +330,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var groupChangesAffectPeers bool
 	var reloadReverseProxy bool
 	var effectiveOldNetworkRange netip.Prefix
+	var ipv6Changed bool
+	var ipv6Snap *affectedpeers.Snapshot
+	var ipv6Change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -379,10 +378,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 
 		if ipv6SettingsChanged(oldSettings, newSettings) {
-			if err = am.updatePeerIPv6Addresses(ctx, transaction, accountID, newSettings); err != nil {
+			if ipv6Change, err = am.applyIPv6SettingsChange(ctx, transaction, accountID, oldSettings, newSettings); err != nil {
 				return err
 			}
-			updateAccountPeers = true
+			ipv6Changed = true
 		}
 
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
@@ -419,9 +418,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
-		if updateAccountPeers || groupsUpdated {
+		if updateAccountPeers || groupsUpdated || ipv6Changed {
 			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 				return err
+			}
+		}
+
+		// A full account refresh already covers the IPv6 change, so the affected-peers
+		// snapshot is only needed when nothing account-wide changed.
+		if ipv6Changed && !updateAccountPeers && !groupChangesAffectPeers {
+			if ipv6Snap, err = affectedpeers.Load(ctx, transaction, accountID, ipv6Change); err != nil {
+				return fmt.Errorf("load affected peers: %w", err)
 			}
 		}
 
@@ -486,11 +493,32 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 	}
 
-	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
-		go am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
+	switch {
+	case updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers:
+		go am.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
+	case ipv6Snap != nil:
+		am.ExpandAndUpdateAffected(ctx, accountID, ipv6Snap, ipv6Change)
 	}
 
 	return newSettings, nil
+}
+
+// applyIPv6SettingsChange reconciles peer IPv6 addresses for new IPv6 settings and
+// returns the affected-peers change: peers whose address changed refresh together
+// with every peer that reaches them. On a range change every peer holding an address
+// also refreshes itself, since its interface prefix comes from the account range even
+// when its address stays inside the new one.
+func (am *DefaultAccountManager) applyIPv6SettingsChange(ctx context.Context, transaction store.Store, accountID string, oldSettings, newSettings *types.Settings) (affectedpeers.Change, error) {
+	result, err := am.updatePeerIPv6Addresses(ctx, transaction, accountID, newSettings)
+	if err != nil {
+		return affectedpeers.Change{}, err
+	}
+
+	change := affectedpeers.Change{ChangedPeerIDs: result.changed}
+	if oldSettings.NetworkRangeV6 != newSettings.NetworkRangeV6 {
+		change.OutputPeerIDs = result.withIPv6
+	}
+	return change, nil
 }
 
 func ipv6SettingsChanged(old, updated *types.Settings) bool {
@@ -1742,9 +1770,11 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 			change.LinkGroups = allGroupChanges
 
-			if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, userAuth.AccountId, allGroupChanges); err != nil {
+			ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, userAuth.AccountId, allGroupChanges)
+			if err != nil {
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 			}
+			change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
 
 			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
@@ -2334,7 +2364,8 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 		return false, false, err
 	}
 
-	if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, updatedGroups); err != nil {
+	ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, updatedGroups)
+	if err != nil {
 		return false, false, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 	}
 
@@ -2343,7 +2374,7 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 		return false, false, fmt.Errorf("error checking if group changes affect peers: %w", err)
 	}
 
-	return len(updatedGroups) > 0, peersAffected, nil
+	return len(updatedGroups) > 0, peersAffected || len(ipv6Changed) > 0, nil
 }
 
 // propagateAutoGroupsForUsers adds each user's peers to their AutoGroups where not already present.
@@ -2440,56 +2471,78 @@ func (am *DefaultAccountManager) checkIPv6Collision(ctx context.Context, transac
 	return nil
 }
 
-func (am *DefaultAccountManager) updatePeerIPv6Addresses(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings) error {
+// ipv6Reassignment reports the outcome of an IPv6 address reconciliation.
+type ipv6Reassignment struct {
+	// changed are the peers whose IPv6 address was assigned, removed or reallocated.
+	changed []string
+	// withIPv6 are all peers holding an IPv6 address after the reconciliation.
+	withIPv6 []string
+}
+
+func (am *DefaultAccountManager) updatePeerIPv6Addresses(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings) (ipv6Reassignment, error) {
 	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "", "")
 	if err != nil {
-		return fmt.Errorf("get peers: %w", err)
+		return ipv6Reassignment{}, fmt.Errorf("get peers: %w", err)
 	}
 
 	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthUpdate, accountID)
 	if err != nil {
-		return fmt.Errorf("get network: %w", err)
+		return ipv6Reassignment{}, fmt.Errorf("get network: %w", err)
 	}
 
 	if err := am.ensureIPv6Subnet(ctx, transaction, accountID, settings, network); err != nil {
-		return err
+		return ipv6Reassignment{}, err
 	}
 
 	allowedPeers, err := am.buildIPv6AllowedPeers(ctx, transaction, accountID, settings)
 	if err != nil {
-		return err
+		return ipv6Reassignment{}, err
 	}
 
 	v6Prefix, err := netip.ParsePrefix(network.NetV6.String())
 	if err != nil {
-		return fmt.Errorf("parse IPv6 prefix: %w", err)
+		return ipv6Reassignment{}, fmt.Errorf("parse IPv6 prefix: %w", err)
 	}
 
-	if err := am.assignPeerIPv6Addresses(ctx, transaction, accountID, peers, network, allowedPeers, v6Prefix); err != nil {
-		return err
+	changed, err := am.assignPeerIPv6Addresses(ctx, transaction, accountID, peers, network, allowedPeers, v6Prefix)
+	if err != nil {
+		return ipv6Reassignment{}, err
 	}
 
-	log.WithContext(ctx).Infof("updated IPv6 addresses for %d peers in account %s (groups=%d)",
-		len(peers), accountID, len(settings.IPv6EnabledGroups))
+	result := ipv6Reassignment{changed: changed}
+	for _, peer := range peers {
+		if peer.IPv6.IsValid() {
+			result.withIPv6 = append(result.withIPv6, peer.ID)
+		}
+	}
 
-	return nil
+	log.WithContext(ctx).Infof("updated IPv6 addresses for %d of %d peers in account %s (groups=%d)",
+		len(changed), len(peers), accountID, len(settings.IPv6EnabledGroups))
+
+	return result, nil
 }
 
 // reconcileIPv6ForGroupChanges checks whether the given group IDs overlap with
 // the account's IPv6EnabledGroups. If they do, it runs a full IPv6 address
 // reconciliation so that peers gaining or losing membership in an IPv6-enabled
-// group get their addresses assigned or removed.
-func (am *DefaultAccountManager) reconcileIPv6ForGroupChanges(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) error {
+// group get their addresses assigned or removed. It returns the peers whose IPv6
+// address changed, which callers pass as changed peers so every peer that can
+// reach them refreshes.
+func (am *DefaultAccountManager) reconcileIPv6ForGroupChanges(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) ([]string, error) {
 	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return fmt.Errorf("get account settings: %w", err)
+		return nil, fmt.Errorf("get account settings: %w", err)
 	}
 
 	if !ipv6ReconcileNeeded(settings, groupIDs) {
-		return nil
+		return nil, nil
 	}
 
-	return am.updatePeerIPv6Addresses(ctx, transaction, accountID, settings)
+	result, err := am.updatePeerIPv6Addresses(ctx, transaction, accountID, settings)
+	if err != nil {
+		return nil, err
+	}
+	return result.changed, nil
 }
 
 // ipv6ReconcileNeeded reports whether changes to the given groups trigger an IPv6
@@ -2528,7 +2581,7 @@ func (am *DefaultAccountManager) assignPeerIPv6Addresses(
 	ctx context.Context, transaction store.Store, accountID string,
 	peers []*nbpeer.Peer, network *types.Network,
 	allowedPeers map[string]struct{}, v6Prefix netip.Prefix,
-) error {
+) ([]string, error) {
 	takenV6 := make(map[netip.Addr]struct{})
 	for _, peer := range peers {
 		if _, ok := allowedPeers[peer.ID]; ok && peer.IPv6.IsValid() && network.NetV6.Contains(peer.IPv6.AsSlice()) {
@@ -2536,6 +2589,7 @@ func (am *DefaultAccountManager) assignPeerIPv6Addresses(
 		}
 	}
 
+	var changed []string
 	for _, peer := range peers {
 		_, allowed := allowedPeers[peer.ID]
 		oldIPv6 := peer.IPv6
@@ -2545,7 +2599,7 @@ func (am *DefaultAccountManager) assignPeerIPv6Addresses(
 		} else if !peer.IPv6.IsValid() || !network.NetV6.Contains(peer.IPv6.AsSlice()) {
 			newIP, err := allocateIPv6WithRetry(v6Prefix, takenV6, peer.ID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			peer.IPv6 = newIP
 		}
@@ -2555,10 +2609,11 @@ func (am *DefaultAccountManager) assignPeerIPv6Addresses(
 		}
 
 		if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
-			return fmt.Errorf("save peer %s: %w", peer.ID, err)
+			return nil, fmt.Errorf("save peer %s: %w", peer.ID, err)
 		}
+		changed = append(changed, peer.ID)
 	}
-	return nil
+	return changed, nil
 }
 
 func allocateIPv6WithRetry(prefix netip.Prefix, taken map[netip.Addr]struct{}, peerID string) (netip.Addr, error) {

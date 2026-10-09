@@ -52,7 +52,7 @@ func interactiveLogin(ctx context.Context, cfg *Config) (string, error) {
 		return "", fmt.Errorf("prepare login: %w", err)
 	}
 
-	flow, err := auth.NewOAuthFlow(ctx, flowConfig, util.HasGraphicalSession(), false, "")
+	flow, err := auth.NewOAuthFlow(ctx, flowConfig, util.HasGraphicalSession(), false, "", false)
 	if err != nil {
 		return "", fmt.Errorf("start login: %w", err)
 	}
