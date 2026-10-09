@@ -365,11 +365,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
 			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
-			// This path never registers, so every failure here is a real one
-			// and is reported at error level. The login helper no longer logs
-			// it, which kept a peer's expected pre-registration refusal from
-			// being announced as a failure.
-			log.Errorf("failed to login to Management Service: %v", err)
+			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
 				c.runCancel()
