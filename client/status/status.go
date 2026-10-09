@@ -766,7 +766,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 }
 
 // quantumResistanceMechanism reports which post-quantum mechanism the local client runs,
-// as an enum: "none", "ML-KEM strict", "ML-KEM permissive", "RP strict", "RP permissive".
+// as an enum: "none", "ML-KEM strict", "ML-KEM permissive", "Rosenpass strict", "Rosenpass permissive".
 // ML-KEM and Rosenpass are mutually exclusive, so at most one is active; ML-KEM takes
 // precedence if somehow both are set. Strict/permissive is the fail-closed vs fail-open mode.
 func quantumResistanceMechanism(rosenpassEnabled, rosenpassPermissive, mlkemEnabled, mlkemStrict bool) string {
@@ -776,9 +776,9 @@ func quantumResistanceMechanism(rosenpassEnabled, rosenpassPermissive, mlkemEnab
 	case mlkemEnabled:
 		return "ML-KEM permissive"
 	case rosenpassEnabled && !rosenpassPermissive:
-		return "RP strict"
+		return "Rosenpass strict"
 	case rosenpassEnabled:
-		return "RP permissive"
+		return "Rosenpass permissive"
 	default:
 		return "none"
 	}
