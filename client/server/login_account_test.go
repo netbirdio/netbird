@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,8 +11,23 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
+
+type jwtStoringMDMFetcher struct {
+	cache      *jwtCache
+	caller     ipcauth.Identity
+	generation uint64
+}
+
+func (f *jwtStoringMDMFetcher) Fetch() map[string]any {
+	f.generation = f.cache.currentGeneration()
+	f.cache.store("previous-profile-token", f.caller, time.Minute, f.generation)
+	return nil
+}
 
 type stubOAuthFlow struct {
 	token  auth.TokenInfo
@@ -121,6 +138,110 @@ func TestSwitchProfile_DropsAccountPromptAndPendingFlow(t *testing.T) {
 	require.True(t, extendCancelled, "the pending extend wait was not cancelled")
 	_, _, pending := s.extendAuthSessionFlow.Get()
 	require.False(t, pending, "the previous profile's extend flow leaked across a profile switch")
+}
+
+func TestLogin_ProfileSwitchDropsAccountPromptAndPendingFlow(t *testing.T) {
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+	s.isLoginRequiredFn = func(context.Context) (bool, error) {
+		return true, nil
+	}
+
+	other := "other-profile"
+	otherPath := filepath.Join(filepath.Dir(cfgPath), other+".json")
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    otherPath,
+		ManagementURL: "https://api.netbird.io:443",
+	})
+	require.NoError(t, err)
+	breakProfilePrivateKey(t, otherPath)
+
+	s.forceAccountPrompt = true
+	cancelled := false
+	s.oauthAuthFlow = oauthAuthFlow{
+		flow:       &stubOAuthFlow{},
+		hint:       "user@example.com",
+		waitCancel: func() { cancelled = true },
+	}
+
+	extendCancelled := false
+	s.extendAuthSessionFlow.Set(&stubOAuthFlow{}, auth.AuthFlowInfo{DeviceCode: "device"})
+	s.extendAuthSessionFlow.SetWaitCancel(func() { extendCancelled = true })
+
+	generation := s.jwtCache.currentGeneration()
+
+	_, err = s.Login(userCtx(), &proto.LoginRequest{ProfileName: &other, Username: &username})
+	require.Error(t, err, "the broken key must stop the login before a flow is built")
+
+	active, err := s.profileManager.GetActiveProfileState()
+	require.NoError(t, err)
+	require.Equal(t, profilemanager.ID(other), active.ID, "the login did not switch the profile")
+
+	require.False(t, s.forceAccountPrompt, "the prompt flag leaked across a login-driven profile switch")
+	require.Nil(t, s.oauthAuthFlow.flow, "the previous profile's flow leaked across a login-driven profile switch")
+	require.Empty(t, s.oauthAuthFlow.hint)
+	require.True(t, cancelled, "the pending wait was not cancelled")
+
+	require.True(t, extendCancelled, "the pending extend wait was not cancelled")
+	_, _, pending := s.extendAuthSessionFlow.Get()
+	require.False(t, pending, "the previous profile's extend flow leaked across a login-driven profile switch")
+
+	require.Greater(t, s.jwtCache.currentGeneration(), generation, "the previous profile's JWT cache survived a login-driven profile switch")
+}
+
+func TestLogin_ProfileSwitchRejectsJWTObtainedUnderPreviousConfig(t *testing.T) {
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+	s.isLoginRequiredFn = func(context.Context) (bool, error) {
+		return false, errors.New("stop once the config is swapped")
+	}
+
+	other := "other-profile"
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(filepath.Dir(cfgPath), other+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	})
+	require.NoError(t, err)
+
+	// getConfig loads the MDM policy right before Login swaps s.config, so the
+	// fetcher runs where a RequestJWTAuth racing the login would land: after the
+	// switch dropped the previous profile's state, while s.config still belongs
+	// to the previous profile. It caches a token under the generation current at
+	// that point, as WaitJWTToken would.
+	generation := s.jwtCache.currentGeneration()
+	fetcher := &jwtStoringMDMFetcher{cache: s.jwtCache, caller: unprivilegedIdentity()}
+	s.mdmLoader = mdm.NewLoader(fetcher)
+
+	_, err = s.Login(userCtx(), &proto.LoginRequest{ProfileName: &other, Username: &username})
+	require.Error(t, err)
+
+	require.Greater(t, fetcher.generation, generation, "the token was not cached after the switch dropped the previous profile's state")
+	_, found := s.jwtCache.get(fetcher.caller)
+	require.False(t, found, "a JWT obtained under the previous profile's config survived the login-driven switch")
+}
+
+func TestLogin_SameProfileKeepsPendingFlow(t *testing.T) {
+	s, _, profName, username, cfgPath := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+	s.isLoginRequiredFn = func(context.Context) (bool, error) {
+		return true, nil
+	}
+	breakProfilePrivateKey(t, cfgPath)
+
+	cancelled := false
+	flow := &stubOAuthFlow{}
+	s.oauthAuthFlow = oauthAuthFlow{
+		flow:       flow,
+		hint:       "user@example.com",
+		waitCancel: func() { cancelled = true },
+	}
+
+	_, err := s.Login(userCtx(), &proto.LoginRequest{ProfileName: &profName, Username: &username})
+	require.Error(t, err, "the broken key must stop the login before a flow is built")
+
+	require.Equal(t, flow, s.oauthAuthFlow.flow, "a login on the same profile dropped the flow a second client could join")
+	require.Equal(t, "user@example.com", s.oauthAuthFlow.hint)
+	require.False(t, cancelled, "a login on the same profile cancelled the pending wait")
 }
 
 func TestWaitSSOLogin_JudgesTheFlowThatProducedTheToken(t *testing.T) {
