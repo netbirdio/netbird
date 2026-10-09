@@ -3,6 +3,7 @@ package link
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -473,4 +474,71 @@ func TestParseForwardRedactsPasswordWithAtSign(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "ss@", "no part of the password may reach the error")
+}
+
+// stalledBodyProbe sends a request whose declared body is only partly
+// delivered and then stops, as a caller holding a connection open would. It
+// returns the status line, or an empty string when nothing came back inside
+// wait.
+//
+// It speaks raw HTTP rather than using the client, because the shape that
+// matters is an explicit Content-Length the sender never satisfies: a body
+// handed to http.Client is sent chunked, which exercises a different path in
+// the server's post-handler drain.
+func stalledBodyProbe(t *testing.T, addr, host string, wait time.Duration) string {
+	t.Helper()
+
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err, "connect to the forwarder")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	req := fmt.Sprintf("POST / HTTP/1.1\r\nHost: %s\r\nContent-Length: 100\r\n\r\n0123456789", host)
+	_, err = conn.Write([]byte(req))
+	require.NoError(t, err, "send the partial request")
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(wait)))
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return ""
+	}
+	return strings.SplitN(string(buf[:n]), "\r\n", 2)[0]
+}
+
+// A caller that declares a body and then stops sending must still be answered,
+// on every path that does not read it. The server drains an unread body before
+// reusing the connection, and that drain has no deadline of its own: whatever
+// the forwarder leaves on the connection is what bounds it.
+//
+// Without this, a few thousand such connections exhaust the forwarder's file
+// descriptors while each one holds a goroutine parked in that drain.
+func TestStalledRequestBodyIsAnsweredOnEveryPath(t *testing.T) {
+	// The dial target refuses, so a request that passes the guard reaches the
+	// proxy's error handler instead of an upstream.
+	base := serveForward(t, "http://127.0.0.1:0=http://grafana.internal", "127.0.0.1:1")
+	addr := strings.TrimPrefix(base, "http://")
+
+	cases := []struct {
+		name string
+		host string
+		want string
+	}{
+		{
+			name: "the guard rejects it",
+			host: "attacker.example",
+			want: "HTTP/1.1 421 Misdirected Request",
+		},
+		{
+			name: "the overlay dial fails",
+			host: "127.0.0.1",
+			want: "HTTP/1.1 502 Bad Gateway",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stalledBodyProbe(t, addr, tc.host, 8*time.Second)
+			assert.Equal(t, tc.want, got,
+				"the caller must be answered rather than left waiting out a drain with no deadline")
+		})
+	}
 }

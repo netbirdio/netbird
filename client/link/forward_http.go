@@ -82,7 +82,10 @@ func newHTTPForwarder(fwd Forward, dial DialFunc) (*httpForwarder, error) {
 				return
 			}
 			log.Warnf("%s %s %s: %v", fwd.Listen, r.Method, r.URL.Path, err)
-			http.Error(w, "upstream unreachable over the overlay", http.StatusBadGateway)
+			// Nothing read the request body on this path, and the server
+			// drains what is left before reusing the connection. Closing it
+			// answers the caller now instead of waiting out that drain.
+			rejectRequest(w, "upstream unreachable over the overlay", http.StatusBadGateway)
 		},
 	}
 
@@ -193,11 +196,20 @@ var bodyIdleTimeout = 30 * time.Second
 func withBodyIdleTimeout(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil && r.Body != http.NoBody {
-			r.Body = &idleTimeoutBody{
+			b := &idleTimeoutBody{
 				ReadCloser: r.Body,
 				controller: http.NewResponseController(w),
 				idle:       bodyIdleTimeout,
 			}
+			// Armed before the handler runs rather than on the first read. A
+			// handler that never touches the body still leaves the server to
+			// drain it afterwards, and that drain reads the connection with
+			// whatever deadline is on it: without one it waits forever on a
+			// caller that stopped sending.
+			if err := b.setDeadline(time.Now().Add(b.idle)); err != nil {
+				log.Debugf("arm request body deadline: %v", err)
+			}
+			r.Body = b
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -293,7 +305,8 @@ func guardRebinding(next http.Handler, loopbackOnly bool, allowedHosts []string)
 	})
 }
 
-// rejectRequest answers a guarded request and closes the connection.
+// rejectRequest answers a request the forwarder will not proxy and closes the
+// connection.
 //
 // On a keep-alive connection the server drains whatever is left of the request
 // body before reading the next request. It drains the original body rather

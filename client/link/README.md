@@ -94,6 +94,11 @@ docker run --rm --read-only -p 127.0.0.1:8080:8080 \
 Without a state directory, use an ephemeral setup key so the peers left behind
 by earlier starts are removed once they go offline, rather than piling up.
 
+A kept identity is not yet a kept login. Without a setup key every start runs
+the browser flow, even when the peer's session is still valid, because the
+token is resolved before the stored profile is opened. Give a restart that has
+to be unattended a setup key.
+
 ## Kubernetes and OpenShift
 
 The image fits OpenShift's `restricted-v2` SCC and the Kubernetes `restricted`

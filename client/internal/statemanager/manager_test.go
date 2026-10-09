@@ -22,7 +22,7 @@ func TestInMemoryManagerNeverTouchesDisk(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	m := New("")
+	m := NewInMemory()
 	m.RegisterState(&testState{})
 	require.NoError(t, m.UpdateState(&testState{Value: "kept"}))
 	require.NoError(t, m.PersistState(context.Background()), "persisting in memory must succeed")
@@ -37,6 +37,18 @@ func TestInMemoryManagerNeverTouchesDisk(t *testing.T) {
 	names, err := m.GetSavedStateNames()
 	require.NoError(t, err)
 	assert.Empty(t, names, "an in-memory manager has no saved states")
+}
+
+// An empty path is a misconfiguration rather than a request for memory: the
+// in-memory manager has its own constructor, so a path that resolved to
+// nothing must surface instead of silently discarding every write.
+func TestManagerWithoutAPathFailsToPersist(t *testing.T) {
+	m := New("")
+	m.RegisterState(&testState{})
+	require.NoError(t, m.UpdateState(&testState{Value: "kept"}))
+
+	assert.Error(t, m.PersistState(context.Background()),
+		"an empty path must report that it cannot persist, not quietly drop the state")
 }
 
 func TestManagerPersistsToItsFile(t *testing.T) {
