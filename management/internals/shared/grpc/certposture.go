@@ -58,7 +58,9 @@ func stampCertificateChallenges(checks []*proto.Checks, challenger *certposture.
 
 // verifiedCertificates turns the peer's proofs into PEM chains for its meta. Possession
 // (nonce + signature) is verified here; trust against a check's CAs is evaluated by the
-// posture check itself. Any invalid proof rejects the whole set.
+// posture check itself. Each proof stands for its own key, so an invalid one is dropped
+// without the others: a user store answering with an unusable key must not cost the
+// device the machine certificate it proved.
 func (s *Server) verifiedCertificates(ctx context.Context, peerKey wgtypes.Key, proofs []*proto.CertificateProof) []string {
 	if len(proofs) == 0 {
 		return nil
@@ -74,10 +76,13 @@ func (s *Server) verifiedCertificates(ctx context.Context, peerKey wgtypes.Key, 
 			Signature: p.GetSignature(),
 		}, peerKey[:], now)
 		if err != nil {
-			log.WithContext(ctx).Warnf("rejecting certificate proofs of peer %s: %v", peerKey, err)
-			return nil
+			log.WithContext(ctx).Warnf("dropping a certificate proof of peer %s: %v", peerKey, err)
+			continue
 		}
 		chains = append(chains, certposture.EncodeChainPEM(chain))
+	}
+	if len(chains) == 0 {
+		return nil
 	}
 	return chains
 }
