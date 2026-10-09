@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -98,7 +98,7 @@ func TestEngine_SSH(t *testing.T) {
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
 
-	err = engine.Start(nil, nil)
+	err = engine.Start(nil, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -228,7 +228,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 	}()
 
-	err = engine.Start(nil, nil)
+	err = engine.Start(nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -312,7 +312,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
 			device.CustomWindowsGUIDString = strings.ToLower(guid)
-			err = engine.Start(nil, nil)
+			err = engine.Start(nil, nil, nil)
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
 				wg.Done()

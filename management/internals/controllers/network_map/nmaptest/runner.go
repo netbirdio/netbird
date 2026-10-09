@@ -239,12 +239,12 @@ func computeMode(t *testing.T, ctx context.Context, mode Mode, nmData *networkma
 	case ModeFull:
 		nmap := controller.NetworkMapFromData(ctx, nmData, peerID, zone, nil)
 		return mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, nmap, dnsDomain, nil,
-			&cache.DNSConfigCache{}, nmData.AccountSettings, nil, nil, dnsFwdPort).NetworkMap
+			&cache.DNSConfigCache{}, nmData.AccountSettings, nil, nil, dnsFwdPort, "").NetworkMap
 	case ModeEnvelope:
 		components := nmData.GetPeerNetworkMapComponents(peerID, zone)
 		peerGroups := maps.Keys(nmData.GetPeerGroups(peerID))
 		resp := mgmtgrpc.ToComponentSyncResponse(ctx, nil, nil, nil, peer, nil, nil, components, nil,
-			dnsDomain, nil, nmData.AccountSettings, nil, peerGroups, dnsFwdPort)
+			dnsDomain, nil, nmData.AccountSettings, nil, peerGroups, dnsFwdPort, "")
 		res, err := networkmap.EnvelopeToNetworkMap(ctx, resp.NetworkMapEnvelope, peer.Key, dnsDomain, false)
 		require.NoError(t, err, "expand envelope")
 		return res.NetworkMap

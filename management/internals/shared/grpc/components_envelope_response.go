@@ -41,6 +41,7 @@ func ToComponentSyncResponse(
 	extraSettings *types.ExtraSettings,
 	peerGroups []string,
 	dnsFwdPort int64,
+	debugUploadDefault string,
 ) *proto.SyncResponse {
 	//
 	// 'component' parameter is expected to never be nil
@@ -75,7 +76,7 @@ func ToComponentSyncResponse(
 		Version:            int32(sharedgrpc.ComponentNetworkMap),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings, debugUploadDefault)
 	resp.NetbirdConfig = integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 
 	// settings == nil → field stays nil → "no info in this snapshot", client

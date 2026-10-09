@@ -457,7 +457,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine = engine
 		c.engineMutex.Unlock()
 
-		if err := engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
+		if err := engine.Start(loginResp.GetNetbirdConfig(), loginResp.GetPeerConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}

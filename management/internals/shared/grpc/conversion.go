@@ -46,7 +46,7 @@ func init() {
 // nil when no server config is set (the fan-out network-map path) because clients treat any
 // non-nil config as authoritative: a config without a relay section is interpreted as relay
 // disabled and wipes the clients' relay URLs.
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *nmdata.AccountSettingsInfo) *proto.NetbirdConfig {
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *nmdata.AccountSettingsInfo, debugUploadDefault string) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -115,20 +115,24 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		}
 	}
 
-	// The account setting wins, the server config is the deployment-wide value a
-	// self-hosted install can set once for every account. Both are
-	// https-validated where they are written. Neither set publishes nothing, and
-	// the peers fall back to the service NetBird runs.
-	debugUploadURL := config.DebugUpload.URL
-	if settings != nil && settings.DebugBundleUploadURL != "" {
-		debugUploadURL = settings.DebugBundleUploadURL
-	}
 	// Always sent, empty included: this is a full config, so the peer can tell an
 	// operator clearing the destination from the partial updates that carry only
 	// TURN or relay credentials and say nothing about it.
-	nbConfig.Debug = &proto.DebugConfig{UploadUrl: debugUploadURL}
+	nbConfig.Debug = &proto.DebugConfig{UploadUrl: resolveDebugUploadURL(settings, debugUploadDefault)}
 
 	return nbConfig
+}
+
+// resolveDebugUploadURL picks the debug-bundle destination a peer is told to
+// use. The account setting wins; deploymentDefault is the server-config value a
+// self-hosted install sets once for every account. Both are https-validated
+// where they are written, and neither set means the peer falls back to the
+// service NetBird runs.
+func resolveDebugUploadURL(settings *nmdata.AccountSettingsInfo, deploymentDefault string) string {
+	if settings != nil && settings.DebugBundleUploadURL != "" {
+		return settings.DebugBundleUploadURL
+	}
+	return deploymentDefault
 }
 
 func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool) *proto.PeerConfig {
@@ -166,7 +170,7 @@ func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, se
 	return peerConfig
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*nmdata.PostureChecks, dnsCache *cache.DNSConfigCache, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*nmdata.PostureChecks, dnsCache *cache.DNSConfigCache, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, debugUploadDefault string) *proto.SyncResponse {
 	// IPv6 data in AllowedIPs and SourcePrefixes wildcard expansion depends on
 	// whether the target peer supports IPv6. Routes and firewall rules are already
 	// filtered at the source (network map builder).
@@ -185,7 +189,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings, debugUploadDefault)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 
