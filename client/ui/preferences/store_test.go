@@ -81,6 +81,7 @@ func TestStore_DefaultsWhenFileMissing(t *testing.T) {
 	got := s.Get()
 	assert.Equal(t, i18n.LanguageCode(""), got.Language, "language must be empty when no file is on disk so the frontend can detect the browser locale")
 	assert.Equal(t, DefaultViewMode, got.ViewMode, "view-mode default should still apply")
+	assert.Equal(t, ThemeSystem, got.Theme, "theme must default to system so a fresh install follows the OS appearance")
 }
 
 func TestStore_SetLanguagePersistsAndBroadcasts(t *testing.T) {
@@ -179,6 +180,7 @@ func TestStore_CorruptFileFallsBackToDefault(t *testing.T) {
 
 	got := s.Get()
 	assert.Equal(t, i18n.LanguageCode(""), got.Language, "corrupt JSON should leave the empty (unset) default in place so the frontend can re-detect")
+	assert.Equal(t, ThemeSystem, got.Theme, "corrupt JSON must leave the system theme default in place")
 }
 
 func TestStore_UnsubscribeStopsUpdates(t *testing.T) {
@@ -298,4 +300,102 @@ func TestStore_ErrUnsupportedSentinel(t *testing.T) {
 	err := errors.New("inner")
 	wrapped := errors.Join(i18n.ErrUnsupportedLanguage, err)
 	assert.ErrorIs(t, wrapped, i18n.ErrUnsupportedLanguage)
+}
+
+func TestStore_ThemeDefaultsToSystemForPreExistingFile(t *testing.T) {
+	withTempConfigDir(t)
+
+	// A preferences file written by a release before the theme setting existed
+	// carries no theme key. Upgraders must land on "system" and keep following
+	// the OS appearance rather than being forced light or dark.
+	path, err := preferencesPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"language":"en","viewMode":"advanced"}`), 0o600))
+
+	s, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, ThemeSystem, s.Get().Theme, "a file predating the theme key must default to system")
+	assert.Equal(t, ViewModeAdvanced, s.Get().ViewMode, "the fields the file does carry must still load")
+}
+
+func TestStore_UnknownThemeFallsBackToSystem(t *testing.T) {
+	for _, raw := range []string{`""`, `"purple"`} {
+		t.Run(raw, func(t *testing.T) {
+			withTempConfigDir(t)
+			path, err := preferencesPath()
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, []byte(`{"theme":`+raw+`}`), 0o600))
+
+			s, err := NewStore(nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, ThemeSystem, s.Get().Theme, "an unrecognised theme value must fall back to system")
+		})
+	}
+}
+
+func TestStore_StoredThemeIsHonoured(t *testing.T) {
+	for _, theme := range []Theme{ThemeSystem, ThemeLight, ThemeDark} {
+		t.Run(string(theme), func(t *testing.T) {
+			withTempConfigDir(t)
+			path, err := preferencesPath()
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, []byte(`{"theme":"`+string(theme)+`"}`), 0o600))
+
+			s, err := NewStore(nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, theme, s.Get().Theme, "a valid stored theme must load as written, not be reset to the default")
+		})
+	}
+}
+
+func TestStore_SetThemePersistsAndBroadcasts(t *testing.T) {
+	withTempConfigDir(t)
+	emitter := &recordingEmitter{}
+	s, err := NewStore(nil, emitter)
+	require.NoError(t, err)
+
+	ch, unsubscribe := s.Subscribe()
+	defer unsubscribe()
+
+	require.NoError(t, s.SetTheme(ThemeDark))
+	assert.Equal(t, ThemeDark, s.Get().Theme, "Get should reflect the SetTheme value")
+
+	select {
+	case v := <-ch:
+		assert.Equal(t, ThemeDark, v.Theme, "subscriber should receive the new theme")
+	case <-time.After(time.Second):
+		t.Fatal("subscriber timed out waiting for update")
+	}
+	require.Len(t, emitter.calledWith(EventPreferencesChanged), 1, "first SetTheme should broadcast once")
+
+	// Re-setting the current theme is a no-op: no disk write and no broadcast,
+	// so the theme service is not asked to re-tint every window for nothing.
+	require.NoError(t, s.SetTheme(ThemeDark))
+	assert.Len(t, emitter.calledWith(EventPreferencesChanged), 1, "idempotent SetTheme should not broadcast again")
+
+	// The next GUI launch must come up with the chosen theme.
+	reloaded, err := NewStore(nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, ThemeDark, reloaded.Get().Theme, "theme must survive a reload from disk")
+}
+
+func TestStore_UnsupportedThemeRejected(t *testing.T) {
+	withTempConfigDir(t)
+	emitter := &recordingEmitter{}
+	s, err := NewStore(nil, emitter)
+	require.NoError(t, err)
+
+	for _, bad := range []Theme{"", "purple"} {
+		assert.ErrorIs(t, s.SetTheme(bad), ErrUnsupportedTheme, "theme %q must be rejected", bad)
+	}
+	assert.Equal(t, ThemeSystem, s.Get().Theme, "a rejected theme must leave the current one in place")
+	assert.Empty(t, emitter.calledWith(EventPreferencesChanged), "a rejected theme must not broadcast")
+
+	path, err := preferencesPath()
+	require.NoError(t, err)
+	_, err = os.Stat(path)
+	assert.ErrorIs(t, err, os.ErrNotExist, "a rejected theme must not write the preferences file")
 }
