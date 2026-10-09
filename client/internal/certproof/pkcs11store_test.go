@@ -11,6 +11,8 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -23,7 +25,12 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const testPKCS11URIEnv = "NB_TEST_PKCS11_URI"
+const (
+	testPKCS11URIEnv = "NB_TEST_PKCS11_URI"
+	// testPKCS11DisposableEnv marks the token as disposable, allowing tests that spend
+	// attempts of its PIN lockout counter.
+	testPKCS11DisposableEnv = "NB_TEST_PKCS11_DISPOSABLE"
+)
 
 type failingStore struct{}
 
@@ -34,7 +41,7 @@ func (failingStore) Candidates(context.Context) ([]Candidate, error) {
 func TestStores_KeepsFileCertificatesWhenTokenFails(t *testing.T) {
 	ca := certtest.NewCA(t, "corp")
 	key := certtest.ECDSAKey(t)
-	dir := t.TempDir()
+	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
 
 	candidates, err := Stores{failingStore{}, NewFileStore(dir)}.Candidates(context.Background())
@@ -182,7 +189,7 @@ func privateKeyAttributes(t *testing.T, key crypto.Signer) []pkcs11.Attribute {
 		return []pkcs11.Attribute{
 			attr(pkcs11.AttrKeyType, pkcs11.ULong(pkcs11.KeyEC)),
 			attr(pkcs11.AttrECParams, oidP256),
-			attr(pkcs11.AttrValue, k.D.FillBytes(make([]byte, 32))),
+			attr(pkcs11.AttrValue, ecPrivateScalar(t, k)),
 		}
 	case *rsa.PrivateKey:
 		k.Precompute()
@@ -252,7 +259,7 @@ func pkcs11TestStore(t *testing.T, certDir string) (*PKCS11Store, string) {
 // token, the certificate is a PEM file in the directory, and the two are paired by public
 // key because nothing on the token carries the certificate's CKA_ID.
 func TestCollect_PKCS11KeyWithFileCertificate(t *testing.T) {
-	dir := t.TempDir()
+	dir := storeDir(t)
 	store, uri := pkcs11TestStore(t, dir)
 
 	keys := map[string]crypto.Signer{"ecdsa": certtest.ECDSAKey(t), "rsa": certtest.RSAKey(t)}
@@ -279,7 +286,7 @@ func TestCollect_PKCS11KeyWithFileCertificate(t *testing.T) {
 
 func TestPKCS11Store_FileChains(t *testing.T) {
 	ca := certtest.NewCA(t, "corp")
-	dir := t.TempDir()
+	dir := storeDir(t)
 	// Only certificate files without a key of their own belong to the token; the file
 	// store answers for the others, and non-certificate files are ignored.
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, certtest.ECDSAKey(t), "device")))
@@ -310,9 +317,9 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 		wantPIN    []byte
 		wantModule string
 	}{
-		{"pin alone opens the first p11-kit token", PKCS11Config{PIN: "1234"}, []byte("1234"), pkcs11.DefaultModule},
-		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:?module-path=/lib/x.so&pin-value=0000", PIN: "1234"}, []byte("1234"), "/lib/x.so"},
-		{"uri pin-value stands in for a missing field", PKCS11Config{URI: "pkcs11:?pin-value=0000"}, []byte("0000"), pkcs11.DefaultModule},
+		{"pin with a token label opens that token through p11-kit", PKCS11Config{URI: "pkcs11:token=netbird", PIN: "1234"}, []byte("1234"), pkcs11.DefaultModule},
+		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:token=netbird?module-path=" + absModule("x.so") + "&pin-value=0000", PIN: "1234"}, []byte("1234"), absModule("x.so")},
+		{"uri pin-value stands in for a missing field", PKCS11Config{URI: "pkcs11:token=netbird?pin-value=0000"}, []byte("0000"), pkcs11.DefaultModule},
 		{"no pin at all means no login", PKCS11Config{URI: "pkcs11:token=netbird"}, nil, pkcs11.DefaultModule},
 	}
 	for _, tt := range tests {
@@ -328,4 +335,60 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 
 	_, err := NewPKCS11Store(PKCS11Config{URI: "not-a-pkcs11-uri", PIN: "1234"}, "")
 	assert.Error(t, err, "a malformed URI must not be silently replaced by the defaults")
+
+	for name, cfg := range map[string]PKCS11Config{
+		"env pin without uri":      {PIN: "1234"},
+		"env pin, uri lacks token": {URI: "pkcs11:?module-path=" + absModule("x.so"), PIN: "1234"},
+		"inline pin-value only":    {URI: "pkcs11:?pin-value=0000"},
+		"pin-source only":          {URI: "pkcs11:?pin-source=file:/etc/netbird/pkcs11.pin"},
+	} {
+		_, err := NewPKCS11Store(cfg, "")
+		assert.ErrorIs(t, err, errPINNeedsToken, "%s: a PIN must not go to whichever token is listed first", name)
+	}
+}
+
+// TestPKCS11Store_WrongPINIsTriedOnce logs in to the real token with a wrong PIN: the
+// token refuses it, and the next collection refuses to send the same PIN again rather
+// than spending another attempt of the token's lockout counter. The one attempt it does
+// spend counts against a real token's lockout, so it runs only on a token marked
+// disposable through NB_TEST_PKCS11_DISPOSABLE.
+func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
+	disposable, _ := strconv.ParseBool(os.Getenv(testPKCS11DisposableEnv))
+	if !disposable {
+		t.Skipf("set %s=1 to spend a wrong-PIN attempt on the token", testPKCS11DisposableEnv)
+	}
+	_, uri := pkcs11TestStore(t, "")
+
+	wrongPIN := "wrong-pin-" + t.Name()
+	store, err := NewPKCS11Store(PKCS11Config{URI: uri, PIN: wrongPIN}, "")
+	require.NoError(t, err)
+
+	_, err = store.Candidates(context.Background())
+	require.Error(t, err)
+	assert.True(t, pkcs11.PINRejected(err), "the token itself rejects the PIN: %v", err)
+
+	_, err = store.Candidates(context.Background())
+	assert.ErrorIs(t, err, errPINRejectedBefore, "the rejected PIN is not sent to the token again")
+
+	good, err := NewPKCS11Store(PKCS11Config{URI: uri}, "")
+	require.NoError(t, err)
+	_, err = good.Candidates(context.Background())
+	assert.NoError(t, err, "the correct PIN for the same token is unaffected")
+}
+
+// absModule is an absolute module path on the platform the test runs on, as module-path
+// must be absolute.
+func absModule(name string) string {
+	if runtime.GOOS == "windows" {
+		return `C:\lib\` + name
+	}
+	return "/lib/" + name
+}
+
+// ecPrivateScalar returns the raw private scalar the token stores in CKA_VALUE.
+func ecPrivateScalar(t *testing.T, k *ecdsa.PrivateKey) []byte {
+	t.Helper()
+	raw, err := k.Bytes()
+	require.NoError(t, err)
+	return raw
 }

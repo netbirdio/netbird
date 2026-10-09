@@ -58,6 +58,27 @@ func TestChallenger_VerifyNonce(t *testing.T) {
 	}
 }
 
+// TestNonceAcceptedAlongside must agree with verifyNonce: a proof for a nonce is still
+// accepted while the next window's nonce is issued, and no longer two windows on.
+func TestNonceAcceptedAlongside(t *testing.T) {
+	c := NewChallenger(secret)
+	issued := c.Nonce(peerKey, now)
+
+	assert.True(t, NonceAcceptedAlongside(issued, issued), "the current nonce is accepted")
+	assert.True(t, NonceAcceptedAlongside(issued, c.Nonce(peerKey, now.Add(Window))), "a proof from the previous window is accepted")
+	assert.False(t, NonceAcceptedAlongside(issued, c.Nonce(peerKey, now.Add(2*Window))), "a proof two windows old is not")
+	assert.False(t, NonceAcceptedAlongside(c.Nonce(peerKey, now.Add(Window)), issued), "a nonce from a later window is not")
+	assert.False(t, NonceAcceptedAlongside([]byte("short"), issued), "a malformed nonce is not")
+
+	for _, tt := range []struct {
+		later time.Duration
+		want  bool
+	}{{0, true}, {Window, true}, {2 * Window, false}} {
+		err := c.verifyNonce(issued, peerKey, now.Add(tt.later))
+		assert.Equal(t, tt.want, err == nil, "verifyNonce agrees %s later", tt.later)
+	}
+}
+
 func TestSignVerify_RoundTripPerKeyType(t *testing.T) {
 	ca := certtest.NewCA(t, "root")
 	keys := map[string]crypto.Signer{

@@ -44,6 +44,11 @@ const (
 	MGF1SHA384 = 0x3
 
 	rvOK                  = 0x0
+	rvPINIncorrect        = 0xa0
+	rvPINInvalid          = 0xa1
+	rvPINLenRange         = 0xa2
+	rvPINExpired          = 0xa3
+	rvPINLocked           = 0xa4
 	rvUserAlreadyLoggedIn = 0x100
 	rvAlreadyInitialized  = 0x191
 )
@@ -63,6 +68,25 @@ func (e Error) Error() string {
 	return fmt.Sprintf("%s: CKR 0x%x", e.Op, e.Code)
 }
 
+// PINRejected reports whether err is the token refusing the user PIN. Retrying the same
+// PIN cannot succeed, and each attempt counts towards the token's lockout.
+func PINRejected(err error) bool {
+	var e Error
+	if !errors.As(err, &e) {
+		return false
+	}
+	switch e.Code {
+	case rvPINIncorrect, rvPINInvalid, rvPINLenRange, rvPINExpired, rvPINLocked:
+		return true
+	}
+	return false
+}
+
+func isCode(err error, code uint) bool {
+	var e Error
+	return errors.As(err, &e) && e.Code == code
+}
+
 var returnValueNames = map[uint]string{
 	0x2:   "CKR_HOST_MEMORY",
 	0x3:   "CKR_SLOT_ID_INVALID",
@@ -77,6 +101,9 @@ var returnValueNames = map[uint]string{
 	0x71:  "CKR_MECHANISM_PARAM_INVALID",
 	0x82:  "CKR_OBJECT_HANDLE_INVALID",
 	0xa0:  "CKR_PIN_INCORRECT",
+	0xa1:  "CKR_PIN_INVALID",
+	0xa2:  "CKR_PIN_LEN_RANGE",
+	0xa3:  "CKR_PIN_EXPIRED",
 	0xa4:  "CKR_PIN_LOCKED",
 	0xb3:  "CKR_SESSION_HANDLE_INVALID",
 	0xd0:  "CKR_TEMPLATE_INCOMPLETE",
@@ -120,6 +147,11 @@ type Token struct {
 // process exit releases everything anyway.
 type Module struct {
 	d driver
+
+	// loginMu guards logins, the number of open sessions relying on the user login of
+	// each slot, and serializes logging in so a PIN is never sent twice at once.
+	loginMu sync.Mutex
+	logins  map[uint]int
 }
 
 var (
@@ -173,12 +205,46 @@ func (m *Module) openSession(label string, pin []byte, readWrite bool) (*Session
 	if pin == nil {
 		return s, nil
 	}
-	if err := m.d.login(handle, pin); err != nil {
+	if err := m.acquireLogin(token.Slot, handle, pin); err != nil {
 		s.Close()
 		return nil, err
 	}
-	s.loggedIn = true
+	s.module, s.slot = m, token.Slot
 	return s, nil
+}
+
+// acquireLogin makes sure the user is logged in to the token in slot and counts the
+// session as one relying on it. PKCS#11 login state belongs to the application, not to
+// a session: every session with the token shares it, and logging out from any of them
+// ends it for all. So the PIN is sent only when no session holds the login yet, and the
+// last session to close logs out.
+func (m *Module) acquireLogin(slot, handle uint, pin []byte) error {
+	m.loginMu.Lock()
+	defer m.loginMu.Unlock()
+	if m.logins[slot] > 0 {
+		m.logins[slot]++
+		return nil
+	}
+	if err := m.d.login(handle, pin); err != nil && !isCode(err, rvUserAlreadyLoggedIn) {
+		return err
+	}
+	if m.logins == nil {
+		m.logins = make(map[uint]int)
+	}
+	m.logins[slot] = 1
+	return nil
+}
+
+// releaseLogin ends the session's share of the login, logging out when it is the last.
+func (m *Module) releaseLogin(slot, handle uint) {
+	m.loginMu.Lock()
+	defer m.loginMu.Unlock()
+	m.logins[slot]--
+	if m.logins[slot] > 0 {
+		return
+	}
+	delete(m.logins, slot)
+	m.d.logout(handle)
 }
 
 func (m *Module) token(label string) (Token, error) {
@@ -197,16 +263,19 @@ func (m *Module) token(label string) (Token, error) {
 	return Token{}, fmt.Errorf("no token labelled %q among %d tokens", label, len(tokens))
 }
 
-// Session is an open session with one token. Close logs out again if the session logged in.
+// Session is an open session with one token. Close releases the session's share of the
+// login, logging out when no other session relies on it.
 type Session struct {
-	d        driver
-	handle   uint
-	loggedIn bool
+	d      driver
+	handle uint
+	// module is set when the session relies on the token's login.
+	module *Module
+	slot   uint
 }
 
 func (s *Session) Close() {
-	if s.loggedIn {
-		s.d.logout(s.handle)
+	if s.module != nil {
+		s.module.releaseLogin(s.slot, s.handle)
 	}
 	s.d.closeSession(s.handle)
 }

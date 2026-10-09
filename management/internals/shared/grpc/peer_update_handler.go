@@ -7,6 +7,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -18,16 +19,20 @@ func PeerUpdateHandlerFactory(
 	peerKey wgtypes.Key,
 	updates chan *network_map.UpdateMessage,
 	secretsManager SecretsManager,
+	challenger *certposture.Challenger,
+	onChallengeStamped func(),
 	srv proto.ManagementService_SyncServer,
 	cleanupfunc func()) *PeerUpdateHandler {
 	return &PeerUpdateHandler{
-		peerKey:        peerKey,
-		updates:        updates,
-		secretsManager: secretsManager,
-		srv:            srv,
-		encrypter:      encryption.DefaultEncrypter{},
-		debouncer:      NewUpdateDebouncer(1000 * time.Millisecond),
-		cleanupFunc:    cleanupfunc,
+		peerKey:            peerKey,
+		updates:            updates,
+		secretsManager:     secretsManager,
+		challenger:         challenger,
+		onChallengeStamped: onChallengeStamped,
+		srv:                srv,
+		encrypter:          encryption.DefaultEncrypter{},
+		debouncer:          NewUpdateDebouncer(1000 * time.Millisecond),
+		cleanupFunc:        cleanupfunc,
 	}
 }
 
@@ -40,10 +45,15 @@ type PeerUpdateHandler struct {
 	updates        chan *network_map.UpdateMessage
 	appMetrics     telemetry.AppMetrics
 	secretsManager SecretsManager
-	srv            syncSender
-	encrypter      encryption.Encrypter
-	debouncer      Debouncer
-	cleanupFunc    func()
+	challenger     *certposture.Challenger
+	// onChallengeStamped registers the account for renewal. Every push reaches this
+	// path, including the ones a REST update on another instance broadcasts, which is
+	// what lets an instance pick up an account whose peers never reconnect.
+	onChallengeStamped func()
+	srv                syncSender
+	encrypter          encryption.Encrypter
+	debouncer          Debouncer
+	cleanupFunc        func()
 }
 
 func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
@@ -117,7 +127,9 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 
-	stampCertificateChallenges(update.Update.GetChecks(), pu.peerKey, key)
+	if stampCertificateChallenges(update.Update.GetChecks(), pu.challenger, pu.peerKey) && pu.onChallengeStamped != nil {
+		pu.onChallengeStamped()
+	}
 	encryptedResp, err := pu.encrypter.EncryptMessage(pu.peerKey, key, update.Update)
 	if err != nil {
 		pu.cleanupFunc()

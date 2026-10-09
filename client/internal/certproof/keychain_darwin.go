@@ -1,3 +1,5 @@
+//go:build !ios
+
 package certproof
 
 import (
@@ -20,8 +22,16 @@ const (
 	securityFramework       = "/System/Library/Frameworks/Security.framework/Security"
 	coreFoundationFramework = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
 
-	errSecItemNotFound = -25300
+	errSecItemNotFound          = -25300
+	errSecInteractionNotAllowed = -25308
 )
+
+// errKeyNeedsApproval reports a key whose access list does not include netbird, so using
+// it needs the user's approval, which a daemon has no UI to ask for.
+var errKeyNeedsApproval = errors.New("the key's access control requires user approval for netbird; " +
+	"import the identity with netbird allowed (security import <identity.p12> -k <keychain> " +
+	"-T /Applications/NetBird.app/Contents/MacOS/netbird), " +
+	"or set AllowAllAppsAccess in the MDM certificate payload, which allows every application")
 
 var (
 	keychainOnce sync.Once
@@ -33,8 +43,10 @@ var (
 	secCertificateCopyData     func(cert uintptr) uintptr
 	secKeyCreateSignature      func(key, algorithm, data uintptr, err *uintptr) uintptr
 
+	secKeychainOpen           func(path *byte, keychain *uintptr) int32
 	secKeychainCopySearchList func(searchList *uintptr) int32
 	secKeychainGetPath        func(keychain uintptr, pathLength *uint32, path *byte) int32
+	cfArrayCreate             func(alloc uintptr, values *uintptr, count int, callBacks uintptr) uintptr
 
 	cfDictionaryCreate     func(alloc uintptr, keys, values *uintptr, count int, keyCallBacks, valueCallBacks uintptr) uintptr
 	cfArrayGetCount        func(array uintptr) int
@@ -45,37 +57,56 @@ var (
 	cfErrorGetCode         func(err uintptr) int
 	cfRelease              func(ref uintptr)
 
-	kSecClass, kSecClassIdentity, kSecClassCertificate, kSecMatchLimit, kSecMatchLimitAll, kSecReturnRef uintptr
-	kSecKeyAlgorithmECDSASHA256, kSecKeyAlgorithmECDSASHA384, kSecKeyAlgorithmRSAPSSSHA256               uintptr
-	kCFBooleanTrue, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks                       uintptr
+	kSecClass, kSecClassIdentity, kSecClassCertificate, kSecMatchLimit, kSecMatchLimitAll, kSecReturnRef  uintptr
+	kSecMatchSearchList                                                                                   uintptr
+	kSecKeyAlgorithmECDSASHA256, kSecKeyAlgorithmECDSASHA384, kSecKeyAlgorithmRSAPSSSHA256                uintptr
+	kCFBooleanTrue, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks, kCFTypeArrayCallBacks uintptr
 )
 
-// DefaultStore is the keychain search list of the daemon, which for the root daemon is
-// the System keychain where MDM installs device identities.
+// systemKeychain is where MDM installs device identities.
+const systemKeychain = "/Library/Keychains/System.keychain"
+
+// DefaultStore is the System keychain for the root daemon, so it never touches a user's
+// keychain, whose keys would ask for approval in a session the daemon has no UI in. Run
+// by an ordinary user, it is that user's keychain search list.
 func DefaultStore() Store {
+	if os.Geteuid() == 0 {
+		return NewKeychainStore(systemKeychain)
+	}
 	return NewKeychainStore()
 }
 
-// KeychainStore yields the identities of the process's keychain search list, reached
-// through purego so the client keeps building with CGO_ENABLED=0.
-type KeychainStore struct{}
+// KeychainStore yields the identities of a set of keychains, or of the process's keychain
+// search list when none is named, reached through purego so the client keeps building
+// with CGO_ENABLED=0.
+type KeychainStore struct {
+	keychains []string
+}
 
-func NewKeychainStore() *KeychainStore {
-	return &KeychainStore{}
+// NewKeychainStore returns a store that searches the keychain files at paths, or the
+// process's keychain search list when no path is given.
+func NewKeychainStore(paths ...string) *KeychainStore {
+	return &KeychainStore{keychains: paths}
 }
 
 func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 	if err := loadKeychain(); err != nil {
 		return nil, err
 	}
+	searchList, done, err := searchListOf(s.keychains)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	var leaves []*x509.Certificate
-	err := eachIdentity(func(_ uintptr, der []byte) (bool, error) {
+	err = eachIdentity(searchList, func(_ uintptr, der []byte) (bool, error) {
 		cert, err := x509.ParseCertificate(der)
 		if err != nil {
 			log.Warnf("skipping keychain identity: %v", err)
 			return false, nil
 		}
-		log.Infof("keychain identity: subject=%q issuer=%q serial=%s expires=%s", cert.Subject, cert.Issuer, cert.SerialNumber, cert.NotAfter)
+		log.Debugf("keychain identity: subject=%q issuer=%q serial=%s expires=%s", cert.Subject, cert.Issuer, cert.SerialNumber, cert.NotAfter)
 		leaves = append(leaves, cert)
 		return false, nil
 	})
@@ -84,24 +115,24 @@ func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 	}
 	// The certificate query runs even without identities: it separates a keychain that is
 	// readable but holds no identity from one the process cannot read at all.
-	pool, err := keychainCertificates()
+	pool, err := keychainCertificates(searchList)
 	if err != nil {
 		return nil, err
 	}
 	if len(leaves) == 0 {
-		log.Infof("keychain search list holds no identities usable for certificate posture, but %d readable certificates: an identity needs its private key in the same keychain", len(pool))
+		log.Debugf("keychain search list holds no identities usable for certificate posture, but %d readable certificates: an identity needs its private key in the same keychain", len(pool))
 		return nil, nil
 	}
-	log.Infof("keychain search list holds %d identities and %d certificates for chain building", len(leaves), len(pool))
+	log.Debugf("keychain search list holds %d identities and %d certificates for chain building", len(leaves), len(pool))
 
 	candidates := make([]Candidate, 0, len(leaves))
 	for _, leaf := range leaves {
 		chain := buildChain(leaf, pool)
-		log.Infof("keychain candidate %q issued by %q built a chain of %d certificates", leaf.Subject, leaf.Issuer, len(chain))
+		log.Debugf("keychain candidate %q issued by %q built a chain of %d certificates", leaf.Subject, leaf.Issuer, len(chain))
 		if len(chain) == 1 && leaf.CheckSignatureFrom(leaf) != nil {
-			log.Infof("keychain candidate %q has no issuer in the keychain, its proof carries the leaf alone and only verifies if the challenge supplies %q", leaf.Subject, leaf.Issuer)
+			log.Debugf("keychain candidate %q has no issuer in the keychain, its proof carries the leaf alone and only verifies if the challenge supplies %q", leaf.Subject, leaf.Issuer)
 		}
-		candidates = append(candidates, Candidate{Chain: chain, Signer: &keychainSigner{leaf: leaf}})
+		candidates = append(candidates, Candidate{Chain: chain, Signer: &keychainSigner{leaf: leaf, keychains: s.keychains}, Intermediates: pool})
 	}
 	return candidates, nil
 }
@@ -109,7 +140,8 @@ func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 // keychainSigner holds only the certificate; the identity is looked up again at signing
 // time so no keychain references outlive a call.
 type keychainSigner struct {
-	leaf *x509.Certificate
+	leaf      *x509.Certificate
+	keychains []string
 }
 
 func (s *keychainSigner) Public() crypto.PublicKey {
@@ -121,11 +153,17 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("signing certificate posture challenge with keychain key of %q", s.leaf.Subject)
+	log.Debugf("signing certificate posture challenge with keychain key of %q", s.leaf.Subject)
+
+	searchList, done, err := searchListOf(s.keychains)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 
 	algorithm := keychainAlgorithm(scheme)
 	var signature []byte
-	err = eachIdentity(func(identity uintptr, der []byte) (bool, error) {
+	err = eachIdentity(searchList, func(identity uintptr, der []byte) (bool, error) {
 		if !bytes.Equal(der, s.leaf.Raw) {
 			return false, nil
 		}
@@ -138,7 +176,7 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 	if signature == nil {
 		return nil, errors.New("certificate is no longer in the keychain")
 	}
-	log.Infof("keychain signed certificate posture challenge for %q, %d bytes", s.leaf.Subject, len(signature))
+	log.Debugf("keychain signed certificate posture challenge for %q, %d bytes", s.leaf.Subject, len(signature))
 	return signature, nil
 }
 
@@ -158,37 +196,94 @@ func signWithIdentity(identity, algorithm uintptr, digest []byte) ([]byte, error
 	if status := secIdentityCopyPrivateKey(identity, &key); status != 0 {
 		return nil, fmt.Errorf("SecIdentityCopyPrivateKey: %d", status)
 	}
-	defer cfRelease(key)
+	defer release(key)
 
 	data := cfDataCreate(0, &digest[0], len(digest))
-	defer cfRelease(data)
+	if data == 0 {
+		return nil, errors.New("CFDataCreate returned NULL")
+	}
+	defer release(data)
 
 	var cfErr uintptr
 	signature := secKeyCreateSignature(key, algorithm, data, &cfErr)
 	if signature == 0 {
-		defer cfRelease(cfErr)
-		return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d", cfErrorGetCode(cfErr))
+		if cfErr == 0 {
+			return nil, errors.New("SecKeyCreateSignature failed without a CFError")
+		}
+		defer release(cfErr)
+		code := cfErrorGetCode(cfErr)
+		if code == errSecInteractionNotAllowed {
+			return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d: %w", code, errKeyNeedsApproval)
+		}
+		return nil, fmt.Errorf("SecKeyCreateSignature: CFError %d", code)
 	}
-	defer cfRelease(signature)
+	defer release(signature)
 	return dataBytes(signature), nil
 }
 
-func eachIdentity(fn func(identity uintptr, der []byte) (bool, error)) error {
-	return eachMatching(kSecClassIdentity, "identity", func(identity uintptr) (bool, error) {
+// searchListOf opens the keychain files at paths as a CFArray for kSecMatchSearchList,
+// or yields 0, the process's own search list, when paths is empty. The caller calls done
+// once it no longer uses the list.
+func searchListOf(paths []string) (searchList uintptr, done func(), err error) {
+	if len(paths) == 0 {
+		return 0, func() {}, nil
+	}
+	list, err := openSearchList(paths)
+	if err != nil {
+		return 0, nil, err
+	}
+	return list, func() { release(list) }, nil
+}
+
+// openSearchList opens the keychain files at paths, at least one, as a CFArray. The
+// caller releases the array.
+func openSearchList(paths []string) (uintptr, error) {
+	refs := make([]uintptr, 0, len(paths))
+	defer func() {
+		for _, ref := range refs {
+			release(ref)
+		}
+	}()
+	for _, path := range paths {
+		cpath := append([]byte(path), 0)
+		var keychain uintptr
+		if status := secKeychainOpen(&cpath[0], &keychain); status != 0 {
+			return 0, fmt.Errorf("SecKeychainOpen %s: %d", path, status)
+		}
+		refs = append(refs, keychain)
+	}
+	// The array retains the keychains, so the references opened here are released.
+	list := cfArrayCreate(0, &refs[0], len(refs), kCFTypeArrayCallBacks)
+	if list == 0 {
+		return 0, errors.New("CFArrayCreate returned NULL")
+	}
+	return list, nil
+}
+
+// eachIdentity calls fn with every identity in searchList, or in the process's search
+// list when it is 0, and its certificate. An identity whose certificate cannot be read is
+// skipped rather than ending the walk.
+func eachIdentity(searchList uintptr, fn func(identity uintptr, der []byte) (bool, error)) error {
+	return eachMatching(searchList, kSecClassIdentity, "identity", func(identity uintptr) (bool, error) {
 		var cert uintptr
 		if status := secIdentityCopyCertificate(identity, &cert); status != 0 {
-			return true, fmt.Errorf("SecIdentityCopyCertificate: %d", status)
+			log.Debugf("skipping keychain identity: SecIdentityCopyCertificate: %d", status)
+			return false, nil
 		}
 		der := certificateDER(cert)
-		cfRelease(cert)
+		release(cert)
+		if der == nil {
+			log.Debug("skipping keychain identity whose certificate has no DER data")
+			return false, nil
+		}
 		return fn(identity, der)
 	})
 }
 
-func keychainCertificates() ([]*x509.Certificate, error) {
+func keychainCertificates(searchList uintptr) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	var unparsable int
-	err := eachMatching(kSecClassCertificate, "certificate", func(item uintptr) (bool, error) {
+	err := eachMatching(searchList, kSecClassCertificate, "certificate", func(item uintptr) (bool, error) {
 		if cert, err := x509.ParseCertificate(certificateDER(item)); err == nil {
 			certs = append(certs, cert)
 			return false, nil
@@ -196,30 +291,34 @@ func keychainCertificates() ([]*x509.Certificate, error) {
 		unparsable++
 		return false, nil
 	})
-	log.Infof("keychain holds %d parsable certificates, %d unparsable", len(certs), unparsable)
+	log.Debugf("keychain holds %d parsable certificates, %d unparsable", len(certs), unparsable)
 	return certs, err
 }
 
-func eachMatching(class uintptr, name string, fn func(item uintptr) (bool, error)) error {
+func eachMatching(searchList, class uintptr, name string, fn func(item uintptr) (bool, error)) error {
 	keys := []uintptr{kSecClass, kSecMatchLimit, kSecReturnRef}
 	values := []uintptr{class, kSecMatchLimitAll, kCFBooleanTrue}
+	if searchList != 0 {
+		keys = append(keys, kSecMatchSearchList)
+		values = append(values, searchList)
+	}
 	query := cfDictionaryCreate(0, &keys[0], &values[0], len(keys), kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks)
-	defer cfRelease(query)
+	defer release(query)
 
 	var items uintptr
 	switch status := secItemCopyMatching(query, &items); status {
 	case 0:
 	case errSecItemNotFound:
-		log.Infof("keychain %s query returned errSecItemNotFound (%d): the search list holds no item of this class", name, errSecItemNotFound)
+		log.Debugf("keychain %s query returned errSecItemNotFound (%d): the search list holds no item of this class", name, errSecItemNotFound)
 		return nil
 	default:
-		log.Infof("keychain %s query returned OSStatus %d", name, status)
+		log.Debugf("keychain %s query returned OSStatus %d", name, status)
 		return fmt.Errorf("SecItemCopyMatching: %d", status)
 	}
-	defer cfRelease(items)
+	defer release(items)
 
 	n := cfArrayGetCount(items)
-	log.Infof("keychain %s query returned %d items", name, n)
+	log.Debugf("keychain %s query returned %d items", name, n)
 	for i := 0; i < n; i++ {
 		if stop, err := fn(cfArrayGetValueAtIndex(items, i)); stop || err != nil {
 			return err
@@ -228,23 +327,40 @@ func eachMatching(class uintptr, name string, fn func(item uintptr) (bool, error
 	return nil
 }
 
+// certificateDER returns the DER form of cert, or nil when SecCertificateCopyData
+// returns NULL, which it does for an object that is not a valid certificate.
 func certificateDER(cert uintptr) []byte {
 	data := secCertificateCopyData(cert)
-	defer cfRelease(data)
+	if data == 0 {
+		return nil
+	}
+	defer release(data)
 	return dataBytes(data)
 }
 
 func dataBytes(data uintptr) []byte {
-	return bytes.Clone(unsafe.Slice((*byte)(cfDataGetBytePtr(data)), cfDataGetLength(data)))
+	n := cfDataGetLength(data)
+	if n <= 0 {
+		return nil
+	}
+	return bytes.Clone(unsafe.Slice((*byte)(cfDataGetBytePtr(data)), n))
+}
+
+// release drops a CoreFoundation reference. CFRelease crashes the process on NULL, and
+// several Security calls return NULL on failure, so every release goes through here.
+func release(ref uintptr) {
+	if ref != 0 {
+		cfRelease(ref)
+	}
 }
 
 func loadKeychain() error {
 	keychainOnce.Do(func() {
 		if keychainErr = resolveKeychain(); keychainErr != nil {
-			log.Infof("macOS keychain unavailable for certificate posture: %v", keychainErr)
+			log.Debugf("macOS keychain unavailable for certificate posture: %v", keychainErr)
 			return
 		}
-		log.Infof("macOS Security framework loaded for certificate posture, running as uid=%d euid=%d", os.Getuid(), os.Geteuid())
+		log.Debugf("macOS Security framework loaded for certificate posture, running as uid=%d euid=%d", os.Getuid(), os.Geteuid())
 		logSearchList()
 	})
 	return keychainErr
@@ -254,21 +370,21 @@ func loadKeychain() error {
 // System keychain and System Roots, never a user's login keychain.
 func logSearchList() {
 	if secKeychainCopySearchList == nil || secKeychainGetPath == nil {
-		log.Info("keychain search list diagnostics unavailable on this macOS version")
+		log.Debug("keychain search list diagnostics unavailable on this macOS version")
 		return
 	}
 
 	var list uintptr
 	if status := secKeychainCopySearchList(&list); status != 0 {
-		log.Infof("SecKeychainCopySearchList returned OSStatus %d", status)
+		log.Debugf("SecKeychainCopySearchList returned OSStatus %d", status)
 		return
 	}
-	defer cfRelease(list)
+	defer release(list)
 
 	n := cfArrayGetCount(list)
-	log.Infof("keychain search list contains %d keychains", n)
+	log.Debugf("keychain search list contains %d keychains", n)
 	for i := 0; i < n; i++ {
-		log.Infof("keychain search list[%d]: %s", i, keychainPath(cfArrayGetValueAtIndex(list, i)))
+		log.Debugf("keychain search list[%d]: %s", i, keychainPath(cfArrayGetValueAtIndex(list, i)))
 	}
 }
 
@@ -301,6 +417,8 @@ func resolveKeychain() error {
 		{&secIdentityCopyPrivateKey, security, "SecIdentityCopyPrivateKey"},
 		{&secCertificateCopyData, security, "SecCertificateCopyData"},
 		{&secKeyCreateSignature, security, "SecKeyCreateSignature"},
+		{&secKeychainOpen, security, "SecKeychainOpen"},
+		{&cfArrayCreate, coreFoundation, "CFArrayCreate"},
 		{&cfDictionaryCreate, coreFoundation, "CFDictionaryCreate"},
 		{&cfArrayGetCount, coreFoundation, "CFArrayGetCount"},
 		{&cfArrayGetValueAtIndex, coreFoundation, "CFArrayGetValueAtIndex"},
@@ -329,12 +447,14 @@ func resolveKeychain() error {
 		{&kSecMatchLimit, security, "kSecMatchLimit", true},
 		{&kSecMatchLimitAll, security, "kSecMatchLimitAll", true},
 		{&kSecReturnRef, security, "kSecReturnRef", true},
+		{&kSecMatchSearchList, security, "kSecMatchSearchList", true},
 		{&kSecKeyAlgorithmECDSASHA256, security, "kSecKeyAlgorithmECDSASignatureDigestX962SHA256", true},
 		{&kSecKeyAlgorithmECDSASHA384, security, "kSecKeyAlgorithmECDSASignatureDigestX962SHA384", true},
 		{&kSecKeyAlgorithmRSAPSSSHA256, security, "kSecKeyAlgorithmRSASignatureDigestPSSSHA256", true},
 		{&kCFBooleanTrue, coreFoundation, "kCFBooleanTrue", true},
 		{&kCFTypeDictionaryKeyCallBacks, coreFoundation, "kCFTypeDictionaryKeyCallBacks", false},
 		{&kCFTypeDictionaryValueCallBacks, coreFoundation, "kCFTypeDictionaryValueCallBacks", false},
+		{&kCFTypeArrayCallBacks, coreFoundation, "kCFTypeArrayCallBacks", false},
 	} {
 		addr, err := purego.Dlsym(global.lib, global.name)
 		if err != nil {
@@ -356,7 +476,7 @@ func resolveKeychain() error {
 func resolveOptional(lib uintptr, name string, ptr any) {
 	symbol, err := purego.Dlsym(lib, name)
 	if err != nil {
-		log.Infof("keychain diagnostics: %s unavailable: %v", name, err)
+		log.Debugf("keychain diagnostics: %s unavailable: %v", name, err)
 		return
 	}
 	purego.RegisterFunc(ptr, symbol)

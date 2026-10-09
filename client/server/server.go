@@ -2717,9 +2717,23 @@ func (s *Server) checkDisableAdvancedView() *bool {
 	return nil
 }
 
+// profileOwnerOption passes the OS account of the active profile to the connect client,
+// which reads that account's certificate store for user certificate posture checks.
+func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
+	if s.profileManager == nil {
+		return nil
+	}
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Warnf("failed to read the active profile owner, no user certificate store is used for certificate posture: %v", err)
+		return []internal.ConnectClientOption{internal.WithUnknownProfileOwner()}
+	}
+	return []internal.ConnectClientOption{internal.WithProfileOwner(activeProf.Username)}
+}
+
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder)
+	client := internal.NewConnectClient(ctx, config, statusRecorder, s.profileOwnerOption()...)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 

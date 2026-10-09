@@ -1,3 +1,5 @@
+//go:build !ios
+
 package certproof
 
 import (
@@ -36,4 +38,14 @@ func TestCurrentConsoleUser_AgreesWithItself(t *testing.T) {
 	assert.NotEmpty(t, user.Name, "a console user must have a name")
 	assert.NotZero(t, user.UID, "a desktop session never belongs to uid 0")
 	assert.True(t, user.hasDesktop(), "a reported console user must be a desktop session")
+}
+
+func TestConsoleUser_IsOwner(t *testing.T) {
+	user := ConsoleUser{Name: "maycon", UID: 501, GID: 20}
+
+	assert.True(t, user.isOwner(""), "a profile without owner accepts the single console user")
+	assert.True(t, user.isOwner("maycon"), "the owner by short name")
+	assert.True(t, user.isOwner("501"), "the owner recorded as a numeric uid")
+	assert.False(t, user.isOwner("viktor"), "another account's profile must not read this user's keychain")
+	assert.False(t, user.isOwner("502"), "another uid is another account")
 }

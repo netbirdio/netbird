@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/pem"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.step.sm/crypto/tpm/tss2"
 
 	"github.com/netbirdio/netbird/client/internal/tpm/tpmtest"
 )
@@ -27,9 +27,7 @@ func TestParseKey_ReportsPublicKeyWithoutTouchingTPM(t *testing.T) {
 
 func TestParseKey_RejectsKeyWithAuthorization(t *testing.T) {
 	key := newP256Key(t)
-	withAuth := func(k *tss2.TPMKey) { k.EmptyAuth = false }
-
-	_, err := ParseKey(decodePEM(t, tpmtest.KeyPEM(t, &key.PublicKey, withAuth)))
+	_, err := ParseKey(decodePEM(t, tpmtest.KeyPEM(t, &key.PublicKey, tpmtest.WithAuth())))
 	assert.ErrorIs(t, err, ErrKeyNeedsAuth)
 }
 
@@ -46,6 +44,17 @@ func TestSign_FailsWhenTPMIsUnreachable(t *testing.T) {
 	digest := sha256.Sum256([]byte("challenge"))
 	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	assert.Error(t, err, "signing must not fall back to software when the TPM is missing")
+}
+
+// TestSignRSA_RefusesSaltLengthsTheTPMDoesNotChoose checks the salt-length gate, which
+// runs before the TPM is touched: the TPM picks the salt itself, so a request for the
+// maximum salt (PSSSaltLengthAuto) or any other explicit length is refused.
+func TestSignRSA_RefusesSaltLengthsTheTPMDoesNotChoose(t *testing.T) {
+	digest := sha256.Sum256([]byte("challenge"))
+	for _, salt := range []int{rsa.PSSSaltLengthAuto, 20, 222} {
+		_, err := signRSA(nil, 0, digest[:], &rsa.PSSOptions{SaltLength: salt, Hash: crypto.SHA256})
+		assert.ErrorContains(t, err, "salt length", "salt length %d must be refused", salt)
+	}
 }
 
 func newP256Key(t *testing.T) *ecdsa.PrivateKey {

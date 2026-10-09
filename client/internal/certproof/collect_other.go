@@ -1,4 +1,4 @@
-//go:build !darwin && !windows
+//go:build ((!darwin && !windows) || ios) && !js
 
 package certproof
 
@@ -17,8 +17,15 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 	return Collect(ctx, storeWithToken(cfg), checks, peerKey)
 }
 
+// UserContext identifies the user whose certificates a collection would include. These
+// platforms have no per-user store, so it never changes.
+func UserContext(Config) string {
+	return ""
+}
+
 // helperStore is the store the helper reads. Nothing launches a helper on these
-// platforms, so it is the platform default.
+// platforms, so it is the store the daemon reads, configured from the same environment,
+// which lets an administrator check a setup by running the helper by hand.
 func helperStore() Store {
-	return DefaultStore()
+	return storeWithToken(Config{PKCS11: PKCS11FromEnv()})
 }

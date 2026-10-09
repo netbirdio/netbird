@@ -40,6 +40,9 @@ func TestCancelPeerRoutines_SessionOwnership(t *testing.T) {
 			controller.EXPECT().OnPeerDisconnected(gomock.Any(), "account-1", peer.ID, tt.session).Return(tt.ownsPeer)
 			if tt.cancelRefresh {
 				secretsManager.EXPECT().CancelRefresh(peer.ID)
+				// The stream's challenge renewal ends with it; a stale session leaves the
+				// newer one's alone.
+				accountManager.EXPECT().UntrackCertificateChallenges("account-1", peer.ID, streamStart)
 			}
 
 			s.cancelPeerRoutines(context.Background(), "account-1", peer, streamStart, tt.session)

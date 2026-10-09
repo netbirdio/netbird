@@ -2,10 +2,13 @@ package certproof
 
 import (
 	"context"
+	"crypto"
 	"crypto/sha256"
+	"crypto/x509"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -25,14 +28,24 @@ func Collect(ctx context.Context, store Store, checks []*proto.Checks, peerKey [
 
 func logNoChallenges(checks []*proto.Checks) {
 	if len(checks) > 0 {
-		log.Infof("certificate posture: %d posture checks received, none carries a certificate challenge", len(checks))
+		log.Debugf("certificate posture: %d posture checks received, none carries a certificate challenge", len(checks))
 	}
 }
 
 // CollectChallenges answers challenges already extracted from the posture checks, so a
 // caller that ships them across a process boundary reuses the same matching and signing.
+// Only nonces of the size management issues are signed, for a peer key of the size of
+// ours, so the keys behind the store never sign arbitrary caller-chosen data.
 func CollectChallenges(ctx context.Context, store Store, challenges []*proto.CertificateChallenge, peerKey []byte) []certposture.Proof {
-	log.Infof("certificate posture: answering %d certificate challenges from store %T", len(challenges), store)
+	if len(peerKey) != wgtypes.KeyLen {
+		log.Warnf("certificate posture: refusing to sign for a %d byte peer key", len(peerKey))
+		return nil
+	}
+	challenges = wellFormed(challenges)
+	if len(challenges) == 0 {
+		return nil
+	}
+	log.Debugf("certificate posture: answering %d certificate challenges from store %T", len(challenges), store)
 
 	candidates, err := store.Candidates(ctx)
 	if err != nil {
@@ -40,10 +53,10 @@ func CollectChallenges(ctx context.Context, store Store, challenges []*proto.Cer
 		return nil
 	}
 	if len(candidates) == 0 {
-		log.Info("certificate posture: certificate store holds no candidates, no proof will be sent")
+		log.Debug("certificate posture: certificate store holds no candidates, no proof will be sent")
 		return nil
 	}
-	log.Infof("certificate posture: store holds %d candidate certificates", len(candidates))
+	log.Debugf("certificate posture: store holds %d candidate certificates", len(candidates))
 
 	now := time.Now()
 	proven := make(map[[sha256.Size]byte]struct{})
@@ -54,7 +67,7 @@ func CollectChallenges(ctx context.Context, store Store, challenges []*proto.Cer
 			log.Warnf("skipping certificate challenge with invalid CA certificates: %v", err)
 			continue
 		}
-		log.Infof("certificate posture: challenge %d accepts %d CA certificates, nonce is %d bytes", i, len(challenge.GetCaCertificates()), len(challenge.GetNonce()))
+		log.Debugf("certificate posture: challenge %d accepts %d CA certificates, nonce is %d bytes", i, len(challenge.GetCaCertificates()), len(challenge.GetNonce()))
 
 		matched := false
 		for _, candidate := range candidates {
@@ -62,53 +75,84 @@ func CollectChallenges(ctx context.Context, store Store, challenges []*proto.Cer
 				continue
 			}
 			leaf := candidate.Chain[0]
-			if err := certposture.VerifyChain(candidate.Chain, roots, now); err != nil {
-				log.Infof("certificate posture: challenge %d rejected %q issued by %q, chain of %d: %v", i, leaf.Subject, leaf.Issuer, len(candidate.Chain), err)
+			chain, err := certposture.VerifiedChain(leaf, candidate.issuers(), roots, now)
+			if err != nil {
+				log.Debugf("certificate posture: challenge %d rejected %q issued by %q: %v", i, leaf.Subject, leaf.Issuer, err)
 				continue
 			}
 			matched = true
 
-			fingerprint := sha256.Sum256(leaf.Raw)
+			// The same leaf can chain to different CAs for different challenges, and
+			// management checks each chain against each check's CAs, so a proof is
+			// deduplicated by its whole chain rather than by its leaf.
+			fingerprint := chainFingerprint(chain)
 			if _, done := proven[fingerprint]; done {
-				log.Infof("certificate posture: challenge %d matched %q, already proven for an earlier challenge", i, leaf.Subject)
+				log.Debugf("certificate posture: challenge %d matched %q, already proven for an earlier challenge", i, leaf.Subject)
 				break
 			}
-			proof, err := prove(candidate, challenge.GetNonce(), peerKey)
+			proof, err := prove(candidate.Signer, chain, challenge.GetNonce(), peerKey)
 			if err != nil {
 				log.Warnf("failed signing certificate proof for %s: %v", leaf.Subject, err)
 				continue
 			}
-			log.Infof("certificate posture: challenge %d proven by %q with %s, signature %d bytes, chain of %d", i, leaf.Subject, proof.SigAlg, len(proof.Signature), len(proof.Chain))
+			log.Debugf("certificate posture: challenge %d proven by %q with %s, signature %d bytes, chain of %d", i, leaf.Subject, proof.SigAlg, len(proof.Signature), len(proof.Chain))
 			proven[fingerprint] = struct{}{}
 			proofs = append(proofs, proof)
 			break
 		}
 		if !matched {
-			log.Infof("certificate posture: challenge %d matched none of the %d candidates", i, len(candidates))
+			log.Debugf("certificate posture: challenge %d matched none of the %d candidates", i, len(candidates))
 		}
 	}
-	log.Infof("certificate posture: %d challenges produced %d proofs", len(challenges), len(proofs))
+	log.Debugf("certificate posture: %d challenges produced %d proofs", len(challenges), len(proofs))
 	return proofs
+}
+
+// HasChallenges reports whether any of checks asks for a certificate proof.
+func HasChallenges(checks []*proto.Checks) bool {
+	return len(certificateChallenges(checks)) > 0
 }
 
 func certificateChallenges(checks []*proto.Checks) []*proto.CertificateChallenge {
 	var challenges []*proto.CertificateChallenge
 	for _, check := range checks {
-		if challenge := check.GetCertificateChallenge(); challenge != nil && len(challenge.GetNonce()) > 0 {
+		if challenge := check.GetCertificateChallenge(); challenge != nil {
 			challenges = append(challenges, challenge)
 		}
 	}
-	return challenges
+	return wellFormed(challenges)
 }
 
-func prove(candidate Candidate, nonce, peerKey []byte) (certposture.Proof, error) {
-	sigAlg, sig, err := certposture.Sign(candidate.Signer, nonce, peerKey)
+// wellFormed drops challenges whose nonce is not one management could have issued.
+func wellFormed(challenges []*proto.CertificateChallenge) []*proto.CertificateChallenge {
+	var kept []*proto.CertificateChallenge
+	for _, challenge := range challenges {
+		if len(challenge.GetNonce()) != certposture.NonceSize {
+			log.Debugf("certificate posture: skipping challenge with a %d byte nonce", len(challenge.GetNonce()))
+			continue
+		}
+		kept = append(kept, challenge)
+	}
+	return kept
+}
+
+func prove(signer crypto.Signer, chain []*x509.Certificate, nonce, peerKey []byte) (certposture.Proof, error) {
+	sigAlg, sig, err := certposture.Sign(signer, nonce, peerKey)
 	if err != nil {
 		return certposture.Proof{}, err
 	}
-	chain := make([][]byte, 0, len(candidate.Chain))
-	for _, cert := range candidate.Chain {
-		chain = append(chain, cert.Raw)
+	der := make([][]byte, 0, len(chain))
+	for _, cert := range chain {
+		der = append(der, cert.Raw)
 	}
-	return certposture.Proof{Nonce: nonce, Chain: chain, SigAlg: sigAlg, Signature: sig}, nil
+	return certposture.Proof{Nonce: nonce, Chain: der, SigAlg: sigAlg, Signature: sig}, nil
+}
+
+func chainFingerprint(chain []*x509.Certificate) [sha256.Size]byte {
+	buf := make([]byte, 0, len(chain)*sha256.Size)
+	for _, cert := range chain {
+		certHash := sha256.Sum256(cert.Raw)
+		buf = append(buf, certHash[:]...)
+	}
+	return sha256.Sum256(buf)
 }
