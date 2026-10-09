@@ -379,7 +379,7 @@ replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-2
 
 replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0
 
-replace github.com/wailsapp/wails/v3 => github.com/emrcbrn/wails/v3 v3.0.0-beta.3.0.20261009082013-90df6badcd4a
+replace github.com/wailsapp/wails/v3 => github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20261009120932-4e087a8bfd6d
 
 tool (
 	github.com/goreleaser/chglog/cmd/chglog
