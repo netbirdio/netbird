@@ -83,7 +83,7 @@ func NewSqlStore(ctx context.Context, conn *db.Conn, metrics telemetry.AppMetric
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &rpservice.PortMapping{}, &rpservice.DomainLock{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
 		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
