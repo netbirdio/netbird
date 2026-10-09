@@ -13,7 +13,9 @@ package main
 import "C"
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 	"unsafe"
@@ -63,12 +65,24 @@ type xembedHost struct {
 	iconW    int
 	iconH    int
 
-	stopCh chan struct{}
+	// Cancelled to ask run to exit. It also aborts the icon fetch, which
+	// would otherwise pin the loop on a peer that never answers.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
-// newXembedHost creates an XEmbed tray icon for the given SNI item.
-// Errors when no XEmbed tray manager is available, so callers can fall back.
+// newXembedHost creates an XEmbed tray icon for the given SNI item. Errors when
+// the item has no icon to paint or no XEmbed tray manager is available, so
+// callers can fall back.
 func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*xembedHost, error) {
+	// Resolve the icon before docking: a window docked with nothing to paint
+	// renders as a solid black square in the panel, which is worse for the user
+	// than the item having no tray icon at all.
+	icon, err := fetchIconPixmap(context.Background(), conn, busName, objPath)
+	if err != nil {
+		return nil, err
+	}
+
 	dpy := C.XOpenDisplay(nil)
 	if dpy == nil {
 		return nil, errors.New("cannot open X display")
@@ -107,42 +121,82 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 		trayMgr:  trayMgr,
 		iconWin:  iconWin,
 		iconSize: iconSize,
-		stopCh:   make(chan struct{}),
+		iconData: icon.Pix,
+		iconW:    int(icon.W),
+		iconH:    int(icon.H),
 	}
+	h.ctx, h.cancel = context.WithCancel(context.Background())
 
-	h.fetchAndDrawIcon()
+	h.drawIcon()
 	return h, nil
 }
 
-func (h *xembedHost) fetchAndDrawIcon() {
-	obj := h.conn.Object(h.busName, h.objPath)
-	variant, err := obj.GetProperty("org.kde.StatusNotifierItem.IconPixmap")
+// iconFetchTimeout bounds the property read. The item is another process, and
+// an unresponsive one would otherwise hold the run loop for as long as the bus
+// allows, leaving a stale icon docked after a replacement has arrived.
+const iconFetchTimeout = 5 * time.Second
+
+// maxIconPixmapDim bounds the dimensions an item may claim. Tray icons are
+// tiny, and any bound keeps the pixel-buffer size check below free of integer
+// overflow, which would otherwise let a malformed frame through to the C
+// renderer and overread the buffer.
+const maxIconPixmapDim = 1024
+
+// iconPixmap is one frame of org.kde.StatusNotifierItem.IconPixmap, whose D-Bus
+// signature is a(iiay): width, height, and ARGB32 pixels.
+type iconPixmap struct {
+	W   int32
+	H   int32
+	Pix []byte
+}
+
+// fetchIconPixmap reads the item's first icon frame. Items that publish only
+// IconName carry an empty IconPixmap and are reported as an error, since this
+// host has no icon-theme lookup to fall back on.
+func fetchIconPixmap(ctx context.Context, conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (iconPixmap, error) {
+	ctx, cancel := context.WithTimeout(ctx, iconFetchTimeout)
+	defer cancel()
+
+	// The context-aware form of GetProperty, which godbus does not provide.
+	var variant dbus.Variant
+	err := conn.Object(busName, objPath).CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", 0,
+		"org.kde.StatusNotifierItem", "IconPixmap").Store(&variant)
 	if err != nil {
-		log.Debugf("xembed: failed to get IconPixmap: %v", err)
-		return
+		return iconPixmap{}, fmt.Errorf("get IconPixmap of %s %s: %w", busName, objPath, err)
 	}
 
-	// IconPixmap has D-Bus signature a(iiay).
-	type px struct {
-		W   int32
-		H   int32
-		Pix []byte
-	}
-
-	var icons []px
+	var icons []iconPixmap
 	if err := variant.Store(&icons); err != nil {
-		log.Debugf("xembed: failed to decode IconPixmap: %v", err)
-		return
+		return iconPixmap{}, fmt.Errorf("decode IconPixmap of %s %s: %w", busName, objPath, err)
 	}
-
 	if len(icons) == 0 {
-		log.Debug("xembed: IconPixmap is empty")
-		return
+		return iconPixmap{}, fmt.Errorf("IconPixmap of %s %s is empty", busName, objPath)
 	}
 
 	icon := icons[0]
-	if icon.W <= 0 || icon.H <= 0 || len(icon.Pix) < int(icon.W*icon.H*4) {
-		log.Debug("xembed: invalid IconPixmap data")
+	if err := icon.validate(); err != nil {
+		return iconPixmap{}, fmt.Errorf("IconPixmap of %s %s: %w", busName, objPath, err)
+	}
+	return icon, nil
+}
+
+// validate rejects a frame whose pixel buffer is shorter than the size it
+// claims. The frame comes from another process on the session bus and its
+// dimensions are handed to the C renderer, which reads W*H*4 bytes.
+func (i iconPixmap) validate() error {
+	if i.W <= 0 || i.H <= 0 || i.W > maxIconPixmapDim || i.H > maxIconPixmapDim {
+		return fmt.Errorf("out-of-range size %dx%d", i.W, i.H)
+	}
+	if len(i.Pix) < int(i.W)*int(i.H)*4 {
+		return fmt.Errorf("%d bytes, short of %dx%d ARGB", len(i.Pix), i.W, i.H)
+	}
+	return nil
+}
+
+func (h *xembedHost) fetchAndDrawIcon() {
+	icon, err := fetchIconPixmap(h.ctx, h.conn, h.busName, h.objPath)
+	if err != nil {
+		log.Debugf("xembed: %v", err)
 		return
 	}
 
@@ -175,6 +229,8 @@ func (h *xembedHost) drawIcon() {
 
 // run is the event loop: polls X11 events and D-Bus NewIcon signals until stopped.
 func (h *xembedHost) run() {
+	defer h.destroy()
+
 	matchRule := "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon',sender='" + h.busName + "'"
 	if err := h.conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err; err != nil {
 		log.Debugf("xembed: failed to add signal match: %v", err)
@@ -189,7 +245,7 @@ func (h *xembedHost) run() {
 
 	for {
 		select {
-		case <-h.stopCh:
+		case <-h.ctx.Done():
 			return
 
 		case sig := <-sigCh:
@@ -330,14 +386,18 @@ func (h *xembedHost) sendMenuEvent(id int32) {
 	}
 }
 
-func (h *xembedHost) stop() {
-	select {
-	case <-h.stopCh:
-		return
-	default:
-		close(h.stopCh)
-	}
+// signalStop asks the run loop to exit, aborting a pending icon fetch so it
+// does not linger. Safe from any goroutine and any number of times; it touches
+// no X state, because the display belongs to run.
+func (h *xembedHost) signalStop() {
+	h.cancel()
+}
 
+// destroy releases the X resources, and may only be called by the goroutine
+// that owns the display: run on its way out, or the creator when run was never
+// started. Xlib is not safe to call while another thread is inside it on the
+// same display, so a second goroutine must use signalStop and let run finish.
+func (h *xembedHost) destroy() {
 	C.xembed_destroy_icon(h.dpy, h.iconWin)
 	C.XCloseDisplay(h.dpy)
 }
