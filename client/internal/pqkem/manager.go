@@ -323,6 +323,10 @@ func (m *Manager) Stop() {
 // initiator. It is idempotent for an in-flight bootstrap: a repeat call returns the
 // same offer rather than starting a new exchange.
 //
+// On a build failure it returns a non-nil error AND a non-empty error-marker payload:
+// the host must still send that payload, because an empty MlkemPayload is the "peer does
+// not run the KEM" capability signal, which would wrongly mark this peer non-capable.
+//
 // A signal re-negotiation always re-bootstraps (fresh exchange): the remote may have
 // restarted and lost its PSK, so reusing a locally frozen one would desync. The derived
 // PSK still survives idle in the manager (dropped only on account-level peer removal),
