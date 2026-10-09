@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -1079,15 +1080,16 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 
 	oidcCfg := m.proxyController.GetOIDCValidationConfig()
 
+	var errs []error
 	for _, s := range services {
-		err = m.replaceHostByLookup(ctx, accountID, s)
-		if err != nil {
-			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
+		if err := m.replaceHostByLookup(ctx, accountID, s); err != nil {
+			errs = append(errs, fmt.Errorf("replace host by lookup for service %s: %w", s.ID, err))
+			continue
 		}
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *Manager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {
