@@ -518,6 +518,41 @@ dockers_v2:
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
        "maintainer": "dev@netbird.io"
+   - id: management-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-mgmt
+     images:
+       - netbirdio/management
+       - ghcr.io/netbirdio/management
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: management/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l management/LICENSE "{{ .ContextDir }}/licenses" ./management amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=1
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
    - id: upload
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
      ids:
