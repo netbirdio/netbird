@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -16,6 +17,9 @@ import (
 const (
 	maxHelperStdout = 1 << 20
 	maxHelperStderr = 4 << 10
+
+	// helperWaitDelay bounds how long a helper's output is awaited after it was killed.
+	helperWaitDelay = 2 * time.Second
 )
 
 var errHelperOutputTooLarge = errors.New("helper output exceeds the size limit")
@@ -35,7 +39,12 @@ func runHelperCmd(cmd *exec.Cmd, req HelperRequest) ([]certposture.Proof, error)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	if err := cmd.Run(); err != nil {
+	release, err := startHelper(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("start helper: %w", err)
+	}
+	defer release()
+	if err := cmd.Wait(); err != nil {
 		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	logHelperStderr(stderr.String())

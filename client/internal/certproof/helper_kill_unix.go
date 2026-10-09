@@ -6,11 +6,7 @@ import (
 	"errors"
 	"os/exec"
 	"syscall"
-	"time"
 )
-
-// helperWaitDelay bounds how long a helper's output is awaited after it was killed.
-const helperWaitDelay = 2 * time.Second
 
 // killHelperGroupOnCancel puts cmd in a process group of its own and kills the whole
 // group when cmd's context ends. The helper may run below launchers such as launchctl
@@ -30,4 +26,10 @@ func killHelperGroupOnCancel(cmd *exec.Cmd) {
 		return err
 	}
 	cmd.WaitDelay = helperWaitDelay
+}
+
+// startHelper starts cmd. Killing the helper with everything below it is arranged by
+// killHelperGroupOnCancel where the helper runs under a launcher.
+func startHelper(cmd *exec.Cmd) (func(), error) {
+	return func() {}, cmd.Start()
 }
