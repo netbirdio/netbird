@@ -92,7 +92,7 @@ func (m *ErrorMsg) Encode() []byte {
 	return frame(MsgError, m.ExchangeID, nil)
 }
 
-// Decode parses a framed message into one of *OfferMsg / *AnswerMsg.
+// Decode parses a framed message into one of *OfferMsg / *AnswerMsg / *ErrorMsg.
 func Decode(buf []byte) (MsgType, any, error) {
 	if len(buf) < headerSize {
 		return 0, nil, fmt.Errorf("message too short: %d bytes", len(buf))
