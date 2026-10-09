@@ -159,7 +159,6 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 	}
 	ex.state = stateAwaitingAck
 	ex.lastSent = raw
-	ex.pendingPSK = psk
 	gen := ex.gen
 	m.psks[remoteID] = psk
 	m.capable[remoteID] = true // a real KEM offer proves the peer runs the exchange

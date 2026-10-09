@@ -76,19 +76,17 @@ const (
 // exchangeCtl holds all state for one in-flight exchange with a peer, under the
 // Manager's single lock. state drives every decision. lastSent is the current
 // data-path retransmit payload (the offer, for the initiator). initiator is the
-// ephemeral handle used at Finish; pendingPSK is the responder's derived key.
-// viaSignal records that the offer went to the host for the signalling channel, so
-// the loop does not retransmit it on the data path. Only the initiator runs a
-// retransmit loop, so only it sets cancel.
+// ephemeral handle used at Finish. viaSignal records that the offer went to the host
+// for the signalling channel, so the loop does not retransmit it on the data path.
+// Only the initiator runs a retransmit loop, so only it sets cancel.
 type exchangeCtl struct {
-	id         ExchangeID
-	state      exchangeState
-	gen        uint64 // local, per-peer monotonic generation; lets the host reject a stale PSK apply
-	cancel     context.CancelFunc
-	lastSent   []byte
-	initiator  *Initiator
-	pendingPSK PSK
-	viaSignal  bool
+	id        ExchangeID
+	state     exchangeState
+	gen       uint64 // local, per-peer monotonic generation; lets the host reject a stale PSK apply
+	cancel    context.CancelFunc
+	lastSent  []byte
+	initiator *Initiator
+	viaSignal bool
 }
 
 // Manager is the stateful orchestrator — the analogue of go-rosenpass's Server. It
