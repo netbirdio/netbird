@@ -52,7 +52,7 @@ export const NetworkFilters = ({ value, onChange, counts, disabled }: Props) => 
                 <span>
                     {active.label} <span className={"tabular-nums"}>({counts[active.value]})</span>
                 </span>
-                <ChevronDown size={14} aria-hidden={"true"} className={"ml-0.5 shrink-0"} />
+                <ChevronDown size={14} aria-hidden={"true"} className={"ms-0.5 shrink-0"} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align={"end"} className={"min-w-[10rem]"}>
                 {filters.map((f) => {

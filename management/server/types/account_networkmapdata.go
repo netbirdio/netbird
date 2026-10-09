@@ -214,8 +214,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	}
 }
 
-// TwinPeer converts a real peer to its slim nmdata twin. Exported for the
-// port-forwarding integration, which builds proxy NetworkMaps holding twins.
+// TwinPeer converts a real peer to its slim nmdata twin.
 func TwinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	return twinPeer(p)
 }

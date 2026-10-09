@@ -127,10 +127,6 @@ type Client struct {
 	// see more: https://docs.netbird.io/api/resources/identity-providers
 	IdentityProviders *IdentityProvidersAPI
 
-	// Ingress NetBird Ingress Peers APIs
-	// see more: https://docs.netbird.io/api/resources/ingress-ports
-	Ingress *IngressAPI
-
 	// Instance NetBird Instance API
 	// see more: https://docs.netbird.io/api/resources/instance
 	Instance *InstanceAPI
@@ -207,7 +203,6 @@ func (c *Client) initialize() {
 	c.OktaScimIDP = &OktaScimIDPAPI{c}
 	c.EventStreaming = &EventStreamingAPI{c}
 	c.IdentityProviders = &IdentityProvidersAPI{c}
-	c.Ingress = &IngressAPI{c}
 	c.Instance = &InstanceAPI{c}
 	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
 	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
