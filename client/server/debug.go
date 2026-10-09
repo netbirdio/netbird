@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
@@ -26,7 +27,13 @@ import (
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
-	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure()); err != nil {
+	// One source of truth for "this request uploads", used by both the gate and
+	// the local-only early return below. A client older than the upload flag asks
+	// for an upload by naming a URL and nothing else, so the two must not drift.
+	wantsUpload := req.GetUpload() || req.GetUploadURL() != ""
+
+	mdmUploadURL := s.mdmDebugUploadURL()
+	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure(), wantsUpload, mdmUploadURL != ""); err != nil {
 		return nil, err
 	}
 
@@ -35,35 +42,57 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	// socket that carries no identity, which skips the UI log.
 	callerID, callerIdentified := ipcauth.CallerIdentity(callerCtx)
 
-	path, managementURL, err := s.generateDebugBundle(req, uiLogOpener(callerID, callerIdentified))
+	path, managementURL, publishedUploadURL, err := s.generateDebugBundle(req, uiLogOpener(callerID, callerIdentified))
 	if err != nil {
 		return nil, err
 	}
 
-	if req.GetUploadURL() == "" {
+	if !wantsUpload {
 		return &proto.DebugBundleResponse{Path: path}, nil
 	}
+
+	// The destination the management server publishes needs no privilege check:
+	// it is the operator of this deployment naming their own upload service, and
+	// the peer already trusts that server for its whole configuration. Only a
+	// URL the local caller named goes through requirePrivilegeForUploadURL above.
+	if mdmUploadURL != "" && req.GetUploadURL() != "" && mdmUploadURL != req.GetUploadURL() {
+		log.Infof("using the MDM debug bundle upload URL instead of the one the caller named")
+	}
+	uploadURL := debug.ResolveUploadURL(mdmUploadURL, req.GetUploadURL(), publishedUploadURL)
 
 	// The upload runs without s.mutex held: it does network I/O to a possibly
 	// slow destination and must not block the other RPCs that take the lock. The
 	// bounded context is a backstop against a hung connection.
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	key, err := debug.UploadDebugBundle(uploadCtx, req.GetUploadURL(), managementURL, path, req.GetUploadInsecure())
+	key, err := debug.UploadDebugBundle(uploadCtx, uploadURL, managementURL, path, req.GetUploadInsecure())
 	if err != nil {
-		log.Errorf("failed to upload debug bundle to %s: %v", req.GetUploadURL(), err)
+		log.Errorf("failed to upload debug bundle to %s: %v", redactUploadURL(uploadURL), err)
 		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
 	}
 
-	log.Infof("debug bundle uploaded to %s with key %s", req.GetUploadURL(), key)
+	log.Infof("debug bundle uploaded to %s with key %s", redactUploadURL(uploadURL), key)
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
 }
 
+// redactUploadURL reduces an upload URL to scheme://host for logging. The URL
+// reaches the daemon from the management server or the caller and can carry
+// userinfo or a token in its query, neither of which belongs in a log file that
+// ends up inside the very bundles this uploads.
+func redactUploadURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "(unparsable upload URL)"
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
 // generateDebugBundle builds the bundle under s.mutex and returns its path plus
-// the management URL captured under the lock, so the caller can run the upload
-// without holding the lock.
-func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener debug.LogOpener) (path string, managementURL string, err error) {
+// the management URL and the upload service the management server publishes,
+// both captured under the lock, so the caller can run the upload without
+// holding the lock.
+func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener debug.LogOpener) (path string, managementURL string, publishedUploadURL string, err error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -78,6 +107,7 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 			if cm := engine.GetClientMetrics(); cm != nil {
 				clientMetrics = cm
 			}
+			publishedUploadURL = engine.DebugUploadURL()
 		}
 	}
 
@@ -131,14 +161,28 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 
 	path, err = bundleGenerator.Generate()
 	if err != nil {
-		return "", "", fmt.Errorf("generate debug bundle: %w", err)
+		return "", "", "", fmt.Errorf("generate debug bundle: %w", err)
 	}
 
 	if s.config != nil && s.config.ManagementURL != nil {
 		managementURL = s.config.ManagementURL.String()
 	}
 
-	return path, managementURL, nil
+	return path, managementURL, publishedUploadURL, nil
+}
+
+// mdmDebugUploadURL reports the debug-bundle destination an MDM policy pins on
+// this device, empty when none does. Read before the bundle is generated,
+// because the privilege gate needs to know whether the caller's own URL can have
+// any effect.
+func (s *Server) mdmDebugUploadURL() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.config == nil {
+		return ""
+	}
+	return s.config.DebugBundleUploadURL
 }
 
 // GetLogLevel gets the current logging level for the server.

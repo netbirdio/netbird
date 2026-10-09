@@ -563,6 +563,11 @@ message DebugBundleRequest {
   // Unknown values are treated as "strict". Only meaningful with anonymize;
   // "strict" implies it.
   string anonymizeLevel = 8;
+  // upload asks the daemon to upload the bundle. When uploadURL is empty the
+  // daemon resolves the destination itself: the one the management server
+  // publishes, or else the service NetBird runs. uploadURL still overrides it,
+  // and a host other than the default one requires a privileged caller.
+  bool upload = 9;
 }
 
 message DebugBundleResponse {

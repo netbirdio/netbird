@@ -118,7 +118,24 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
-func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool) *proto.PeerConfig {
+// resolveDebugUploadURL picks the debug-bundle destination this peer is told to
+// use. The account setting wins; deploymentDefault is the server-config value a
+// self-hosted install sets once for every account. Both are https-validated
+// where they are written, and neither set means the peer falls back to the
+// service NetBird runs.
+//
+// The deployment default is passed in rather than read from the server config
+// here because the peer fan-out builds its sync with a nil server config: left
+// to that, a settings change would publish an empty destination and silently
+// move the deployment's bundles back to NetBird's service.
+func resolveDebugUploadURL(settings *nmdata.AccountSettingsInfo, deploymentDefault string) string {
+	if settings != nil && settings.DebugBundleUploadURL != "" {
+		return settings.DebugBundleUploadURL
+	}
+	return deploymentDefault
+}
+
+func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool, debugUploadDefault string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 
@@ -140,6 +157,7 @@ func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, se
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,
 		},
+		DebugBundleUploadUrl: resolveDebugUploadURL(settings, debugUploadDefault),
 	}
 
 	if peer.SupportsIPv6() && peer.IPv6.IsValid() && network.NetV6.IP != nil {
@@ -153,7 +171,7 @@ func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, se
 	return peerConfig
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*nmdata.PostureChecks, dnsCache *cache.DNSConfigCache, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*nmdata.PostureChecks, dnsCache *cache.DNSConfigCache, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, debugUploadDefault string) *proto.SyncResponse {
 	// IPv6 data in AllowedIPs and SourcePrefixes wildcard expansion depends on
 	// whether the target peer supports IPv6. Routes and firewall rules are already
 	// filtered at the source (network map builder).
@@ -162,12 +180,12 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	localIsProxy := peer.ProxyMeta.Embedded
 
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution, debugUploadDefault),
 		NetworkMap: &proto.NetworkMap{
 			Serial:     networkMap.Network.CurrentSerial(),
 			Routes:     networkmap.ToProtocolRoutes(networkMap.Routes),
 			DNSConfig:  networkmap.ToProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution, debugUploadDefault),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}

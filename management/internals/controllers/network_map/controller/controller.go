@@ -289,7 +289,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
 				start = time.Now()
-				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort, c.config.DebugUpload.URL)
 				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
 
 				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -306,7 +306,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
 			start = time.Now()
-			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort, c.config.DebugUpload.URL)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -439,7 +439,7 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
 				start = time.Now()
-				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, components, dnsDomain, postureChecks, nmData.AccountSettings, extraSettings, peerGroups, dnsFwdPort)
+				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, components, dnsDomain, postureChecks, nmData.AccountSettings, extraSettings, peerGroups, dnsFwdPort, c.config.DebugUpload.URL)
 				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
 
 				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -455,7 +455,7 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
 			start = time.Now()
-			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, nmData.AccountSettings, extraSettings, peerGroups, dnsFwdPort)
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, nmap, dnsDomain, postureChecks, dnsCache, nmData.AccountSettings, extraSettings, peerGroups, dnsFwdPort, c.config.DebugUpload.URL)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -724,7 +724,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 				c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
 				start = time.Now()
-				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+				update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort, c.config.DebugUpload.URL)
 				c.metrics.CountToComponentSyncResponseDuration(time.Since(start))
 
 				c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -741,7 +741,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
 			start = time.Now()
-			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(p), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSetting, maps.Keys(peerGroups), dnsFwdPort, c.config.DebugUpload.URL)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -848,7 +848,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		components := account.GetPeerNetworkMapComponents(
 			ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 
-		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+		update = grpc.ToComponentSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, components, dnsDomain, postureChecks, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort, c.config.DebugUpload.URL)
 
 		c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
 			Update:      update,
@@ -861,7 +861,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	nmap := account.GetPeerNetworkMapFromComponents(
 		ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 
-	update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	update = grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, types.TwinPeer(peer), nil, nil, nmap, dnsDomain, postureChecks, dnsCache, types.TwinAccountSettings(account.Settings), extraSettings, maps.Keys(peerGroups), dnsFwdPort, c.config.DebugUpload.URL)
 
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
 		Update:      update,

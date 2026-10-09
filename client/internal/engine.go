@@ -228,6 +228,13 @@ type Engine struct {
 	TURNs    []*stun.URI
 	stunTurn icemaker.StunTurn
 
+	// debugUploadURL is the debug-bundle upload service the management server
+	// publishes for this deployment, refreshed on every NetbirdConfig update.
+	// Atomic because the bundle paths (remote job, daemon RPC, mobile SDK) read
+	// it off the engine loop. Empty when the deployment publishes none, in which
+	// case the callers fall back to the service NetBird runs.
+	debugUploadURL atomic.Pointer[string]
+
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
 
@@ -537,7 +544,7 @@ func waitWithContext(ctx context.Context, wg *sync.WaitGroup) error {
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
-func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) (err error) {
+func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, peerConfig *mgmProto.PeerConfig, mgmtURL *url.URL) (err error) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -610,6 +617,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
 		log.Warnf("failed to populate DNS cache: %v", err)
 	}
+
+	// The login response carries the same PeerConfig a sync does, but Start does
+	// not run it through updateNetworkMap. Without this, a bundle requested
+	// between login and the first sync sees no published destination and falls
+	// back to the service NetBird runs, even where the deployment configured its
+	// own — and the first seconds after a start are exactly when someone collects
+	// a bundle about a start that went wrong.
+	e.handleDebugUploadUpdate(peerConfig)
 
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
@@ -1211,6 +1226,34 @@ func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
 	e.clientMetrics.UpdatePushFromMgm(e.metricsCtx, config.GetEnabled())
 }
 
+// handleDebugUploadUpdate records the debug-bundle destination the management
+// server published for this peer.
+//
+// A nil PeerConfig carries no information and is left alone: a partial update
+// ships a SyncResponse without one, and reading that absence as "no
+// destination" would silently drop the operator's choice. An operator clearing
+// the destination sends a PeerConfig with an empty URL, which does reach the
+// store below.
+func (e *Engine) handleDebugUploadUpdate(peerConfig *mgmProto.PeerConfig) {
+	if peerConfig == nil {
+		return
+	}
+
+	url := peerConfig.GetDebugBundleUploadUrl()
+	e.debugUploadURL.Store(&url)
+}
+
+// DebugUploadURL returns the debug-bundle upload service the management server
+// published, or empty when it published none or the engine never synced. The
+// callers treat empty as "this deployment names no destination" and fall back to
+// the service NetBird runs; see debug.ResolveUploadURL.
+func (e *Engine) DebugUploadURL() string {
+	if url := e.debugUploadURL.Load(); url != nil {
+		return *url
+	}
+	return ""
+}
+
 func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
 	if config.GetInterval() == nil {
 		return nil, errors.New("flow interval is nil")
@@ -1418,21 +1461,26 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
 	log.Debugf("remote debug bundle request parameters: %s", params.String())
 
-	// Resolve the upload destination: an MDM override, when set, takes
-	// precedence over the management-supplied URL. Both are validated the same
-	// way; an empty result falls back to the default upload server downstream.
-	uploadURL := params.GetUploadUrl()
-	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
-		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
-		uploadURL = override
-	}
-	if err := validateBundleUploadURL(uploadURL); err != nil {
-		return nil, err
-	}
-
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
 		log.Warnf("get latest sync response: %v", err)
+	}
+
+	// Resolve the upload destination: the MDM policy, then the job's URL, then
+	// what this deployment publishes, then the service NetBird runs.
+	mdmUploadURL := e.config.ProfileConfig.DebugBundleUploadURL
+	if mdmUploadURL != "" && params.GetUploadUrl() != "" && mdmUploadURL != params.GetUploadUrl() {
+		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
+	}
+	uploadURL := debug.ResolveUploadURL(mdmUploadURL, params.GetUploadUrl(), e.DebugUploadURL())
+
+	// Validated after resolution, so the destination this deployment published
+	// meets the same rule as one named in the job. Management validates it at
+	// write time, but a peer can be talking to an older or mismatched server,
+	// and a bad value should surface here rather than as a transport error
+	// halfway through the upload.
+	if err := validateBundleUploadURL(uploadURL); err != nil {
+		return nil, err
 	}
 
 	bundleDeps := debug.GeneratorDependencies{
@@ -1562,6 +1610,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, peerConfig.GetLazyConnectionEnabled()); err != nil {
 			log.Errorf("failed to update lazy connection feature flag: %v", err)
 		}
+
+		e.handleDebugUploadUpdate(peerConfig)
 	}
 
 	if e.firewall != nil {

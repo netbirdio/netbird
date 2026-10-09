@@ -99,7 +99,7 @@ func TestEngine_SSH(t *testing.T) {
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
 
-	err = engine.Start(nil, nil)
+	err = engine.Start(nil, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -230,7 +230,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 	}()
 
-	err = engine.Start(nil, nil)
+	err = engine.Start(nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -314,7 +314,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
 			device.CustomWindowsGUIDString = strings.ToLower(guid)
-			err = engine.Start(nil, nil)
+			err = engine.Start(nil, nil, nil)
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
 				wg.Done()

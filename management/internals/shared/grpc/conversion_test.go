@@ -329,9 +329,56 @@ func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := &types.Settings{RoutingPeerDNSResolutionEnabled: tt.globalFlag}
-			cfg := toPeerConfig(types.TwinPeer(newPeer(tt.embedded)), types.TwinNetwork(network), "netbird.selfhosted", types.TwinAccountSettings(settings), nil, nil, false, tt.forceParam)
+			cfg := toPeerConfig(types.TwinPeer(newPeer(tt.embedded)), types.TwinNetwork(network), "netbird.selfhosted", types.TwinAccountSettings(settings), nil, nil, false, tt.forceParam, "")
 			assert.Equal(t, tt.wantEnabled, cfg.RoutingPeerDnsResolutionEnabled,
 				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
+		})
+	}
+}
+
+// The debug-bundle destination rides PeerConfig because the peer fan-out that
+// follows a settings change builds its sync with a nil server config. The
+// deployment-wide default therefore has to reach toPeerConfig as a value: left
+// to be read off the server config, a fan-out would publish an empty
+// destination and move the deployment's bundles back to NetBird's service.
+func TestToPeerConfigDebugUploadURL(t *testing.T) {
+	network := &types.Network{Net: net.IPNet{IP: net.IPv4(100, 0, 0, 0), Mask: net.CIDRMask(8, 32)}}
+	peer := &nbpeer.Peer{IP: netip.MustParseAddr("100.0.0.1")}
+
+	tests := []struct {
+		name              string
+		accountSetting    string
+		deploymentDefault string
+		want              string
+	}{
+		{name: "neither set leaves the peer on the NetBird service"},
+		{
+			name:           "the account setting is published",
+			accountSetting: "https://account.example.com/upload-url",
+			want:           "https://account.example.com/upload-url",
+		},
+		{
+			// What the fan-out sends: no server config in hand, so this is the
+			// value the controller passes in.
+			name:              "the deployment default is published when the account names none",
+			deploymentDefault: "https://deployment.example.com/upload-url",
+			want:              "https://deployment.example.com/upload-url",
+		},
+		{
+			name:              "the account setting wins over the deployment default",
+			accountSetting:    "https://account.example.com/upload-url",
+			deploymentDefault: "https://deployment.example.com/upload-url",
+			want:              "https://account.example.com/upload-url",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := &types.Settings{DebugBundleUploadURL: tt.accountSetting}
+			cfg := toPeerConfig(types.TwinPeer(peer), types.TwinNetwork(network), "netbird.selfhosted",
+				types.TwinAccountSettings(settings), nil, nil, false, false, tt.deploymentDefault)
+			assert.Equal(t, tt.want, cfg.GetDebugBundleUploadUrl(),
+				"the peer must be told the destination its operator configured")
 		})
 	}
 }

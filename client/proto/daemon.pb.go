@@ -2829,8 +2829,13 @@ type DebugBundleRequest struct {
 	// Unknown values are treated as "strict". Only meaningful with anonymize;
 	// "strict" implies it.
 	AnonymizeLevel string `protobuf:"bytes,8,opt,name=anonymizeLevel,proto3" json:"anonymizeLevel,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// upload asks the daemon to upload the bundle. When uploadURL is empty the
+	// daemon resolves the destination itself: the one the management server
+	// publishes, or else the service NetBird runs. uploadURL still overrides it,
+	// and a host other than the default one requires a privileged caller.
+	Upload        bool `protobuf:"varint,9,opt,name=upload,proto3" json:"upload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DebugBundleRequest) Reset() {
@@ -2910,6 +2915,13 @@ func (x *DebugBundleRequest) GetAnonymizeLevel() string {
 		return x.AnonymizeLevel
 	}
 	return ""
+}
+
+func (x *DebugBundleRequest) GetUpload() bool {
+	if x != nil {
+		return x.Upload
+	}
+	return false
 }
 
 type DebugBundleResponse struct {
@@ -7363,7 +7375,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12translatedHostname\x18\x04 \x01(\tR\x12translatedHostname\x128\n" +
 	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort:\x02\x18\x01\"K\n" +
 	"\x17ForwardingRulesResponse\x12,\n" +
-	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules:\x02\x18\x01\"\x84\x02\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules:\x02\x18\x01\"\x9c\x02\n" +
 	"\x12DebugBundleRequest\x12\x1c\n" +
 	"\tanonymize\x18\x01 \x01(\bR\tanonymize\x12\x1e\n" +
 	"\n" +
@@ -7375,7 +7387,8 @@ const file_daemon_proto_rawDesc = "" +
 	"cliVersion\x18\x06 \x01(\tR\n" +
 	"cliVersion\x12&\n" +
 	"\x0euploadInsecure\x18\a \x01(\bR\x0euploadInsecure\x12&\n" +
-	"\x0eanonymizeLevel\x18\b \x01(\tR\x0eanonymizeLevel\"}\n" +
+	"\x0eanonymizeLevel\x18\b \x01(\tR\x0eanonymizeLevel\x12\x16\n" +
+	"\x06upload\x18\t \x01(\bR\x06upload\"}\n" +
 	"\x13DebugBundleResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12 \n" +
 	"\vuploadedKey\x18\x02 \x01(\tR\vuploadedKey\x120\n" +

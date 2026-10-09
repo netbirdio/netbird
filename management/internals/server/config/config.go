@@ -1,7 +1,10 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"net/netip"
+	"net/url"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -56,6 +59,10 @@ type Config struct {
 	ReverseProxy ReverseProxy
 
 	AgentNetwork AgentNetwork
+
+	// DebugUpload configures where the peers of this deployment send their
+	// debug bundles. See DebugUpload.
+	DebugUpload DebugUpload
 
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
@@ -204,6 +211,50 @@ type AgentNetwork struct {
 	// prefill with). An explicitly configured path that fails to load
 	// fails startup; runtime reload errors keep the previous table.
 	PricingDefaultsFile string
+}
+
+// DebugUpload configures the debug-bundle upload service this deployment
+// publishes to its peers.
+//
+// The client paths that upload without a human picking a destination — the
+// remote debug-bundle job, the mobile clients and the desktop UI — take the
+// destination from here. It exists so an operator who needs the bundles, which
+// carry peer logs, routes, DNS and firewall state, to stay inside their own
+// infrastructure can say so once. Leaving it unset publishes no destination and
+// the peers upload to the service NetBird runs, which keeps the everyday
+// "collect a bundle and send it to support" flow working out of the box.
+//
+// Set URL to the upload service's get-URL endpoint, e.g.
+// https://upload.example.com/upload-url (see the upload-server component).
+type DebugUpload struct {
+	// URL is the get-URL endpoint of the upload service. Must be https: the
+	// client fetches an upload URL from it and then PUTs the bundle to whatever
+	// that fetch returns, so a plaintext hop is a place to intercept both.
+	URL string
+}
+
+// Validate rejects a destination the client would refuse anyway, so a typo in
+// management.json surfaces at startup instead of at the first bundle upload.
+func (d DebugUpload) Validate() error {
+	if d.URL == "" {
+		return nil
+	}
+
+	parsed, err := url.Parse(d.URL)
+	if err != nil {
+		return fmt.Errorf("parse debug upload URL: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("debug upload URL must use https, got scheme %q", parsed.Scheme)
+	}
+	// Hostname(), not Host: an authority like ":443" is non-empty but has no
+	// host, and the peers reject it (see profilemanager.ValidateBundleUploadURL).
+	// Management must not publish a destination its own clients refuse.
+	if parsed.Hostname() == "" {
+		return errors.New("debug upload URL must have a host")
+	}
+
+	return nil
 }
 
 // ReverseProxy contains reverse proxy configuration in front of management.

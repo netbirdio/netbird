@@ -108,18 +108,37 @@ func TestUILogOpenerBindsToRequester(t *testing.T) {
 
 func TestRequirePrivilegeForUploadURL(t *testing.T) {
 	tests := []struct {
-		name     string
-		url      string
-		insecure bool
-		unprivOK bool
-		invalid  bool
-		rootAlso bool
+		name      string
+		url       string
+		insecure  bool
+		noUpload  bool
+		mdmPinned bool
+		unprivOK  bool
+		invalid   bool
+		rootAlso  bool
 	}{
 		{name: "no upload", url: "", unprivOK: true},
+		// An empty URL resolves to the destination management published, so
+		// relaxing TLS towards it needs the same privilege as naming a host.
+		{name: "insecure with no URL", url: "", insecure: true, rootAlso: true},
+		// insecure only weakens an upload; a local-only bundle must still pass.
+		{name: "insecure with no URL and no upload", url: "", insecure: true, noUpload: true, unprivOK: true},
 		{name: "default service", url: types.DefaultBundleURL, unprivOK: true},
 		{name: "default service, other path", url: "https://upload.debug.netbird.io/other", unprivOK: true},
 		{name: "loopback exfiltration endpoint", url: "https://127.0.0.1:8080/upload-url", rootAlso: true},
 		{name: "custom upload service", url: "https://attacker.example/upload-url", rootAlso: true},
+		// With MDM pinning the destination the caller's URL is discarded before
+		// the upload, so refusing it would only turn a bundle that was going to
+		// the pinned host anyway into a denial.
+		{name: "custom URL ignored when MDM pins the destination", url: "https://attacker.example/upload-url", mdmPinned: true, unprivOK: true},
+		// Transport security is still the caller's to weaken, pinned or not.
+		{name: "insecure still gated when MDM pins the destination", url: "https://attacker.example/upload-url", insecure: true, mdmPinned: true, rootAlso: true},
+		// A named URL is itself a request to upload: DebugBundle uploads when
+		// either the flag or the URL is set. A client older than the upload flag
+		// sends exactly this shape, URL and no flag, and with MDM blanking the URL
+		// the gate must not read the missing flag as "no upload to weaken".
+		{name: "insecure, URL set, no upload flag, MDM pinned", url: "https://x.example/upload-url", insecure: true, noUpload: true, mdmPinned: true, rootAlso: true},
+		{name: "insecure, URL set, no upload flag", url: "https://x.example/upload-url", insecure: true, noUpload: true, rootAlso: true},
 		{name: "plaintext default host", url: "http://upload.debug.netbird.io/upload-url", invalid: true},
 		{name: "plaintext custom host", url: "http://attacker.example/upload-url", invalid: true},
 		{name: "unsupported scheme", url: "file:///etc/shadow", invalid: true},
@@ -134,7 +153,7 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := requirePrivilegeForUploadURL(userCtx(), tc.url, tc.insecure)
+			err := requirePrivilegeForUploadURL(userCtx(), tc.url, tc.insecure, !tc.noUpload, tc.mdmPinned)
 
 			switch {
 			case tc.invalid:
@@ -150,7 +169,7 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 			}
 
 			if tc.rootAlso {
-				assertAllowed(t, requirePrivilegeForUploadURL(rootCtx(), tc.url, tc.insecure))
+				assertAllowed(t, requirePrivilegeForUploadURL(rootCtx(), tc.url, tc.insecure, !tc.noUpload, tc.mdmPinned))
 			}
 		})
 	}

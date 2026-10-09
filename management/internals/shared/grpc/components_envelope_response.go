@@ -39,6 +39,7 @@ func ToComponentSyncResponse(
 	extraSettings *types.ExtraSettings,
 	peerGroups []string,
 	dnsFwdPort int64,
+	debugUploadDefault string,
 ) *proto.SyncResponse {
 	//
 	// 'component' parameter is expected to never be nil
@@ -47,7 +48,7 @@ func ToComponentSyncResponse(
 	// TODO (dmitri) consider using invariants?
 	//
 	enableSSH := computeSSHEnabledForPeer(components, peer)
-	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
+	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution, debugUploadDefault)
 
 	userIDClaim := auth.DefaultUserIDClaim
 	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {

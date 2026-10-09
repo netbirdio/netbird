@@ -130,6 +130,11 @@ func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string, settings 
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,
 		},
+		// The account setting only. The live path also falls back to a
+		// deployment-wide default from the server config, which this frozen
+		// implementation is never given: the drift harness runs it with no server
+		// config at all, so the two agree on every fixture.
+		DebugBundleUploadUrl: settings.DebugBundleUploadURL,
 	}
 
 	if peer.SupportsIPv6() && peer.IPv6.IsValid() && network.NetV6.IP != nil {

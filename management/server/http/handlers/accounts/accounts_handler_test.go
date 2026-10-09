@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -127,6 +127,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -156,6 +157,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -185,6 +187,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr("latest"),
 				MetricsPushEnabled:              br(false),
@@ -214,6 +217,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -243,6 +247,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -272,6 +277,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -301,6 +307,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -314,6 +321,48 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			},
 			expectedArray: false,
 			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK setting debug_bundle_upload_url",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true,\"debug_bundle_upload_url\": \"https://upload.example.com/upload-url\"},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr("https://upload.example.com/upload-url"),
+				AutoUpdateAlways:                br(false),
+				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
+				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
+				LocalMfaEnabled:                 br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			// The peers fetch an upload URL from this endpoint and then PUT the
+			// bundle to whatever comes back, so a plaintext destination must not
+			// be storable at all.
+			name:           "PutAccount fails on a plaintext debug_bundle_upload_url",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true,\"debug_bundle_upload_url\": \"http://upload.example.com/upload-url\"},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedArray:  false,
 		},
 		{
 			name:           "PutAccount fails enabling agent_network_only without dashboard_features",
@@ -342,6 +391,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
@@ -374,6 +424,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				DebugBundleUploadUrl:            sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),

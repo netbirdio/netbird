@@ -10,6 +10,8 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/netbirdio/netbird/upload-server/types"
 )
@@ -65,6 +67,13 @@ func rejectInsecureRedirect(req *http.Request, via []*http.Request) error {
 }
 
 func UploadDebugBundle(ctx context.Context, url, managementURL, filePath string, insecure bool) (key string, err error) {
+	// Every error out of here is surfaced somewhere durable: the daemon log, the
+	// CLI, and — for a remote job — the management server's job record and the
+	// dashboard. Go's *url.Error prints the URL whole, and the presigned URL the
+	// service hands back can carry credentials in its query, so nothing leaves
+	// this function with a URL longer than scheme://host.
+	defer func() { err = redactURLsInError(err) }()
+
 	if !insecure {
 		if err := requireHTTPS("upload service URL", url); err != nil {
 			return "", err
@@ -167,4 +176,44 @@ func getUploadURL(ctx context.Context, serviceURL string, managementURL string, 
 
 func getURLHash(url string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(url)))
+}
+
+// urlInText matches an absolute http(s) URL inside a free-form message. The
+// class stops at the delimiters an error message wraps a URL in — quotes,
+// backticks, angle brackets, parens and braces — so the match does not run past
+// the URL and swallow the prose after it. TrimRight below then drops trailing
+// sentence punctuation, which a bare URL at the end of a clause picks up.
+//
+// Square brackets are both a wrapper and part of the syntax: they delimit an
+// IPv6 host. The leading group takes a bracketed host when there is one, so an
+// IPv6 URL is still matched and redacted rather than left whole.
+var urlInText = regexp.MustCompile("https?://(?:\\[[^\\]\\s]+\\])?[^\\s\"'`<>\\[\\]{}()]*")
+
+// redactedError keeps the original error reachable for errors.Is/As while
+// presenting a message with every URL cut down to scheme://host.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
+
+func redactURLsInError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	msg := err.Error()
+	redacted := urlInText.ReplaceAllStringFunc(msg, func(raw string) string {
+		parsed, perr := neturl.Parse(strings.TrimRight(raw, `.,;:)]}"'`))
+		if perr != nil || parsed.Host == "" {
+			return "(redacted URL)"
+		}
+		return parsed.Scheme + "://" + parsed.Host
+	})
+	if redacted == msg {
+		return err
+	}
+	return &redactedError{msg: redacted, err: err}
 }
