@@ -57,7 +57,7 @@ func runHelper(ctx context.Context, store Store, in io.Reader, out io.Writer) er
 	if len(challenges) > 0 {
 		proofs = CollectChallenges(ctx, store, challenges, req.PeerKey)
 	}
-	log.Infof("certificate posture helper: answering %d challenges with %d proofs", len(challenges), len(proofs))
+	log.Debugf("certificate posture helper: answering %d challenges with %d proofs", len(challenges), len(proofs))
 
 	if err := json.NewEncoder(out).Encode(HelperResponse{Proofs: proofs}); err != nil {
 		return fmt.Errorf("encode helper response: %w", err)

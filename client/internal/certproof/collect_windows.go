@@ -1,13 +1,10 @@
 package certproof
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +22,7 @@ const helperTimeout = 30 * time.Second
 // Intune enrol device certificates, and reaches the signed-in user's store by launching
 // a helper with that session's token. A machine at the sign-in screen therefore proves
 // device certificates alone.
-func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, _ Config) []certposture.Proof {
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, cfg Config) []certposture.Proof {
 	challenges := certificateChallenges(checks)
 	if len(challenges) == 0 {
 		logNoChallenges(checks)
@@ -36,15 +33,30 @@ func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, 
 
 	// The helper already runs as the signed-in user, and an ordinary process has no
 	// right to a session token, so only the service goes looking for one.
-	if !runningAsLocalSystem() {
+	if !runningAsLocalSystem() || cfg.OwnerUnknown {
 		return proofs
 	}
 
-	userProofs, err := collectAsDesktopUser(ctx, challenges, peerKey)
+	userProofs, err := collectAsDesktopUser(ctx, cfg.ProfileOwner, challenges, peerKey)
 	if err != nil {
-		log.Infof("certificate posture: user certificate store unavailable: %v", err)
+		log.Debugf("certificate posture: user certificate store unavailable: %v", err)
 	}
 	return mergeProofs(proofs, userProofs)
+}
+
+// UserContext identifies the session whose store a collection would include: a session
+// of the profile owner, or empty when no user store would be asked. A change means a
+// collection made earlier no longer reflects what this machine can prove.
+func UserContext(cfg Config) string {
+	if !runningAsLocalSystem() || cfg.OwnerUnknown {
+		return ""
+	}
+	user, ok := CurrentDesktopUser(cfg.ProfileOwner)
+	if !ok {
+		return ""
+	}
+	defer user.Close()
+	return fmt.Sprintf("%d:%s", user.Session, user.Name)
 }
 
 // helperStore is the store the helper reads. It runs as the signed-in user, so it wants
@@ -56,8 +68,8 @@ func helperStore() Store {
 // collectAsDesktopUser runs the helper inside the interactive session of the signed-in
 // user. Unlike a keychain on macOS, a Windows service can assume a user identity
 // directly, so the session token goes straight into the child process.
-func collectAsDesktopUser(ctx context.Context, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
-	user, ok := CurrentDesktopUser()
+func collectAsDesktopUser(ctx context.Context, owner string, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
+	user, ok := CurrentDesktopUser(owner)
 	if !ok {
 		return nil, nil
 	}
@@ -68,34 +80,29 @@ func collectAsDesktopUser(ctx context.Context, challenges []*proto.CertificateCh
 		return nil, fmt.Errorf("resolve own binary: %w", err)
 	}
 
-	payload, err := json.Marshal(helperRequest(challenges, peerKey))
+	// The user's own environment, not the service's: the service environment may carry
+	// secrets such as a setup key that the signed-in user must not be able to read.
+	env, err := user.Token.Environ(false)
 	if err != nil {
-		return nil, fmt.Errorf("encode helper request: %w", err)
+		return nil, fmt.Errorf("build environment of %s: %w", user.Name, err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "posture", "cert-proof")
+	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Token:         syscall.Token(user.Token),
 		HideWindow:    true,
 		CreationFlags: windows.CREATE_NO_WINDOW,
 	}
-	cmd.Stdin = bytes.NewReader(payload)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
 
-	log.Infof("certificate posture: asking the session of %q (session %d) to answer %d challenges", user.Name, user.Session, len(challenges))
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run helper as %s: %w: %s", user.Name, err, strings.TrimSpace(stderr.String()))
+	log.Debugf("certificate posture: asking session %d to answer %d challenges", user.Session, len(challenges))
+	proofs, err := runHelperCmd(cmd, helperRequest(challenges, peerKey))
+	if err != nil {
+		return nil, fmt.Errorf("run helper in session %d: %w", user.Session, err)
 	}
-
-	var resp HelperResponse
-	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
-		return nil, fmt.Errorf("decode helper response: %w", err)
-	}
-	log.Infof("certificate posture: session of %q returned %d proofs", user.Name, len(resp.Proofs))
-	return resp.Proofs, nil
+	log.Debugf("certificate posture: session %d returned %d proofs", user.Session, len(proofs))
+	return proofs, nil
 }

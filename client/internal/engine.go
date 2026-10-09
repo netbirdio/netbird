@@ -275,8 +275,26 @@ type Engine struct {
 
 	dnsServer dns.Server
 
-	// checks are the client-applied posture checks that need to be evaluated on the client
-	checks []*mgmProto.Checks
+	// checks are the client-applied posture checks that need to be evaluated on the client.
+	// Writers hold syncMsgMux and checksMu; readers hold either, see appliedChecks.
+	checks   []*mgmProto.Checks
+	checksMu sync.RWMutex
+	// pendingChecks are the newest received checks whose meta sync failed; the posture
+	// watcher retries them. Both are guarded by syncMsgMux, and
+	// hasPendingChecks lets the watcher skip the lock when nothing is pending.
+	pendingChecks    []*mgmProto.Checks
+	hasPendingChecks atomic.Bool
+	// infoTimeout overrides systemInfoTimeout when set.
+	infoTimeout time.Duration
+
+	// certProofs answers the certificate challenges in checks within a bounded time, and
+	// certState remembers what it last proved.
+	certProofs certproof.Collector
+	certState  certPostureState
+	// certWake wakes the posture watcher, which owns proof collection; certSendMu orders
+	// the meta syncs that carry proofs.
+	certWake   chan struct{}
+	certSendMu sync.Mutex
 
 	infoSource system.InfoSource
 
@@ -381,6 +399,7 @@ func NewEngine(
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
+		certWake:           make(chan struct{}, 1),
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
@@ -666,6 +685,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		defer e.shutdownWg.Done()
 		e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
 	}()
+
+	e.shutdownWg.Add(1)
+	go func(ctx context.Context) {
+		defer e.shutdownWg.Done()
+		e.watchCertificatePosture(ctx)
+	}(e.ctx)
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
@@ -1234,22 +1259,52 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	// if checks are equal, we skip the update
 	if isChecksEqual(e.checks, checks) {
+		e.clearPendingChecks()
 		return nil
 	}
-	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
-	if !ok {
-		// Gathering timed out; skip the meta sync this cycle rather than blocking the
-		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
-		return nil
+	if err := e.syncChecksMeta(checks); err != nil {
+		// The newest checks become the pending ones whatever failed, so the watcher
+		// never retries a set they superseded.
+		e.pendingChecks = checks
+		e.hasPendingChecks.Store(true)
+		if errors.Is(err, errSystemInfoTimeout) {
+			return nil
+		}
+		return err
 	}
-	e.applyInfoFlags(info)
-	e.attachCertificateProofs(info, checks)
-
-	if err := e.mgmClient.SyncMeta(info); err != nil {
-		return fmt.Errorf("could not sync meta: error %s", err)
-	}
-	e.checks = checks
+	e.setAppliedChecks(checks)
+	e.clearPendingChecks()
 	return nil
+}
+
+// appliedChecks returns the posture checks in effect, for callers that do not hold
+// syncMsgMux. The slice is replaced, never modified, so it may be read after return.
+func (e *Engine) appliedChecks() []*mgmProto.Checks {
+	e.checksMu.RLock()
+	defer e.checksMu.RUnlock()
+	return e.checks
+}
+
+// setAppliedChecks replaces the posture checks in effect. The caller holds syncMsgMux.
+func (e *Engine) setAppliedChecks(checks []*mgmProto.Checks) {
+	e.checksMu.Lock()
+	e.checks = checks
+	e.checksMu.Unlock()
+	e.wakeCertificatePosture()
+}
+
+// clearPendingChecks drops checks whose meta sync was still owed. The caller holds
+// syncMsgMux.
+func (e *Engine) clearPendingChecks() {
+	e.pendingChecks = nil
+	e.hasPendingChecks.Store(false)
+}
+
+func (e *Engine) infoGatherTimeout() time.Duration {
+	if e.infoTimeout > 0 {
+		return e.infoTimeout
+	}
+	return systemInfoTimeout
 }
 
 // applyInfoFlags sets the engine's config-derived feature flags on the gathered system info.
@@ -1275,17 +1330,10 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 	)
 }
 
-// attachCertificateProofs answers the certificate challenges in checks with the
-// certificates reachable on this device, signing each challenge nonce for our peer key.
-func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
-	peerKey := e.config.WgPrivateKey.PublicKey()
-	info.CertificateProofs = certproof.CollectProofs(e.ctx, checks, peerKey[:], e.config.CertStore)
-}
-
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
 	e.applyInfoFlags(info)
-	e.attachCertificateProofs(info, e.checks)
+	e.attachCertificateProofs(info, e.appliedChecks())
 	return info
 }
 
@@ -1301,7 +1349,7 @@ func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) 
 		info := refreshed
 		refreshed = nil
 		e.applyInfoFlags(info)
-		e.attachCertificateProofs(info, e.checks)
+		e.attachCertificateProofs(info, e.appliedChecks())
 		return info
 	}
 }
@@ -1499,7 +1547,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.appliedChecks(), e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}

@@ -87,9 +87,9 @@ func ecPublicKey(params, point []byte) (*ecdsa.PublicKey, error) {
 	if len(raw) != 1+2*size || raw[0] != 4 {
 		return nil, errors.New("CKA_EC_POINT is not an uncompressed point")
 	}
-	return &ecdsa.PublicKey{
-		Curve: curve,
-		X:     new(big.Int).SetBytes(raw[1 : 1+size]),
-		Y:     new(big.Int).SetBytes(raw[1+size:]),
-	}, nil
+	key, err := ecdsa.ParseUncompressedPublicKey(curve, raw)
+	if err != nil {
+		return nil, fmt.Errorf("CKA_EC_POINT: %w", err)
+	}
+	return key, nil
 }

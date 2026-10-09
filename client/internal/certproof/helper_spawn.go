@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build (darwin && !ios) || windows
 
 package certproof
 
@@ -56,8 +56,8 @@ func mergeProofs(device, user []certposture.Proof) []certposture.Proof {
 func logUserProof(proof certposture.Proof) {
 	leaf, err := x509.ParseCertificate(proof.Chain[0])
 	if err != nil {
-		log.Infof("certificate posture: user proof carries an unparsable leaf: %v", err)
+		log.Debugf("certificate posture: user proof carries an unparsable leaf: %v", err)
 		return
 	}
-	log.Infof("certificate posture: signed-in user proved %q issued by %q", leaf.Subject, leaf.Issuer)
+	log.Debugf("certificate posture: signed-in user proved %q issued by %q", leaf.Subject, leaf.Issuer)
 }

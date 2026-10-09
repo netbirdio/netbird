@@ -647,7 +647,7 @@ const (
 	jsonKeyServiceEnv    = "service_env_vars"
 )
 
-var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential", "pin", "pkcs11"}
 
 // addServiceParams reads the service.json file and adds a sanitized version to the bundle.
 // Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.

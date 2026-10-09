@@ -23,8 +23,14 @@ const (
 	cryptAcquireSilentFlag          = 0x00000040
 	cryptAcquirePreferNCryptKeyFlag = 0x00020000
 	certNCryptKeySpec               = 0xFFFFFFFF
+	atKeyExchange                   = 1
+	atSignature                     = 2
 	bcryptPadPSS                    = 0x00000008
 )
+
+// errLegacyKey reports a private key CNG cannot open: it lives in a legacy CryptoAPI
+// provider, which only offers PKCS#1 v1.5 and no RSA-PSS or ECDSA.
+var errLegacyKey = errors.New("private key is held by a legacy CryptoAPI provider, which certificate posture cannot sign with")
 
 var (
 	crypt32 = windows.NewLazySystemDLL("crypt32.dll")
@@ -78,7 +84,7 @@ func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("certificate store %s holds %d personal certificates and %d intermediates", s, len(leaves), len(intermediates))
+	log.Debugf("certificate store %s holds %d personal certificates and %d intermediates", s, len(leaves), len(intermediates))
 	if len(leaves) == 0 {
 		return nil, nil
 	}
@@ -87,8 +93,8 @@ func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
 	candidates := make([]Candidate, 0, len(leaves))
 	for _, leaf := range leaves {
 		chain := buildChain(leaf, pool)
-		log.Infof("certificate store %s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
-		candidates = append(candidates, Candidate{Chain: chain, Signer: &systemStoreSigner{leaf: leaf, location: s.location}})
+		log.Debugf("certificate store %s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
+		candidates = append(candidates, Candidate{Chain: chain, Signer: &systemStoreSigner{leaf: leaf, location: s.location}, Intermediates: pool})
 	}
 	return candidates, nil
 }
@@ -153,7 +159,7 @@ func signWithContext(ctx *windows.CertContext, scheme sigScheme, digest []byte) 
 		if callerFree != 0 {
 			_ = windows.CryptReleaseContext(windows.Handle(key), 0)
 		}
-		return nil, errors.New("legacy CryptoAPI keys are not supported")
+		return nil, legacyKeyError(keySpec)
 	}
 	if callerFree != 0 {
 		defer func() { _, _, _ = procNCryptFreeObject.Call(key) }()
@@ -179,6 +185,19 @@ func signWithContext(ctx *windows.CertContext, scheme sigScheme, digest []byte) 
 		return signature, nil
 	}
 	return ecdsaSignatureASN1(signature)
+}
+
+// legacyKeyError describes a key acquired through CryptoAPI rather than CNG, naming its
+// key spec and the remedy, since the certificate otherwise looks usable in the store.
+func legacyKeyError(keySpec uint32) error {
+	spec := fmt.Sprintf("key spec %d", keySpec)
+	switch keySpec {
+	case atKeyExchange:
+		spec = "AT_KEYEXCHANGE"
+	case atSignature:
+		spec = "AT_SIGNATURE"
+	}
+	return fmt.Errorf("%w (%s); re-enrol it with a certificate template whose provider is a CNG key storage provider", errLegacyKey, spec)
 }
 
 func ncryptSignHash(key uintptr, padding unsafe.Pointer, digest, signature []byte, flags uintptr) (uint32, error) {
