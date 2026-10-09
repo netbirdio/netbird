@@ -143,6 +143,7 @@ var (
 				MgmtPort:                    mgmtPort,
 				MgmtMetricsPort:             mgmtMetricsPort,
 				DisableLegacyManagementPort: disableLegacyManagementPort,
+				LetsEncryptListenAddress:    mgmtLetsencryptListen,
 				DisableMetrics:              disableMetrics,
 				DisableGeoliteUpdate:        disableGeoliteUpdate,
 				UserDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,

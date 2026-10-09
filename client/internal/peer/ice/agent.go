@@ -39,7 +39,7 @@ func NewAgent(ctx context.Context, iFaceDiscover stdnet.ExternalIFaceDiscover, c
 	iceFailedTimeout := iceFailedTimeout()
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
-	transportNet := newStdNet(ctx, iFaceDiscover, config.InterfaceBlackList)
+	transportNet := newStdNet(ctx, iFaceDiscover, config.InterfaceBlackList, config.WGDetector)
 
 	fac := logging.NewDefaultLoggerFactory()
 
@@ -50,7 +50,7 @@ func NewAgent(ctx context.Context, iFaceDiscover stdnet.ExternalIFaceDiscover, c
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
 		Urls:                   config.StunTurn.Load(),
 		CandidateTypes:         candidateTypes,
-		InterfaceFilter:        stdnet.InterfaceFilter(config.InterfaceBlackList),
+		InterfaceFilter:        stdnet.InterfaceFilter(config.InterfaceBlackList, config.WGDetector),
 		UDPMux:                 config.UDPMux,
 		UDPMuxSrflx:            config.UDPMuxSrflx,
 		NAT1To1IPs:             config.NATExternalIPs,

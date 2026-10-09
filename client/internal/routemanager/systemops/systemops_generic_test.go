@@ -437,7 +437,7 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
-	newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist)
+	newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist, nil)
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    interfaceName,
