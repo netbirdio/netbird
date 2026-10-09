@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +11,27 @@ import (
 
 	"github.com/netbirdio/netbird/version"
 )
+
+// TestMain clears the ambient NB_ environment before any test runs.
+//
+// Every flag reads an NB_-prefixed variable, so a developer who has nblink
+// configured in their own shell would otherwise hand these commands a
+// configuration the test never asked for: an inherited NB_FORWARD alone makes
+// the missing-forward case resolve successfully and the test fail. Clearing
+// here rather than in execute keeps t.Setenv working for the tests that do
+// want a variable set.
+func TestMain(m *testing.M) {
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(name, "NB_") {
+			if err := os.Unsetenv(name); err != nil {
+				fmt.Fprintf(os.Stderr, "unset %s: %v\n", name, err)
+				os.Exit(1)
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
 
 func execute(t *testing.T, args ...string) (string, error) {
 	t.Helper()

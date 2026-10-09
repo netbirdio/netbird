@@ -385,13 +385,13 @@ func (n *NBLink) Terminate(ctx context.Context) error {
 	if n.container == nil {
 		return nil
 	}
-	if err := n.container.Terminate(ctx); err != nil {
-		return err
-	}
+	err := n.container.Terminate(ctx)
 	if n.keyVolume != "" {
-		return RemoveDockerVolume(ctx, n.keyVolume)
+		// Not ctx: a cancelled or expired ctx is the likeliest reason the
+		// terminate above failed, and the volume has to go either way.
+		err = errors.Join(err, RemoveDockerVolume(context.Background(), n.keyVolume))
 	}
-	return nil
+	return err
 }
 
 // NBLinkCheckResult is what a --check run printed and how it exited.
@@ -471,7 +471,14 @@ func StopNBLinkDuringStartup(ctx context.Context, env map[string]string, wait, g
 	id := strings.TrimSpace(string(out))
 	defer func() { _ = exec.Command("docker", "rm", "-f", id).Run() }()
 
-	time.Sleep(wait)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		return 0, 0, "", ctx.Err()
+	}
+
 	start := time.Now()
 	stop := exec.CommandContext(ctx, "docker", "stop", "-t", fmt.Sprint(int(grace.Seconds())), id)
 	if out, err := stop.CombinedOutput(); err != nil {

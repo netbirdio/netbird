@@ -192,6 +192,14 @@ too: a container port published on the host's loopback is reached by a
 rebound page with a matching `Origin`, and its unlisted name is the only thing
 that gives it away.
 
+A name listed with `--allowed-host` is trusted rather than merely permitted,
+and the list applies to every forward in the process, loopback ones included.
+`Host` is the one signal a rebound page cannot forge, and listing a name gives
+that up for it: a page served on that name can resolve it to the listener and
+send a matching `Host` and `Origin`, which the browser then marks same-origin.
+List only names you control, and prefer a fully qualified one, since a
+single-label name can be answered by anything on the local network.
+
 A forward on `0.0.0.0` listens on IPv4 only, and one on `::` on IPv6 only.
 
 `nblink` does not ask the local router for a port mapping through UPnP,

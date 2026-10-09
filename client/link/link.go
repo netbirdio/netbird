@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -87,8 +88,14 @@ func Run(ctx context.Context, cfg *Config) error {
 // network it runs on, and ICE and the relay connect without it. An operator
 // who sets the variable keeps their choice.
 func disableNATMapperUnlessSet() error {
-	if _, set := os.LookupEnv(natMapperEnv); set {
-		return nil
+	// An operator keeps their choice only when the value is one the consumer
+	// can read. Empty and unparseable values reach the consumer as false,
+	// which would enable the mapper rather than leave the default in place.
+	if val := os.Getenv(natMapperEnv); val != "" {
+		if _, err := strconv.ParseBool(val); err == nil {
+			return nil
+		}
+		log.Warnf("failed to parse %s=%q, disabling the NAT mapper", natMapperEnv, val)
 	}
 	if err := os.Setenv(natMapperEnv, "true"); err != nil {
 		return fmt.Errorf("set %s: %w", natMapperEnv, err)

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -399,6 +400,30 @@ func TestDisableNATMapperUnlessSet(t *testing.T) {
 	t.Setenv(natMapperEnv, "false")
 	require.NoError(t, disableNATMapperUnlessSet())
 	assert.Equal(t, "false", os.Getenv(natMapperEnv), "an operator's explicit choice must be kept")
+}
+
+// The consumer parses this variable with strconv.ParseBool and reads anything
+// it cannot parse as false, which enables the mapper. A value that would not
+// survive that parse must not count as an operator's choice, or an orchestrator
+// passing the name through empty turns the mapper on.
+func TestDisableNATMapperIgnoresAValueTheConsumerCannotRead(t *testing.T) {
+	for _, value := range []string{"", "yes", "on", "0.5"} {
+		t.Run("value "+strconv.Quote(value), func(t *testing.T) {
+			t.Setenv(natMapperEnv, value)
+			require.NoError(t, disableNATMapperUnlessSet())
+			assert.Equal(t, "true", os.Getenv(natMapperEnv),
+				"%q does not parse as a bool, so the mapper must stay off", value)
+		})
+	}
+
+	// Everything ParseBool does accept is a real choice and is left alone.
+	for _, value := range []string{"0", "f", "FALSE", "1", "t", "True"} {
+		t.Run("value "+strconv.Quote(value), func(t *testing.T) {
+			t.Setenv(natMapperEnv, value)
+			require.NoError(t, disableNATMapperUnlessSet())
+			assert.Equal(t, value, os.Getenv(natMapperEnv), "a parseable value is the operator's choice")
+		})
+	}
 }
 
 func TestRunCheckReturnsWithoutConnecting(t *testing.T) {

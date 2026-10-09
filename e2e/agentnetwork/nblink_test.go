@@ -460,6 +460,10 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		for range 2 {
 			fwdr, oerr := harness.StartNBLink(ctx, srv, allowedKey, forward, px.CACertPath(), opts...)
 			require.NoError(t, oerr, "start the forwarder as an arbitrary UID")
+			// Registered before the assertions below so a failure between here
+			// and the explicit Terminate cannot leave a container holding the
+			// volume the cleanup above tries to remove.
+			t.Cleanup(func() { _ = fwdr.Terminate(context.Background()) })
 			ocode, obody := chatUntil(ctx, t, fwdr, 200, 120*time.Second, "")
 			assert.Equal(t, 200, ocode, "the forwarder must serve as an arbitrary UID; body: %s", obody)
 			require.NoError(t, fwdr.Terminate(ctx), "stop the forwarder")
@@ -473,6 +477,7 @@ func TestNBLinkReachesAgentNetwork(t *testing.T) {
 		for range 2 {
 			eph, eerr := harness.StartNBLink(ctx, srv, allowedKey, forward, px.CACertPath(), harness.WithNBLinkName(name))
 			require.NoError(t, eerr, "start the in-memory forwarder")
+			t.Cleanup(func() { _ = eph.Terminate(context.Background()) })
 			require.NoError(t, eph.Terminate(ctx), "stop the in-memory forwarder")
 		}
 		peers := peersWithHostname(ctx, t, name)
