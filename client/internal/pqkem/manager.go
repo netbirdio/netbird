@@ -339,7 +339,14 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 	// for the same peer can't also start an exchange. bootstrap offer acks nothing.
 	raw, err := m.startExchangeLocked(remoteID, true, ExchangeID{})
 	m.mu.Unlock()
-	return raw, err
+	if err != nil {
+		// Return an error marker, not an empty offer: an empty MlkemPayload is the "peer
+		// does not run the KEM" capability signal, so the responder would wrongly mark us
+		// non-capable (and answer empty, making us mark it non-capable in turn). The marker
+		// is benign on the far side; the host retries the offer.
+		return (&ErrorMsg{}).Encode(), err
+	}
+	return raw, nil
 }
 
 // ShouldSendBootstrapOffer reports whether we should emit a fresh KEM offer to kick a
@@ -366,6 +373,12 @@ func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error)
 	typ, msg, err := Decode(offer)
 	if err != nil {
 		return nil, fmt.Errorf("decode signal offer from %s: %w", remoteID, err)
+	}
+	if typ == MsgError {
+		// The initiator failed to build its offer and sent a marker. Answer with our own
+		// marker, not an empty answer, so it is not read as "peer does not run the KEM".
+		m.trace("pqkem: peer reported an error building its offer", "peer", remoteID)
+		return (&ErrorMsg{}).Encode(), nil
 	}
 	if typ != MsgOffer {
 		return nil, fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
