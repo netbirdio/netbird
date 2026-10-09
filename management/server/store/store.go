@@ -13,7 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,19 +22,19 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -49,14 +48,14 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type LockingStrength string
+type LockingStrength = db.LockingStrength
 
 const (
-	LockingStrengthUpdate      LockingStrength = "UPDATE"        // Strongest lock, preventing any changes by other transactions until your transaction completes.
-	LockingStrengthShare       LockingStrength = "SHARE"         // Allows reading but prevents changes by other transactions.
-	LockingStrengthNoKeyUpdate LockingStrength = "NO KEY UPDATE" // Similar to UPDATE but allows changes to related rows.
-	LockingStrengthKeyShare    LockingStrength = "KEY SHARE"     // Protects against changes to primary/unique keys but allows other updates.
-	LockingStrengthNone        LockingStrength = "NONE"          // No locking, allowing all transactions to proceed without restrictions.
+	LockingStrengthUpdate      = db.LockingStrengthUpdate
+	LockingStrengthShare       = db.LockingStrengthShare
+	LockingStrengthNoKeyUpdate = db.LockingStrengthNoKeyUpdate
+	LockingStrengthKeyShare    = db.LockingStrengthKeyShare
+	LockingStrengthNone        = db.LockingStrengthNone
 )
 
 type Store interface {
@@ -161,7 +160,7 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
@@ -307,6 +306,7 @@ type Store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	LockCustomDomains(ctx context.Context, accountID string, serviceDomain nbdomain.Domain) ([]*domain.Domain, error)
 	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
@@ -314,15 +314,13 @@ type Store interface {
 	DeleteExpiredCustomDomain(ctx context.Context, d *domain.Domain, now time.Time) (bool, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 
-	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
-	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
-	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
 	CreateAgentNetworkAccessLog(ctx context.Context, entry *agentNetworkTypes.AgentNetworkAccessLog, groups []agentNetworkTypes.AgentNetworkAccessLogGroup) error
 	CreateAgentNetworkUsage(ctx context.Context, usage *agentNetworkTypes.AgentNetworkUsage, groups []agentNetworkTypes.AgentNetworkUsageGroup) error
 	GetAgentNetworkAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLog, int64, error)
 	GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error)
 	GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkUsage, error)
 	DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error)
+	GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx context.Context) ([]string, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
@@ -338,6 +336,8 @@ type Store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
+	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
 	DisconnectAllProxies(ctx context.Context) (int64, error)
@@ -390,6 +390,7 @@ type Store interface {
 	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)
 	GetAgentNetworkConsumptionBatch(ctx context.Context, lockStrength LockingStrength, accountID string, keys []agentNetworkTypes.ConsumptionKey) (map[agentNetworkTypes.ConsumptionKey]*agentNetworkTypes.Consumption, error)
 	ListAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Consumption, error)
+	DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx context.Context) (int64, error)
 	GetAccountAgentNetworkBudgetRules(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.AccountBudgetRule, error)
 	GetAgentNetworkBudgetRuleByID(ctx context.Context, lockStrength LockingStrength, accountID, ruleID string) (*agentNetworkTypes.AccountBudgetRule, error)
 	SaveAgentNetworkBudgetRule(ctx context.Context, rule *agentNetworkTypes.AccountBudgetRule) error
@@ -490,7 +491,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 
 			// Migrate if it is the first run with a JSON file existing and no SQLite file present
 			jsonStoreFile := filepath.Join(dataDir, storeFileName)
-			sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
+			sqliteStoreFile := filepath.Join(dataDir, db.SqliteFileName)
 
 			if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
 				log.WithContext(ctx).Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
@@ -509,6 +510,16 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
 func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
+	conn, err := OpenConn(ctx, kind, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return newStore(ctx, conn, metrics, skipMigration)
+}
+
+// OpenConn resolves the configured engine and opens the connection that the
+// store and the domain repositories share.
+func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -518,13 +529,21 @@ func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics te
 	switch kind {
 	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("using SQLite store engine")
-		return NewSqliteStore(ctx, dataDir, metrics, skipMigration)
+		return db.OpenSqlite(ctx, dataDir)
 	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		return newPostgresStore(ctx, metrics, skipMigration)
+		dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
+		if !ok {
+			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
+		}
+		return db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
 	case types.MysqlStoreEngine:
 		log.WithContext(ctx).Info("using MySQL store engine")
-		return newMysqlStore(ctx, metrics, skipMigration)
+		dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
+		if !ok {
+			return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
+		}
+		return db.OpenMysql(ctx, dsn)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
@@ -698,32 +717,28 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		kind = types.SqliteStoreEngine
 	}
 
-	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = storeSqliteFileName
-	}
-
-	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
+	conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	if filename != "" {
-		err = LoadSQL(db, filename)
+		err = LoadSQL(conn.DB(nil), filename)
 		if err != nil {
+			_ = conn.Close()
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, false)
+	store, err := NewSqlStore(ctx, conn, nil, false)
 	if err != nil {
+		_ = conn.Close()
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
+		_ = store.Close(ctx)
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
@@ -788,9 +803,6 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
-		if store.pool != nil {
-			store.pool.Close()
-		}
 		if store != sqliteStore {
 			// The sqlite store only seeded the engine under test; without this
 			// every test leaks its connection and the opener goroutines.
@@ -947,9 +959,6 @@ func postgresSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB)
 	// TEMPLATE refuses a source that still has sessions, so release both handles
 	// before the first clone.
 	tplStore.Close(ctx)
-	if tplStore.pool != nil {
-		tplStore.pool.Close()
-	}
 
 	schemaTemplates[key] = &schemaTemplate{dbName: name}
 	return name, nil
@@ -1034,11 +1043,11 @@ func mysqlTableNames(ctx context.Context, sqlDB *sql.DB, dbName string) ([]strin
 // cloneMysqlSchema replays the template's CREATE TABLE statements into the
 // database the DSN points at.
 func cloneMysqlSchema(ctx context.Context, dsn string, tableDDL []string) error {
-	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
+	gormDB, err := gorm.Open(mysql.Open(db.MysqlDSN(dsn)), db.GormConfig())
 	if err != nil {
 		return fmt.Errorf("connect to test database: %w", err)
 	}
-	sqlDB, err := db.DB()
+	sqlDB, err := gormDB.DB()
 	if err != nil {
 		return err
 	}
@@ -1078,19 +1087,19 @@ func closeGormDB(db *gorm.DB) {
 }
 
 func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
-	var db *gorm.DB
+	var gormDB *gorm.DB
 	var err error
 
 	for i := range maxRetries {
 		switch engine {
 		case types.PostgresStoreEngine:
-			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		case types.MysqlStoreEngine:
-			db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+			gormDB, err = gorm.Open(mysql.Open(db.MysqlDSN(dsn)), &gorm.Config{})
 		}
 
 		if err == nil {
-			return db, nil
+			return gormDB, nil
 		}
 
 		if i < maxRetries-1 {
@@ -1104,14 +1113,14 @@ func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB,
 
 // createRandomDB creates a uniquely named database for one test. On postgres a
 // non-empty template is copied server-side with CREATE DATABASE ... TEMPLATE.
-func createRandomDB(dsn string, db *gorm.DB, engine types.Engine, template string) (string, func(), error) {
+func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template string) (string, func(), error) {
 	dbName := newTestDBName("test_db")
 
 	createStmt := fmt.Sprintf("CREATE DATABASE %s", dbName)
 	if template != "" && engine == types.PostgresStoreEngine {
 		createStmt = fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, template)
 	}
-	if err := execWithTemplateRetry(db, createStmt); err != nil {
+	if err := execWithTemplateRetry(admin, createStmt); err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
@@ -1146,7 +1155,7 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine, template strin
 			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
 
 		case types.MysqlStoreEngine:
-			dropDB, err = gorm.Open(mysql.Open(originalDSN+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{
+			dropDB, err = gorm.Open(mysql.Open(db.MysqlDSN(originalDSN)), &gorm.Config{
 				SkipDefaultTransaction: true,
 				PrepareStmt:            false,
 			})
@@ -1224,7 +1233,7 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 		return fmt.Errorf("%s doesn't exist, couldn't continue the operation", fileStorePath)
 	}
 
-	sqlStorePath := path.Join(dataDir, storeSqliteFileName)
+	sqlStorePath := path.Join(dataDir, db.SqliteFileName)
 	if _, err := os.Stat(sqlStorePath); err == nil {
 		return fmt.Errorf("%s already exists, couldn't continue the operation", sqlStorePath)
 	}

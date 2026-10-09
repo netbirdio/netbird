@@ -216,6 +216,28 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-mysql-migrate
+    dir: tools/mysql-migrate
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-mysql-migrate
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 universal_binaries:
   - id: netbird
 
@@ -232,6 +254,10 @@ archives:
     builds:
       - netbird-idp-migrate
     name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: netbird-mysql-migrate
+    builds:
+      - netbird-mysql-migrate
+    name_template: "netbird-mysql-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
@@ -385,7 +411,7 @@ dockers_v2:
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+         - cmd: 'sh release_files/collect-licenses.sh -t load_wgnt_from_rsrc "{{ .ContextDir }}/licenses" ./client amd64 arm64'
            env:
              - GOOS=linux
              - CGO_ENABLED=0
@@ -477,7 +503,7 @@ dockers_v2:
      tags:
        - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
-     dockerfile: upload-server/Dockerfile
+     dockerfile: upload-server/Dockerfile.release
      platforms:
        - linux/amd64
        - linux/arm64
@@ -511,6 +537,41 @@ dockers_v2:
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
        "maintainer": "dev@netbird.io"
+   - id: netbird-server-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-server
+     images:
+       - netbirdio/netbird-server
+       - ghcr.io/netbirdio/netbird-server
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: combined/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l combined/LICENSE "{{ .ContextDir }}/licenses" ./combined amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=1
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
    - id: netbird-proxy
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
      ids:
@@ -526,6 +587,41 @@ dockers_v2:
        - linux/amd64
        - linux/arm64
        - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: proxy-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-proxy
+     images:
+       - netbirdio/reverse-proxy
+       - ghcr.io/netbirdio/reverse-proxy
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: proxy/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l proxy/LICENSE -w "{{ .ContextDir }}/licenses" ./proxy/cmd/proxy amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"

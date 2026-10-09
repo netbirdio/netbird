@@ -37,7 +37,7 @@ func (s *SqlStore) CreateGroups(ctx context.Context, accountID string, groups []
 		return nil
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(
 				clause.OnConflict{
@@ -63,7 +63,7 @@ func (s *SqlStore) UpdateGroups(ctx context.Context, accountID string, groups []
 		return nil
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(
 				clause.OnConflict{
@@ -137,7 +137,7 @@ func (s *SqlStore) GetResourceGroups(ctx context.Context, lockStrength LockingSt
 
 func (s *SqlStore) getGroups(ctx context.Context, accountID string) ([]*types.Group, error) {
 	const query = `SELECT id, account_id, public_id, name, issued, resources, integration_ref_id, integration_ref_integration_type FROM groups WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}

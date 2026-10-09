@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -20,7 +21,6 @@ import (
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -96,13 +96,14 @@ func (s *BaseServer) PeersManager() peers.Manager {
 
 func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
-		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore())
+		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore())
 		if err != nil {
 			log.Fatalf("failed to create account service: %v", err)
 		}
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
+			accountManager.AddAccountDeletionHook(s.AgentNetworkManager().RemoveAccountGateway)
 		})
 
 		return accountManager

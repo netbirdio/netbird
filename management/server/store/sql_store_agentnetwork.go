@@ -619,7 +619,7 @@ func (s *SqlStore) IncrementAgentNetworkConsumptionBatch(
 	}
 
 	const tbl = "agent_network_consumption"
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		for _, k := range keys {
 			if k.DimID == "" || k.WindowSeconds <= 0 {
 				return status.Errorf(status.InvalidArgument, "dim_id and window_seconds must be set")
@@ -661,6 +661,21 @@ func (s *SqlStore) IncrementAgentNetworkConsumptionBatch(
 		return status.Errorf(status.Internal, "failed to increment agent network consumption")
 	}
 	return nil
+}
+
+// DeleteAgentNetworkConsumptionOfDeletedAccounts deletes every consumption counter whose
+// account no longer exists and returns the number of rows deleted. Counters grow with
+// traffic, so they are swept in the background instead of in the account-deletion
+// transaction, and the sweep also catches counters a proxy writes after the deletion.
+func (s *SqlStore) DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx context.Context) (int64, error) {
+	res := s.db.
+		Where("NOT EXISTS (SELECT 1 FROM accounts WHERE accounts.id = agent_network_consumption.account_id)").
+		Delete(&agentNetworkTypes.Consumption{})
+	if res.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete agent-network consumption of deleted accounts: %v", res.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete agent-network consumption of deleted accounts")
+	}
+	return res.RowsAffected, nil
 }
 
 // ListAgentNetworkConsumption returns every consumption row recorded

@@ -52,7 +52,6 @@ func (f *fakeTunDevice) Close() error {
 type fakeProxyFactory struct{}
 
 func (fakeProxyFactory) GetProxy() wgproxy.Proxy { return nil }
-func (fakeProxyFactory) GetProxyPort() uint16    { return 0 }
 func (fakeProxyFactory) Free() error             { return nil }
 
 // TestWGIface_CloseReleasesMutexBeforeTunClose guards against a deadlock

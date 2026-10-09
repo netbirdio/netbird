@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
@@ -21,7 +21,7 @@ const (
 
 type Server struct {
 	srv     *http.Server
-	limiter *middleware.APIRateLimiter
+	limiter *ratelimit.APIRateLimiter
 }
 
 func NewServer() *Server {
@@ -63,7 +63,7 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func configureMux(mux *http.ServeMux) (*middleware.APIRateLimiter, error) {
+func configureMux(mux *http.ServeMux) (*ratelimit.APIRateLimiter, error) {
 	limiter := newRateLimiter()
 
 	_, ok := os.LookupEnv(bucketVar)

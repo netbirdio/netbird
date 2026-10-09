@@ -425,6 +425,9 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ReadBufferSize:        n.transportCfg.readBufferSize,
 		DisableCompression:    n.transportCfg.disableCompression,
 	}
+	// Clone runs the transport's one-time protocol setup, so the HTTP
+	// version must be applied first or the source loses HTTP/2 for good.
+	applyUpstreamHTTPVersion(transport, n.transportCfg.upstreamHTTPVersion)
 	insecureTransport := transport.Clone()
 	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 

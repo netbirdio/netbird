@@ -12,7 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 
 	"github.com/netbirdio/netbird/upload-server/types"
 )
@@ -28,7 +28,7 @@ type local struct {
 	signer *signer
 }
 
-func configureLocalHandlers(mux *http.ServeMux, limiter *middleware.APIRateLimiter) error {
+func configureLocalHandlers(mux *http.ServeMux, limiter *ratelimit.APIRateLimiter) error {
 	envURL, ok := os.LookupEnv("SERVER_URL")
 	if !ok {
 		return fmt.Errorf("SERVER_URL environment variable is required")

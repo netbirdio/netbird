@@ -45,7 +45,15 @@ func init() {
 	// matching there would let a non-elevated shell of an administrator account
 	// act as an administrator, which is the boundary the token check exists to
 	// keep.
-	selfMayDelegate = !id.IsPrivileged()
+	selfMayDelegate = mayDelegate(id)
+}
+
+// mayDelegate reports whether a daemon running as id may extend its authority to
+// callers sharing its identity. The shared service accounts are excluded: their
+// SID is held by unrelated services, so matching on it would grant them the
+// daemon's authority.
+func mayDelegate(id Identity) bool {
+	return !id.IsPrivileged() && id.SID != sidLocalService && id.SID != sidNetworkService
 }
 
 // IsDaemonSelf reports whether an identity is this very process. The JSON gateway
