@@ -855,7 +855,7 @@ configure_sqlite_store() {
   POSTGRES_DSN="host=postgres user=netbird password=${POSTGRES_PASSWORD} dbname=netbird port=5432 sslmode=disable"
 }
 
-# mysql, or something this script has never seen. Swapping the images is still
+# An engine this script has never seen. Swapping the images is still
 # valid; touching the store is not.
 configure_unsupported_store() {
   MIGRATE_POSTGRES="no"

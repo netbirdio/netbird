@@ -1277,7 +1277,6 @@ func isUniqueConstraintError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "(SQLSTATE 23505)") || // postgres
-		strings.Contains(msg, "Error 1062 (23000)") || // mysql
 		strings.Contains(msg, "UNIQUE constraint failed") // sqlite
 }
 

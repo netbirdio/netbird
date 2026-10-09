@@ -371,7 +371,7 @@ func (s *SqlStore) GetAccountByPeerID(ctx context.Context, peerID string) (*type
 
 func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error) {
 	var peer nbpeer.Peer
-	result := s.db.Select("account_id").Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := s.db.Select("account_id").Take(&peer, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -390,7 +390,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.Model(&peer).Select("account_id").Where(GetKeyQueryCondition(s), peerKey).Take(&accountID)
+	result := s.db.Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).Take(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -479,7 +479,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	}
 
 	var peer nbpeer.Peer
-	result := tx.Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := tx.Take(&peer, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -753,7 +753,7 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 	var userID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("user_id").
-		Take(&userID, GetKeyQueryCondition(s), peerKey)
+		Take(&userID, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -774,7 +774,7 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 	var peerID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("id").
-		Where(GetKeyQueryCondition(s), key).
+		Where(keyQueryCondition, key).
 		Limit(1).
 		Scan(&peerID)
 	if result.Error != nil {

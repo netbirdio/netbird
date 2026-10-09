@@ -95,7 +95,7 @@ func bucketStart(t time.Time, g UsageGranularity) time.Time {
 // AggregateUsageByGranularity buckets the usage rows by the requested
 // granularity and returns the buckets ordered oldest-first. Aggregation is done
 // in Go (rather than per-engine SQL date_trunc) so granularities stay portable
-// across SQLite/Postgres/MySQL and easy to extend.
+// across SQLite and Postgres and easy to extend.
 func AggregateUsageByGranularity(rows []*AgentNetworkUsage, g UsageGranularity) []*AgentNetworkUsageBucket {
 	byPeriod := make(map[string]*AgentNetworkUsageBucket)
 	for _, r := range rows {

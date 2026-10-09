@@ -461,7 +461,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ["amd64"]
-        store: ["sqlite", "postgres", "mysql"]
+        store: ["sqlite", "postgres"]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
@@ -509,10 +509,6 @@ jobs:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
         run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
-
-      - name: download mysql image
-        if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
 
       # The -json stream goes through tools/gotestsummary so the log shows one
       # line per test, the output of failed tests, the head of a timeout panic

@@ -3758,7 +3758,7 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 
 // peerUpdateTimeout bounds how long peerShouldReceiveUpdate and its outer
 // wrappers wait for an expected update message. Sized for slow CI runners
-// (MySQL, FreeBSD, loaded sqlite) where the channel publish can take
+// (FreeBSD, loaded sqlite) where the channel publish can take
 // seconds. Only runs down on failure; passing tests return immediately
 // when the channel delivers.
 const peerUpdateTimeout = 5 * time.Second
