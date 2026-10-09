@@ -26,9 +26,11 @@ ENV HOME=/var/lib/netbird
 ENV NB_LETSENCRYPT_DATA_DIR="/var/lib/netbird"
 # Unprivileged ports: runtimes such as OpenShift and Podman keep the kernel
 # default that reserves ports below 1024 for root, so serve on the legacy
-# gRPC port instead of 80/443. Let's Encrypt also needs its challenge
-# listener on an unprivileged port. 9090 is the metrics endpoint.
+# gRPC port instead of 80/443. With Let's Encrypt, the empty listen address
+# answers challenges on that port when public 443 is forwarded to it.
+# 9090 is the metrics endpoint.
 ENV NB_PORT="10000"
+ENV NB_LETSENCRYPT_LISTEN_ADDRESS=""
 EXPOSE 10000 9090
 # The signal server only handles SIGINT for a graceful stop.
 STOPSIGNAL SIGINT
