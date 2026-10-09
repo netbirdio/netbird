@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -151,6 +152,13 @@ func (p *Proxy) DebugClients(ctx context.Context) ([]ProxyDebugClient, error) {
 		return nil, fmt.Errorf("decode debug clients output: %w", err)
 	}
 	return resp.Clients, nil
+}
+
+// CACertPath returns the host path of the self-signed certificate the proxy
+// serves for the agent-network endpoint. A client that verifies TLS properly —
+// nblink does, where the curl helpers pass -k — needs it in its trust store.
+func (p *Proxy) CACertPath() string {
+	return filepath.Join(p.workDir, "tls.crt")
 }
 
 // Logs returns the proxy container logs, for diagnostics on failure.

@@ -1,13 +1,9 @@
 package statemanager
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -17,7 +13,6 @@ import (
 	"golang.org/x/exp/maps"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -56,7 +51,7 @@ type Manager struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	filePath string
+	store store
 	// holds the states that are registered with the manager and that are to be persisted
 	states map[string]State
 	// holds the state names that have been updated and need to be persisted with the next save
@@ -65,10 +60,20 @@ type Manager struct {
 	stateTypes map[string]reflect.Type
 }
 
-// New creates a new Manager instance
+// New creates a Manager that persists its states to filePath.
 func New(filePath string) *Manager {
+	return newManager(&fileStore{path: filePath})
+}
+
+// NewInMemory creates a Manager that persists nothing, for a client that
+// changes nothing on the host and so has no state a later run must restore.
+func NewInMemory() *Manager {
+	return newManager(memoryStore{})
+}
+
+func newManager(s store) *Manager {
 	return &Manager{
-		filePath:   filePath,
+		store:      s,
 		states:     make(map[string]State),
 		dirty:      make(map[string]struct{}),
 		stateTypes: make(map[string]reflect.Type),
@@ -274,7 +279,7 @@ func (m *Manager) PersistState(ctx context.Context) error {
 	done := make(chan error, 1)
 	start := time.Now()
 	go func() {
-		done <- util.WriteBytesWithRestrictedPermission(ctx, m.filePath, bs)
+		done <- m.store.save(ctx, bs)
 	}()
 
 	select {
@@ -293,45 +298,9 @@ func (m *Manager) PersistState(ctx context.Context) error {
 	return nil
 }
 
-// loadStateFile reads and unmarshals the state file into a map of raw JSON messages
+// loadStateFile returns the states an earlier run persisted.
 func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage, error) {
-	data, err := os.ReadFile(m.filePath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			log.Debugf("state file %s does not exist", m.filePath)
-			return nil, nil // nolint:nilnil
-		}
-		return nil, fmt.Errorf("read state file: %w", err)
-	}
-
-	var rawStates map[string]json.RawMessage
-	if err := json.Unmarshal(data, &rawStates); err != nil {
-		if len(bytes.TrimSpace(data)) == 0 {
-			log.Warnf("state file %s is empty (%d bytes)", m.filePath, len(data))
-		} else {
-			log.Warnf("state file %s has malformed content (%d bytes)", m.filePath, len(data))
-		}
-		m.handleCorruptedState(deleteCorrupt)
-		return nil, fmt.Errorf("unmarshal states: %w", err)
-	}
-
-	return rawStates, nil
-}
-
-// handleCorruptedState creates a backup of a corrupted state file by moving it
-func (m *Manager) handleCorruptedState(deleteCorrupt bool) {
-	if !deleteCorrupt {
-		return
-	}
-	log.Warn("State file appears to be corrupted, attempting to back it up")
-
-	backupPath := fmt.Sprintf("%s.corrupted.%d", m.filePath, time.Now().UnixNano())
-	if err := os.Rename(m.filePath, backupPath); err != nil {
-		log.Errorf("Failed to backup corrupted state file: %v", err)
-		return
-	}
-
-	log.Infof("Created backup of corrupted state file at: %s", backupPath)
+	return m.store.load(deleteCorrupt)
 }
 
 // loadSingleRawState unmarshals a raw state into a concrete state object

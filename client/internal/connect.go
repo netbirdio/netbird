@@ -72,6 +72,9 @@ type ConnectClient struct {
 	updateManager *updater.Manager
 
 	persistSyncResponse bool
+	// inMemoryState keeps the state manager off disk, for clients that change
+	// nothing on the host that a later run would have to restore.
+	inMemoryState bool
 
 	// netMgr gates every reconnection loop on OS-reported network
 	// availability and sweeps connections on network change.
@@ -83,6 +86,12 @@ type ConnectClient struct {
 
 // ConnectClientOption configures optional ConnectClient behavior.
 type ConnectClientOption func(*ConnectClient)
+
+// WithInMemoryState keeps client state in memory instead of the default state
+// file, so the client neither reads nor writes another installation's state.
+func WithInMemoryState() ConnectClientOption {
+	return func(c *ConnectClient) { c.inMemoryState = true }
+}
 
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) ConnectClientOption {
@@ -272,8 +281,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		return err
 	}
 
+	// path stays alongside the manager because the engine derives StateDir
+	// from it; an in-memory client leaves it empty.
 	var path string
-	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+	var stateManager *statemanager.Manager
+	switch {
+	case c.inMemoryState:
+		log.Debugf("client state is kept in memory")
+		stateManager = statemanager.NewInMemory()
+	case runtime.GOOS == "ios" || runtime.GOOS == "android":
 		// On mobile, use the provided state file path directly
 		if !fileExists(mobileDependency.StateFilePath) {
 			if err := createFile(mobileDependency.StateFilePath); err != nil {
@@ -282,11 +298,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			}
 		}
 		path = mobileDependency.StateFilePath
-	} else {
+		stateManager = statemanager.New(path)
+	default:
 		sm := profilemanager.NewServiceManager("")
 		path = sm.GetStatePath()
+		stateManager = statemanager.New(path)
 	}
-	stateManager := statemanager.New(path)
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	if c.updateManager != nil {
