@@ -87,6 +87,7 @@ func TestSqlStore_GetAccount_ServiceTargetOptionsRoundtrip(t *testing.T) {
 					Protocol:      "http",
 					TargetId:      "tgt-1",
 					Enabled:       true,
+					AccessAction:  rpservice.TargetAccessActionBlock,
 					ProxyProtocol: true,
 					Options: rpservice.TargetOptions{
 						SkipTLSVerify:           true,
@@ -119,6 +120,7 @@ func TestSqlStore_GetAccount_ServiceTargetOptionsRoundtrip(t *testing.T) {
 
 		require.Len(t, got.Targets, 1)
 		tg := got.Targets[0]
+		assert.Equal(t, rpservice.TargetAccessActionBlock, tg.AccessAction, "target access action")
 		assert.True(t, tg.ProxyProtocol, "target proxy protocol")
 		assert.True(t, tg.Options.SkipTLSVerify, "options skip TLS verify")
 		assert.Equal(t, 30*time.Second, tg.Options.RequestTimeout, "options request timeout")
