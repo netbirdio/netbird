@@ -1,0 +1,38 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-signal" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Signal" \
+      description="NetBird Signal brokers the connection handshakes between peers in NetBird networks."
+
+COPY --chmod=0555 ${TARGETPLATFORM}/netbird-signal /go/bin/netbird-signal
+COPY licenses/ /licenses/
+# Only the data directory shares the root group for arbitrary non-root UIDs.
+# Runtime-created Let's Encrypt keys retain the application's restrictive modes.
+RUN mkdir -p /var/lib/netbird && \
+    chown 1000:0 /var/lib/netbird && \
+    chmod 0770 /var/lib/netbird && \
+    chmod -R a+rX /licenses
+
+USER 1000:0
+ENV HOME=/var/lib/netbird
+ENV NB_LETSENCRYPT_DATA_DIR="/var/lib/netbird"
+# Unprivileged ports: runtimes such as OpenShift and Podman keep the kernel
+# default that reserves ports below 1024 for root, so serve on the legacy
+# gRPC port instead of 80/443. With Let's Encrypt, the empty listen address
+# answers challenges on that port when public 443 is forwarded to it.
+# 9090 is the metrics endpoint.
+ENV NB_PORT="10000"
+ENV NB_LETSENCRYPT_LISTEN_ADDRESS=""
+EXPOSE 10000 9090
+# The signal server only handles SIGINT for a graceful stop.
+STOPSIGNAL SIGINT
+ENTRYPOINT ["/go/bin/netbird-signal", "run"]
+CMD ["--log-file", "console"]
