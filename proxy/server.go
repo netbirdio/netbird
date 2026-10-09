@@ -1649,9 +1649,9 @@ func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping)
 			old.GetDomain() == mapping.GetDomain() &&
 			len(old.GetPath()) > 0 && len(mapping.GetPath()) > 0 {
 			if err := s.updateMapping(ctx, mapping); err != nil {
-				// A rejected policy must not leave an older, potentially more
-				// permissive route serving requests. Keep the peer, but remove
-				// the snapshot so a later valid update installs routes again.
+				// Fail the whole service closed until a valid update arrives: the old
+				// policy could retain access this replacement intended to revoke.
+				// Keep the peer, but withdraw routes and the cached mapping for recovery.
 				s.cleanupMappingRoutes(old)
 				s.deleteMapping(types.ServiceID(mapping.GetId()))
 				return err
