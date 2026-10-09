@@ -196,6 +196,21 @@ func (m *Manager) PSK(remoteID RemoteID) (PSK, bool) {
 	return psk, ok
 }
 
+// beginCall registers an in-flight host-driven signalling call in the wait group so Stop
+// drains it before clearing state, and refuses once the manager is stopping. It mirrors
+// startExchangeLocked's guard: rootCancel runs under m.mu before Stop's Wait, and this
+// Adds under the same lock after checking rootCtx, so no Add can race the Wait. The caller
+// must defer m.wait.Done() when this returns true.
+func (m *Manager) beginCall() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rootCtx.Err() != nil {
+		return false
+	}
+	m.wait.Add(1)
+	return true
+}
+
 // trace logs at LevelTrace, the verbose per-exchange lifecycle level gated by
 // NB_PQ_MLKEM_LOG_LEVEL=trace.
 func (m *Manager) trace(msg string, args ...any) {
@@ -313,6 +328,10 @@ func (m *Manager) Stop() {
 // PSK still survives idle in the manager (dropped only on account-level peer removal),
 // so a pure lazy wake with no re-negotiation reuses it via the conn's WG-config pull.
 func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
+	if !m.beginCall() {
+		return nil, fmt.Errorf("manager stopping")
+	}
+	defer m.wait.Done()
 	if !m.IsInitiator(remoteID) {
 		return nil, nil
 	}
@@ -370,6 +389,10 @@ func (m *Manager) ShouldSendBootstrapOffer(remoteID RemoteID) bool {
 // SignalOnOffer processes a KEM offer the host extracted from an incoming offer and
 // returns the KEM answer for the host to embed in its outgoing answer.
 func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error) {
+	if !m.beginCall() {
+		return nil, fmt.Errorf("manager stopping")
+	}
+	defer m.wait.Done()
 	typ, msg, err := Decode(offer)
 	if err != nil {
 		return nil, fmt.Errorf("decode signal offer from %s: %w", remoteID, err)
@@ -397,6 +420,10 @@ func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error)
 // SignalOnAnswer processes a KEM answer the host extracted from an incoming answer.
 // There is no reply: the next offer (over the data path) acknowledges this exchange.
 func (m *Manager) SignalOnAnswer(remoteID RemoteID, answer []byte) error {
+	if !m.beginCall() {
+		return fmt.Errorf("manager stopping")
+	}
+	defer m.wait.Done()
 	typ, msg, err := Decode(answer)
 	if err != nil {
 		return fmt.Errorf("decode signal answer from %s: %w", remoteID, err)
