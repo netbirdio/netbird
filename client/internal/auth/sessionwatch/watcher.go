@@ -4,12 +4,20 @@
 // T-WarningLead notification and a dismiss-gated T-FinalWarningLead
 // fallback dialog.
 //
+// The deadline is an absolute wall-clock instant, so the watcher compares
+// it against the wall clock on a ticker rather than arming a relative
+// timer for it. A relative timer runs on the monotonic clock, which does
+// not advance while a device is suspended: it fires once that much awake
+// time has passed, which can be long after the deadline, and nothing
+// re-evaluates when the device wakes up. Polling makes every tick after a
+// resume (or after an NTP correction) see the real remaining time.
+//
 // The watcher is idempotent: Update may be called as often as the network
 // map snapshots arrive. Repeating the same deadline is a no-op; a new
-// deadline reschedules the timers and arms a fresh warning cycle.
+// deadline starts a fresh warning cycle.
 //
-// Warning firing is edge-detected. Each unique deadline value fires each
-// warning callback at most once.
+// Warning firing is edge-detected. Each unique deadline value publishes
+// each warning at most once.
 package sessionwatch
 
 import (
@@ -28,8 +36,14 @@ const (
 
 	// maxDeadlineHorizon caps how far in the future an accepted deadline
 	// can sit. A timestamp beyond this is almost certainly a protocol
-	// glitch, and silently arming a 100-year timer would hide the bug.
+	// glitch, and silently tracking a 100-year deadline would hide the bug.
 	maxDeadlineHorizon = 10 * 365 * 24 * time.Hour
+
+	// defaultEvalInterval is how often the tracked deadline is compared
+	// against the wall clock. The leads are minutes, so a coarse tick costs
+	// nothing in accuracy and keeps the wakeup cheap on battery-powered
+	// devices.
+	defaultEvalInterval = 10 * time.Second
 
 	// WarningLead is how far before expiry the first (interactive)
 	// warning fires. Drives the T-10 OS notification with
@@ -92,18 +106,21 @@ type StatusRecorder interface {
 type Watcher struct {
 	lead         time.Duration
 	finalLead    time.Duration
-	deadlineOnly bool
+	interval     time.Duration
+	deadlineOnly bool // record the deadline, leave the warnings to the caller
 
 	mu           sync.Mutex
 	current      time.Time
-	timer        *time.Timer
-	finalTimer   *time.Timer
-	firedAt      time.Time // deadline value the T-WarningLead callback last fired against
-	finalFiredAt time.Time // deadline value the T-FinalWarningLead callback last fired against
-	dismissedAt  time.Time // deadline value the user dismissed via Dismiss(); gates fireFinal
+	firedAt      time.Time // deadline value the T-WarningLead warning last published for
+	finalFiredAt time.Time // deadline value the T-FinalWarningLead warning last published for
+	dismissedAt  time.Time // deadline value the user dismissed via Dismiss(); gates the final warning
+	announcedAt  time.Time // deadline value the recorder has been told about; gates publishing
 	closed       bool
 	recorder     StatusRecorder
 	nowFn        func() time.Time
+	stop         chan struct{} // closed to stop the evaluation loop; nil while it is not running
+	done         chan struct{} // closed by the loop on its way out
+	wake         chan struct{} // buffered nudge asking the loop to evaluate before its next tick
 }
 
 // New returns a watcher with the package defaults WarningLead and
@@ -115,20 +132,24 @@ func New(recorder StatusRecorder) *Watcher {
 }
 
 // NewWithLeads returns a watcher with custom lead times. Useful for tests.
-// final must be strictly less than lead; otherwise both timers fire in the
-// wrong order or simultaneously and the UI flow breaks. A zero final lead
-// disables the final-warning timer entirely (see armTimerLocked) so a
-// millisecond-scale deadline doesn't flush both timers in one tick.
+// final must be strictly less than lead; otherwise the final warning takes
+// over the whole warning window and the interactive notification never
+// shows. A zero final lead disables the final warning entirely (see
+// evaluate), leaving the interactive one as the only warning.
 func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 	return &Watcher{
 		lead:      lead,
 		finalLead: final,
+		interval:  defaultEvalInterval,
 		recorder:  recorder,
 		nowFn:     time.Now,
 	}
 }
 
-// NewDeadlineOnly returns a watcher that validates and records deadlines but arms no warning timers.
+// NewDeadlineOnly returns a watcher that validates and records deadlines
+// but publishes no warnings about them, and runs no evaluation loop to
+// decide. Used where the deadline is handed on to something that schedules
+// the warnings itself, such as the Android app.
 func NewDeadlineOnly(recorder StatusRecorder) *Watcher {
 	w := New(recorder)
 	w.deadlineOnly = true
@@ -139,11 +160,12 @@ func NewDeadlineOnly(recorder StatusRecorder) *Watcher {
 // a Sync push from the server omits the field because login expiration
 // was disabled).
 //
-// Same-value updates are no-ops. A different non-zero value cancels any
-// pending timer, resets the "already fired" guards, and — when the
-// deadline lies in the future — arms fresh warning timers. A deadline
-// already in the past (within maxPastHorizon) is recorded as-is with no
-// timers: the session has expired and consumers render it that way.
+// Same-value updates are no-ops. A different non-zero value resets the
+// "already fired" guards and starts a fresh warning cycle, evaluated
+// immediately so a deadline that already sits inside a warning window
+// warns without waiting for the next tick. A deadline already in the past
+// (within maxPastHorizon) is recorded as-is and warns nothing: the session
+// has expired and consumers render it that way.
 //
 // Returns one of the sentinel Err* values when the deadline fails the
 // sanity checks (pre-epoch, far future, or past beyond maxPastHorizon).
@@ -163,7 +185,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 		return nil
 	}
 
-	now := time.Now()
+	now := w.nowFn()
 	switch {
 	case deadline.Before(time.Unix(0, 0)):
 		w.clearLocked()
@@ -181,18 +203,22 @@ func (w *Watcher) Update(deadline time.Time) error {
 		return nil
 	}
 
-	w.stopTimerLocked()
 	w.current = deadline
-	// Reset every per-deadline guard so a refreshed deadline arms a fresh
+	// Reset every per-deadline guard so a refreshed deadline starts a fresh
 	// warning cycle: both edge triggers and the user Dismiss decision
 	// (the user agreed to the old deadline expiring; a new deadline
 	// restarts the contract).
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
+	w.announcedAt = time.Time{}
 
-	if deadline.After(now) && !w.deadlineOnly {
-		w.armTimerLocked(deadline)
+	// Poll every accepted deadline, including one that reads as already
+	// expired: the clock may be running ahead of real time and get
+	// corrected later, and evaluate ignores a deadline that has genuinely
+	// passed anyway.
+	if !w.deadlineOnly {
+		w.startPollLocked()
 	}
 	recorder := w.recorder
 	w.mu.Unlock()
@@ -200,6 +226,28 @@ func (w *Watcher) Update(deadline time.Time) error {
 		recorder.SetSessionExpiresAt(deadline)
 	}
 	log.Infof("auth session deadline set to: %s (in %s)", deadline.Format(time.RFC3339), time.Until(deadline).Round(time.Second))
+
+	// Open the gate only once the recorder knows the new deadline, so a
+	// warning that refers to it can never reach consumers before the state
+	// change itself. A tick landing in between finds the gate shut.
+	w.mu.Lock()
+	if w.closed || !w.current.Equal(deadline) {
+		w.mu.Unlock()
+		return nil
+	}
+	w.announcedAt = deadline
+	wake := w.wake
+	w.mu.Unlock()
+
+	// Hand the evaluation to the loop rather than running it here, so a
+	// deadline that already sits inside a warning window is published at
+	// once without this goroutine ever touching the recorder.
+	if wake != nil {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 
@@ -212,9 +260,9 @@ func (w *Watcher) Deadline() time.Time {
 }
 
 // Dismiss records the user's "Dismiss" action against the current deadline
-// and suppresses the upcoming final-warning callback for that deadline.
-// Idempotent: repeated calls are no-ops. A subsequent Update with a fresh
-// deadline resets the dismissal so the final-warning cycle re-arms.
+// and suppresses the final warning for that deadline. Idempotent: repeated
+// calls are no-ops. A subsequent Update with a fresh deadline resets the
+// dismissal so the final-warning cycle starts over.
 //
 // No-op when the watcher holds no deadline or has been closed.
 func (w *Watcher) Dismiss() {
@@ -227,35 +275,48 @@ func (w *Watcher) Dismiss() {
 		return
 	}
 	w.dismissedAt = w.current
-	// Cancel the armed final-warning timer eagerly. fireFinal would also
-	// gate on dismissedAt, but stopping the timer avoids a wakeup with
-	// nothing to do and makes the intent visible.
-	if w.finalTimer != nil {
-		w.finalTimer.Stop()
-		w.finalTimer = nil
-	}
 	log.Infof("auth session final-warning dismissed for deadline %s", w.current.Format(time.RFC3339))
 }
 
-// Close stops any pending timer. Update calls after Close are ignored.
-// The recorder keeps its deadline: the watcher is engine-scoped and closes
-// on every engine restart (network change, sleep/wake, stream errors)
-// while the SSO deadline stays valid across those, so clearing here would
-// blank the UI's "expires in" row on every transient reconnect. The
-// client run loop clears the server-scoped recorder when it exits for
-// real (Down, profile switch, permanent login failure).
+// Close stops the evaluation loop and waits for it to exit. Update calls
+// after Close are ignored. The recorder keeps its deadline: the watcher is
+// engine-scoped and closes on every engine restart (network change,
+// sleep/wake, stream errors) while the SSO deadline stays valid across
+// those, so clearing here would blank the UI's "expires in" row on every
+// transient reconnect. The client run loop clears the server-scoped
+// recorder when it exits for real (Down, profile switch, permanent login
+// failure).
 func (w *Watcher) Close() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.closed {
+		// A concurrent Close is already tearing down. w.done outlives it,
+		// so this caller waits for the same loop rather than returning
+		// while a warning is still on its way to the recorder.
+		done := w.done
+		w.mu.Unlock()
+		if done != nil {
+			<-done
+		}
 		return
 	}
 	w.closed = true
-	w.stopTimerLocked()
 	w.current = time.Time{}
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
+	w.announcedAt = time.Time{}
+	// Copy the channels out before releasing the lock: the loop takes w.mu
+	// on every tick, so waiting for it while holding the lock would
+	// deadlock. w.done stays on the receiver for the branch above.
+	stop, done := w.stop, w.done
+	w.stop, w.wake = nil, nil
+	w.mu.Unlock()
+
+	if stop == nil {
+		return
+	}
+	close(stop)
+	<-done
 }
 
 // clearLocked drops the tracked deadline and notifies the recorder so
@@ -267,11 +328,11 @@ func (w *Watcher) clearLocked() {
 		w.mu.Unlock()
 		return
 	}
-	w.stopTimerLocked()
 	w.current = time.Time{}
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
+	w.announcedAt = time.Time{}
 	recorder := w.recorder
 	w.mu.Unlock()
 	if recorder != nil {
@@ -280,133 +341,121 @@ func (w *Watcher) clearLocked() {
 	log.Infof("auth session deadline cleared")
 }
 
-func (w *Watcher) stopTimerLocked() {
-	if w.timer != nil {
-		w.timer.Stop()
-		w.timer = nil
+// startPollLocked starts the evaluation loop unless it is already
+// running. The loop starts lazily on the first accepted deadline, so a
+// client whose server never publishes a session expiry never pays for a
+// ticker, and it runs until Close: the watcher is engine-scoped, and a
+// cleared deadline is normally followed by a fresh one on the next sync.
+// Caller must hold w.mu.
+func (w *Watcher) startPollLocked() {
+	if w.stop != nil {
+		return
 	}
-	if w.finalTimer != nil {
-		w.finalTimer.Stop()
-		w.finalTimer = nil
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	wake := make(chan struct{}, 1)
+	w.stop, w.done, w.wake = stop, done, wake
+	go w.poll(stop, done, wake, w.interval)
+}
+
+// poll re-evaluates the tracked deadline every interval, and as soon as a
+// new deadline is announced. It is the only caller of evaluate, so Close
+// waiting for it to exit is enough to know no warning is still on its way
+// to the recorder. Its channels and interval are passed in rather than
+// read off the receiver, so Close can clear them without racing it.
+func (w *Watcher) poll(stop <-chan struct{}, done chan<- struct{}, wake <-chan struct{}, interval time.Duration) {
+	defer close(done)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-wake:
+			w.evaluate()
+		case <-ticker.C:
+			w.evaluate()
+		}
 	}
 }
 
-func (w *Watcher) armTimerLocked(deadline time.Time) {
-	w.timer = armOneShotLocked(deadline.Add(-w.lead), func() { w.fire(deadline) })
-	// finalLead <= 0 disables the final-warning timer entirely. Used by
-	// tests that predate the final-warning fallback so a millisecond-scale
-	// deadline does not flush both timers at once.
-	if w.finalLead > 0 {
-		w.finalTimer = armOneShotLocked(deadline.Add(-w.finalLead), func() { w.fireFinal(deadline) })
-	}
-}
-
-func (w *Watcher) fire(armedFor time.Time) {
+// evaluate compares the tracked deadline against the wall clock and
+// publishes whichever warning the remaining time calls for. Inside the
+// final-warning window the interactive warning is stale, so the final one
+// is published in its place: a device that resumes there never saw the
+// T-WarningLead notification.
+func (w *Watcher) evaluate() {
 	w.mu.Lock()
-	if w.closed || !w.current.Equal(armedFor) {
-		// Deadline moved while we were waiting (e.g. a successful extend).
-		// The reschedule path armed a fresh timer; this one is stale.
+	if w.closed || w.deadlineOnly || w.current.IsZero() {
 		w.mu.Unlock()
 		return
 	}
-	if !w.firedAt.IsZero() && w.firedAt.Equal(armedFor) {
-		w.mu.Unlock()
-		return
-	}
-	now := w.nowFn()
-	if isLate(now, armedFor, max(w.finalLead, 0)) {
-		w.fireLateLocked(armedFor, now)
-		return
-	}
-	w.firedAt = armedFor
-	recorder := w.recorder
-	w.mu.Unlock()
-	if recorder == nil {
-		return
-	}
-	log.Infof("auth session expiry soon warning fired")
-	publishWarning(recorder, armedFor, false)
-}
 
-// fireFinal mirrors fire for the T-FinalWarningLead timer with an extra
-// dismiss-gate: if the user dismissed the T-WarningLead notification for
-// this deadline, the final warning is suppressed entirely.
-func (w *Watcher) fireFinal(armedFor time.Time) {
-	w.mu.Lock()
-	if w.closed || !w.current.Equal(armedFor) {
+	deadline := w.current
+	if !w.announcedAt.Equal(deadline) {
+		// Update is still on its way to the recorder with this deadline.
 		w.mu.Unlock()
 		return
 	}
-	if !w.finalFiredAt.IsZero() && w.finalFiredAt.Equal(armedFor) {
-		w.mu.Unlock()
-		return
-	}
-	if w.dismissedAt.Equal(armedFor) {
-		w.mu.Unlock()
-		log.Infof("auth session final-warning skipped (dismissed by user)")
-		return
-	}
-	now := w.nowFn()
-	if isLate(now, armedFor, 0) {
-		w.finalFiredAt = armedFor
-		w.mu.Unlock()
-		log.Infof("auth session final-warning skipped for deadline %s (passed %s ago)",
-			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor).Round(time.Second))
-		return
-	}
-	w.finalFiredAt = armedFor
-	recorder := w.recorder
-	w.mu.Unlock()
-	if recorder == nil {
-		return
-	}
-	log.Infof("auth session final-warning fired")
-	publishWarning(recorder, armedFor, true)
-}
+	// Round(0) strips the monotonic reading so the comparison is wall
+	// clock on both sides, whether the deadline came off the wire or from
+	// a caller that derived it from time.Now.
+	remaining := deadline.Round(0).Sub(w.nowFn().Round(0))
 
-// fireLateLocked handles a T-WarningLead callback that fired inside the
-// final-warning window: it sends the final warning in its place while the
-// deadline has not passed and the user has not dismissed it, so a resume
-// with time left still warns. The caller must hold w.mu; this helper
-// releases it.
-func (w *Watcher) fireLateLocked(armedFor, now time.Time) {
-	w.firedAt = armedFor
 	switch {
-	case w.dismissedAt.Equal(armedFor):
+	case remaining <= 0:
+		// Already expired: the post-mortem SessionExpired flow owns it.
 		w.mu.Unlock()
-		log.Infof("auth session expiry soon warning skipped (dismissed by user)")
-		return
-	case w.finalFiredAt.Equal(armedFor):
+	case w.finalLead > 0 && remaining <= w.finalLead:
+		w.publishFinalLocked(deadline, remaining)
+	case remaining <= w.lead:
+		w.publishWarningLocked(deadline, remaining)
+	default:
 		w.mu.Unlock()
-		log.Infof("auth session expiry soon warning skipped (final warning already fired)")
-		return
-	case isLate(now, armedFor, 0):
+	}
+}
+
+// publishWarningLocked emits the interactive T-WarningLead warning, at
+// most once per deadline value. Caller must hold w.mu; this helper
+// releases it.
+func (w *Watcher) publishWarningLocked(deadline time.Time, remaining time.Duration) {
+	if w.firedAt.Equal(deadline) {
 		w.mu.Unlock()
-		log.Infof("auth session expiry soon warning skipped for deadline %s (passed %s ago)",
-			armedFor.Format(time.RFC3339), now.Round(0).Sub(armedFor).Round(time.Second))
 		return
 	}
-	w.finalFiredAt = armedFor
+	w.firedAt = deadline
 	recorder := w.recorder
 	w.mu.Unlock()
 	if recorder == nil {
 		return
 	}
-	log.Infof("auth session expiry soon warning fired inside the final-warning window, sending final warning for deadline %s",
-		armedFor.Format(time.RFC3339))
-	publishWarning(recorder, armedFor, true)
+	log.Infof("auth session expiry soon warning fired for deadline %s (in %s)",
+		deadline.Format(time.RFC3339), remaining.Round(time.Second))
+	publishWarning(recorder, deadline, false)
 }
 
-// armOneShotLocked schedules cb at fireAt. When fireAt is already in the
-// past it dispatches on the next scheduler tick so a state-change recorder
-// notification (invoked after w.mu is released) lands first. Caller must
-// hold w.mu.
-func armOneShotLocked(fireAt time.Time, cb func()) *time.Timer {
-	delay := time.Until(fireAt)
-	if delay <= 0 {
-		return time.AfterFunc(0, cb)
+// publishFinalLocked emits the final warning, at most once per deadline
+// value and never once the user dismissed that deadline. It marks the
+// interactive warning as handled too: the final window is open, so a
+// "expires in WarningLead minutes" notification would be wrong. Caller
+// must hold w.mu; this helper releases it.
+func (w *Watcher) publishFinalLocked(deadline time.Time, remaining time.Duration) {
+	if w.finalFiredAt.Equal(deadline) || w.dismissedAt.Equal(deadline) {
+		w.mu.Unlock()
+		return
 	}
-	return time.AfterFunc(delay, cb)
+	w.firedAt = deadline
+	w.finalFiredAt = deadline
+	recorder := w.recorder
+	w.mu.Unlock()
+	if recorder == nil {
+		return
+	}
+	log.Infof("auth session final-warning fired for deadline %s (in %s)",
+		deadline.Format(time.RFC3339), remaining.Round(time.Second))
+	publishWarning(recorder, deadline, true)
 }
 
 // publishWarning composes the SystemEvent for a watcher-fired warning and
@@ -435,12 +484,4 @@ func publishWarning(recorder StatusRecorder, deadline time.Time, final bool) {
 		"",
 		meta,
 	)
-}
-
-// isLate reports whether the wall clock now has already reached armedFor
-// minus cutoffLead. The timers run on the monotonic clock, which can stall
-// while the host sleeps, so a timer can fire long after the window it was
-// armed for.
-func isLate(now, armedFor time.Time, cutoffLead time.Duration) bool {
-	return !now.Round(0).Before(armedFor.Add(-cutoffLead).Round(0))
 }
