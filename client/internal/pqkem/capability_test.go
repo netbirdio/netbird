@@ -7,9 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestManager_NonCapablePeerNotOffered: a peer known not to run the KEM (it advertised
-// no PQ port over signalling) is never offered an exchange, and no failure is raised —
-// this is what stops the reoffer storm against non-PQ peers (e.g. Rosenpass peers).
+// TestManager_NonCapablePeerNotOffered: a peer known not to run the KEM (it answered our
+// offer with an empty KEM payload over signalling) is never offered an exchange, and no
+// failure is raised — this is what stops the reoffer storm against non-PQ peers (e.g.
+// Rosenpass peers).
 func TestManager_NonCapablePeerNotOffered(t *testing.T) {
 	wg := newFakeWG()
 	d := NewManager("bbbb", wg, nil) // initiator vs "aaaa"
