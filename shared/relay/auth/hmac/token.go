@@ -47,31 +47,6 @@ func (m *TimedHMAC) GenerateToken(algo func() hash.Hash) (*Token, error) {
 	}, nil
 }
 
-// Validate checks if the token is valid
-func (m *TimedHMAC) Validate(algo func() hash.Hash, token Token) error {
-	expectedMAC, err := m.generate(algo, token.Payload)
-	if err != nil {
-		return err
-	}
-
-	expectedSignature := base64.StdEncoding.EncodeToString(expectedMAC)
-
-	if !hmac.Equal([]byte(expectedSignature), []byte(token.Signature)) {
-		return fmt.Errorf("signature mismatch")
-	}
-
-	timeAuthInt, err := strconv.ParseInt(token.Payload, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid payload: %w", err)
-	}
-
-	if time.Now().Unix() > timeAuthInt {
-		return fmt.Errorf("expired token")
-	}
-
-	return nil
-}
-
 func (m *TimedHMAC) generate(algo func() hash.Hash, payload string) ([]byte, error) {
 	mac := hmac.New(algo, []byte(m.secret))
 	_, err := mac.Write([]byte(payload))

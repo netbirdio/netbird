@@ -14,8 +14,8 @@ import (
 	"github.com/pion/turn/v3"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/relay/auth/allow"
 	"github.com/netbirdio/netbird/relay/server"
-	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/util"
