@@ -25,6 +25,7 @@ import (
 
 func init() {
 	nbnet.GetBestInterfaceFunc = GetBestInterface
+	nbnet.GetCandidateInterfacesFunc = GetCandidateInterfaces
 }
 
 const (
@@ -917,6 +918,21 @@ func combinedMetric(candidate candidateRoute) uint64 {
 // 2. Lowest combined metric (route metric + interface metric)
 // 3. Lowest route metric.
 func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
+	ifaces, err := GetCandidateInterfaces(dest, vpnIntf)
+	if err != nil {
+		return nil, err
+	}
+	log.Debugf("route lookup for %s: selected interface %s (index %d)", dest, ifaces[0].Name, ifaces[0].Index)
+	return ifaces[0], nil
+}
+
+// GetCandidateInterfaces returns all usable interfaces that can reach dest,
+// ordered by the same priority as GetBestInterface. Callers that dial with
+// IP_UNICAST_IF can fall back through this list when the metric-preferred
+// interface has a route but no actual connectivity (common with dual-homed
+// Windows hosts: Ethernet up with a low metric but no working internet, Wi-Fi
+// with a higher metric that does reach the destination).
+func GetCandidateInterfaces(dest netip.Addr, vpnIntf string) ([]*net.Interface, error) {
 	var skipInterfaceIndex int
 	if vpnIntf != "" {
 		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
@@ -941,6 +957,8 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 
 	sortRouteCandidates(candidates)
 
+	seen := make(map[int]struct{}, len(candidates))
+	var ifaces []*net.Interface
 	for _, candidate := range candidates {
 		iface, err := net.InterfaceByIndex(int(candidate.interfaceIndex))
 		if err != nil {
@@ -957,12 +975,21 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 			continue
 		}
 
-		log.Debugf("route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
+		if _, ok := seen[iface.Index]; ok {
+			continue
+		}
+		seen[iface.Index] = struct{}{}
+
+		log.Debugf("route candidate for %s: interface %s (index %d), route metric %d, interface metric %d",
 			dest, iface.Name, iface.Index, candidate.routeMetric, candidate.interfaceMetric)
-		return iface, nil
+		ifaces = append(ifaces, iface)
 	}
 
-	return nil, fmt.Errorf("no usable interface found for %s", dest)
+	if len(ifaces) == 0 {
+		return nil, fmt.Errorf("no usable interface found for %s", dest)
+	}
+
+	return ifaces, nil
 }
 
 // formatRouteAge formats the route age in seconds to a human-readable string
