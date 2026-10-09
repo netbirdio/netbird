@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -189,7 +190,7 @@ func (m *SetupService) lookupSetupAccountIDForRollback(ctx context.Context, user
 // store. It intentionally avoids accountManager.DeleteAccount because the normal
 // account deletion path also deletes users from the IdP; embedded IdP cleanup is
 // owned by instanceManager.RollbackSetup. It keeps an account another user
-// created, which a concurrent first login can produce.
+// created or joined, which a concurrent first login can produce.
 func (m *SetupService) rollbackSetupAccount(ctx context.Context, accountID, userID string) error {
 	if m.accountManager == nil {
 		return fmt.Errorf("account manager is required to roll back setup account")
@@ -208,8 +209,8 @@ func (m *SetupService) rollbackSetupAccount(ctx context.Context, accountID, user
 		return fmt.Errorf("get setup account for rollback: %w", err)
 	}
 
-	if account.CreatedBy != userID {
-		log.WithContext(ctx).Warnf("keeping account %s on setup rollback: created by another user", accountID)
+	if !isSetupOnlyAccount(account, userID) {
+		log.WithContext(ctx).Warnf("keeping account %s on setup rollback: shared with another user", accountID)
 		return nil
 	}
 
@@ -221,4 +222,16 @@ func (m *SetupService) rollbackSetupAccount(ctx context.Context, accountID, user
 	}
 
 	return nil
+}
+
+func isSetupOnlyAccount(account *types.Account, userID string) bool {
+	if account.CreatedBy != userID {
+		return false
+	}
+	for id := range account.Users {
+		if id != userID {
+			return false
+		}
+	}
+	return true
 }

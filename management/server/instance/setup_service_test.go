@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -233,45 +233,57 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 	assert.Equal(t, 1, rollbackCalls)
 }
 
-// A JIT login can create the primary account between owner creation and account
-// resolution, so the owner joins that account instead. A PAT failure must then not
-// delete the account it did not create. DeleteAccount is not expected, so the
-// mock store fails the test if it is called.
-func TestSetupOwner_CreatePATFails_KeepsAccountCreatedByAnotherUser(t *testing.T) {
-	t.Setenv(SetupPATEnabledEnvKey, "true")
+// A concurrent first login can make the setup account shared: either a JIT user
+// created the primary account first and the owner joined it, or a JIT user joined
+// the setup account. A PAT failure must not delete an account other users rely on.
+// DeleteAccount is not expected, so the mock store fails the test if it is called.
+func TestSetupOwner_CreatePATFails_KeepsSharedAccount(t *testing.T) {
+	tests := map[string]*types.Account{
+		"created by another user": {Id: "acc-1", CreatedBy: "jit-user"},
+		"another user joined": {Id: "acc-1", CreatedBy: "owner-id", Users: map[string]*types.User{
+			"owner-id": {Id: "owner-id"},
+			"jit-user": {Id: "jit-user"},
+		}},
+	}
 
-	ctrl := gomock.NewController(t)
-	accountStore := nbstore.NewMockStore(ctrl)
-	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(&types.Account{Id: "acc-1", CreatedBy: "jit-user"}, nil)
+	for name, account := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(SetupPATEnabledEnvKey, "true")
 
-	rollbackCalls := 0
-	setupManager := NewSetupService(
-		&setupInstanceManagerMock{
-			rollbackSetupFn: func(_ context.Context, _ string) error {
-				rollbackCalls++
-				return nil
-			},
-		},
-		&mock_server.MockAccountManager{
-			GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
-				return "acc-1", "owner-id", nil
-			},
-			CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
-				return nil, status.Errorf(status.PermissionDenied, "user is blocked")
-			},
-			GetStoreFunc: func() nbstore.Store {
-				return accountStore
-			},
-		},
-	)
+			ctrl := gomock.NewController(t)
+			accountStore := nbstore.NewMockStore(ctrl)
+			accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
 
-	_, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
-		CreatePAT:       true,
-		PATExpireInDays: intPtr(30),
-	})
+			rollbackCalls := 0
+			setupManager := NewSetupService(
+				&setupInstanceManagerMock{
+					rollbackSetupFn: func(_ context.Context, _ string) error {
+						rollbackCalls++
+						return nil
+					},
+				},
+				&mock_server.MockAccountManager{
+					GetAccountIDFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (string, string, error) {
+						return "acc-1", "owner-id", nil
+					},
+					CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
+						return nil, status.Errorf(status.PermissionDenied, "user is blocked")
+					},
+					GetStoreFunc: func() nbstore.Store {
+						return accountStore
+					},
+				},
+			)
 
-	require.Error(t, err)
-	assert.Equal(t, 1, rollbackCalls, "setup user should still be rolled back")
+			_, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
+				CreatePAT:       true,
+				PATExpireInDays: intPtr(30),
+			})
+
+			require.Error(t, err)
+			assert.Equal(t, 1, rollbackCalls, "setup user should still be rolled back")
+		})
+	}
 }
 
 func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testing.T) {
