@@ -8,12 +8,125 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+func TestSavePolicy_RejectsMultipleRules(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		create bool
+		legacy bool
+	}{
+		{name: "create", create: true},
+		{name: "update", create: false},
+		{name: "legacy multi-rule update", legacy: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			manager, _, err := createManager(t)
+			require.NoError(t, err)
+			account, err := createAccount(manager, "policy-validation", userID, "")
+			require.NoError(t, err)
+
+			before, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			require.Len(t, before, 1, "the account must have its default policy")
+			require.Len(t, before[0].Rules, 1, "the default policy must have one valid rule")
+			if tc.legacy {
+				legacyRule := before[0].Rules[0].Copy()
+				legacyRule.ID = "legacy-second-rule"
+				before[0].Rules = append(before[0].Rules, legacyRule)
+				require.NoError(t, manager.Store.SavePolicy(ctx, before[0]))
+				before, err = manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, account.Id)
+				require.NoError(t, err)
+				require.Len(t, before[0].Rules, 2, "the legacy fixture must retain both rules")
+			}
+			networkBefore, err := manager.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+
+			sqlStore, ok := manager.Store.(*store.SqlStore)
+			require.True(t, ok, "the test must exercise the real SQL store")
+			var rulesBefore []*types.PolicyRule
+			require.NoError(t, sqlStore.GetDB().Find(&rulesBefore).Error)
+
+			policy := before[0].Copy()
+			policy.Name = "multiple rules"
+			if tc.create {
+				policy.ID = ""
+				policy.PublicID = ""
+				policy.Rules[0].ID = ""
+				policy.Rules[0].PolicyID = ""
+			}
+			if !tc.legacy {
+				secondRule := policy.Rules[0].Copy()
+				secondRule.ID = ""
+				secondRule.PolicyID = ""
+				secondRule.Name = "second rule"
+				policy.Rules = append(policy.Rules, secondRule)
+			}
+			inputBefore := policy.Copy()
+
+			saved, err := manager.SavePolicy(ctx, account.Id, userID, policy, tc.create)
+			assert.Nil(t, saved, "an unsupported policy must not be returned as saved")
+			if assert.Error(t, err, "multiple rules must be rejected before persistence") {
+				policyErr, ok := status.FromError(err)
+				require.True(t, ok, "rejection must use the standard typed error")
+				assert.Equal(t, status.InvalidArgument, policyErr.Type(), "multiple rules are invalid input")
+			}
+			assert.Equal(t, inputBefore, policy, "rejection must not mutate the policy or its rule IDs")
+
+			after, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			assert.Equal(t, before, after, "rejection must leave all persisted policies unchanged")
+			var rulesAfter []*types.PolicyRule
+			require.NoError(t, sqlStore.GetDB().Find(&rulesAfter).Error)
+			assert.ElementsMatch(t, rulesBefore, rulesAfter, "rejection must not insert or modify rule rows")
+			networkAfter, err := manager.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			assert.Equal(t, networkBefore.Serial, networkAfter.Serial, "rejection must not advance the network serial")
+		})
+	}
+}
+
+func TestSavePolicy_RuleCountCompatibility(t *testing.T) {
+	for _, ruleCount := range []int{0, 1} {
+		t.Run(fmt.Sprintf("%d rules", ruleCount), func(t *testing.T) {
+			ctx := context.Background()
+			manager, _, err := createManager(t)
+			require.NoError(t, err)
+			account, err := createAccount(manager, "policy-validation", userID, "")
+			require.NoError(t, err)
+			policy := &types.Policy{Name: "rule count", Enabled: true}
+			if ruleCount == 1 {
+				rule := account.Policies[0].Rules[0].Copy()
+				rule.ID, rule.PolicyID = "", ""
+				policy.Rules = []*types.PolicyRule{rule}
+			}
+
+			for _, create := range []bool{true, false} {
+				policy.Description = fmt.Sprintf("create=%t", create)
+				saved, err := manager.SavePolicy(ctx, account.Id, userID, policy, create)
+				require.NoError(t, err)
+				require.NotNil(t, saved, "a supported rule count must return the saved policy")
+				stored, err := manager.GetPolicy(ctx, account.Id, saved.ID, userID)
+				require.NoError(t, err)
+				assert.Len(t, stored.Rules, ruleCount, "the rule count must survive persistence")
+				assert.Equal(t, policy.Description, stored.Description, "create and update must persist changes")
+				if ruleCount == 1 {
+					require.Len(t, stored.Rules, 1, "the saved rule must be available")
+					assert.Equal(t, saved.ID, stored.Rules[0].ID, "single-rule ID assignment must remain unchanged")
+				}
+			}
+		})
+	}
+}
 
 func TestAccount_getPeersByPolicy(t *testing.T) {
 	account := &types.Account{
