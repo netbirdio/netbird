@@ -25,7 +25,7 @@ func (m *mockClientProvider) ListClientsForStartup() map[types.AccountID]*embed.
 
 // newTestChecker creates a checker with a mock health function for testing.
 // The health function returns the provided ClientHealth for every client.
-func newTestChecker(provider clientProvider, healthResult ClientHealth) *Checker {
+func newTestChecker(provider clientHealthChecks, healthResult ClientHealth) *Checker {
 	c := NewChecker(nil, provider)
 	c.checkHealth = func(_ *embed.Client) ClientHealth {
 		return healthResult
