@@ -167,7 +167,7 @@ func MicrosoftWindowsAppearanceOptions(a Appearance) application.WindowsWindow {
 	}
 }
 
-// AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
+// AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the compact layout out of fullscreen.
 func AppleMacOSAppearanceOptions(a Appearance) application.MacWindow {
 	appearance := application.DefaultAppearance
 	switch a.Pref {
