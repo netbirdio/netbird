@@ -9,6 +9,21 @@ test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
 cases=0
 
+for errexit in +o -o; do
+  for pipefail in +o -o; do
+    bash -c '
+      set "$1" errexit
+      set "$2" pipefail
+      before_options=$SHELLOPTS
+      source "$3"
+      if [[ "$SHELLOPTS" != "$before_options" ]]; then
+        echo "Sourcing changed shell options: $before_options -> $SHELLOPTS" >&2
+        exit 1
+      fi
+    ' bash "$errexit" "$pipefail" "$script_dir/../getting-started-enterprise.sh"
+  done
+done
+
 assert_tag() {
   local expected_status="$1" expected_message="$2" actual_status=0
   shift 2

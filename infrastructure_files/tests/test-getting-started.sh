@@ -39,7 +39,7 @@ assert_image() {
         exit 1
       fi
     done
-    if ! grep -Fq "image: ${image:-traefik:v3.7.14}" "$case_dir/docker-compose.yml"; then
+    if ! grep -Fxq "    image: ${image:-traefik:v3.7.14}" "$case_dir/docker-compose.yml"; then
       echo "Image '$image': unexpected rendered image" >&2
       exit 1
     fi

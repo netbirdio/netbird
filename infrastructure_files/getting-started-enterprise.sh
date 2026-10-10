@@ -1,8 +1,5 @@
 #!/bin/bash
 
-set -e
-set -o pipefail
-
 # NetBird Enterprise — Getting Started
 # Single-node bootstrap for a self-hosted NetBird Enterprise stack with the
 # embedded identity provider. Owner is created via first-login flow.
@@ -1298,5 +1295,7 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  set -e
+  set -o pipefail
   main "$@"
 fi
