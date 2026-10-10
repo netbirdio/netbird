@@ -380,6 +380,10 @@ components:
           description: Enables or disables client metrics push for all peers in the account
           type: boolean
           example: false
+        peer_hostname_collision_rejected:
+          description: When enabled, registering or renaming a peer to a hostname already used by another peer in the account fails instead of receiving an IP-based suffix. Applies to ephemeral peers as well.
+          type: boolean
+          example: false
         agent_network_only:
           description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
           type: boolean

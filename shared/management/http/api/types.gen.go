@@ -1672,6 +1672,9 @@ type AccountSettings struct {
 	// PeerExposeGroups Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
 	PeerExposeGroups []string `json:"peer_expose_groups"`
 
+	// PeerHostnameCollisionRejected When enabled, registering or renaming a peer to a hostname already used by another peer in the account fails instead of receiving an IP-based suffix. Applies to ephemeral peers as well.
+	PeerHostnameCollisionRejected *bool `json:"peer_hostname_collision_rejected,omitempty"`
+
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
 

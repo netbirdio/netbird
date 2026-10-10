@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -14,6 +15,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -288,19 +290,34 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			var newLabel string
 
 			newLabel, err = nbdns.GetParsedDomainLabel(update.Name)
-			if err != nil {
-				newLabel = ""
-			} else {
-				_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
-				if err == nil {
-					newLabel = ""
-				}
-			}
-
-			if newLabel == "" {
-				newLabel, err = getPeerIPDNSLabel(peer.IP, update.Name)
+			if settings.PeerHostnameCollisionRejected {
 				if err != nil {
-					return fmt.Errorf("failed to get free DNS label: %w", err)
+					return status.Errorf(status.InvalidArgument, "invalid peer name: %v", err)
+				}
+				if newLabel != peer.DNSLabel {
+					taken, err := peerLabelTaken(ctx, transaction, accountID, newLabel)
+					if err != nil {
+						return err
+					}
+					if taken {
+						return errPeerLabelInUse(newLabel)
+					}
+				}
+			} else {
+				if err != nil {
+					newLabel = ""
+				} else {
+					_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
+					if err == nil {
+						newLabel = ""
+					}
+				}
+
+				if newLabel == "" {
+					newLabel, err = getPeerIPDNSLabel(peer.IP, update.Name)
+					if err != nil {
+						return fmt.Errorf("failed to get free DNS label: %w", err)
+					}
 				}
 			}
 			peer.Name = update.Name
@@ -336,6 +353,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return transaction.SavePeer(ctx, accountID, peer)
 	})
 	if err != nil {
+		if peerLabelChanged && isUniqueConstraintError(err) {
+			return nil, errPeerLabelInUse(peer.DNSLabel)
+		}
 		return nil, err
 	}
 
@@ -832,6 +852,13 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		return nil, nil, nil, false, fmt.Errorf("failed getting network: %w", err)
 	}
 
+	hostLabel, err := nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
+	if err != nil {
+		return nil, nil, nil, false, fmt.Errorf("parse peer DNS label: %w", err)
+	}
+	rejectLabelCollision := settings.PeerHostnameCollisionRejected
+	labelTaken := false
+
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		netPrefix, err := netip.ParsePrefix(network.Net.String())
@@ -843,14 +870,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			return nil, nil, nil, false, fmt.Errorf("failed to get free IP: %w", err)
 		}
 
-		var freeLabel string
-		if ephemeral || attempt > 1 {
+		freeLabel := hostLabel
+		if !rejectLabelCollision && (ephemeral || labelTaken) {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
-			if err != nil {
-				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
-			}
-		} else {
-			freeLabel, err = nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
 			}
@@ -947,6 +969,15 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 
 		if isUniqueConstraintError(err) {
+			if freeLabel == hostLabel {
+				labelTaken, err = peerLabelTaken(ctx, am.Store, accountID, hostLabel)
+				if err != nil {
+					return nil, nil, nil, false, err
+				}
+				if labelTaken && rejectLabelCollision {
+					return nil, nil, nil, false, errPeerLabelInUse(hostLabel)
+				}
+			}
 			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, err)
 			continue
 		}
@@ -983,6 +1014,23 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	}
 
 	return newPeer, network, postureChecks, enableSSH, nil
+}
+
+// peerLabelTaken reports whether a peer of the account already uses the DNS label.
+func peerLabelTaken(ctx context.Context, s store.Store, accountID, label string) (bool, error) {
+	_, err := s.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, label)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return false, nil
+	default:
+		return false, fmt.Errorf("check peer DNS label: %w", err)
+	}
+}
+
+func errPeerLabelInUse(label string) error {
+	return status.Errorf(status.AlreadyExists, "peer hostname %s is already in use in this account", label)
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {

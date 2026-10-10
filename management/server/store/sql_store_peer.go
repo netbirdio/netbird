@@ -715,12 +715,15 @@ func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStr
 		Where("account_id = ? AND dns_label = ?", accountID, hostname).
 		Limit(1).
 		Scan(&peerID)
+	if result.Error != nil {
+		return "", result.Error
+	}
 
 	if peerID == "" {
 		return "", gorm.ErrRecordNotFound
 	}
 
-	return peerID, result.Error
+	return peerID, nil
 }
 
 // GetEmbeddedProxyPeerIDsByCluster returns peer IDs of all embedded proxy peers

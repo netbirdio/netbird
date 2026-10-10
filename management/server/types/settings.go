@@ -76,6 +76,10 @@ type Settings struct {
 	// MetricsPushEnabled globally enables or disables client metrics push for the account
 	MetricsPushEnabled bool `gorm:"default:false"`
 
+	// PeerHostnameCollisionRejected rejects registering or renaming a peer to a hostname
+	// already used by another peer of the account instead of suffixing it
+	PeerHostnameCollisionRejected bool `gorm:"default:false"`
+
 	// AgentNetworkOnly limits the dashboard to the Agent Network surface for this account.
 	// Set for accounts created via netbird.ai signups; users can disable it later.
 	AgentNetworkOnly bool `gorm:"default:false"`
@@ -123,6 +127,7 @@ func (s *Settings) Copy() *Settings {
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
 		MetricsPushEnabled:              s.MetricsPushEnabled,
+		PeerHostnameCollisionRejected:   s.PeerHostnameCollisionRejected,
 		AgentNetworkOnly:                s.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
