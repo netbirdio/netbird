@@ -258,6 +258,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify enterprise Traefik tag validation
+        run: bash infrastructure_files/tests/test-getting-started-enterprise.sh
+
+      - name: Verify community Traefik image validation
+        run: bash infrastructure_files/tests/test-getting-started.sh
+
+      - name: Verify community Compose network scoping
+        run: bash infrastructure_files/tests/test-getting-started-networks.sh
+
+      - name: Verify migration Compose network scoping
+        run: bash infrastructure_files/tests/test-getting-started-networks.sh --migration
+
       - name: Verify fresh-install session cookie key hardening
         run: |
           grep -Fxq '  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)' infrastructure_files/getting-started.sh

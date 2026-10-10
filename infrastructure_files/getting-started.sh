@@ -87,6 +87,27 @@ check_jq() {
   return 0
 }
 
+check_traefik_image() {
+  local image="${TRAEFIK_IMAGE##*/}" major minor patch
+
+  # A version tag cannot establish which release a digest points to.
+  if [[ "$TRAEFIK_IMAGE" == *@* ||
+    ! "$image" =~ ^[^:@]+:v?([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?$ ]]; then
+    echo "Cannot verify TRAEFIK_IMAGE=$TRAEFIK_IMAGE." >&2
+    echo "Use a numeric Traefik version tag (v3.7.13 or newer) without a digest." >&2
+    return 1
+  fi
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[3]:-0}))
+  patch=$((10#${BASH_REMATCH[5]:-0}))
+  if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
+    echo "TRAEFIK_IMAGE=$TRAEFIK_IMAGE is incompatible with this configuration." >&2
+    echo "Use Traefik v3.7.13 or newer for aliasHeadersStrategy and its header-sanitization fix." >&2
+    return 1
+  fi
+  return 0
+}
+
 get_main_ip_address() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
@@ -448,8 +469,8 @@ initialize_default_values() {
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
   NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
-  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.6"}
-  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.7.7"}
+  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.7.14"}
+  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.8.1"}
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
@@ -613,6 +634,7 @@ generate_configuration_files() {
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
     0)
+      check_traefik_image || return 1
       render_docker_compose_traefik_builtin > docker-compose.yml
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
@@ -912,11 +934,13 @@ services:
       # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=netbird"
+      - "--providers.docker.network=\${COMPOSE_PROJECT_NAME}_netbird"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
+      - "--entrypoints.web.http.aliasHeadersStrategy=delete"
+      - "--entrypoints.websecure.http.aliasHeadersStrategy=delete"
       # Disable timeouts for long-lived gRPC streams
       - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
@@ -1779,4 +1803,6 @@ print_post_setup_instructions() {
   return 0
 }
 
-init_environment
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  init_environment
+fi

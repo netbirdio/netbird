@@ -1,8 +1,5 @@
 #!/bin/bash
 
-set -e
-set -o pipefail
-
 # NetBird Enterprise — Getting Started
 # Single-node bootstrap for a self-hosted NetBird Enterprise stack with the
 # embedded identity provider. Owner is created via first-login flow.
@@ -22,6 +19,9 @@ PROXY_TOKEN_ID=""
 # Static IP for Traefik inside the compose bridge network. The management
 # server trusts X-Forwarded-* headers from this address only.
 TRAEFIK_IP="172.30.0.10"
+
+TRAEFIK_HEADER_CONFIG='      - "--entrypoints.web.http.aliasHeadersStrategy=delete"
+      - "--entrypoints.websecure.http.aliasHeadersStrategy=delete"'
 
 LICENSE_VERDICT="unknown"
 LICENSE_LOG_LINES=""
@@ -50,6 +50,25 @@ check_openssl() {
     echo "openssl is not installed or not in PATH." > /dev/stderr
     exit 1
   fi
+  return
+}
+
+# Only parseable versions can guarantee that aliasHeadersStrategy and its
+# CVE-2026-88004 fix (v3.7.13) are available in the fresh-install compose.
+check_traefik_tag() {
+  local tag="${NETBIRD_TRAEFIK_TAG:-}" ver major minor patch
+  [[ -n "$tag" ]] || return 0
+  ver="${tag#v}"
+  if [[ ! "$ver" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
+    die "Cannot verify NETBIRD_TRAEFIK_TAG=$tag. Use a numeric version tag such as v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.14)."
+  fi
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[2]}))
+  patch=$((10#${BASH_REMATCH[4]:-0}))
+  if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
+    die "NETBIRD_TRAEFIK_TAG=$tag predates aliasHeadersStrategy and its CVE-2026-88004 fix (added in v3.7.12, fixed in v3.7.13), which this installer always enables. Use v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.14)."
+  fi
+  return
 }
 
 die() {
@@ -62,6 +81,7 @@ env_get() {
   local value
   value=$(sed -n "s/^$1=//p" .env | tail -n 1)
   echo "${value:-$2}"
+  return
 }
 
 # merge_env upserts the KEY=VALUE lines from stdin into .env, in place.
@@ -72,14 +92,17 @@ merge_env() {
     { print }
     END { for (i = 1; i <= n; i++) if (o[i] in v) print v[o[i]] }' - .env)
   printf '%s\n' "$merged" > .env
+  return
 }
 
 rand_secret() {
   openssl rand -base64 32 | sed "$SED_STRIP_PADDING"
+  return
 }
 
 rand_b64_key() {
   openssl rand -base64 32
+  return
 }
 
 check_nb_domain() {
@@ -133,6 +156,7 @@ read_nb_domain() {
     fi
   fi
   echo "$value"
+  return
 }
 
 read_letsencrypt_email() {
@@ -150,6 +174,7 @@ read_letsencrypt_email() {
     return
   fi
   echo "$value"
+  return
 }
 
 read_required() {
@@ -163,6 +188,7 @@ read_required() {
     fi
   done
   echo "$value"
+  return
 }
 
 read_secret() {
@@ -177,6 +203,7 @@ read_secret() {
     fi
   done
   echo "$value"
+  return
 }
 
 # read_yes_no "<prompt>" [<default y|n>]
@@ -199,6 +226,7 @@ read_yes_no() {
     [Yy] | [Yy][Ee][Ss]) echo "yes" ;;
     *) echo "no" ;;
   esac
+  return
 }
 
 read_crowdsec_option() {
@@ -208,6 +236,7 @@ read_crowdsec_option() {
   echo "  blocks known malicious sources before they reach services exposed through"
   echo "  the proxy. Adds a CrowdSec container to the stack."
   NETBIRD_CROWDSEC=$(read_yes_no "Enable CrowdSec" "n")
+  return
 }
 
 # Gate the install on explicit acceptance of the NetBird On-Premise EULA.
@@ -245,6 +274,7 @@ EOF
     exit 1
   fi
   echo "" > /dev/stderr
+  return
 }
 
 wait_postgres() {
@@ -267,6 +297,7 @@ wait_postgres() {
   done
   echo " done"
   set -e
+  return
 }
 
 wait_for_license_verdict() {
@@ -359,6 +390,7 @@ up_all_but_proxy() {
   services=$($DOCKER_COMPOSE_COMMAND config --services | grep -vx proxy)
   # shellcheck disable=SC2086
   $DOCKER_COMPOSE_COMMAND up -d $services
+  return
 }
 
 wait_crowdsec() {
@@ -372,6 +404,7 @@ wait_crowdsec() {
 
 admin_token() {
   $DOCKER_COMPOSE_COMMAND run --rm --no-deps -T netbird-server admin token "$@" --config /etc/netbird/config.yaml
+  return
 }
 
 # revoke_proxy_token revokes the token this run minted if the proxy never started.
@@ -384,6 +417,7 @@ revoke_proxy_token() {
   fi
   echo "Could not revoke the unused proxy token ${PROXY_TOKEN_ID}. Revoke it with:" > /dev/stderr
   echo "  $DOCKER_COMPOSE_COMMAND run --rm netbird-server admin token revoke ${PROXY_TOKEN_ID} --config /etc/netbird/config.yaml" > /dev/stderr
+  return
 }
 
 # start_proxy mints the proxy token and CrowdSec bouncer key, then starts the proxy.
@@ -419,6 +453,7 @@ start_proxy() {
     die "Could not start the proxy. Check the proxy logs, then re-run with --enable-proxy."
   fi
   PROXY_TOKEN_ID=""
+  return
 }
 
 print_proxy_notes() {
@@ -433,10 +468,12 @@ print_proxy_notes() {
   if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
     echo "  CrowdSec is running. Enable it per service in the dashboard under Access Control."
   fi
+  return
 }
 
 init_environment() {
   check_openssl
+  check_traefik_tag
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   if [[ -f .env ]] || [[ -f docker-compose.yml ]] || [[ -f config.yaml ]]; then
@@ -555,12 +592,14 @@ init_environment() {
   if [[ "$LICENSE_VERDICT" == "rejected" ]]; then
     exit 1
   fi
+  return
 }
 
 # service_block NAME prints a service's definition from the compose file on stdin.
 service_block() {
   local name="$1"
   awk -v s="  ${name}:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
+  return
 }
 
 # enable_features adds the proxy and/or traffic events to the install in the
@@ -585,6 +624,9 @@ enable_features() {
   # so the re-render never removes a working Let's Encrypt setup.
   local traefik_block
   traefik_block=$(service_block traefik < docker-compose.yml)
+  # Enabling features does not upgrade Traefik. Preserve the existing header policy,
+  # including its absence on older releases that do not support these options.
+  TRAEFIK_HEADER_CONFIG=$(printf '%s\n' "$traefik_block" | grep -Ei -- '--entrypoints\.[^.]+\.http\.(alias|underscore)headersstrategy=' || true)
   if ! grep -q certificatesresolvers <<< "$traefik_block"; then
     CUSTOM_TLS_CERTS=$(awk '/:\/certs:ro$/ { sub(/^ *- /, ""); sub(/:\/certs:ro$/, ""); print; exit }' <<< "$traefik_block")
   fi
@@ -684,6 +726,7 @@ enable_features() {
   if [[ "$want_proxy" == "yes" ]]; then
     print_proxy_notes
   fi
+  return
 }
 
 rollback() {
@@ -697,6 +740,7 @@ rollback() {
   done
   $DOCKER_COMPOSE_COMMAND up -d --remove-orphans
   $DOCKER_COMPOSE_COMMAND restart netbird-server
+  return
 }
 
 # ------------------------------------------------------------------
@@ -723,7 +767,7 @@ NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
 
 # Reverse proxy (Traefik)
 NETBIRD_LETSENCRYPT_EMAIL=${NETBIRD_LETSENCRYPT_EMAIL}
-NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.6}
+NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.7.14}
 NETBIRD_TRAEFIK_IP=${TRAEFIK_IP}
 
 # Image tags. Default to "latest"
@@ -770,20 +814,23 @@ NETBIRD_ENCRYPTION_KEY=${NETBIRD_ENCRYPTION_KEY}
 # Dashboard OIDC scopes
 NETBIRD_AUTH_SUPPORTED_SCOPES=${NETBIRD_AUTH_SUPPORTED_SCOPES:-openid profile email groups}
 EOF
+  return
 }
 
 render_env_flow() {
   echo "NETBIRD_ENRICHER_TAG=${NETBIRD_ENRICHER_TAG:-latest}"
   echo "NETBIRD_RECEIVER_TAG=${NETBIRD_RECEIVER_TAG:-latest}"
+  return
 }
 
 render_env_proxy() {
   echo "NETBIRD_PROXY_TAG=${NETBIRD_PROXY_TAG:-latest}"
   echo "NETBIRD_PROXY_TOKEN="
   if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
-    echo "NETBIRD_CROWDSEC_TAG=${NETBIRD_CROWDSEC_TAG:-v1.7.7}"
+    echo "NETBIRD_CROWDSEC_TAG=${NETBIRD_CROWDSEC_TAG:-v1.8.1}"
     echo "NETBIRD_CROWDSEC_BOUNCER_KEY="
   fi
+  return
 }
 
 render_docker_compose() {
@@ -801,6 +848,7 @@ render_docker_compose() {
     render_compose_footer
   } | if [[ -n "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then cat; else sed '/NETBIRD_LICENSE_SERVER_BASE_URL/d'; fi \
     | if [[ -n "$CUSTOM_TLS_CERTS" ]]; then sed -e '/certificatesresolvers/d' -e '/certresolver/d'; else cat; fi
+  return
 }
 
 render_compose_header() {
@@ -815,6 +863,7 @@ x-default: &default
 
 services:
 EOF
+  return
 }
 
 render_compose_common() {
@@ -840,6 +889,9 @@ render_compose_common() {
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
+EOF
+  printf '%s\n' "$TRAEFIK_HEADER_CONFIG"
+  cat <<'EOF'
       # readTimeout bounds the whole request, and gRPC streams / relay WebSockets
       # never end one; idleTimeout would close the keep-alive connection they
       # are reused over. Entrypoint-wide is the only scope Traefik offers here.
@@ -916,6 +968,7 @@ EOF
       - LETSENCRYPT_EMAIL=
 
 EOF
+  return
 }
 
 render_compose_server() {
@@ -963,6 +1016,7 @@ render_compose_server() {
       - NETBIRD_LICENSE_SERVER_BASE_URL=${NETBIRD_LICENSE_SERVER_BASE_URL}
 
 EOF
+  return
 }
 
 render_compose_flow() {
@@ -1034,6 +1088,7 @@ render_compose_flow() {
       - traefik.http.services.netbird-flow-h2c.loadbalancer.server.scheme=h2c
 
 EOF
+  return
 }
 
 render_compose_proxy() {
@@ -1097,6 +1152,7 @@ EOF
 EOF
   fi
   echo ""
+  return
 }
 
 render_compose_postgres() {
@@ -1119,6 +1175,7 @@ render_compose_postgres() {
       - netbird_postgres:/var/lib/postgresql/data
 
 EOF
+  return
 }
 
 render_compose_footer() {
@@ -1151,6 +1208,7 @@ networks:
         - subnet: 172.30.0.0/24
           gateway: 172.30.0.1
 EOF
+  return
 }
 
 render_config_yaml() {
@@ -1215,6 +1273,7 @@ EOF
   if [[ "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
     render_config_flow
   fi
+  return
 }
 
 render_config_flow() {
@@ -1225,6 +1284,7 @@ render_config_flow() {
     address: "https://${NETBIRD_DOMAIN}:443"
     interval: "60s"
 EOF
+  return
 }
 
 render_traefik_proxy() {
@@ -1235,6 +1295,7 @@ tcp:
       proxyProtocol:
         version: 2
 EOF
+  return
 }
 
 usage() {
@@ -1249,6 +1310,7 @@ the current directory.
   --enable-traffic-events  add traffic events logging (NATS, receiver, enricher)
   -h, --help               show this help
 EOF
+  return
 }
 
 main() {
@@ -1268,6 +1330,11 @@ main() {
   else
     enable_features "$enable_proxy" "$enable_flow"
   fi
+  return
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  set -e
+  set -o pipefail
+  main "$@"
+fi
