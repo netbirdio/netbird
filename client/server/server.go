@@ -2784,6 +2784,7 @@ func (s *Server) checkUpdateSettingsDisabled() bool {
 	return s.updateSettingsDisabled
 }
 
+// startUpdateManagerForGUI starts the update checker when a UI client subscribes.
 func (s *Server) startUpdateManagerForGUI() {
 	if s.updateManager == nil {
 		return
@@ -2794,8 +2795,7 @@ func (s *Server) startUpdateManagerForGUI() {
 
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
-		isUIActive := internal.CheckUIApp()
-		if !isUIActive && s.config.DisableNotifications != nil && !*s.config.DisableNotifications {
+		if !s.statusRecorder.HasEventSubscribers() && s.config.DisableNotifications != nil && !*s.config.DisableNotifications {
 			if err := sendTerminalNotification(); err != nil {
 				log.Errorf("send session expire terminal notification: %v", err)
 			}
