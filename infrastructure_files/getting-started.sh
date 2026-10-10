@@ -88,13 +88,15 @@ check_jq() {
 }
 
 check_traefik_image() {
-  local image="${TRAEFIK_IMAGE%@*}" tag major minor patch
-  image="${image##*/}"
-  [[ "$image" == *:* ]] || return 0
-  tag="${image##*:}"
+  local image="${TRAEFIK_IMAGE##*/}" major minor patch
 
-  # Opaque tags and digest-only references remain caller-managed.
-  [[ "$tag" =~ ^v?([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?(-.*)?$ ]] || return 0
+  # A version tag cannot establish which release a digest points to.
+  if [[ "$TRAEFIK_IMAGE" == *@* ||
+    ! "$image" =~ ^[^:@]+:v?([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?$ ]]; then
+    echo "Cannot verify TRAEFIK_IMAGE=$TRAEFIK_IMAGE." >&2
+    echo "Use a numeric Traefik version tag (v3.7.13 or newer) without a digest." >&2
+    return 1
+  fi
   major=$((10#${BASH_REMATCH[1]}))
   minor=$((10#${BASH_REMATCH[3]:-0}))
   patch=$((10#${BASH_REMATCH[5]:-0}))
@@ -1802,4 +1804,6 @@ print_post_setup_instructions() {
   return 0
 }
 
-init_environment
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  init_environment
+fi
