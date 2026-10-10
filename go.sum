@@ -611,8 +611,12 @@ github.com/soypat/embedpb v0.0.0-20260812030151-767038853f17 h1:eQSUMTH51+9Y7nG/
 github.com/soypat/embedpb v0.0.0-20260812030151-767038853f17/go.mod h1:D3zaVBIOGGGDgC0LTYJe7CdR9CiBOqiS1FF0iQNkzNI=
 github.com/soypat/lneto v0.3.3-0.20260908095637-37e9d1628ba6 h1:TjACKGDD97oAw84qyF9/2e8WlTsl4uzDQAjHv0sgoBg=
 github.com/soypat/lneto v0.3.3-0.20260908095637-37e9d1628ba6/go.mod h1:Be5PjwoYukvHFiUXxpYi8+ppH2F/gw/vjGBvFdv+Ti8=
+github.com/soypat/lneto v0.3.3-0.20261008193519-6f844c24ff8f h1:B53JOYEc5SRA6/3TuYqxx/WRKZPrqguJ2HrNsIk3qtw=
+github.com/soypat/lneto v0.3.3-0.20261008193519-6f844c24ff8f/go.mod h1:Be5PjwoYukvHFiUXxpYi8+ppH2F/gw/vjGBvFdv+Ti8=
 github.com/soypat/wireguard-go-netbird v0.0.0-20260908100025-a2c77e1f4fa4 h1:XrzhBOjNrFs9h0U13aWlmKrxfTQKdvyRocOdJUCldwU=
 github.com/soypat/wireguard-go-netbird v0.0.0-20260908100025-a2c77e1f4fa4/go.mod h1:G3sMzZtx+Db/CbZ5v0jP77t3r6kiTh623Q4tlu/Qx2o=
+github.com/soypat/wireguard-go-netbird v0.0.0-20261010151858-d0c6950fa455 h1:kpm8DczmIRl5vW4pDWzH2fMlzN9+h1mSCwU5921cPjs=
+github.com/soypat/wireguard-go-netbird v0.0.0-20261010151858-d0c6950fa455/go.mod h1:PsBCqF0MsrIGOMESJJaw/EDrb4pmcIc725YY8HnTkcA=
 github.com/spf13/cast v1.10.0 h1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=
 github.com/spf13/cast v1.10.0/go.mod h1:jNfB8QC9IA6ZuY2ZjDp0KtFO2LZZlg4S/7bzP6qqeHo=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
