@@ -87,6 +87,25 @@ check_jq() {
   return 0
 }
 
+check_traefik_image() {
+  local image="${TRAEFIK_IMAGE%@*}" tag major minor patch
+  image="${image##*/}"
+  [[ "$image" == *:* ]] || return 0
+  tag="${image##*:}"
+
+  # Opaque tags and digest-only references remain caller-managed.
+  [[ "$tag" =~ ^v?([0-9]+)\.([0-9]+)(\.([0-9]+))?(-.*)?$ ]] || return 0
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[2]}))
+  patch=$((10#${BASH_REMATCH[4]:-0}))
+  if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
+    echo "TRAEFIK_IMAGE=$TRAEFIK_IMAGE is incompatible with this configuration." >&2
+    echo "Use Traefik v3.7.13 or newer for aliasHeadersStrategy and its header-sanitization fix." >&2
+    return 1
+  fi
+  return 0
+}
+
 get_main_ip_address() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
@@ -613,6 +632,7 @@ generate_configuration_files() {
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
     0)
+      check_traefik_image || return 1
       render_docker_compose_traefik_builtin > docker-compose.yml
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
@@ -912,7 +932,7 @@ services:
       # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=\${COMPOSE_PROJECT_NAME}_netbird"
+      - "--providers.docker.network=netbird"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
@@ -1014,6 +1034,7 @@ volumes:
 
 networks:
   netbird:
+    name: netbird
     driver: bridge
     ipam:
       config:
