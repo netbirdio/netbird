@@ -94,10 +94,10 @@ check_traefik_image() {
   tag="${image##*:}"
 
   # Opaque tags and digest-only references remain caller-managed.
-  [[ "$tag" =~ ^v?([0-9]+)\.([0-9]+)(\.([0-9]+))?(-.*)?$ ]] || return 0
+  [[ "$tag" =~ ^v?([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?(-.*)?$ ]] || return 0
   major=$((10#${BASH_REMATCH[1]}))
-  minor=$((10#${BASH_REMATCH[2]}))
-  patch=$((10#${BASH_REMATCH[4]:-0}))
+  minor=$((10#${BASH_REMATCH[3]:-0}))
+  patch=$((10#${BASH_REMATCH[5]:-0}))
   if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
     echo "TRAEFIK_IMAGE=$TRAEFIK_IMAGE is incompatible with this configuration." >&2
     echo "Use Traefik v3.7.13 or newer for aliasHeadersStrategy and its header-sanitization fix." >&2
