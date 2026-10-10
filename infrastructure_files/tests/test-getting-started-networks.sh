@@ -13,12 +13,22 @@ mkdir "$test_dir/deployment"
 cd "$test_dir/deployment"
 
 unset COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_ENV_FILES
-TRAEFIK_IMAGE=traefik:v3.7.14
-NETBIRD_DOMAIN=netbird.test
-NETBIRD_AGENT_NETWORK=false
-initialize_default_values
 # The generator's environment must not bake a project name into the output.
-COMPOSE_PROJECT_NAME=render-only generate_configuration_files >/dev/null
+if [[ "${1:-}" == "--migration" ]]; then
+  COMPOSE_PROJECT_NAME=render-only bash -s -- "$script_dir/../migrate.sh" >/dev/null <<'EOF'
+source "$1"
+INSTALL_DIR=$PWD
+DOMAIN=netbird.test
+generate_dashboard_env
+generate_docker_compose_traefik
+EOF
+else
+  TRAEFIK_IMAGE=traefik:v3.7.14
+  NETBIRD_DOMAIN=netbird.test
+  NETBIRD_AGENT_NETWORK=false
+  initialize_default_values
+  COMPOSE_PROJECT_NAME=render-only generate_configuration_files >/dev/null
+fi
 
 assert_network() {
   local expected="$1" actual provider

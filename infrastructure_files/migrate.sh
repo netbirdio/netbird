@@ -851,7 +851,7 @@ services:
       # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=netbird"
+      - "--providers.docker.network=\${COMPOSE_PROJECT_NAME}_netbird"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
@@ -951,7 +951,6 @@ ${volume_config}
 
 networks:
   netbird:
-    name: netbird
     driver: bridge
     ipam:
       config:
@@ -1286,4 +1285,6 @@ main() {
   return 0
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  main "$@"
+fi
