@@ -23,6 +23,9 @@ PROXY_TOKEN_ID=""
 # server trusts X-Forwarded-* headers from this address only.
 TRAEFIK_IP="172.30.0.10"
 
+TRAEFIK_HEADER_CONFIG='      - "--entrypoints.web.http.aliasHeadersStrategy=delete"
+      - "--entrypoints.websecure.http.aliasHeadersStrategy=delete"'
+
 LICENSE_VERDICT="unknown"
 LICENSE_LOG_LINES=""
 
@@ -585,6 +588,9 @@ enable_features() {
   # so the re-render never removes a working Let's Encrypt setup.
   local traefik_block
   traefik_block=$(service_block traefik < docker-compose.yml)
+  # Enabling features does not upgrade Traefik. Preserve the existing header policy,
+  # including its absence on older releases that do not support these options.
+  TRAEFIK_HEADER_CONFIG=$(printf '%s\n' "$traefik_block" | grep -Ei -- '--entrypoints\.[^.]+\.http\.(alias|underscore)headersstrategy=' || true)
   if ! grep -q certificatesresolvers <<< "$traefik_block"; then
     CUSTOM_TLS_CERTS=$(awk '/:\/certs:ro$/ { sub(/^ *- /, ""); sub(/:\/certs:ro$/, ""); print; exit }' <<< "$traefik_block")
   fi
@@ -723,7 +729,7 @@ NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
 
 # Reverse proxy (Traefik)
 NETBIRD_LETSENCRYPT_EMAIL=${NETBIRD_LETSENCRYPT_EMAIL}
-NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.6}
+NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.7.14}
 NETBIRD_TRAEFIK_IP=${TRAEFIK_IP}
 
 # Image tags. Default to "latest"
@@ -781,7 +787,7 @@ render_env_proxy() {
   echo "NETBIRD_PROXY_TAG=${NETBIRD_PROXY_TAG:-latest}"
   echo "NETBIRD_PROXY_TOKEN="
   if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
-    echo "NETBIRD_CROWDSEC_TAG=${NETBIRD_CROWDSEC_TAG:-v1.7.7}"
+    echo "NETBIRD_CROWDSEC_TAG=${NETBIRD_CROWDSEC_TAG:-v1.8.1}"
     echo "NETBIRD_CROWDSEC_BOUNCER_KEY="
   fi
 }
@@ -840,6 +846,9 @@ render_compose_common() {
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
+EOF
+  printf '%s\n' "$TRAEFIK_HEADER_CONFIG"
+  cat <<'EOF'
       # readTimeout bounds the whole request, and gRPC streams / relay WebSockets
       # never end one; idleTimeout would close the keep-alive connection they
       # are reused over. Entrypoint-wide is the only scope Traefik offers here.
