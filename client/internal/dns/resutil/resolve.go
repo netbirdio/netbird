@@ -19,6 +19,34 @@ import (
 // uses when a resolved host has no addresses of the requested family.
 const errNoSuitableAddress = "no suitable address found"
 
+// Extended DNS Error info codes NetBird emits so a client can see why an answer
+// looks the way it does without reading this peer's logs. They live in the RFC
+// 8914 Private Use range (49152-65535) and are registered here, in one place,
+// because nothing else guarantees two NetBird components pick distinct codes.
+const (
+	// EDENetbirdUpstreamTimeout: a DNS forwarder's upstream did not answer.
+	EDENetbirdUpstreamTimeout uint16 = 49152
+	// EDENetbirdUpstreamFailure: a DNS forwarder's upstream failed.
+	EDENetbirdUpstreamFailure uint16 = 49153
+	// EDENetbirdSoftenedNegative: the empty answer is ours, not the answering
+	// resolver's. A handler that owns the name deferred this query type, and the
+	// negative verdict that came back was downgraded so it cannot poison the
+	// name.
+	EDENetbirdSoftenedNegative uint16 = 49154
+)
+
+// AttachEDE adds an Extended DNS Error (RFC 8914) option to a message, creating
+// the OPT pseudo-record if it has none. Callers must only use it toward a client
+// that advertised EDNS0: per RFC 6891 an OPT must not appear otherwise.
+func AttachEDE(msg *dns.Msg, code uint16, text string) {
+	opt := msg.IsEdns0()
+	if opt == nil {
+		msg.SetEdns0(dns.DefaultMsgSize, false)
+		opt = msg.IsEdns0()
+	}
+	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: code, ExtraText: text})
+}
+
 // GenerateRequestID creates a random 8-character hex string for request tracing.
 func GenerateRequestID() string {
 	bytes := make([]byte, 4)
@@ -78,10 +106,38 @@ type resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
+// MetaKey names an annotation a handler attaches to a request to explain the
+// response the chain ends up writing. The set is closed and rendered onto a
+// single log line, so an unrecognized key is a typo inventing a field rather
+// than a new fact.
+type MetaKey string
+
+const (
+	// MetaKeyProtocol: the transport a query arrived on.
+	MetaKeyProtocol MetaKey = "protocol"
+	// MetaKeyUpstream: the upstream that answered.
+	MetaKeyUpstream MetaKey = "upstream"
+	// MetaKeyUpstreamProtocol: the transport used toward that upstream.
+	MetaKeyUpstreamProtocol MetaKey = "upstream_protocol"
+	// MetaKeyPeer: the routing peer whose forwarder answered.
+	MetaKeyPeer MetaKey = "peer"
+	// MetaKeyEDE: an Extended DNS Error carried by the answer.
+	MetaKeyEDE MetaKey = "ede"
+	// MetaKeyTruncated: the answer did not fit and was truncated.
+	MetaKeyTruncated MetaKey = "truncated"
+	// MetaKeySoftened: a negative verdict was rewritten so it cannot poison a
+	// name served locally.
+	MetaKeySoftened MetaKey = "softened"
+	// MetaKeyDeferredBy: the handler that owned the name and stepped aside.
+	MetaKeyDeferredBy MetaKey = "deferred_by"
+	// MetaKeyDeferredReason: why it stepped aside.
+	MetaKeyDeferredReason MetaKey = "deferred_reason"
+)
+
 // chainedWriter is implemented by ResponseWriters that carry request metadata
 type chainedWriter interface {
 	RequestID() string
-	SetMeta(key, value string)
+	SetMeta(key MetaKey, value string)
 }
 
 // GetRequestID extracts a request ID from the ResponseWriter if available,
@@ -96,9 +152,27 @@ func GetRequestID(w dns.ResponseWriter) string {
 }
 
 // SetMeta sets metadata on the ResponseWriter if it supports it.
-func SetMeta(w dns.ResponseWriter, key, value string) {
+func SetMeta(w dns.ResponseWriter, key MetaKey, value string) {
 	if cw, ok := w.(chainedWriter); ok {
 		cw.SetMeta(key, value)
+	}
+}
+
+// softNegativeRequester is implemented by chain writers that can soften the
+// negative verdict of the handlers a deferring handler falls through to.
+type softNegativeRequester interface {
+	RequestSoftNegative()
+}
+
+// RequestSoftNegative asks the handler chain to downgrade an NXDOMAIN from the
+// handlers that run after the caller defers. A handler that owns a name but
+// cannot answer one query type for it needs this: the resolvers it falls
+// through to cannot prove the name absent, and an NXDOMAIN from them is cached
+// for the name and every type under it (RFC 2308, RFC 8020), taking the
+// addresses the handler does serve down with it.
+func RequestSoftNegative(w dns.ResponseWriter) {
+	if sn, ok := w.(softNegativeRequester); ok {
+		sn.RequestSoftNegative()
 	}
 }
 
@@ -199,11 +273,27 @@ type RecordResolver interface {
 	LookupAddr(ctx context.Context, addr string) ([]string, error)
 }
 
+// SupportedRecordQtype reports whether LookupRecords can resolve qtype. The
+// set is bounded by the net.Resolver API, which exposes no way to query an
+// arbitrary record type, and going around it with a raw exchange would mean
+// picking nameservers ourselves instead of resolving the way the host does.
+//
+// Both ends read this: a DNS forwarder answers these types for the domains it
+// routes, and a client uses it to tell which types are worth forwarding to a
+// peer at all.
+func SupportedRecordQtype(qtype uint16) bool {
+	switch qtype {
+	case dns.TypeMX, dns.TypeTXT, dns.TypeNS, dns.TypeSRV, dns.TypeCNAME, dns.TypePTR:
+		return true
+	default:
+		return false
+	}
+}
+
 // LookupRecords resolves a non-address DNS record type through the host
-// resolver and returns the resource records and the DNS rcode. Types the host
-// resolver cannot answer (anything not covered by the net.Resolver Lookup*
-// methods) yield NODATA so that a routed name is never poisoned with NXDOMAIN
-// for an unsupported type.
+// resolver and returns the resource records and the DNS rcode. Types outside
+// SupportedRecordQtype yield NODATA so that a routed name is never poisoned
+// with NXDOMAIN for a type we cannot look up.
 func LookupRecords(ctx context.Context, r RecordResolver, name string, qtype uint16, ttl uint32) ([]dns.RR, int) {
 	fqdn := dns.Fqdn(name)
 
