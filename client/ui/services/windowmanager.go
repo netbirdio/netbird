@@ -96,7 +96,7 @@ var storedAppearance atomic.Value // Appearance
 var resolveAppearance atomic.Value // func() Appearance
 
 func init() {
-	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: true})
+	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: false})
 }
 
 func setAppearance(pref preferences.Theme, dark bool) {
