@@ -8,6 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestInterfaceFilterBridgeNames checks that only the bridge names Docker generates
+// are excluded from ICE candidate gathering, and that OpenWrt's br-lan, br-wan and
+// br-guest stay available, including when an older client persisted a bare "br-"
+// entry into its disallow list.
 func TestInterfaceFilterBridgeNames(t *testing.T) {
 	if runtime.GOOS == "ios" {
 		t.Skip("the disallow list is not applied on iOS")
