@@ -73,29 +73,40 @@ func GetInfo(ctx context.Context) *Info {
 }
 
 func sysInfo() (serialNumber string, productName string, manufacturer string) {
-	out, _ := exec.Command("/usr/sbin/ioreg", "-l").Output() // err ignored for brevity
-	for _, l := range strings.Split(string(out), "\n") {
-		if strings.Contains(l, "IOPlatformSerialNumber") {
-			serialNumber = trimIoRegLine(l)
-		}
-
-		if strings.Contains(l, "ModelNumber") && productName == "" {
-			productName = trimIoRegLine(l)
-		}
-
-		if strings.Contains(l, "device manufacturer") && manufacturer == "" {
-			manufacturer = trimIoRegLine(l)
-		}
-
-	}
-	return
+	out, _ := exec.Command("/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+	return parsePlatformInfo(out)
 }
 
-func trimIoRegLine(l string) string {
-	kv := strings.Split(l, "=")
-	if len(kv) != 2 {
-		return ""
+func parsePlatformInfo(out []byte) (serialNumber, productName, manufacturer string) {
+	for _, line := range strings.Split(string(out), "\n") {
+		keyValue := strings.SplitN(line, "=", 2)
+		if len(keyValue) != 2 {
+			continue
+		}
+
+		key := strings.Trim(strings.TrimSpace(strings.TrimLeft(keyValue[0], " \t|")), `"`)
+		value := normalizeIORegValue(keyValue[1])
+
+		switch key {
+		case "IOPlatformSerialNumber":
+			serialNumber = value
+		case "model":
+			productName = value
+		case "manufacturer":
+			manufacturer = value
+		}
 	}
-	s := strings.TrimSpace(kv[1])
-	return strings.Trim(s, `"`)
+
+	return serialNumber, productName, manufacturer
+}
+
+func normalizeIORegValue(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, `<"`) && strings.HasSuffix(value, `">`) {
+		return strings.TrimSuffix(strings.TrimPrefix(value, `<"`), `">`)
+	}
+	if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
+		return strings.TrimSuffix(strings.TrimPrefix(value, `"`), `"`)
+	}
+	return value
 }
