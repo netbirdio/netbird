@@ -934,7 +934,7 @@ services:
       # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=netbird"
+      - "--providers.docker.network=\${COMPOSE_PROJECT_NAME}_netbird"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
@@ -1036,7 +1036,6 @@ volumes:
 
 networks:
   netbird:
-    name: netbird
     driver: bridge
     ipam:
       config:
