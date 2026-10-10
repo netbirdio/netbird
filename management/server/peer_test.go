@@ -3050,3 +3050,184 @@ func TestResolvePeerLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	account.Settings.PeerHostnameCollisionRejected = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key", types.SetupKeyReusable, time.Hour, nil, 100, "owner", false, false)
+	require.NoError(t, err)
+	ephemeralKey, err := manager.CreateSetupKey(context.Background(), account.Id, "ephemeral", types.SetupKeyReusable, time.Hour, nil, 100, "owner", true, false)
+	require.NoError(t, err)
+
+	addPeer := func(hostname, key string) (*nbpeer.Peer, error) {
+		wgKey, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		peer := &nbpeer.Peer{
+			Key:  wgKey.PublicKey().String(),
+			Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+		}
+		added, _, _, _, err := manager.AddPeer(context.Background(), "", key, "", peer, false)
+		return added, err
+	}
+
+	first, err := addPeer("my-host", setupKey.Key)
+	require.NoError(t, err)
+	assert.Equal(t, "my-host", first.DNSLabel)
+
+	_, err = addPeer("My-Host", setupKey.Key)
+	require.Error(t, err)
+	e, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.AlreadyExists, e.Type())
+
+	other, err := addPeer("other-host", setupKey.Key)
+	require.NoError(t, err)
+	assert.Equal(t, "other-host", other.DNSLabel)
+
+	_, err = addPeer("my-host", ephemeralKey.Key)
+	require.Error(t, err)
+	e, ok = status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.AlreadyExists, e.Type())
+
+	ephemeral, err := addPeer("ephemeral-host", ephemeralKey.Key)
+	require.NoError(t, err)
+	assert.Equal(t, "ephemeral-host", ephemeral.DNSLabel)
+
+	account.Settings.PeerHostnameCollisionRejected = false
+	require.NoError(t, manager.Store.SaveAccountSettings(context.Background(), account.Id, account.Settings))
+
+	suffixed, err := addPeer("my-host", setupKey.Key)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(suffixed.DNSLabel, "my-host-"))
+}
+
+func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	account.Settings.PeerHostnameCollisionRejected = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	addPeer := func(hostname string) *nbpeer.Peer {
+		wgKey, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		added, _, _, _, err := manager.AddPeer(context.Background(), "", "", "owner", &nbpeer.Peer{
+			Key:  wgKey.PublicKey().String(),
+			Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+		}, false)
+		require.NoError(t, err)
+		return added
+	}
+	first := addPeer("web-server")
+	second := addPeer("old-name")
+
+	update := second.Copy()
+	update.Name = "Web-Server"
+	_, err = manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	require.Error(t, err)
+	e, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.AlreadyExists, e.Type())
+
+	update = second.Copy()
+	update.Name = "api-server.example.com"
+	updated, err := manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	require.NoError(t, err)
+	assert.Equal(t, "api-server", updated.DNSLabel)
+
+	update = first.Copy()
+	update.Name = "WEB-SERVER"
+	updated, err = manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	require.NoError(t, err, "renaming to a different spelling of the own label must not collide with itself")
+	assert.Equal(t, "web-server", updated.DNSLabel)
+}
+
+func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	account.Settings.PeerHostnameCollisionRejected = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key", types.SetupKeyReusable, time.Hour, nil, 100, "owner", false, false)
+	require.NoError(t, err)
+
+	const attempts = 20
+	start := make(chan struct{})
+	errs := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wgKey, err := wgtypes.GenerateKey()
+			if err != nil {
+				errs <- err
+				return
+			}
+			<-start
+			_, _, _, _, err = manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+				Key:  wgKey.PublicKey().String(),
+				Meta: nbpeer.PeerSystemMeta{Hostname: "same-host", OS: "linux"},
+			}, false)
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	succeeded := 0
+	for err := range errs {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		e, ok := status.FromError(err)
+		require.True(t, ok, "unexpected error: %v", err)
+		assert.Equal(t, status.AlreadyExists, e.Type(), "unexpected error: %v", err)
+	}
+	assert.Equal(t, 1, succeeded)
+
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	assert.Equal(t, "same-host", peers[0].DNSLabel)
+}
+
+func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
+	for _, rejectCollision := range []bool{false, true} {
+		t.Run(fmt.Sprintf("collision rejected %t", rejectCollision), func(t *testing.T) {
+			manager, _, err := createManager(t)
+			require.NoError(t, err)
+
+			account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+			account.Settings.PeerHostnameCollisionRejected = rejectCollision
+			_, smallNet, err := net.ParseCIDR("100.64.0.0/28")
+			require.NoError(t, err)
+			account.Network.Net = *smallNet
+			require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+			const totalPeers = 12
+			for i := 0; i < totalPeers; i++ {
+				wgKey, err := wgtypes.GenerateKey()
+				require.NoError(t, err)
+				hostname := fmt.Sprintf("host-%d", i)
+				added, _, _, _, err := manager.AddPeer(context.Background(), "", "", "owner", &nbpeer.Peer{
+					Key:  wgKey.PublicKey().String(),
+					Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+				}, false)
+				require.NoError(t, err)
+				assert.Equal(t, hostname, added.DNSLabel, "an IP collision must not change the DNS label")
+			}
+		})
+	}
+}

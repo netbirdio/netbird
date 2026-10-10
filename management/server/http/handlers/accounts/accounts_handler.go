@@ -286,6 +286,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.MetricsPushEnabled != nil {
 		returnSettings.MetricsPushEnabled = *req.Settings.MetricsPushEnabled
 	}
+	if req.Settings.PeerHostnameCollisionRejected != nil {
+		returnSettings.PeerHostnameCollisionRejected = *req.Settings.PeerHostnameCollisionRejected
+	}
 	if req.Settings.AgentNetworkOnly != nil {
 		returnSettings.AgentNetworkOnly = *req.Settings.AgentNetworkOnly
 	}
@@ -432,6 +435,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
 		Ipv6EnabledGroups:               &settings.IPv6EnabledGroups,
 		MetricsPushEnabled:              &settings.MetricsPushEnabled,
+		PeerHostnameCollisionRejected:   &settings.PeerHostnameCollisionRejected,
 		AgentNetworkOnly:                &settings.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
