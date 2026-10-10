@@ -73,6 +73,29 @@ func TestPrivilegeDropper_ValidatePrivileges(t *testing.T) {
 	}
 }
 
+func TestPrivilegeDropper_CreateExecutorCommandWithPTY(t *testing.T) {
+	pd := NewPrivilegeDropper()
+	currentUID := uint32(os.Geteuid())
+	currentGID := uint32(os.Getegid())
+
+	config := ExecutorConfig{
+		UID:        currentUID,
+		GID:        currentGID,
+		Groups:     []uint32{currentGID},
+		WorkingDir: "/home/testuser",
+		Shell:      "/bin/bash",
+		Command:    "",
+		PTY:        true,
+	}
+
+	cmd, err := pd.CreateExecutorCommand(context.Background(), config)
+	require.NoError(t, err)
+	require.NotNil(t, cmd)
+
+	assert.Contains(t, cmd.Args, "--pty")
+	assert.NotContains(t, cmd.Args, "--cmd")
+}
+
 // TestPrivilegeDropper_ActualPrivilegeDrop tests actual privilege dropping
 // This test requires root privileges and will be skipped if not running as root
 func TestPrivilegeDropper_ActualPrivilegeDrop(t *testing.T) {
