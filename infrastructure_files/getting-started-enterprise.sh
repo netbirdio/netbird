@@ -55,6 +55,24 @@ check_openssl() {
   fi
 }
 
+# check_traefik_tag dies if a caller-supplied NETBIRD_TRAEFIK_TAG predates
+# aliasHeadersStrategy (added in v3.7.12) or its CVE-2026-88004 fix (v3.7.13),
+# since the fresh-install compose always sets that flag. Tags we can't parse
+# as a plain vX.Y.Z version (latest, a digest, a custom mirror tag) are left
+# to the caller.
+check_traefik_tag() {
+  local tag="${NETBIRD_TRAEFIK_TAG:-}" ver major minor patch
+  [[ -n "$tag" ]] || return 0
+  ver="${tag#v}"
+  [[ "$ver" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]] || return 0
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  patch="${BASH_REMATCH[4]:-0}"
+  if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
+    die "NETBIRD_TRAEFIK_TAG=$tag predates aliasHeadersStrategy and its CVE-2026-88004 fix (added in v3.7.12, fixed in v3.7.13), which this installer always enables. Use v3.7.13 or newer, or unset NETBIRD_TRAEFIK_TAG for the default (v3.7.14)."
+  fi
+}
+
 die() {
   echo "$1" > /dev/stderr
   exit 1
@@ -440,6 +458,7 @@ print_proxy_notes() {
 
 init_environment() {
   check_openssl
+  check_traefik_tag
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   if [[ -f .env ]] || [[ -f docker-compose.yml ]] || [[ -f config.yaml ]]; then
