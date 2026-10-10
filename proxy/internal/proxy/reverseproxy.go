@@ -710,15 +710,125 @@ func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, c
 }
 
 // stripSessionCookie removes the proxy's session cookie from the outgoing
-// request while preserving all other cookies.
+// request. It edits the raw header because the stdlib parser drops cookies
+// whose values fall outside the RFC 6265 cookie-octet range.
 func stripSessionCookie(r *httputil.ProxyRequest) {
-	cookies := r.In.Cookies()
-	r.Out.Header.Del("Cookie")
-	for _, c := range cookies {
-		if c.Name != auth.SessionCookieName {
-			r.Out.AddCookie(c)
+	in := r.In.Header.Values("Cookie")
+	if len(in) == 0 {
+		return
+	}
+
+	out := make([]string, 0, len(in))
+	changed := false
+	for _, line := range in {
+		stripped, removed := stripCookiePair(line, auth.SessionCookieName)
+		if removed {
+			changed = true
+		}
+		if stripped != "" {
+			out = append(out, stripped)
 		}
 	}
+
+	switch {
+	case len(out) == 0:
+		r.Out.Header.Del("Cookie")
+	case changed:
+		r.Out.Header.Set("Cookie", strings.Join(out, "; "))
+	default:
+		r.Out.Header["Cookie"] = in
+	}
+}
+
+// stripCookiePair removes every pair named name from one raw Cookie header
+// value, together with one adjacent separator, leaving all other bytes as-is.
+func stripCookiePair(line, name string) (string, bool) {
+	out := make([]byte, 0, len(line))
+	removed := false
+	lastSemi := -1
+
+	segStart := 0
+	for segStart < len(line) {
+		sep := nextCookieSeparator(line, segStart)
+		if cookiePairMatches(line[segStart:sep], name) {
+			removed = true
+			if sep < len(line) {
+				segStart = skipCookieSeparator(line, sep)
+				if segStart < len(line) {
+					continue
+				}
+			}
+			if lastSemi >= 0 {
+				out = out[:lastSemi]
+			}
+			break
+		}
+		end := sep
+		if sep < len(line) {
+			end = skipCookieSeparator(line, sep)
+		}
+		start := len(out)
+		out = append(out, line[segStart:end]...)
+		if sep < len(line) {
+			lastSemi = start + (sep - segStart)
+		}
+		segStart = end
+	}
+	return string(out), removed
+}
+
+// nextCookieSeparator returns the index of the next ';' at or after start that
+// is not inside a quoted value, or len(line).
+func nextCookieSeparator(line string, start int) int {
+	valueStart := -1
+	for i := start; i < len(line); i++ {
+		switch line[i] {
+		case '"':
+			if i == valueStart {
+				if end, ok := skipQuotedValue(line, i); ok {
+					i = end - 1
+				}
+			}
+		case '=':
+			if valueStart < 0 {
+				valueStart = i + 1
+				for valueStart < len(line) && (line[valueStart] == ' ' || line[valueStart] == '\t') {
+					valueStart++
+				}
+			}
+		case ';':
+			return i
+		}
+	}
+	return len(line)
+}
+
+func skipQuotedValue(line string, i int) (int, bool) {
+	for j := i + 1; j < len(line); j++ {
+		if line[j] == '\\' {
+			j++
+			continue
+		}
+		if line[j] == '"' {
+			return j + 1, true
+		}
+	}
+	return 0, false
+}
+
+func skipCookieSeparator(line string, sep int) int {
+	sep++
+	for sep < len(line) && (line[sep] == ' ' || line[sep] == '\t') {
+		sep++
+	}
+	return sep
+}
+
+func cookiePairMatches(segment, name string) bool {
+	if eq := strings.IndexByte(segment, '='); eq >= 0 {
+		segment = segment[:eq]
+	}
+	return strings.Trim(segment, " \t") == name
 }
 
 // stripSessionTokenQuery removes the OIDC session hand-off query parameters
