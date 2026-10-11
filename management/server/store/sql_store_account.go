@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -324,30 +325,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 	}()
 
-	var account types.Account
-	result := s.db.Model(&account).
-		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
-		Preload("Policies.Rules").
-		Preload("SetupKeysG").
-		Preload("PeersG").
-		Preload("UsersG").
-		Preload("GroupsG.GroupPeers").
-		Preload("RoutesG").
-		Preload("NameServerGroupsG").
-		Preload("PostureChecks").
-		Preload("Networks").
-		Preload("NetworkRouters").
-		Preload("NetworkResources").
-		Preload("Onboarding").
-		Preload("Services.Targets").
-		Preload("Domains").
-		Take(&account, idQueryCondition, accountID)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.NewAccountNotFoundError(accountID)
-		}
-		return nil, status.NewGetAccountFromStoreError(result.Error)
+	account, err := s.loadAccountGorm(ctx, accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
@@ -417,7 +397,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
-	return &account, nil
+	return account, nil
 }
 
 func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.Account, error) {
@@ -426,168 +406,8 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		return nil, err
 	}
 
-	var wg sync.WaitGroup
-	errChan := make(chan error, 16)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		keys, err := s.getSetupKeys(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.SetupKeysG = keys
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		peers, err := s.getPeers(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.PeersG = peers
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		users, err := s.getUsers(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.UsersG = users
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		groups, err := s.getGroups(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.GroupsG = groups
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		policies, err := s.getPolicies(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Policies = policies
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		routes, err := s.getRoutes(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.RoutesG = routes
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		nsgs, err := s.getNameServerGroups(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.NameServerGroupsG = nsgs
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		checks, err := s.getPostureChecks(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.PostureChecks = checks
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		services, err := s.getServices(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Services = services
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		domains, err := s.ListCustomDomains(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Domains = domains
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		networks, err := s.getNetworks(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.Networks = networks
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		routers, err := s.getNetworkRouters(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.NetworkRouters = routers
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		resources, err := s.getNetworkResources(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.NetworkResources = resources
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := s.getAccountOnboarding(ctx, accountID, account)
-		if err != nil {
-			errChan <- err
-			return
-		}
-	}()
-
-	wg.Wait()
-	close(errChan)
-	for e := range errChan {
-		if e != nil {
-			return nil, e
-		}
+	if err := s.loadAccountPgxCollections(ctx, accountID, account); err != nil {
+		return nil, err
 	}
 
 	var userIDs []string
@@ -603,8 +423,9 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		groupIDs = append(groupIDs, g.ID)
 	}
 
+	var wg sync.WaitGroup
 	wg.Add(3)
-	errChan = make(chan error, 3)
+	errChan := make(chan error, 3)
 
 	var pats []types.PersonalAccessToken
 	go func() {
@@ -644,6 +465,13 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		}
 	}
 
+	if err := s.populateAccountPgxRelations(account, pats, rules, groupPeers); err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
+func (s *SqlStore) populateAccountPgxRelations(account *types.Account, pats []types.PersonalAccessToken, rules []*types.PolicyRule, groupPeers []types.GroupPeer) error {
 	patsByUserID := make(map[string][]*types.PersonalAccessToken)
 	for i := range pats {
 		pat := &pats[i]
@@ -677,7 +505,7 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	for i := range account.UsersG {
 		user := &account.UsersG[i]
 		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
-			return nil, fmt.Errorf("decrypt user: %w", err)
+			return fmt.Errorf("decrypt user: %w", err)
 		}
 		user.PATs = make(map[string]*types.PersonalAccessToken)
 		if userPats, ok := patsByUserID[user.Id]; ok {
@@ -725,7 +553,95 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	account.RoutesG = nil
 	account.NameServerGroupsG = nil
 
-	return account, nil
+	return nil
+}
+
+func (s *SqlStore) loadAccountPgxCollections(ctx context.Context, accountID string, account *types.Account) error {
+	var loaders errgroup.Group
+
+	loaders.Go(func() error {
+		var err error
+		account.SetupKeysG, err = s.getSetupKeys(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.PeersG, err = s.getPeers(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.UsersG, err = s.getUsers(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.GroupsG, err = s.getGroups(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.Policies, err = s.getPolicies(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.RoutesG, err = s.getRoutes(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.NameServerGroupsG, err = s.getNameServerGroups(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.PostureChecks, err = s.getPostureChecks(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.Services, err = s.getServices(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.Domains, err = s.ListCustomDomains(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.Networks, err = s.getNetworks(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.NetworkRouters, err = s.getNetworkRouters(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		var err error
+		account.NetworkResources, err = s.getNetworkResources(ctx, accountID)
+		return err
+	})
+
+	loaders.Go(func() error {
+		return s.getAccountOnboarding(ctx, accountID, account)
+	})
+
+	return loaders.Wait()
 }
 
 func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Account, error) {
@@ -1173,4 +1089,36 @@ func (s *SqlStore) UpdateAccountNetworkV6(ctx context.Context, accountID string,
 		return status.NewAccountNotFoundError(accountID)
 	}
 	return nil
+}
+
+func (s *SqlStore) loadAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
+	var account types.Account
+	result := s.db.Model(&account).
+		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
+		Preload("Policies.Rules").
+		Preload("SetupKeysG").
+		Preload("PeersG").
+		Preload("UsersG").
+		Preload("GroupsG.GroupPeers").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		Preload("PostureChecks").
+		Preload("Networks").
+		Preload("NetworkRouters").
+		Preload("NetworkResources").
+		Preload("Onboarding").
+		Preload("Services.Targets").
+		Preload("Services.PortMappings", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("position ASC").Order("id ASC")
+		}).
+		Preload("Domains").
+		Take(&account, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+	return &account, nil
 }

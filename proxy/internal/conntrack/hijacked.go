@@ -3,6 +3,8 @@ package conntrack
 import (
 	"net/http"
 	"sync"
+
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 )
 
 // HijackTracker tracks connections that have been hijacked (e.g. WebSocket
@@ -27,7 +29,7 @@ func (t *HijackTracker) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(&trackingWriter{
 			ResponseWriter: w,
 			tracker:        t,
-			host:           hostOnly(r.Host),
+			host:           netutil.NormalizeHost(r.Host),
 		}, r)
 	})
 }
@@ -48,7 +50,7 @@ func (t *HijackTracker) CloseAll() int {
 // CloseByHost closes all tracked hijacked connections for the given host
 // and returns the number of connections closed.
 func (t *HijackTracker) CloseByHost(host string) int {
-	host = hostOnly(host)
+	host = netutil.NormalizeHost(host)
 	t.mu.Lock()
 	var toClose []*trackedConn
 	for tc := range t.conns {
@@ -80,17 +82,4 @@ func (t *HijackTracker) remove(tc *trackedConn) {
 	t.mu.Lock()
 	delete(t.conns, tc)
 	t.mu.Unlock()
-}
-
-// hostOnly strips the port from a host:port string.
-func hostOnly(hostport string) string {
-	for i := len(hostport) - 1; i >= 0; i-- {
-		if hostport[i] == ':' {
-			return hostport[:i]
-		}
-		if hostport[i] < '0' || hostport[i] > '9' {
-			return hostport
-		}
-	}
-	return hostport
 }

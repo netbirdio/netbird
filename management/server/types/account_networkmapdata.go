@@ -150,6 +150,17 @@ func TwinServices(services []*service.Service) []*nmdata.Service {
 				TargetType: string(t.TargetType),
 			})
 		}
+		portMappings := make([]*nmdata.PortMapping, 0, len(svc.PortMappings))
+		for _, mapping := range svc.PortMappings {
+			if mapping == nil {
+				continue
+			}
+			portMappings = append(portMappings, &nmdata.PortMapping{
+				Protocol:        mapping.Protocol,
+				TargetPortStart: mapping.TargetPortStart,
+				TargetPortEnd:   mapping.TargetPortEnd,
+			})
+		}
 		out = append(out, &nmdata.Service{
 			ID:           svc.ID,
 			Enabled:      svc.Enabled,
@@ -159,6 +170,7 @@ func TwinServices(services []*service.Service) []*nmdata.Service {
 			ProxyCluster: svc.ProxyCluster,
 			AccessGroups: svc.AccessGroups,
 			Targets:      targets,
+			PortMappings: portMappings,
 		})
 	}
 	return out

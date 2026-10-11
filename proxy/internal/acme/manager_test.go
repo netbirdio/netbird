@@ -228,6 +228,25 @@ func TestWildcardAddDomainSkipsACME(t *testing.T) {
 	assert.Contains(t, mgr.FailedDomains(), "other.net")
 }
 
+func TestDomainOwnershipPreventsStaleRemoval(t *testing.T) {
+	wcDir := t.TempDir()
+	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
+	mgr, err := NewManager(ManagerConfig{
+		CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir,
+	}, nil, nil, nil)
+	require.NoError(t, err)
+
+	wildcard, ok := mgr.AddDomainForService("foo.example.com", "acct", "new")
+	require.True(t, ok)
+	require.True(t, wildcard)
+	_, ok = mgr.AddDomainForService("foo.example.com", "acct", "old")
+	assert.False(t, ok)
+	assert.False(t, mgr.RemoveDomainForService("foo.example.com", "old"))
+	assert.Equal(t, 1, mgr.TotalDomains())
+	assert.True(t, mgr.RemoveDomainForService("foo.example.com", "new"))
+	assert.Zero(t, mgr.TotalDomains(), "successful removal must delete the wildcard domain")
+}
+
 func TestWildcardGetCertificate(t *testing.T) {
 	wcDir := t.TempDir()
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")

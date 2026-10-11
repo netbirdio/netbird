@@ -471,6 +471,33 @@ func TestRouter_SetRemoveFallback(t *testing.T) {
 	assert.True(t, router.IsEmpty(), "router with no routes and no fallback should be empty")
 }
 
+func TestRouter_FallbackOwnership(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	require.True(t, router.SetFallback(Route{Type: RouteTCP, ServiceID: "svc-a"}))
+	require.False(t, router.SetFallback(Route{Type: RouteTCP, ServiceID: "svc-b"}),
+		"another service must not overwrite the fallback")
+	owner, ok := router.FallbackOwner()
+	require.True(t, ok)
+	assert.Equal(t, types.ServiceID("svc-a"), owner)
+
+	router.RemoveFallback("svc-b")
+	owner, ok = router.FallbackOwner()
+	require.True(t, ok, "stale cleanup must preserve the current owner")
+	assert.Equal(t, types.ServiceID("svc-a"), owner)
+	router.RemoveFallback("svc-a")
+	_, ok = router.FallbackOwner()
+	assert.False(t, ok)
+}
+
+func TestRouter_NormalizesSNIKeys(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	router.AddRoute("Example.COM.", Route{Type: RouteTCP, ServiceID: "svc-a"})
+	owners := router.RouteOwners("EXAMPLE.COM")
+	require.Equal(t, []types.ServiceID{"svc-a"}, owners)
+	router.RemoveRoute("example.com.", "svc-a")
+	assert.True(t, router.IsEmpty())
+}
+
 func TestPortRouter_FallbackRelaysData(t *testing.T) {
 	// Backend echo server.
 	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1964,4 +1991,3 @@ func TestRouter_Serve_BacksOffOnTransientError(t *testing.T) {
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
-
