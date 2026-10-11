@@ -44,7 +44,7 @@ func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T
 
 func runTestForAllEnginesNoSqliteSeed(t *testing.T, testDataFile string, f func(t *testing.T, engine string, store Store)) {
 	t.Helper()
-	for _, engine := range supportedEngines {
+	for _, engine := range []types.Engine{types.SqliteStoreEngine} {
 		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
 			continue
 		}

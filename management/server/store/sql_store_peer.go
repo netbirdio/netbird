@@ -504,8 +504,9 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 	query := tx.Where("peers.account_id=?", accountID)
-	query = pagination.AsScope(query)
 	query = filters.AsConditions(query)
+	query = pagination.AsScope(query)
+	query = sorting.AsOderBy(query)
 
 	if err := query.Distinct().Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
@@ -585,6 +586,37 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 }
 
 type PeerSorting struct {
+	ByName               bool
+	ByNameDescending     bool
+	ByAddress            bool
+	ByAddressDescending  bool
+	ByLastSeen           bool
+	ByLastSeenDescending bool
+	ByVersion            bool
+	ByVersionDescending  bool
+}
+
+func (s *PeerSorting) AsOderBy(db *gorm.DB) *gorm.DB {
+	order := make([]clause.OrderByColumn, 0)
+	if s.ByName {
+		order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: s.ByNameDescending})
+	}
+	if s.ByAddress {
+		order = append(order,
+			clause.OrderByColumn{Column: clause.Column{Name: "peers.ip"}, Desc: s.ByAddressDescending},
+			clause.OrderByColumn{Column: clause.Column{Name: "peers.ipv6"}, Desc: s.ByAddressDescending})
+	}
+	if s.ByLastSeen {
+		order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: s.ByLastSeenDescending})
+	}
+	if s.ByVersion {
+		order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "meta_wt_version"}, Desc: s.ByVersionDescending})
+	}
+
+	if len(order) == 0 {
+		return db
+	}
+	return db.Order(clause.OrderBy{Columns: order})
 }
 
 // GetUserPeers retrieves peers for a user.
