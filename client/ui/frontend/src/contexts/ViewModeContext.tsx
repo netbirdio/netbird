@@ -11,6 +11,7 @@ import {
 import { Window } from "@wailsio/runtime";
 import { Preferences } from "@bindings/services";
 import { ViewMode as ViewModePref } from "@bindings/preferences/models.js";
+import { isLinux } from "@/lib/platform";
 
 export type ViewMode = "default" | "advanced";
 
@@ -60,7 +61,10 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
                 console.warn("[ViewModeContext] read window size failed", err);
                 return null;
             });
-            const width = VIEW_WIDTH[mode];
+            let width = VIEW_WIDTH[mode];
+            if (isLinux() && window.devicePixelRatio > 1) {
+                width = Math.round(width * window.devicePixelRatio);
+            }
             const height = size?.height ?? 640;
             await Window.SetSize(width, height).catch((err: unknown) =>
                 console.warn("[ViewModeContext] set window size failed", err),
