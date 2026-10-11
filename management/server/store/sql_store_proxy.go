@@ -358,6 +358,14 @@ func (s *SqlStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr st
 	return s.getClusterCapability(ctx, clusterAddr, "private")
 }
 
+// GetClusterAllProxiesPrivate reports whether every active proxy in the cluster
+// has the private capability. Returns nil when no proxy reported the capability.
+// Use it where any proxy in the cluster may serve the result, since a single
+// non-private proxy would serve it without the private guarantees.
+func (s *SqlStore) GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterUnanimousCapability(ctx, clusterAddr, "private")
+}
+
 // GetClusterSupportsCrowdSec returns whether all active proxies in the cluster
 // have CrowdSec configured. Returns nil when no proxy reported the capability.
 // Unlike other capabilities that use ANY-true (for rolling upgrades), CrowdSec

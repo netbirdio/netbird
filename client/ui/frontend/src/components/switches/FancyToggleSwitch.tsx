@@ -42,7 +42,7 @@ export default function FancyToggleSwitch({
                 role={"status"}
                 aria-busy={"true"}
                 aria-live={"polite"}
-                className={cn("inline-block w-full text-left", className)}
+                className={cn("inline-block w-full text-start", className)}
             >
                 <div className={"flex justify-between gap-10"}>
                     <div className={cn(textWrapperClassName)}>
@@ -55,7 +55,7 @@ export default function FancyToggleSwitch({
                             </span>
                         </HelpText>
                     </div>
-                    <div className={"mt-2 pr-1"}>
+                    <div className={"mt-2 pe-1"}>
                         <div
                             aria-hidden={"true"}
                             className={
@@ -73,7 +73,7 @@ export default function FancyToggleSwitch({
             {...(disabled ? { inert: "" } : {})}
             className={cn(
                 "relative z-[1] cursor-default transition-all duration-300",
-                "inline-block w-full text-left",
+                "inline-block w-full text-start",
                 disabled && "pointer-events-none opacity-30",
                 className,
             )}
@@ -87,7 +87,7 @@ export default function FancyToggleSwitch({
                         <span id={descriptionId}>{helpText}</span>
                     </HelpText>
                 </div>
-                <div className={"mt-2 pr-1"}>
+                <div className={"mt-2 pe-1"}>
                     <ToggleSwitch
                         id={switchId}
                         checked={value}

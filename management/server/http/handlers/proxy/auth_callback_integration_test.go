@@ -532,8 +532,8 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 		wantParam   string
 		absentParam string
 	}{
-		{name: "legacy proxy", manager: testSessionCodeManager{}, wantParam: "session_token", absentParam: "session_code"},
-		{name: "compatible proxy", manager: testSessionCodeManager{supported: true}, wantParam: "session_code", absentParam: "session_token"},
+		{name: "legacy proxy", manager: testSessionCodeManager{}, wantParam: "session_token", absentParam: "nb_session_code"},
+		{name: "compatible proxy", manager: testSessionCodeManager{supported: true}, wantParam: "nb_session_code", absentParam: "session_token"},
 	}
 
 	for _, tt := range tests {
@@ -555,8 +555,8 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 			require.Empty(t, location.Query().Get(tt.absentParam))
 			require.Empty(t, location.Query().Get("error"))
 
-			if tt.wantParam == "session_code" {
-				code := location.Query().Get("session_code")
+			if tt.wantParam == "nb_session_code" {
+				code := location.Query().Get("nb_session_code")
 				response, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
 					Domain:      location.Hostname(),
 					SessionCode: code,

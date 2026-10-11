@@ -47,7 +47,7 @@ const (
 
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	}
 
 	if allowed {
-		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter, macFilter)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -710,11 +710,11 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, encodedHashedKey string, peer *nbpeer.Peer, opEvent *activity.Event, config *peerAddAuthConfig) error {
 	sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
 	if err != nil {
-		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+		return err
 	}
 
 	if !sk.IsValid() {
-		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+		return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 	}
 
 	if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
@@ -915,12 +915,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			case addedBySetupKey:
 				sk, err := transaction.GetSetupKeyBySecret(ctx, store.LockingStrengthUpdate, encodedHashedKey)
 				if err != nil {
-					return fmt.Errorf("failed to get setup key: %w", err)
+					return err
 				}
 
 				// we validate at the end to not block the setup key for too long
 				if !sk.IsValid() {
-					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+					return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 				}
 
 				err = transaction.IncrementSetupKeyUsage(ctx, peerAddConfig.SetupKeyID)
@@ -1839,15 +1839,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 // validatePeerDelete checks if the peer can be deleted.
 func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transaction store.Store, accountId, peerId string) error {
-	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
-	if err != nil {
-		return err
-	}
-
-	if linkedInIngressPorts {
-		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
-	}
-
 	linked, router := isPeerLinkedToNetworkRouter(ctx, transaction, accountId, peerId)
 	if linked {
 		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)
