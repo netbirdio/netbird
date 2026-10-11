@@ -15,5 +15,6 @@ func (e *Engine) createICEConfig() icemaker.Config {
 		UDPMux:               e.udpMux.SingleSocketUDPMux,
 		UDPMuxSrflx:          e.udpMux,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
+		WGDetector:           e.wgDetector,
 	}
 }
