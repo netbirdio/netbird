@@ -507,18 +507,6 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 	query = pagination.AsScope(query)
 	query = filters.AsConditions(query)
 
-	// if nameFilter != "" {
-	// 	query = query.Where("name LIKE ?", "%"+nameFilter+"%")
-	// }
-	// if ipFilter != "" {
-	// 	query = query.Where("ip LIKE ? OR ipv6 LIKE ?", "%"+ipFilter+"%", "%"+ipFilter+"%")
-	// }
-	// // MAC addresses live in the JSON-serialized meta_network_addresses column,
-	// // so we match the raw JSON text rather than a dedicated column.
-	// if macFilter != "" {
-	// 	query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
-	// }
-
 	if err := query.Distinct().Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
@@ -570,9 +558,9 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		var sub *gorm.DB
 		for i, os := range f.Os {
 			if i == 0 {
-				sub = db.Where("os = ?", os)
+				sub = db.Where("meta_go_os = ?", os)
 			}
-			db = db.Or("os = ?", os)
+			db = db.Or("meta_go_os = ?", os)
 		}
 		db = db.Where(sub)
 	}

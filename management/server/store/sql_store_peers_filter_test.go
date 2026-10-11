@@ -69,6 +69,12 @@ func TestSqlStore_FilterPeers_ByUserId(t *testing.T) {
 				expectedLength: 2,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name"},
 			},
+			{
+				description:    "filter by os",
+				filters:        PeerFilters{Os: []string{"linux", "ios"}},
+				expectedLength: 3,
+				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-4-name"},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.description+" "+engine, func(t *testing.T) {
@@ -77,9 +83,11 @@ func TestSqlStore_FilterPeers_ByUserId(t *testing.T) {
 					PaginationState{}, tt.filters, PeerSorting{})
 				require.NoError(t, err)
 				require.Len(t, peers, tt.expectedLength)
-				for i, ep := range tt.expectedPeers {
-					require.Equal(t, peers[i].Name, ep)
+				actualPeerNames := make([]string, 0, len(peers))
+				for _, p := range peers {
+					actualPeerNames = append(actualPeerNames, p.Name)
 				}
+				require.ElementsMatch(t, actualPeerNames, tt.expectedPeers)
 			})
 		}
 	})
