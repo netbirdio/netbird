@@ -11,6 +11,8 @@ import {
 import { Window } from "@wailsio/runtime";
 import { Preferences } from "@bindings/services";
 import { ViewMode as ViewModePref } from "@bindings/preferences/models.js";
+import { isLinux } from "@/lib/platform";
+import { enqueueWindowResize } from "@/hooks/useLinuxHiDpiWindow";
 
 export type ViewMode = "default" | "advanced";
 
@@ -52,15 +54,25 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     // Resize before flipping React state, else the layout paints into a window that hasn't grown yet.
+    // The resize goes through the shared queue so it cannot interleave with the
+    // mount-time HiDPI scaling of the same window.
     const setViewMode = useCallback((mode: ViewMode) => {
         if (modeRef.current === mode) return;
         modeRef.current = mode;
-        (async () => {
+        enqueueWindowResize(async () => {
             const size = await Window.Size().catch((err: unknown) => {
                 console.warn("[ViewModeContext] read window size failed", err);
                 return null;
             });
-            const width = VIEW_WIDTH[mode];
+            let width = VIEW_WIDTH[mode];
+            // Frame-to-viewport ratio, not the raw devicePixelRatio: with
+            // GDK_SCALE, GTK already scales the sizes and the ratio is 1.
+            if (isLinux() && size) {
+                const shrink = size.width / window.innerWidth;
+                if (Number.isFinite(shrink) && shrink > 1) {
+                    width = Math.round(width * shrink);
+                }
+            }
             const height = size?.height ?? 640;
             await Window.SetSize(width, height).catch((err: unknown) =>
                 console.warn("[ViewModeContext] set window size failed", err),
@@ -71,7 +83,7 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
             Preferences.SetViewMode(pref).catch((err: unknown) =>
                 console.error("[ViewModeContext] SetViewMode failed", err),
             );
-        })().catch((err: unknown) => console.error("[ViewModeContext] setViewMode failed", err));
+        });
     }, []);
 
     const value = useMemo<ViewModeContextValue>(
