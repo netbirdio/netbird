@@ -24,6 +24,7 @@ import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { type NetworkFilter, NetworkFilters } from "./NetworkFilters";
 import { useDirection } from "@/hooks/useDirection";
+import { overlappingRouteIds } from "./overlap";
 
 // Daemon renders DNS-route prefixes (zero netip.Prefix) as "invalid Prefix".
 const INVALID_PREFIX = "invalid Prefix";
@@ -53,23 +54,6 @@ const resourceIconFor = (type: ResourceType): ComponentType<LucideProps> => {
     return NetworkIcon;
 };
 
-const buildOverlapMap = (
-    routes: { id: string; range: string; domains: string[] }[],
-): Map<string, string[]> => {
-    const byRange = new Map<string, string[]>();
-    for (const r of routes) {
-        if (r.domains.length > 0) continue;
-        const arr = byRange.get(r.range) ?? [];
-        arr.push(r.id);
-        byRange.set(r.range, arr);
-    }
-    const out = new Map<string, string[]>();
-    for (const [range, ids] of byRange) {
-        if (ids.length > 1) out.set(range, ids);
-    }
-    return out;
-};
-
 export const Networks = () => {
     const dir = useDirection();
     const { t } = useTranslation();
@@ -85,23 +69,15 @@ export const Networks = () => {
         searchRef.current?.focus();
     }, []);
 
-    const overlapGroups = useMemo(() => buildOverlapMap(networkRoutes), [networkRoutes]);
-
-    const overlapById = useMemo(() => {
-        const map = new Map<string, string[]>();
-        for (const ids of overlapGroups.values()) {
-            for (const id of ids) map.set(id, ids);
-        }
-        return map;
-    }, [overlapGroups]);
+    const overlapIds = useMemo(() => overlappingRouteIds(networkRoutes), [networkRoutes]);
 
     const counts = useMemo<Record<NetworkFilter, number>>(
         () => ({
             all: networkRoutes.length,
             active: networkRoutes.filter((r) => r.selected).length,
-            overlapping: overlapById.size,
+            overlapping: overlapIds.size,
         }),
-        [networkRoutes, overlapById],
+        [networkRoutes, overlapIds],
     );
 
     const orderRef = useRef<string[]>([]);
@@ -123,14 +99,14 @@ export const Networks = () => {
         const q = search.trim().toLowerCase();
         return ordered.filter((r) => {
             if (filter === "active" && !r.selected) return false;
-            if (filter === "overlapping" && !overlapById.has(r.id)) return false;
+            if (filter === "overlapping" && !overlapIds.has(r.id)) return false;
             if (q) {
                 const haystack = [r.id, r.range, ...r.domains].join(" ").toLowerCase();
                 if (!haystack.includes(q)) return false;
             }
             return true;
         });
-    }, [ordered, search, filter, overlapById]);
+    }, [ordered, search, filter, overlapIds]);
 
     if (isConnected && networkRoutes.length === 0) {
         return (
