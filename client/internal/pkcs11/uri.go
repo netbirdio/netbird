@@ -94,12 +94,12 @@ func pinSourcePath(value string) (string, error) {
 	}
 	authorityAndPath, hasAuthority := strings.CutPrefix(rest, "//")
 	if !hasAuthority {
-		if !filepath.IsAbs(rest) {
+		if !isAbsolutePath(rest) {
 			return "", fmt.Errorf("PKCS#11 URI pin-source %q must be an absolute path", value)
 		}
 		return rest, nil
 	}
-	if filepath.IsAbs(authorityAndPath) {
+	if isAbsolutePath(authorityAndPath) {
 		return authorityAndPath, nil
 	}
 	host, path, _ := strings.Cut(authorityAndPath, "/")
@@ -110,6 +110,13 @@ func pinSourcePath(value string) (string, error) {
 		return "", fmt.Errorf("PKCS#11 URI pin-source %q names no file", value)
 	}
 	return "/" + path, nil
+}
+
+// isAbsolutePath reports whether p is absolute in a file URI. A path starting with a slash
+// is absolute there on every platform, including Windows, where filepath.IsAbs wants a
+// drive letter.
+func isAbsolutePath(p string) bool {
+	return strings.HasPrefix(p, "/") || filepath.IsAbs(p)
 }
 
 // cutPrefixFold is strings.CutPrefix with the prefix matched without regard to case.
