@@ -1691,6 +1691,8 @@ components:
           $ref: '#/components/schemas/PeerNetworkRangeCheck'
         process_check:
           $ref: '#/components/schemas/ProcessCheck'
+        certificate_check:
+          $ref: '#/components/schemas/CertificateCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -1808,6 +1810,18 @@ components:
           description: Path to the process executable file in a Windows operating system
           type: string
           example: "C:\ProgramData\NetBird\netbird.exe"
+    CertificateCheck:
+      description: Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+      type: object
+      properties:
+        ca_certificates:
+          description: PEM encoded CA certificates the peer's certificate must chain to
+          type: array
+          items:
+            type: string
+          example: ["-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"]
+      required:
+        - ca_certificates
     Location:
       description: Describe geographical location information
       type: object
