@@ -143,6 +143,7 @@ var (
 				MgmtPort:                    mgmtPort,
 				MgmtMetricsPort:             mgmtMetricsPort,
 				DisableLegacyManagementPort: disableLegacyManagementPort,
+				LetsEncryptListenAddress:    mgmtLetsencryptListen,
 				DisableMetrics:              disableMetrics,
 				DisableGeoliteUpdate:        disableGeoliteUpdate,
 				UserDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
@@ -362,6 +363,9 @@ func LogConfigInfo(cfg *nbconfig.Config) {
 	}
 	if cfg.Relay != nil {
 		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+	}
+	if cfg.Signal != nil {
+		log.Infof("Signal addresses: %v", cfg.Signal.URI)
 	}
 }
 

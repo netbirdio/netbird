@@ -18,9 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
-	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
@@ -185,7 +183,6 @@ type FullStatus struct {
 	RosenpassState        RosenpassState
 	Relays                []relay.ProbeResult
 	NSGroupStates         []NSGroupState
-	NumOfForwardingRules  int
 	LazyConnectionEnabled bool
 	Events                []*proto.SystemEvent
 }
@@ -265,11 +262,12 @@ func (s *StatusChangeSubscription) deliver(snapshot *routerSnapshot, block bool)
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux          sync.RWMutex
-	muxRelays    sync.RWMutex
-	peers        map[string]State
-	ipToKey      map[string]string
-	changeNotify map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
+	mux              sync.RWMutex
+	muxRelays        sync.RWMutex
+	peers            map[string]State
+	ipToKey          map[string]string
+	activeRoutePeers map[route.HAUniqueID]string
+	changeNotify     map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
 	// routerSeq stamps router-state snapshots, see routerSnapshot
 	routerSeq           uint64
 	signalState         bool
@@ -321,8 +319,6 @@ type Status struct {
 	// read it without taking mux.
 	networksRevision atomic.Uint64
 
-	ingressGwMgr *ingressgw.Manager
-
 	routeIDLookup routeIDLookup
 	wgIface       WGIfaceStatus
 }
@@ -332,6 +328,7 @@ func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:                 make(map[string]State),
 		ipToKey:               make(map[string]string),
+		activeRoutePeers:      make(map[route.HAUniqueID]string),
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
@@ -347,12 +344,6 @@ func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
 	d.muxRelays.Lock()
 	defer d.muxRelays.Unlock()
 	d.relayMgr = manager
-}
-
-func (d *Status) SetIngressGwMgr(ingressGwMgr *ingressgw.Manager) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-	d.ingressGwMgr = ingressGwMgr
 }
 
 // ReplaceOfflinePeers replaces
@@ -403,18 +394,6 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 		return State{}, configurer.ErrPeerNotFound
 	}
 	return state, nil
-}
-
-func (d *Status) PeerByIP(ip string) (string, bool) {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
-
-	for _, state := range d.peers {
-		if state.IP == ip {
-			return state.FQDN, true
-		}
-	}
-	return "", false
 }
 
 // PeerStateByIP returns the full peer State for the given tunnel IP.
@@ -555,6 +534,24 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	d.notifier.peerListChanged(numPeers)
 	d.notifyStateChange()
 	return nil
+}
+
+func (d *Status) AddActiveRoutePeer(haID route.HAUniqueID, peer string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.activeRoutePeers[haID] = peer
+}
+
+func (d *Status) RemoveActiveRoutePeer(haID route.HAUniqueID) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	delete(d.activeRoutePeers, haID)
+}
+
+func (d *Status) GetActiveRoutePeers() map[route.HAUniqueID]string {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+	return maps.Clone(d.activeRoutePeers)
 }
 
 // CheckRoutes checks if the source and destination addresses are within the same route
@@ -1240,16 +1237,6 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return relayStates
 }
 
-func (d *Status) ForwardingRules() []firewall.ForwardRule {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
-	if d.ingressGwMgr == nil {
-		return nil
-	}
-
-	return d.ingressGwMgr.Rules()
-}
-
 func (d *Status) GetDNSStates() []NSGroupState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
@@ -1284,7 +1271,6 @@ func (d *Status) GetFullStatus() FullStatus {
 		Relays:                d.GetRelayStates(),
 		RosenpassState:        d.GetRosenpassState(),
 		NSGroupStates:         d.GetDNSStates(),
-		NumOfForwardingRules:  len(d.ForwardingRules()),
 		LazyConnectionEnabled: d.GetLazyConnection(),
 	}
 
@@ -1660,7 +1646,6 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
-	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
 
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fs.LocalPeerState.Routes)

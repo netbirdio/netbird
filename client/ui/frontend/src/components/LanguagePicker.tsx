@@ -12,6 +12,7 @@ import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { useDirection } from "@/hooks/useDirection";
 
 // No flag icons: flags represent countries, not languages. https://www.flagsarenotlanguages.com/blog/
 
@@ -21,6 +22,7 @@ const labelFor = (lang: Language): string =>
         : lang.displayName;
 
 export function LanguagePicker() {
+    const dir = useDirection();
     const { t, i18n } = useTranslation();
     const [languages, setLanguages] = useState<Language[]>([]);
     const [open, setOpen] = useState(false);
@@ -89,7 +91,11 @@ export function LanguagePicker() {
                             tabIndex={0}
                             disabled={busy || languages.length === 0}
                             onKeyDown={handleTriggerKeyDown}
-                            aria-label={t("settings.general.language.label")}
+                            aria-label={
+                                current
+                                    ? `${t("settings.general.language.label")}: ${labelFor(current)}`
+                                    : t("settings.general.language.label")
+                            }
                             aria-haspopup={"listbox"}
                             aria-expanded={open}
                             className={cn(
@@ -108,7 +114,7 @@ export function LanguagePicker() {
                                 aria-hidden={"true"}
                                 className={"shrink-0 text-nb-gray-200"}
                             />
-                            <span className={"flex-1 truncate text-left"}>
+                            <span className={"flex-1 truncate text-start"}>
                                 {current ? labelFor(current) : "—"}
                             </span>
                             <ChevronDown
@@ -164,7 +170,11 @@ export function LanguagePicker() {
                                     </div>
                                 </div>
 
-                                <ScrollArea.Root type={"auto"} className={"-mx-1 overflow-hidden"}>
+                                <ScrollArea.Root
+                                    dir={dir}
+                                    type={"auto"}
+                                    className={"-mx-1 overflow-hidden"}
+                                >
                                     <ScrollArea.Viewport className={"max-h-64 px-1"}>
                                         <Command.List>
                                             <Command.Empty>

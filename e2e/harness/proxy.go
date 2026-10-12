@@ -3,13 +3,17 @@
 package harness
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -112,6 +116,41 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverride
 	}
 
 	return &Proxy{container: ctr, workDir: workDir}, nil
+}
+
+// ProxyDebugClient is one per-account embedded client the proxy runs, as the
+// proxy's debug endpoint reports it.
+type ProxyDebugClient struct {
+	AccountID    string   `json:"account_id"`
+	ServiceCount int      `json:"service_count"`
+	ServiceKeys  []string `json:"service_keys"`
+}
+
+// DebugClients lists the per-account clients the proxy is running, through
+// the proxy's own debug CLI inside the container. The proxy must be started
+// with NB_PROXY_DEBUG_ENDPOINT=true.
+func (p *Proxy) DebugClients(ctx context.Context) ([]ProxyDebugClient, error) {
+	code, reader, err := p.container.Exec(ctx,
+		[]string{"/usr/bin/netbird-proxy", "debug", "clients", "--json"}, tcexec.Multiplexed())
+	if err != nil {
+		return nil, fmt.Errorf("exec debug clients: %w", err)
+	}
+	out, _ := io.ReadAll(reader)
+	if code != 0 {
+		return nil, fmt.Errorf("debug clients exited %d: %s", code, string(out))
+	}
+	// stderr is multiplexed in; the JSON document starts at the first brace.
+	start := bytes.IndexByte(out, '{')
+	if start < 0 {
+		return nil, fmt.Errorf("no JSON in debug clients output: %s", string(out))
+	}
+	var resp struct {
+		Clients []ProxyDebugClient `json:"clients"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(out[start:])).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode debug clients output: %w", err)
+	}
+	return resp.Clients, nil
 }
 
 // Logs returns the proxy container logs, for diagnostics on failure.

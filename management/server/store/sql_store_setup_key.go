@@ -37,7 +37,7 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.SetupKey, error) {
 	const query = `SELECT id, account_id, key, key_secret, name, type, created_at, expires_at, updated_at, 
 	revoked, used_times, last_used, auto_groups, usage_limit, ephemeral, allow_extra_dns_labels FROM setup_keys WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.PreconditionFailed, "setup key not found")
+			return nil, status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")

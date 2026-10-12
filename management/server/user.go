@@ -861,9 +861,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		allGroupChanges := slices.Concat(removedGroups, addedGroups)
 		change.LinkGroups = allGroupChanges
 
-		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges)
+		if err != nil {
 			return change, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
+		change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
 	}
 
 	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)

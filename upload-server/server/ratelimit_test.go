@@ -7,11 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
-func newTestRateLimiter(t *testing.T) *middleware.APIRateLimiter {
+func newTestRateLimiter(t *testing.T) *ratelimit.APIRateLimiter {
 	t.Helper()
 
 	limiter := newRateLimiter()
@@ -32,8 +32,8 @@ func getUploadURL(t *testing.T, mux *http.ServeMux) int {
 }
 
 func Test_GetUploadURLIsRateLimited(t *testing.T) {
-	t.Setenv(middleware.RateLimitingBurstEnv, "2")
-	t.Setenv(middleware.RateLimitingRPMEnv, "1")
+	t.Setenv(ratelimit.RateLimitingBurstEnv, "2")
+	t.Setenv(ratelimit.RateLimitingRPMEnv, "1")
 	mux, _ := newLocalMux(t)
 
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))
@@ -42,8 +42,8 @@ func Test_GetUploadURLIsRateLimited(t *testing.T) {
 }
 
 func Test_RateLimitingIsOnByDefault(t *testing.T) {
-	t.Setenv(middleware.RateLimitingEnabledEnv, "")
-	t.Setenv(middleware.RateLimitingBurstEnv, "1")
+	t.Setenv(ratelimit.RateLimitingEnabledEnv, "")
+	t.Setenv(ratelimit.RateLimitingBurstEnv, "1")
 	mux, _ := newLocalMux(t)
 
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))
@@ -51,8 +51,8 @@ func Test_RateLimitingIsOnByDefault(t *testing.T) {
 }
 
 func Test_RateLimitingCanBeDisabled(t *testing.T) {
-	t.Setenv(middleware.RateLimitingEnabledEnv, "false")
-	t.Setenv(middleware.RateLimitingBurstEnv, "1")
+	t.Setenv(ratelimit.RateLimitingEnabledEnv, "false")
+	t.Setenv(ratelimit.RateLimitingBurstEnv, "1")
 	mux, _ := newLocalMux(t)
 
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))

@@ -197,11 +197,6 @@ func (r *family) hasRule(id firewall.RuleID) bool {
 	return ok
 }
 
-func (r *family) hasDNATRule(id firewall.RuleID) bool {
-	_, ok := r.rules[id+dnatSuffix]
-	return ok
-}
-
 // DeleteFilterRule removes a previously installed filter rule. Source
 // set references are recovered from the stored rule's expressions via
 // findSets and dropped from the shared refcounter.

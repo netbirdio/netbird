@@ -14,7 +14,7 @@ import (
 // CreateAgentNetworkUsage persists a stripped agent-network usage record
 // together with its authorising-group child rows in a single transaction.
 func (s *SqlStore) CreateAgentNetworkUsage(ctx context.Context, usage *agentNetworkTypes.AgentNetworkUsage, groups []agentNetworkTypes.AgentNetworkUsageGroup) error {
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		// Idempotent on the usage id / (usage_id, group_id) so a proxy resend of
 		// the same entry can't fail the request.
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(usage).Error; err != nil {

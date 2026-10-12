@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -401,6 +402,25 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, o.AccountID, account.Id)
 
+	err = store.CreateAgentNetworkSettings(context.Background(), &agentNetworkTypes.Settings{
+		AccountID:    account.Id,
+		Domain:       "gw.example.com",
+		ProxyAddress: "gw.example.com",
+	})
+	require.NoError(t, err)
+
+	agentNetworkConfig := []any{
+		&agentNetworkTypes.Provider{ID: "an_provider", AccountID: account.Id, APIKey: "sk-test"},
+		&agentNetworkTypes.Policy{ID: "an_policy", AccountID: account.Id},
+		&agentNetworkTypes.Guardrail{ID: "an_guardrail", AccountID: account.Id},
+		&agentNetworkTypes.AccountBudgetRule{ID: "an_budget_rule", AccountID: account.Id},
+	}
+	for _, row := range agentNetworkConfig {
+		require.NoError(t, store.(*SqlStore).db.Create(row).Error, "creating %T", row)
+	}
+	otherProvider := &agentNetworkTypes.Provider{ID: "other_provider", AccountID: "other_account"}
+	require.NoError(t, store.(*SqlStore).db.Create(otherProvider).Error)
+
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
 
@@ -465,6 +485,32 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	err = store.(*SqlStore).db.Model(&rpservice.Target{}).Find(&targets, "account_id = ?", account.Id).Error
 	require.NoError(t, err, "expecting no error after DeleteAccount when searching for service targets")
 	require.Len(t, targets, 0, "expecting no service targets to be found after DeleteAccount")
+
+	_, err = store.GetAgentNetworkSettings(context.Background(), LockingStrengthNone, account.Id)
+	require.Error(t, err, "expecting agent network settings to be deleted with the account")
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "expecting a status error when getting agent network settings, got %v", err)
+	require.Equal(t, status.NotFound, sErr.Type(), "expecting agent network settings to be deleted with the account")
+
+	// The domain is globally unique, so a leftover row would keep it from another account.
+	err = store.CreateAgentNetworkSettings(context.Background(), &agentNetworkTypes.Settings{
+		AccountID:    "other_account",
+		Domain:       "gw.example.com",
+		ProxyAddress: "gw.example.com",
+	})
+	require.NoError(t, err, "expecting the deleted account's gateway domain to be free for another account")
+
+	for _, row := range agentNetworkConfig {
+		var count int64
+		err = store.(*SqlStore).db.Model(row).Where("account_id = ?", account.Id).Count(&count).Error
+		require.NoError(t, err, "counting %T rows after DeleteAccount", row)
+		assert.Zero(t, count, "expecting no %T rows to be found after DeleteAccount", row)
+	}
+
+	var otherProviders int64
+	err = store.(*SqlStore).db.Model(&agentNetworkTypes.Provider{}).Where("account_id = ?", "other_account").Count(&otherProviders).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), otherProviders, "expecting another account's agent network provider to survive DeleteAccount")
 }
 
 func Test_GetAccount(t *testing.T) {
