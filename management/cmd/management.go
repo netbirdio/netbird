@@ -66,11 +66,11 @@ var (
 			}
 
 			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
-				config.HttpConfig.IdpSignKeyRefreshEnabled = idpSignKeyRefreshEnabled
+				ensureHttpConfig(config).IdpSignKeyRefreshEnabled = idpSignKeyRefreshEnabled
 			}
 
 			var tlsEnabled bool
-			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
+			if mgmtLetsencryptDomain != "" || (config.HttpConfig != nil && config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
 				tlsEnabled = true
 			}
 
@@ -291,6 +291,10 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 
 // ApplyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
 func ApplyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
+	if cfg.HttpConfig == nil {
+		return nil
+	}
+
 	oidcEndpoint := cfg.HttpConfig.OIDCConfigEndpoint
 	if oidcEndpoint == "" {
 		return nil

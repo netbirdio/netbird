@@ -64,6 +64,17 @@ func Test_LoadMgmtConfig_Empty(t *testing.T) {
 	assert.Nil(t, cfg.PerAccountHighestSupportedSyncMessageVersion)
 }
 
+func Test_LoadMgmtConfig_WithoutHttpConfig(t *testing.T) {
+	tmpFile, err := createConfig(`{
+		"Datadir": "/tmp/netbird-test"
+	}`)
+	require.NoError(t, err)
+
+	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
+	require.NoError(t, err)
+	assert.NotNil(t, cfg)
+}
+
 func TestApplyEmbeddedIdPConfigRequiresSingleAccountDomain(t *testing.T) {
 	previousDomain := mgmtSingleAccModeDomain
 	previousDisabled := disableSingleAccMode
