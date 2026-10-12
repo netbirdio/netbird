@@ -152,7 +152,7 @@ func calculateMaxHosts(prefix netip.Prefix) int64 {
 
 	maxHosts := int64(1) << hostBits
 	if prefix.Addr().Is4() {
-		maxHosts -= 2 // network and broadcast addresses
+		maxHosts -= 3 // network, client DNS resolver and broadcast addresses
 	}
 
 	return maxHosts
