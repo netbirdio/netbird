@@ -13,12 +13,8 @@ const (
 	noActiveSession = 0xFFFFFFFF
 	servicesSession = 0
 
-	// wtsCurrentServer is WTS_CURRENT_SERVER_HANDLE; wtsActive and wtsDisconnected are
-	// WTSActive and WTSDisconnected of WTS_CONNECTSTATE_CLASS. None is exported by
-	// x/sys/windows.
+	// wtsCurrentServer is WTS_CURRENT_SERVER_HANDLE, which x/sys/windows does not export.
 	wtsCurrentServer = windows.Handle(0)
-	wtsActive        = 0
-	wtsDisconnected  = 4
 )
 
 // DesktopUser is an interactive session and the account signed into it. The user's
@@ -163,7 +159,7 @@ func userSessions(console uint32) ([]uint32, error) {
 	if console != noActiveSession && console != servicesSession {
 		sessions = append(sessions, console)
 	}
-	for _, state := range []uint32{wtsActive, wtsDisconnected} {
+	for _, state := range []uint32{windows.WTSActive, windows.WTSDisconnected} {
 		for _, session := range unsafe.Slice(info, count) {
 			if session.SessionID == servicesSession || session.SessionID == console || session.State != state {
 				continue
