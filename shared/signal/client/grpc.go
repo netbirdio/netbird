@@ -319,17 +319,24 @@ func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExcha
 	if err != nil {
 		return nil, err
 	}
-	// blocks
-	header, err := c.stream.Header()
-	if err != nil {
+	if err := awaitRegistration(stream); err != nil {
 		return nil, err
-	}
-	registered := header.Get(proto.HeaderRegistered)
-	if len(registered) == 0 {
-		return nil, fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
 
 	return stream, nil
+}
+
+func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient) error {
+	// blocks
+	header, err := stream.Header()
+	if err != nil {
+		return err
+	}
+	registered := header.Get(proto.HeaderRegistered)
+	if len(registered) == 0 {
+		return fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
+	}
+	return nil
 }
 
 // Ready indicates whether the client is okay and Ready to be used
