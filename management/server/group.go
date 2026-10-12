@@ -256,6 +256,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	for _, newGroup := range groups {
 		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 		var snap *affectedpeers.Snapshot
+		var events []func()
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
@@ -263,8 +264,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 
 			newGroup.AccountID = accountID
 			newGroup.PublicID = xid.New().String()
-
-			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+			events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 
 			if err = transaction.CreateGroup(ctx, newGroup); err != nil {
 				return err
@@ -274,7 +274,6 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			if err != nil {
 				return err
 			}
-			eventsToStore = append(eventsToStore, events...)
 
 			snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
 			return err
@@ -290,6 +289,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		}
 		createdCount++
 		affected.add(snap.Expand(ctx, accountID, change))
+		eventsToStore = append(eventsToStore, events...)
 	}
 
 	for _, storeEvent := range eventsToStore {
