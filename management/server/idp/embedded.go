@@ -154,7 +154,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		return nil, fmt.Errorf("invalid IdP storage config: %w", err)
 	}
 
-	frontend, err := buildFrontendConfig(c.BrandName, c.BrandLogoURL)
+	frontend, err := buildFrontendConfig(c.Issuer, c.BrandName, c.BrandLogoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 
 // buildFrontendConfig builds the Dex frontend config for the login pages. Without a brand
 // name or logo the pages keep the NetBird ones.
-func buildFrontendConfig(brandName, brandLogoURL string) (dex.Frontend, error) {
+func buildFrontendConfig(issuer, brandName, brandLogoURL string) (dex.Frontend, error) {
 	frontend := dex.Frontend{
 		Issuer: defaultBrandName,
 		Theme:  "light",
@@ -263,8 +263,12 @@ func buildFrontendConfig(brandName, brandLogoURL string) (dex.Frontend, error) {
 	// The login pages are served from embedded assets, so a logo can only be loaded from
 	// an absolute URL.
 	u, err := url.Parse(logoURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return dex.Frontend{}, fmt.Errorf("brand logo URL %q must be an absolute http(s) URL", logoURL)
+	}
+	// Browsers do not load an http image into a login page served over https.
+	if u.Scheme == "http" && strings.HasPrefix(issuer, "https://") {
+		return dex.Frontend{}, fmt.Errorf("brand logo URL %q must use https because the issuer does", logoURL)
 	}
 	frontend.Extra = map[string]string{brandLogoExtraKey: logoURL}
 

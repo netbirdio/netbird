@@ -95,7 +95,7 @@ server:
     # sessionCookieEncryptionKey: ""
     # Login page branding. Defaults to the NetBird name and logo.
     # brandName: "Acme Access"                      # Replaces "NetBird" in the login page title and wording
-    # brandLogoURL: "https://example.com/logo.svg"  # Absolute http(s) URL of the logo shown on the login pages
+    # brandLogoURL: "https://example.com/logo.svg"  # Absolute URL of the logo shown on the login pages (https when the issuer is https)
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
       - "https://app.example.com/nb-auth"

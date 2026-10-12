@@ -698,10 +698,10 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 }
 
 func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
-	newConfig := func(brandName, brandLogoURL string) *EmbeddedIdPConfig {
+	newConfig := func(issuer, brandName, brandLogoURL string) *EmbeddedIdPConfig {
 		return &EmbeddedIdPConfig{
 			Enabled:      true,
-			Issuer:       "https://example.com/oauth2",
+			Issuer:       issuer,
 			BrandName:    brandName,
 			BrandLogoURL: brandLogoURL,
 			Storage: EmbeddedStorageConfig{
@@ -713,8 +713,11 @@ func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
 		}
 	}
 
+	const httpsIssuer = "https://example.com/oauth2"
+
 	tests := []struct {
 		name         string
+		issuer       string
 		brandName    string
 		brandLogoURL string
 		wantIssuer   string
@@ -732,6 +735,13 @@ func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
 		},
 		{
 			name:         "logo only",
+			brandLogoURL: "https://example.com:8443/logo.png",
+			wantIssuer:   "NetBird",
+			wantLogoURL:  "https://example.com:8443/logo.png",
+		},
+		{
+			name:         "http logo with an http issuer",
+			issuer:       "http://localhost:8080/oauth2",
 			brandLogoURL: "http://localhost:8080/logo.png",
 			wantIssuer:   "NetBird",
 			wantLogoURL:  "http://localhost:8080/logo.png",
@@ -739,7 +749,11 @@ func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			yamlConfig, err := newConfig(tt.brandName, tt.brandLogoURL).ToYAMLConfig()
+			issuer := tt.issuer
+			if issuer == "" {
+				issuer = httpsIssuer
+			}
+			yamlConfig, err := newConfig(issuer, tt.brandName, tt.brandLogoURL).ToYAMLConfig()
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantIssuer, yamlConfig.Frontend.Issuer, "login page name")
 			assert.Equal(t, tt.wantLogoURL, yamlConfig.Frontend.Extra[brandLogoExtraKey], "login page logo")
@@ -749,9 +763,20 @@ func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
 
 	// The login pages cannot serve operator files, so anything but an absolute http(s)
 	// URL would render as a broken image and is rejected at startup instead.
-	for _, logoURL := range []string{"/logo.svg", "logo.svg", "//example.com/logo.svg", "javascript:alert(1)", "https://"} {
+	// An http logo is rejected too when the pages are served over https, where browsers
+	// refuse to load it.
+	rejected := []string{
+		"/logo.svg",
+		"logo.svg",
+		"//example.com/logo.svg",
+		"javascript:alert(1)",
+		"https://",
+		"https://:8080/logo.svg",
+		"http://example.com/logo.svg",
+	}
+	for _, logoURL := range rejected {
 		t.Run("rejects "+logoURL, func(t *testing.T) {
-			_, err := newConfig("", logoURL).ToYAMLConfig()
+			_, err := newConfig(httpsIssuer, "", logoURL).ToYAMLConfig()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "brand logo URL")
 		})
