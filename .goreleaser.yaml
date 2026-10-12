@@ -506,6 +506,41 @@ dockers_v2:
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
        "maintainer": "dev@netbird.io"
+   - id: relay-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-relay
+     images:
+       - netbirdio/relay
+       - ghcr.io/netbirdio/relay
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: relay/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l relay/LICENSE "{{ .ContextDir }}/licenses" ./relay amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
    - id: signal
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
      ids:
@@ -528,6 +563,41 @@ dockers_v2:
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
        "maintainer": "dev@netbird.io"
+   - id: signal-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-signal
+     images:
+       - netbirdio/signal
+       - ghcr.io/netbirdio/signal
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: signal/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l signal/LICENSE "{{ .ContextDir }}/licenses" ./signal amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
    - id: management
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
      ids:
@@ -543,6 +613,41 @@ dockers_v2:
        - linux/amd64
        - linux/arm64
        - linux/arm
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: management-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-mgmt
+     images:
+       - netbirdio/management
+       - ghcr.io/netbirdio/management
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: management/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh release_files/collect-licenses.sh -l management/LICENSE "{{ .ContextDir }}/licenses" ./management amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=1
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
