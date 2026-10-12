@@ -1505,14 +1505,9 @@ func (s *DefaultServer) refreshRoutedUpstreams() {
 	// Gating has nothing to say while management has DNS switched off, and
 	// replaying that configuration is destructive rather than idempotent: it
 	// re-runs the whole teardown — stop the listener, restore the host
-	// resolvers, drop the shutdown state, clear the fallback — and then builds
+	// resolvers, drop the shutdown state, clear the fallback — then builds
 	// handlers on top of it. A routing peer flapping with DNS disabled would
 	// repeat that on every transition.
-	// Gating has nothing to say while management has DNS switched off, and
-	// replaying that configuration is wasted teardown: it stops the service and
-	// rebuilds the whole handler chain for something that is not running. A
-	// routing peer flapping with DNS disabled would repeat that every time the
-	// verdict changes.
 	if !s.currentUpdate.ServiceEnable {
 		log.Tracef("DNS service is disabled, not re-applying on a route change")
 		return
