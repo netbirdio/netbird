@@ -84,10 +84,39 @@ func TestParseURI_Rejections(t *testing.T) {
 		"module-name with dotdot":  "pkcs11:token=a?module-name=..",
 		"empty module-name":        "pkcs11:token=a?module-name=",
 		"pin-value and pin-source": "pkcs11:token=a?pin-value=1&pin-source=file:/etc/pin",
+		// Without a value the URI would silently mean "no PIN" and skip the login.
+		"empty pin-source":    "pkcs11:token=a?pin-source=",
+		"remote pin-source":   "pkcs11:token=a?pin-source=file://example.com/etc/pin",
+		"relative pin-source": "pkcs11:token=a?pin-source=file:pin",
 	}
 	for name, raw := range tests {
 		_, err := ParseURI(raw)
 		assert.Error(t, err, "%s: %s must be refused", name, raw)
+	}
+}
+
+// TestParseURI_SchemeIsCaseInsensitive: RFC 3986 section 3.1 makes schemes case-insensitive.
+func TestParseURI_SchemeIsCaseInsensitive(t *testing.T) {
+	for _, raw := range []string{"PKCS11:token=netbird", "Pkcs11:token=netbird"} {
+		uri, err := ParseURI(raw)
+		require.NoError(t, err, raw)
+		assert.Equal(t, "netbird", uri.Token, raw)
+	}
+}
+
+func TestURI_PINFromLocalhostFileURI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file URIs with a host name are written differently on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "pin")
+	require.NoError(t, os.WriteFile(path, []byte("secret\n"), 0o600))
+
+	for _, host := range []string{"localhost", "LocalHost"} {
+		uri, err := ParseURI("pkcs11:token=netbird?pin-source=file://" + host + path)
+		require.NoError(t, err, host)
+		pin, err := uri.PIN()
+		require.NoError(t, err, host)
+		assert.Equal(t, []byte("secret"), pin, "RFC 8089 names the local machine as localhost")
 	}
 }
 
