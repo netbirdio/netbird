@@ -1386,3 +1386,101 @@ func TestDefaultAccountManager_GroupPeersMustBelongToAccount(t *testing.T) {
 		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected direct adds must not change membership")
 	})
 }
+
+func TestGroupsBatchAccountPeersUpdate(t *testing.T) {
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+		for _, group := range []*types.Group{
+			{ID: "groupA", Name: "GroupA", Peers: []string{peer1.ID, peer2.ID}},
+			{ID: "groupB", Name: "GroupB", Peers: []string{peer3.ID}},
+		} {
+			require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+		}
+
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
+
+		step(t, "creating unlinked groups", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
+				{ID: "groupC", Name: "GroupC", Peers: []string{peer1.ID}},
+				{ID: "groupD", Name: "GroupD"},
+			})
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		_, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"groupB"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}, true)
+		require.NoError(t, err)
+
+		step(t, "updating a batch with a linked group", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.UpdateGroups(context.Background(), account.Id, userID, []*types.Group{
+				{ID: "groupD", Name: "GroupD renamed"},
+				{ID: "groupB", Name: "GroupB renamed"},
+			})
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		step(t, "updating a batch where one item fails", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.UpdateGroups(context.Background(), account.Id, userID, []*types.Group{
+				{ID: "missing", Name: "Missing"},
+				{ID: "groupB", Name: "GroupB"},
+			})
+			require.Error(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+	})
+}
