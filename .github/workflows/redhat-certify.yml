@@ -33,6 +33,7 @@ on:
           - client-rootless
           - reverse-proxy
           - netbird-server
+          - signal
       version:
         description: "Released version, e.g. v0.80.0"
         type: string
@@ -68,6 +69,7 @@ jobs:
             "client-rootless ghcr.io/netbirdio/netbird -rootless-ubi"
             "reverse-proxy ghcr.io/netbirdio/reverse-proxy -ubi"
             "netbird-server ghcr.io/netbirdio/netbird-server -ubi"
+            "signal ghcr.io/netbirdio/signal -ubi"
           )
           matrix="[]"
           missing=()
