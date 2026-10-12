@@ -696,3 +696,64 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		assert.Contains(t, err.Error(), "local user creation is disabled")
 	})
 }
+
+func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
+	newConfig := func(brandName, brandLogoURL string) *EmbeddedIdPConfig {
+		return &EmbeddedIdPConfig{
+			Enabled:      true,
+			Issuer:       "https://example.com/oauth2",
+			BrandName:    brandName,
+			BrandLogoURL: brandLogoURL,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(t.TempDir(), "dex.db"),
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		brandName    string
+		brandLogoURL string
+		wantIssuer   string
+		wantLogoURL  string
+	}{
+		{name: "defaults to NetBird", wantIssuer: "NetBird"},
+		{name: "blank values keep the defaults", brandName: "  ", brandLogoURL: " ", wantIssuer: "NetBird"},
+		{name: "name only", brandName: " Acme Access ", wantIssuer: "Acme Access"},
+		{
+			name:         "name and logo",
+			brandName:    "Acme Access",
+			brandLogoURL: " https://example.com/logo.svg ",
+			wantIssuer:   "Acme Access",
+			wantLogoURL:  "https://example.com/logo.svg",
+		},
+		{
+			name:         "logo only",
+			brandLogoURL: "http://localhost:8080/logo.png",
+			wantIssuer:   "NetBird",
+			wantLogoURL:  "http://localhost:8080/logo.png",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlConfig, err := newConfig(tt.brandName, tt.brandLogoURL).ToYAMLConfig()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantIssuer, yamlConfig.Frontend.Issuer, "login page name")
+			assert.Equal(t, tt.wantLogoURL, yamlConfig.Frontend.Extra[brandLogoExtraKey], "login page logo")
+			assert.Equal(t, "light", yamlConfig.Frontend.Theme, "theme must not depend on branding")
+		})
+	}
+
+	// The login pages cannot serve operator files, so anything but an absolute http(s)
+	// URL would render as a broken image and is rejected at startup instead.
+	for _, logoURL := range []string{"/logo.svg", "logo.svg", "//example.com/logo.svg", "javascript:alert(1)", "https://"} {
+		t.Run("rejects "+logoURL, func(t *testing.T) {
+			_, err := newConfig("", logoURL).ToYAMLConfig()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "brand logo URL")
+		})
+	}
+}

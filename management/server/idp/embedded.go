@@ -30,6 +30,8 @@ const (
 	defaultCLIRedirectURL2        = "http://localhost:54000/"
 	defaultScopes                 = "openid profile email groups"
 	defaultUserIDClaim            = "sub"
+	defaultBrandName              = "NetBird"
+	brandLogoExtraKey             = "brandLogoURL"
 	sessionCookieEncryptionKeyEnv = "NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY"
 )
 
@@ -82,6 +84,12 @@ type EmbeddedIdPConfig struct {
 	// GrantTypes restricts allowed OAuth2 grants; empty means all (Dex default). Omit the
 	// device_code grant to disable the device flow; keep authorization_code and refresh_token.
 	GrantTypes []string
+	// BrandName replaces "NetBird" as the product name on the login pages (page title and
+	// wording). Defaults to "NetBird" if empty.
+	BrandName string
+	// BrandLogoURL is the absolute http(s) URL of an image shown on the login pages in place
+	// of the NetBird logo. The NetBird logo is used if empty.
+	BrandLogoURL string
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
@@ -146,6 +154,11 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		return nil, fmt.Errorf("invalid IdP storage config: %w", err)
 	}
 
+	frontend, err := buildFrontendConfig(c.BrandName, c.BrandLogoURL)
+	if err != nil {
+		return nil, err
+	}
+
 	// Build CLI redirect URIs including the device callback. Dex uses the issuer-relative
 	// path (for example, /oauth2/device/callback) when completing the device flow, so
 	// include it explicitly in addition to the legacy bare path and absolute URL.
@@ -183,10 +196,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 			SkipApprovalScreen: true,
 			GrantTypes:         c.GrantTypes,
 		},
-		Frontend: dex.Frontend{
-			Issuer: "NetBird",
-			Theme:  "light",
-		},
+		Frontend: frontend,
 		// Always enable password DB initially - we disable the local connector after startup if needed.
 		// This ensures Dex has at least one connector during initialization.
 		EnablePasswordDB: true,
@@ -231,6 +241,34 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// buildFrontendConfig builds the Dex frontend config for the login pages. Without a brand
+// name or logo the pages keep the NetBird ones.
+func buildFrontendConfig(brandName, brandLogoURL string) (dex.Frontend, error) {
+	frontend := dex.Frontend{
+		Issuer: defaultBrandName,
+		Theme:  "light",
+	}
+
+	if name := strings.TrimSpace(brandName); name != "" {
+		frontend.Issuer = name
+	}
+
+	logoURL := strings.TrimSpace(brandLogoURL)
+	if logoURL == "" {
+		return frontend, nil
+	}
+
+	// The login pages are served from embedded assets, so a logo can only be loaded from
+	// an absolute URL.
+	u, err := url.Parse(logoURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return dex.Frontend{}, fmt.Errorf("brand logo URL %q must be an absolute http(s) URL", logoURL)
+	}
+	frontend.Extra = map[string]string{brandLogoExtraKey: logoURL}
+
+	return frontend, nil
 }
 
 func issuerRelativeDeviceCallback(issuer string) string {
