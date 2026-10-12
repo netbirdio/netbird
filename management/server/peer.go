@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -14,6 +15,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -288,19 +290,34 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			var newLabel string
 
 			newLabel, err = nbdns.GetParsedDomainLabel(update.Name)
-			if err != nil {
-				newLabel = ""
-			} else {
-				_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
-				if err == nil {
-					newLabel = ""
-				}
-			}
-
-			if newLabel == "" {
-				newLabel, err = getPeerIPDNSLabel(peer.IP, update.Name)
+			if settings.PeerHostnameCollisionRejected {
 				if err != nil {
-					return fmt.Errorf("failed to get free DNS label: %w", err)
+					return status.Errorf(status.InvalidArgument, "invalid peer name: %v", err)
+				}
+				if newLabel != peer.DNSLabel {
+					taken, err := peerLabelTaken(ctx, transaction, accountID, newLabel)
+					if err != nil {
+						return err
+					}
+					if taken {
+						return errPeerHostnameInUse(update.Name)
+					}
+				}
+			} else {
+				if err != nil {
+					newLabel = ""
+				} else {
+					_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
+					if err == nil {
+						newLabel = ""
+					}
+				}
+
+				if newLabel == "" {
+					newLabel, err = getPeerIPDNSLabel(peer.IP, update.Name)
+					if err != nil {
+						return fmt.Errorf("failed to get free DNS label: %w", err)
+					}
 				}
 			}
 			peer.Name = update.Name
@@ -336,6 +353,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return transaction.SavePeer(ctx, accountID, peer)
 	})
 	if err != nil {
+		if peerLabelChanged && isUniqueConstraintError(err) {
+			return nil, errPeerHostnameInUse(peer.Name)
+		}
 		return nil, err
 	}
 
@@ -832,6 +852,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		return nil, nil, nil, false, fmt.Errorf("failed getting network: %w", err)
 	}
 
+	hostLabel, err := nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
+	if err != nil {
+		return nil, nil, nil, false, status.Errorf(status.InvalidArgument, "invalid peer hostname: %v", err)
+	}
+	rejectLabelCollision := settings.PeerHostnameCollisionRejected
+	labelTaken := false
+
+	var insertErr error
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		netPrefix, err := netip.ParsePrefix(network.Net.String())
@@ -843,14 +871,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			return nil, nil, nil, false, fmt.Errorf("failed to get free IP: %w", err)
 		}
 
-		var freeLabel string
-		if ephemeral || attempt > 1 {
+		freeLabel := hostLabel
+		if !rejectLabelCollision && (ephemeral || labelTaken) {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
-			if err != nil {
-				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
-			}
-		} else {
-			freeLabel, err = nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
 			}
@@ -884,7 +907,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			}
 		}
 
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		insertErr = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
 				return err
@@ -942,16 +965,28 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			log.WithContext(ctx).Debugf("Peer %s added to account %s", newPeer.ID, accountID)
 			return nil
 		})
-		if err == nil {
+		if insertErr == nil {
 			break
 		}
 
-		if isUniqueConstraintError(err) {
-			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, err)
+		if isUniqueConstraintError(insertErr) {
+			if freeLabel == hostLabel {
+				labelTaken, err = peerLabelTaken(ctx, am.Store, accountID, hostLabel)
+				if err != nil {
+					return nil, nil, nil, false, err
+				}
+				if labelTaken && rejectLabelCollision {
+					return nil, nil, nil, false, errPeerHostnameInUse(peer.Meta.Hostname)
+				}
+			}
+			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, insertErr)
 			continue
 		}
 
-		return nil, nil, nil, false, fmt.Errorf("failed to add peer to database: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("failed to add peer to database: %w", insertErr)
+	}
+	if insertErr != nil {
+		return nil, nil, nil, false, fmt.Errorf("add peer after %d attempts: %w", maxAttempts, insertErr)
 	}
 	if newPeer == nil {
 		return nil, nil, nil, false, fmt.Errorf("new peer is nil")
@@ -983,6 +1018,24 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	}
 
 	return newPeer, network, postureChecks, enableSSH, nil
+}
+
+// peerLabelTaken reports whether a peer of the account already uses the DNS label.
+func peerLabelTaken(ctx context.Context, s store.Store, accountID, label string) (bool, error) {
+	_, err := s.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, label)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return false, nil
+	default:
+		return false, fmt.Errorf("check peer DNS label: %w", err)
+	}
+}
+
+// errPeerHostnameInUse is a PermissionDenied error because the client treats only that gRPC code as a permanent login failure instead of retrying.
+func errPeerHostnameInUse(hostname string) error {
+	return status.Errorf(status.PermissionDenied, "peer with hostname %q is already registered", hostname)
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {

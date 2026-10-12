@@ -459,6 +459,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleMetricsPushSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerHostnameCollisionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -640,6 +641,16 @@ func (am *DefaultAccountManager) handleMetricsPushSettings(ctx context.Context, 
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushEnabled, nil)
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushDisabled, nil)
+		}
+	}
+}
+
+func (am *DefaultAccountManager) handlePeerHostnameCollisionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.PeerHostnameCollisionRejected != newSettings.PeerHostnameCollisionRejected {
+		if newSettings.PeerHostnameCollisionRejected {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerHostnameCollisionRejectionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerHostnameCollisionRejectionDisabled, nil)
 		}
 	}
 }
