@@ -146,3 +146,30 @@ func absModule(name string) string {
 	}
 	return "/lib/" + name
 }
+
+// TestPinSourcePath covers how a pin-source value becomes a file path, without touching the
+// file system, so the same cases run on every platform. A path starting with a slash is
+// absolute in a file URI everywhere, including Windows, where filepath.IsAbs would refuse it.
+func TestPinSourcePath(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{"/etc/netbird/pkcs11.pin", "/etc/netbird/pkcs11.pin"},
+		{"file:/etc/netbird/pkcs11.pin", "/etc/netbird/pkcs11.pin"},
+		{"file:///etc/netbird/pkcs11.pin", "/etc/netbird/pkcs11.pin"},
+		{"FILE:///etc/netbird/pkcs11.pin", "/etc/netbird/pkcs11.pin"},
+		{"file://localhost/etc/netbird/pkcs11.pin", "/etc/netbird/pkcs11.pin"},
+		{"file://LocalHost/etc/netbird/pkcs11.pin", "/etc/netbird/pkcs11.pin"},
+	}
+	for _, tt := range tests {
+		got, err := pinSourcePath(tt.value)
+		require.NoError(t, err, tt.value)
+		assert.Equal(t, tt.want, got, tt.value)
+	}
+
+	for _, value := range []string{"", "file:pin", "file://example.com/etc/pin", "file://localhost", "file://localhost/"} {
+		_, err := pinSourcePath(value)
+		assert.Error(t, err, "%q must be refused", value)
+	}
+}
