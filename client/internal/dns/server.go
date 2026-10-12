@@ -378,24 +378,13 @@ func (s *DefaultServer) SetRouteSources(selected, active, installed func() route
 // re-decided. Never blocks and never re-applies inline: callers hold the route
 // manager's lock, which this server's own paths take after s.mux.
 func (s *DefaultServer) OnInstalledRoutesChanged() {
-	// Nothing downstream can change while gating is off, and a re-apply is not
-	// free: it rebuilds the whole handler chain. Bail out before signalling so
-	// the default path stays exactly as it was before gating existed.
-	//
-	// Read without s.mux on purpose: the gate and its mode are set once in the
-	// constructor and never reassigned, and this must not block. Only the
-	// gate's latch is mutable, and it is not touched here.
 	s.signalRouteRefresh()
 }
 
-// signalRouteRefresh asks the refresher for one more pass. The send is dropped
-// when a pass is already pending, which costs nothing: that pass takes its route
-// snapshot after this call, so the state this call wanted considered is the state
-// it will see.
-//
-// Reads the gate without s.mux on purpose: the gate and its mode are set once in
-// the constructor and never reassigned, and this must not block. Only the gate's
-// latch is mutable, and it is not touched here.
+// signalRouteRefresh asks the refresher for one more pass with a snapshot taken
+// after this call: a dropped send means a pass is already pending, which gives
+// the same guarantee. Reads the gate without s.mux, safe because the gate and
+// its mode are constructor-set and never reassigned.
 func (s *DefaultServer) signalRouteRefresh() {
 	if s.routedUpstreamGate == nil || s.routedUpstreamGate.mode == gatingOff {
 		return
@@ -671,21 +660,9 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 	s.updateSerial = serial
 	s.previousConfigHash = hash
 
-	// The snapshot above was taken before s.mux, so a route change that landed
-	// while this update waited for the lock has just been overwritten by a
-	// verdict decided against older state. Nothing here can re-read the route
-	// state — resolving the accessors takes the route manager's lock, which this
-	// path must not take under s.mux — so hand the correction to the refresher,
-	// which takes its own snapshot outside the lock.
-	//
-	// Today the engine already corrects it: handleNetworkMapUpdate calls this
-	// and then routemanager.DefaultManager.UpdateRoutes, which signals the
-	// refresher unconditionally. That makes the stale window a few milliseconds
-	// wide rather than open until the next route change. It also makes
-	// correctness depend on the order of two calls in the engine, which is not
-	// something this package can enforce, so signal here too. It is free when
-	// the verdict already matches: refreshRoutedUpstreams bails out on
-	// maps.Equal against lastGateDecision.
+	// The snapshot predates s.mux, so a route change that landed while this
+	// update waited for the lock has just been overwritten. Re-decide against
+	// fresh state; a no-op when the verdict already matches.
 	s.signalRouteRefresh()
 
 	return nil
