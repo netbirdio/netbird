@@ -593,8 +593,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	var snaps []*affectedpeers.Snapshot
-	var changes []affectedpeers.Change
+	affected := make(affectedPeerSet)
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
@@ -629,6 +628,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
 
+		var itemSnap *affectedpeers.Snapshot
+		var itemChange affectedpeers.Change
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			change, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
@@ -647,8 +648,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				return err
 			}
 
-			snaps = append(snaps, snap)
-			changes = append(changes, change)
+			itemSnap, itemChange = snap, change
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
 			peersToExpire = append(peersToExpire, userPeersToExpire...)
@@ -662,7 +662,9 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 			globalErr = errors.Join(globalErr, err)
 			// continue when updating multiple users
+			continue
 		}
+		affected.add(itemSnap.Expand(ctx, accountID, itemChange))
 	}
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
@@ -693,7 +695,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		go am.dispatchAffected(ctx, accountID, snaps, changes)
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
 	return updatedUsersInfo, globalErr
