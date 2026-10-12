@@ -135,6 +135,14 @@ func (r *Router) CleanUp() {
 		}
 	}
 
+	// Give back the routing reference taken in UpdateRoutes, after the routes
+	// are gone as above. Without this the sysctls enabling it changed (IPv6
+	// forwarding and the accept_ra values that keep RA handling alive next to
+	// it) stay applied once the client stops.
+	if err := r.firewall.DisableRouting(); err != nil {
+		log.Errorf("Failed to disable routing: %v", err)
+	}
+
 	r.statusRecorder.CleanLocalPeerStateRoutes()
 }
 

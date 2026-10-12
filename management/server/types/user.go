@@ -11,13 +11,15 @@ import (
 )
 
 const (
-	UserRoleOwner        UserRole = "owner"
-	UserRoleAdmin        UserRole = "admin"
-	UserRoleUser         UserRole = "user"
-	UserRoleUnknown      UserRole = "unknown"
-	UserRoleBillingAdmin UserRole = "billing_admin"
-	UserRoleAuditor      UserRole = "auditor"
-	UserRoleNetworkAdmin UserRole = "network_admin"
+	UserRoleOwner             UserRole = "owner"
+	UserRoleAdmin             UserRole = "admin"
+	UserRoleUser              UserRole = "user"
+	UserRoleUnknown           UserRole = "unknown"
+	UserRoleBillingAdmin      UserRole = "billing_admin"
+	UserRoleAuditor           UserRole = "auditor"
+	UserRoleNetworkAdmin      UserRole = "network_admin"
+	UserRoleAgentNetworkAdmin UserRole = "agent_network_admin"
+	UserRoleUsageViewer       UserRole = "usage_viewer"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -42,6 +44,10 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleAuditor
 	case "network_admin":
 		return UserRoleNetworkAdmin
+	case "agent_network_admin":
+		return UserRoleAgentNetworkAdmin
+	case "usage_viewer":
+		return UserRoleUsageViewer
 	default:
 		return UserRoleUnknown
 	}
@@ -140,7 +146,7 @@ func (u *User) IsRegularUser() bool {
 
 // IsRestrictable checks whether a user is in a restrictable role.
 func (u *User) IsRestrictable() bool {
-	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin
+	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin || u.Role == UserRoleUsageViewer
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -277,6 +283,25 @@ func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	}
 
 	return nil
+}
+
+func MaskEmail(email string) string {
+	local, domain, found := strings.Cut(email, "@")
+	if !found || local == "" || domain == "" {
+		return ""
+	}
+
+	// Runes, not bytes, so a non-ASCII local part is not cut mid-character.
+	runes := []rune(local)
+
+	// Keeping the first two and the last needs a local part of at least four to
+	// hide anything at all: at three or fewer those are the whole of it, and the
+	// address would be recoverable in full from what is meant to conceal it.
+	if len(runes) < 4 {
+		return "****@" + domain
+	}
+
+	return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
 }
 
 // DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.

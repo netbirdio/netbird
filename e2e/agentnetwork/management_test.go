@@ -16,14 +16,20 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-// newProvider creates an OpenAI-catalog provider with a dummy key (these tests
-// never call the upstream) and registers cleanup.
+// newProvider creates an OpenAI-catalog provider these tests can hang a policy
+// off, and registers cleanup. Nothing here calls the upstream.
 func newProvider(t *testing.T, ctx context.Context, name string) api.AgentNetworkProvider {
 	t.Helper()
+	// A provider save is credential-checked against the vendor, and every
+	// caller here wants a provider row to hang a policy off rather than a
+	// working upstream. A private address is left unchecked — the proxy would
+	// reach it through the tunnel, management cannot reach it at all — which
+	// keeps this fixture independent of whether the run has vendor keys, and
+	// covers the unchecked-provider-still-saves path while it is at it.
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
 		Name:        name,
 		ProviderId:  "openai_api",
-		UpstreamUrl: "https://api.openai.com",
+		UpstreamUrl: "https://10.255.255.1",
 		ApiKey:      ptr("sk-dummy-e2e-key"),
 	})
 	require.NoError(t, err, "create provider %q", name)

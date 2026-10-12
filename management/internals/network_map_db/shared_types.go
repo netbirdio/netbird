@@ -179,6 +179,7 @@ type Peer struct {
 	MetaKernelVersion          sql.NullString `nmap:"skip"`
 	MetaNetworkAddresses       []byte         `nmap:"skip,json"`
 	MetaFiles                  []byte         `nmap:"skip,json"`
+	MetaCertificates           []byte         `nmap:"skip,json"`
 	MetaCapabilities           []byte         `nmap:"skip,json"`
 	MetaFlags                  []byte         `nmap:"skip,json"`
 	MetaSyncMessageVersion     sql.NullInt64  `nmap:"skip"`
@@ -302,6 +303,7 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		}
 		dp.ProxyMeta.Cluster = p.ProxyMetaCluster.String
 		// This is only used to build private service candidates, not connected peers are skipped
+		dp.Connected = p.PeerStatusConnected.Bool
 		if dp.ProxyMeta.Embedded && p.PeerStatusConnected.Bool {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}
@@ -334,6 +336,12 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		}
 		if p.MetaFiles != nil {
 			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+		if p.MetaCertificates != nil {
+			err := json.Unmarshal(p.MetaCertificates, &dp.Meta.Certificates)
 			if err != nil {
 				return toret, nil, err
 			}
@@ -469,4 +477,17 @@ func ConvertToNmdataPolicy(policies []Policy) ([]nmdata.Policy, map[string]map[s
 	}
 
 	return toret, policyToDestinationResourceIdx, policyToDestinationGroupIdx, nil
+}
+
+// TwinProxyDomains converts registered reverse-proxy domain rows to their slim
+// twins, so private-service zone apex resolution runs on the twin.
+func TwinProxyDomains(domains []Domain) []nmdata.ProxyDomain {
+	if len(domains) == 0 {
+		return nil
+	}
+	out := make([]nmdata.ProxyDomain, 0, len(domains))
+	for _, d := range domains {
+		out = append(out, nmdata.ProxyDomain{Domain: d.Domain.String, TargetCluster: d.TargetCluster.String})
+	}
+	return out
 }

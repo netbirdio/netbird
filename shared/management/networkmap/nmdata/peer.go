@@ -27,6 +27,7 @@ type Peer struct {
 	IP                     netip.Addr
 	IPv6                   netip.Addr
 	RequiresApproval       bool
+	Connected              bool
 	ExtraDNSLabels         []string
 	Meta                   PeerSystemMeta
 	ProxyMeta              ProxyMeta
@@ -39,6 +40,14 @@ type ProxyMeta struct {
 	Cluster  string
 }
 
+// ProxyDomain is the slim twin of a registered reverse-proxy domain, carrying
+// what private-service zone resolution needs: the apex a service domain can sit
+// under, and the cluster it is registered against.
+type ProxyDomain struct {
+	Domain        string
+	TargetCluster string
+}
+
 // PeerSystemMeta is the slim twin of peer.PeerSystemMeta.
 type PeerSystemMeta struct {
 	WtVersion          string
@@ -47,6 +56,7 @@ type PeerSystemMeta struct {
 	KernelVersion      string
 	NetworkAddresses   []NetworkAddress
 	Files              []File
+	Certificates       []string
 	Capabilities       []int32
 	Flags              Flags
 	SyncMessageVersion int

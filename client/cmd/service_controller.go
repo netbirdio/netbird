@@ -41,13 +41,15 @@ func daemonServerOptions(network string) []grpc.ServerOption {
 	if network == "tcp" {
 		log.Warnf("daemon is listening on TCP (%s): callers carry no verifiable identity over TCP, "+
 			"so privileged operations (SSH root login, SSH auth, enabling the SSH server, management URL changes, "+
-			"deregistration) will be denied. Use a unix socket, or npipe:// on Windows", daemonAddr)
+			"deregistration) will be denied, and the SSH JWT cache is neither filled nor served. "+
+			"Use a unix socket, or npipe:// on Windows", daemonAddr)
 		return nil
 	}
 
 	creds := ipcauth.NewTransportCredentials() //nolint:staticcheck
 	if creds == nil {                          //nolint:staticcheck // nil only on platforms without a peer-identity primitive
-		log.Warnf("daemon IPC has no peer-identity primitive on %s: privileged operations will be denied", runtime.GOOS)
+		log.Warnf("daemon IPC has no peer-identity primitive on %s: privileged operations will be denied "+
+			"and the SSH JWT cache is neither filled nor served", runtime.GOOS)
 		return nil
 	}
 

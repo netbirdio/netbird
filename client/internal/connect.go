@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/internal/certproof"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -71,18 +72,42 @@ type ConnectClient struct {
 	updateManager *updater.Manager
 
 	persistSyncResponse bool
+	// inMemoryState keeps the state manager off disk, for clients that change
+	// nothing on the host that a later run would have to restore.
+	inMemoryState bool
 
 	// netMgr gates every reconnection loop on OS-reported network
 	// availability and sweeps connections on network change.
 	netMgr *netevents.Manager
+
+	profileOwner        string
+	profileOwnerUnknown bool
 }
 
 // ConnectClientOption configures optional ConnectClient behavior.
 type ConnectClientOption func(*ConnectClient)
 
+// WithInMemoryState keeps client state in memory instead of the default state
+// file, so the client neither reads nor writes another installation's state.
+func WithInMemoryState() ConnectClientOption {
+	return func(c *ConnectClient) { c.inMemoryState = true }
+}
+
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) ConnectClientOption {
 	return func(c *ConnectClient) { c.netMgr = events }
+}
+
+// WithProfileOwner names the OS account the active profile belongs to, whose own
+// certificate store answers user certificate posture checks.
+func WithProfileOwner(username string) ConnectClientOption {
+	return func(c *ConnectClient) { c.profileOwner = username }
+}
+
+// WithUnknownProfileOwner records that the active profile's owner could not be
+// determined, so no user's certificate store answers certificate posture checks.
+func WithUnknownProfileOwner() ConnectClientOption {
+	return func(c *ConnectClient) { c.profileOwnerUnknown = true }
 }
 
 func NewConnectClient(
@@ -242,7 +267,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	wrapErr := state.Wrap
 	myPrivateKey, err := wgtypes.ParseKey(c.config.PrivateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", c.config.PrivateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key: %s", err)
 		return wrapErr(err)
 	}
 
@@ -256,8 +281,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		return err
 	}
 
+	// path stays alongside the manager because the engine derives StateDir
+	// from it; an in-memory client leaves it empty.
 	var path string
-	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+	var stateManager *statemanager.Manager
+	switch {
+	case c.inMemoryState:
+		log.Debugf("client state is kept in memory")
+		stateManager = statemanager.NewInMemory()
+	case runtime.GOOS == "ios" || runtime.GOOS == "android":
 		// On mobile, use the provided state file path directly
 		if !fileExists(mobileDependency.StateFilePath) {
 			if err := createFile(mobileDependency.StateFilePath); err != nil {
@@ -266,11 +298,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			}
 		}
 		path = mobileDependency.StateFilePath
-	} else {
+		stateManager = statemanager.New(path)
+	default:
 		sm := profilemanager.NewServiceManager("")
 		path = sm.GetStatePath()
+		stateManager = statemanager.New(path)
 	}
-	stateManager := statemanager.New(path)
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	if c.updateManager != nil {
@@ -290,6 +323,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		// if context cancelled we not start new backoff cycle
 		if c.ctx.Err() != nil {
 			return nil
+		}
+
+		if c.updateManager != nil {
+			c.updateManager.ResetMode()
 		}
 
 		// suspend connection attempts while the OS reports no usable network
@@ -416,6 +453,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 		engineConfig.TempDir = mobileDependency.TempDir
+		engineConfig.CertStore.ProfileOwner = c.profileOwner
+		engineConfig.CertStore.OwnerUnknown = c.profileOwnerUnknown
 		// Leave StateDir empty when there is no state path so a disk-backed
 		// syncstore falls back to os.TempDir() instead of filepath.Dir("") == ".".
 		if path != "" {
@@ -652,6 +691,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		RosenpassEnabled:              config.RosenpassEnabled,
 		RosenpassPermissive:           config.RosenpassPermissive,
 		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		RemoteJobsAllowed:             util.ReturnBoolWithDefaultFalse(config.RemoteJobsAllowed),
 		EnableSSHRoot:                 config.EnableSSHRoot,
 		EnableSSHSFTP:                 config.EnableSSHSFTP,
 		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
@@ -669,6 +709,8 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		SyncMessageVersion:  config.SyncMessageVersion,
 
 		LazyConnection: lazyconn.ParseState(config.LazyConnection),
+
+		CertStore: certStoreConfig(config),
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
@@ -695,6 +737,22 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 	return engineConf, nil
 }
+
+// certStoreConfig reads where certificate posture finds certificates from the daemon's
+// environment, NB_CERT_STORE_DIR and NB_CERT_PKCS11_URI with NB_TPM_PIN. The profile
+// config fields that once held them are ignored, and a value left there is reported
+// once, so a setup relying on it does not silently stop proving.
+func certStoreConfig(config *profilemanager.Config) certproof.Config {
+	if config.CertStoreDir != "" || config.CertPKCS11URI != "" {
+		legacyCertConfigOnce.Do(func() {
+			log.Warnf("certificate posture: CertStoreDir and CertPKCS11URI in the profile config are ignored, set %s and %s in the daemon's environment instead",
+				certproof.StoreDirEnv, certproof.PKCS11URIEnv)
+		})
+	}
+	return certproof.Config{PKCS11: certproof.PKCS11FromEnv()}
+}
+
+var legacyCertConfigOnce sync.Once
 
 func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 	var finalMTU uint16 = iface.DefaultMTU
@@ -749,6 +807,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHLocalPortForwarding,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
+		config.RemoteJobsAllowed,
 	)
 	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
 }

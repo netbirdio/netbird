@@ -18,7 +18,8 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
-// Well-known Windows SIDs that identify a fully privileged principal.
+// Well-known Windows SIDs. Only LocalSystem and BUILTIN\Administrators identify a
+// privileged principal; the service accounts are shared by unrelated services.
 const (
 	sidLocalSystem    = "S-1-5-18"     // NT AUTHORITY\SYSTEM
 	sidLocalService   = "S-1-5-19"     // NT AUTHORITY\LOCAL SERVICE
@@ -67,9 +68,9 @@ func (i Identity) IsWindows() bool {
 // user-to-root boundary.
 //
 // On Windows the decision comes from the caller's token rather than from
-// account names or group RIDs: an elevated token, one of the service accounts
-// the daemon itself may run as, or a token with BUILTIN\Administrators
-// enabled. A UAC-filtered administrator has that group marked deny-only, and
+// account names or group RIDs: an elevated token, the LocalSystem SID, or a
+// token with BUILTIN\Administrators enabled. LocalService and NetworkService
+// are not privileged by SID. A UAC-filtered administrator has that group marked deny-only, and
 // deny-only groups are dropped when the identity is captured, so such a
 // caller is correctly reported as unprivileged. Domain group memberships
 // (Domain Admins and friends) are deliberately not consulted: they say
@@ -83,12 +84,24 @@ func (i Identity) IsPrivileged() bool {
 		return true
 	}
 
-	switch i.SID {
-	case sidLocalSystem, sidLocalService, sidNetworkService:
+	if i.SID == sidLocalSystem {
 		return true
 	}
 
 	return slices.Contains(i.Groups, sidAdministrators)
+}
+
+// SameUser reports whether two identities are the same local principal. Only
+// the account is compared: the group set and the elevation flag describe what a
+// token may do, not who it belongs to. A SID on either side decides the
+// comparison, so a Windows principal never matches a Unix one on the UID both
+// happen to leave at zero. The zero Identity carries uid 0, so callers must
+// establish that both identities are real before the answer means anything.
+func (i Identity) SameUser(other Identity) bool {
+	if i.SID != "" || other.SID != "" {
+		return i.SID == other.SID
+	}
+	return i.UID == other.UID
 }
 
 // String renders the identity for audit logs and denial messages.

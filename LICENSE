@@ -1,9 +1,9 @@
-This BSD‑3‑Clause license applies to all parts of the repository except for the directories management/, signal/, relay/ and combined/.
+This BSD-3-Clause license applies to all parts of the repository except for the directories management/, signal/, relay/ and combined/.
 Those directories are licensed under the GNU Affero General Public License version 3.0 (AGPLv3). See the respective LICENSE files inside each directory.
 
 BSD 3-Clause License
 
-Copyright (c) 2022 NetBird GmbH & AUTHORS
+Copyright (c) 2022-2026 NetBird GmbH & AUTHORS
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 

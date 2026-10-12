@@ -32,19 +32,19 @@ const inputVariants = cva("", {
     variants: {
         variant: {
             default: [
-                "border-neutral-200 placeholder:text-neutral-500 dark:border-nb-gray-700 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
+                "border-neutral-200 placeholder:text-nb-gray-600 dark:border-nb-gray-700 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
                 "ring-offset-neutral-200/20 focus-visible:ring-neutral-300/10 dark:ring-offset-neutral-950/50 dark:focus-visible:ring-neutral-500/20",
             ],
             darker: [
-                "border-neutral-300 placeholder:text-neutral-500 dark:border-nb-gray-800 dark:bg-nb-gray-920 dark:placeholder:text-neutral-400/70",
+                "border-neutral-300 placeholder:text-nb-gray-600 dark:border-nb-gray-800 dark:bg-nb-gray-920 dark:placeholder:text-neutral-400/70",
                 "ring-offset-neutral-200/20 focus-visible:ring-neutral-300/10 dark:ring-offset-neutral-950/50 dark:focus-visible:ring-neutral-500/20",
             ],
             error: [
-                "border-neutral-200 text-red-500 placeholder:text-neutral-500 dark:border-red-500 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
+                "border-neutral-200 text-red-500 placeholder:text-nb-gray-600 dark:border-red-500 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
                 "ring-offset-red-500/10 focus-visible:ring-red-500/10 dark:ring-offset-red-500/10 dark:focus-visible:ring-red-500/10",
             ],
             warning: [
-                "border-neutral-200 text-orange-400 placeholder:text-neutral-500 dark:border-orange-400 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
+                "border-neutral-200 text-orange-400 placeholder:text-nb-gray-600 dark:border-orange-400 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
                 "ring-offset-orange-400/10 focus-visible:ring-orange-400/10 dark:ring-offset-orange-400/10 dark:focus-visible:ring-orange-400/10",
             ],
         },
@@ -86,13 +86,13 @@ function buildInputClassName(
         "file:border-0 file:bg-transparent file:text-sm file:font-medium",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
         "disabled:cursor-not-allowed disabled:opacity-40",
-        opts.hasCustomPrefix && "!rounded-l-none !border-l-0",
-        opts.hasSuffix && "!pr-9",
-        opts.hasIcon && "!pl-10",
+        opts.hasCustomPrefix && "!rounded-s-none !border-s-0",
+        opts.hasSuffix && "!pe-9",
+        opts.hasIcon && "!ps-10",
         "border",
         opts.readOnly && "!border-nb-gray-800 !bg-nb-gray-910 text-nb-gray-350",
         opts.showStepper &&
-            "!rounded-r-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            "!rounded-e-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         opts.className,
     );
 }
@@ -107,7 +107,7 @@ function InputAffix({
         <div
             className={cn(
                 inputVariants({ prefixSuffixVariant: error ? "error" : "default" }),
-                "flex h-[40px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
+                "flex h-[40px] w-auto rounded-s-md bg-white px-3 py-2 text-sm",
                 "items-center whitespace-nowrap border",
                 disabled && "opacity-40",
                 className,
@@ -122,7 +122,7 @@ function InputIconSlot({ icon, disabled }: Readonly<{ icon: ReactNode; disabled?
     return (
         <div
             className={cn(
-                "absolute left-0 top-0 flex h-full items-center pl-3 text-xs leading-[0] dark:text-nb-gray-300",
+                "absolute start-0 top-0 flex h-full items-center ps-3 text-xs leading-[0] dark:text-nb-gray-300",
                 disabled && "opacity-40",
             )}
         >
@@ -138,7 +138,7 @@ function InputSuffixSlot({
     return (
         <div
             className={cn(
-                "pointer-events-none absolute right-0 top-0 flex h-full select-none items-center pr-3 text-xs leading-[0] dark:text-nb-gray-300",
+                "pointer-events-none absolute end-0 top-0 flex h-full select-none items-center pe-3 text-xs leading-[0] dark:text-nb-gray-300",
                 disabled && "opacity-30",
             )}
         >
@@ -157,8 +157,8 @@ function NumberStepper({
         <div
             className={cn(
                 "flex h-[40px] shrink-0 flex-col overflow-hidden",
-                "rounded-r-md border border-l-0",
-                "border-neutral-200 dark:border-nb-gray-700 dark:bg-nb-gray-900",
+                "rounded-e-md border border-s-0",
+                "border-neutral-200 bg-white dark:border-nb-gray-700 dark:bg-nb-gray-900",
                 error && "dark:border-red-500",
                 disabled && "pointer-events-none opacity-40",
             )}
@@ -226,6 +226,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         showPasswordToggle = false,
         copy = false,
         id,
+        dir,
         ...props
     },
     ref,
@@ -274,7 +275,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             <button
                 type={"button"}
                 onClick={() => setShowPassword((s) => !s)}
-                className={"pointer-events-auto transition-all hover:text-white"}
+                className={
+                    "pointer-events-auto text-nb-gray-400 transition-colors hover:text-nb-gray-50 dark:text-nb-gray-300 dark:hover:text-nb-gray-50"
+                }
                 aria-label={t("common.togglePasswordVisibility")}
                 aria-pressed={showPassword}
             >
@@ -303,7 +306,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         <button
             type={"button"}
             onClick={onCopy}
-            className={"pointer-events-auto transition-all hover:text-white"}
+            className={
+                "pointer-events-auto text-nb-gray-400 transition-colors hover:text-nb-gray-50 dark:text-nb-gray-300 dark:hover:text-nb-gray-50"
+            }
             aria-label={t("common.copy")}
         >
             {copied ? (
@@ -332,7 +337,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     return (
         <div className={"flex w-full min-w-0 flex-col"}>
             {label && <Label htmlFor={inputId}>{label}</Label>}
-            <div className={cn("relative flex h-[40px] w-full", maxWidthClass)}>
+            <div dir={dir} className={cn("relative flex h-[40px] w-full", maxWidthClass)}>
                 {customPrefix && (
                     <InputAffix
                         content={customPrefix}

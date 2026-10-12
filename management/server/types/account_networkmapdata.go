@@ -4,6 +4,7 @@ import (
 	"github.com/miekg/dns"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -114,6 +115,7 @@ func (a *Account) toNetworkMapData(
 	nmd.AppliedZoneCandidates = buildAppliedZoneCandidates(accountZones)
 	nmd.PrivateServiceCandidates = a.buildPrivateServiceCandidates()
 	nmd.Services = TwinServices(a.Services)
+	nmd.Domains = twinProxyDomains(a.Domains)
 
 	return nmd
 }
@@ -153,6 +155,7 @@ func TwinServices(services []*service.Service) []*nmdata.Service {
 			Enabled:      svc.Enabled,
 			Private:      svc.Private,
 			Mode:         svc.Mode,
+			Domain:       svc.Domain,
 			ProxyCluster: svc.ProxyCluster,
 			AccessGroups: svc.AccessGroups,
 			Targets:      targets,
@@ -185,6 +188,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 		IP:                     p.IP,
 		IPv6:                   p.IPv6,
 		RequiresApproval:       p.Status != nil && p.Status.RequiresApproval,
+		Connected:              p.Status != nil && p.Status.Connected,
 		ExtraDNSLabels:         p.ExtraDNSLabels,
 		ProxyMeta:              nmdata.ProxyMeta{Embedded: p.ProxyMeta.Embedded, Cluster: p.ProxyMeta.Cluster},
 		Meta: nmdata.PeerSystemMeta{
@@ -194,6 +198,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 			KernelVersion:      p.Meta.KernelVersion,
 			NetworkAddresses:   networkAddresses,
 			Files:              files,
+			Certificates:       p.Meta.Certificates,
 			Capabilities:       p.Meta.Capabilities,
 			SyncMessageVersion: p.Meta.SyncMessageVersion,
 			Flags: nmdata.Flags{
@@ -209,8 +214,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	}
 }
 
-// TwinPeer converts a real peer to its slim nmdata twin. Exported for the
-// port-forwarding integration, which builds proxy NetworkMaps holding twins.
+// TwinPeer converts a real peer to its slim nmdata twin.
 func TwinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	return twinPeer(p)
 }
@@ -449,6 +453,9 @@ func TwinPostureChecks(pc *posture.Checks) *nmdata.PostureChecks {
 		}
 		out.Checks.ProcessCheck = &nmdata.ProcessCheck{Processes: procs}
 	}
+	if def.CertificateCheck != nil {
+		out.Checks.CertificateCheck = &nmdata.CertificateCheck{CACertificates: def.CertificateCheck.CACertificates}
+	}
 	return out
 }
 
@@ -620,4 +627,20 @@ func TwinCustomZone(z nbdns.CustomZone) nmdata.CustomZone {
 		SearchDomainDisabled: z.SearchDomainDisabled,
 		NonAuthoritative:     z.NonAuthoritative,
 	}
+}
+
+// twinProxyDomains converts the account's registered reverse-proxy domains to
+// their slim twins, so private-service zone apex resolution runs on the twin.
+func twinProxyDomains(domains []*proxydomain.Domain) []nmdata.ProxyDomain {
+	if len(domains) == 0 {
+		return nil
+	}
+	out := make([]nmdata.ProxyDomain, 0, len(domains))
+	for _, d := range domains {
+		if d == nil {
+			continue
+		}
+		out = append(out, nmdata.ProxyDomain{Domain: d.Domain, TargetCluster: d.TargetCluster})
+	}
+	return out
 }

@@ -31,6 +31,9 @@ const (
 // Client is a running NetBird client container joined to the combined server.
 type Client struct {
 	container testcontainers.Container
+	// name is the container hostname the agent reports to management at
+	// registration — the name the peer appears under in the peers API.
+	name string
 }
 
 // clientOptions is what the ClientOption values assemble.
@@ -99,24 +102,38 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 	if err != nil {
 		return nil, fmt.Errorf("start client container: %w", err)
 	}
-	return &Client{container: ctr}, nil
+	return &Client{container: ctr, name: o.name}, nil
+}
+
+// Hostname returns the container hostname the agent reports to management —
+// the name the registered peer appears under in the peers API.
+func (cl *Client) Hostname() string {
+	return cl.name
 }
 
 // Restart bounces the client connection (netbird down/up) so it pulls a fresh
 // network map — the documented workaround for a freshly-joined client not yet
 // seeing a synthesized agent-network service.
 func (cl *Client) Restart(ctx context.Context) error {
+	return cl.Up(ctx)
+}
+
+// Up re-runs `netbird up` inside the client with the given extra flags (e.g.
+// "--allow-remote-jobs"), bouncing the connection first so the new config is
+// picked up and re-synced to management. Used to toggle peer options that ride
+// on the login/sync request without recreating the container.
+func (cl *Client) Up(ctx context.Context, extraArgs ...string) error {
 	if _, _, err := cl.container.Exec(ctx, []string{"netbird", "down"}, tcexec.Multiplexed()); err != nil {
 		return fmt.Errorf("netbird down: %w", err)
 	}
 	time.Sleep(2 * time.Second)
-	code, reader, err := cl.container.Exec(ctx, []string{"netbird", "up"}, tcexec.Multiplexed())
+	code, reader, err := cl.container.Exec(ctx, append([]string{"netbird", "up"}, extraArgs...), tcexec.Multiplexed())
 	if err != nil {
 		return fmt.Errorf("netbird up: %w", err)
 	}
 	if code != 0 {
 		out, _ := io.ReadAll(reader)
-		return fmt.Errorf("netbird up exited %d: %s", code, string(out))
+		return fmt.Errorf("netbird up %v exited %d: %s", extraArgs, code, string(out))
 	}
 	return nil
 }

@@ -23,6 +23,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
@@ -38,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
@@ -56,13 +58,22 @@ const (
 	// JWT token cache TTL for the client daemon (disabled by default)
 	defaultJWTCacheTTL = 0
 
-	errRestoreResidualState   = "failed to restore residual state: %v"
-	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errRestoreResidualState = "failed to restore residual state: %v"
+	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
+	// errUpdateSettingsDisabled is returned with codes.FailedPrecondition, not
+	// codes.Unavailable: the daemon answered, and it refused. Unavailable means
+	// "the daemon cannot serve this", which is why the CLI downgrades it to a
+	// warning and the GUI reads it as an unreachable daemon — both wrong for a
+	// refusal the caller has to act on.
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 	errNetworksDisabled       = "network selection is disabled by the administrator"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
+
+type statusSetter interface {
+	Set(update internal.StatusType)
+}
 
 // Server for service control.
 type Server struct {
@@ -81,6 +92,12 @@ type Server struct {
 	uiLogPath string
 
 	oauthAuthFlow oauthAuthFlow
+	// forceAccountPrompt makes the next startSSOLogin build its flow with a
+	// forced account prompt. Armed when a login came back for an account other
+	// than the hinted one: that flow's browser is gone, so the correction has to
+	// ride on the user's next connect. Guarded by mutex; deliberately not
+	// persisted — a lost flag only costs one more mismatch round.
+	forceAccountPrompt bool
 	// extendAuthSessionFlow holds the pending PKCE flow created by
 	// RequestExtendAuthSession until WaitExtendAuthSession resolves it.
 	// Kept separate from oauthAuthFlow (which is reserved for the SSH
@@ -136,6 +153,15 @@ type Server struct {
 	// stopped by the rootCtx cancellation.
 	mdmTicker *mdm.Ticker
 
+	// mdmLoader is the daemon-owned source of the active MDM policy.
+	// Constructed once during Server.Start (with a nil PolicyFetcher on
+	// desktop — the build-tagged Loader.loadPlatform reads the OS
+	// registry / plist directly) and injected into every consumer:
+	// mdmTicker for its periodic reload, the SetConfig / Login MDM
+	// gates for conflict detection, and every Config produced via
+	// getConfig() so its apply() picks up the same overlay.
+	mdmLoader *mdm.Loader
+
 	updateManager *updater.Manager
 
 	jwtCache *jwtCache
@@ -149,10 +175,26 @@ type Server struct {
 }
 
 type oauthAuthFlow struct {
-	expiresAt  time.Time
-	flow       auth.OAuthFlow
-	info       auth.AuthFlowInfo
+	expiresAt time.Time
+	flow      auth.OAuthFlow
+	info      auth.AuthFlowInfo
+
+	// cacheGeneration is the SSH JWT cache's generation as of the start of the
+	// request that created this flow. The flow outlives a profile switch, so
+	// reading the generation any later — when the IdP has answered, or when the
+	// token finally arrives — would read the new session's one and let the old
+	// session's token into the new session's cache.
+	cacheGeneration uint64
+
 	waitCancel context.CancelFunc
+	// hint is the account the flow was asked to sign in (login_hint). The token
+	// that comes back is compared against it; empty means nothing to compare.
+	hint string
+	// accountPrompted records that this flow already asked the IdP to re-decide
+	// the account (or could not ask — the device flow has no way to). A token
+	// for the wrong account is then let through with a warning instead of
+	// erroring again, so the flow cannot loop.
+	accountPrompted bool
 }
 
 // New server instance constructor.
@@ -236,8 +278,14 @@ func (s *Server) Start() error {
 	// Runs re-resolves Config (re-running profilemanager.Config.apply which
 	// applies the freshly-read MDM policy as the last layer) and brings
 	// the engine back with the new values.
+	if s.mdmLoader == nil {
+		// Desktop builds pass a nil PolicyFetcher: the Loader's
+		// build-tagged loadPlatform reads the OS source directly
+		// (registry on Windows, plist on macOS, no-op elsewhere).
+		s.mdmLoader = mdm.NewLoader(nil)
+	}
 	if s.mdmTicker == nil {
-		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval)
+		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval, s.mdmLoader)
 		go s.mdmTicker.Run(s.rootCtx, s.onMDMPolicyChange)
 	}
 
@@ -467,37 +515,39 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Skip the update-settings gate when the request carries no actual
-	// overrides: the CLI builds a SetConfigRequest unconditionally on
-	// every `netbird up` (setupSetConfigReq in cmd/up.go), so a plain
-	// `netbird up` would otherwise always trip the gate and surface a
-	// misleading "setConfig method is not available" warning, even when
-	// the user did not pass any config flag.
-	if setConfigRequestHasConfigOverrides(msg) {
-		if s.checkUpdateSettingsDisabled() {
-			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
-		}
+	stored, err := s.storedProfileConfig(msg.ProfileName, msg.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	config, err := s.setConfigInputFromRequest(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update-settings gate: refuse the request only when it would actually
+	// change a persisted setting. The CLI builds a SetConfigRequest
+	// unconditionally on every `netbird up` (setupSetConfigReq in
+	// cmd/up.go) and fills it from its flags and environment, so a service
+	// or container that restates the configuration it already runs with
+	// must pass the gate. Deciding this on field presence alone refused
+	// those callers, and — through the identical gate in Login — refused
+	// their login too, which left a client configured by environment
+	// (NB_MANAGEMENT_URL and friends) unable to come up at all.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, config) {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	// MDM gate: refuse the whole request if any of its fields is enforced
 	// by the active MDM policy. The error carries an MDMManagedFields-
 	// Violation detail listing the offending key names. Non-conflicting
 	// fields in the same request are not applied either.
-	policy := loadMDMPolicy()
+	policy := s.mdmLoader.Load()
 	if err := rejectMDMManagedFieldConflicts(mdmManagedFieldConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
 
-	stored, err := s.storedProfileConfig(msg.ProfileName, msg.Username)
-	if err != nil {
-		return nil, err
-	}
 	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromSetConfig(msg)); err != nil {
-		return nil, err
-	}
-
-	config, err := s.setConfigInputFromRequest(msg)
-	if err != nil {
 		return nil, err
 	}
 
@@ -586,6 +636,7 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 	config.LocalMetricsAddress = msg.LocalMetricsAddress
 	config.DisableAutoConnect = msg.DisableAutoConnect
 	config.ServerSSHAllowed = msg.ServerSSHAllowed
+	config.RemoteJobsAllowed = msg.RemoteJobsAllowed
 	config.NetworkMonitor = msg.NetworkMonitor
 	config.DisableClientRoutes = msg.DisableClientRoutes
 	config.DisableServerRoutes = msg.DisableServerRoutes
@@ -615,42 +666,55 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	// The stored config of the profile this request targets backs all three
+	// gates below. It is read before anything changes daemon state, so a
+	// refused login neither switches the profile nor cancels a login already
+	// in progress, and it is the profile the switch further down would
+	// activate.
+	stored, err := s.storedLoginConfig(activeProf, msg)
+	if err != nil {
+		return nil, err
+	}
+
 	// Config-override gates. LoginRequest carries the same surface as
 	// SetConfigRequest (managementUrl, PSK, ssh/rosenpass/port toggles,
 	// ...), so the same protections must apply. Without these the CLI
 	// command `netbird up --management-url=X` (which falls through to
 	// Login when SetConfig is rejected — see cmd/up.go) would silently
 	// bypass `--disable-update-settings` and any MDM policy.
-	if loginRequestHasConfigOverrides(msg) {
-		if s.checkUpdateSettingsDisabled() {
-			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
-		}
-		policy := loadMDMPolicy()
-		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
-			return nil, err
-		}
+	//
+	// The update-settings gate is value-aware, as in SetConfig: it looks at
+	// what a login would actually persist (loginOverridesInput) and refuses
+	// only a real divergence from the stored config. A login that restates
+	// the values already on disk changes nothing, so it must go through —
+	// that is what keeps a re-login, or a container restart carrying
+	// NB_MANAGEMENT_URL, working with the kill switch on.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
-	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err != nil {
-		log.Errorf("failed to get active profile state: %v", err)
-		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	policy := s.mdmLoader.Load()
+	if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
+		return nil, err
 	}
 
 	// Privilege gate: same restrictions as SetConfig, since LoginRequest can carry
-	// the same fields. It runs before anything here changes daemon state, so a
-	// refused login neither switches the profile nor cancels a login already in
-	// progress, and it reads the profile the request targets, which is the one the
-	// switch below would activate.
-	stored, err := s.storedLoginConfig(activeProf, msg)
-	if err != nil {
-		return nil, err
-	}
+	// the same fields.
 	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
 		return nil, err
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
+	status := state.CurrentStatus()
+	if status == internal.StatusConnected {
+		return &proto.LoginResponse{}, nil
+	}
+
 	defer func() {
 		status, err := state.Status()
 		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
@@ -658,7 +722,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 	}()
 
-	ctx, activeProf, err := s.authorizeAndPrepareLogin(callerCtx, msg, activeProf)
+	ctx, activeProf, switched, err := s.authorizeAndPrepareLogin(callerCtx, msg, activeProf)
 	if err != nil {
 		// The RPC boundary is where this gets recorded: nothing logs handler
 		// errors for us, and a caller that retries would otherwise leave no
@@ -688,6 +752,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 	s.mutex.Lock()
 	s.config = config
+	if switched {
+		s.jwtCache.clear()
+	}
 	s.mutex.Unlock()
 
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
@@ -710,54 +777,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.SetupKey == "" {
-		hint := ""
-		if msg.Hint != nil {
-			hint = *msg.Hint
-		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
-		if err != nil {
-			state.Set(internal.StatusLoginFailed)
-			return nil, err
-		}
-
-		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
-			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
-				log.Debugf("using previous oauth flow info")
-				state.Set(internal.StatusNeedsLogin)
-				return &proto.LoginResponse{
-					NeedsSSOLogin:           true,
-					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
-					VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
-					UserCode:                s.oauthAuthFlow.info.UserCode,
-				}, nil
-			} else {
-				log.Warnf("canceling previous waiting execution")
-				if s.oauthAuthFlow.waitCancel != nil {
-					s.oauthAuthFlow.waitCancel()
-				}
-			}
-		}
-
-		authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
-		if err != nil {
-			log.Errorf("getting a request OAuth flow failed: %v", err)
-			return nil, err
-		}
-
-		s.mutex.Lock()
-		s.oauthAuthFlow.flow = oAuthFlow
-		s.oauthAuthFlow.info = authInfo
-		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-		s.mutex.Unlock()
-
-		state.Set(internal.StatusNeedsLogin)
-
-		return &proto.LoginResponse{
-			NeedsSSOLogin:           true,
-			VerificationURI:         authInfo.VerificationURI,
-			VerificationURIComplete: authInfo.VerificationURIComplete,
-			UserCode:                authInfo.UserCode,
-		}, nil
+		return s.startSSOLogin(ctx, msg, config, state)
 	}
 
 	// Setup-key path: we are about to dial Management with the key, so the
@@ -771,6 +791,128 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	return &proto.LoginResponse{}, nil
+}
+
+// startSSOLogin opens the interactive leg of a login: it reuses the in-flight
+// OAuth flow when one is still valid for the same client, and otherwise
+// requests fresh auth info and parks the daemon on StatusNeedsLogin.
+func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, config *profilemanager.Config, state statusSetter) (*proto.LoginResponse, error) {
+	hint := ""
+	if msg.Hint != nil {
+		hint = *msg.Hint
+	}
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint, false)
+	if err != nil {
+		state.Set(internal.StatusLoginFailed)
+		return nil, err
+	}
+
+	s.mutex.Lock()
+	promptForAccount := s.forceAccountPrompt
+	s.forceAccountPrompt = false
+	s.mutex.Unlock()
+	if promptForAccount && auth.RetryFlowForAccount(oAuthFlow) == nil {
+		// The device flow cannot ask; run it as-is. accountPrompted still goes
+		// true below so a second mismatch is let through instead of looping.
+		log.Warnf("the previous login returned a different account, but this flow cannot ask the IdP to choose one")
+	}
+
+	if resp := s.reuseOAuthFlow(ctx, oAuthFlow, state, promptForAccount); resp != nil {
+		return resp, nil
+	}
+
+	authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
+	if err != nil {
+		log.Errorf("getting a request OAuth flow failed: %v", err)
+		return nil, err
+	}
+
+	s.replaceOAuthFlow(oauthAuthFlow{
+		flow:            oAuthFlow,
+		info:            authInfo,
+		expiresAt:       time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
+		hint:            hint,
+		accountPrompted: promptForAccount,
+	})
+
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         authInfo.VerificationURI,
+		VerificationURIComplete: authInfo.VerificationURIComplete,
+		UserCode:                authInfo.UserCode,
+	}, nil
+}
+
+// replaceOAuthFlow installs next as the shared OAuth flow record and takes over
+// the wait it displaces, so a WaitSSOLogin still parked on the old flow is not
+// left without an owner: nothing would preempt it, and it could go on to run
+// attemptLogin or mutate the record behind the new flow.
+//
+// The displaced cancel is read in the same critical section that replaces the
+// record, so two callers racing here cannot both take the same predecessor. The
+// cancel runs after the unlock — the displaced wait takes s.mutex as it unwinds.
+func (s *Server) replaceOAuthFlow(next oauthAuthFlow) {
+	s.mutex.Lock()
+	staleCancel := s.oauthAuthFlow.waitCancel
+	s.oauthAuthFlow = next
+	s.mutex.Unlock()
+
+	if staleCancel != nil {
+		staleCancel()
+	}
+}
+
+func (s *Server) expireOAuthFlow(flow auth.OAuthFlow) {
+	s.mutex.Lock()
+	if s.oauthAuthFlow.flow == flow {
+		s.oauthAuthFlow.expiresAt = time.Now()
+	}
+	s.mutex.Unlock()
+}
+
+// reuseOAuthFlow returns the cached auth info when the previous flow targets
+// the same client and still has enough life left, and otherwise cancels the
+// stale wait and returns nil so the caller requests a fresh flow.
+//
+// promptForAccount rules reuse out: the cached flow was built without the
+// account prompt, so handing its URL back would repeat the silent
+// authorization that returned the wrong account — and with the flag already
+// consumed, no later round would ask either. The predecessor's wait is still
+// cancelled on the way out, so it is not orphaned on its device-code window.
+//
+// The whole decision runs off one snapshot taken under s.mutex: a concurrent
+// WaitSSOLogin replaces waitCancel and expires the flow, so reading the fields
+// one at a time could cancel a wait that no longer belongs to the flow just
+// judged stale, or answer with auth info from a flow that was already replaced.
+// The cancel itself is called after unlocking — it runs arbitrary teardown, and
+// WaitSSOLogin takes s.mutex on the way out.
+func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, state statusSetter, promptForAccount bool) *proto.LoginResponse {
+	s.mutex.Lock()
+	current := s.oauthAuthFlow
+	s.mutex.Unlock()
+
+	if current.flow == nil || current.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
+		return nil
+	}
+
+	if promptForAccount || !current.expiresAt.After(time.Now().Add(90*time.Second)) {
+		log.Warnf("canceling previous waiting execution")
+		if current.waitCancel != nil {
+			current.waitCancel()
+		}
+		return nil
+	}
+
+	log.Debugf("using previous oauth flow info")
+	state.Set(internal.StatusNeedsLogin)
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         current.info.VerificationURI,
+		VerificationURIComplete: current.info.VerificationURIComplete,
+		UserCode:                current.info.UserCode,
+	}
 }
 
 // WaitSSOLogin validates the supplied userCode against the in-flight OAuth
@@ -843,9 +985,16 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	}
 
 	s.actCancel = cancel
+	// One snapshot of the flow this wait belongs to. hint and accountPrompted
+	// are judged against the token that comes back below, and WaitToken blocks
+	// for the whole browser leg: a concurrent Login or RequestJWTAuth replaces
+	// s.oauthAuthFlow meanwhile, so re-reading them after the wait would judge
+	// this flow's token against another flow's account.
+	pending := s.oauthAuthFlow
+	flow := pending.flow
 	s.mutex.Unlock()
 
-	if s.oauthAuthFlow.flow == nil {
+	if flow == nil {
 		return nil, gstatus.Errorf(codes.Internal, "oauth flow is not initialized")
 	}
 
@@ -863,31 +1012,36 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	// the affordance instead of a Connecting that never resolves.
 	state.Set(internal.StatusNeedsLogin)
 
-	s.mutex.Lock()
-	flowInfo := s.oauthAuthFlow.info
-	s.mutex.Unlock()
+	flowInfo := pending.info
 
 	if flowInfo.UserCode != msg.UserCode {
 		state.Set(internal.StatusLoginFailed)
 		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
 	}
 
-	if s.oauthAuthFlow.waitCancel != nil {
-		s.oauthAuthFlow.waitCancel()
-	}
-
 	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Swap in this wait's cancel and take over the one it displaces in a single
+	// critical section, so two WaitSSOLogin calls racing here cannot both read
+	// the same predecessor and leave one wait uncancelled. Cancelling happens
+	// after the unlock: the displaced wait takes s.mutex as it unwinds.
 	s.mutex.Lock()
+	if s.oauthAuthFlow.flow != flow {
+		s.mutex.Unlock()
+		return nil, gstatus.Errorf(codes.Canceled, "sso login was replaced by a newer login")
+	}
+	staleCancel := s.oauthAuthFlow.waitCancel
 	s.oauthAuthFlow.waitCancel = cancel
 	s.mutex.Unlock()
 
-	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
+	if staleCancel != nil {
+		staleCancel()
+	}
+
+	tokenInfo, err := flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		s.mutex.Lock()
-		s.oauthAuthFlow.expiresAt = time.Now()
-		s.mutex.Unlock()
+		s.expireOAuthFlow(flow)
 		switch {
 		case errors.Is(err, context.Canceled):
 			// External abort. If our caller cancelled (the client closed
@@ -900,7 +1054,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			// the new owner — don't clobber it.
 			if callerCtx.Err() != nil {
 				s.mutex.Lock()
-				s.oauthAuthFlow = oauthAuthFlow{}
+				if s.oauthAuthFlow.flow == flow {
+					s.oauthAuthFlow = oauthAuthFlow{}
+				}
 				s.mutex.Unlock()
 			}
 		case errors.Is(err, context.DeadlineExceeded):
@@ -916,9 +1072,32 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow.expiresAt = time.Now()
-	s.mutex.Unlock()
+	s.expireOAuthFlow(flow)
+
+	if !tokenInfo.MatchesAccount(pending.hint) {
+		if !pending.accountPrompted {
+			// The IdP answered from a session belonging to another account. The
+			// browser for this flow is gone, so a new URL cannot be handed out
+			// here — arm the prompt for the user's next connect and fail this
+			// round. Never log in with the token: on a registered peer the
+			// server would reject it, and on a fresh one it would silently
+			// register the peer under the wrong account.
+			log.Warnf("login returned an account other than the one this profile is bound to; the next connect will ask the IdP to choose")
+			s.mutex.Lock()
+			if s.oauthAuthFlow.flow == flow {
+				s.oauthAuthFlow = oauthAuthFlow{}
+				s.forceAccountPrompt = true
+			}
+			s.mutex.Unlock()
+			state.Set(internal.StatusNeedsLogin)
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "the login used a different account than this profile; connect again to choose the account")
+		}
+		// Already asked once; the account may legitimately differ (a changed
+		// email address). Refusing again would lock the user out of the profile,
+		// and the management server still rejects a token that does not own the
+		// peer.
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
 
 	if loginStatus, err := s.attemptLogin(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
 		state.Set(loginStatus)
@@ -1016,10 +1195,14 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 
 	if msg != nil && msg.ProfileName != nil {
-		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+		switched, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf)
+		if err != nil {
 			s.mutex.Unlock()
 			log.Errorf("failed to switch profile: %v", err)
 			return nil, err
+		}
+		if switched {
+			s.dropPendingAuthFlows()
 		}
 	}
 
@@ -1120,6 +1303,10 @@ func (s *Server) storedLoginConfig(activeProf *profilemanager.ActiveProfileState
 
 // storedConfigAtPath reads a profile config file, yielding nil when it does not
 // exist yet.
+//
+// Reading it has no side effect: profilemanager.GetExistingConfig does not
+// write, so a request that the gates go on to refuse leaves the profile file as
+// it found it.
 func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -1128,7 +1315,7 @@ func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error)
 		return nil, fmt.Errorf("stat profile config: %w", err)
 	}
 
-	cfg, err := profilemanager.GetConfig(path)
+	cfg, err := profilemanager.GetExistingConfig(path)
 	if err != nil {
 		return nil, fmt.Errorf("read profile config: %w", err)
 	}
@@ -1154,12 +1341,12 @@ func (s *Server) resolveProfileHandle(handle, username string) (*profilemanager.
 }
 
 // switchProfileIfNeeded resolves the user-supplied handle, updates the
-// active profile state if it differs from the current one, and returns
-// the resolved profile so callers can include its ID in RPC responses.
-func (s *Server) switchProfileIfNeeded(handle string, userName *string, activeProf *profilemanager.ActiveProfileState) (*profilemanager.Profile, error) {
+// active profile state if it differs from the current one, and reports
+// whether the active profile changed.
+func (s *Server) switchProfileIfNeeded(handle string, userName *string, activeProf *profilemanager.ActiveProfileState) (bool, error) {
 	if handle != profilemanager.DefaultProfileName && (userName == nil || *userName == "") {
 		log.Errorf("profile name is set to %s, but username is not provided", handle)
-		return nil, fmt.Errorf("profile name is set to %s, but username is not provided", handle)
+		return false, fmt.Errorf("profile name is set to %s, but username is not provided", handle)
 	}
 
 	var username string
@@ -1169,26 +1356,48 @@ func (s *Server) switchProfileIfNeeded(handle string, userName *string, activePr
 
 	resolved, err := s.resolveProfileHandle(handle, username)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	if resolved.ID != activeProf.ID || username != activeProf.Username {
-		if s.checkProfilesDisabled() {
-			log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
-			return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-		}
-
-		log.Infof("switching to profile %s (%s) for user %s", resolved.Name, resolved.ID, username)
-		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			ID:       resolved.ID,
-			Username: username,
-		}); err != nil {
-			log.Errorf("failed to set active profile state: %v", err)
-			return nil, fmt.Errorf("failed to set active profile state: %w", err)
-		}
+	if resolved.ID == activeProf.ID && username == activeProf.Username {
+		return false, nil
 	}
 
-	return resolved, nil
+	if s.checkProfilesDisabled() {
+		log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
+		return false, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	log.Infof("switching to profile %s (%s) for user %s", resolved.Name, resolved.ID, username)
+	if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		ID:       resolved.ID,
+		Username: username,
+	}); err != nil {
+		log.Errorf("failed to set active profile state: %v", err)
+		return false, fmt.Errorf("failed to set active profile state: %w", err)
+	}
+
+	return true, nil
+}
+
+func (s *Server) dropPendingAuthFlows() {
+	// A pending login flow and the account-prompt flag describe the previous
+	// profile's login; carried across a switch they would judge the new
+	// profile's token against the old profile's account. CancelFunc is
+	// non-blocking, so calling it under the mutex is safe.
+	if cancel := s.oauthAuthFlow.waitCancel; cancel != nil {
+		cancel()
+	}
+	s.oauthAuthFlow = oauthAuthFlow{}
+	s.forceAccountPrompt = false
+
+	// A pending session extend belongs to the previous profile too: its device
+	// code was issued by that profile's IdP client, and WaitExtendAuthSession
+	// would submit the resulting token against the new profile's engine.
+	s.extendAuthSessionFlow.CancelWait()
+	s.extendAuthSessionFlow.Clear()
+
+	s.jwtCache.clear()
 }
 
 // SwitchProfile switches the active profile in the daemon.
@@ -1221,6 +1430,8 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 	s.config = config
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
+
+	s.dropPendingAuthFlows()
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
@@ -1347,11 +1558,16 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, err
 	}
 
-	if err := s.validateProfileOperation(resolved.ID, true); err != nil {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed to get active profile state: %v", err)
+	}
+
+	if err := s.validateProfileLogout(resolved.ID, isActiveProfile(activeProf, resolved.ID, username)); err != nil {
 		return nil, err
 	}
 
-	if err := s.logoutFromProfile(ctx, resolved); err != nil {
+	if err := s.logoutFromProfile(ctx, resolved, username); err != nil {
 		log.Errorf("failed to logout from profile %s: %v", resolved.ID, err)
 		// A refused deregistration is already a status error carrying the reason
 		// and the command to run; rewrapping it as Internal would flatten both
@@ -1362,16 +1578,34 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
 	}
 
-	activeProf, _ := s.profileManager.GetActiveProfileState()
-	if activeProf != nil && activeProf.ID == resolved.ID {
-		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
-			log.Errorf("failed to cleanup connection: %v", err)
-		}
-		state := internal.CtxGetState(s.rootCtx)
-		state.Set(internal.StatusNeedsLogin)
-	}
+	s.cleanupAfterProfileLogout(resolved.ID, username)
 
 	return &proto.LogoutResponse{}, nil
+}
+
+// cleanupAfterProfileLogout tears the connection down and asks for a new login
+// when the profile that was just deregistered is the one the daemon is running.
+// The active profile is read again here rather than reused from the pre-flight
+// check: Login switches profiles under guardedConfigMu, which this path does not
+// hold, so a login that landed meanwhile must not have its fresh connection
+// dropped by a logout that targeted the profile it replaced.
+func (s *Server) cleanupAfterProfileLogout(id profilemanager.ID, username string) {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state after logout from profile %s: %v", id, err)
+		return
+	}
+
+	if !isActiveProfile(activeProf, id, username) {
+		return
+	}
+
+	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		log.Errorf("failed to cleanup connection: %v", err)
+	}
+	s.jwtCache.clear()
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusNeedsLogin)
 }
 
 func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutResponse, error) {
@@ -1398,6 +1632,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 		log.Errorf("failed to cleanup connection: %v", err)
 		return nil, err
 	}
+	s.jwtCache.clear()
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusNeedsLogin)
@@ -1405,8 +1640,16 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// getConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
-func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
+// provisionProfileIdentity resolves the active profile's config and puts the
+// keys that identify the peer on disk, reporting whether the config file
+// already existed.
+//
+// This is the daemon's provisioning point: the config resolved here is the one
+// the peer runs with, so it needs its identity, and that has to reach disk — a
+// key that stays in memory would come back different on the next start and
+// re-register the peer. Reads themselves are pure, so the write is here, in
+// the open, instead of hiding inside the reader.
+func provisionProfileIdentity(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get active profile file path: %w", err)
@@ -1417,48 +1660,84 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 
 	log.Infof("active profile config existed: %t, err %v", configExisted, err)
 
-	config, err := profilemanager.ReadConfig(cfgPath)
+	config, err := profilemanager.ReadConfigOrDefault(cfgPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	generated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, false, fmt.Errorf("ensure profile identity: %w", err)
+	}
+
+	if generated || !configExisted {
+		if err := profilemanager.WriteOutConfig(cfgPath, config); err != nil {
+			return nil, false, fmt.Errorf("write out profile config: %w", err)
+		}
 	}
 
 	return config, configExisted, nil
 }
 
-func (s *Server) canRemoveProfile(id profilemanager.ID) error {
-	if id == profilemanager.DefaultProfileName {
-		return fmt.Errorf("remove profile with reserved name: %s", profilemanager.DefaultProfileName)
+// getConfig resolves the active profile's config, provisions its identity and
+// reports whether the config file already existed.
+func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
+	config, configExisted, err := provisionProfileIdentity(activeProf)
+	if err != nil {
+		return nil, false, err
 	}
 
-	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.ID == id {
-		return fmt.Errorf("remove active profile: %s", id)
-	}
+	// Apply the daemon-owned MDM policy on top of the just-resolved Config.
+	// profilemanager's apply() initialises the policy to empty — the Loader
+	// lives outside Config, so this overlay step is driven externally here.
+	// After the write above, on purpose: the overlay is runtime-only and
+	// re-derived on every load, so the file keeps the profile's own values.
+	config.ApplyMDMPolicy(s.mdmLoader.Load())
 
-	return nil
+	return config, configExisted, nil
 }
 
-func (s *Server) validateProfileOperation(id profilemanager.ID, allowActiveProfile bool) error {
-	if s.checkProfilesDisabled() {
-		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-	}
-
+// validateProfileLogout gates a profile-addressed logout. Deregistering the
+// profile the daemon already runs is what a plain `netbird logout` does, so the
+// profiles-disabled kill switch must not block it. Logging out of any other
+// profile is profile management and stays gated.
+func (s *Server) validateProfileLogout(id profilemanager.ID, isActive bool) error {
 	if id == "" {
 		return gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
 	}
 
-	if !allowActiveProfile {
-		if err := s.canRemoveProfile(id); err != nil {
-			return gstatus.Errorf(codes.InvalidArgument, "%v", err)
-		}
+	if isActive {
+		return nil
+	}
+
+	if s.checkProfilesDisabled() {
+		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
 	}
 
 	return nil
 }
 
-func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile) error {
+// isActiveProfile reports whether id is the profile the daemon runs for
+// username. The username is part of the comparison because legacy profile IDs
+// are display names, which two users can both hold; the default profile is
+// shared by every user and carries no username.
+func isActiveProfile(activeProf *profilemanager.ActiveProfileState, id profilemanager.ID, username string) bool {
+	if activeProf == nil || activeProf.ID != id {
+		return false
+	}
+
+	return id == profilemanager.DefaultProfileName || activeProf.Username == username
+}
+
+// logoutFromProfile deregisters profile, reusing the running config when
+// profile is the one the daemon is connected with. The username takes part in
+// that decision for the same reason it does in the logout gate: a legacy
+// profile ID is a display name two users can share, and sending the running
+// config for a namesake would deregister the active peer instead of the
+// requested one.
+func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile, username string) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.ID == profile.ID && s.connectClient != nil {
+	if err == nil && isActiveProfile(activeProf, profile.ID, username) && s.connectClient != nil {
 		return s.sendLogoutRequest(ctx)
 	}
 
@@ -1467,10 +1746,13 @@ func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.
 		cfgPath = profilemanager.DefaultConfigPath
 	}
 
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := profilemanager.GetExistingConfig(cfgPath)
 	if err != nil {
 		return fmt.Errorf("profile '%s' not found", profile.ID)
 	}
+	// Honour any MDM-enforced ManagementURL when issuing the logout
+	// RPC: the user-stored value may have been overridden by policy.
+	config.ApplyMDMPolicy(s.mdmLoader.Load())
 
 	return s.sendLogoutRequestWithConfig(ctx, config)
 }
@@ -1483,6 +1765,19 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 	// Privilege gate: deregistering frees this machine's key to be registered
 	// against another management server, which is only restricted while the SSH
 	// server makes that a privilege handover.
+	// Ahead of the privilege gate on purpose. A profile with no identity was
+	// never registered — a logout clears the keys in place, so logging the same
+	// profile out twice lands here — so there is nothing to deregister and
+	// nothing for the gate to protect: what it guards against is handing this
+	// machine's registered key to another management server. Behind the gate,
+	// an unprivileged caller would be refused instead, and for a profile whose
+	// ServerSSHAllowed is unset that is every caller, since an absent value
+	// counts as SSH enabled.
+	if config.PrivateKey == "" {
+		log.Infof("profile carries no identity, nothing to deregister")
+		return nil
+	}
+
 	if err := requirePrivilegeForDeregistration(ctx, config); err != nil {
 		return err
 	}
@@ -1722,6 +2017,20 @@ func (s *Server) getJWTCacheTTL() time.Duration {
 	return ttl
 }
 
+// cachedJWT returns the cached SSH JWT to the identity that obtained it, and a
+// miss on a control channel that carries no caller identity.
+func (s *Server) cachedJWT(ctx context.Context) (string, bool) {
+	caller, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		// Expected and handled on a control channel with no peer identity: the
+		// caller re-authenticates. daemonServerOptions warns about it once at
+		// startup, so this stays out of the per-request log.
+		log.Debug("not serving the cached SSH JWT: the caller's identity cannot be verified on this control channel")
+		return "", false
+	}
+	return s.jwtCache.get(caller)
+}
+
 // RequestJWTAuth initiates JWT authentication flow for SSH
 func (s *Server) RequestJWTAuth(
 	ctx context.Context,
@@ -1731,8 +2040,14 @@ func (s *Server) RequestJWTAuth(
 		return nil, ctx.Err()
 	}
 
+	// The generation is read here, with the config and under the same lock, not
+	// where the flow is stored below: RequestAuthInfo talks to the IdP in
+	// between, and a switch or a logout during that call would otherwise be
+	// read as the generation this flow belongs to. SwitchProfile holds
+	// s.mutex across its own clear(), so the pair cannot be torn.
 	s.mutex.Lock()
 	config := s.config
+	cacheGeneration := s.jwtCache.currentGeneration()
 	s.mutex.Unlock()
 
 	if config == nil {
@@ -1741,7 +2056,7 @@ func (s *Server) RequestJWTAuth(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		if cachedToken, found := s.jwtCache.get(); found {
+		if cachedToken, found := s.cachedJWT(ctx); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
 			return &proto.RequestJWTAuthResponse{
@@ -1761,7 +2076,7 @@ func (s *Server) RequestJWTAuth(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint, false)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1771,11 +2086,15 @@ func (s *Server) RequestJWTAuth(
 		return nil, gstatus.Errorf(codes.Internal, "failed to request auth info: %v", err)
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow.flow = oAuthFlow
-	s.oauthAuthFlow.info = authInfo
-	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-	s.mutex.Unlock()
+	// This flow carries no profile hint: leaving the previous login's hint and
+	// accountPrompted in place would have WaitSSOLogin judge a later token
+	// against them.
+	s.replaceOAuthFlow(oauthAuthFlow{
+		flow:            oAuthFlow,
+		info:            authInfo,
+		expiresAt:       time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
+		cacheGeneration: cacheGeneration,
+	})
 
 	return &proto.RequestJWTAuthResponse{
 		VerificationURI:         authInfo.VerificationURI,
@@ -1799,6 +2118,10 @@ func (s *Server) WaitJWTToken(
 	s.mutex.Lock()
 	oAuthFlow := s.oauthAuthFlow.flow
 	authInfo := s.oauthAuthFlow.info
+	// Recorded when the flow was created, not read here: the flow survives a
+	// profile switch, and everything from RequestJWTAuth to the IdP answering
+	// has to count as the same session for the cache.
+	generation := s.oauthAuthFlow.cacheGeneration
 	s.mutex.Unlock()
 
 	if oAuthFlow == nil || authInfo.DeviceCode != req.DeviceCode {
@@ -1813,11 +2136,17 @@ func (s *Server) WaitJWTToken(
 	token := tokenInfo.GetTokenToUse()
 
 	jwtCacheTTL := s.getJWTCacheTTL()
-	if jwtCacheTTL > 0 {
-		s.jwtCache.store(token, jwtCacheTTL)
-		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
-	} else {
+	switch caller, ok := ipcauth.CallerIdentity(ctx); {
+	case jwtCacheTTL <= 0:
 		log.Debug("JWT caching disabled, not storing token")
+	case !ok:
+		log.Debug("not caching the SSH JWT: the caller's identity cannot be verified on this control channel")
+	default:
+		if s.jwtCache.store(token, caller, jwtCacheTTL, generation) {
+			log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
+		} else {
+			log.Debug("not caching the SSH JWT: the session it was obtained under ended while the IdP was polled")
+		}
 	}
 
 	s.mutex.Lock()
@@ -1865,7 +2194,7 @@ func (s *Server) RequestExtendAuthSession(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint, true)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -2069,11 +2398,16 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		cfgPath = profilemanager.DefaultConfigPath
 	}
 
-	cfg, err := profilemanager.GetConfig(cfgPath)
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
+	// Overlay the active MDM policy so the response's MDMManagedFields
+	// list reflects what the GUI / CLI must render as read-only.
+	// profilemanager.GetConfig itself returns a Config without the
+	// overlay (Loader lives outside profilemanager).
+	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	managementURL := cfg.ManagementURL
 	adminURL := cfg.AdminURL
 
@@ -2137,6 +2471,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		Mtu:                           int64(cfg.MTU),
 		DisableAutoConnect:            cfg.DisableAutoConnect,
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
+		RemoteJobsAllowed:             util.ReturnBoolWithDefaultFalse(cfg.RemoteJobsAllowed),
 		RosenpassEnabled:              cfg.RosenpassEnabled,
 		RosenpassPermissive:           cfg.RosenpassPermissive,
 		BlockInbound:                  cfg.BlockInbound,
@@ -2227,7 +2562,7 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 		return nil, err
 	}
 
-	if err := s.logoutFromProfile(ctx, resolved); err != nil {
+	if err := s.logoutFromProfile(ctx, resolved, msg.Username); err != nil {
 		// Deregistration is best-effort here: the local profile is removed
 		// either way, so an unprivileged caller leaves the peer registered on
 		// the management server rather than being blocked from removing it.
@@ -2382,9 +2717,23 @@ func (s *Server) checkDisableAdvancedView() *bool {
 	return nil
 }
 
+// profileOwnerOption passes the OS account of the active profile to the connect client,
+// which reads that account's certificate store for user certificate posture checks.
+func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
+	if s.profileManager == nil {
+		return nil
+	}
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Warnf("failed to read the active profile owner, no user certificate store is used for certificate posture: %v", err)
+		return []internal.ConnectClientOption{internal.WithUnknownProfileOwner()}
+	}
+	return []internal.ConnectClientOption{internal.WithProfileOwner(activeProf.Username)}
+}
+
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder)
+	client := internal.NewConnectClient(ctx, config, statusRecorder, s.profileOwnerOption()...)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 
@@ -2526,8 +2875,6 @@ func sendTerminalNotification() error {
 	return wallCmd.Wait()
 }
 
-// persistLoginOverrides writes management URL and pre-shared key from a LoginRequest to the
-// active profile config so that subsequent reads pick them up. Empty/nil values are ignored.
 // afterLoginPreCheck is a seam for tests to run a concurrent config change
 // between Login's first privilege check and the authoritative one.
 var afterLoginPreCheck func()
@@ -2542,7 +2889,7 @@ var afterLoginPreCheck func()
 // of this is reached; this one exists because that check is not synchronized
 // against a concurrent privileged request that enables the SSH server, and a
 // caller refused here must not have cancelled or switched anything either.
-func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, error) {
+func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.LoginRequest, activeProf *profilemanager.ActiveProfileState) (context.Context, *profilemanager.ActiveProfileState, bool, error) {
 	if afterLoginPreCheck != nil {
 		afterLoginPreCheck()
 	}
@@ -2552,10 +2899,19 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 
 	stored, err := s.storedLoginConfig(activeProf, msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
+	}
+
+	// The update-settings decision is re-taken here for the same reason as the
+	// privilege one: Login's earlier check ran outside this lock, so the stored
+	// config it compared against could have moved since. This one is the
+	// authoritative check, and it is the last read before persistLoginOverrides
+	// writes.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
+		return nil, nil, false, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	s.mutex.Lock()
@@ -2573,29 +2929,46 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		log.Warnf(errRestoreResidualState, err)
 	}
 
+	switched := false
 	if msg.ProfileName != nil {
-		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
-			return nil, nil, fmt.Errorf("switch profile: %w", err)
+		switched, err = s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf)
+		if err != nil {
+			return nil, nil, false, fmt.Errorf("switch profile: %w", err)
+		}
+		if switched {
+			s.mutex.Lock()
+			s.dropPendingAuthFlows()
+			s.mutex.Unlock()
 		}
 	}
 
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
-		return nil, nil, fmt.Errorf("active profile state: %w", err)
+		return nil, nil, false, fmt.Errorf("active profile state: %w", err)
 	}
 
-	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
-		return nil, nil, fmt.Errorf("persist login overrides: %w", err)
+	if err := persistLoginOverrides(activeProf, msg); err != nil {
+		return nil, nil, false, fmt.Errorf("persist login overrides: %w", err)
 	}
 
-	return ctx, activeProf, nil
+	// Provisioning under the same lock as the decision above, and next to the
+	// write it guards. getConfig would otherwise mint the identity and persist
+	// it once this returns: between its read and its write, a SetConfig that
+	// had already answered its caller would be overwritten by the config this
+	// login read before it landed.
+	if _, _, err := provisionProfileIdentity(activeProf); err != nil {
+		return nil, nil, false, err
+	}
+
+	return ctx, activeProf, switched, nil
 }
 
-func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
-	if preSharedKey != nil && *preSharedKey == "" {
-		preSharedKey = nil
-	}
-	if managementURL == "" && preSharedKey == nil {
+// persistLoginOverrides writes the config fields a login request is allowed to
+// carry into the active profile. It shares its input builder with the
+// update-settings gate, so the gate judges exactly the fields this writes.
+func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, msg *proto.LoginRequest) error {
+	input := loginOverridesInput(msg)
+	if input.ManagementURL == "" && input.PreSharedKey == nil {
 		return nil
 	}
 
@@ -2604,11 +2977,7 @@ func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, manage
 		return fmt.Errorf("active profile file path: %w", err)
 	}
 
-	input := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: managementURL,
-		PreSharedKey:  preSharedKey,
-	}
+	input.ConfigPath = cfgPath
 	if _, err := profilemanager.UpdateOrCreateConfig(input); err != nil {
 		return fmt.Errorf("update config: %w", err)
 	}

@@ -164,23 +164,12 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 	}
 	candidates := filterApplicablePolicies(policies, in)
 
-	// Model-allowlist gate scoped to the matched policies: keep candidates whose
-	// guardrails permit the model (none enabled = unrestricted), deny when
-	// policies apply but none permits it. Skip the load when none has a guardrail.
-	if len(candidates) > 0 && anyPolicyHasGuardrails(candidates) {
-		guardrailsByID, gErr := m.loadGuardrailsByID(ctx, in.AccountID)
-		if gErr != nil {
-			return nil, gErr
-		}
-		permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model)
-		if len(permitted) == 0 {
-			return &PolicySelectionResult{
-				Allow:      false,
-				DenyCode:   denyCodeModelBlocked,
-				DenyReason: modelBlockedReason(in.Model),
-			}, nil
-		}
-		candidates = permitted
+	candidates, denied, err := m.applyModelGate(ctx, in, candidates)
+	if err != nil {
+		return nil, err
+	}
+	if denied != nil {
+		return denied, nil
 	}
 
 	// Prefetch every consumption counter the ceiling + candidate policies will
@@ -285,6 +274,59 @@ func anyPolicyHasGuardrails(policies []*types.Policy) bool {
 	return false
 }
 
+// applyModelGate is the model-allowlist gate scoped to the matched policies:
+// it keeps the candidates whose guardrails permit the model (none enabled =
+// unrestricted) and returns a deny result when policies apply but none
+// permits it. The guardrail load is skipped when no candidate references a
+// guardrail, and the provider's catalog id — which picks the model-id
+// normalizer — is resolved only when a candidate actually restricts models:
+// with no enabled allowlist every candidate is unrestricted, and a
+// provider-store failure must not fail a request the gate would have waved
+// through.
+func (m *managerImpl) applyModelGate(ctx context.Context, in PolicySelectionInput, candidates []*types.Policy) ([]*types.Policy, *PolicySelectionResult, error) {
+	if len(candidates) == 0 || !anyPolicyHasGuardrails(candidates) {
+		return candidates, nil, nil
+	}
+	guardrailsByID, err := m.loadGuardrailsByID(ctx, in.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !anyEnabledModelAllowlist(candidates, guardrailsByID) {
+		return candidates, nil, nil
+	}
+	catalogID, err := m.providerCatalogID(ctx, in.AccountID, in.ProviderID)
+	if err != nil {
+		return nil, nil, err
+	}
+	permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model, catalogID)
+	if len(permitted) == 0 {
+		return nil, &PolicySelectionResult{
+			Allow:      false,
+			DenyCode:   denyCodeModelBlocked,
+			DenyReason: modelBlockedReason(in.Model),
+		}, nil
+	}
+	return permitted, nil, nil
+}
+
+// anyEnabledModelAllowlist reports whether any policy references a guardrail
+// whose model allowlist is enabled — the only case the model gate restricts
+// anything. Disabled allowlists, stale guardrail references, and guardrails
+// carrying only other checks all leave every candidate unrestricted.
+func anyEnabledModelAllowlist(policies []*types.Policy, byID map[string]*types.Guardrail) bool {
+	for _, p := range policies {
+		if p == nil {
+			continue
+		}
+		for _, gID := range p.GuardrailIDs {
+			if g, ok := byID[gID]; ok && g != nil && g.Checks.ModelAllowlist.Enabled {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // loadGuardrailsByID loads the account's guardrails indexed by ID. Used by the
 // model-allowlist gate to resolve each candidate policy's attached guardrails.
 func (m *managerImpl) loadGuardrailsByID(ctx context.Context, accountID string) (map[string]*types.Guardrail, error) {
@@ -301,12 +343,33 @@ func (m *managerImpl) loadGuardrailsByID(ctx context.Context, accountID string) 
 	return byID, nil
 }
 
+// providerCatalogID resolves a provider record id to its catalog provider
+// id, the key the model-id normalizers are picked by. A missing provider
+// resolves to the empty catalog id — the compare then runs verbatim-only,
+// which can never widen an allowlist — while a store failure propagates
+// rather than degrading a security decision.
+func (m *managerImpl) providerCatalogID(ctx context.Context, accountID, providerID string) (string, error) {
+	if providerID == "" {
+		return "", nil
+	}
+	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	switch {
+	case err == nil:
+		return provider.ProviderID, nil
+	case isNotFound(err):
+		return "", nil
+	default:
+		return "", fmt.Errorf("get provider: %w", err)
+	}
+}
+
 // filterModelPermittedPolicies returns the subset of policies whose guardrails
-// permit the model. Order is preserved so downstream scoring is unaffected.
-func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*types.Guardrail, model string) []*types.Policy {
+// permit the model on the provider with the given catalog id. Order is
+// preserved so downstream scoring is unaffected.
+func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*types.Guardrail, model, catalogProviderID string) []*types.Policy {
 	out := make([]*types.Policy, 0, len(policies))
 	for _, p := range policies {
-		if policyPermitsModel(p, byID, model) {
+		if policyPermitsModel(p, byID, model, catalogProviderID) {
 			out = append(out, p)
 		}
 	}
@@ -316,8 +379,13 @@ func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*typ
 // policyPermitsModel reports whether a policy permits the model. No
 // allowlist-enabled guardrail = unrestricted (permits any, incl. empty);
 // otherwise the model must be in the union of its allowlists, so an
-// empty/undetermined model fails closed.
-func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model string) bool {
+// empty/undetermined model fails closed. An entry matches on its own
+// normalised form or, for a path-style provider, its canonical form: the
+// parser emits the canonical id for path-routed requests, while an
+// allowlist may hold the raw declared id the dashboard's picker copies
+// from the provider. The catalog id picks the normalizer, so a plain
+// provider's entries always compare verbatim.
+func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model, catalogProviderID string) bool {
 	if p == nil {
 		return false
 	}
@@ -333,7 +401,7 @@ func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model
 			continue
 		}
 		for _, allowed := range g.Checks.ModelAllowlist.Models {
-			if normaliseModelID(allowed) == wanted {
+			if normaliseModelID(allowed) == wanted || canonicalModelKey(catalogProviderID, allowed) == wanted {
 				return true
 			}
 		}

@@ -40,6 +40,7 @@ func TestGetPeers(t *testing.T) {
 		IP:                     netip.MustParseAddr("10.10.10.1"),
 		IPv6:                   netip.MustParseAddr("fdf4:ba80:6aa5:89f1:44d7:8701:8699:4940"),
 		RequiresApproval:       false,
+		Connected:              true,
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:     "0.76.0",
 			GoOS:          "linux",
@@ -82,6 +83,7 @@ func TestGetPeers(t *testing.T) {
 		IP:                     netip.MustParseAddr("10.10.100.1"),
 		IPv6:                   netip.MustParseAddr("fdf5:ba80:6aa5:89f1:44d7:8701:8699:4940"),
 		RequiresApproval:       false,
+		Connected:              true,
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:     "0.76.1",
 			GoOS:          "linux",
@@ -124,6 +126,7 @@ func TestGetPeers(t *testing.T) {
 		IP:                     netip.MustParseAddr("10.10.200.1"),
 		IPv6:                   netip.MustParseAddr("fdf6:ba80:6aa5:89f1:44d7:8701:8699:4940"),
 		RequiresApproval:       false,
+		Connected:              true,
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:     "0.76.2",
 			GoOS:          "linux",
