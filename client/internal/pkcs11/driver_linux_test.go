@@ -70,3 +70,52 @@ func loadFirst(t *testing.T, paths ...string) *Module {
 	t.Skip("p11-kit trust module not installed")
 	return nil
 }
+
+// TestSlotList_RetriesWhenTheListGrows: a token plugged in between the size query and the
+// fill makes the module answer CKR_BUFFER_TOO_SMALL; the list has to be asked for again.
+func TestSlotList_RetriesWhenTheListGrows(t *testing.T) {
+	calls := 0
+	m := &module{cGetSlotList: func(_ byte, slots *ulong, count *ulong) ulong {
+		calls++
+		switch {
+		case slots == nil && calls == 1:
+			*count = 1
+		case slots != nil && calls == 2:
+			*count = 2
+			return rvBufferTooSmall
+		case slots == nil:
+			*count = 2
+		default:
+			*count = 2
+			backing := unsafe.Slice(slots, 2)
+			backing[0], backing[1] = 7, 9
+		}
+		return rvOK
+	}}
+
+	slots, err := m.slotList()
+
+	require.NoError(t, err)
+	assert.Equal(t, []ulong{7, 9}, slots, "the list is read again at its new size")
+}
+
+func TestSlotList_GivesUpOnAListThatKeepsGrowing(t *testing.T) {
+	m := &module{cGetSlotList: func(_ byte, slots *ulong, count *ulong) ulong {
+		if slots == nil {
+			*count = 1
+			return rvOK
+		}
+		return rvBufferTooSmall
+	}}
+
+	_, err := m.slotList()
+
+	assert.Error(t, err, "a module that never settles on a size is an error, not a loop")
+}
+
+func TestCheckFunctionListVersion(t *testing.T) {
+	assert.NoError(t, checkFunctionListVersion(version{major: 2, minor: 40}))
+	assert.NoError(t, checkFunctionListVersion(version{major: 3, minor: 0}))
+	assert.Error(t, checkFunctionListVersion(version{major: 1, minor: 0}), "a pre-2.0 list has no entry points to index")
+	assert.Error(t, checkFunctionListVersion(version{}), "an empty version is not a function list")
+}
