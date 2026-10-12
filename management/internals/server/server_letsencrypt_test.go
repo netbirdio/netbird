@@ -56,6 +56,8 @@ func TestServeLetsEncryptChallenges_BindFailure(t *testing.T) {
 
 func TestSetupTLS_NilHttpConfig(t *testing.T) {
 	srv := NewServer(&Config{NbConfig: &nbconfig.Config{HttpConfig: nil}, MgmtPort: 80})
+	t.Cleanup(func() { _ = srv.Stop() })
+
 	enabled, err := srv.setupTLS(context.Background())
 	require.NoError(t, err)
 	require.False(t, enabled)

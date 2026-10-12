@@ -65,6 +65,7 @@ func (s *BaseServer) SessionStore() *auth.SessionStore {
 	})
 }
 
+// AuthManager returns the configured auth manager instance.
 func (s *BaseServer) AuthManager() auth.Manager {
 	audiences := s.Config.GetAuthAudiences()
 	var (

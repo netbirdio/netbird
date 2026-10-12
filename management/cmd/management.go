@@ -172,6 +172,7 @@ var (
 	}
 )
 
+// LoadMgmtConfig loads management server configuration from the specified JSON file path.
 func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
 	loadedConfig := &nbconfig.Config{}
 	if _, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig); err != nil {
@@ -211,7 +212,7 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 	return loadedConfig, nil
 }
 
-// ApplyCommandLineOverrides applies command-line flag overrides to the config
+// ApplyCommandLineOverrides applies command-line flag overrides to the config.
 func ApplyCommandLineOverrides(cfg *nbconfig.Config) {
 	if mgmtLetsencryptDomain != "" {
 		ensureHttpConfig(cfg).LetsEncryptDomain = mgmtLetsencryptDomain
@@ -289,7 +290,7 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	return nil
 }
 
-// ApplyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
+// ApplyOIDCConfig fetches and applies OIDC configuration if endpoint is specified.
 func ApplyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	if cfg.HttpConfig == nil {
 		return nil

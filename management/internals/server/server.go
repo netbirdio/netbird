@@ -71,8 +71,9 @@ type BaseServer struct {
 	letsEncryptListenAddress    string
 	autoResolveDomains          bool
 
-	proxyAuthClose    func()
-	domainCleanupStop func()
+	proxyAuthClose     func()
+	domainCleanupStop  func()
+	exposeReaperCancel context.CancelFunc
 
 	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
 	// hooks registered by external modules via RegisterGRPCExtension. Populated
@@ -322,6 +323,10 @@ func (s *BaseServer) Stop() error {
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
+	}
+	if s.exposeReaperCancel != nil {
+		s.exposeReaperCancel()
+		s.exposeReaperCancel = nil
 	}
 	runExtensionShutdownHooks(ctx, s.grpcExtensions)
 	_ = s.Store().Close(ctx)

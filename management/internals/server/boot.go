@@ -234,6 +234,7 @@ func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
 	})
 }
 
+// GRPCServer returns the lazy-initialized gRPC server instance.
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
 		realipOpts := realIPOptions(s.Config.ReverseProxy)
@@ -274,7 +275,9 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		serviceMgr := s.ServiceManager()
 		srv.SetReverseProxyManager(serviceMgr)
 		if serviceMgr != nil {
-			serviceMgr.StartExposeReaper(context.Background())
+			reaperCtx, cancel := context.WithCancel(context.Background())
+			s.exposeReaperCancel = cancel
+			serviceMgr.StartExposeReaper(reaperCtx)
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
