@@ -1596,30 +1596,20 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // ExpandAndUpdateAffected expands a Snapshot (loaded INSIDE the now-committed
 // transaction) into the affected peers and dispatches the network-map refresh.
 // Pure in-memory work plus dispatch, so it runs AFTER commit — the fan-out walk
-// never holds the write lock, over the consistent in-tx snapshot. Exported so the
-// networks sub-package managers (which hold only account.Manager) share it.
+// never holds the write lock, over the consistent in-tx snapshot. The walk runs
+// before the dispatch goroutine starts, so the snapshot is released on return.
+// Exported so the networks sub-package managers (which hold only account.Manager)
+// share it.
 func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
-	go am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap}, []affectedpeers.Change{change})
+	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change))
 }
 
-// dispatchAffected expands one or more (snapshot, change) pairs — collected across
-// one or several transactions — unions their affected peers, and dispatches a
-// single network-map refresh. Each snapshot must already be loaded inside its
-// transaction; this runs AFTER commit (pure in-memory + dispatch). It is spawned
-// in a goroutine that outlives the request, so it detaches from the request
-// context's cancellation up front.
-func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
+// dispatchAffectedPeerIDs dispatches a single network-map refresh for already
+// expanded affected peer IDs. It may run in a goroutine that outlives the
+// request, so it detaches from the request context's cancellation up front.
+func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
 	ctx = context.WithoutCancel(ctx)
 
-	var lists [][]string
-	for i, snap := range snaps {
-		if snap == nil {
-			continue
-		}
-		lists = append(lists, snap.Expand(ctx, accountID, changes[i]))
-	}
-
-	affectedPeerIDs := unionStrings(lists...)
 	if len(affectedPeerIDs) == 0 {
 		log.WithContext(ctx).Tracef("no affected peers for account %s", accountID)
 		return
