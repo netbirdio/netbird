@@ -359,6 +359,13 @@ func (c *GrpcClient) Ready() bool {
 // recorder accordingly. It does not actively probe: the watchdog
 // (watchReceiveStream) owns probing the receive path and reconnecting.
 func (c *GrpcClient) IsHealthy() bool {
+	c.mux.Lock()
+	registered := c.status == StreamConnected
+	c.mux.Unlock()
+	if !registered {
+		return false
+	}
+
 	switch c.signalConn.GetState() {
 	case connectivity.TransientFailure:
 		return false
@@ -368,13 +375,6 @@ func (c *GrpcClient) IsHealthy() bool {
 		return true
 	case connectivity.Idle:
 	case connectivity.Ready:
-	}
-
-	c.mux.Lock()
-	registered := c.status == StreamConnected
-	c.mux.Unlock()
-	if !registered {
-		return false
 	}
 
 	if c.receiveStalled.Load() {
