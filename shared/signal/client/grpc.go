@@ -374,6 +374,16 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
+	// A usable connection with no registered stream still cannot receive
+	// anything. The disconnect that dropped the stream was already reported, so
+	// leave its reason in place.
+	c.mux.Lock()
+	registered := c.status == StreamConnected
+	c.mux.Unlock()
+	if !registered {
+		return false
+	}
+
 	if c.receiveStalled.Load() {
 		c.notifyDisconnected(errReceiveStreamStalled)
 		return false
