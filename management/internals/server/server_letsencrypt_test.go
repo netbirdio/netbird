@@ -59,4 +59,14 @@ func TestSetupTLS_NilHttpConfig(t *testing.T) {
 	enabled, err := srv.setupTLS(context.Background())
 	require.NoError(t, err)
 	require.False(t, enabled)
+
+	// Verify that auth and proxy OIDC helpers handle nil HttpConfig without panic
+	authMgr := srv.AuthManager()
+	require.NotNil(t, authMgr)
+
+	proxyOIDC := srv.proxyOIDCConfig()
+	require.Empty(t, proxyOIDC.Issuer)
+
+	audiences := srv.Config.GetAuthAudiences()
+	require.Empty(t, audiences)
 }
