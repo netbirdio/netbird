@@ -3083,7 +3083,7 @@ func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
 	require.Error(t, err)
 	e, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, status.AlreadyExists, e.Type())
+	assert.Equal(t, status.PermissionDenied, e.Type())
 
 	other, err := addPeer("other-host", setupKey.Key)
 	require.NoError(t, err)
@@ -3093,7 +3093,7 @@ func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
 	require.Error(t, err)
 	e, ok = status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, status.AlreadyExists, e.Type())
+	assert.Equal(t, status.PermissionDenied, e.Type())
 
 	ephemeral, err := addPeer("ephemeral-host", ephemeralKey.Key)
 	require.NoError(t, err)
@@ -3134,7 +3134,7 @@ func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
 	require.Error(t, err)
 	e, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, status.AlreadyExists, e.Type())
+	assert.Equal(t, status.PermissionDenied, e.Type())
 
 	update = second.Copy()
 	update.Name = "api-server.example.com"
@@ -3193,7 +3193,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 		}
 		e, ok := status.FromError(err)
 		require.True(t, ok, "unexpected error: %v", err)
-		assert.Equal(t, status.AlreadyExists, e.Type(), "unexpected error: %v", err)
+		assert.Equal(t, status.PermissionDenied, e.Type(), "unexpected error: %v", err)
 	}
 	assert.Equal(t, 1, succeeded)
 
@@ -3211,12 +3211,12 @@ func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 
 			account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 			account.Settings.PeerHostnameCollisionRejected = rejectCollision
-			_, smallNet, err := net.ParseCIDR("100.64.0.0/28")
+			_, smallNet, err := net.ParseCIDR("100.64.0.0/26")
 			require.NoError(t, err)
 			account.Network.Net = *smallNet
 			require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
 
-			const totalPeers = 12
+			const totalPeers = 20
 			for i := 0; i < totalPeers; i++ {
 				wgKey, err := wgtypes.GenerateKey()
 				require.NoError(t, err)
@@ -3230,4 +3230,34 @@ func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	_, tinyNet, err := net.ParseCIDR("100.64.0.0/30")
+	require.NoError(t, err)
+	account.Network.Net = *tinyNet
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	addPeer := func(hostname string) error {
+		wgKey, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		_, _, _, _, err = manager.AddPeer(context.Background(), "", "", "owner", &nbpeer.Peer{
+			Key:  wgKey.PublicKey().String(),
+			Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+		}, false)
+		return err
+	}
+	require.NoError(t, addPeer("host-1"))
+	require.NoError(t, addPeer("host-2"))
+
+	err = addPeer("host-3")
+	require.Error(t, err, "no free IP left, registration must fail")
+
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	require.NoError(t, err)
+	assert.Len(t, peers, 2)
 }

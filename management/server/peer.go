@@ -300,7 +300,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 						return err
 					}
 					if taken {
-						return errPeerLabelInUse(newLabel)
+						return errPeerHostnameInUse(update.Name)
 					}
 				}
 			} else {
@@ -354,7 +354,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	})
 	if err != nil {
 		if peerLabelChanged && isUniqueConstraintError(err) {
-			return nil, errPeerLabelInUse(peer.DNSLabel)
+			return nil, errPeerHostnameInUse(peer.Name)
 		}
 		return nil, err
 	}
@@ -854,11 +854,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	hostLabel, err := nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
 	if err != nil {
-		return nil, nil, nil, false, fmt.Errorf("parse peer DNS label: %w", err)
+		return nil, nil, nil, false, status.Errorf(status.InvalidArgument, "invalid peer hostname: %v", err)
 	}
 	rejectLabelCollision := settings.PeerHostnameCollisionRejected
 	labelTaken := false
 
+	var insertErr error
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		netPrefix, err := netip.ParsePrefix(network.Net.String())
@@ -906,7 +907,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			}
 		}
 
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		insertErr = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
 				return err
@@ -964,25 +965,28 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			log.WithContext(ctx).Debugf("Peer %s added to account %s", newPeer.ID, accountID)
 			return nil
 		})
-		if err == nil {
+		if insertErr == nil {
 			break
 		}
 
-		if isUniqueConstraintError(err) {
+		if isUniqueConstraintError(insertErr) {
 			if freeLabel == hostLabel {
 				labelTaken, err = peerLabelTaken(ctx, am.Store, accountID, hostLabel)
 				if err != nil {
 					return nil, nil, nil, false, err
 				}
 				if labelTaken && rejectLabelCollision {
-					return nil, nil, nil, false, errPeerLabelInUse(hostLabel)
+					return nil, nil, nil, false, errPeerHostnameInUse(peer.Meta.Hostname)
 				}
 			}
-			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, err)
+			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, insertErr)
 			continue
 		}
 
-		return nil, nil, nil, false, fmt.Errorf("failed to add peer to database: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("failed to add peer to database: %w", insertErr)
+	}
+	if insertErr != nil {
+		return nil, nil, nil, false, fmt.Errorf("add peer after %d attempts: %w", maxAttempts, insertErr)
 	}
 	if newPeer == nil {
 		return nil, nil, nil, false, fmt.Errorf("new peer is nil")
@@ -1029,8 +1033,9 @@ func peerLabelTaken(ctx context.Context, s store.Store, accountID, label string)
 	}
 }
 
-func errPeerLabelInUse(label string) error {
-	return status.Errorf(status.AlreadyExists, "peer hostname %s is already in use in this account", label)
+// errPeerHostnameInUse is a PermissionDenied error because the client treats only that gRPC code as a permanent login failure instead of retrying.
+func errPeerHostnameInUse(hostname string) error {
+	return status.Errorf(status.PermissionDenied, "peer with hostname %q is already registered", hostname)
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
