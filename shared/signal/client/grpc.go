@@ -38,9 +38,7 @@ const (
 	receiveProbeTimeout = 10 * time.Second
 	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
 	receiveWatchdogInterval = 10 * time.Second
-	// defaultRegistrationTimeout bounds the wait for the registration header of
-	// a new stream. Keepalive cannot end that wait when whatever answers the
-	// transport never answers the stream, and the watchdog only starts after it.
+	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
 	defaultRegistrationTimeout = 10 * time.Second
 )
 
@@ -333,10 +331,8 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 	return stream, nil
 }
 
-// awaitRegistration cancels the stream through cancel when the header does not
-// arrive within timeout. A timer rather than a context deadline, because the
-// stream context must outlive registration.
 func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) error {
+	// A timer rather than a context deadline: the stream context must outlive registration.
 	timer := time.AfterFunc(timeout, cancel)
 	header, err := stream.Header()
 	if !timer.Stop() {
@@ -374,9 +370,6 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	// A usable connection with no registered stream still cannot receive
-	// anything. The disconnect that dropped the stream was already reported, so
-	// leave its reason in place.
 	c.mux.Lock()
 	registered := c.status == StreamConnected
 	c.mux.Unlock()
