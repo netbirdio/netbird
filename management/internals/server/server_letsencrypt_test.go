@@ -69,4 +69,7 @@ func TestSetupTLS_NilHttpConfig(t *testing.T) {
 
 	audiences := srv.Config.GetAuthAudiences()
 	require.Empty(t, audiences)
+
+	grpcServer := srv.GRPCServer()
+	require.NotNil(t, grpcServer)
 }
