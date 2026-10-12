@@ -70,8 +70,10 @@ func rsaPublicKey(modulus, exponent []byte) (*rsa.PublicKey, error) {
 // uncompressed point wrapped in a DER OCTET STRING, which some modules hand out bare.
 func ecPublicKey(params, point []byte) (*ecdsa.PublicKey, error) {
 	var oid asn1.ObjectIdentifier
-	if _, err := asn1.Unmarshal(params, &oid); err != nil {
+	if rest, err := asn1.Unmarshal(params, &oid); err != nil {
 		return nil, fmt.Errorf("CKA_EC_PARAMS: %w", err)
+	} else if len(rest) != 0 {
+		return nil, errors.New("CKA_EC_PARAMS has trailing data")
 	}
 	curve, ok := curvesByOID[oid.String()]
 	if !ok {
@@ -80,8 +82,10 @@ func ecPublicKey(params, point []byte) (*ecdsa.PublicKey, error) {
 	size := (curve.Params().BitSize + 7) / 8
 	raw := point
 	if len(raw) != 1+2*size {
-		if _, err := asn1.Unmarshal(point, &raw); err != nil {
+		if rest, err := asn1.Unmarshal(point, &raw); err != nil {
 			return nil, fmt.Errorf("CKA_EC_POINT: %w", err)
+		} else if len(rest) != 0 {
+			return nil, errors.New("CKA_EC_POINT has trailing data")
 		}
 	}
 	if len(raw) != 1+2*size || raw[0] != 4 {
