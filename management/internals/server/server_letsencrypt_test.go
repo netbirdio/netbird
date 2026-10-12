@@ -53,3 +53,10 @@ func TestServeLetsEncryptChallenges_BindFailure(t *testing.T) {
 	require.Error(t, srv.serveLetsEncryptChallenges(context.Background()))
 	require.Nil(t, srv.certListener, "no challenge listener should be stored when the bind fails")
 }
+
+func TestSetupTLS_NilHttpConfig(t *testing.T) {
+	srv := NewServer(&Config{NbConfig: &nbconfig.Config{HttpConfig: nil}, MgmtPort: 80})
+	enabled, err := srv.setupTLS(context.Background())
+	require.NoError(t, err)
+	require.False(t, enabled)
+}

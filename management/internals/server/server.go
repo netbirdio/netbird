@@ -277,14 +277,14 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 	switch {
 	case s.tlsConfig != nil:
 		return true, nil
-	case s.Config.HttpConfig.LetsEncryptDomain != "":
+	case s.Config.HttpConfig != nil && s.Config.HttpConfig.LetsEncryptDomain != "":
 		certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 		if err != nil {
 			return false, fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 		}
 		s.certManager = certManager
 		return true, nil
-	case s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "":
+	case s.Config.HttpConfig != nil && s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "":
 		tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
 		if err != nil {
 			log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
