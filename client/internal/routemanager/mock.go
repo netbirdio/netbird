@@ -22,6 +22,7 @@ type MockManager struct {
 	GetClientRoutesFunc          func() route.HAMap
 	GetSelectedClientRoutesFunc  func() route.HAMap
 	GetActiveClientRoutesFunc    func() route.HAMap
+	GetInstalledClientRoutesFunc func() route.HAMap
 	GetClientRoutesWithNetIDFunc func() map[route.NetID][]*route.Route
 	StopFunc                     func(manager *statemanager.Manager)
 }
@@ -109,6 +110,14 @@ func (m *MockManager) GetSelectedClientRoutes() route.HAMap {
 func (m *MockManager) GetActiveClientRoutes() route.HAMap {
 	if m.GetActiveClientRoutesFunc != nil {
 		return m.GetActiveClientRoutesFunc()
+	}
+	return nil
+}
+
+// GetInstalledClientRoutes mock implementation of GetInstalledClientRoutes from the Manager interface
+func (m *MockManager) GetInstalledClientRoutes() route.HAMap {
+	if m.GetInstalledClientRoutesFunc != nil {
+		return m.GetInstalledClientRoutesFunc()
 	}
 	return nil
 }
