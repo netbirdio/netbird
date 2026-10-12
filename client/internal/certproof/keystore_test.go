@@ -56,6 +56,8 @@ func TestSchemeFor(t *testing.T) {
 		{"ecdsa sha384", ecKey.Public(), crypto.SHA384, schemeECDSASHA384},
 		{"rsa pss sha256", rsaKey.Public(), pss, schemeRSAPSSSHA256},
 		{"rsa pkcs1v15", rsaKey.Public(), crypto.SHA256, 0},
+		{"ecdsa sha512", ecKey.Public(), crypto.SHA512, 0},
+		{"rsa pss sha384", rsaKey.Public(), &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: crypto.SHA384}, 0},
 		{"ed25519", certtest.Ed25519Key(t).Public(), crypto.Hash(0), 0},
 	}
 	for _, tc := range tests {
@@ -83,5 +85,7 @@ func TestECDSASignatureASN1(t *testing.T) {
 	assert.True(t, ecdsa.VerifyASN1(&key.PublicKey, digest[:], der))
 
 	_, err = ecdsaSignatureASN1(raw[:63])
-	assert.Error(t, err)
+	assert.Error(t, err, "an odd length cannot split into r and s")
+	_, err = ecdsaSignatureASN1(nil)
+	assert.Error(t, err, "an empty signature is malformed")
 }
