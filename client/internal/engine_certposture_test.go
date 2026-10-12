@@ -39,6 +39,17 @@ func TestCertPostureState_Record(t *testing.T) {
 	assert.True(t, unproven.record("k", "", nil, now), "losing the proof again is reported")
 }
 
+// TestCertPostureState_ReportsStuckOnce: a store that stopped answering is reported to
+// the user once when it wedges the collector, not on every collection that follows, and
+// again if it wedges anew after recovering.
+func TestCertPostureState_ReportsStuckOnce(t *testing.T) {
+	var s certPostureState
+	assert.True(t, s.setStuck(true), "becoming stuck is reported")
+	assert.False(t, s.setStuck(true), "staying stuck is not reported again")
+	assert.False(t, s.setStuck(false), "recovering is not a stuck report")
+	assert.True(t, s.setStuck(true), "getting stuck again is reported again")
+}
+
 func TestCertPostureState_NeedsCollection(t *testing.T) {
 	now := time.Now()
 	one := []certposture.Proof{{}}

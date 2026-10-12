@@ -24,8 +24,8 @@ const (
 )
 
 // certChallengePeriod is how often an account whose policies carry a certificate
-// posture check is pushed a fresh challenge. A nonce is accepted for its own window and
-// the one before it, so one issued at the very end of a window lives only one window. A
+// posture check is pushed a fresh challenge. A nonce stays valid through the window
+// after its own, so one issued at the very end of a window lives only one window. A
 // third of that leaves a missed run well clear of the edge, where a half would put it
 // exactly on it.
 func certChallengePeriod() time.Duration {

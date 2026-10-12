@@ -22,6 +22,8 @@ func TestResolveWindow(t *testing.T) {
 		{name: "a test-sized window is taken", env: "30s", want: 30 * time.Second},
 		{name: "garbage keeps the default", env: "soon", want: Window},
 		{name: "below the floor keeps the default", env: "10ms", want: Window},
+		{name: "too short for the refresh tick keeps the default", env: "1s", want: Window},
+		{name: "a fractional second keeps the default", env: "30500ms", want: Window},
 		{name: "above the ceiling keeps the default", env: "100h", want: Window},
 	}
 
