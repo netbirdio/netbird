@@ -297,17 +297,26 @@ func TestPKCS11Store_FileChains(t *testing.T) {
 	writeFile(t, dir, "sibling.key", certtest.KeyPEM(t, keyed))
 	writeFile(t, dir, "notes.txt", "not a certificate")
 
-	chains, err := (&PKCS11Store{uri: &pkcs11.URI{}, certDir: dir}).fileChains()
+	// An intermediate that only a keyed file carries still has to reach the pool a token
+	// certificate's chain is built from.
+	intermediate := ca.Issue(t, certtest.ECDSAKey(t), "keyed-intermediate")
+	chained := certtest.ECDSAKey(t)
+	writeFile(t, dir, "chained.pem", certtest.CertPEM(ca.Issue(t, chained, "chained"))+certtest.CertPEM(intermediate)+certtest.KeyPEM(t, chained))
+
+	chains, extra, err := (&PKCS11Store{uri: &pkcs11.URI{}, certDir: dir}).fileChains()
 	require.NoError(t, err)
+	assert.Len(t, extra, 1, "the keyed file's intermediate is offered for chain building")
+	assert.True(t, intermediate.Equal(extra[0]), "it is the intermediate, not the keyed leaf")
 	var subjects []string
 	for _, chain := range chains {
 		subjects = append(subjects, chain[0].Subject.CommonName)
 	}
 	assert.ElementsMatch(t, []string{"device", "corp"}, subjects, "only key-less certificate files are left to the token")
 
-	chains, err = (&PKCS11Store{uri: &pkcs11.URI{}}).fileChains()
+	chains, extra, err = (&PKCS11Store{uri: &pkcs11.URI{}}).fileChains()
 	require.NoError(t, err)
 	assert.Empty(t, chains, "no directory configured means no file certificates")
+	assert.Empty(t, extra, "and no extra intermediates")
 }
 
 func TestNewPKCS11Store_PIN(t *testing.T) {

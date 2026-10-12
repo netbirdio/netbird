@@ -32,6 +32,7 @@ const (
 	// signature is 2 KiB.
 	maxAttributeLen = 1 << 20
 	maxSignatureLen = 1 << 16
+	maxFoundObjects = 1 << 16
 )
 
 type version struct {
@@ -262,11 +263,16 @@ func (m *module) findObjects(session uint, template []Attribute) ([]Object, erro
 		if count > findBatch {
 			return nil, fmt.Errorf("C_FindObjects reported %d handles for a batch of %d", count, findBatch)
 		}
+		// Only an empty batch ends the search: a module may return fewer handles than
+		// asked for before it has returned them all.
+		if count == 0 {
+			return objects, nil
+		}
 		for _, handle := range batch[:count] {
 			objects = append(objects, Object(handle))
 		}
-		if count < findBatch {
-			return objects, nil
+		if len(objects) > maxFoundObjects {
+			return nil, fmt.Errorf("C_FindObjects returned more than %d objects", maxFoundObjects)
 		}
 	}
 }

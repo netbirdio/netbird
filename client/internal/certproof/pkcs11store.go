@@ -80,7 +80,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	fileChains, err := s.fileChains()
+	fileChains, fileIntermediates, err := s.fileChains()
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +93,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	for _, chain := range fileChains {
 		pool = append(pool, chain...)
 	}
+	pool = append(pool, fileIntermediates...)
 
 	var candidates []Candidate
 	for _, cert := range certs {
@@ -106,9 +107,12 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 		return candidates, nil
 	}
 
+	// A token that cannot list its public keys still answers for the certificates it
+	// holds, so the identities found above are kept.
 	keys, err := tokenPublicKeys(session)
 	if err != nil {
-		return nil, err
+		log.Warnf("%s: cannot read its public keys, certificate files are not paired with them: %v", s, err)
+		return candidates, nil
 	}
 	for _, chain := range fileChains {
 		leaf := chain[0]
@@ -129,24 +133,29 @@ func (s *PKCS11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.
 }
 
 // fileChains reads the certificate files in the PEM directory that carry no key of their
-// own; the file store answers for the ones that do.
-func (s *PKCS11Store) fileChains() ([][]*x509.Certificate, error) {
+// own; the file store answers for the ones that do. The certificates after the leaf of a
+// file that does carry a key are returned too, since they can complete the chain of a
+// token certificate.
+func (s *PKCS11Store) fileChains() (chains [][]*x509.Certificate, intermediates []*x509.Certificate, err error) {
 	if s.certDir == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	paths, err := certFiles(s.certDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var chains [][]*x509.Certificate
 	for _, path := range paths {
 		chain, signer, err := loadPEM(path)
-		if err != nil || signer != nil {
+		if err != nil {
+			continue
+		}
+		if signer != nil {
+			intermediates = append(intermediates, chain[1:]...)
 			continue
 		}
 		chains = append(chains, chain)
 	}
-	return chains, nil
+	return chains, intermediates, nil
 }
 
 func (s *PKCS11Store) String() string {
@@ -208,7 +217,8 @@ func tokenPublicKeys(session *pkcs11.Session) (tokenKeys, error) {
 	for _, object := range objects {
 		id, err := session.Attribute(object, pkcs11.AttrID)
 		if err != nil {
-			return nil, err
+			log.Debugf("skipping public key on PKCS#11 token: %v", err)
+			continue
 		}
 		public, err := session.PublicKey(object)
 		if err != nil {
