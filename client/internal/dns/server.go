@@ -385,6 +385,18 @@ func (s *DefaultServer) OnInstalledRoutesChanged() {
 	// Read without s.mux on purpose: the gate and its mode are set once in the
 	// constructor and never reassigned, and this must not block. Only the
 	// gate's latch is mutable, and it is not touched here.
+	s.signalRouteRefresh()
+}
+
+// signalRouteRefresh asks the refresher for one more pass. The send is dropped
+// when a pass is already pending, which costs nothing: that pass takes its route
+// snapshot after this call, so the state this call wanted considered is the state
+// it will see.
+//
+// Reads the gate without s.mux on purpose: the gate and its mode are set once in
+// the constructor and never reassigned, and this must not block. Only the gate's
+// latch is mutable, and it is not touched here.
+func (s *DefaultServer) signalRouteRefresh() {
 	if s.routedUpstreamGate == nil || s.routedUpstreamGate.mode == gatingOff {
 		return
 	}
