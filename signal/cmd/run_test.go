@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"net"
 	"net/http"
 	"testing"
@@ -20,7 +21,18 @@ func setLetsencryptListen(t *testing.T, port int, address string) {
 	})
 }
 
+func drainStopCh(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		select {
+		case <-stopCh:
+		default:
+		}
+	})
+}
+
 func TestStartServerWithCertManager_CustomAddress(t *testing.T) {
+	drainStopCh(t)
 	setLetsencryptListen(t, 10000, "127.0.0.1:0")
 
 	listener, err := startServerWithCertManager(&autocert.Manager{}, http.NotFoundHandler())
@@ -49,4 +61,32 @@ func TestCertManagerTLSConfigAnswersTLSALPN01(t *testing.T) {
 	// TLS-ALPN-01 challenges through the cert manager's TLS config.
 	cfg := (&autocert.Manager{}).TLSConfig()
 	require.Contains(t, cfg.NextProtos, acme.ALPNProto, "cert manager TLS config should offer the ACME TLS-ALPN protocol")
+}
+
+func TestServeHTTP_ClosedListenerIsNotAFailure(t *testing.T) {
+	drainStopCh(t)
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", (&autocert.Manager{}).TLSConfig())
+	require.NoError(t, err)
+
+	serveHTTP(listener, http.NotFoundHandler())
+	require.NoError(t, listener.Close())
+
+	select {
+	case code := <-stopCh:
+		t.Fatalf("closing the listener reported a failure with code %d", code)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestNotifyStop_KeepsEarlyFailure(t *testing.T) {
+	drainStopCh(t)
+
+	notifyStop("failed before the run loop waits")
+
+	select {
+	case code := <-stopCh:
+		require.Equal(t, 1, code, "an early failure should be reported with stop code 1")
+	default:
+		t.Fatal("a failure reported before the run loop waits was dropped")
+	}
 }
