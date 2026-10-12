@@ -1,0 +1,137 @@
+//go:build !ios
+
+package certproof
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/management/certposture"
+	"github.com/netbirdio/netbird/shared/management/proto"
+)
+
+const helperTimeout = 30 * time.Second
+
+// userHelperBackoff holds off asking a user's keychain again after it proved nothing.
+var userHelperBackoff = newHelperBackoff()
+
+// CollectProofs answers the certificate challenges in checks from every store this Mac
+// can reach. The root daemon reads the System keychain itself, which is where MDM
+// installs device identities, and reaches the console user's login keychain only by
+// launching a helper into that user's session. A Mac sitting at the login window
+// therefore yields device proofs alone.
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, cfg Config) []certposture.Proof {
+	challenges := certificateChallenges(checks)
+	if len(challenges) == 0 {
+		logNoChallenges(checks)
+		return nil
+	}
+
+	// A helper already runs inside the user's session, so it reads its own keychain
+	// directly and must never launch another one.
+	if os.Geteuid() != 0 {
+		return CollectChallenges(ctx, DefaultStore(), challenges, peerKey)
+	}
+
+	proofs := CollectChallenges(ctx, DefaultStore(), challenges, peerKey)
+	if cfg.OwnerUnknown {
+		return proofs
+	}
+
+	userProofs, err := collectAsConsoleUser(ctx, cfg.ProfileOwner, challenges, peerKey)
+	if err != nil {
+		log.Debugf("certificate posture: console user keychain unavailable: %v", err)
+	}
+	return mergeProofs(proofs, userProofs)
+}
+
+// UserContext identifies the user whose keychain a collection would include: the console
+// user when it owns the active profile, or empty when no user keychain would be asked. A
+// change means a collection made earlier no longer reflects what this Mac can prove.
+func UserContext(cfg Config) string {
+	if os.Geteuid() != 0 || cfg.OwnerUnknown {
+		return ""
+	}
+	user, ok := CurrentConsoleUser()
+	if !ok || !user.isOwner(cfg.ProfileOwner) {
+		return ""
+	}
+	return strconv.FormatUint(uint64(user.UID), 10) + ":" + user.Name
+}
+
+// collectAsConsoleUser runs the helper inside the desktop session of the logged-in
+// user. Dropping to their uid is not enough: keychain access is an XPC call to a
+// per-session securityd, so the helper has to enter their Mach bootstrap namespace,
+// which is what launchctl asuser does.
+func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
+	user, ok := CurrentConsoleUser()
+	if !ok {
+		return nil, nil
+	}
+	if !user.isOwner(owner) {
+		log.Debugf("certificate posture: console user %s does not own the active profile, no user keychain is asked", user.Name)
+		return nil, nil
+	}
+
+	uid := strconv.FormatUint(uint64(user.UID), 10)
+	backoffKey := helperBackoffKey(uid, challenges)
+	if !userHelperBackoff.allow(backoffKey, time.Now()) {
+		log.Debugf("certificate posture: the keychain of uid %s proved nothing recently, not asking again yet", uid)
+		return nil, nil
+	}
+
+	binary, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve own binary: %w", err)
+	}
+
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
+	defer cancel()
+
+	// Absolute paths, because the daemon's PATH is configurable through the service
+	// environment, and sudo selects the user by uid so the name never has to round-trip.
+	cmd := exec.CommandContext(ctx, "/bin/launchctl", "asuser", uid, "/usr/bin/sudo", "-u", "#"+uid, "-H", "--", binary, "posture", "cert-proof")
+	killHelperGroupOnCancel(cmd)
+
+	log.Debugf("certificate posture: asking the desktop session of uid %s to answer %d challenges", uid, len(challenges))
+	proofs, err := runHelperCmd(cmd, helperRequest(challenges, peerKey))
+	// A run that completed, or ran into the timeout waiting on a prompt nobody answered,
+	// tells whether the keychain proves anything. A launch or output failure, or a run the
+	// caller cut short, says nothing about it and must not hold off the next one.
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil
+	if err == nil || timedOut {
+		userHelperBackoff.record(backoffKey, err == nil && len(proofs) > 0, time.Now())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("run helper as uid %s: %w", uid, err)
+	}
+	log.Debugf("certificate posture: desktop session of uid %s returned %d proofs", uid, len(proofs))
+	return proofs, nil
+}
+
+// helperStore is the store the helper reads: the user's login keychain alone. The
+// session's search list also holds the System keychain, which the daemon reads itself,
+// and using a System keychain key from the user's session would ask for an
+// administrator's approval.
+func helperStore() Store {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Debugf("certificate posture: no home directory, searching the default keychain list: %v", err)
+		return NewKeychainStore()
+	}
+	login := filepath.Join(home, "Library", "Keychains", "login.keychain-db")
+	if _, err := os.Stat(login); err != nil {
+		// Keychains created before macOS 10.12 keep the old file name.
+		login = filepath.Join(home, "Library", "Keychains", "login.keychain")
+	}
+	return NewKeychainStore(login)
+}

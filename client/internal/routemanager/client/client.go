@@ -300,6 +300,7 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 		return fmt.Errorf("add allowed IPs for peer %s: %w", route.Peer, err)
 	}
 
+	w.statusRecorder.AddActiveRoutePeer(route.GetHAUniqueID(), route.Peer)
 	if err := w.statusRecorder.AddPeerStateRoute(route.Peer, w.handler.String(), route.GetResourceID()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
@@ -323,6 +324,7 @@ func (w *Watcher) notifyDNSServer() {
 }
 
 func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
+	w.statusRecorder.RemoveActiveRoutePeer(route.GetHAUniqueID())
 	if err := w.statusRecorder.RemovePeerStateRoute(route.Peer, w.handler.String()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}

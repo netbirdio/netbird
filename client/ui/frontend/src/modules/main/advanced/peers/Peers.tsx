@@ -15,6 +15,7 @@ import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
+import { useDirection } from "@/hooks/useDirection";
 import { PeerFilters, type StatusFilter } from "./PeerFilters";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
@@ -42,6 +43,7 @@ export const peerStatusLabelKey = (connStatus: string): string => {
 };
 
 export const Peers = () => {
+    const dir = useDirection();
     const { t } = useTranslation();
     const { status } = useStatus();
     const [search, setSearch] = useState("");
@@ -135,7 +137,11 @@ export const Peers = () => {
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                <ScrollArea.Root
+                    dir={dir}
+                    type={"auto"}
+                    className={"min-h-0 flex-1 overflow-hidden"}
+                >
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
                         {scrollParent && <PeersList data={filtered} scrollParent={scrollParent} />}
                     </ScrollArea.Viewport>
@@ -167,6 +173,7 @@ type PeersListProps = {
 
 const PeersList = ({ data, scrollParent }: PeersListProps) => {
     const { setSelected } = usePeerDetail();
+    const dir = useDirection();
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
@@ -200,7 +207,7 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
                 e.preventDefault();
                 focusRow(Math.max(index - 1, 0));
                 break;
-            case "ArrowRight":
+            case dir === "rtl" ? "ArrowLeft" : "ArrowRight":
                 e.preventDefault();
                 setSelected(data[index]);
                 break;
@@ -223,7 +230,7 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
     const ctx = useMemo<PeerRowContext>(
         () => ({ onKeyDown: handleRowKeyDown, onSelect: setSelected, setRowRef }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [data, setSelected],
+        [data, setSelected, dir],
     );
 
     return (
@@ -273,7 +280,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
     return (
         <div
             className={cn(
-                "group relative flex min-w-0 items-start gap-2.5 py-3 pl-6 pr-4",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 pe-4 ps-6",
                 "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
@@ -344,7 +351,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
                 size={16}
                 aria-hidden={"true"}
                 className={cn(
-                    "pointer-events-none relative shrink-0 self-center text-nb-gray-300",
+                    "pointer-events-none relative shrink-0 self-center text-nb-gray-300 rtl:-scale-x-100",
                     "opacity-0 transition-opacity group-hover:opacity-100",
                 )}
             />
