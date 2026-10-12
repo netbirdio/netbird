@@ -60,7 +60,7 @@ func UserContext(cfg Config) string {
 	if os.Geteuid() != 0 || cfg.OwnerUnknown {
 		return ""
 	}
-	user, ok := CurrentConsoleUser()
+	user, ok := currentConsoleUser()
 	if !ok || !user.isOwner(cfg.ProfileOwner) {
 		return ""
 	}
@@ -72,7 +72,7 @@ func UserContext(cfg Config) string {
 // per-session securityd, so the helper has to enter their Mach bootstrap namespace,
 // which is what launchctl asuser does.
 func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
-	user, ok := CurrentConsoleUser()
+	user, ok := currentConsoleUser()
 	if !ok {
 		return nil, nil
 	}
@@ -126,12 +126,12 @@ func helperStore() Store {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Debugf("certificate posture: no home directory, searching the default keychain list: %v", err)
-		return NewKeychainStore()
+		return newKeychainStore()
 	}
 	login := filepath.Join(home, "Library", "Keychains", "login.keychain-db")
 	if _, err := os.Stat(login); err != nil {
 		// Keychains created before macOS 10.12 keep the old file name.
 		login = filepath.Join(home, "Library", "Keychains", "login.keychain")
 	}
-	return NewKeychainStore(login)
+	return newKeychainStore(login)
 }

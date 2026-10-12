@@ -33,7 +33,7 @@ func (u DesktopUser) Close() {
 	}
 }
 
-// CurrentDesktopUser returns a token for the session whose certificate store should be
+// currentDesktopUser returns a token for the session whose certificate store should be
 // asked: a session of owner, the account the active profile belongs to, with the
 // physical console preferred over remote sessions. With no owner only the console user
 // counts. Picking any signed-in user instead would let whoever else is logged in to a
@@ -42,7 +42,7 @@ func (u DesktopUser) Close() {
 //
 // Obtaining the token needs SE_TCB_NAME, which the LocalSystem service has and an
 // ordinary process does not.
-func CurrentDesktopUser(owner string) (DesktopUser, bool) {
+func currentDesktopUser(owner string) (DesktopUser, bool) {
 	console := windows.WTSGetActiveConsoleSessionId()
 	if owner == "" {
 		return consoleUser(console)

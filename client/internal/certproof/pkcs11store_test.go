@@ -44,7 +44,7 @@ func TestStores_KeepsFileCertificatesWhenTokenFails(t *testing.T) {
 	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
 
-	candidates, err := Stores{failingStore{}, NewFileStore(dir)}.Candidates(context.Background())
+	candidates, err := Stores{failingStore{}, newFileStore(dir)}.Candidates(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, candidates, 1, "the directory's certificate must survive a failing token")
 }
@@ -241,13 +241,13 @@ func attr(typ uint, value []byte) pkcs11.Attribute {
 
 // pkcs11TestStore builds the store for the token NB_TEST_PKCS11_URI names, skipping when
 // no token is configured or this build lacks PKCS#11 support.
-func pkcs11TestStore(t *testing.T, certDir string) (*PKCS11Store, string) {
+func pkcs11TestStore(t *testing.T, certDir string) (*pkcs11Store, string) {
 	t.Helper()
 	uri := os.Getenv(testPKCS11URIEnv)
 	if uri == "" {
 		t.Skipf("set %s to a PKCS#11 URI with a PIN to run", testPKCS11URIEnv)
 	}
-	store, err := NewPKCS11Store(PKCS11Config{URI: uri}, certDir)
+	store, err := newPKCS11Store(PKCS11Config{URI: uri}, certDir)
 	require.NoError(t, err)
 	if _, err := pkcs11.Load(store.uri.Module()); errors.Is(err, pkcs11.ErrUnsupported) {
 		t.Skip(err)
@@ -303,7 +303,7 @@ func TestPKCS11Store_FileChains(t *testing.T) {
 	chained := certtest.ECDSAKey(t)
 	writeFile(t, dir, "chained.pem", certtest.CertPEM(ca.Issue(t, chained, "chained"))+certtest.CertPEM(intermediate)+certtest.KeyPEM(t, chained))
 
-	chains, extra, err := (&PKCS11Store{uri: &pkcs11.URI{}, certDir: dir}).fileChains()
+	chains, extra, err := (&pkcs11Store{uri: &pkcs11.URI{}, certDir: dir}).fileChains()
 	require.NoError(t, err)
 	assert.Len(t, extra, 1, "the keyed file's intermediate is offered for chain building")
 	assert.True(t, intermediate.Equal(extra[0]), "it is the intermediate, not the keyed leaf")
@@ -313,7 +313,7 @@ func TestPKCS11Store_FileChains(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"device", "corp"}, subjects, "only key-less certificate files are left to the token")
 
-	chains, extra, err = (&PKCS11Store{uri: &pkcs11.URI{}}).fileChains()
+	chains, extra, err = (&pkcs11Store{uri: &pkcs11.URI{}}).fileChains()
 	require.NoError(t, err)
 	assert.Empty(t, chains, "no directory configured means no file certificates")
 	assert.Empty(t, extra, "and no extra intermediates")
@@ -333,7 +333,7 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, err := NewPKCS11Store(tt.cfg, "")
+			store, err := newPKCS11Store(tt.cfg, "")
 			require.NoError(t, err)
 			pin, err := store.userPIN()
 			require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 		})
 	}
 
-	_, err := NewPKCS11Store(PKCS11Config{URI: "not-a-pkcs11-uri", PIN: "1234"}, "")
+	_, err := newPKCS11Store(PKCS11Config{URI: "not-a-pkcs11-uri", PIN: "1234"}, "")
 	assert.Error(t, err, "a malformed URI must not be silently replaced by the defaults")
 
 	for name, cfg := range map[string]PKCS11Config{
@@ -351,7 +351,7 @@ func TestNewPKCS11Store_PIN(t *testing.T) {
 		"inline pin-value only":    {URI: "pkcs11:?pin-value=0000"},
 		"pin-source only":          {URI: "pkcs11:?pin-source=file:/etc/netbird/pkcs11.pin"},
 	} {
-		_, err := NewPKCS11Store(cfg, "")
+		_, err := newPKCS11Store(cfg, "")
 		assert.ErrorIs(t, err, errPINNeedsToken, "%s: a PIN must not go to whichever token is listed first", name)
 	}
 }
@@ -369,7 +369,7 @@ func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
 	_, uri := pkcs11TestStore(t, "")
 
 	wrongPIN := "wrong-pin-" + t.Name()
-	store, err := NewPKCS11Store(PKCS11Config{URI: uri, PIN: wrongPIN}, "")
+	store, err := newPKCS11Store(PKCS11Config{URI: uri, PIN: wrongPIN}, "")
 	require.NoError(t, err)
 
 	_, err = store.Candidates(context.Background())
@@ -379,7 +379,7 @@ func TestPKCS11Store_WrongPINIsTriedOnce(t *testing.T) {
 	_, err = store.Candidates(context.Background())
 	assert.ErrorIs(t, err, errPINRejectedBefore, "the rejected PIN is not sent to the token again")
 
-	good, err := NewPKCS11Store(PKCS11Config{URI: uri}, "")
+	good, err := newPKCS11Store(PKCS11Config{URI: uri}, "")
 	require.NoError(t, err)
 	_, err = good.Candidates(context.Background())
 	assert.NoError(t, err, "the correct PIN for the same token is unaffected")

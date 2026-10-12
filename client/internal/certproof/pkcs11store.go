@@ -38,24 +38,24 @@ func PKCS11FromEnv() PKCS11Config {
 	return PKCS11Config{URI: os.Getenv(PKCS11URIEnv), PIN: os.Getenv(PINEnv)}
 }
 
-// PKCS11Store yields the identities of a PKCS#11 token, which is how tpm2-pkcs11 exposes
+// pkcs11Store yields the identities of a PKCS#11 token, which is how tpm2-pkcs11 exposes
 // TPM-held keys on Linux. Certificates on the token are paired with keys by CKA_ID, the
 // convention tpm2_ptool addcert and pkcs11-tool follow; certificate files in the PEM
 // directory by public key. Every signature happens on the token.
-type PKCS11Store struct {
+type pkcs11Store struct {
 	uri     *pkcs11.URI
 	pin     string
 	certDir string
 }
 
-// NewPKCS11Store parses cfg.URI, standing in the bare defaults when it is empty. Files in
+// newPKCS11Store parses cfg.URI, standing in the bare defaults when it is empty. Files in
 // certDir without a key of their own are paired with the token's keys by public key.
 //
 // A PIN is only accepted together with a token label: without one the PIN would go to
 // whichever token the module lists first, which on a machine with a smartcard plugged
 // in may be the card, and every wrong PIN counts towards that card's lockout.
-func NewPKCS11Store(cfg PKCS11Config, certDir string) (*PKCS11Store, error) {
-	store := &PKCS11Store{uri: &pkcs11.URI{}, pin: cfg.PIN, certDir: certDir}
+func newPKCS11Store(cfg PKCS11Config, certDir string) (*pkcs11Store, error) {
+	store := &pkcs11Store{uri: &pkcs11.URI{}, pin: cfg.PIN, certDir: certDir}
 	if cfg.URI != "" {
 		parsed, err := pkcs11.ParseURI(cfg.URI)
 		if err != nil {
@@ -69,7 +69,7 @@ func NewPKCS11Store(cfg PKCS11Config, certDir string) (*PKCS11Store, error) {
 	return store, nil
 }
 
-func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
+func (s *pkcs11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	session, err := s.open()
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	return candidates, nil
 }
 
-func (s *PKCS11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.Certificate) Candidate {
+func (s *pkcs11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.Certificate) Candidate {
 	chain := buildChain(leaf, pool)
 	log.Debugf("%s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
 	return Candidate{Chain: chain, Signer: &pkcs11Signer{store: s, leaf: leaf, id: id}, Intermediates: pool}
@@ -136,7 +136,7 @@ func (s *PKCS11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.
 // own; the file store answers for the ones that do. The certificates after the leaf of a
 // file that does carry a key are returned too, since they can complete the chain of a
 // token certificate.
-func (s *PKCS11Store) fileChains() (chains [][]*x509.Certificate, intermediates []*x509.Certificate, err error) {
+func (s *pkcs11Store) fileChains() (chains [][]*x509.Certificate, intermediates []*x509.Certificate, err error) {
 	if s.certDir == "" {
 		return nil, nil, nil
 	}
@@ -158,14 +158,14 @@ func (s *PKCS11Store) fileChains() (chains [][]*x509.Certificate, intermediates 
 	return chains, intermediates, nil
 }
 
-func (s *PKCS11Store) String() string {
+func (s *pkcs11Store) String() string {
 	if s.uri.Token == "" {
 		return "PKCS#11 token"
 	}
 	return fmt.Sprintf("PKCS#11 token %q", s.uri.Token)
 }
 
-func (s *PKCS11Store) open() (*pkcs11.Session, error) {
+func (s *pkcs11Store) open() (*pkcs11.Session, error) {
 	module, err := pkcs11.Load(s.uri.Module())
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func (s *PKCS11Store) open() (*pkcs11.Session, error) {
 	return session, err
 }
 
-func (s *PKCS11Store) userPIN() ([]byte, error) {
+func (s *pkcs11Store) userPIN() ([]byte, error) {
 	if s.pin != "" {
 		return []byte(s.pin), nil
 	}
@@ -297,7 +297,7 @@ func privateKey(session *pkcs11.Session, id []byte) (pkcs11.Object, error) {
 // pkcs11Signer holds only the certificate and its CKA_ID; the key is looked up in a fresh
 // session at signing time so no token handle outlives a call.
 type pkcs11Signer struct {
-	store *PKCS11Store
+	store *pkcs11Store
 	leaf  *x509.Certificate
 	id    []byte
 }
