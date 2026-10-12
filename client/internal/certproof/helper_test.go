@@ -14,7 +14,10 @@ import (
 	"github.com/netbirdio/netbird/shared/management/certposture/certtest"
 )
 
-func TestRunHelper_ProofSurvivesTheProcessBoundary(t *testing.T) {
+// TestRunHelper_AnswersAChallengeFromItsStore runs the helper's request and response
+// handling in-process: the proof it writes verifies as the daemon will verify it. The
+// process boundary itself is covered by the runHelperCmd tests.
+func TestRunHelper_AnswersAChallengeFromItsStore(t *testing.T) {
 	ca := certtest.NewCA(t, "corp-root")
 	dir := storeDir(t)
 	key := certtest.ECDSAKey(t)
