@@ -793,3 +793,71 @@ func TestRoutedUpstreamGatingString(t *testing.T) {
 	assert.Equal(t, "startup", gatingStartup.String())
 	assert.Equal(t, "always", gatingAlways.String())
 }
+
+// UpdateDNSServer resolves the route accessors before taking s.mux, so a route
+// change that lands while it waits for the lock is overwritten by a verdict
+// decided against older state. The engine happens to correct that right after,
+// by calling UpdateRoutes, but this package cannot rely on that ordering.
+func TestUpdateDNSServerCorrectsAStaleGatingSnapshot(t *testing.T) {
+	group := nsGroupWith("10.10.0.53")
+	group.Domains = []string{"corp.example.com"}
+	update := nbdns.Config{
+		ServiceEnable:    true,
+		NameServerGroups: []*nbdns.NameServerGroup{group},
+	}
+
+	var mu sync.Mutex
+	var captured HostDNSConfig
+	installedReads := 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	server := &DefaultServer{
+		ctx:          ctx,
+		handlerChain: NewHandlerChain(),
+		hostManager: &mockHostConfigurator{
+			applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+				mu.Lock()
+				defer mu.Unlock()
+				captured = config
+				return nil
+			},
+			supportCustomPortFunc: func() bool { return true },
+			stringFunc:            func() string { return "mock" },
+		},
+		localResolver:      &local.Resolver{},
+		service:            &mockService{},
+		wgInterface:        &mocWGIface{},
+		statusRecorder:     peer.NewRecorder("test"),
+		extraDomains:       make(map[domain.Domain]int),
+		currentConfigHash:  ^uint64(0),
+		healthRefresh:      make(chan struct{}, 1),
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+		selectedRoutes:     func() route.HAMap { return haMapWith("10.10.0.0/24") },
+		// The route appears between the snapshot UpdateDNSServer takes and the
+		// one the refresher takes, which is exactly the window under test.
+		installedRoutes: func() route.HAMap {
+			mu.Lock()
+			defer mu.Unlock()
+			installedReads++
+			if installedReads == 1 {
+				return route.HAMap{}
+			}
+			return haMapWith("10.10.0.0/24")
+		},
+	}
+
+	server.startRouteRefresher()
+	t.Cleanup(func() {
+		cancel()
+		server.shutdownWg.Wait()
+	})
+
+	require.NoError(t, server.UpdateDNSServer(1, update))
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(captured.Domains) > 0
+	}, 5*time.Second, 20*time.Millisecond, "the stale withholding should have been corrected against the newer route state")
+}

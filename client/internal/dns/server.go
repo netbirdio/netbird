@@ -671,6 +671,23 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 	s.updateSerial = serial
 	s.previousConfigHash = hash
 
+	// The snapshot above was taken before s.mux, so a route change that landed
+	// while this update waited for the lock has just been overwritten by a
+	// verdict decided against older state. Nothing here can re-read the route
+	// state — resolving the accessors takes the route manager's lock, which this
+	// path must not take under s.mux — so hand the correction to the refresher,
+	// which takes its own snapshot outside the lock.
+	//
+	// Today the engine already corrects it: handleNetworkMapUpdate calls this
+	// and then routemanager.DefaultManager.UpdateRoutes, which signals the
+	// refresher unconditionally. That makes the stale window a few milliseconds
+	// wide rather than open until the next route change. It also makes
+	// correctness depend on the order of two calls in the engine, which is not
+	// something this package can enforce, so signal here too. It is free when
+	// the verdict already matches: refreshRoutedUpstreams bails out on
+	// maps.Equal against lastGateDecision.
+	s.signalRouteRefresh()
+
 	return nil
 }
 
