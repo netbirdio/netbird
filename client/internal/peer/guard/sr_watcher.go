@@ -112,7 +112,7 @@ func (w *SRWatcher) onReconnected(server string) {
 		return
 	}
 
-	log.Infof("reconnected to %s server", server)
+	log.Infof("connected to %s server", server)
 	w.notify()
 }
 
