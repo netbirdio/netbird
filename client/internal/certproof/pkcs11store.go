@@ -133,9 +133,8 @@ func (s *pkcs11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.
 }
 
 // fileChains reads the certificate files in the PEM directory that carry no key of their
-// own; the file store answers for the ones that do. The certificates after the leaf of a
-// file that does carry a key are returned too, since they can complete the chain of a
-// token certificate.
+// own; the file store answers for the ones that do. The certificates of a file that does
+// carry a key are returned too, since they can complete the chain of a token certificate.
 func (s *pkcs11Store) fileChains() (chains [][]*x509.Certificate, intermediates []*x509.Certificate, err error) {
 	if s.certDir == "" {
 		return nil, nil, nil
@@ -150,7 +149,7 @@ func (s *pkcs11Store) fileChains() (chains [][]*x509.Certificate, intermediates 
 			continue
 		}
 		if signer != nil {
-			intermediates = append(intermediates, chain[1:]...)
+			intermediates = append(intermediates, chain...)
 			continue
 		}
 		chains = append(chains, chain)

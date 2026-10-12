@@ -163,23 +163,24 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 
 	algorithm := keychainAlgorithm(scheme)
 	var signature []byte
-	var signErr error
+	var attempts signAttempts
 	err = eachIdentity(searchList, func(identity uintptr, der []byte) (bool, error) {
 		if !bytes.Equal(der, s.leaf.Raw) {
 			return false, nil
 		}
 		// The same certificate can sit in the keychain with more than one key, of which
 		// only one may be usable, so a failure moves on to the next match.
-		signature, signErr = signWithIdentity(identity, algorithm, digest)
-		return signErr == nil, nil
+		var ok bool
+		signature, ok = attempts.try(func() ([]byte, error) { return signWithIdentity(identity, algorithm, digest) })
+		return ok, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if signErr != nil {
-		return nil, signErr
-	}
 	if signature == nil {
+		if err := attempts.err(); err != nil {
+			return nil, err
+		}
 		return nil, errors.New("certificate is no longer in the keychain")
 	}
 	log.Debugf("keychain signed certificate posture challenge for %q, %d bytes", s.leaf.Subject, len(signature))

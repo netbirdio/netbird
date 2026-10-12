@@ -299,14 +299,18 @@ func TestPKCS11Store_FileChains(t *testing.T) {
 
 	// An intermediate that only a keyed file carries still has to reach the pool a token
 	// certificate's chain is built from.
-	intermediate := ca.Issue(t, certtest.ECDSAKey(t), "keyed-intermediate")
+	root := certtest.NewCA(t, "corp-root")
+	intermediateCA := certtest.NewIntermediate(t, root, "corp-intermediate")
 	chained := certtest.ECDSAKey(t)
-	writeFile(t, dir, "chained.pem", certtest.CertPEM(ca.Issue(t, chained, "chained"))+certtest.CertPEM(intermediate)+certtest.KeyPEM(t, chained))
+	writeFile(t, dir, "chained.pem", certtest.CertPEM(intermediateCA.Issue(t, chained, "chained"))+certtest.CertPEM(intermediateCA.Cert)+certtest.KeyPEM(t, chained))
 
 	chains, extra, err := (&pkcs11Store{uri: &pkcs11.URI{}, certDir: dir}).fileChains()
 	require.NoError(t, err)
-	assert.Len(t, extra, 1, "the keyed file's intermediate is offered for chain building")
-	assert.True(t, intermediate.Equal(extra[0]), "it is the intermediate, not the keyed leaf")
+	require.NotEmpty(t, extra, "the keyed file's certificates are offered for chain building")
+	tokenLeaf := intermediateCA.Issue(t, certtest.ECDSAKey(t), "token-leaf")
+	chain := buildChain(tokenLeaf, extra)
+	require.Len(t, chain, 2, "a token certificate is completed through the intermediate only the keyed file holds")
+	assert.True(t, intermediateCA.Cert.Equal(chain[1]), "the second certificate is that intermediate")
 	var subjects []string
 	for _, chain := range chains {
 		subjects = append(subjects, chain[0].Subject.CommonName)

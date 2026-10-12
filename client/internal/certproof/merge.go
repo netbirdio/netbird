@@ -20,7 +20,7 @@ func mergeProofs(device, user []certposture.Proof) []certposture.Proof {
 	seen := make(map[[sha256.Size]byte]struct{}, len(device)+len(user))
 	for _, proof := range device {
 		if len(proof.Chain) > 0 {
-			seen[derChainFingerprint(proof.Chain)] = struct{}{}
+			seen[chainDERFingerprint(proof.Chain)] = struct{}{}
 		}
 	}
 
@@ -29,7 +29,7 @@ func mergeProofs(device, user []certposture.Proof) []certposture.Proof {
 		if len(proof.Chain) == 0 {
 			continue
 		}
-		fingerprint := derChainFingerprint(proof.Chain)
+		fingerprint := chainDERFingerprint(proof.Chain)
 		if _, done := seen[fingerprint]; done {
 			continue
 		}
@@ -47,15 +47,4 @@ func logUserProof(proof certposture.Proof) {
 		return
 	}
 	log.Debugf("certificate posture: signed-in user proved %q issued by %q", leaf.Subject, leaf.Issuer)
-}
-
-// derChainFingerprint identifies a chain of DER certificates by the hashes of all of them,
-// in order. It matches chainFingerprint for the same chain.
-func derChainFingerprint(chain [][]byte) [sha256.Size]byte {
-	buf := make([]byte, 0, len(chain)*sha256.Size)
-	for _, der := range chain {
-		certHash := sha256.Sum256(der)
-		buf = append(buf, certHash[:]...)
-	}
-	return sha256.Sum256(buf)
 }
