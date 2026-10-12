@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/shared/management/grpc"
@@ -73,6 +74,12 @@ func Test_LoadMgmtConfig_WithoutHttpConfig(t *testing.T) {
 	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
+
+	srv := newServer(&server.Config{
+		NbConfig: cfg,
+		MgmtPort: 80,
+	})
+	assert.NotNil(t, srv)
 }
 
 func TestApplyEmbeddedIdPConfigRequiresSingleAccountDomain(t *testing.T) {
