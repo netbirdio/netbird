@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRecordTypeAndRdata(t *testing.T) {
@@ -35,4 +36,25 @@ func TestRecordTypeAndRdata(t *testing.T) {
 			assert.Equal(t, rdata, tt.expectedRdata)
 		})
 	}
+}
+
+// TestConvertToNmdataPeers_CarriesTheVerifiedCertificates: the certificate posture check is
+// evaluated on the chains stored in the peer meta, so a peer loaded through this path with
+// its certificates dropped would silently fail every certificate check.
+func TestConvertToNmdataPeers_CarriesTheVerifiedCertificates(t *testing.T) {
+	peers, _, err := ConvertToNmdataPeers([]Peer{
+		{MetaCertificates: []byte(`["-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n","chain-2"]`)},
+		{},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, peers, 2)
+	assert.Equal(t, []string{"-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n", "chain-2"}, peers[0].Meta.Certificates)
+	assert.Empty(t, peers[1].Meta.Certificates, "a peer that proved nothing has no certificates")
+}
+
+func TestConvertToNmdataPeers_RejectsMalformedCertificates(t *testing.T) {
+	_, _, err := ConvertToNmdataPeers([]Peer{{MetaCertificates: []byte(`{"not":"a list"}`)}})
+
+	assert.Error(t, err, "a stored value that is not a list of chains must not load as no certificates")
 }
