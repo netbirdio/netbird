@@ -34,6 +34,7 @@ on:
           - reverse-proxy
           - netbird-server
           - signal
+          - relay
       version:
         description: "Released version, e.g. v0.80.0"
         type: string
@@ -70,6 +71,7 @@ jobs:
             "reverse-proxy ghcr.io/netbirdio/reverse-proxy -ubi"
             "netbird-server ghcr.io/netbirdio/netbird-server -ubi"
             "signal ghcr.io/netbirdio/signal -ubi"
+            "relay ghcr.io/netbirdio/relay -ubi"
           )
           matrix="[]"
           missing=()
