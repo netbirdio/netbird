@@ -3252,12 +3252,12 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 		return err
 	}
 	require.NoError(t, addPeer("host-1"))
-	require.NoError(t, addPeer("host-2"))
 
-	err = addPeer("host-3")
+	err = addPeer("host-2")
 	require.Error(t, err, "no free IP left, registration must fail")
 
 	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
-	assert.Len(t, peers, 2)
+	require.Len(t, peers, 1)
+	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)
 }
