@@ -249,7 +249,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var affected [][]string
+	affected := make(affectedPeerSet)
 
 	var globalErr error
 	createdCount := 0
@@ -289,14 +289,14 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			continue
 		}
 		createdCount++
-		affected = append(affected, snap.Expand(ctx, accountID, change))
+		affected.add(snap.Expand(ctx, accountID, change))
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	go am.dispatchAffectedPeerIDs(ctx, accountID, unionStrings(affected...))
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 
 	return globalErr
 }
@@ -315,7 +315,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var affected [][]string
+	affected := make(affectedPeerSet)
 
 	var globalErr error
 	for _, newGroup := range groups {
@@ -330,14 +330,14 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 			continue
 		}
 		eventsToStore = append(eventsToStore, events...)
-		affected = append(affected, snap.Expand(ctx, accountID, change))
+		affected.add(snap.Expand(ctx, accountID, change))
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	go am.dispatchAffectedPeerIDs(ctx, accountID, unionStrings(affected...))
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 
 	return globalErr
 }
@@ -534,8 +534,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	affected := unionStrings(snap.Expand(ctx, accountID, change), ipv6Snap.Expand(ctx, accountID, ipv6Change))
-	go am.dispatchAffectedPeerIDs(ctx, accountID, affected)
+	affected := make(affectedPeerSet)
+	affected.add(snap.Expand(ctx, accountID, change))
+	affected.add(ipv6Snap.Expand(ctx, accountID, ipv6Change))
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 
 	return allErrors
 }

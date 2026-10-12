@@ -1619,21 +1619,19 @@ func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, ac
 	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 }
 
-// unionStrings concatenates the given string lists into one deduplicated slice,
-// preserving first-occurrence order.
-func unionStrings(lists ...[]string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, list := range lists {
-		for _, id := range list {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			out = append(out, id)
-		}
+// affectedPeerSet collects the affected peer IDs of several snapshot expansions,
+// deduplicating as they are added so it stays bounded by the account's peers
+// however many items a batch has.
+type affectedPeerSet map[string]struct{}
+
+func (s affectedPeerSet) add(peerIDs []string) {
+	for _, id := range peerIDs {
+		s[id] = struct{}{}
 	}
-	return out
+}
+
+func (s affectedPeerSet) ids() []string {
+	return maps.Keys(s)
 }
 
 // affectedPeerIDsFromNetworkMap returns the peer IDs referenced by a peer's

@@ -593,7 +593,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	var affected [][]string
+	affected := make(affectedPeerSet)
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
@@ -664,7 +664,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			// continue when updating multiple users
 			continue
 		}
-		affected = append(affected, itemSnap.Expand(ctx, accountID, itemChange))
+		affected.add(itemSnap.Expand(ctx, accountID, itemChange))
 	}
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
@@ -695,7 +695,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		go am.dispatchAffectedPeerIDs(ctx, accountID, unionStrings(affected...))
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
 	return updatedUsersInfo, globalErr
