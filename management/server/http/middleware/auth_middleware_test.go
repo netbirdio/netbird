@@ -10,12 +10,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	nbauth "github.com/netbirdio/netbird/shared/auth"
@@ -98,13 +96,6 @@ func mockValidateAndParseToken(_ context.Context, token string) (nbauth.UserAuth
 	return nbauth.UserAuth{}, nil, fmt.Errorf("JWT invalid")
 }
 
-func mockGetUserByID(_ context.Context, id string) (*types.User, error) {
-	if user, ok := testAccount.Users[id]; ok {
-		return user, nil
-	}
-	return nil, fmt.Errorf("user %s not found", id)
-}
-
 func mockMarkPATUsed(_ context.Context, token string) error {
 	if token == tokenID || token == tokenID2 {
 		return nil
@@ -113,7 +104,7 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 }
 
 func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbauth.UserAuth, token *jwt.Token) (nbauth.UserAuth, error) {
-	if userAuth.IsChild || userAuth.IsPAT {
+	if userAuth.IsPAT {
 		return userAuth, nil
 	}
 
@@ -221,8 +212,6 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
-		nil,
-		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -289,8 +278,6 @@ func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *test
 		},
 		disabledLimiter,
 		nil,
-		nil,
-		nil,
 	)
 
 	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -342,8 +329,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
-			nil,
-			nil,
 			nil,
 		)
 
@@ -397,8 +382,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			nil,
-			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -441,8 +424,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
-			nil,
-			nil,
 			nil,
 		)
 
@@ -487,8 +468,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
-			nil,
-			nil,
 			nil,
 		)
 
@@ -554,8 +533,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			nil,
-			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -615,8 +592,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			nil,
-			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -671,8 +646,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 				return &types.User{}, nil
 			},
 			ratelimit.NewAPIRateLimiter(rateLimitConfig),
-			nil,
-			nil,
 			nil,
 		)
 
@@ -774,8 +747,6 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
-		mockGetUserByID,
-		permissions.NewManager(nil),
 	)
 
 	for _, tc := range tt {
@@ -805,90 +776,6 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			} else {
 				assert.Equal(t, 401, result.StatusCode)
 			}
-		})
-	}
-}
-
-func TestAuthMiddleware_Handler_ChildAccountAccess(t *testing.T) {
-	const childAccountID = "childAccountID"
-
-	tt := []struct {
-		name          string
-		path          string
-		authHeader    string
-		accessErr     error
-		userLookupErr error
-		expectCheck   bool
-		wantAccountID string
-		wantIsChild   bool
-	}{
-		{name: "JWT switches to granted child account", path: "/test?account=" + childAccountID, authHeader: "Bearer " + JWT, expectCheck: true, wantAccountID: childAccountID, wantIsChild: true},
-		{name: "PAT switches to granted child account", path: "/test?account=" + childAccountID, authHeader: "Token " + PAT, expectCheck: true, wantAccountID: childAccountID, wantIsChild: true},
-		{name: "JWT stays on own account when access is denied", path: "/test?account=" + childAccountID, authHeader: "Bearer " + JWT, accessErr: fmt.Errorf("user not part of account"), expectCheck: true, wantAccountID: accountID},
-		{name: "PAT stays on own account when access is denied", path: "/test?account=" + childAccountID, authHeader: "Token " + PAT, accessErr: fmt.Errorf("user not part of account"), expectCheck: true, wantAccountID: accountID},
-		{name: "JWT stays on own account when the user lookup fails", path: "/test?account=" + childAccountID, authHeader: "Bearer " + JWT, userLookupErr: fmt.Errorf("store unavailable"), wantAccountID: accountID},
-		{name: "own account is not a child account", path: "/test?account=" + accountID, authHeader: "Bearer " + JWT, wantAccountID: accountID},
-		{name: "repeated account parameter is ignored", path: "/test?account=" + childAccountID + "&account=" + childAccountID, authHeader: "Bearer " + JWT, wantAccountID: accountID},
-	}
-
-	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			permissionsManager := permissions.NewMockManager(ctrl)
-			if tc.expectCheck {
-				permissionsManager.EXPECT().
-					ValidateAccountAccess(gomock.Any(), childAccountID, gomock.Any(), false).
-					DoAndReturn(func(ctx context.Context, _ string, user *types.User, _ bool) (context.Context, error) {
-						assert.Equal(t, userID, user.Id)
-						assert.Equal(t, accountID, user.AccountID)
-						return ctx, tc.accessErr
-					})
-			}
-
-			disabledLimiter := ratelimit.NewAPIRateLimiter(nil)
-			disabledLimiter.SetEnabled(false)
-			authMiddleware := NewAuthMiddleware(
-				&auth.MockManager{
-					ValidateAndParseTokenFunc:       mockValidateAndParseToken,
-					EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
-					MarkPATUsedFunc:                 mockMarkPATUsed,
-					GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
-				},
-				func(_ context.Context, userAuth nbauth.UserAuth) (string, string, error) {
-					return userAuth.AccountId, userAuth.UserId, nil
-				},
-				func(context.Context, nbauth.UserAuth) error {
-					return nil
-				},
-				func(context.Context, nbauth.UserAuth) (*types.User, error) {
-					return &types.User{}, nil
-				},
-				disabledLimiter,
-				nil,
-				func(ctx context.Context, id string) (*types.User, error) {
-					if tc.userLookupErr != nil {
-						return nil, tc.userLookupErr
-					}
-					return mockGetUserByID(ctx, id)
-				},
-				permissionsManager,
-			)
-
-			var got nbauth.UserAuth
-			handler := authMiddleware.Handler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-				var err error
-				got, err = nbcontext.GetUserAuthFromRequest(r)
-				assert.NoError(t, err)
-			}))
-
-			req := httptest.NewRequest(http.MethodGet, "http://testing"+tc.path, nil)
-			req.Header.Set("Authorization", tc.authHeader)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, tc.wantAccountID, got.AccountId)
-			assert.Equal(t, tc.wantIsChild, got.IsChild)
 		})
 	}
 }

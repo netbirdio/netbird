@@ -146,7 +146,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics, permissionsManager)...)
+	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics)...)
 	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
 		groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
 		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
@@ -288,7 +288,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics, permissionsManager)...)
+	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics)...)
 	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager,
 		geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
 		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
