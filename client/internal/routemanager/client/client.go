@@ -280,6 +280,9 @@ type Watcher struct {
 	// routing peer started: its drop from direct, or the first direct contender
 	// if it was never direct. Zero while it is direct or uncontended.
 	degradedSince time.Time
+	// neverDirect marks a degradedSince started by a direct contender rather
+	// than by a drop from direct, which the "never" policy does not cover
+	neverDirect bool
 	// relayedHold fires when a relayed switch being held back becomes due, so it
 	// is applied on time rather than on the next periodic re-evaluation
 	relayedHold *time.Timer
@@ -467,7 +470,7 @@ func (w *Watcher) trackRelayed(current routeCandidate, haveCurrent bool) {
 	case current.id != w.trackedCurrent, current.peer != w.trackedPeer, !current.relayed:
 		w.degradedSince = time.Time{}
 	case w.trackedDirect:
-		w.degradedSince = time.Now()
+		w.degradedSince, w.neverDirect = time.Now(), false
 		// a new degradation, reported as such even if an earlier one held
 		// back the same candidate
 		w.heldCandidate = ""
@@ -549,10 +552,15 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 // as soon as it becomes due.
 func (w *Watcher) relayedSwitchDue(current, candidate routeCandidate) bool {
 	if w.degradedSince.IsZero() {
-		w.degradedSince = time.Now()
+		w.degradedSince, w.neverDirect = time.Now(), true
 	}
 
 	policy := w.relayedSwitch
+	// "never" keeps a peer whose direct connection dropped; one that was never
+	// direct still moves after the default delay instead of staying relayed
+	if policy.never && w.neverDirect {
+		policy = relayedSwitchPolicy{delay: defaultRelayedSwitchDelay}
+	}
 	if !policy.never {
 		remaining := policy.delay - time.Since(w.degradedSince)
 		if remaining <= 0 {

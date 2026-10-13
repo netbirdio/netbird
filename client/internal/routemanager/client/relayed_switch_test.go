@@ -437,3 +437,24 @@ func TestFlappingRoutingPeerIsKept(t *testing.T) {
 		require.Equal(t, route.ID("route1"), chosen, "cycle %d: recovered and sampled", cycle)
 	}
 }
+
+// "never" only keeps a routing peer that dropped from direct. A peer that was
+// never direct must still move to a direct one after the default delay, so the
+// route is not left on a relay for good.
+func TestNeverPolicyDoesNotPinNeverDirectPeer(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{never: true})
+
+	chosen, _ := w.getBestRouteFromStatuses(map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+		"route2": {status: peer.StatusConnecting},
+	})
+	require.Equal(t, route.ID("route1"), chosen)
+
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	require.Equal(t, route.ID("route1"), chosen, "a never-direct peer must be held for the default delay")
+	require.NotNil(t, w.relayedHold, "the default delay must arm the timer")
+
+	w.degradedSince = w.degradedSince.Add(-defaultRelayedSwitchDelay - time.Second)
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	assert.Equal(t, route.ID("route2"), chosen, "with never, a never-direct peer must still give way after the default delay")
+}

@@ -15,7 +15,8 @@ const (
 	// route moves to an equivalent peer with a direct connection. A routing peer
 	// that was never direct is kept for the same delay from when a direct peer
 	// first contends for the route. Takes a duration ("30s", "0" to switch at
-	// once) or "never" to only leave a relayed peer when it disconnects.
+	// once) or "never" to only leave a peer that dropped from direct when it
+	// disconnects; a peer that was never direct then uses the default delay.
 	envRelayedSwitchDelay = "NB_HA_RELAYED_SWITCH_DELAY"
 
 	relayedSwitchDelayNever = "never"
