@@ -112,7 +112,7 @@ func (w *SRWatcher) onReconnected(server string) {
 		return
 	}
 
-	log.Infof("connected to %s server", server)
+	log.Infof("Signal and Relay ready (triggered by %s), resetting peer reconnection backoff", server)
 	w.notify()
 }
 
