@@ -99,6 +99,7 @@ type holdKind int
 const (
 	holdLatencyMargin holdKind = iota
 	holdLatencyDwell
+	holdLatencyUnmeasured
 	holdRelayedDelay
 )
 
@@ -124,6 +125,9 @@ type routeCandidate struct {
 	relayed   bool
 	latency   time.Duration
 	noise     time.Duration
+	// measured is false while the peer has no latency sample, as right after a
+	// direct connection comes up: latency then holds unknownLatency
+	measured bool
 }
 
 func newRouteCandidate(r *route.Route, status routerPeerStatus) routeCandidate {
@@ -140,6 +144,7 @@ func newRouteCandidate(r *route.Route, status routerPeerStatus) routeCandidate {
 		relayed:   status.relayed,
 		latency:   latency,
 		noise:     status.noise,
+		measured:  status.latency > 0,
 	}
 }
 
@@ -492,6 +497,18 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 	}
 	if candidate.tierBetterThan(current) {
 		return true
+	}
+
+	// Without a sample on both sides there is no gain to weigh. A direct
+	// connection reports no latency until its first sample, so comparing it as
+	// unknownLatency would move the route away from a peer that just recovered.
+	if !current.measured || !candidate.measured {
+		if level := w.holdLevel(candidate, holdLatencyUnmeasured); log.IsLevelEnabled(level) {
+			log.StandardLogger().Logf(level,
+				"keeping routing peer %s for [%v] over %s: latency not measured on both peers yet (%s)",
+				current.peer, w.handler, candidate.peer, candidate)
+		}
+		return false
 	}
 
 	gain := current.latency - candidate.latency

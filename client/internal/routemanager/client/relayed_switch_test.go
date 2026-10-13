@@ -356,3 +356,63 @@ func TestRoutingPeerSwitchPublishesEvent(t *testing.T) {
 	assert.Equal(t, "No routing peer available", events[1].Message)
 	assert.Equal(t, "peer2", events[1].Metadata["previous_peer"])
 }
+
+// The statuses below follow the status recorder: a drop to relay clears the
+// latency, and a recovered direct connection reports no latency until the new
+// ICE agent's first sample lands.
+var (
+	flapDirect = map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, latency: 50 * time.Millisecond},
+		"route2": {status: peer.StatusConnected, latency: 60 * time.Millisecond},
+	}
+	flapRelayed = map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+		"route2": {status: peer.StatusConnected, latency: 60 * time.Millisecond},
+	}
+	flapRecoveredUnsampled = map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+		"route2": {status: peer.StatusConnected, latency: 60 * time.Millisecond},
+	}
+)
+
+// A routing peer whose direct connection drops to relay and comes back within
+// the delay must keep the route, including the window between the recovery and
+// the first latency sample of the new connection.
+func TestRecoveredRoutingPeerWithoutLatencySampleIsKept(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	chosen, _ := w.getBestRouteFromStatuses(flapDirect)
+	require.Equal(t, route.ID("route1"), chosen)
+
+	chosen, _ = w.getBestRouteFromStatuses(flapRelayed)
+	require.Equal(t, route.ID("route1"), chosen, "a routing peer that just dropped to relay must be kept")
+
+	chosen, _ = w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+	assert.Equal(t, route.ID("route1"), chosen, "a recovered routing peer must not lose the route before its latency is sampled")
+}
+
+// A routing peer that keeps dropping to relay for less than the delay, and
+// staying direct for less than the delay in between, must keep the route on
+// every cycle: each drop is a new degradation with its own delay.
+func TestFlappingRoutingPeerIsKept(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	chosen, _ := w.getBestRouteFromStatuses(flapDirect)
+	require.Equal(t, route.ID("route1"), chosen)
+
+	for cycle := 0; cycle < 3; cycle++ {
+		chosen, _ = w.getBestRouteFromStatuses(flapRelayed)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: drop to relay", cycle)
+
+		// relayed for 25s, still within the delay
+		w.degradedSince = w.degradedSince.Add(-25 * time.Second)
+		chosen, _ = w.getBestRouteFromStatuses(flapRelayed)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: relayed within the delay", cycle)
+
+		chosen, _ = w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: recovered, latency not sampled yet", cycle)
+
+		chosen, _ = w.getBestRouteFromStatuses(flapDirect)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: recovered and sampled", cycle)
+	}
+}
