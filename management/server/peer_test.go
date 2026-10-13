@@ -604,6 +604,13 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			expectedPeerCount:   1,
 		},
 		{
+			name:                "Regular user, no limited view settings, not a service user, paginated func",
+			role:                types.UserRoleUser,
+			limitedViewSettings: false,
+			isServiceUser:       false,
+			expectedPeerCount:   1,
+		},
+		{
 			name:                "Service user, no limited view settings",
 			role:                types.UserRoleUser,
 			limitedViewSettings: false,
@@ -724,14 +731,22 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, someUser)
-			if err != nil {
-				t.Fatal(err)
-				return
+			for _, f := range []func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error){
+				func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+					return manager.GetPeers(context.Background(), accountID, userID)
+				},
+				func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+					peers, _, err := manager.GetPeersPaginated(context.Background(), accountID, userID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
+					return peers, err
+				}} {
+				peers, err := f(context.Background(), accountID, someUser)
+				if err != nil {
+					t.Fatal(err)
+					return
+				}
+				assert.NotNil(t, peers)
+				assert.Len(t, peers, testCase.expectedPeerCount)
 			}
-			assert.NotNil(t, peers)
-
-			assert.Len(t, peers, testCase.expectedPeerCount)
 
 		})
 	}
@@ -3197,7 +3212,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 	}
 	assert.Equal(t, 1, succeeded)
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id)
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, "same-host", peers[0].DNSLabel)
@@ -3256,7 +3271,7 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	err = addPeer("host-2")
 	require.Error(t, err, "no free IP left, registration must fail")
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id)
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)

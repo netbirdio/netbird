@@ -240,7 +240,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	peers, peerCount, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("error getting peers: %v", err)
-		util.WriteError(r.Context(), &status.Error{ErrorType: status.Internal, Message: err.Error()}, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 

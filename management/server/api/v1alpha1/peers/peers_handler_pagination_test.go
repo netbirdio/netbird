@@ -36,7 +36,7 @@ func TestGetPeersPagination(t *testing.T) {
 			getPeersFunc: func(tt *testing.T) func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 				return func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 					tt.Helper()
-					assert.Equal(tt, store.PaginationState{Page: 0, PageSize: 100}, pagination)
+					assert.Equal(tt, store.PaginationState{Page: 1, PageSize: 100}, pagination)
 					assert.Equal(tt, store.PeerFilters{}, filters)
 					assert.Equal(tt, store.PeerSorting{}, sorting)
 					return make([]*nbpeer.Peer, 0), 0, nil
@@ -78,7 +78,7 @@ func TestGetPeersPagination(t *testing.T) {
 			getPeersFunc: func(tt *testing.T) func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 				return func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 					tt.Helper()
-					assert.Equal(tt, store.PaginationState{Page: 0, PageSize: 100}, pagination)
+					assert.Equal(tt, store.PaginationState{Page: 1, PageSize: 100}, pagination)
 					assert.Equal(tt, store.PeerFilters{
 						UserId:           "test-user",
 						GroupIds:         []string{"1", "2", "3", "4"},
@@ -102,7 +102,7 @@ func TestGetPeersPagination(t *testing.T) {
 			getPeersFunc: func(tt *testing.T) func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 				return func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 					tt.Helper()
-					assert.Equal(tt, store.PaginationState{Page: 0, PageSize: 100}, pagination)
+					assert.Equal(tt, store.PaginationState{Page: 1, PageSize: 100}, pagination)
 					assert.Equal(tt, store.PeerFilters{
 						IsServer: new(true),
 					}, filters)
@@ -158,7 +158,7 @@ func TestGetPeersPagination(t *testing.T) {
 			getPeersFunc: func(tt *testing.T) func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 				return func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 					tt.Helper()
-					assert.Equal(tt, store.PaginationState{Page: 0, PageSize: 100}, pagination)
+					assert.Equal(tt, store.PaginationState{Page: 1, PageSize: 100}, pagination)
 					assert.Equal(tt, store.PeerFilters{}, filters)
 					assert.Equal(tt, store.PeerSorting{
 						Fields: []store.PeerSortingKey{

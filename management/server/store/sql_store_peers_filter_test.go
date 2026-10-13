@@ -53,7 +53,7 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 			},
 			{
 				description:    "filter by kind (server)",
-				filters:        PeerFilters{IsServer: new(true)},
+				filters:        PeerFilters{IsServer: new(true), Os: []string{"linux"}},
 				expectedLength: 3,
 				expectedPeers:  []string{"peer-4-name", "peer-5-name", "peer-6-name"},
 			},
@@ -105,16 +105,16 @@ func TestSqlStore_PeersPaging(t *testing.T) {
 			expectedPeers  []string
 		}{
 			{
-				description:    "page 0, size 4",
-				page:           0,
+				description:    "page 1, size 4",
+				page:           1,
 				pageSize:       4,
 				expectedLength: 4,
 				expectedCount:  6,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-3-name", "peer-4-name"},
 			},
 			{
-				description:    "page 1, size 4",
-				page:           1,
+				description:    "page 2, size 4",
+				page:           2,
 				pageSize:       4,
 				expectedLength: 2,
 				expectedCount:  6,

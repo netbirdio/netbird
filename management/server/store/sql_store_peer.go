@@ -559,14 +559,15 @@ func (p *PaginationState) AsScope(db *gorm.DB) *gorm.DB {
 	if p.PageSize == 0 {
 		return db
 	}
-	offset := p.Page * p.PageSize
+	offset := max(p.Page-1, 0) * p.PageSize
 	return db.Offset(offset).Limit(p.PageSize)
 }
 
 type PeerFilters struct {
-	UserId           string
-	GroupIds         []string
-	Connected        *bool
+	UserId    string
+	GroupIds  []string
+	Connected *bool
+
 	ApprovalRequried *bool
 	Os               []string
 	IP               string
@@ -602,7 +603,7 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 	}
 	if f.IsServer != nil {
 		if *f.IsServer {
-			db = db.Where("user_id='' or user_id is null")
+			db = db.Where("(user_id='' or user_id is null)")
 		} else {
 			db = db.Where("user_id<>'' and user_id is not null")
 		}

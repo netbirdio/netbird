@@ -429,7 +429,7 @@ func TestGetPeers(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, respBody.Page, 0)
+			assert.Equal(t, respBody.Page, 1)
 			assert.Equal(t, respBody.PageSize, 100)
 			assert.Equal(t, respBody.PeerCount, 2)
 			assert.Equal(t, len(respBody.Peers), 2)

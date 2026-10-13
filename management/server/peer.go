@@ -50,7 +50,31 @@ const (
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
-	peers, _, err := am.GetPeersPaginated(ctx, accountID, userID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+
+	if allowed {
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID)
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	if user.IsRestrictable() && settings.RegularUsersViewBlocked {
+		return []*nbpeer.Peer{}, nil
+	}
+
+	peers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
 	return peers, err
 }
 
