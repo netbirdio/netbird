@@ -200,7 +200,7 @@ func (m *SingleSocketUDPMux) updateLocalAddresses() {
 		}
 		if len(networks) > 0 {
 			if m.params.Net == nil {
-				m.params.Net = stdnet.NewNet(context.Background(), nil)
+				m.params.Net = stdnet.NewNet(context.Background(), nil, nil)
 			}
 
 			ips, err := localInterfaces(m.params.Net, m.params.InterfaceFilter, nil, networks, true)

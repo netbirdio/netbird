@@ -105,6 +105,12 @@ enum PathRewriteMode {
   PATH_REWRITE_PRESERVE = 1;
 }
 
+enum TargetAccessAction {
+  TARGET_ACCESS_ACTION_INHERIT = 0;
+  TARGET_ACCESS_ACTION_BYPASS = 1;
+  TARGET_ACCESS_ACTION_BLOCK = 2;
+}
+
 message PathTargetOptions {
   bool skip_tls_verify = 1;
   google.protobuf.Duration request_timeout = 2;
@@ -178,6 +184,7 @@ message PathMapping {
   string path = 1;
   string target = 2;
   PathTargetOptions options = 3;
+  TargetAccessAction access_action = 4;
 }
 
 message HeaderAuth {

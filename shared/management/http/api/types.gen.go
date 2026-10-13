@@ -1037,6 +1037,27 @@ func (e ServiceRequestMode) Valid() bool {
 	}
 }
 
+// Defines values for ServiceTargetAccessAction.
+const (
+	ServiceTargetAccessActionBlock   ServiceTargetAccessAction = "block"
+	ServiceTargetAccessActionBypass  ServiceTargetAccessAction = "bypass"
+	ServiceTargetAccessActionInherit ServiceTargetAccessAction = "inherit"
+)
+
+// Valid indicates whether the value is a known member of the ServiceTargetAccessAction enum.
+func (e ServiceTargetAccessAction) Valid() bool {
+	switch e {
+	case ServiceTargetAccessActionBlock:
+		return true
+	case ServiceTargetAccessActionBypass:
+		return true
+	case ServiceTargetAccessActionInherit:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceTargetProtocol.
 const (
 	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
@@ -1671,6 +1692,9 @@ type AccountSettings struct {
 
 	// PeerExposeGroups Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
 	PeerExposeGroups []string `json:"peer_expose_groups"`
+
+	// PeerHostnameCollisionRejected When enabled, registering or renaming a peer to a hostname already used by another peer in the account fails instead of receiving an IP-based suffix. Applies to ephemeral peers as well.
+	PeerHostnameCollisionRejected *bool `json:"peer_hostname_collision_rejected,omitempty"`
 
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
@@ -2632,6 +2656,12 @@ type BypassResponse struct {
 	PeerId string `json:"peer_id"`
 }
 
+// CertificateCheck Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+type CertificateCheck struct {
+	// CaCertificates PEM encoded CA certificates the peer's certificate must chain to
+	CaCertificates []string `json:"ca_certificates"`
+}
+
 // CheckoutResponse defines model for CheckoutResponse.
 type CheckoutResponse struct {
 	// SessionId The unique identifier for the checkout session.
@@ -2643,6 +2673,9 @@ type CheckoutResponse struct {
 
 // Checks List of objects that perform the actual checks
 type Checks struct {
+	// CertificateCheck Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+	CertificateCheck *CertificateCheck `json:"certificate_check,omitempty"`
+
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
 
@@ -5104,6 +5137,9 @@ type ServiceRequestMode string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {
+	// AccessAction Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+	AccessAction *ServiceTargetAccessAction `json:"access_action,omitempty"`
+
 	// Enabled Whether this target is enabled
 	Enabled bool `json:"enabled"`
 
@@ -5126,6 +5162,9 @@ type ServiceTarget struct {
 	// TargetType Target type
 	TargetType ServiceTargetTargetType `json:"target_type"`
 }
+
+// ServiceTargetAccessAction Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+type ServiceTargetAccessAction string
 
 // ServiceTargetProtocol Protocol to use when connecting to the backend
 type ServiceTargetProtocol string

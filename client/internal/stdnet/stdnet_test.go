@@ -54,13 +54,13 @@ func TestNet_InterfacesDiscoversLazilyAndCaches(t *testing.T) {
 }
 
 func TestNewNet_DoesNotDiscoverAtConstruction(t *testing.T) {
-	n := NewNet(context.Background(), nil)
+	n := NewNet(context.Background(), nil, nil)
 	require.NotNil(t, n)
 	assert.True(t, n.lastUpdate.IsZero(), "constructor must leave the cache cold")
 }
 
 func TestNewNetWithDiscover_DoesNotDiscoverAtConstruction(t *testing.T) {
-	n := NewNetWithDiscover(context.Background(), nil, nil)
+	n := NewNetWithDiscover(context.Background(), nil, nil, nil)
 	require.NotNil(t, n)
 	assert.True(t, n.lastUpdate.IsZero(), "constructor must leave the cache cold")
 }

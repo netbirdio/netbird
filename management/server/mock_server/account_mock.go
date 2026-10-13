@@ -133,6 +133,7 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
 	AllowSyncFunc                  func(string, uint64) bool
+	TrackCertificateChallengesFunc func(ctx context.Context, accountID, peerID string, streamStart time.Time)
 	UpdateAccountPeersFunc         func(ctx context.Context, accountID string, reason types.UpdateReason)
 	ExpandAndUpdateAffectedFunc    func(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change)
 	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string, reason types.UpdateReason)
@@ -205,6 +206,16 @@ func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userI
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdateGroups is not implemented")
 }
+
+// TrackCertificateChallenges mocks TrackCertificateChallenges of the account manager.
+func (am *MockAccountManager) TrackCertificateChallenges(ctx context.Context, accountID, peerID string, streamStart time.Time) {
+	if am.TrackCertificateChallengesFunc != nil {
+		am.TrackCertificateChallengesFunc(ctx, accountID, peerID, streamStart)
+	}
+}
+
+// UntrackCertificateChallenges mocks UntrackCertificateChallenges of the account manager.
+func (am *MockAccountManager) UntrackCertificateChallenges(string, string, time.Time) {}
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	if am.UpdateAccountPeersFunc != nil {
