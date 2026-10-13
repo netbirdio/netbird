@@ -82,4 +82,15 @@ for tag in latest custom-build v2 v3 sha256:abcdef v3.7.11-alpine \
   assert_tag 1 "Cannot verify NETBIRD_TRAEFIK_TAG=" "$tag"
 done
 
+# Re-rendering an install that has no header config must not add a blank line
+# to the Traefik command list.
+for header_config in "" "$TRAEFIK_HEADER_CONFIG"; do
+  rendered=$(TRAEFIK_HEADER_CONFIG="$header_config" render_compose_common)
+  if [[ "$(printf '%s\n' "$rendered" | service_block traefik)" == *$'\n\n'* ]]; then
+    echo "Traefik command list has a blank line (header config: '${header_config:-<empty>}')" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+done
+
 echo "Passed $cases Traefik tag validation cases."

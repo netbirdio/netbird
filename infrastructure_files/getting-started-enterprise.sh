@@ -890,7 +890,10 @@ render_compose_common() {
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
 EOF
-  printf '%s\n' "$TRAEFIK_HEADER_CONFIG"
+  # Installs that predate these options have no header config; don't leave a blank line.
+  if [[ -n "$TRAEFIK_HEADER_CONFIG" ]]; then
+    printf '%s\n' "$TRAEFIK_HEADER_CONFIG"
+  fi
   cat <<'EOF'
       # readTimeout bounds the whole request, and gRPC streams / relay WebSockets
       # never end one; idleTimeout would close the keep-alive connection they
