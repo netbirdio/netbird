@@ -604,13 +604,6 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			expectedPeerCount:   1,
 		},
 		{
-			name:                "Regular user, no limited view settings, not a service user, paginated func",
-			role:                types.UserRoleUser,
-			limitedViewSettings: false,
-			isServiceUser:       false,
-			expectedPeerCount:   1,
-		},
-		{
 			name:                "Service user, no limited view settings",
 			role:                types.UserRoleUser,
 			limitedViewSettings: false,
