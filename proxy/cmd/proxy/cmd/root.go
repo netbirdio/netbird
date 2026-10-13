@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/acme"
 
+	"github.com/netbirdio/netbird/shared/externalipmap"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/profiling"
 
@@ -222,6 +223,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 	parsedTrustedProxies, err := trustedproxy.Parse(trustedProxies)
 	if err != nil {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
+	}
+
+	for i := range externalIPMap {
+		externalIPMap[i] = strings.TrimSpace(externalIPMap[i])
+	}
+	if err := externalipmap.Validate(externalIPMap); err != nil {
+		return fmt.Errorf("invalid --external-ip-map: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
