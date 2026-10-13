@@ -136,8 +136,8 @@ func assertRealIP(t *testing.T, cfg nbconfig.ReverseProxy, want string, kv ...st
 	})
 }
 
-func TestRealIPDefaultIgnoresClientForwardedHeaders(t *testing.T) {
-	assertRealIP(t, nbconfig.ReverseProxy{}, "127.0.0.1",
+func TestRealIPDefaultTrustsForwardedHeaders(t *testing.T) {
+	assertRealIP(t, nbconfig.ReverseProxy{}, "203.0.113.44",
 		realip.XForwardedFor, "203.0.113.44",
 		realip.XRealIp, "203.0.113.44",
 	)
@@ -161,11 +161,19 @@ func TestRealIPTrustedPeerHonoursForwardedHeaders(t *testing.T) {
 	)
 }
 
-func TestRealIPIgnoresXRealIPWhenProxyCountIsSet(t *testing.T) {
+func TestRealIPReadsXRealIPWhenProxyCountSkipsForwardedFor(t *testing.T) {
 	cfg := nbconfig.ReverseProxy{
 		TrustedPeers:            []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
 		TrustedHTTPProxiesCount: 1,
 	}
 
-	assertRealIP(t, cfg, "127.0.0.1", realip.XRealIp, "203.0.113.44")
+	t.Run("no X-Forwarded-For", func(t *testing.T) {
+		assertRealIP(t, cfg, "203.0.113.44", realip.XRealIp, "203.0.113.44")
+	})
+	t.Run("single-entry X-Forwarded-For", func(t *testing.T) {
+		assertRealIP(t, cfg, "198.51.100.7",
+			realip.XForwardedFor, "203.0.113.44",
+			realip.XRealIp, "198.51.100.7",
+		)
+	})
 }

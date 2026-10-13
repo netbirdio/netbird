@@ -586,9 +586,9 @@ configure_reverse_proxy() {
     TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-}"
     if [[ -z "$TRUSTED_PEERS" ]]; then
       echo "" > /dev/stderr
-      echo "Note: reverseProxy.trustedPeers is unset, so NetBird will use the address your" > /dev/stderr
-      echo "proxy connects from as each peer's connection IP. To record real client IPs," > /dev/stderr
-      echo "set NETBIRD_TRUSTED_PEERS to your proxy's address (e.g. 172.20.0.5/32) and re-run." > /dev/stderr
+      echo "Warning: reverseProxy.trustedPeers is unset, so all IPv4 and IPv6 sources" > /dev/stderr
+      echo "are trusted to provide forwarded client-IP headers. Set NETBIRD_TRUSTED_PEERS" > /dev/stderr
+      echo "to your proxy's address (e.g. 172.20.0.5/32) and re-run." > /dev/stderr
       echo "" > /dev/stderr
     fi
   fi

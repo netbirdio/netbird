@@ -10,7 +10,7 @@ Every method returns `$CancellablePromise<T>` (a Wails3 wrapper around `Promise`
 // Services
 import {
   Connection, Peers, ProfileSwitcher, Profiles,
-  Settings, Networks, Forwarding, Debug, Update, WindowManager,
+  Settings, Networks, Debug, Update, WindowManager,
   I18n, Preferences,
 } from "@bindings/services";
 
@@ -20,7 +20,6 @@ import type {
   Profile, ProfileRef, ActiveProfile,
   Config, ConfigParams, SetConfigParams, Features,
   Network, SelectNetworksParams,
-  ForwardingRule, PortInfo, PortRange,
   LoginParams, LoginResult, LogoutParams, WaitSSOParams, UpParams,
   DebugBundleParams, DebugBundleResult, LogLevel,
   UpdateResult, UpdateAvailable, UpdateProgress,
@@ -128,14 +127,6 @@ Networks.Deselect(p: SelectNetworksParams): Promise<void>
 `SelectNetworksParams.append=true` merges into the existing selection; `false` replaces. `all=true` ignores `networkIds` and targets every network (Select-All / Deselect-All).
 
 Exit-node filter: `range === "0.0.0.0/0" || range === "::/0"`. Domain network: `domains.length > 0`. CIDR overlap check is client-side.
-
-## `Forwarding`
-
-```ts
-Forwarding.List(): Promise<ForwardingRule[]>
-```
-
-`PortInfo` is a daemon-side oneof — exactly one of `port?: number` or `range?: PortRange` is populated. `protocol` is the lowercase daemon string (`"tcp"` / `"udp"`).
 
 ## `Debug`
 
@@ -268,12 +259,6 @@ The tray also reads a tray-only synthetic `"Error"` for icon purposes; the front
 `Features`: `{ disableProfiles, disableUpdateSettings, disableNetworks: boolean }`.
 
 `Network`: `{ id, range: string; selected: boolean; domains: string[]; resolvedIps: Record<string, string[]> }`.
-
-`ForwardingRule`: `{ protocol: string; destinationPort: PortInfo; translatedAddress, translatedHostname: string; translatedPort: PortInfo }`.
-
-`PortInfo`: `{ port?: number | null; range?: PortRange | null }` (exactly one populated).
-
-`PortRange`: `{ start, end: number }` (inclusive).
 
 `LoginParams`: `{ profileName, username, managementUrl, setupKey, preSharedKey, hostname, hint: string }`.
 

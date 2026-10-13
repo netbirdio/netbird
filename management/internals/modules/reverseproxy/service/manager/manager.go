@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -74,6 +75,7 @@ const unknownHostPlaceholder = "unknown"
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
+	ValidateServiceDomain(ctx context.Context, tx store.Store, accountID, domain, cluster string) error
 	GetClusterDomains() []string
 }
 
@@ -83,6 +85,7 @@ type CapabilityProvider interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -331,7 +334,17 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 		return err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, svc.Targets, svc.ProxyCluster); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := validateTargetAccessControl(svc); err != nil {
+			return err
+		}
+		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
+			return err
+		}
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 				return err
@@ -363,6 +376,43 @@ func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) 
 		return nil
 	}
 	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
+}
+
+// validatePrivateClusterTargets rejects cluster and direct upstream targets unless
+// every active proxy in the service's cluster reports the private capability. The
+// mapping reaches all proxies in the cluster, so one non-private proxy would serve
+// these targets too. An unreported capability is treated as unsupported. Must be
+// called outside a transaction, like clusterCustomPorts.
+func (m *Manager) validatePrivateClusterTargets(ctx context.Context, targets []*service.Target, cluster string) error {
+	target := firstPrivateClusterTarget(targets)
+	if target == nil {
+		return nil
+	}
+
+	if private := m.capabilities.ClusterAllProxiesPrivate(ctx, cluster); private != nil && *private {
+		return nil
+	}
+
+	if target.TargetType == service.TargetTypeCluster {
+		return status.Errorf(status.InvalidArgument,
+			"target_type %q requires a proxy cluster with private mode enabled, cluster %s does not support it",
+			service.TargetTypeCluster, cluster)
+	}
+	return status.Errorf(status.InvalidArgument,
+		"direct_upstream requires a proxy cluster with private mode enabled, cluster %s does not support it", cluster)
+}
+
+// firstPrivateClusterTarget returns the first target that only a private cluster may serve.
+func firstPrivateClusterTarget(targets []*service.Target) *service.Target {
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		if target.TargetType == service.TargetTypeCluster || target.Options.DirectUpstream {
+			return target
+		}
+	}
+	return nil
 }
 
 // ensureL4Port auto-assigns a listen port when needed and validates cluster support.
@@ -460,7 +510,14 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 		return err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, svc.Targets, svc.ProxyCluster); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
+			return err
+		}
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
 		}
@@ -577,6 +634,10 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 		return nil, err
 	}
 
+	if err := m.validatePrivateClusterTargets(ctx, service.Targets, effectiveCluster); err != nil {
+		return nil, err
+	}
+
 	// Validate subdomain requirement *before* the transaction: the underlying
 	// capability lookup talks to the main DB pool, and SQLite's single-connection
 	// pool would self-deadlock if this ran while the tx already held the only
@@ -622,6 +683,9 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
+	if err := m.validateServiceDomain(ctx, transaction, accountID, service, effectiveCluster); err != nil {
+		return err
+	}
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -647,6 +711,12 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	m.preserveExistingAuthSecrets(service, existingService)
+	if err := preserveTargetAccessActions(service, existingService); err != nil {
+		return err
+	}
+	if err := validateTargetAccessControl(service); err != nil {
+		return err
+	}
 	if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
 		return err
 	}
@@ -675,6 +745,75 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	return nil
+}
+
+func (m *Manager) validateServiceDomain(ctx context.Context, tx store.Store, accountID string, svc *service.Service, cluster string) error {
+	if m.clusterDeriver == nil {
+		return nil
+	}
+	return m.clusterDeriver.ValidateServiceDomain(ctx, tx, accountID, svc.Domain, cluster)
+}
+
+func validateTargetAccessControl(svc *service.Service) error {
+	if !svc.HasTargetAccessControl() {
+		return nil
+	}
+	// Legacy requests may acquire an existing action during the update merge.
+	if err := svc.Validate(); err != nil {
+		return status.Errorf(status.InvalidArgument, "%s", err)
+	}
+	return nil
+}
+
+func preserveTargetAccessActions(updated, existing *service.Service) error {
+	if !existing.HasTargetAccessControl() {
+		return nil
+	}
+	if slices.ContainsFunc(updated.Targets, func(target *service.Target) bool {
+		return target == nil
+	}) {
+		return status.Errorf(status.InvalidArgument, "target must not be nil")
+	}
+	if len(updated.Targets) > 0 && !slices.ContainsFunc(updated.Targets, func(target *service.Target) bool {
+		return !target.AccessActionProvided
+	}) {
+		return nil
+	}
+	byPath := make(map[string]*service.Target, len(existing.Targets))
+	for _, target := range existing.Targets {
+		location := effectiveTargetPath(target)
+		if _, duplicate := byPath[location]; duplicate {
+			return status.Errorf(status.InvalidArgument,
+				"cannot preserve target access control for duplicate location %q", location)
+		}
+		byPath[location] = target
+	}
+	actionsProvided := false
+	for _, target := range updated.Targets {
+		actionsProvided = actionsProvided || target.AccessActionProvided
+		location := effectiveTargetPath(target)
+		if previous := byPath[location]; previous != nil && !target.AccessActionProvided {
+			target.AccessAction = previous.AccessAction
+		}
+		delete(byPath, location)
+	}
+	if actionsProvided {
+		return nil
+	}
+	for location, target := range byPath {
+		if target.AccessAction != "" && target.AccessAction != service.TargetAccessActionInherit {
+			return status.Errorf(status.InvalidArgument,
+				"include access_action when removing or changing controlled target location %q", location)
+		}
+	}
+	return nil
+}
+
+func effectiveTargetPath(target *service.Target) string {
+	if target.Path == nil || *target.Path == "" {
+		return "/"
+	}
+	return *target.Path
 }
 
 // validateL4PortDiffOnClusterDiff checks if custom L4 ports are configured and validates port changes across clusters.
@@ -1012,15 +1151,16 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 
 	oidcCfg := m.proxyController.GetOIDCValidationConfig()
 
+	var errs []error
 	for _, s := range services {
-		err = m.replaceHostByLookup(ctx, accountID, s)
-		if err != nil {
-			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
+		if err := m.replaceHostByLookup(ctx, accountID, s); err != nil {
+			errs = append(errs, fmt.Errorf("replace host by lookup for service %s: %w", s.ID, err))
+			continue
 		}
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *Manager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {

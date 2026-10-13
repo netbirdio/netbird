@@ -66,7 +66,7 @@ export default function ErrorDialog() {
                         wrap
                         variant={"bright"}
                         className={
-                            "mt-2 w-full items-start gap-2 rounded-md bg-nb-gray-930 px-3 py-2 text-left"
+                            "mt-2 w-full items-start gap-2 rounded-md bg-nb-gray-930 px-3 py-2 text-start"
                         }
                         aria-label={t("common.copy")}
                     >

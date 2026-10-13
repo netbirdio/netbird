@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net/http"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
@@ -44,13 +43,7 @@ func (gc *GoogleWorkspaceCredentials) Authenticate(_ context.Context) (JWTToken,
 
 // NewGoogleWorkspaceManager creates a new instance of the GoogleWorkspaceManager.
 func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
-
-	httpClient := &http.Client{
-		Timeout:   idpTimeout(),
-		Transport: httpTransport,
-	}
+	httpClient := newHTTPClient()
 
 	helper := JsonParser{}
 

@@ -65,7 +65,7 @@ export const DaemonOutdatedOverlay = () => {
                         {clientVersion === "development" ? (
                             <span>
                                 {t("settings.about.clientName")}{" "}
-                                <span className={"font-mono text-yellow-400"}>
+                                <span dir={"auto"} className={"font-mono text-yellow-400"}>
                                     {t("settings.about.development")}
                                 </span>
                             </span>
@@ -77,7 +77,7 @@ export const DaemonOutdatedOverlay = () => {
                         {guiVersion === "development" ? (
                             <span>
                                 {t("settings.about.guiName")}{" "}
-                                <span className={"font-mono text-yellow-400"}>
+                                <span dir={"auto"} className={"font-mono text-yellow-400"}>
                                     {t("settings.about.development")}
                                 </span>
                             </span>

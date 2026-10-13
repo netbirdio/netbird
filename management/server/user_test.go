@@ -1544,166 +1544,170 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 }
 
 func TestUserAccountPeersUpdate(t *testing.T) {
-	// account groups propagation is enabled
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		// account groups propagation is enabled
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	require.NoError(t, err)
+		err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
+		require.NoError(t, err)
 
-	policy := &types.Policy{
-		Enabled: true,
-		Rules: []*types.PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"groupA"},
-				Destinations:  []string{"groupA"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
+		policy := &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"groupA"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
 			},
-		},
-	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
-	require.NoError(t, err)
-
-	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	// Creating a new regular user should send peer update (as users are not filtered yet)
-	t.Run("creating new regular user with no groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
-			Id:        "regularUser1",
-			AccountID: account.Id,
-			Role:      types.UserRoleUser,
-			Issued:    types.UserIssuedAPI,
-		}, true)
+		}
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 
-	// updating user with no linked peers should update account peers and send peer update (as users are not filtered yet)
-	t.Run("updating user with no linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+		// Creating a new regular user should send peer update (as users are not filtered yet)
+		step(t, "creating new regular user with no groups", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
 
-		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
-			Id:        "regularUser1",
-			AccountID: account.Id,
-			Role:      types.UserRoleUser,
-			Issued:    types.UserIssuedAPI,
-		}, false)
-		require.NoError(t, err)
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+			_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
+				Id:        "regularUser1",
+				AccountID: account.Id,
+				Role:      types.UserRoleUser,
+				Issued:    types.UserIssuedAPI,
+			}, true)
+			require.NoError(t, err)
 
-	// drain any buffered updates from previous subtests
-	drainPeerUpdates(updMsg)
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-	// deleting user with no linked peers should not update account peers and not send peer update
-	t.Run("deleting user with no linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+		// saving an unchanged user with no linked peers should not update account peers and not send peer update
+		step(t, "updating user with no linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser1")
-		require.NoError(t, err)
+			_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
+				Id:        "regularUser1",
+				AccountID: account.Id,
+				Role:      types.UserRoleUser,
+				Issued:    types.UserIssuedAPI,
+			}, false)
+			require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
-	// create a user and add new peer with the user
-	_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
-		Id:        "regularUser2",
-		AccountID: account.Id,
-		Role:      types.UserRoleAdmin,
-		Issued:    types.UserIssuedAPI,
-	}, true)
-	require.NoError(t, err)
+		// drain any buffered updates from previous subtests
+		drainPeerUpdates(updMsg)
 
-	key, err := wgtypes.GeneratePrivateKey()
-	require.NoError(t, err)
+		// deleting user with no linked peers should not update account peers and not send peer update
+		step(t, "deleting user with no linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
-		Key:  expectedPeerKey,
-		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	}, false)
-	require.NoError(t, err)
+			err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser1")
+			require.NoError(t, err)
 
-	// updating user with linked peers should update account peers and send peer update
-	t.Run("updating user with linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
+		// create a user and add new peer with the user
 		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
 			Id:        "regularUser2",
 			AccountID: account.Id,
 			Role:      types.UserRoleAdmin,
 			Issued:    types.UserIssuedAPI,
+		}, true)
+		require.NoError(t, err)
+
+		key, err := wgtypes.GeneratePrivateKey()
+		require.NoError(t, err)
+
+		expectedPeerKey := key.PublicKey().String()
+		peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
+			Key:  expectedPeerKey,
+			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 		}, false)
 		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+		// updating user with linked peers should update account peers and send peer update
+		step(t, "updating user with linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer4.ID)
-	})
+			_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
+				Id:        "regularUser2",
+				AccountID: account.Id,
+				Role:      types.UserRoleAdmin,
+				Issued:    types.UserIssuedAPI,
+			}, false)
+			require.NoError(t, err)
 
-	// deleting user with linked peers should update account peers and send peer update
-	t.Run("deleting user with linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, peer4UpdMsg)
-			close(done)
-		}()
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser2")
-		require.NoError(t, err)
+		peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer4.ID)
+		})
 
-		select {
-		case <-done:
-		case <-time.After(peerUpdateTimeout):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
+		// deleting user with linked peers should update account peers and send peer update
+		step(t, "deleting user with linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, peer4UpdMsg)
+				close(done)
+			}()
+
+			err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser2")
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 	})
 }
 
@@ -1779,6 +1783,42 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account2))
 
+	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
+	account3.Users["pending-user"] = &types.User{
+		Id:              "pending-user",
+		AccountID:       account3.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account3))
+
+	// The owner has no address to name, so the refusal falls back to the generic one.
+	account4 := newAccountWithId(context.Background(), "account4", "account4Owner", "", "", "", false)
+	account4.Users["pending-user-without-owner-email"] = &types.User{
+		Id:              "pending-user-without-owner-email",
+		AccountID:       account4.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account4))
+
+	// No user holds the owner role, so the owner lookup itself fails.
+	account5 := newAccountWithId(context.Background(), "account5", "account5Admin", "", "", "", false)
+	account5.Users["account5Admin"].Role = types.UserRoleAdmin
+	account5.Users["pending-user-without-owner"] = &types.User{
+		Id:              "pending-user-without-owner",
+		AccountID:       account5.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account5))
+
+	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	require.NoError(t, store.SaveAccount(context.Background(), account6))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1811,6 +1851,34 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			name:        "service user",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:        "pending approval names the owner",
+			userAuth:    auth.UserAuth{AccountId: account3.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "pending approval without an owner address",
+			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			name:        "pending approval without an owner",
+			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			// The account claim points at an account the caller is not in. The
+			// owner named has to be the one of the account holding the caller's
+			// own record, never the one the claim asks for.
+			name:        "pending approval ignores a mismatched account claim",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "blocked user answers before the account claim is validated",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:     "owner user",

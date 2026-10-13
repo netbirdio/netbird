@@ -18,9 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
-	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
@@ -29,6 +27,11 @@ import (
 )
 
 const eventQueueSize = 10
+
+// routerLatencyNotifyThreshold is the latency or noise change that notifies the route
+// watchers subscribed to a peer. Latency is resampled continuously, so without
+// a threshold every sample would wake every watcher of every routing peer.
+const routerLatencyNotifyThreshold = 5 * time.Millisecond
 
 type ResolvedDomainInfo struct {
 	Prefixes     []netip.Prefix
@@ -43,11 +46,21 @@ type EventListener interface {
 	OnEvent(event *proto.SystemEvent)
 }
 
+// LatencySample is a peer's smoothed round trip time together with the
+// uncertainty of that estimate, which is what the jitter of the path leaves
+// behind after smoothing. Comparing two peers is only meaningful when their
+// difference is larger than this.
+type LatencySample struct {
+	Latency time.Duration
+	Noise   time.Duration
+}
+
 // RouterState status for router peers. This contains relevant fields for route manager
 type RouterState struct {
-	Status  ConnStatus
-	Relayed bool
-	Latency time.Duration
+	Status       ConnStatus
+	Relayed      bool
+	Latency      time.Duration
+	LatencyNoise time.Duration
 }
 
 // State contains the latest state of a peer
@@ -69,9 +82,11 @@ type State struct {
 	BytesTx                    int64
 	BytesRx                    int64
 	Latency                    time.Duration
-	RosenpassEnabled           bool
-	SSHHostKey                 []byte
-	routes                     map[string]struct{}
+	// LatencyNoise is the uncertainty of Latency on a jittery path
+	LatencyNoise     time.Duration
+	RosenpassEnabled bool
+	SSHHostKey       []byte
+	routes           map[string]struct{}
 }
 
 // AddRoute add a single route to routes map
@@ -103,6 +118,13 @@ func (s *State) GetRoutes() map[string]struct{} {
 	s.Mux.RLock()
 	defer s.Mux.RUnlock()
 	return maps.Clone(s.routes)
+}
+
+// clearLatency drops the latency estimate, which is only measured over a direct
+// connection and says nothing about the path once that connection is gone.
+func (s *State) clearLatency() {
+	s.Latency = 0
+	s.LatencyNoise = 0
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -161,9 +183,18 @@ type FullStatus struct {
 	RosenpassState        RosenpassState
 	Relays                []relay.ProbeResult
 	NSGroupStates         []NSGroupState
-	NumOfForwardingRules  int
 	LazyConnectionEnabled bool
 	Events                []*proto.SystemEvent
+}
+
+// routerSnapshot is a router-state map stamped with a sequence number taken
+// under the status lock. Snapshots are built under the lock but delivered
+// outside it, so two dispatchers can race on the way to a subscriber; the
+// stamp lets delivery drop the older snapshot instead of letting it overwrite
+// a newer one.
+type routerSnapshot struct {
+	seq    uint64
+	states map[string]RouterState
 }
 
 type StatusChangeSubscription struct {
@@ -171,6 +202,10 @@ type StatusChangeSubscription struct {
 	id         string
 	eventsChan chan map[string]RouterState
 	ctx        context.Context
+
+	// sendMu serializes deliveries and guards lastSeq
+	sendMu  sync.Mutex
+	lastSeq uint64
 }
 
 func newStatusChangeSubscription(ctx context.Context, peerID string) *StatusChangeSubscription {
@@ -187,16 +222,54 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 	return s.eventsChan
 }
 
+// deliver forwards a snapshot to the subscriber, dropping it when a newer one
+// has already been delivered. A blocking deliver waits for buffer space, since
+// peer state transitions must not be lost. A non-blocking one gives up when the
+// subscriber is backlogged or another delivery is in flight; it is meant for
+// latency refreshes, which are superseded by the next sample anyway and are
+// also re-read from the recorder on the route watchers' periodic re-evaluation.
+// Only a snapshot that reached the subscriber supersedes older ones.
+func (s *StatusChangeSubscription) deliver(snapshot *routerSnapshot, block bool) {
+	if block {
+		s.sendMu.Lock()
+	} else if !s.sendMu.TryLock() {
+		return
+	}
+	defer s.sendMu.Unlock()
+
+	if snapshot.seq <= s.lastSeq {
+		return
+	}
+
+	if block {
+		select {
+		case s.eventsChan <- snapshot.states:
+			s.lastSeq = snapshot.seq
+		case <-s.ctx.Done():
+		}
+		return
+	}
+
+	select {
+	case s.eventsChan <- snapshot.states:
+		s.lastSeq = snapshot.seq
+	default:
+	}
+}
+
 // Status holds a state of peers, signal, management connections and relays.
 // mux is an RWMutex so hot read paths (notably PeerStateByIP, called for
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux                 sync.RWMutex
-	muxRelays           sync.RWMutex
-	peers               map[string]State
-	ipToKey             map[string]string
-	changeNotify        map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
+	mux              sync.RWMutex
+	muxRelays        sync.RWMutex
+	peers            map[string]State
+	ipToKey          map[string]string
+	activeRoutePeers map[route.HAUniqueID]string
+	changeNotify     map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
+	// routerSeq stamps router-state snapshots, see routerSnapshot
+	routerSeq           uint64
 	signalState         bool
 	signalError         error
 	managementState     bool
@@ -246,8 +319,6 @@ type Status struct {
 	// read it without taking mux.
 	networksRevision atomic.Uint64
 
-	ingressGwMgr *ingressgw.Manager
-
 	routeIDLookup routeIDLookup
 	wgIface       WGIfaceStatus
 }
@@ -257,6 +328,7 @@ func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:                 make(map[string]State),
 		ipToKey:               make(map[string]string),
+		activeRoutePeers:      make(map[route.HAUniqueID]string),
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
@@ -272,12 +344,6 @@ func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
 	d.muxRelays.Lock()
 	defer d.muxRelays.Unlock()
 	d.relayMgr = manager
-}
-
-func (d *Status) SetIngressGwMgr(ingressGwMgr *ingressgw.Manager) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-	d.ingressGwMgr = ingressGwMgr
 }
 
 // ReplaceOfflinePeers replaces
@@ -328,18 +394,6 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 		return State{}, configurer.ErrPeerNotFound
 	}
 	return state, nil
-}
-
-func (d *Status) PeerByIP(ip string) (string, bool) {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
-
-	for _, state := range d.peers {
-		if state.IP == ip {
-			return state.FQDN, true
-		}
-	}
-	return "", false
 }
 
 // PeerStateByIP returns the full peer State for the given tunnel IP.
@@ -407,6 +461,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
 		peerState.RelayServerAddress = receivedState.RelayServerAddress
 		peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+		peerState.clearLatency()
 	}
 
 	d.peers[receivedState.PubKey] = peerState
@@ -423,7 +478,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		d.notifier.peerListChanged(numPeers)
 	}
 	if notifyRouter {
-		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
+		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot, true)
 	}
 	d.notifyStateChange()
 	return nil
@@ -481,6 +536,24 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	return nil
 }
 
+func (d *Status) AddActiveRoutePeer(haID route.HAUniqueID, peer string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.activeRoutePeers[haID] = peer
+}
+
+func (d *Status) RemoveActiveRoutePeer(haID route.HAUniqueID) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	delete(d.activeRoutePeers, haID)
+}
+
+func (d *Status) GetActiveRoutePeers() map[route.HAUniqueID]string {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+	return maps.Clone(d.activeRoutePeers)
+}
+
 // CheckRoutes checks if the source and destination addresses are within the same route
 // and returns the resource ID of the route that contains the addresses
 func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
@@ -525,7 +598,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 		d.notifier.peerListChanged(numPeers)
 	}
 	if notifyRouter {
-		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
+		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot, true)
 	}
 	d.notifyStateChange()
 	return nil
@@ -562,7 +635,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 		d.notifier.peerListChanged(numPeers)
 	}
 	if notifyRouter {
-		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
+		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot, true)
 	}
 	d.notifyStateChange()
 	return nil
@@ -598,7 +671,7 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 		d.notifier.peerListChanged(numPeers)
 	}
 	if notifyRouter {
-		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
+		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot, true)
 	}
 	d.notifyStateChange()
 	return nil
@@ -623,6 +696,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
 	peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
 	peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
+	peerState.clearLatency()
 
 	d.peers[receivedState.PubKey] = peerState
 
@@ -637,7 +711,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 		d.notifier.peerListChanged(numPeers)
 	}
 	if notifyRouter {
-		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
+		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot, true)
 	}
 	d.notifyStateChange()
 	return nil
@@ -717,7 +791,7 @@ func (d *Status) FinishPeerListModifications() {
 	// snapshot per-peer router state to deliver after the lock is released
 	type routerDispatch struct {
 		peerID   string
-		snapshot map[string]RouterState
+		snapshot *routerSnapshot
 	}
 	dispatches := make([]routerDispatch, 0, len(d.peers))
 	for key := range d.peers {
@@ -731,7 +805,7 @@ func (d *Status) FinishPeerListModifications() {
 
 	d.notifier.peerListChanged(numPeers)
 	for _, rd := range dispatches {
-		d.dispatchRouterPeers(rd.peerID, rd.snapshot)
+		d.dispatchRouterPeers(rd.peerID, rd.snapshot, true)
 	}
 	d.notifyStateChange()
 }
@@ -819,8 +893,8 @@ func (d *Status) SetSessionExpiresAt(deadline time.Time) {
 // "none" would blank the UI at the exact moment it should say the session
 // ended.
 func (d *Status) GetSessionExpiresAt() time.Time {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return d.sessionExpiresAt
 }
 
@@ -1060,20 +1134,40 @@ func (d *Status) GetManagementState() ManagementState {
 	}
 }
 
-func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
-	if latency <= 0 {
+func (d *Status) UpdateLatency(pubKey string, sample LatencySample) error {
+	if sample.Latency <= 0 {
 		return nil
 	}
 
 	d.mux.Lock()
-	defer d.mux.Unlock()
 	peerState, ok := d.peers[pubKey]
 	if !ok {
+		d.mux.Unlock()
 		return errors.New("peer doesn't exist")
 	}
-	peerState.Latency = latency
+
+	previous, previousNoise := peerState.Latency, peerState.LatencyNoise
+	peerState.Latency = sample.Latency
+	peerState.LatencyNoise = sample.Noise
 	d.peers[pubKey] = peerState
+
+	// the noise sets the switch margin, so it counts on its own
+	notifyRouter := absDuration(sample.Latency-previous) >= routerLatencyNotifyThreshold ||
+		absDuration(sample.Noise-previousNoise) >= routerLatencyNotifyThreshold
+	routerSnapshot := d.snapshotRouterPeersLocked(pubKey, notifyRouter)
+
+	d.mux.Unlock()
+
+	d.dispatchRouterPeers(pubKey, routerSnapshot, false)
+
 	return nil
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 // IsLoginRequired determines if a peer's login has expired.
@@ -1143,16 +1237,6 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return relayStates
 }
 
-func (d *Status) ForwardingRules() []firewall.ForwardRule {
-	d.mux.RLock()
-	defer d.mux.RUnlock()
-	if d.ingressGwMgr == nil {
-		return nil
-	}
-
-	return d.ingressGwMgr.Rules()
-}
-
 func (d *Status) GetDNSStates() []NSGroupState {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
@@ -1187,7 +1271,6 @@ func (d *Status) GetFullStatus() FullStatus {
 		Relays:                d.GetRelayStates(),
 		RosenpassState:        d.GetRosenpassState(),
 		NSGroupStates:         d.GetDNSStates(),
-		NumOfForwardingRules:  len(d.ForwardingRules()),
 		LazyConnectionEnabled: d.GetLazyConnection(),
 	}
 
@@ -1243,7 +1326,7 @@ func (d *Status) RemoveConnectionListener() {
 // Caller MUST hold d.mux. Returns nil when there are no subscribers for peerID
 // or when notify is false. The snapshot is consumed later by dispatchRouterPeers
 // outside the lock so the channel send cannot stall any d.mux holder.
-func (d *Status) snapshotRouterPeersLocked(peerID string, notify bool) map[string]RouterState {
+func (d *Status) snapshotRouterPeersLocked(peerID string, notify bool) *routerSnapshot {
 	if !notify {
 		return nil
 	}
@@ -1258,22 +1341,29 @@ func (d *Status) snapshotRouterPeersLocked(peerID string, notify bool) map[strin
 			continue
 		}
 		routerPeers[pid] = RouterState{
-			Status:  s.ConnStatus,
-			Relayed: s.Relayed,
-			Latency: s.Latency,
+			Status:       s.ConnStatus,
+			Relayed:      s.Relayed,
+			Latency:      s.Latency,
+			LatencyNoise: s.LatencyNoise,
 		}
 	}
-	return routerPeers
+
+	d.routerSeq++
+
+	return &routerSnapshot{seq: d.routerSeq, states: routerPeers}
 }
 
 // dispatchRouterPeers delivers a previously snapshotted router-state map to
 // the peer's subscribers. Caller MUST NOT hold d.mux. The method takes a
 // fresh, short read of d.changeNotify under the lock to grab subscriber
 // channels, then sends outside the lock so a slow consumer cannot block other
-// d.mux holders. The send itself stays blocking (only short-circuited by the
-// subscriber's context) so peer state transitions are not silently dropped.
-func (d *Status) dispatchRouterPeers(peerID string, routerPeers map[string]RouterState) {
-	if routerPeers == nil {
+// d.mux holders. With block set, the send waits for buffer space (only
+// short-circuited by the subscriber's context) so peer state transitions are
+// not silently dropped; without it, a backlogged subscriber loses the snapshot
+// instead of stalling the caller. Out-of-order deliveries are dropped either
+// way, see StatusChangeSubscription.deliver.
+func (d *Status) dispatchRouterPeers(peerID string, snapshot *routerSnapshot, block bool) {
+	if snapshot == nil {
 		return
 	}
 
@@ -1288,10 +1378,7 @@ func (d *Status) dispatchRouterPeers(peerID string, routerPeers map[string]Route
 	d.mux.Unlock()
 
 	for _, sub := range subs {
-		select {
-		case sub.eventsChan <- routerPeers:
-		case <-sub.ctx.Done():
-		}
+		sub.deliver(snapshot, block)
 	}
 }
 
@@ -1559,7 +1646,6 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
-	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
 
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fs.LocalPeerState.Routes)

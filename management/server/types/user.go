@@ -285,6 +285,25 @@ func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
+func MaskEmail(email string) string {
+	local, domain, found := strings.Cut(email, "@")
+	if !found || local == "" || domain == "" {
+		return ""
+	}
+
+	// Runes, not bytes, so a non-ASCII local part is not cut mid-character.
+	runes := []rune(local)
+
+	// Keeping the first two and the last needs a local part of at least four to
+	// hide anything at all: at three or fewer those are the whole of it, and the
+	// address would be recoverable in full from what is meant to conceal it.
+	if len(runes) < 4 {
+		return "****@" + domain
+	}
+
+	return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
+}
+
 // DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.
 func (u *User) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
