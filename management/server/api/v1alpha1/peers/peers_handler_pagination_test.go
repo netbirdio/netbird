@@ -152,8 +152,8 @@ func TestGetPeersPagination(t *testing.T) {
 			},
 		},
 		{
-			name:           "GetPeers sorting with all valid parameters",
-			requestPath:    "/peers?sort_by=name&sort_by=last_seen,desc&sort_by=ip,asc&sort_by=version,desc",
+			name:           "GetPeers sorting preserves field ordering",
+			requestPath:    "/peers?sort_by=last_seen&sort_by=ip&sort_by=name&sort_by=version",
 			expectedStatus: http.StatusOK,
 			getPeersFunc: func(tt *testing.T) func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
 				return func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
@@ -162,14 +162,22 @@ func TestGetPeersPagination(t *testing.T) {
 					assert.Equal(tt, store.PeerFilters{}, filters)
 					assert.Equal(tt, store.PeerSorting{
 						Fields: []store.PeerSortingKey{
-							{Field: store.PeerSortByName, Order: store.AscOrderBy},
-							{Field: store.PeerSortByLastSeen, Order: store.DescOrderBy},
+							{Field: store.PeerSortByLastSeen, Order: store.AscOrderBy},
 							{Field: store.PeerSortByIP, Order: store.AscOrderBy},
-							{Field: store.PeerSortByVersion, Order: store.DescOrderBy},
+							{Field: store.PeerSortByName, Order: store.AscOrderBy},
+							{Field: store.PeerSortByVersion, Order: store.AscOrderBy},
 						},
 					}, sorting)
 					return make([]*nbpeer.Peer, 0), 0, nil
 				}
+			},
+		},
+		{
+			name:           "GetPeers sorting with invalid field",
+			requestPath:    "/peers?sort_by=nosuchfield,asc",
+			expectedStatus: http.StatusUnprocessableEntity,
+			getPeersFunc: func(tt *testing.T) func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
+				return nil
 			},
 		},
 		{
