@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"slices"
 
-	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -249,8 +249,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var snaps []*affectedpeers.Snapshot
-	var changes []affectedpeers.Change
+	affected := make(affectedPeerSet)
 
 	var globalErr error
 	createdCount := 0
@@ -281,7 +280,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			return err
 		})
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
+			log.WithContext(ctx).Errorf("failed to create group %s: %v", newGroup.ID, err)
 			if createdCount == 0 {
 				return err
 			}
@@ -290,15 +289,14 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			continue
 		}
 		createdCount++
-		snaps = append(snaps, snap)
-		changes = append(changes, change)
+		affected.add(snap.Expand(ctx, accountID, change))
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	go am.dispatchAffected(ctx, accountID, snaps, changes)
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 
 	return globalErr
 }
@@ -317,8 +315,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var snaps []*affectedpeers.Snapshot
-	var changes []affectedpeers.Change
+	affected := make(affectedPeerSet)
 
 	var globalErr error
 	for _, newGroup := range groups {
@@ -333,15 +330,14 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 			continue
 		}
 		eventsToStore = append(eventsToStore, events...)
-		snaps = append(snaps, snap)
-		changes = append(changes, change)
+		affected.add(snap.Expand(ctx, accountID, change))
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	go am.dispatchAffected(ctx, accountID, snaps, changes)
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 
 	return globalErr
 }
@@ -538,7 +534,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	go am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap, ipv6Snap}, []affectedpeers.Change{change, ipv6Change})
+	affected := make(affectedPeerSet)
+	affected.add(snap.Expand(ctx, accountID, change))
+	affected.add(ipv6Snap.Expand(ctx, accountID, ipv6Change))
+	go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 
 	return allErrors
 }
