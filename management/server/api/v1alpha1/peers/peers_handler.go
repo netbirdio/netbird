@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -227,9 +228,16 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sorting, err := sortingOrderFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, _, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, store.PeerSorting{})
+	peers, _, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
 
 	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
@@ -261,11 +269,12 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 }
 
 func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
-	connected, err := strconv.ParseBool(v.Get("connected"))
+	connected, err := parseBool(v.Get("connected"))
 	if err != nil {
 		return store.PeerFilters{}, err
 	}
-	approvalRequired, err := strconv.ParseBool(v.Get("approval_required"))
+
+	approvalRequired, err := parseBool(v.Get("approval_required"))
 	if err != nil {
 		return store.PeerFilters{}, err
 	}
@@ -279,14 +288,27 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 	return store.PeerFilters{
 		UserId:           v.Get("user_id"),
 		GroupIds:         v["group_ids"],
-		Connected:        new(connected),
-		ApprovalRequried: new(approvalRequired),
+		Connected:        connected,
+		ApprovalRequried: approvalRequired,
 		Os:               v["os"],
 		IP:               v.Get("ip"),
 		MAC:              v.Get("mac"),
 		Hostname:         v.Get("hostname"),
 		IsServer:         isServer,
 	}, nil
+}
+
+func parseBool(maybeBool string) (*bool, error) {
+	if maybeBool == "" {
+		return nil, nil
+	}
+
+	parsed, err := strconv.ParseBool(maybeBool)
+	if err != nil {
+		return nil, err
+	}
+
+	return new(parsed), nil
 }
 
 func paginationFromQuery(v url.Values) (store.PaginationState, error) {
@@ -304,6 +326,55 @@ func paginationFromQuery(v url.Values) (store.PaginationState, error) {
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+func sortingOrderFromQuery(v url.Values) (store.PeerSorting, error) {
+	toret := store.PeerSorting{}
+	sortby, ok := v["sort_by"]
+	if !ok {
+		return toret, nil
+	}
+
+	for i := 0; i < len(sortby); {
+		// ascending sorting order by default
+		sortkey := store.PeerSortingKey{Order: store.AscOrderBy}
+		field, order := parseFieldAndOrder(sortby[i])
+
+		switch field {
+		case "name":
+			sortkey.Field = store.PeerSortByName
+		case "ip":
+			sortkey.Field = store.PeerSortByIP
+		case "last_seen":
+			sortkey.Field = store.PeerSortByLastSeen
+		case "version":
+			sortkey.Field = store.PeerSortByVersion
+		default:
+			return toret, fmt.Errorf("unable to parse sorting order '%s'", sortby)
+		}
+
+		switch order {
+		case "asc", "":
+			// nop, already set
+		case "desc":
+			sortkey.Order = store.DescOrderBy
+		default:
+			return store.PeerSorting{}, fmt.Errorf("unable to parse sorting order '%s'", sortby)
+		}
+
+		toret.Fields = append(toret.Fields, sortkey)
+		i++
+	}
+
+	return toret, nil
+}
+
+func parseFieldAndOrder(fo string) (string, string) {
+	maybeFieldAndOrder := strings.SplitN(fo, ",", 2)
+	if len(maybeFieldAndOrder) == 2 {
+		return strings.TrimSpace(maybeFieldAndOrder[0]), strings.TrimSpace(maybeFieldAndOrder[1])
+	}
+	return strings.TrimSpace(maybeFieldAndOrder[0]), ""
 }
 
 func (h *Handler) setApprovalRequiredFlag(respBody []*apiv1alpha1.PeerBatch, validPeersMap map[string]struct{}, invalidPeersMap map[string]string) {

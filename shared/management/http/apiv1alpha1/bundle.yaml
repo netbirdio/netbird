@@ -748,12 +748,6 @@ components:
             required: false
             schema:
               type: string
-          - name: ipv6
-            in: query
-            description: filter peers by ipv6
-            required: false
-            schema:
-              type: string
           - name: mac
             in: query
             description: filter peers by mac address
@@ -775,6 +769,22 @@ components:
               enum:
                 - server
                 - user_device
+          - name: sort_by
+            in: query
+            description: sorting of peers
+            required: false
+            example: sort_by=name,asc&sort_by=last_seen,desc&sort_by=version
+            schema:
+              type: array
+              items:
+                type: string
+                enum:
+                  - name
+                  - ip
+                  - last_seen
+                  - version
+                  - asc
+                  - desc
         security:
           - BearerAuth: []
           - TokenAuth: []

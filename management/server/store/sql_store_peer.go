@@ -506,7 +506,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 	query := tx.Where("peers.account_id=?", accountID)
 	query = filters.AsConditions(query)
 	query = pagination.AsScope(query)
-	query = sorting.AsOderBy(query)
+	query = sorting.AsOderBy(ctx, query)
 
 	if err := query.Distinct().Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
@@ -585,32 +585,48 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 	return db
 }
 
-type PeerSorting struct {
-	ByName               bool
-	ByNameDescending     bool
-	ByAddress            bool
-	ByAddressDescending  bool
-	ByLastSeen           bool
-	ByLastSeenDescending bool
-	ByVersion            bool
-	ByVersionDescending  bool
+type PeerSortByField int
+
+const (
+	PeerSortByName PeerSortByField = iota
+	PeerSortByIP
+	PeerSortByLastSeen
+	PeerSortByVersion
+)
+
+type OrderBy int
+
+const (
+	AscOrderBy OrderBy = iota
+	DescOrderBy
+)
+
+type PeerSortingKey struct {
+	Field PeerSortByField
+	Order OrderBy
 }
 
-func (s *PeerSorting) AsOderBy(db *gorm.DB) *gorm.DB {
+type PeerSorting struct {
+	Fields []PeerSortingKey
+}
+
+func (s *PeerSorting) AsOderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 	order := make([]clause.OrderByColumn, 0)
-	if s.ByName {
-		order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: s.ByNameDescending})
-	}
-	if s.ByAddress {
-		order = append(order,
-			clause.OrderByColumn{Column: clause.Column{Name: "peers.ip"}, Desc: s.ByAddressDescending},
-			clause.OrderByColumn{Column: clause.Column{Name: "peers.ipv6"}, Desc: s.ByAddressDescending})
-	}
-	if s.ByLastSeen {
-		order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: s.ByLastSeenDescending})
-	}
-	if s.ByVersion {
-		order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "meta_wt_version"}, Desc: s.ByVersionDescending})
+
+	for _, key := range s.Fields {
+		switch key.Field {
+		case PeerSortByName:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByIP:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.ip"}, Desc: key.Order == DescOrderBy},
+				clause.OrderByColumn{Column: clause.Column{Name: "peers.ipv6"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByLastSeen:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByVersion:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "meta_wt_version"}, Desc: key.Order == DescOrderBy})
+		default:
+			log.WithContext(ctx).Warnf("invalid order by column '%v', skipping", key.Field)
+		}
 	}
 
 	if len(order) == 0 {

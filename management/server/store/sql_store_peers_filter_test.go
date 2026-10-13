@@ -121,7 +121,7 @@ func TestSqlStore_PeersPaging(t *testing.T) {
 			t.Run(tt.description+" "+engine, func(t *testing.T) {
 				t.Helper()
 				peers, _, err := store.GetAccountPeersPaginated(context.Background(), LockingStrengthNone, "account-1",
-					PaginationState{Page: tt.page, PageSize: tt.pageSize}, PeerFilters{}, PeerSorting{ByName: true})
+					PaginationState{Page: tt.page, PageSize: tt.pageSize}, PeerFilters{}, PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByName}}})
 				require.NoError(t, err)
 				require.Len(t, peers, tt.expectedLength)
 				actualPeerNames := make([]string, 0, len(peers))
@@ -144,49 +144,49 @@ func TestSqlStore_PeersSorting(t *testing.T) {
 		}{
 			{
 				description:    "by name ascending",
-				sorting:        PeerSorting{ByName: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByName}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-3-name", "peer-4-name", "peer-5-name", "peer-6-name"},
 			},
 			{
 				description:    "by name descending",
-				sorting:        PeerSorting{ByName: true, ByNameDescending: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByName, Order: DescOrderBy}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-6-name", "peer-5-name", "peer-4-name", "peer-3-name", "peer-2-name", "peer-1-name"},
 			},
 			{
 				description:    "by address ascending",
-				sorting:        PeerSorting{ByAddress: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByIP}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-4-name", "peer-3-name", "peer-6-name", "peer-5-name"},
 			},
 			{
 				description:    "by address descending",
-				sorting:        PeerSorting{ByAddress: true, ByAddressDescending: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByIP, Order: DescOrderBy}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-5-name", "peer-6-name", "peer-3-name", "peer-4-name", "peer-2-name", "peer-1-name"},
 			},
 			{
 				description:    "by last_seen ascending",
-				sorting:        PeerSorting{ByLastSeen: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByLastSeen}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-6-name", "peer-4-name", "peer-5-name", "peer-3-name", "peer-2-name", "peer-1-name"},
 			},
 			{
 				description:    "by last_seen descending",
-				sorting:        PeerSorting{ByLastSeen: true, ByLastSeenDescending: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByLastSeen, Order: DescOrderBy}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-3-name", "peer-5-name", "peer-4-name", "peer-6-name"},
 			},
 			{
 				description:    "by version ascending",
-				sorting:        PeerSorting{ByVersion: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByVersion}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-4-name", "peer-3-name", "peer-6-name", "peer-5-name"},
 			},
 			{
 				description:    "by version descending",
-				sorting:        PeerSorting{ByVersion: true, ByVersionDescending: true},
+				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByVersion, Order: DescOrderBy}}},
 				expectedLength: 6,
 				expectedPeers:  []string{"peer-5-name", "peer-6-name", "peer-3-name", "peer-4-name", "peer-2-name", "peer-1-name"},
 			},
