@@ -113,9 +113,7 @@ get:
       content:
         application/json:
           schema:
-            type: array
-            items:
-              $ref: './components.yaml#/components/schemas/PeerBatch'
+            $ref: './components.yaml#/components/schemas/PeerBatch'
     '400':
       "$ref": "../openapi.yaml#/components/responses/bad_request"
     '401':

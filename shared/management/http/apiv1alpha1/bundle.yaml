@@ -150,22 +150,30 @@ components:
           description: A human-readable error message.
           example: "couldn't parse JSON request"
     PeerBatch:
-      allOf:
-        - $ref: '#/components/schemas/Peer'
-        - type: object
-          properties:
-            created_at:
-              description: Peer creation date (UTC)
-              type: string
-              format: date-time
-              example: "2023-05-05T09:00:35.477782Z"
-            accessible_peers_count:
-              description: Number of accessible peers
-              type: integer
-              example: 5
-          required:
-            - created_at
-            - accessible_peers_count
+      type: object
+      properties:
+        peer_count:
+          description: Total number of peers
+          type: integer
+          example: 5
+        page:
+          description: Current page number
+          type: integer
+          example: 5
+        page_size:
+          description: Page size
+          type: integer
+          example: 5
+        peers:
+          description: List of peers
+          type: array
+          items:
+            $ref: '#/components/schemas/Peer'
+      required:
+        - peer_count
+        - page
+        - page_size
+        - peers
     PeerMinimum:
       type: object
       properties:
@@ -794,9 +802,7 @@ components:
             content:
               application/json:
                 schema:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/PeerBatch'
+                  $ref: '#/components/schemas/PeerBatch'
           '400':
             "$ref": "#/components/responses/bad_request"
           '401':
