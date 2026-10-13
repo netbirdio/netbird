@@ -310,7 +310,7 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 
 func parseBool(maybeBool string) (*bool, error) {
 	if maybeBool == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	parsed, err := strconv.ParseBool(maybeBool)

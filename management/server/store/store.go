@@ -856,7 +856,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 			}
-			store, err = NewSqlStore(ctx, conn, nil, false)
+			store, err = NewSqlStore(ctx, conn, nil, false) //nolint:ineffassign
 		}
 	}
 	if err != nil {
