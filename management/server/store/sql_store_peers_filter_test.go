@@ -79,10 +79,11 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.description+" "+engine, func(t *testing.T) {
 				t.Helper()
-				peers, _, err := store.GetAccountPeersPaginated(context.Background(), LockingStrengthNone, "account-1",
+				peers, count, err := store.GetAccountPeersPaginated(context.Background(), LockingStrengthNone, "account-1",
 					PaginationState{}, tt.filters, PeerSorting{})
 				require.NoError(t, err)
 				require.Len(t, peers, tt.expectedLength)
+				require.Equal(t, tt.expectedLength, count)
 				actualPeerNames := make([]string, 0, len(peers))
 				for _, p := range peers {
 					actualPeerNames = append(actualPeerNames, p.Name)
@@ -100,6 +101,7 @@ func TestSqlStore_PeersPaging(t *testing.T) {
 			page           int
 			pageSize       int
 			expectedLength int
+			expectedCount  int
 			expectedPeers  []string
 		}{
 			{
@@ -107,6 +109,7 @@ func TestSqlStore_PeersPaging(t *testing.T) {
 				page:           0,
 				pageSize:       4,
 				expectedLength: 4,
+				expectedCount:  6,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-3-name", "peer-4-name"},
 			},
 			{
@@ -114,16 +117,18 @@ func TestSqlStore_PeersPaging(t *testing.T) {
 				page:           1,
 				pageSize:       4,
 				expectedLength: 2,
+				expectedCount:  6,
 				expectedPeers:  []string{"peer-5-name", "peer-6-name"},
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.description+" "+engine, func(t *testing.T) {
 				t.Helper()
-				peers, _, err := store.GetAccountPeersPaginated(context.Background(), LockingStrengthNone, "account-1",
+				peers, count, err := store.GetAccountPeersPaginated(context.Background(), LockingStrengthNone, "account-1",
 					PaginationState{Page: tt.page, PageSize: tt.pageSize}, PeerFilters{}, PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByName}}})
 				require.NoError(t, err)
 				require.Len(t, peers, tt.expectedLength)
+				require.Equal(t, tt.expectedCount, count)
 				actualPeerNames := make([]string, 0, len(peers))
 				for _, p := range peers {
 					actualPeerNames = append(actualPeerNames, p.Name)

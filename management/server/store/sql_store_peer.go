@@ -492,28 +492,58 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 }
 
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
-	peers, _, err := s.GetAccountPeersPaginated(ctx, lockStrength, accountID, PaginationState{}, PeerFilters{}, PeerSorting{})
-	return peers, err
-}
-
-// GetAccountPeers retrieves peers for an account.
-func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 	query := tx.Where("peers.account_id=?", accountID)
-	query = filters.AsConditions(query)
-	query = pagination.AsScope(query)
-	query = sorting.AsOderBy(ctx, query)
 
-	if err := query.Distinct().Find(&peers).Error; err != nil {
+	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
-		return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
-	return peers, 0, nil
+	return peers, nil
+}
+
+// GetAccountPeers retrieves peers for an account.
+func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error) {
+	// main query
+	var peers []*nbpeer.Peer
+	{
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		query := tx.Where("peers.account_id=?", accountID)
+		query = filters.AsConditions(query)
+		query = pagination.AsScope(query)
+		query = sorting.AsOderBy(ctx, query)
+
+		if err := query.Distinct().Find(&peers).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
+		}
+	}
+
+	// total number of records
+	var peerCount int64
+	{
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		query := tx.Where("peers.account_id=?", accountID)
+		query = filters.AsConditions(query)
+
+		if err := query.Table("peers").Select("count(distinct(peers.id))").Count(&peerCount).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get total number of peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get total number of peers from store")
+		}
+	}
+
+	return peers, int(peerCount), nil
 }
 
 type PaginationState struct {
