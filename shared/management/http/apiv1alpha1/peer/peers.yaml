@@ -9,8 +9,8 @@ get:
       required: false
       schema:
         type: integer
-        minimum: 1
-        default: 1
+        minimum: 0
+        default: 0
     - name: page_size
       in: query
       description: Number of peers per page

@@ -81,3 +81,13 @@ insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labe
                    '0.77.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
                    'DE','Berlin','"46.201.150.187"');
+insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
+	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
+	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
+                   meta_capabilities, meta_flags, meta_sync_message_version,
+	            location_country_code, location_city_name, location_connection_ip)
+            values('peer-id-7','account-2','key-7','ssh-key-7','peer-7-name','peer-7','["extra-peer-7"]','',true,true,'2026-08-06 12:25:59.12999','"10.10.8.3"','"fdf6:ba80:6aa5:89f1:44d7:8701:8669:4942"',
+                   false,false,false,'2026-08-06 03:25:59.12999','cluster-4.netbird.services',
+                   '0.77.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
+                   '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
+                   'DE','Berlin','"46.201.150.187"');

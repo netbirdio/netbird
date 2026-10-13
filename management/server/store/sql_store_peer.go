@@ -586,14 +586,7 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequried)
 	}
 	if len(f.Os) > 0 {
-		var sub *gorm.DB
-		for i, os := range f.Os {
-			if i == 0 {
-				sub = db.Where("meta_go_os = ?", os)
-			}
-			db = db.Or("meta_go_os = ?", os)
-		}
-		db = db.Where(sub)
+		db = db.Where("meta_go_os in (?)", f.Os)
 	}
 	if f.IP != "" {
 		db = db.Where("ip like ? or ipv6 like ?", fmt.Sprintf("%%%s%%", f.IP), fmt.Sprintf("%%%s%%", f.IP))

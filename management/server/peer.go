@@ -64,7 +64,7 @@ func (am *DefaultAccountManager) GetPeersPaginated(ctx context.Context, accountI
 	}
 
 	if allowed {
-		return am.Store.GetAccountPeersPaginated(ctx, store.LockingStrengthNone, accountID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
+		return am.Store.GetAccountPeersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)

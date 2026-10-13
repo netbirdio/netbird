@@ -238,6 +238,11 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	peers, peerCount, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error getting peers: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.Internal, Message: err.Error()}, w)
+		return
+	}
 
 	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
@@ -256,7 +261,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var respBody apiv1alpha1.PeerBatch
+	respBody := apiv1alpha1.PeerBatch{Peers: make([]apiv1alpha1.Peer, 0, len(peers))}
 	for _, peer := range peers {
 		if peer.ProxyMeta.Embedded {
 			continue
