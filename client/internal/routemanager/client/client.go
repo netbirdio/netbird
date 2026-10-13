@@ -754,6 +754,15 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 			w.handler, previous.Peer, newChosenRoute.Peer, w.switchReason)
 	}
 
+	// Only the routing peer's status changed: its allowed IPs are already in
+	// place, and removing them to add them back leaves the prefix without an
+	// owner in between.
+	if !switched && previous.Equal(newChosenRoute) {
+		w.currentChosen = newChosenRoute
+		w.currentChosenStatus = &newStatus
+		return nil
+	}
+
 	// If the chosen route was assigned to a different peer, remove the allowed IPs first
 	if isNew := w.currentChosen == nil; !isNew {
 		if err := w.removeAllowedIPs(w.currentChosen, reasonHA); err != nil {

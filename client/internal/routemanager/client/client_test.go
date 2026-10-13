@@ -1480,3 +1480,23 @@ func TestLatencyJitterDoesNotSwitchRoute(t *testing.T) {
 		require.Equal(t, route.ID("route1"), chosen, "route changed on jitter at sample %d", i)
 	}
 }
+
+// A routing peer that keeps the route while only its connection status changes,
+// as when an idle peer is woken by traffic, must keep its allowed IPs in place:
+// removing and re-adding them leaves the prefix without an owner in between.
+func TestRecalculateRoutesStatusChangeKeepsAllowedIPs(t *testing.T) {
+	w, handler := newRecalcWatcher(t)
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusIdle},
+	}))
+	require.Equal(t, []string{"peer1"}, handler.added)
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+	}))
+	assert.Equal(t, []string{"peer1"}, handler.added, "a status change must not re-add the allowed IPs")
+	assert.Equal(t, 0, handler.removed, "a status change must not remove the allowed IPs")
+	require.NotNil(t, w.currentChosenStatus)
+	assert.Equal(t, peer.StatusConnected, w.currentChosenStatus.status, "the new status must be recorded")
+}
