@@ -276,8 +276,9 @@ type Watcher struct {
 	trackedCurrent route.ID
 	trackedPeer    string
 	trackedDirect  bool
-	// degradedSince is when the current routing peer dropped from direct to
-	// relayed, zero if it is direct or was already relayed when chosen
+	// degradedSince is when the relayedSwitch delay of the current relayed
+	// routing peer started: its drop from direct, or the first direct contender
+	// if it was never direct. Zero while it is direct or uncontended.
 	degradedSince time.Time
 	// relayedHold fires when a relayed switch being held back becomes due, so it
 	// is applied on time rather than on the next periodic re-evaluation
@@ -454,9 +455,8 @@ func (w *Watcher) reportUnassigned() {
 
 // trackRelayed records when the current routing peer dropped from a direct to a
 // relayed connection while carrying the route, which starts the relayedSwitch
-// delay. A peer that was never direct, because it was relayed when chosen or
-// came up over relay from idle, is not degraded: holding on to it would only
-// keep the route on the slower path.
+// delay at once. A peer that was never direct starts it later, when a direct
+// peer first contends for the route, see relayedSwitchDue.
 func (w *Watcher) trackRelayed(current routeCandidate, haveCurrent bool) {
 	if !haveCurrent {
 		w.trackedCurrent, w.trackedPeer, w.trackedDirect, w.degradedSince = "", "", false, time.Time{}
@@ -538,16 +538,18 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 // relayedSwitchDue reports whether a relayed current routing peer should give
 // way to a candidate that is better only by being direct.
 //
-// A peer that dropped from direct to relayed while carrying the route is kept
-// for the relayedSwitch delay: the relay still carries the traffic, staying
-// keeps every flow through this routing peer alive, and a direct connection that
-// dropped often recovers within seconds. A peer that was already relayed when
-// chosen gives way at once, so the route is not stuck on the slower path when a
-// direct one becomes available. A switch that is not due yet arms relayedHold so
-// it is applied as soon as it becomes due.
+// A relayed peer is kept for the relayedSwitch delay: the relay still carries
+// the traffic, and staying keeps every flow through this routing peer alive.
+// For a peer that dropped from direct to relayed the delay runs from the drop,
+// since a direct connection that dropped often recovers within seconds. For a
+// peer that was never direct, as when the peers of a group come up over relay
+// before their direct connections, it runs from the first evaluation that
+// finds a direct contender: the current peer usually turns direct within
+// seconds too. A switch that is not due yet arms relayedHold so it is applied
+// as soon as it becomes due.
 func (w *Watcher) relayedSwitchDue(current, candidate routeCandidate) bool {
 	if w.degradedSince.IsZero() {
-		return true
+		w.degradedSince = time.Now()
 	}
 
 	policy := w.relayedSwitch
@@ -561,7 +563,7 @@ func (w *Watcher) relayedSwitchDue(current, candidate routeCandidate) bool {
 
 	if level := w.holdLevel(candidate, holdRelayedDelay); log.IsLevelEnabled(level) {
 		log.StandardLogger().Logf(level,
-			"keeping relayed routing peer %s for [%v] over direct %s: dropped to relay %v ago, switch delay %s",
+			"keeping relayed routing peer %s for [%v] over direct %s: held for %v, switch delay %s",
 			current.peer, w.handler, candidate.peer, time.Since(w.degradedSince).Round(time.Second), policy)
 	}
 

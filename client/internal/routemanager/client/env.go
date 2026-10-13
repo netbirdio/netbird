@@ -12,10 +12,10 @@ import (
 const (
 	// envRelayedSwitchDelay sets how long a routing peer that dropped from a
 	// direct to a relayed connection while carrying the route is kept before the
-	// route moves to an equivalent peer with a direct connection. Takes a
-	// duration ("30s", "0" to switch at once) or "never" to only leave such a
-	// peer when it disconnects. A routing peer that was already relayed when
-	// chosen always gives way to a direct one at once.
+	// route moves to an equivalent peer with a direct connection. A routing peer
+	// that was never direct is kept for the same delay from when a direct peer
+	// first contends for the route. Takes a duration ("30s", "0" to switch at
+	// once) or "never" to only leave a relayed peer when it disconnects.
 	envRelayedSwitchDelay = "NB_HA_RELAYED_SWITCH_DELAY"
 
 	relayedSwitchDelayNever = "never"
