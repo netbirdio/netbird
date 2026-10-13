@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -249,6 +250,12 @@ func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	})
 }
 
-func (s *BaseServer) IsValidChildAccount(_ context.Context, _, _, _ string) bool {
-	return false
+// ChildAccountValidator returns the check the API auth middleware uses to let a user act on a child account
+// through the account query parameter. It denies every child account.
+func (s *BaseServer) ChildAccountValidator() middleware.IsValidChildAccountFunc {
+	return Create(s, func() middleware.IsValidChildAccountFunc {
+		return func(context.Context, string, string, string) bool {
+			return false
+		}
+	})
 }

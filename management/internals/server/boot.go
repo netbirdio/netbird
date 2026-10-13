@@ -204,7 +204,7 @@ func (s *BaseServer) IDPHandler() http.Handler {
 func (s *BaseServer) Router() *mux.Router {
 	return Create(s, func() *mux.Router {
 		router := mux.NewRouter()
-		router.Use(middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.IsValidChildAccount)...)
+		router.Use(middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics(), s.ChildAccountValidator())...)
 		return router
 	})
 }
