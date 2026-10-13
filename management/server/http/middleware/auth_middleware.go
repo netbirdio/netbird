@@ -14,6 +14,7 @@ import (
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -26,7 +27,8 @@ type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) err
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
-type IsValidChildAccountFunc func(ctx context.Context, userID, accountID, childAccountID string) bool
+// GetUserByIDFunc loads a user by ID.
+type GetUserByIDFunc func(ctx context.Context, userID string) (*types.User, error)
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
@@ -36,7 +38,8 @@ type AuthMiddleware struct {
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *ratelimit.APIRateLimiter
 	patUsageTracker     *PATUsageTracker
-	isValidChildAccount IsValidChildAccountFunc
+	getUserByID         GetUserByIDFunc
+	permissionsManager  permissions.Manager
 }
 
 // NewAuthMiddleware instance constructor
@@ -47,7 +50,8 @@ func NewAuthMiddleware(
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiter *ratelimit.APIRateLimiter,
 	meter metric.Meter,
-	isValidChildAccount IsValidChildAccountFunc,
+	getUserByID GetUserByIDFunc,
+	permissionsManager permissions.Manager,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -65,7 +69,8 @@ func NewAuthMiddleware(
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
-		isValidChildAccount: isValidChildAccount,
+		getUserByID:         getUserByID,
+		permissionsManager:  permissionsManager,
 	}
 }
 
@@ -127,10 +132,12 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		return err
 	}
 
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
+	if childAccountID, ok := childAccountFromRequest(r); ok {
+		user, err := m.getUserByID(ctx, userAuth.UserId)
+		if err != nil {
+			log.WithContext(ctx).Debugf("ignoring child account %s: load user %s: %v", childAccountID, userAuth.UserId, err)
+		} else {
+			userAuth = m.withChildAccount(ctx, userAuth, user, childAccountID)
 		}
 	}
 
@@ -210,16 +217,38 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		IsPAT:          true,
 	}
 
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
+	if childAccountID, ok := childAccountFromRequest(r); ok {
+		userAuth = m.withChildAccount(ctx, userAuth, user, childAccountID)
 	}
 
 	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
 	return nil
+}
+
+// childAccountFromRequest returns the account named by the single account query parameter.
+func childAccountFromRequest(r *http.Request) (string, bool) {
+	values, ok := r.URL.Query()["account"]
+	if !ok || len(values) != 1 {
+		return "", false
+	}
+	return values[0], true
+}
+
+// withChildAccount switches userAuth to childAccountID when the permissions manager grants user access to that
+// account. Any error leaves userAuth on the user's own account.
+func (m *AuthMiddleware) withChildAccount(ctx context.Context, userAuth auth.UserAuth, user *types.User, childAccountID string) auth.UserAuth {
+	if childAccountID == user.AccountID {
+		return userAuth
+	}
+
+	if _, err := m.permissionsManager.ValidateAccountAccess(ctx, childAccountID, user.Copy(), false); err != nil {
+		return userAuth
+	}
+
+	userAuth.AccountId = childAccountID
+	userAuth.IsChild = true
+	return userAuth
 }
 
 func isTerraformRequest(r *http.Request) bool {
