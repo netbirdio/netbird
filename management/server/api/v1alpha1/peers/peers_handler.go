@@ -374,8 +374,8 @@ func sortingOrderFromQuery(v url.Values) (store.PeerSorting, error) {
 	return toret, nil
 }
 
-func parseFieldAndOrder(fo string) (string, string) {
-	maybeFieldAndOrder := strings.SplitN(fo, ",", 2)
+func parseFieldAndOrder(fieldOrder string) (string, string) {
+	maybeFieldAndOrder := strings.SplitN(fieldOrder, ",", 2)
 	if len(maybeFieldAndOrder) == 2 {
 		return strings.TrimSpace(maybeFieldAndOrder[0]), strings.TrimSpace(maybeFieldAndOrder[1])
 	}
