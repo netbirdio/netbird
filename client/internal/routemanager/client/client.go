@@ -235,6 +235,9 @@ type WatcherConfig struct {
 	StatusRecorder   *peer.Status
 	Route            *route.Route
 	Handler          RouteHandler
+	// ReconcileAllowedIPs re-applies the routed allowed IPs tracked for a
+	// routing peer onto the interface. Optional.
+	ReconcileAllowedIPs func(peerKey string) error
 }
 
 // Watcher watches route and peer changes and updates allowed IPs accordingly.
@@ -307,6 +310,9 @@ type Watcher struct {
 	stopped      bool
 	handler      RouteHandler
 	updateSerial uint64
+	// reconcileAllowedIPs re-applies a routing peer's routed allowed IPs when
+	// it connects while keeping the route, see keepChosenRoute. May be nil.
+	reconcileAllowedIPs func(peerKey string) error
 }
 
 func newPeerStateUpdate() chan struct{} {
@@ -329,6 +335,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		handler:             config.Handler,
 		currentChosenStatus: nil,
 		relayedSwitch:       relayedSwitch(),
+		reconcileAllowedIPs: config.ReconcileAllowedIPs,
 	}
 	return client
 }
@@ -706,8 +713,10 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 
 // keepChosenRoute reports whether the evaluation keeps the current route, with
 // the same definition, on the same routing peer. A status change of that peer
-// is recorded without touching its allowed IPs: they are already in place, and
-// removing them to add them back leaves the prefix without an owner in between.
+// is recorded without removing and re-adding its allowed IPs, which would leave
+// the prefix without an owner in between. When the peer connects, its routed
+// allowed IPs are re-applied instead: a peer recreated by a peer update comes
+// back with its overlay addresses only.
 func (w *Watcher) keepChosenRoute(newChosenID route.ID, newStatus routerPeerStatus) bool {
 	if w.currentChosen == nil || w.currentChosen.ID != newChosenID {
 		return false
@@ -721,9 +730,21 @@ func (w *Watcher) keepChosenRoute(newChosenID route.ID, newStatus routerPeerStat
 	if w.currentChosenStatus != nil && w.currentChosenStatus.status != newStatus.status {
 		w.currentChosen = newChosenRoute
 		w.currentChosenStatus = &newStatus
+		if newStatus.status == peer.StatusConnected {
+			w.reconcileRoutedAllowedIPs(newChosenRoute.Peer)
+		}
 	}
 
 	return true
+}
+
+func (w *Watcher) reconcileRoutedAllowedIPs(peerKey string) {
+	if w.reconcileAllowedIPs == nil {
+		return
+	}
+	if err := w.reconcileAllowedIPs(peerKey); err != nil {
+		log.Warnf("failed to reconcile routed allowed IPs of routing peer %s for [%v]: %v", peerKey, w.handler, err)
+	}
 }
 
 func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]routerPeerStatus) error {

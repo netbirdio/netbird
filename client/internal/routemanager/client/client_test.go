@@ -1500,3 +1500,33 @@ func TestRecalculateRoutesStatusChangeKeepsAllowedIPs(t *testing.T) {
 	require.NotNil(t, w.currentChosenStatus)
 	assert.Equal(t, peer.StatusConnected, w.currentChosenStatus.status, "the new status must be recorded")
 }
+
+// A routing peer recreated by a peer update comes back idle with its overlay
+// addresses only. When it connects while keeping the route, its routed allowed
+// IPs must be re-applied, since nothing else puts them back on the new peer.
+func TestRecalculateRoutesReconcilesAllowedIPsOnConnect(t *testing.T) {
+	w, handler := newRecalcWatcher(t)
+	var reconciled []string
+	w.reconcileAllowedIPs = func(peerKey string) error {
+		reconciled = append(reconciled, peerKey)
+		return nil
+	}
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+	}))
+	require.Equal(t, []string{"peer1"}, handler.added)
+	require.Empty(t, reconciled, "a fresh assignment adds the allowed IPs itself")
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusIdle},
+	}))
+	assert.Empty(t, reconciled, "going idle must not reconcile")
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+	}))
+	assert.Equal(t, []string{"peer1"}, reconciled, "connecting while keeping the route must reconcile its allowed IPs")
+	assert.Equal(t, []string{"peer1"}, handler.added, "the reconcile must not go through the refcounted add")
+	assert.Equal(t, 0, handler.removed, "the allowed IPs must not be removed")
+}
