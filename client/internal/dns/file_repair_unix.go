@@ -3,7 +3,9 @@
 package dns
 
 import (
+	"bytes"
 	"net/netip"
+	"os"
 	"path"
 	"path/filepath"
 	"sync"
@@ -44,7 +46,9 @@ func newRepair(operationFile string, updateFn repairConfFn) *repair {
 	}
 }
 
-func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP netip.Addr, stateManager *statemanager.Manager) {
+// watchFileChanges keeps resolv.conf pointing at NetBird. written is the content NetBird last
+// wrote to the file, used to recognize the echo of its own writes.
+func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP netip.Addr, written []byte, stateManager *statemanager.Manager) {
 	if f.inotify != nil {
 		return
 	}
@@ -55,54 +59,67 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP netip
 		log.Errorf("failed to start inotify watcher for resolv.conf: %s", err)
 		return
 	}
+
+	if err := inotify.Add(f.watchDir); err != nil {
+		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
+		if err := inotify.Close(); err != nil {
+			log.Debugf("failed to close resolv.conf inotify: %v", err)
+		}
+		return
+	}
 	f.inotify = inotify
 
 	f.inotifyWg.Add(1)
 	go func() {
 		defer f.inotifyWg.Done()
-		for event := range f.inotify.Events {
+
+		// A change that landed before the watch was armed produced no event.
+		lastWritten := f.checkAndRepair(nbSearchDomains, nbNameserverIP, written, stateManager)
+		for event := range inotify.Events {
 			if !f.isEventRelevant(event) {
 				continue
 			}
-
-			log.Tracef("%s changed, check if it is broken", f.operationFile)
-
-			rConf, err := parseResolvConfFile(f.operationFile)
-			if err != nil {
-				log.Warnf("failed to parse resolv conf: %s", err)
-				continue
-			}
-
-			log.Debugf("check resolv.conf parameters: %s", rConf)
-			if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
-				log.Tracef("resolv.conf still correct, skip the update")
-				continue
-			}
-			log.Info("broken params in resolv.conf, repairing it...")
-
-			err = f.inotify.Remove(f.watchDir)
-			if err != nil {
-				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
-			}
-
-			_, err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf, stateManager)
-			if err != nil {
-				log.Errorf("failed to repair resolv.conf: %v", err)
-			}
-
-			err = f.inotify.Add(f.watchDir)
-			if err != nil {
-				log.Errorf("failed to re-add inotify watch for resolv.conf: %s", err)
-				return
-			}
+			lastWritten = f.checkAndRepair(nbSearchDomains, nbNameserverIP, lastWritten, stateManager)
 		}
 	}()
+}
 
-	err = f.inotify.Add(f.watchDir)
+// checkAndRepair rewrites resolv.conf when NetBird's parameters are missing from it and returns
+// the content NetBird last wrote. The watch stays armed while repairing, so a third-party write
+// racing the repair still raises an event; the echo of NetBird's own write is skipped by content.
+func (f *repair) checkAndRepair(nbSearchDomains []string, nbNameserverIP netip.Addr, lastWritten []byte, stateManager *statemanager.Manager) []byte {
+	content, err := os.ReadFile(f.operationFile)
 	if err != nil {
-		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
-		return
+		log.Warnf("failed to read resolv.conf: %s", err)
+		return lastWritten
 	}
+
+	if bytes.Equal(content, lastWritten) {
+		log.Tracef("%s still holds the NetBird managed content, skip the check", f.operationFile)
+		return lastWritten
+	}
+
+	log.Tracef("%s changed, check if it is broken", f.operationFile)
+
+	rConf, err := parseResolvConf(content)
+	if err != nil {
+		log.Warnf("failed to parse resolv conf: %s", err)
+		return lastWritten
+	}
+
+	log.Debugf("check resolv.conf parameters: %s", rConf)
+	if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
+		log.Tracef("resolv.conf still correct, skip the update")
+		return lastWritten
+	}
+	log.Info("broken params in resolv.conf, repairing it...")
+
+	written, err := f.updateFn(nbSearchDomains, nbNameserverIP, rConf, stateManager)
+	if err != nil {
+		log.Errorf("failed to repair resolv.conf: %v", err)
+		return lastWritten
+	}
+	return written
 }
 
 func (f *repair) stopWatchFileChanges() {

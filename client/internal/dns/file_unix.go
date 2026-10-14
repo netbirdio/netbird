@@ -61,11 +61,11 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 
 	f.repair.stopWatchFileChanges()
 
-	_, err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf, stateManager)
+	written, err := f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf, stateManager)
 	if err != nil {
 		return err
 	}
-	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP, stateManager)
+	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP, written, stateManager)
 	return nil
 }
 
