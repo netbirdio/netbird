@@ -13,7 +13,11 @@ STABLE_VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 
 # is_stable_version reports whether the version is a plain MAJOR.MINOR.PATCH release.
 is_stable_version() {
-    [[ "$1" =~ $STABLE_VERSION_RE ]]
+    local version="$1"
+    if [[ "$version" =~ $STABLE_VERSION_RE ]]; then
+        return 0
+    fi
+    return 1
 }
 
 # fetch_stable_tags prints the stable release versions known to GitHub, oldest
