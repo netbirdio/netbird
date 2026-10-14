@@ -70,7 +70,6 @@ func parseResolvConf(cur []byte) (*resolvConf, error) {
 	return rconf, nil
 }
 
-// parseResolvConfLine adds one trimmed resolv.conf line to rconf.
 func parseResolvConfLine(rconf *resolvConf, line string) {
 	if strings.HasPrefix(line, "#") {
 		return
