@@ -65,53 +65,56 @@ func parseResolvConf(cur []byte) (*resolvConf, error) {
 	}
 
 	for _, line := range strings.Split(string(cur), "\n") {
-		line = strings.TrimSpace(line)
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "domain") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "options") && strings.Contains(line, "rotate") {
-			line = strings.ReplaceAll(line, "rotate", "")
-			splitLines := strings.Fields(line)
-			if len(splitLines) == 1 {
-				continue
-			}
-			line = strings.Join(splitLines, " ")
-		}
-
-		if strings.HasPrefix(line, "search") {
-			splitLines := strings.Fields(line)
-			if len(splitLines) < 2 {
-				continue
-			}
-
-			rconf.searchDomains = splitLines[1:]
-			continue
-		}
-
-		if strings.HasPrefix(line, "nameserver") {
-			splitLines := strings.Fields(line)
-			if len(splitLines) != 2 {
-				continue
-			}
-			if addr, err := netip.ParseAddr(splitLines[1]); err == nil {
-				rconf.nameServers = append(rconf.nameServers, addr.Unmap())
-			} else {
-				log.Warnf("invalid nameserver address in resolv.conf: %s, skipping", splitLines[1])
-			}
-			continue
-		}
-
-		if line != "" {
-			rconf.others = append(rconf.others, line)
-		}
+		parseResolvConfLine(rconf, strings.TrimSpace(line))
 	}
 	return rconf, nil
+}
+
+// parseResolvConfLine adds one trimmed resolv.conf line to rconf.
+func parseResolvConfLine(rconf *resolvConf, line string) {
+	if strings.HasPrefix(line, "#") {
+		return
+	}
+
+	if strings.HasPrefix(line, "domain") {
+		return
+	}
+
+	if strings.HasPrefix(line, "options") && strings.Contains(line, "rotate") {
+		line = strings.ReplaceAll(line, "rotate", "")
+		splitLines := strings.Fields(line)
+		if len(splitLines) == 1 {
+			return
+		}
+		line = strings.Join(splitLines, " ")
+	}
+
+	if strings.HasPrefix(line, "search") {
+		splitLines := strings.Fields(line)
+		if len(splitLines) < 2 {
+			return
+		}
+
+		rconf.searchDomains = splitLines[1:]
+		return
+	}
+
+	if strings.HasPrefix(line, "nameserver") {
+		splitLines := strings.Fields(line)
+		if len(splitLines) != 2 {
+			return
+		}
+		if addr, err := netip.ParseAddr(splitLines[1]); err == nil {
+			rconf.nameServers = append(rconf.nameServers, addr.Unmap())
+		} else {
+			log.Warnf("invalid nameserver address in resolv.conf: %s, skipping", splitLines[1])
+		}
+		return
+	}
+
+	if line != "" {
+		rconf.others = append(rconf.others, line)
+	}
 }
 
 func newResolvConf() *resolvConf {
