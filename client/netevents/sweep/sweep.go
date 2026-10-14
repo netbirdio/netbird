@@ -20,8 +20,7 @@ import (
 )
 
 // DefaultSweepDelay absorbs network flapping while the OS settles on a
-// default network before the stale registrations are cut. The window is bounded
-// so repeated changes cannot postpone recovery indefinitely.
+// default network before the stale registrations are cut.
 const DefaultSweepDelay = 500 * time.Millisecond
 
 const recentMarkWindow = 3 * time.Second
@@ -174,7 +173,7 @@ func (d *Dial) WrapConn(conn net.Conn) (net.Conn, error) {
 }
 
 // MarkNetworkChange records that the OS switched networks: everything
-// registered so far becomes stale, and a sweep is scheduled within the
+// registered so far becomes stale, and a sweep is (re)scheduled after the
 // configured delay to cut whatever is still stale by then. Owners that
 // redialed in the meantime hold fresh-generation registrations and survive,
 // so no cancellation is needed around the sweep.
@@ -185,16 +184,12 @@ func (s *Sweeper) MarkNetworkChange() {
 
 	s.mu.Lock()
 	s.gen++
+	cutoff := s.gen
 	s.lastMark = time.Now()
 	if s.timer != nil {
-		s.mu.Unlock()
-		return
+		s.timer.Stop()
 	}
 	s.timer = time.AfterFunc(s.sweepDelay, func() {
-		s.mu.Lock()
-		cutoff := s.gen
-		s.timer = nil
-		s.mu.Unlock()
 		n := s.sweep(cutoff)
 		log.Infof("network change sweep: closed %d stale connections", n)
 	})

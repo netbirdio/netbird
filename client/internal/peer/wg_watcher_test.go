@@ -59,27 +59,20 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 	watcher := NewWGWatcher(mlog, stats, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	defer func() {
-		cancel()
-		<-done
-	}()
+	defer cancel()
 
 	watcher.PrepareInitialHandshake()
 
 	firstHandshake := make(chan struct{}, 1)
 	checkSuccess := make(chan struct{}, 1)
-	go func() {
-		defer close(done)
-		watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
-			firstHandshake <- struct{}{}
-		}, func() {
-			select {
-			case checkSuccess <- struct{}{}:
-			default:
-			}
-		})
-	}()
+	go watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
+		firstHandshake <- struct{}{}
+	}, func() {
+		select {
+		case checkSuccess <- struct{}{}:
+		default:
+		}
+	})
 
 	stats.advance()
 
