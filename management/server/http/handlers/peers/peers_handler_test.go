@@ -23,7 +23,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -174,7 +173,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 					return nil, fmt.Errorf("user not found")
 				}
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
+			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
 				return peers, len(peers), nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {

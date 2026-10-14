@@ -494,14 +494,25 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	return &peer, nil
 }
 
-func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
-	query := tx.Where("peers.account_id=?", accountID)
+	query := tx.Where(accountIDCondition, accountID)
 
+	if nameFilter != "" {
+		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
+	}
+	if ipFilter != "" {
+		query = query.Where("ip LIKE ? OR ipv6 LIKE ?", "%"+ipFilter+"%", "%"+ipFilter+"%")
+	}
+	// MAC addresses live in the JSON-serialized meta_network_addresses column,
+	// so we match the raw JSON text rather than a dedicated column.
+	if macFilter != "" {
+		query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
+	}
 	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
