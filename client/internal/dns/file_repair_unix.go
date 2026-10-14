@@ -75,9 +75,22 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP netip
 
 		// A change that landed before the watch was armed produced no event.
 		lastWritten := f.checkAndRepair(nbSearchDomains, nbNameserverIP, written, stateManager)
-		for event := range inotify.Events {
-			if !f.isEventRelevant(event) {
-				continue
+		for {
+			select {
+			case event, ok := <-inotify.Events:
+				if !ok {
+					return
+				}
+				if !f.isEventRelevant(event) {
+					continue
+				}
+			case err, ok := <-inotify.Errors:
+				if !ok {
+					return
+				}
+				// fsnotify stops delivering events until an error is received, and an
+				// error such as a queue overflow means events were dropped.
+				log.Warnf("resolv.conf inotify error, checking the file: %v", err)
 			}
 			lastWritten = f.checkAndRepair(nbSearchDomains, nbNameserverIP, lastWritten, stateManager)
 		}

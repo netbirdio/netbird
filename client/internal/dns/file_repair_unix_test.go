@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -275,6 +276,47 @@ func Test_repairNoLoopOnTruncatedSearchDomains(t *testing.T) {
 		"the third-party write should be repaired")
 	time.Sleep(500 * time.Millisecond)
 	assert.Equal(t, int32(1), calls.Load(), "NetBird's own truncated write should not trigger another repair")
+}
+
+// fsnotify blocks its reader until an error is received, and an error such as a queue overflow
+// means events were dropped. The watcher must consume errors and check the file, so it keeps working
+// and catches a change whose event was lost.
+func Test_repairChecksFileOnWatcherError(t *testing.T) {
+	good := "nameserver 10.0.0.1\nsearch netbird.cloud\n"
+	operationFile := filepath.Join(t.TempDir(), "resolv.conf")
+	require.NoError(t, os.WriteFile(operationFile, []byte(good), 0644))
+
+	// A hard link in another directory changes the file without an event in the watched one,
+	// standing in for an event the kernel dropped.
+	alias := filepath.Join(t.TempDir(), "alias")
+	require.NoError(t, os.Link(operationFile, alias))
+
+	repaired := make(chan struct{}, 1)
+	updateFn := func([]string, netip.Addr, *resolvConf, *statemanager.Manager) ([]byte, error) {
+		select {
+		case repaired <- struct{}{}:
+		default:
+		}
+		return []byte(good), os.WriteFile(operationFile, []byte(good), 0644)
+	}
+
+	r := newRepair(operationFile, updateFn)
+	r.watchFileChanges([]string{"netbird.cloud"}, netip.MustParseAddr("10.0.0.1"), []byte(good), nil)
+	t.Cleanup(r.stopWatchFileChanges)
+
+	require.NoError(t, os.WriteFile(alias, []byte("nameserver 8.8.8.8\n"), 0644))
+
+	select {
+	case r.inotify.Errors <- fsnotify.ErrEventOverflow:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher should consume inotify errors")
+	}
+
+	select {
+	case <-repaired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher should check the file after an inotify error")
+	}
 }
 
 // writeFileAtomic replaces the file the way systemd-resolved does: write a temporary file in the same
