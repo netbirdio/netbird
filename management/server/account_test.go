@@ -4454,6 +4454,27 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 		assert.Contains(t, err.Error(), "not within the account network range", "error should mention network range")
 	})
 
+	t.Run("update peer IP to reserved address should fail", func(t *testing.T) {
+		account, err := manager.Store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err, "unable to get account")
+
+		network := account.Network.Net
+		broadcast := make(net.IP, len(network.IP.To4()))
+		for i := range broadcast {
+			broadcast[i] = network.IP.To4()[i] | ^network.Mask[i]
+		}
+		broadcastIP, ok := netip.AddrFromSlice(broadcast)
+		require.True(t, ok, "unable to parse broadcast IP")
+		networkIP, ok := netip.AddrFromSlice(network.IP.To4())
+		require.True(t, ok, "unable to parse network IP")
+
+		for _, reserved := range []netip.Addr{networkIP, broadcastIP.Prev(), broadcastIP} {
+			err = manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, reserved)
+			require.Error(t, err, "should fail for reserved IP %s", reserved)
+			assert.Contains(t, err.Error(), "is reserved", "error should mention reserved IP")
+		}
+	})
+
 	t.Run("update peer IP with invalid peer ID should fail", func(t *testing.T) {
 		newAddr := netip.MustParseAddr("100.64.0.101")
 		err := manager.UpdatePeerIP(context.Background(), accountID, userID, "invalid-peer-id", newAddr)

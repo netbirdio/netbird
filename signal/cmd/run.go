@@ -140,7 +140,7 @@ var (
 			default:
 				certListener, err = startServerWithCertManager(certManager, grpcRootHandler)
 				if err != nil {
-					log.Errorf("LetsEncrypt challenge server not started: %v", err)
+					return err
 				}
 			}
 
@@ -184,7 +184,7 @@ var (
 
 			SetupCloseHandler()
 
-			<-stopCh
+			stopCode := <-stopCh
 			if certListener != nil {
 				_ = certListener.Close()
 				log.Infof("stopped LetsEncrypt challenge server")
@@ -211,6 +211,9 @@ var (
 
 			log.Infof("stopped Signal Service")
 
+			if stopCode != 0 {
+				return errors.New("signal service stopped after a server failure")
+			}
 			return nil
 		},
 	}
@@ -315,7 +318,8 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 			Handler: h2c.NewHandler(handler, &http2.Server{}),
 		}
 		err := h1s.Serve(httpListener)
-		if err != nil {
+		// Closing the listener on shutdown is not a failure.
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			notifyStop(fmt.Sprintf("failed running HTTP server %v", err))
 		}
 	}()
@@ -328,7 +332,7 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	}
 	go func() {
 		err := grpcServer.Serve(listener)
-		if err != nil {
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
 		}
 	}()

@@ -1,0 +1,33 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-relay" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Relay" \
+      description="NetBird Relay carries traffic between peers when a direct connection is unavailable."
+
+COPY --chmod=0555 ${TARGETPLATFORM}/netbird-relay /go/bin/netbird-relay
+COPY licenses/ /licenses/
+# Only the data directory shares the root group for arbitrary non-root UIDs.
+# Runtime-created Let's Encrypt keys retain the application's restrictive modes.
+RUN mkdir -p /var/lib/netbird && \
+    chown 1000:0 /var/lib/netbird && \
+    chmod 0770 /var/lib/netbird && \
+    chmod -R a+rX /licenses
+
+USER 1000:0
+ENV HOME=/var/lib/netbird
+ENV NB_LOG_FILE=console
+# Unprivileged port: runtimes such as OpenShift and Podman keep the kernel
+# default that reserves ports below 1024 for root. 8443/udp carries QUIC and
+# 9000 is the health probe.
+ENV NB_LISTEN_ADDRESS=":8443"
+EXPOSE 8443 8443/udp
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/go/bin/netbird-relay"]
