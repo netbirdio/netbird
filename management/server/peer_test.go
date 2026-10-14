@@ -1013,7 +1013,7 @@ func BenchmarkGetPeers(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := manager.GetPeers(context.Background(), accountID, userID)
+				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "", "")
 				if err != nil {
 					b.Fatalf("GetPeers failed: %v", err)
 				}
@@ -3205,7 +3205,7 @@ func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
 	}
 	assert.Equal(t, 1, succeeded)
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id)
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, "same-host", peers[0].DNSLabel)
@@ -3264,7 +3264,7 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	err = addPeer("host-2")
 	require.Error(t, err, "no free IP left, registration must fail")
 
-	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id)
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)

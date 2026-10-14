@@ -826,13 +826,6 @@ func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, n
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }
 
-func (am *MockAccountManager) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
-	if am.GetPeersFunc != nil {
-		return am.GetPeersFunc(ctx, accountID, userID, pagination, filters, sorting)
-	}
-	return nil, 0, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
-}
-
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface
 func (am *MockAccountManager) GetDNSDomain(settings *types.Settings) string {
 	if am.GetDNSDomainFunc != nil {

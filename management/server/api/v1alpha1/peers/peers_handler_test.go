@@ -18,12 +18,12 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	peersmodule "github.com/netbirdio/netbird/management/internals/modules/peers"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
@@ -128,7 +128,10 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		}).
 		AnyTimes()
 
+	peerManager := peersmodule.NewMockManager(ctrl2)
+
 	return &Handler{
+		peersManager: peerManager,
 		accountManager: &mock_server.MockAccountManager{
 			UpdatePeerFunc: func(_ context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
 				var p *nbpeer.Peer
@@ -174,7 +177,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 					return nil, fmt.Errorf("user not found")
 				}
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
+			GetPeersFunc: func(_ context.Context, accountID, userID string, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
 				return peers, len(peers), nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
@@ -360,14 +363,6 @@ func TestGetPeers(t *testing.T) {
 	peer1 := peer.Copy()
 	peer1.ID = noUpdateChannelTestPeerID
 
-	expectedUpdatedPeer := peer.Copy()
-	expectedUpdatedPeer.LoginExpirationEnabled = true
-	expectedUpdatedPeer.SSHEnabled = true
-	expectedUpdatedPeer.Name = "New Name"
-
-	expectedPeer1 := peer1.Copy()
-	expectedPeer1.Status.Connected = false
-
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -407,6 +402,10 @@ func TestGetPeers(t *testing.T) {
 			router.Use(v1validator.Handler)
 
 			router = p.WithEndpointsForRouter(router)
+
+			p.peersManager.(*peersmodule.MockManager).EXPECT().GetPeersPaginated(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]*nbpeer.Peer{peer, peer1}, 2, nil)
+
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

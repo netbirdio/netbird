@@ -78,35 +78,6 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	return peers, err
 }
 
-func (am *DefaultAccountManager) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, 0, status.NewPermissionValidationError(err)
-	}
-
-	if allowed {
-		return am.Store.GetAccountPeersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get account settings: %w", err)
-	}
-
-	if user.IsRestrictable() && settings.RegularUsersViewBlocked {
-		return []*nbpeer.Peer{}, 0, nil
-	}
-
-	peers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-
-	return peers, len(peers), err
-}
-
 // MarkPeerConnected marks a peer as connected with optimistic-locked
 // fencing on PeerStatus.SessionStartedAt. The sessionStartedAt argument
 // is the start time of the gRPC sync stream that owns this update,

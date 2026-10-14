@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/groups"
@@ -30,12 +31,14 @@ type Handler struct {
 	accountManager       account.Manager
 	permissionsManager   permissions.Manager
 	networkMapController network_map.Controller
+	peersManager         peers.Manager
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
+func NewHandler(accountManager account.Manager, peerManager peers.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
 	return &Handler{
 		accountManager:       accountManager,
+		peersManager:         peerManager,
 		networkMapController: networkMapController,
 		permissionsManager:   permissionsManager,
 	}
@@ -237,7 +240,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, peerCount, err := h.accountManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
+	peers, peerCount, err := h.peersManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("error getting peers: %v", err)
 		util.WriteError(r.Context(), err, w)

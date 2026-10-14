@@ -996,22 +996,6 @@ func (mr *MockManagerMockRecorder) GetPeers(ctx, accountID, userID, nameFilter, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeers", reflect.TypeOf((*MockManager)(nil).GetPeers), ctx, accountID, userID, nameFilter, ipFilter, macFilter)
 }
 
-// GetPeersPaginated mocks base method.
-func (m *MockManager) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*peer.Peer, int, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPeersPaginated", ctx, accountID, userID, pagination, filters, sorting)
-	ret0, _ := ret[0].([]*peer.Peer)
-	ret1, _ := ret[1].(int)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// GetPeersPaginated indicates an expected call of GetPeersPaginated.
-func (mr *MockManagerMockRecorder) GetPeersPaginated(ctx, accountID, userID, pagination, filters, sorting any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersPaginated", reflect.TypeOf((*MockManager)(nil).GetPeersPaginated), ctx, accountID, userID, pagination, filters, sorting)
-}
-
 // GetPolicy mocks base method.
 func (m *MockManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
 	m.ctrl.T.Helper()
