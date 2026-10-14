@@ -10,12 +10,6 @@ import (
 
 const flagName = "external-ip-map"
 
-const (
-	invalidInputType int = iota
-	ipInputType
-	interfaceInputType
-)
-
 // Validate checks each element is formatted as "IP", "IP/IP" or
 // "IP/interface". The engine drops every mapping when one element fails to
 // parse, so callers should reject bad input up front.
@@ -30,39 +24,31 @@ func Validate(list []string) error {
 			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"String\" or \"String/String\"", element, flagName)
 		}
 
-		if len(subElements) == 1 && !isValidIP(subElements[0]) {
+		if !isValidIP(subElements[0]) {
 			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, flagName)
 		}
 
-		last := 0
-		for _, singleElement := range subElements {
-			inputType, err := validateElement(singleElement)
-			if err != nil {
-				return fmt.Errorf("%s is not a valid input for %s. it should be an IP string or a network name", singleElement, flagName)
+		if len(subElements) == 2 {
+			if err := validateInternal(subElements[1]); err != nil {
+				return fmt.Errorf("%s is not a valid input for %s. it should be an IP string or a network name: %w", subElements[1], flagName, err)
 			}
-			if last == interfaceInputType && inputType == interfaceInputType {
-				return fmt.Errorf("%s is not a valid input for %s. it should not contain two interface names", element, flagName)
-			}
-			last = inputType
 		}
 	}
 	return nil
 }
 
-func validateElement(element string) (int, error) {
+func validateInternal(element string) error {
 	if isValidIP(element) {
-		return ipInputType, nil
+		return nil
 	}
 	validIface, err := isValidInterface(element)
 	if err != nil {
-		return invalidInputType, fmt.Errorf("unable to validate the network interface name, error: %s", err)
+		return fmt.Errorf("validate network interface name: %w", err)
 	}
-
-	if validIface {
-		return interfaceInputType, nil
+	if !validIface {
+		return fmt.Errorf("invalid IP or network interface name not found")
 	}
-
-	return interfaceInputType, fmt.Errorf("invalid IP or network interface name not found")
+	return nil
 }
 
 // isValidIP uses net.ParseIP to match the engine's parser exactly.

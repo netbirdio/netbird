@@ -31,6 +31,7 @@ func TestValidate(t *testing.T) {
 		{name: "too many slashes", input: []string{"203.0.113.5/10.0.0.5/10.0.0.6"}, wantErr: true},
 		{name: "unknown interface", input: []string{"203.0.113.5/nb-no-such-iface0"}, wantErr: true},
 		{name: "external interface", input: []string{iface}, wantErr: true},
+		{name: "interface to IP", input: []string{iface + "/10.0.0.5"}, wantErr: true},
 		{name: "two interfaces", input: []string{iface + "/" + iface}, wantErr: true},
 	}
 
