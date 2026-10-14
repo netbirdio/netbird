@@ -788,24 +788,31 @@ func (w *Watcher) keepChosenRoute(newChosenID route.ID, newStatus routerPeerStat
 		return false
 	}
 
-	if w.currentChosenStatus != nil && w.currentChosenStatus.status != newStatus.status {
-		w.currentChosen = newChosenRoute
-		w.currentChosenStatus = &newStatus
-		if newStatus.status == peer.StatusConnected {
-			w.reconcileRoutedAllowedIPs(newChosenRoute.Peer)
-		}
+	if w.currentChosenStatus == nil || w.currentChosenStatus.status == newStatus.status {
+		return true
 	}
+
+	// a failed reconcile leaves the previous status recorded, so the next
+	// evaluation sees the change again and retries
+	if newStatus.status == peer.StatusConnected && !w.reconcileRoutedAllowedIPs(newChosenRoute.Peer) {
+		return true
+	}
+
+	w.currentChosen = newChosenRoute
+	w.currentChosenStatus = &newStatus
 
 	return true
 }
 
-func (w *Watcher) reconcileRoutedAllowedIPs(peerKey string) {
+func (w *Watcher) reconcileRoutedAllowedIPs(peerKey string) bool {
 	if w.reconcileAllowedIPs == nil {
-		return
+		return true
 	}
 	if err := w.reconcileAllowedIPs(peerKey); err != nil {
-		log.Warnf("failed to reconcile routed allowed IPs of routing peer %s for [%v]: %v", peerKey, w.handler, err)
+		log.Warnf("failed to reconcile routed allowed IPs of routing peer %s for [%v], will retry: %v", peerKey, w.handler, err)
+		return false
 	}
+	return true
 }
 
 func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]routerPeerStatus) error {
