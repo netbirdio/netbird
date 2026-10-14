@@ -851,12 +851,13 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 			// sqlite doesn't need to be cleaned up
 		}
 		store = sqliteStore
+		var conn *db.Conn
 		if store == nil {
-			conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+			conn, err = db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 			}
-			store, err = NewSqlStore(ctx, conn, nil, false) //nolint:ineffassign
+			store, err = NewSqlStore(ctx, conn, nil, false)
 		}
 	}
 	if err != nil {
