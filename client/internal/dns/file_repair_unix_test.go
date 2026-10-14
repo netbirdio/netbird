@@ -106,10 +106,10 @@ nameserver 8.8.8.8`,
 
 			var changed bool
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			updateFn := func([]string, netip.Addr, *resolvConf, *statemanager.Manager) error {
+			updateFn := func([]string, netip.Addr, *resolvConf, *statemanager.Manager) ([]byte, error) {
 				changed = true
 				cancel()
-				return nil
+				return nil, nil
 			}
 
 			r := newRepair(operationFile, updateFn)
@@ -153,10 +153,10 @@ searchdomain netbird.cloud something`
 
 	var changed bool
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	updateFn := func([]string, netip.Addr, *resolvConf, *statemanager.Manager) error {
+	updateFn := func([]string, netip.Addr, *resolvConf, *statemanager.Manager) ([]byte, error) {
 		changed = true
 		cancel()
-		return nil
+		return nil, nil
 	}
 
 	r := newRepair(tmpLink, updateFn)

@@ -23,7 +23,8 @@ var (
 	}
 )
 
-type repairConfFn func([]string, netip.Addr, *resolvConf, *statemanager.Manager) error
+// repairConfFn writes the NetBird-managed resolv.conf and returns the exact content it wrote.
+type repairConfFn func([]string, netip.Addr, *resolvConf, *statemanager.Manager) ([]byte, error)
 
 type repair struct {
 	operationFile string
@@ -84,7 +85,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP netip
 				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
 			}
 
-			err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf, stateManager)
+			_, err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf, stateManager)
 			if err != nil {
 				log.Errorf("failed to repair resolv.conf: %v", err)
 			}
