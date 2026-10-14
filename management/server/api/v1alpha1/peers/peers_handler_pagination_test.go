@@ -62,7 +62,7 @@ func TestGetPeersPagination(t *testing.T) {
 		},
 		{
 			name:           "GetPeers filtering all valid params",
-			requestPath:    "/peers?user_id=test-user&group_ids=1&group_ids=2&group_ids=3&group_ids=4&connected=true&approval_required=false&os=linux&os=windows&os=mac&os=android&os=ios&os=js&ip=10.10.10.10&mac=00:11:22:33:44:55&hostname=test-host&kind=user_device",
+			requestPath:    "/peers?user_id=test-user&group_ids=1&group_ids=2&group_ids=3&group_ids=4&connected=true&approval_required=false&os=linux&os=windows&os=mac&os=android&os=ios&os=js&ip=10.10.10.10&mac=00:11:22:33:44:55&hostname=test-host&kind=user_device&force_approved=true",
 			expectedStatus: http.StatusOK,
 			setExpectations: func(p *Handler) {
 				p.peersManager.(*peersmodule.MockManager).EXPECT().GetPeersPaginated(gomock.Any(), gomock.Any(), gomock.Any(),
@@ -77,6 +77,7 @@ func TestGetPeersPagination(t *testing.T) {
 						MAC:              "00:11:22:33:44:55",
 						Hostname:         "test-host",
 						IsServer:         new(false),
+						ForceApproved:    new(true),
 					}),
 					gomock.Any()).Return(make([]*nbpeer.Peer, 0), 0, nil).AnyTimes()
 			},
@@ -113,6 +114,12 @@ func TestGetPeersPagination(t *testing.T) {
 		{
 			name:            "GetPeers filtering with invalid kind value",
 			requestPath:     "/peers?kind=nosuchkind",
+			expectedStatus:  http.StatusUnprocessableEntity,
+			setExpectations: func(p *Handler) {},
+		},
+		{
+			name:            "GetPeers filtering with invalid force_approved value",
+			requestPath:     "/peers?force_approved=nonono",
 			expectedStatus:  http.StatusUnprocessableEntity,
 			setExpectations: func(p *Handler) {},
 		},

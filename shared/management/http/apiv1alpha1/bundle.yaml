@@ -723,6 +723,16 @@ components:
               type: array
               items:
                 type: string
+          - name: peers_ids
+            in: query
+            description: filter peers by their ids
+            required: false
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 50
+              items:
+                type: string
           - name: connected
             in: query
             description: Filter by peer connected status

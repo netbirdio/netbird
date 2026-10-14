@@ -288,6 +288,7 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 	if err != nil {
 		return store.PeerFilters{}, err
 	}
+
 	var isServer *bool
 	if v.Get("kind") != "" {
 		isServer = new(v.Get("kind") == "server")
@@ -305,6 +306,7 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 		MAC:              v.Get("mac"),
 		Hostname:         v.Get("hostname"),
 		IsServer:         isServer,
+		PeersIds:         v["peer_ids"],
 	}, nil
 }
 

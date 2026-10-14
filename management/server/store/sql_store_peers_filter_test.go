@@ -75,6 +75,12 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 				expectedLength: 5,
 				expectedPeers:  []string{"peer-1-name", "peer-2-name", "peer-4-name", "peer-5-name", "peer-6-name"},
 			},
+			{
+				description:    "filter by peer id",
+				filters:        PeerFilters{PeersIds: []string{"peer-id-1", "peer-id-5", "peer-id-3"}},
+				expectedLength: 3,
+				expectedPeers:  []string{"peer-1-name", "peer-3-name", "peer-5-name"},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.description+" "+engine, func(t *testing.T) {

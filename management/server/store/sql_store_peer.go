@@ -577,16 +577,16 @@ func (p *PaginationState) AsScope(db *gorm.DB) *gorm.DB {
 }
 
 type PeerFilters struct {
-	UserId    string
-	GroupIds  []string
-	Connected *bool
-
+	UserId           string
+	GroupIds         []string
+	Connected        *bool
 	ApprovalRequried *bool
 	Os               []string
 	IP               string
 	MAC              string
 	Hostname         string
 	IsServer         *bool
+	PeersIds         []string
 }
 
 func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
@@ -620,6 +620,9 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		} else {
 			db = db.Where("user_id<>'' and user_id is not null")
 		}
+	}
+	if len(f.PeersIds) > 0 {
+		db = db.Where("id in (?)", f.PeersIds)
 	}
 
 	return db
