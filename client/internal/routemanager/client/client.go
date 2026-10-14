@@ -65,6 +65,12 @@ const (
 	// well above any usable path so that slow paths keep their order.
 	unknownLatency = 10 * time.Second
 
+	// unmeasuredLatencyHold is how long a current routing peer without a
+	// latency sample is kept against a measured one. A direct connection is
+	// sampled within seconds, so a peer still unsampled after this is ranked
+	// at unknownLatency rather than held indefinitely.
+	unmeasuredLatencyHold = 30 * time.Second
+
 	// holdReportInterval is how long a routing peer held back by a switch rule
 	// is reported at debug level only, after being reported at info level once.
 	holdReportInterval = 10 * time.Minute
@@ -283,11 +289,16 @@ type Watcher struct {
 	// routing peer started: its drop from direct, or the first direct contender
 	// if it was never direct. Zero while it is direct or uncontended.
 	degradedSince time.Time
+	// unmeasuredRoute and unmeasuredSince track since when the current route's
+	// peer has had no latency sample, bounding the hold in shouldSwitchRoute
+	unmeasuredRoute route.ID
+	unmeasuredSince time.Time
 	// neverDirect marks a degradedSince started by a direct contender rather
 	// than by a drop from direct, which the "never" policy does not cover
 	neverDirect bool
-	// relayedHold fires when a relayed switch being held back becomes due, so it
-	// is applied on time rather than on the next periodic re-evaluation
+	// relayedHold fires when a switch held back by the relayed delay or the
+	// unmeasured latency hold becomes due, so it is applied on time rather than
+	// on the next periodic re-evaluation
 	relayedHold *time.Timer
 	// heldCandidate and heldKind identify the alternative last held back by the
 	// switch rules and the rule holding it, and heldReported is when that was
@@ -409,6 +420,7 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 	}
 
 	w.trackRelayed(current, haveCurrent)
+	w.trackUnmeasured(current, haveCurrent)
 
 	if !haveBest {
 		w.reportUnassigned()
@@ -512,7 +524,9 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 	// Without a sample on both sides there is no gain to weigh. A direct
 	// connection reports no latency until its first sample, so comparing it as
 	// unknownLatency would move the route away from a peer that just recovered.
-	if !current.measured || !candidate.measured {
+	// The hold is bounded so a peer that never gets a sample does not keep the
+	// route for good.
+	if w.unmeasuredHoldActive(current, candidate) {
 		if level := w.holdLevel(candidate, holdLatencyUnmeasured); log.IsLevelEnabled(level) {
 			log.StandardLogger().Logf(level,
 				"keeping routing peer %s for [%v] over %s: latency not measured on both peers yet (%s)",
@@ -541,6 +555,38 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 	}
 
 	w.latencySwitch = true
+
+	return true
+}
+
+// trackUnmeasured records since when the current route's peer has had no
+// latency sample, and forgets it once the peer is measured or the route moves.
+func (w *Watcher) trackUnmeasured(current routeCandidate, haveCurrent bool) {
+	if !haveCurrent || current.measured || current.id != w.unmeasuredRoute {
+		w.unmeasuredRoute, w.unmeasuredSince = "", time.Time{}
+	}
+	if haveCurrent && !current.measured && w.unmeasuredSince.IsZero() {
+		w.unmeasuredRoute, w.unmeasuredSince = current.id, time.Now()
+	}
+}
+
+// unmeasuredHoldActive reports whether a latency comparison must wait because
+// a side has no sample: always for an unsampled candidate, and for an unsampled
+// current peer until unmeasuredLatencyHold runs out. A pending hold arms
+// relayedHold so the switch is reconsidered when it runs out.
+func (w *Watcher) unmeasuredHoldActive(current, candidate routeCandidate) bool {
+	if !candidate.measured {
+		return true
+	}
+	if current.measured {
+		return false
+	}
+
+	remaining := unmeasuredLatencyHold - time.Since(w.unmeasuredSince)
+	if remaining <= 0 {
+		return false
+	}
+	w.armRelayedHold(remaining)
 
 	return true
 }

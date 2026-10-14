@@ -458,3 +458,19 @@ func TestNeverPolicyDoesNotPinNeverDirectPeer(t *testing.T) {
 	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
 	assert.Equal(t, route.ID("route2"), chosen, "with never, a never-direct peer must still give way after the default delay")
 }
+
+// A current peer that never gets a latency sample must not keep the route
+// forever against a measured peer: once the hold runs out it is ranked as
+// unknown latency again.
+func TestUnmeasuredRoutingPeerHoldIsBounded(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	chosen, _ := w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+	require.Equal(t, route.ID("route1"), chosen, "an unsampled current peer must be held at first")
+	require.False(t, w.unmeasuredSince.IsZero(), "the hold must record when it started")
+
+	w.unmeasuredSince = w.unmeasuredSince.Add(-unmeasuredLatencyHold - time.Second)
+	chosen, _ = w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+	assert.Equal(t, route.ID("route2"), chosen, "a peer still unsampled after the hold must give way to a measured one")
+	assert.Equal(t, switchReasonLatency, w.switchReason)
+}
