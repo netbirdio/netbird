@@ -421,6 +421,7 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 
 	w.trackRelayed(current, haveCurrent)
 	w.trackUnmeasured(current, haveCurrent)
+	w.trackContender(current, best, haveCurrent && haveBest)
 
 	if !haveBest {
 		w.reportUnassigned()
@@ -557,6 +558,20 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 	w.latencySwitch = true
 
 	return true
+}
+
+// trackContender restarts the relayed delay of a peer that was never direct
+// once no direct contender is left. That delay runs from the first contender,
+// so keeping it would let a later contender take over without waiting. The
+// delay of a peer that dropped from direct keeps running from the drop.
+func (w *Watcher) trackContender(current, best routeCandidate, have bool) {
+	if !w.neverDirect || w.degradedSince.IsZero() {
+		return
+	}
+	if have && best.winsOnlyOnRelay(current) {
+		return
+	}
+	w.degradedSince = time.Time{}
 }
 
 // trackUnmeasured records since when the current route's peer has had no

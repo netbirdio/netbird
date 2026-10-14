@@ -474,3 +474,31 @@ func TestUnmeasuredRoutingPeerHoldIsBounded(t *testing.T) {
 	assert.Equal(t, route.ID("route2"), chosen, "a peer still unsampled after the hold must give way to a measured one")
 	assert.Equal(t, switchReasonLatency, w.switchReason)
 }
+
+// The delay of a peer that was never direct runs from the first direct
+// contender. When that contender goes away the delay must start over, so a
+// later contender is held for the full delay instead of taking over at once.
+func TestNeverDirectDelayRestartsWhenContenderGoes(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	relayedAlone := map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+		"route2": {status: peer.StatusConnecting},
+	}
+	chosen, _ := w.getBestRouteFromStatuses(relayedAlone)
+	require.Equal(t, route.ID("route1"), chosen)
+
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	require.Equal(t, route.ID("route1"), chosen, "the first direct contender must be held")
+	require.False(t, w.degradedSince.IsZero())
+
+	// the first contender was seen longer ago than the delay
+	w.degradedSince = w.degradedSince.Add(-31 * time.Second)
+
+	chosen, _ = w.getBestRouteFromStatuses(relayedAlone)
+	require.Equal(t, route.ID("route1"), chosen)
+	assert.True(t, w.degradedSince.IsZero(), "the delay must start over once no direct contender is left")
+
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	assert.Equal(t, route.ID("route1"), chosen, "a new direct contender must be held for the full delay")
+}
