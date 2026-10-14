@@ -48,7 +48,7 @@ func ToComponentSyncResponse(
 	//
 	// TODO (dmitri) consider using invariants?
 	//
-	enableSSH := computeSSHEnabledForPeer(components, peer)
+	enableSSH := components.PeerSSHEnabled(peer)
 	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
 
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
@@ -126,74 +126,4 @@ func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePr
 		}
 	}
 	return patch
-}
-
-// computeSSHEnabledForPeer mirrors the SSH-server-activation bit that
-// Calculate() folds into NetworkMap.EnableSSH. Components-format peers
-// receive a freshly-computed PeerConfig.SshConfig.SshEnabled at sync time;
-// without this helper the field would be incorrectly false for any peer
-// that's the destination of an SSH-enabling policy without having
-// peer.SSHEnabled set locally.
-//
-// Mirrors the two activation paths Calculate() uses:
-//  1. Explicit: rule.Protocol == NetbirdSSH and peer is in the rule's
-//     destinations.
-//  2. Legacy implicit: rule covers TCP/22 or TCP/22022 (or ALL), peer is in
-//     destinations, AND the peer has SSHEnabled set locally — this is the
-//     "allow-all/TCP-22 implies SSH activation for SSH-capable peers" path.
-//
-// The full SSH AuthorizedUsers map is still produced by the client when it
-// runs Calculate() over the envelope.
-func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peer *nmdata.Peer) bool {
-	if c == nil || peer == nil {
-		return false
-	}
-	// Mirror Calculate's `getAllPeersFromGroups` invariant: target peer must
-	// exist in c.Peers, otherwise no rule applies to it.
-	if _, ok := c.Peers[peer.ID]; !ok {
-		return false
-	}
-	for _, policy := range c.Policies {
-		if policy == nil || !policy.Enabled {
-			continue
-		}
-		for _, rule := range policy.Rules {
-			if ruleEnablesSSHForPeer(c, rule, peer) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// ruleEnablesSSHForPeer returns true when rule is active, targets peer, and
-// either explicitly authorises SSH or covers the legacy TCP/22 path while the
-// peer itself has SSH enabled locally.
-func ruleEnablesSSHForPeer(c *types.NetworkMapComponents, rule *nmdata.PolicyRule, peer *nmdata.Peer) bool {
-	if rule == nil || !rule.Enabled {
-		return false
-	}
-	if !peerInDestinations(c, rule, peer.ID) {
-		return false
-	}
-	if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
-		return true
-	}
-	return peer.SSHEnabled && nmdata.PolicyRuleImpliesLegacySSH(rule)
-}
-
-// peerInDestinations reports whether peerID is in any of rule.Destinations'
-// groups (or matches DestinationResource if it's a peer-typed resource —
-// for non-peer types Calculate falls through to group lookup, so we mirror
-// that exactly to avoid silent divergence).
-func peerInDestinations(c *types.NetworkMapComponents, rule *nmdata.PolicyRule, peerID string) bool {
-	if rule.DestinationResource.Type == string(types.ResourceTypePeer) && rule.DestinationResource.ID != "" {
-		return rule.DestinationResource.ID == peerID
-	}
-	for _, groupID := range rule.Destinations {
-		if c.IsPeerInGroup(peerID, groupID) {
-			return true
-		}
-	}
-	return false
 }

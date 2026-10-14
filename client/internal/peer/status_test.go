@@ -63,6 +63,34 @@ func TestUpdatePeerState(t *testing.T) {
 	assert.Equal(t, ip, state.IP, "ip should be equal")
 }
 
+func TestUpdatePeersSSHPermitted(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	require.NoError(t, status.AddPeer("a", "a.netbird.local", "10.0.0.1", ""))
+	require.NoError(t, status.AddPeer("b", "b.netbird.local", "10.0.0.2", ""))
+
+	status.UpdatePeersSSHPermitted(map[string]struct{}{"a": {}, "unknown": {}})
+
+	require.NotNil(t, status.peers["a"].SSHPermitted)
+	assert.True(t, *status.peers["a"].SSHPermitted)
+	require.NotNil(t, status.peers["b"].SSHPermitted)
+	assert.False(t, *status.peers["b"].SSHPermitted)
+	assert.NotContains(t, status.peers, "unknown")
+
+	require.NoError(t, status.UpdatePeerState(State{PubKey: "a", ConnStatus: StatusConnected, ConnStatusUpdate: time.Now()}))
+	require.NotNil(t, status.peers["a"].SSHPermitted)
+	assert.True(t, *status.peers["a"].SSHPermitted)
+
+	pb := status.GetFullStatus().ToProto()
+	for _, p := range pb.Peers {
+		require.NotNil(t, p.SshPermitted)
+		assert.Equal(t, p.PubKey == "a", p.GetSshPermitted())
+	}
+
+	status.UpdatePeersSSHPermitted(nil)
+	assert.Nil(t, status.peers["a"].SSHPermitted)
+	assert.Nil(t, status.peers["b"].SSHPermitted)
+}
+
 func TestStatus_PeerStateByIP(t *testing.T) {
 	status := NewRecorder("https://mgm")
 	req := require.New(t)

@@ -289,7 +289,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				default:
 					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && nmdata.PolicyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
+			} else if peerInDestinations && sshActivatedBy(rule, targetPeer) {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 			}
@@ -298,6 +298,93 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 
 	peers, fwRules := getAccumulatedResources()
 	return peers, fwRules, authorizedUsers, sshEnabled
+}
+
+// PeerSSHEnabled reports whether any enabled rule activates the NetBird SSH server of peer.
+func (c *NetworkMapComponents) PeerSSHEnabled(peer *nmdata.Peer) bool {
+	if c == nil || peer == nil {
+		return false
+	}
+	if _, ok := c.Peers[peer.ID]; !ok {
+		return false
+	}
+	for _, policy := range c.Policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled || !sshActivatedBy(rule, peer) {
+				continue
+			}
+			if c.peerInRuleSide(rule.DestinationResource, rule.Destinations, peer.ID, nil) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SSHTargetPeerIDs returns the remote peers to which the local peer (c.PeerID) is a source
+// of an enabled rule that activates the remote peer's NetBird SSH server, limited to remote
+// peers with Meta.Flags.ServerSSHAllowed set. It reflects policy only, not whether the
+// logged-in user is authorized, and does not apply the login expiration filter of Calculate.
+func (c *NetworkMapComponents) SSHTargetPeerIDs() map[string]struct{} {
+	if c == nil {
+		return nil
+	}
+	targets := make(map[string]struct{})
+	for _, policy := range c.Policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled {
+				continue
+			}
+			if rule.Protocol != string(PolicyRuleProtocolNetbirdSSH) && !nmdata.PolicyRuleImpliesLegacySSH(rule) {
+				continue
+			}
+			if !c.peerInRuleSide(rule.SourceResource, rule.Sources, c.PeerID, policy.SourcePostureChecks) {
+				continue
+			}
+			var destinationPeers []*nmdata.Peer
+			if rule.DestinationResource.Type == string(ResourceTypePeer) && rule.DestinationResource.ID != "" {
+				destinationPeers, _ = c.getPeerFromResource(rule.DestinationResource, c.PeerID, nil)
+			} else {
+				destinationPeers, _ = c.getAllPeersFromGroups(rule.Destinations, c.PeerID, nil)
+			}
+			for _, p := range destinationPeers {
+				if sshActivatedBy(rule, p) && p.Meta.Flags.ServerSSHAllowed {
+					targets[p.ID] = struct{}{}
+				}
+			}
+		}
+	}
+	return targets
+}
+
+// sshActivatedBy reports whether rule activates the NetBird SSH server of dst, either
+// through the explicit SSH protocol or the legacy implicit port coverage.
+func sshActivatedBy(rule *nmdata.PolicyRule, dst *nmdata.Peer) bool {
+	return rule.Protocol == string(PolicyRuleProtocolNetbirdSSH) ||
+		(dst.SSHEnabled && nmdata.PolicyRuleImpliesLegacySSH(rule))
+}
+
+// peerInRuleSide reports whether peerID is on one side of a rule, resolved the same way
+// Calculate does, and passes postureCheckIDs.
+func (c *NetworkMapComponents) peerInRuleSide(resource nmdata.Resource, groups []string, peerID string, postureCheckIDs []string) bool {
+	if resource.Type == string(ResourceTypePeer) && resource.ID != "" {
+		if resource.ID != peerID {
+			return false
+		}
+		return c.ValidatePostureChecksOnPeer(peerID, postureCheckIDs)
+	}
+	for _, groupID := range groups {
+		if c.IsPeerInGroup(peerID, groupID) {
+			return c.ValidatePostureChecksOnPeer(peerID, postureCheckIDs)
+		}
+	}
+	return false
 }
 
 func (c *NetworkMapComponents) getAllowedUserIDs() map[string]struct{} {

@@ -1507,8 +1507,10 @@ type PeerState struct {
 	RelayAddress               string                 `protobuf:"bytes,18,opt,name=relayAddress,proto3" json:"relayAddress,omitempty"`
 	SshHostKey                 []byte                 `protobuf:"bytes,19,opt,name=sshHostKey,proto3" json:"sshHostKey,omitempty"`
 	Ipv6                       string                 `protobuf:"bytes,20,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// sshPermitted is unset when the network map format does not carry the information.
+	SshPermitted  *bool `protobuf:"varint,21,opt,name=sshPermitted,proto3,oneof" json:"sshPermitted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PeerState) Reset() {
@@ -1672,6 +1674,13 @@ func (x *PeerState) GetIpv6() string {
 		return x.Ipv6
 	}
 	return ""
+}
+
+func (x *PeerState) GetSshPermitted() bool {
+	if x != nil && x.SshPermitted != nil {
+		return *x.SshPermitted
+	}
+	return false
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -7240,7 +7249,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\x12!\n" +
 	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12,\n" +
 	"\x11remoteJobsAllowed\x18\x1d \x01(\bR\x11remoteJobsAllowed\x12*\n" +
-	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\x92\x06\n" +
+	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\xcc\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -7265,7 +7274,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"sshHostKey\x18\x13 \x01(\fR\n" +
 	"sshHostKey\x12\x12\n" +
-	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\x9c\x02\n" +
+	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\x12'\n" +
+	"\fsshPermitted\x18\x15 \x01(\bH\x00R\fsshPermitted\x88\x01\x01B\x0f\n" +
+	"\r_sshPermitted\"\x9c\x02\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -8036,6 +8047,7 @@ func file_daemon_proto_init() {
 	file_daemon_proto_msgTypes[1].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[5].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[7].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[13].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[28].OneofWrappers = []any{
 		(*PortInfo_Port)(nil),
 		(*PortInfo_Range_)(nil),

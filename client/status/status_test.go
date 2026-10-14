@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -693,6 +694,47 @@ func TestSessionExpiresLineOmittedWhenNil(t *testing.T) {
 	in.SessionExpiresAt = nil
 	out := in.GeneralSummary(false, false, false, false)
 	assert.NotContains(t, out, "Session expires")
+}
+
+func TestSSHPermittedRendered(t *testing.T) {
+	permitted, denied := true, false
+	in := overview
+	in.Peers.Details = append([]PeerStateDetailOutput(nil), overview.Peers.Details...)
+	in.Peers.Details[0].SSHPermitted = &permitted
+	in.Peers.Details[1].SSHPermitted = &denied
+
+	detail := in.FullDetailSummary()
+	assert.Equal(t, 1, strings.Count(detail, "  NetBird SSH: permitted\n"))
+	assert.Equal(t, 1, strings.Count(detail, "  NetBird SSH: not permitted\n"))
+
+	jsonString, err := in.JSON()
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(jsonString, `"sshPermitted":true`))
+	assert.Equal(t, 1, strings.Count(jsonString, `"sshPermitted":false`))
+
+	assert.NotContains(t, overview.FullDetailSummary(), "NetBird SSH")
+	unsetJSON, err := overview.JSON()
+	require.NoError(t, err)
+	assert.NotContains(t, unsetJSON, "sshPermitted")
+}
+
+func TestSSHPermittedFromProto(t *testing.T) {
+	permitted := true
+	fs := &proto.FullStatus{
+		ManagementState: &proto.ManagementState{},
+		SignalState:     &proto.SignalState{},
+		LocalPeerState:  &proto.LocalPeerState{},
+		Peers: []*proto.PeerState{
+			{IP: "10.0.0.1", PubKey: "a", ConnStatus: "Connected", SshPermitted: &permitted},
+			{IP: "10.0.0.2", PubKey: "b", ConnStatus: "Connected"},
+		},
+	}
+
+	out := ConvertToStatusOutputOverview(fs, ConvertOptions{})
+	require.Len(t, out.Peers.Details, 2)
+	require.NotNil(t, out.Peers.Details[0].SSHPermitted)
+	assert.True(t, *out.Peers.Details[0].SSHPermitted)
+	assert.Nil(t, out.Peers.Details[1].SSHPermitted)
 }
 
 func TestMapRelaysTransport(t *testing.T) {

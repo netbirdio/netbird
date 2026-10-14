@@ -1104,6 +1104,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
+	var sshPermitted map[string]struct{}
+	if components != nil {
+		sshPermitted = components.SSHTargetPeerIDs()
+	}
+	e.statusRecorder.UpdatePeersSSHPermitted(sshPermitted)
+
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil

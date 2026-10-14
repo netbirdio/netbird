@@ -81,6 +81,7 @@ type PeerStateDetailOutput struct {
 	Latency                time.Duration    `json:"latency" yaml:"latency"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 	Networks               []string         `json:"networks" yaml:"networks"`
+	SSHPermitted           *bool            `json:"sshPermitted,omitempty" yaml:"sshPermitted,omitempty"`
 }
 
 type PeersStateOutput struct {
@@ -368,6 +369,7 @@ func mapPeers(
 			Latency:                pbPeerState.GetLatency().AsDuration(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
 			Networks:               pbPeerState.GetNetworks(),
+			SSHPermitted:           pbPeerState.SshPermitted,
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -715,6 +717,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			SshPermitted:               peerState.SSHPermitted,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
@@ -810,6 +813,14 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			ipv6Line = fmt.Sprintf("  NetBird IPv6: %s\n", peerState.IPv6)
 		}
 
+		sshLine := ""
+		if peerState.SSHPermitted != nil {
+			sshLine = "  NetBird SSH: permitted\n"
+			if !*peerState.SSHPermitted {
+				sshLine = "  NetBird SSH: not permitted\n"
+			}
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -826,7 +837,8 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Transfer status (received/sent) %s/%s\n"+
 				"  Quantum resistance: %s\n"+
 				"  Networks: %s\n"+
-				"  Latency: %s\n",
+				"  Latency: %s\n"+
+				"%s",
 			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
 			ipv6Line,
@@ -845,6 +857,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			rosenpassEnabledStatus,
 			networks,
 			peerState.Latency.String(),
+			sshLine,
 		)
 
 		peersString += peerString

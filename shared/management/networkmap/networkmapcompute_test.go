@@ -1662,3 +1662,34 @@ func TestNetworkMapData_GetPeerGroups(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{"g-1": {}, "g-2": {}}, nmd.GetPeerGroups(targetID))
 	assert.Empty(t, nmd.GetPeerGroups("missing"))
 }
+
+func TestSSHTargetPeerIDs_ConsistentWithPeerSSHEnabled(t *testing.T) {
+	admin := newPeer("peer-admin", 1)
+	legacyOn := newPeer("peer-legacy-on", 2)
+	legacyOn.SSHEnabled = true
+	legacyOff := newPeer("peer-legacy-off", 3)
+	explicit := newPeer("peer-explicit", 4)
+	for _, p := range []*nmdata.Peer{legacyOn, legacyOff, explicit} {
+		p.Meta.Flags.ServerSSHAllowed = true
+	}
+
+	nmd := newNMD(admin, legacyOn, legacyOff, explicit)
+	addGroup(nmd, "g-adm", admin.ID)
+	addGroup(nmd, "g-legacy", legacyOn.ID, legacyOff.ID)
+	addGroup(nmd, "g-explicit", explicit.ID)
+	legacy := newRule([]string{"g-adm"}, []string{"g-legacy"})
+	legacy.Ports = []string{"22"}
+	sshRule := newRule([]string{"g-adm"}, []string{"g-explicit"})
+	sshRule.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+	nmd.Policies = []*nmdata.Policy{newPolicy("p-1", legacy), newPolicy("p-2", sshRule)}
+
+	targetsOfAdmin := compute(nmd, admin.ID).SSHTargetPeerIDs()
+	assert.Equal(t, map[string]struct{}{legacyOn.ID: {}, explicit.ID: {}}, targetsOfAdmin)
+
+	for id := range nmd.Peers {
+		for targetID := range compute(nmd, id).SSHTargetPeerIDs() {
+			assert.True(t, compute(nmd, targetID).PeerSSHEnabled(nmd.Peers[targetID]),
+				"%s targets %s which does not have SSH enabled", id, targetID)
+		}
+	}
+}

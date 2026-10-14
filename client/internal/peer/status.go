@@ -71,7 +71,9 @@ type State struct {
 	Latency                    time.Duration
 	RosenpassEnabled           bool
 	SSHHostKey                 []byte
-	routes                     map[string]struct{}
+	// SSHPermitted reports whether policy lets the local peer reach this peer's NetBird SSH server; nil means unknown.
+	SSHPermitted *bool
+	routes       map[string]struct{}
 }
 
 // AddRoute add a single route to routes map
@@ -700,6 +702,23 @@ func (d *Status) UpdatePeerSSHHostKey(peerPubKey string, sshHostKey []byte) erro
 	d.peers[peerPubKey] = peerState
 
 	return nil
+}
+
+// UpdatePeersSSHPermitted sets for every peer whether policy permits NetBird SSH access to it.
+// A nil map marks the flag as unknown for all peers, as the network map format does not carry the information.
+func (d *Status) UpdatePeersSSHPermitted(permitted map[string]struct{}) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	for key, peerState := range d.peers {
+		if permitted == nil {
+			peerState.SSHPermitted = nil
+		} else {
+			_, ok := permitted[key]
+			peerState.SSHPermitted = &ok
+		}
+		d.peers[key] = peerState
+	}
 }
 
 // FinishPeerListModifications this event invoke the notification
@@ -1587,6 +1606,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			Networks:                   networks,
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			SshPermitted:               peerState.SSHPermitted,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
