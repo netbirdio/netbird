@@ -31,6 +31,7 @@ import {
     MonitorIcon,
     Radio,
     RefreshCwIcon,
+    TerminalIcon,
     WaypointsIcon,
 } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
@@ -338,6 +339,15 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                 <Row icon={GaugeIcon} label={t("peers.details.latency")}>
                     <span className={cn("tabular-nums", latencyColor(peer.latencyMs))}>
                         {peer.latencyMs} ms
+                    </span>
+                </Row>
+            )}
+            {peer.sshPermitted != null && (
+                <Row icon={TerminalIcon} label={t("peers.details.netbirdSsh")}>
+                    <span className={"whitespace-nowrap"}>
+                        {peer.sshPermitted
+                            ? t("peers.details.sshPermitted")
+                            : t("peers.details.sshNotPermitted")}
                     </span>
                 </Row>
             )}

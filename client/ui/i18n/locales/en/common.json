@@ -1599,6 +1599,18 @@
         "message": "Latency",
         "description": "Peer detail label: Latency."
     },
+    "peers.details.netbirdSsh": {
+        "message": "NetBird SSH",
+        "description": "Peer detail label: whether policy permits this peer to reach the remote peer's NetBird SSH server. Keep NetBird verbatim."
+    },
+    "peers.details.sshPermitted": {
+        "message": "Permitted",
+        "description": "Peer detail value: policy permits SSH access to this peer."
+    },
+    "peers.details.sshNotPermitted": {
+        "message": "Not permitted",
+        "description": "Peer detail value: policy does not permit SSH access to this peer."
+    },
     "peers.details.lastHandshake": {
         "message": "Last handshake",
         "description": "Peer detail label: time of the last WireGuard handshake."

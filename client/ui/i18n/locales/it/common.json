@@ -1201,6 +1201,15 @@
     "peers.details.latency": {
         "message": "Latenza"
     },
+    "peers.details.netbirdSsh": {
+        "message": "NetBird SSH"
+    },
+    "peers.details.sshPermitted": {
+        "message": "Consentito"
+    },
+    "peers.details.sshNotPermitted": {
+        "message": "Non consentito"
+    },
     "peers.details.lastHandshake": {
         "message": "Ultimo handshake"
     },

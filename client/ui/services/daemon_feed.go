@@ -88,6 +88,7 @@ type PeerStatus struct {
 	LastHandshakeUnix          int64    `json:"lastHandshakeUnix"`
 	RosenpassEnabled           bool     `json:"rosenpassEnabled"`
 	Networks                   []string `json:"networks"`
+	SSHPermitted               *bool    `json:"sshPermitted,omitempty"`
 }
 
 // PeerLink is this peer's connection to its mgmt or signal server.
@@ -544,6 +545,7 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 			LastHandshakeUnix:          p.GetLastWireguardHandshake().GetSeconds(),
 			RosenpassEnabled:           p.GetRosenpassEnabled(),
 			Networks:                   append([]string{}, p.GetNetworks()...),
+			SSHPermitted:               p.SshPermitted,
 		})
 	}
 	for _, e := range full.GetEvents() {
