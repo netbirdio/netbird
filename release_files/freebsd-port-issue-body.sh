@@ -46,8 +46,11 @@ OUTPUT_DIR="${OUTPUT_DIR:-.}"
 fetch_releases_between_versions() {
     echo "Fetching release history from GitHub..." >&2
 
+    local tags
+    tags=$(fetch_stable_tags) || return 1
+
     # List the stable releases after OLD up to and including NEW
-    fetch_stable_tags | \
+    echo "$tags" | \
         while read -r ver; do
             if [[ "$(printf '%s\n' "$OLD_VERSION" "$ver" | sort -V | head -n1)" = "$OLD_VERSION" ]] && \
                [[ "$(printf '%s\n' "$ver" "$NEW_VERSION" | sort -V | head -n1)" = "$ver" ]] && \
@@ -60,7 +63,7 @@ fetch_releases_between_versions() {
 
 generate_changelog_section() {
     local releases
-    releases=$(fetch_releases_between_versions)
+    releases=$(fetch_releases_between_versions) || return 1
 
     echo "Changelogs:"
     if [[ -n "$releases" ]]; then
@@ -75,6 +78,9 @@ generate_changelog_section() {
 
 OUTPUT_FILE="${OUTPUT_DIR}/netbird-${NEW_VERSION}-issue.txt"
 
+# Built before the heredoc: a failing substitution inside it would not stop the script.
+CHANGELOG=$(generate_changelog_section)
+
 cat << EOT > "$OUTPUT_FILE"
 BUGZILLA ISSUE DETAILS
 ======================
@@ -87,7 +93,7 @@ Description:
 ------------
 security/netbird: Update ${OLD_VERSION} => ${NEW_VERSION}
 
-$(generate_changelog_section)
+${CHANGELOG}
 
 Commit log:
 https://github.com/${GITHUB_REPO}/compare/v${OLD_VERSION}...v${NEW_VERSION}

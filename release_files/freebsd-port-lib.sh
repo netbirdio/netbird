@@ -40,11 +40,12 @@ fetch_stable_tags() {
 # latest stable release from GitHub when none was given. A leading "v" is
 # accepted so a git tag name can be passed as is.
 resolve_target_version() {
-    local requested="${1#v}"
+    local raw="$1"
+    local requested="${raw#v}"
 
-    if [[ -n "$requested" ]]; then
+    if [[ -n "$raw" ]]; then
         if ! is_stable_version "$requested"; then
-            echo "Error: ${requested} is not a stable release. The FreeBSD port only tracks MAJOR.MINOR.PATCH versions." >&2
+            echo "Error: '${raw}' is not a stable release. The FreeBSD port only tracks MAJOR.MINOR.PATCH versions." >&2
             return 1
         fi
         echo "$requested"
