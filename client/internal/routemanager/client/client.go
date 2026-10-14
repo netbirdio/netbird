@@ -704,19 +704,23 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	return nil
 }
 
-// shouldSkipRecalculation checks if we can skip route recalculation for the same route without status changes
-func (w *Watcher) shouldSkipRecalculation(newChosenID route.ID, newStatus routerPeerStatus) bool {
-	if w.currentChosen == nil {
+// keepChosenRoute reports whether the evaluation keeps the current route, with
+// the same definition, on the same routing peer. A status change of that peer
+// is recorded without touching its allowed IPs: they are already in place, and
+// removing them to add them back leaves the prefix without an owner in between.
+func (w *Watcher) keepChosenRoute(newChosenID route.ID, newStatus routerPeerStatus) bool {
+	if w.currentChosen == nil || w.currentChosen.ID != newChosenID {
 		return false
 	}
 
-	isSameRoute := w.currentChosen.ID == newChosenID && w.currentChosen.Equal(w.routes[newChosenID])
-	if !isSameRoute {
+	newChosenRoute := w.routes[newChosenID]
+	if !w.currentChosen.Equal(newChosenRoute) {
 		return false
 	}
 
-	if w.currentChosenStatus != nil {
-		return w.currentChosenStatus.status == newStatus.status
+	if w.currentChosenStatus != nil && w.currentChosenStatus.status != newStatus.status {
+		w.currentChosen = newChosenRoute
+		w.currentChosenStatus = &newStatus
 	}
 
 	return true
@@ -746,8 +750,7 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 		return nil
 	}
 
-	// If we can skip recalculation for the same route without changes, do nothing
-	if w.shouldSkipRecalculation(newChosenID, newStatus) {
+	if w.keepChosenRoute(newChosenID, newStatus) {
 		return nil
 	}
 
@@ -760,15 +763,6 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 		w.switchReason = switchReasonRouteChanged
 		log.Warnf("switching routing peer for network [%v] from %s to %s: %s",
 			w.handler, previous.Peer, newChosenRoute.Peer, w.switchReason)
-	}
-
-	// Only the routing peer's status changed: its allowed IPs are already in
-	// place, and removing them to add them back leaves the prefix without an
-	// owner in between.
-	if !switched && previous.Equal(newChosenRoute) {
-		w.currentChosen = newChosenRoute
-		w.currentChosenStatus = &newStatus
-		return nil
 	}
 
 	// If the chosen route was assigned to a different peer, remove the allowed IPs first
