@@ -35,11 +35,7 @@ func parseBackupResolvConf() (*resolvConf, error) {
 }
 
 func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
-	rconf := &resolvConf{
-		searchDomains: make([]string, 0),
-		nameServers:   make([]netip.Addr, 0),
-		others:        make([]string, 0),
-	}
+	rconf := newResolvConf()
 
 	file, err := os.Open(resolvConfFile)
 	if err != nil {
@@ -55,6 +51,14 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	if err != nil {
 		return rconf, fmt.Errorf("failed to read %s file: %w", resolvConfFile, err)
 	}
+
+	return parseResolvConf(cur)
+}
+
+// parseResolvConf parses resolv.conf content. The returned config is never nil, so callers can
+// fall back to its empty lists on error.
+func parseResolvConf(cur []byte) (*resolvConf, error) {
+	rconf := newResolvConf()
 
 	if len(cur) == 0 {
 		return rconf, fmt.Errorf("file is empty")
@@ -108,4 +112,12 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 		}
 	}
 	return rconf, nil
+}
+
+func newResolvConf() *resolvConf {
+	return &resolvConf{
+		searchDomains: make([]string, 0),
+		nameServers:   make([]netip.Addr, 0),
+		others:        make([]string, 0),
+	}
 }
