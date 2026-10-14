@@ -7,7 +7,7 @@
 # candidate and any other prerelease tag.
 
 GITHUB_REPO="netbirdio/netbird"
-GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}"
+GITHUB_REPO_URL="https://github.com/${GITHUB_REPO}.git"
 PORTS_MIRROR_BASE="https://raw.githubusercontent.com/freebsd/freebsd-ports/main/security/netbird"
 STABLE_VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 
@@ -17,24 +17,17 @@ is_stable_version() {
 }
 
 # fetch_stable_tags prints the stable release versions known to GitHub, oldest
-# first. GITHUB_TOKEN is used when set so CI runs are not rate limited.
+# first. git ls-remote returns every tag in one round trip, with no API
+# pagination or rate limit to work around.
 fetch_stable_tags() {
-    local -a auth=()
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-    fi
-
-    local tags
-    if ! tags=$(curl -fsL --proto '=https' --proto-redir '=https' --retry 3 \
-            -H "Accept: application/vnd.github+json" "${auth[@]}" \
-            "${GITHUB_API}/tags?per_page=100" 2>/dev/null); then
-        echo "Error: Could not fetch tags from GitHub" >&2
+    local refs
+    if ! refs=$(git ls-remote --tags --refs "$GITHUB_REPO_URL" 2>/dev/null); then
+        echo "Error: Could not list tags of ${GITHUB_REPO_URL}" >&2
         return 1
     fi
 
-    echo "$tags" | \
-        grep -oE '"name": *"v[0-9]+\.[0-9]+\.[0-9]+"' | \
-        sed -E 's/.*"v([0-9]+\.[0-9]+\.[0-9]+)".*/\1/' | \
+    echo "$refs" | \
+        sed -nE 's#.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' | \
         sort -u -V
     return 0
 }

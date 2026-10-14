@@ -34,8 +34,9 @@ compute_checksums() {
     local mod_file="${tmpdir}/v${version}.mod"
     local zip_file="${tmpdir}/v${version}.zip"
 
-    if ! curl -fsL --retry 3 "${GO_PROXY}/v${version}.mod" -o "$mod_file" 2>/dev/null || \
-       ! curl -fsL --retry 3 "${GO_PROXY}/v${version}.zip" -o "$zip_file" 2>/dev/null; then
+    local -a curl_opts=(-fsL --proto '=https' --proto-redir '=https' --retry 3)
+    if ! curl "${curl_opts[@]}" "${GO_PROXY}/v${version}.mod" -o "$mod_file" 2>/dev/null || \
+       ! curl "${curl_opts[@]}" "${GO_PROXY}/v${version}.zip" -o "$zip_file" 2>/dev/null; then
         echo "Error: Could not download v${version} from the Go module proxy" >&2
         return 1
     fi

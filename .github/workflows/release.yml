@@ -23,6 +23,156 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  freebsd_port_trigger:
+    name: "FreeBSD Port / Trigger"
+    runs-on: ubuntu-22.04
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Decide whether the port job runs
+        id: decide
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          run=false
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+                run=true
+              elif [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != *-* ]]; then
+                # The port tracks stable releases only, so a canary or rc tag has nothing to submit.
+                run=true
+                echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            pull_request)
+              git fetch --depth=1 origin "$BASE_SHA"
+              if git diff --name-only "$BASE_SHA" HEAD | \
+                  grep -qE '^(release_files/freebsd-port-.*\.sh|\.github/workflows/release\.yml)$'; then
+                run=true
+              fi
+              ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "FreeBSD port job runs: $run"
+
+  release_freebsd_port:
+    name: "FreeBSD Port / Build & Test"
+    needs: freebsd_port_trigger
+    if: needs.freebsd_port_trigger.outputs.run == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Generate FreeBSD port diff
+        env:
+          TARGET_VERSION: ${{ needs.freebsd_port_trigger.outputs.version }}
+        run: bash -x release_files/freebsd-port-diff.sh "$TARGET_VERSION"
+
+      - name: Check if diff was generated
+        id: check_diff
+        run: |
+          if ls netbird-*.diff 1> /dev/null 2>&1; then
+            echo "diff_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "diff_exists=false" >> $GITHUB_OUTPUT
+            echo "No diff file generated (port may already be up to date)"
+          fi
+
+      - name: Extract version
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        id: version
+        run: |
+          VERSION=$(ls netbird-*.diff | sed 's/netbird-\(.*\)\.diff/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated files for version: $VERSION"
+          cat netbird-*.diff
+
+      - name: Generate FreeBSD port issue body
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.version }}
+        run: bash -x release_files/freebsd-port-issue-body.sh "" "$TARGET_VERSION"
+
+      - name: Read Go version from go.mod
+        id: goversion
+        run: echo "version=$(awk '/^go / {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+
+      - name: Test FreeBSD port
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        env:
+          GO_VERSION: ${{ steps.goversion.outputs.version }}
+        uses: vmactions/freebsd-vm@b84ab5559b5a1bb4b8ee2737d2506a16e1737636 # v1.4.8
+        with:
+          usesh: true
+          copyback: false
+          release: "15.1"
+          envs: "GO_VERSION"
+          prepare: |
+            # Install required packages
+            pkg install -y git curl portlint
+
+            # Install Go for building
+            GO_TARBALL="go${GO_VERSION}.freebsd-amd64.tar.gz"
+            GO_URL="https://go.dev/dl/$GO_TARBALL"
+            curl -LO "$GO_URL"
+            tar -C /usr/local -xzf "$GO_TARBALL"
+
+            # Clone ports tree (shallow, only what we need)
+            git clone --depth 1 --filter=blob:none https://git.FreeBSD.org/ports.git /usr/ports
+            cd /usr/ports
+
+          run: |
+            set -e -x
+            export PATH=$PATH:/usr/local/go/bin
+
+            # Find the diff file
+            echo "Finding diff file..."
+            DIFF_FILE=$(find $PWD -name "netbird-*.diff" -type f 2>/dev/null | head -1)
+            echo "Found: $DIFF_FILE"
+
+            if [[ -z "$DIFF_FILE" ]]; then
+              echo "ERROR: Could not find diff file"
+              find ~ -name "*.diff" -type f 2>/dev/null || true
+              exit 1
+            fi
+
+            # Apply the generated diff from /usr/ports (diff has a/security/netbird/... paths)
+            cd /usr/ports
+            patch -p1 -V none < "$DIFF_FILE"
+
+            # Show patched Makefile
+            version=$(cat security/netbird/Makefile | grep -E '^DISTVERSION=' | awk '{print $NF}')
+
+            cd /usr/ports/security/netbird
+            export BATCH=yes
+            make package
+            pkg add ./work/pkg/netbird-*.pkg
+
+            netbird version | grep "$version"
+
+            echo "FreeBSD port test completed successfully!"
+
+      - name: Upload FreeBSD port files
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: freebsd-port-files
+          path: |
+            ./netbird-*-issue.txt
+            ./netbird-*.diff
+          retention-days: 30
+
   release:
     runs-on: ubuntu-24.04-8-core
     outputs:
