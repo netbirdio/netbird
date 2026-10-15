@@ -97,6 +97,7 @@ func Test_freePort(t *testing.T) {
 	})
 }
 
+// TestLoginOrReRegister checks when a denied login is retried through Register, against a mock management client.
 func TestLoginOrReRegister(t *testing.T) {
 	denied := gstatus.Error(codes.PermissionDenied, "peer is not registered")
 	unavailable := gstatus.Error(codes.Unavailable, "management unreachable")
@@ -204,6 +205,7 @@ func TestLoginOrReRegister(t *testing.T) {
 	}
 }
 
+// TestReRegisterWithEnvSetupKey checks how the retry reads NB_SETUP_KEY and reports a failed Register.
 func TestReRegisterWithEnvSetupKey(t *testing.T) {
 	pubSSHKey := []byte("ssh-stub")
 	config := &profilemanager.Config{}
