@@ -51,7 +51,7 @@ func TestCollect_ProvesOneMatchingCertificatePerChallenge(t *testing.T) {
 		challenge("not a pem"),
 	}
 
-	proofs := Collect(context.Background(), NewFileStore(dir), checks, peerKey)
+	proofs := Collect(context.Background(), newFileStore(dir), checks, peerKey)
 
 	require.Len(t, proofs, 2)
 	var subjects []string
@@ -74,10 +74,10 @@ func TestCollect_NothingToProve(t *testing.T) {
 		store  Store
 		checks []*proto.Checks
 	}{
-		{"no checks", NewFileStore(dir), nil},
-		{"files only", NewFileStore(dir), []*proto.Checks{{Files: []string{"/bin/x"}}}},
-		{"challenge without nonce", NewFileStore(dir), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{CaCertificates: []string{ca.PEM}}}}},
-		{"missing store dir", NewFileStore(filepath.Join(dir, "missing")), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: make([]byte, certposture.NonceSize), CaCertificates: []string{ca.PEM}}}}},
+		{"no checks", newFileStore(dir), nil},
+		{"files only", newFileStore(dir), []*proto.Checks{{Files: []string{"/bin/x"}}}},
+		{"challenge without nonce", newFileStore(dir), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{CaCertificates: []string{ca.PEM}}}}},
+		{"missing store dir", newFileStore(filepath.Join(dir, "missing")), []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: make([]byte, certposture.NonceSize), CaCertificates: []string{ca.PEM}}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestFileStore_ChainWithIntermediate(t *testing.T) {
 	dir := storeDir(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(leaf)+certtest.CertPEM(intermediate.Cert)+certtest.KeyPEM(t, key))
 
-	candidates, err := NewFileStore(dir).Candidates(context.Background())
+	candidates, err := newFileStore(dir).Candidates(context.Background())
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	require.Len(t, candidates[0].Chain, 2)
@@ -124,7 +124,7 @@ func TestCollectChallenges_RefusesMalformedInput(t *testing.T) {
 	dir := storeDir(t)
 	key := certtest.ECDSAKey(t)
 	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
-	store := NewFileStore(dir)
+	store := newFileStore(dir)
 	nonce := certposture.NewChallenger([]byte("secret")).Nonce(peerKey, time.Now())
 
 	tests := []struct {
@@ -159,7 +159,7 @@ func TestFileStore_SkipsKeyOfAnotherCertificate(t *testing.T) {
 	good := ca.Issue(t, goodKey, "good")
 	writeFile(t, dir, "b-good.pem", certtest.CertPEM(good)+certtest.KeyPEM(t, goodKey))
 
-	candidates, err := NewFileStore(dir).Candidates(context.Background())
+	candidates, err := newFileStore(dir).Candidates(context.Background())
 	require.NoError(t, err)
 	require.Len(t, candidates, 1, "only the certificate whose key matches is a candidate")
 	assert.True(t, good.Equal(candidates[0].Chain[0]), "the matching pair is kept")
@@ -167,7 +167,7 @@ func TestFileStore_SkipsKeyOfAnotherCertificate(t *testing.T) {
 	challenger := certposture.NewChallenger([]byte("secret"))
 	now := time.Now()
 	nonce := challenger.Nonce(peerKey, now)
-	proofs := CollectChallenges(context.Background(), NewFileStore(dir), []*proto.CertificateChallenge{{Nonce: nonce, CaCertificates: []string{ca.PEM}}}, peerKey)
+	proofs := CollectChallenges(context.Background(), newFileStore(dir), []*proto.CertificateChallenge{{Nonce: nonce, CaCertificates: []string{ca.PEM}}}, peerKey)
 	require.Len(t, proofs, 1)
 	_, err = challenger.Verify(proofs[0], peerKey, now)
 	assert.NoError(t, err, "the proof sent is one management accepts")
