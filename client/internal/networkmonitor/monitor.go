@@ -53,23 +53,9 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 	var nexthop4, nexthop6 systemops.Nexthop
 
 	operation := func() error {
-		var errv4, errv6 error
-		nexthop4, errv4 = systemops.GetNextHop(netip.IPv4Unspecified())
-		nexthop6, errv6 = systemops.GetNextHop(netip.IPv6Unspecified())
-
-		if errv4 != nil && errv6 != nil {
-			return errors.New("failed to get default next hops")
-		}
-
-		if errv4 == nil {
-			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4.IP, nexthop4.Intf.Name)
-		}
-		if errv6 == nil {
-			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6.IP, nexthop6.Intf.Name)
-		}
-
-		// continue if either route was found
-		return nil
+		var err error
+		nexthop4, nexthop6, err = readNextHops()
+		return err
 	}
 
 	expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
@@ -133,4 +119,24 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 		default:
 		}
 	}
+}
+
+// readNextHops returns the current underlay default next hops. It fails only
+// when neither family has one.
+func readNextHops() (systemops.Nexthop, systemops.Nexthop, error) {
+	nexthop4, errv4 := systemops.GetNextHop(netip.IPv4Unspecified())
+	nexthop6, errv6 := systemops.GetNextHop(netip.IPv6Unspecified())
+
+	if errv4 != nil && errv6 != nil {
+		return nexthop4, nexthop6, errors.New("failed to get default next hops")
+	}
+
+	if errv4 == nil {
+		log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4.IP, nexthop4.Intf.Name)
+	}
+	if errv6 == nil {
+		log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6.IP, nexthop6.Intf.Name)
+	}
+
+	return nexthop4, nexthop6, nil
 }
