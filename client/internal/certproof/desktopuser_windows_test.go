@@ -26,10 +26,10 @@ func TestSameAccountName(t *testing.T) {
 	}
 }
 
-// CurrentDesktopUser against the real session manager: an owner no session belongs to
+// currentDesktopUser against the real session manager: an owner no session belongs to
 // must never yield a session, whoever else is signed in.
 func TestCurrentDesktopUser_UnknownOwnerHasNoSession(t *testing.T) {
-	user, ok := CurrentDesktopUser(`NO-SUCH-DOMAIN\no-such-user-netbird`)
+	user, ok := currentDesktopUser(`NO-SUCH-DOMAIN\no-such-user-netbird`)
 	if ok {
 		user.Close()
 	}
@@ -44,14 +44,14 @@ func TestCurrentDesktopUser_FindsTheOwnersSession(t *testing.T) {
 	if owner == "" {
 		t.Skip("set NB_TEST_DESKTOP_OWNER to a signed-in account and run as LocalSystem")
 	}
-	user, ok := CurrentDesktopUser(owner)
+	user, ok := currentDesktopUser(owner)
 	require.True(t, ok, "the signed-in owner %s must have a session", owner)
 	defer user.Close()
 	t.Logf("owner %s resolved to session %d as %s", owner, user.Session, user.Name)
 	assert.True(t, sameAccountName(user.Name, owner), "the session found belongs to %s, not %s", owner, user.Name)
 	assert.NotZero(t, user.Session, "session 0 hosts services and never belongs to the owner")
 
-	console, consoleOK := CurrentDesktopUser("")
+	console, consoleOK := currentDesktopUser("")
 	if consoleOK {
 		defer console.Close()
 		t.Logf("without an owner the console user counts: session %d as %s", console.Session, console.Name)

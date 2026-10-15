@@ -1821,6 +1821,7 @@ components:
         ca_certificates:
           description: PEM encoded CA certificates the peer's certificate must chain to
           type: array
+          minItems: 1
           items:
             type: string
           example: ["-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"]

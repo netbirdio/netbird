@@ -51,7 +51,7 @@ func UserContext(cfg Config) string {
 	if !runningAsLocalSystem() || cfg.OwnerUnknown {
 		return ""
 	}
-	user, ok := CurrentDesktopUser(cfg.ProfileOwner)
+	user, ok := currentDesktopUser(cfg.ProfileOwner)
 	if !ok {
 		return ""
 	}
@@ -62,14 +62,14 @@ func UserContext(cfg Config) string {
 // helperStore is the store the helper reads. It runs as the signed-in user, so it wants
 // that user's store rather than the machine store the service already read.
 func helperStore() Store {
-	return NewUserStore()
+	return newUserStore()
 }
 
 // collectAsDesktopUser runs the helper inside the interactive session of the signed-in
 // user. Unlike a keychain on macOS, a Windows service can assume a user identity
 // directly, so the session token goes straight into the child process.
 func collectAsDesktopUser(ctx context.Context, owner string, challenges []*proto.CertificateChallenge, peerKey []byte) ([]certposture.Proof, error) {
-	user, ok := CurrentDesktopUser(owner)
+	user, ok := currentDesktopUser(owner)
 	if !ok {
 		return nil, nil
 	}

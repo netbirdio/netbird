@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/asn1"
+	"math"
 	"math/big"
 	"testing"
 
@@ -21,6 +22,8 @@ func TestECPublicKey(t *testing.T) {
 	}{
 		{"P-256", elliptic.P256(), asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}},
 		{"P-384", elliptic.P384(), asn1.ObjectIdentifier{1, 3, 132, 0, 34}},
+		// The wrapped P-521 point is 133 bytes, which needs the long form of the DER length.
+		{"P-521", elliptic.P521(), asn1.ObjectIdentifier{1, 3, 132, 0, 35}},
 	}
 	for _, tt := range curves {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,6 +60,13 @@ func TestECPublicKey_Rejections(t *testing.T) {
 	assert.Error(t, err, "a truncated point must be rejected")
 	_, err = ecPublicKey([]byte("junk"), point)
 	assert.Error(t, err, "malformed parameters must be rejected")
+
+	wrapped, err := asn1.Marshal(point)
+	require.NoError(t, err)
+	_, err = ecPublicKey(append(append([]byte{}, p256...), 0), point)
+	assert.Error(t, err, "bytes after the curve parameters must be rejected")
+	_, err = ecPublicKey(p256, append(append([]byte{}, wrapped...), 0))
+	assert.Error(t, err, "bytes after the wrapped point must be rejected")
 }
 
 func TestRSAPublicKey(t *testing.T) {
@@ -69,6 +79,12 @@ func TestRSAPublicKey(t *testing.T) {
 
 	_, err = rsaPublicKey(key.N.Bytes(), nil)
 	assert.Error(t, err, "a missing exponent must be rejected")
+	_, err = rsaPublicKey(key.N.Bytes(), big.NewInt(math.MaxInt32).Bytes())
+	assert.NoError(t, err, "the largest exponent an int holds is accepted")
+	_, err = rsaPublicKey(key.N.Bytes(), big.NewInt(math.MaxInt32+1).Bytes())
+	assert.Error(t, err, "an exponent past int32 must be rejected")
+	_, err = rsaPublicKey(key.N.Bytes(), []byte{0})
+	assert.Error(t, err, "a zero exponent must be rejected")
 }
 
 func TestULongRoundTrip(t *testing.T) {
