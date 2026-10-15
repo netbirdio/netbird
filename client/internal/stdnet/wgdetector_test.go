@@ -153,7 +153,7 @@ func TestWGDetectorDropsExpiredEntries(t *testing.T) {
 
 func TestWGDetectorOwnInterfaceIsWireGuardWithoutProbing(t *testing.T) {
 	d, calls := newCountingDetector(t, time.Minute, false)
-	d.SetOwnInterface("NetBird")
+	d.ownIface = "NetBird"
 
 	assert.True(t, d.IsWireGuard("NetBird"), "the agent's own interface is a WireGuard device")
 	assert.Equal(t, int64(0), calls.Load(), "the own interface must never reach the probe")
@@ -171,7 +171,7 @@ func TestWGDetectorWithoutOwnInterfaceProbesEmptyName(t *testing.T) {
 
 func TestInterfaceFilterRejectsOwnInterfaceRegardlessOfDisallowList(t *testing.T) {
 	d, calls := newCountingDetector(t, time.Minute, false)
-	d.SetOwnInterface("NetBird")
+	d.ownIface = "NetBird"
 	filter := InterfaceFilter([]string{"wt"}, d)
 
 	assert.False(t, filter("NetBird"), "the own interface is rejected even when the disallow list does not cover it")
@@ -185,16 +185,4 @@ func TestNewWGDetectorKeepsTheOwnInterface(t *testing.T) {
 	d := NewWGDetector("NetbirdWT")
 
 	assert.True(t, d.IsWireGuard("NetbirdWT"), "the constructor records the own interface")
-}
-
-func TestWGDetectorOwnInterfaceFollowsTheCreatedName(t *testing.T) {
-	d, calls := newCountingDetector(t, time.Minute, false)
-	d.SetOwnInterface("wt0")
-	d.SetOwnInterface("tun3")
-
-	assert.True(t, d.IsWireGuard("tun3"), "the name reported after creation is the own interface")
-	assert.Equal(t, int64(0), calls.Load(), "the created name is not probed")
-
-	assert.False(t, d.IsWireGuard("wt0"), "the configured name is no longer the own interface")
-	assert.Equal(t, int64(1), calls.Load(), "the configured name is probed like any other")
 }
