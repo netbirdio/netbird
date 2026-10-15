@@ -100,6 +100,8 @@ type DefaultAccountManager struct {
 
 	peerInactivityExpiry Scheduler
 
+	certChallenges *certChallengeRefresher
+
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
 
@@ -255,6 +257,8 @@ func BuildManager(
 		disableDefaultPolicy:     disableDefaultPolicy,
 	}
 
+	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
+
 	am.networkMapController.StartWarmup(ctx)
 
 	accountsCounter, err := store.GetAccountsCounter(ctx)
@@ -295,6 +299,10 @@ func BuildManager(
 	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string, peerIDs []string) {
 		am.onPeersInvalidated(ctx, accountID, peerIDs)
 	})
+
+	// Started last: a manager that fails to build is never returned, so nothing would
+	// stop its refresher.
+	am.certChallenges.Start(ctx)
 
 	return am, nil
 }
@@ -451,6 +459,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleMetricsPushSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerHostnameCollisionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -632,6 +641,16 @@ func (am *DefaultAccountManager) handleMetricsPushSettings(ctx context.Context, 
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushEnabled, nil)
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushDisabled, nil)
+		}
+	}
+}
+
+func (am *DefaultAccountManager) handlePeerHostnameCollisionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.PeerHostnameCollisionRejected != newSettings.PeerHostnameCollisionRejected {
+		if newSettings.PeerHostnameCollisionRejected {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerHostnameCollisionRejectionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerHostnameCollisionRejectionDisabled, nil)
 		}
 	}
 }
@@ -961,6 +980,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 	// cancel peer login expiry job
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
+	am.certChallenges.Forget(account.Id)
 
 	meta := map[string]any{"account_id": account.Id, "domain": account.Domain, "created_at": account.CreatedAt}
 	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDeleted, meta)
@@ -1617,10 +1637,6 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return "", "", status.Errorf(status.NotFound, "user %s not found", userAuth.UserId)
 	}
 
-	if userAuth.IsChild {
-		return accountID, user.Id, nil
-	}
-
 	ctx, err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false)
 	if err != nil {
 		return "", "", err
@@ -1672,10 +1688,10 @@ func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Contex
 // and propagates changes to peers if group propagation is enabled.
 // requires userAuth to have been ValidateAndParseToken and EnsureUserAccessByJWTGroups by the AuthManager
 func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error {
-	// Child accounts and PAT-authenticated requests do not sync JWT groups.
+	// PAT-authenticated requests do not sync JWT groups.
 	// Embedded-Dex local users also skip sync because local password authentication
 	// does not provide external IdP group claims.
-	if userAuth.IsChild || userAuth.IsPAT || dex.IsLocalUserID(userAuth.UserId) {
+	if userAuth.IsPAT || dex.IsLocalUserID(userAuth.UserId) {
 		return nil
 	}
 
@@ -1854,22 +1870,12 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
-//
-// UserAuth IsChild -> checks that account exists
 func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, userAuth auth.UserAuth) (string, error) {
 	log.WithContext(ctx).Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
 		userAuth.UserId, userAuth.AccountId, userAuth.Domain, userAuth.DomainCategory)
 
 	if userAuth.UserId == "" {
 		return "", errors.New(emptyUserID)
-	}
-
-	if userAuth.IsChild {
-		exists, err := am.Store.AccountExists(ctx, store.LockingStrengthNone, userAuth.AccountId)
-		if err != nil || !exists {
-			return "", err
-		}
-		return userAuth.AccountId, nil
 	}
 
 	if userAuth.DomainCategory != types.PrivateCategory || !isDomainValid(userAuth.Domain) {
@@ -2674,6 +2680,14 @@ func (am *DefaultAccountManager) validateIPForUpdate(account *types.Account, pee
 		return status.Errorf(status.InvalidArgument, "IP %s is not within the account network range %s", newIP.String(), account.Network.Net.String())
 	}
 
+	prefix, err := netip.ParsePrefix(account.Network.Net.String())
+	if err != nil {
+		return fmt.Errorf("parse account network %s: %w", account.Network.Net.String(), err)
+	}
+	if types.IsReservedPeerIP(prefix, newIP) {
+		return status.Errorf(status.InvalidArgument, "IP %s is reserved in the account network range %s", newIP.String(), account.Network.Net.String())
+	}
+
 	for _, peer := range peers {
 		if peer.ID != peerID && peer.IP == newIP {
 			return status.Errorf(status.InvalidArgument, "IP %s is already assigned to peer %s", newIP.String(), peer.ID)
@@ -2697,6 +2711,8 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
+		am.reloadServicesTargetingPeer(ctx, accountID, peerID)
+
 		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
@@ -2709,6 +2725,19 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 		}
 	}
 	return nil
+}
+
+// reloadServicesTargetingPeer resends the account's reverse proxy services unless none of them targets the peer.
+func (am *DefaultAccountManager) reloadServicesTargetingPeer(ctx context.Context, accountID, peerID string) {
+	serviceID, err := am.serviceManager.GetServiceIDByTargetID(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to look up services targeting peer %s, reloading all: %v", peerID, err)
+	} else if serviceID == "" {
+		return
+	}
+	if err := am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+		log.WithContext(ctx).Warnf("failed to reload services for account %s: %v", accountID, err)
+	}
 }
 
 func (am *DefaultAccountManager) updatePeerIPInTransaction(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) (bool, error) {
