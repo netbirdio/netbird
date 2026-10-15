@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -385,14 +386,24 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		loginStarted := time.Now()
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
-			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
 			log.Debug(err)
-			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
-				state.Set(StatusNeedsLogin)
-				c.runCancel()
-				return backoff.Permanent(wrapErr(err)) // unrecoverable error
+			s, isGrpcStatus := gstatus.FromError(err)
+			if isGrpcStatus && s.Code() == codes.PermissionDenied {
+				// Try one re-register with NB_SETUP_KEY before giving up.
+				if resp := reRegisterWithEnvSetupKey(engineCtx, mgmClient, publicSSHKey, c.config); resp != nil {
+					loginResp = resp
+					err = nil
+				}
 			}
-			return wrapErr(err)
+			if err != nil {
+				c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
+				if isGrpcStatus && s.Code() == codes.PermissionDenied {
+					state.Set(StatusNeedsLogin)
+					c.runCancel()
+					return backoff.Permanent(wrapErr(err)) // unrecoverable error
+				}
+				return wrapErr(err)
+			}
 		}
 		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
@@ -787,6 +798,9 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 	return signalClient, nil
 }
 
+// envSetupKey is read by reRegisterWithEnvSetupKey to retry a rejected login.
+const envSetupKey = "NB_SETUP_KEY"
+
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
 	return client.Login(buildLoginSysInfo(ctx, config), pubSSHKey, config.DNSLabels)
@@ -815,6 +829,24 @@ func buildLoginSysInfo(ctx context.Context, config *profilemanager.Config) *syst
 		config.RemoteJobsAllowed,
 	)
 	return sysInfo
+}
+
+// reRegisterWithEnvSetupKey retries Register once with the setup key from env.
+// Returns nil when the env var is unset or the Register call fails, so the
+// caller falls through to its existing failure handling.
+func reRegisterWithEnvSetupKey(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) *mgmProto.LoginResponse {
+	setupKey := strings.TrimSpace(os.Getenv(envSetupKey))
+	if setupKey == "" {
+		return nil
+	}
+
+	log.Infof("retrying login via %s", envSetupKey)
+	resp, err := client.Register(setupKey, "", buildLoginSysInfo(ctx, config), pubSSHKey, config.DNSLabels)
+	if err != nil {
+		log.Warnf("%s retry failed: %v", envSetupKey, err)
+		return nil
+	}
+	return resp
 }
 
 func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {

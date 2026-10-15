@@ -1,8 +1,17 @@
 package internal
 
 import (
+	"context"
+	"errors"
 	"net"
+	"os"
 	"testing"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/system"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // probeFreePort asks the OS for a free UDP port and immediately releases it.
@@ -77,6 +86,68 @@ func Test_freePort(t *testing.T) {
 		}
 		if got == busyPort {
 			t.Errorf("got the same port %v, want a different port", busyPort)
+		}
+	})
+}
+
+func TestReRegisterWithEnvSetupKey(t *testing.T) {
+	pubSSHKey := []byte("ssh-stub")
+	config := &profilemanager.Config{}
+
+	t.Run("no env var, returns nil", func(t *testing.T) {
+		t.Setenv(envSetupKey, "")
+		if err := os.Unsetenv(envSetupKey); err != nil {
+			t.Fatalf("unset %s: %v", envSetupKey, err)
+		}
+
+		var registerCalled bool
+		client := &mgm.MockClient{
+			RegisterFunc: func(string, string, *system.Info, []byte, domain.List) (*proto.LoginResponse, error) {
+				registerCalled = true
+				return &proto.LoginResponse{}, nil
+			},
+		}
+
+		if got := reRegisterWithEnvSetupKey(context.Background(), client, pubSSHKey, config); got != nil {
+			t.Fatalf("expected nil without env var, got %v", got)
+		}
+		if registerCalled {
+			t.Fatal("Register must not be called when the env var is unset")
+		}
+	})
+
+	t.Run("env var set, Register succeeds, response is returned", func(t *testing.T) {
+		t.Setenv(envSetupKey, "  secret-key  ") // whitespace must be trimmed
+
+		var gotKey string
+		want := &proto.LoginResponse{NetbirdConfig: &proto.NetbirdConfig{}}
+		client := &mgm.MockClient{
+			RegisterFunc: func(setupKey, _ string, _ *system.Info, _ []byte, _ domain.List) (*proto.LoginResponse, error) {
+				gotKey = setupKey
+				return want, nil
+			},
+		}
+
+		got := reRegisterWithEnvSetupKey(context.Background(), client, pubSSHKey, config)
+		if got != want {
+			t.Fatalf("expected the Register response to be returned verbatim, got %v", got)
+		}
+		if gotKey != "secret-key" {
+			t.Fatalf("expected setup key to be trimmed to %q, got %q", "secret-key", gotKey)
+		}
+	})
+
+	t.Run("env var set, Register fails, returns nil so caller falls through", func(t *testing.T) {
+		t.Setenv(envSetupKey, "secret-key")
+
+		client := &mgm.MockClient{
+			RegisterFunc: func(string, string, *system.Info, []byte, domain.List) (*proto.LoginResponse, error) {
+				return nil, errors.New("key revoked")
+			},
+		}
+
+		if got := reRegisterWithEnvSetupKey(context.Background(), client, pubSSHKey, config); got != nil {
+			t.Fatalf("expected nil on Register failure, got %v", got)
 		}
 	})
 }
