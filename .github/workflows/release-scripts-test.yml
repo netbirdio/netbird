@@ -1,0 +1,31 @@
+name: Test release scripts
+
+on:
+  push:
+    branches:
+      - main
+      - "release-*"
+    paths:
+      - "release_files/skip-latest.sh"
+      - "release_files/tests/**"
+  pull_request:
+    paths:
+      - "release_files/skip-latest.sh"
+      - "release_files/tests/**"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+jobs:
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y bats
+
+      - name: Run bats
+        run: bats release_files/tests/

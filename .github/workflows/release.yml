@@ -16,6 +16,7 @@ env:
   COPYRIGHT: "NetBird GmbH"
   flags: ""
   SKIP_PUBLISH: "true"
+  SKIP_LATEST: "true"
   SKIP_DOCKER_PUSH: "false"
 
 concurrency:
@@ -47,9 +48,15 @@ jobs:
               if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
                 run=true
               elif [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                # The port tracks stable releases only, so a canary or rc tag has nothing to submit.
-                run=true
-                echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+                # The port tracks stable releases only, so a canary or rc tag has nothing to submit,
+                # and neither does a patch on an older release line. ls-remote rather than a full
+                # tag fetch, which would pull the history behind every tag.
+                SKIP_LATEST_TAGS=$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##')
+                export SKIP_LATEST_TAGS
+                if [[ "$(release_files/skip-latest.sh "$GITHUB_REF_NAME")" == "false" ]]; then
+                  run=true
+                  echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+                fi
               fi
               ;;
             pull_request)
@@ -217,6 +224,16 @@ jobs:
             echo "SKIP_DOCKER_PUSH=true" >> $GITHUB_ENV
           fi
 
+      # The Docker latest tags and the Homebrew formula are gated on
+      # SKIP_LATEST (default: skip). Only a published tag that sorts highest
+      # among all release tags moves them, so a patch on an older release line
+      # can't drag them backwards. See release_files/skip-latest.sh.
+      - name: Decide whether this release moves latest
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.SKIP_PUBLISH == 'false' }}
+        run: |
+          skip=$(release_files/skip-latest.sh "${GITHUB_REF_NAME}")
+          echo "SKIP_LATEST=$skip" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -305,6 +322,7 @@ jobs:
           NFPM_NETBIRD_RPM_ARM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           NFPM_NETBIRD_RPM_386_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+          SKIP_LATEST: ${{ env.SKIP_LATEST }}
           SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures
         run: |
