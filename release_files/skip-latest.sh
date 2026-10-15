@@ -38,14 +38,14 @@
 set -euo pipefail
 
 tag=${1:-}
-if [ -z "$tag" ]; then
+if [[ -z "$tag" ]]; then
   echo "usage: $0 <tag>" >&2
   exit 2
 fi
 
 version=${tag#v}
 
-if [ -n "${SKIP_LATEST_TAGS+set}" ]; then
+if [[ -n "${SKIP_LATEST_TAGS+set}" ]]; then
   candidates=$SKIP_LATEST_TAGS
 else
   candidates=$(git tag -l 'v*')
@@ -67,9 +67,9 @@ newest=$(printf '%s\n' "$candidates" \
   | tail -1)
 
 skip=true
-if [ "${version#*-}" != "$version" ]; then
+if [[ "${version#*-}" != "$version" ]]; then
   echo ":: $version is a prerelease -- latest never moves" >&2
-elif [ "$(printf '%s\n%s\n' "$version" "$newest" | sort -V | tail -1)" = "$version" ]; then
+elif [[ "$(printf '%s\n%s\n' "$version" "$newest" | sort -V | tail -1)" = "$version" ]]; then
   skip=false
   echo ":: $version is the newest release -- it moves latest" >&2
 else
