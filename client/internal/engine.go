@@ -2486,6 +2486,8 @@ func (e *Engine) startNetworkMonitor() {
 	e.shutdownWg.Add(1)
 	go func(monitor *networkmonitor.NetworkMonitor) {
 		defer e.shutdownWg.Done()
+		var watch recoveryWatch
+		defer watch.stop()
 		for {
 			change, err := monitor.Listen(e.ctx)
 			if err != nil {
@@ -2498,6 +2500,9 @@ func (e *Engine) startNetworkMonitor() {
 			}
 
 			if e.handleUnderlayChange(change) {
+				watchCtx := watch.replace(e.ctx)
+				e.shutdownWg.Add(1)
+				go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
 				continue
 			}
 
