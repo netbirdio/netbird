@@ -531,6 +531,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
 		query := tx.Where("peers.account_id=?", accountID)
+		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
 		query = filters.AsConditions(query)
 		query = pagination.AsScope(query)
 		query = sorting.AsOderBy(ctx, query)
@@ -549,6 +550,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
 		query := tx.Where("peers.account_id=?", accountID)
+		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
 		query = filters.AsConditions(query)
 
 		if err := query.Table("peers").Select("count(distinct(peers.id))").Count(&peerCount).Error; err != nil {
@@ -667,6 +669,9 @@ func (s *PeerSorting) AsOderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 		}
 	}
 
+	// if len(order) == 0 {
+	// 	return db
+	// }
 	// always order/break ties by id asc order
 	order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.id"}, Desc: false})
 	return db.Order(clause.OrderBy{Columns: order})

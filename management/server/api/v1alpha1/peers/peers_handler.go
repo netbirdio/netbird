@@ -266,9 +266,6 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	respBody := apiv1alpha1.PeerBatch{Peers: make([]apiv1alpha1.Peer, 0, len(peers))}
 	for _, peer := range peers {
-		if peer.ProxyMeta.Embedded {
-			continue
-		}
 		_, valid := validPeers[peer.ID]
 		reason := invalidPeers[peer.ID]
 
