@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"sync"
@@ -1479,4 +1480,85 @@ func TestLatencyJitterDoesNotSwitchRoute(t *testing.T) {
 		chosen, _ := w.getBestRouteFromStatuses(statuses)
 		require.Equal(t, route.ID("route1"), chosen, "route changed on jitter at sample %d", i)
 	}
+}
+
+// A routing peer that keeps the route while only its connection status changes,
+// as when an idle peer is woken by traffic, must keep its allowed IPs in place:
+// removing and re-adding them leaves the prefix without an owner in between.
+func TestRecalculateRoutesStatusChangeKeepsAllowedIPs(t *testing.T) {
+	w, handler := newRecalcWatcher(t)
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusIdle},
+	}))
+	require.Equal(t, []string{"peer1"}, handler.added)
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+	}))
+	assert.Equal(t, []string{"peer1"}, handler.added, "a status change must not re-add the allowed IPs")
+	assert.Equal(t, 0, handler.removed, "a status change must not remove the allowed IPs")
+	require.NotNil(t, w.currentChosenStatus)
+	assert.Equal(t, peer.StatusConnected, w.currentChosenStatus.status, "the new status must be recorded")
+}
+
+// A routing peer recreated by a peer update comes back idle with its overlay
+// addresses only. When it connects while keeping the route, its routed allowed
+// IPs must be re-applied, since nothing else puts them back on the new peer.
+func TestRecalculateRoutesReconcilesAllowedIPsOnConnect(t *testing.T) {
+	w, handler := newRecalcWatcher(t)
+	var reconciled []string
+	w.reconcileAllowedIPs = func(peerKey string) error {
+		reconciled = append(reconciled, peerKey)
+		return nil
+	}
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+	}))
+	require.Equal(t, []string{"peer1"}, handler.added)
+	require.Empty(t, reconciled, "a fresh assignment adds the allowed IPs itself")
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusIdle},
+	}))
+	assert.Empty(t, reconciled, "going idle must not reconcile")
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+	}))
+	assert.Equal(t, []string{"peer1"}, reconciled, "connecting while keeping the route must reconcile its allowed IPs")
+	assert.Equal(t, []string{"peer1"}, handler.added, "the reconcile must not go through the refcounted add")
+	assert.Equal(t, 0, handler.removed, "the allowed IPs must not be removed")
+}
+
+// A failed reconcile must be retried: the new status is only recorded once the
+// routed allowed IPs are back, so the next evaluation tries again.
+func TestRecalculateRoutesRetriesFailedReconcile(t *testing.T) {
+	w, _ := newRecalcWatcher(t)
+	calls := 0
+	w.reconcileAllowedIPs = func(string) error {
+		calls++
+		if calls == 1 {
+			return errors.New("add allowed IP: transient failure")
+		}
+		return nil
+	}
+
+	connected := map[route.ID]routerPeerStatus{"route1": {status: peer.StatusConnected}}
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, connected))
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusIdle},
+	}))
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, connected))
+	require.Equal(t, 1, calls, "connecting must reconcile")
+	assert.Equal(t, peer.StatusIdle, w.currentChosenStatus.status, "a failed reconcile must not record the new status")
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, connected))
+	assert.Equal(t, 2, calls, "the next evaluation must retry the reconcile")
+	assert.Equal(t, peer.StatusConnected, w.currentChosenStatus.status, "a successful reconcile records the status")
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, connected))
+	assert.Equal(t, 2, calls, "nothing to retry once the reconcile succeeded")
 }

@@ -103,11 +103,11 @@ func TestDegradedRoutingPeerIsReplacedAfterDelay(t *testing.T) {
 	assert.Equal(t, switchReasonDirect, w.switchReason, "the switch reason must name the relayed connection")
 }
 
-// A routing peer that was relayed when it was chosen is not degraded: when an
-// equivalent direct peer shows up the route must upgrade at once instead of
-// staying on the slower path for the delay.
-func TestRelayedRoutingPeerUpgradesAtOnce(t *testing.T) {
-	w := newRelayedTestWatcher(t, relayedSwitchPolicy{never: true})
+// A routing peer that was relayed when it was chosen is held for the delay when
+// an equivalent direct peer shows up, from that moment on: it usually turns
+// direct within seconds, and moving the route resets its masqueraded flows.
+func TestRelayedRoutingPeerIsKeptDuringDelay(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
 
 	// route1 was chosen while relayed and route2 was still connecting
 	chosen, _ := w.getBestRouteFromStatuses(map[route.ID]routerPeerStatus{
@@ -115,36 +115,57 @@ func TestRelayedRoutingPeerUpgradesAtOnce(t *testing.T) {
 		"route2": {status: peer.StatusConnecting},
 	})
 	require.Equal(t, route.ID("route1"), chosen)
-	require.True(t, w.degradedSince.IsZero(), "a peer relayed from the start is not degraded")
+	require.True(t, w.degradedSince.IsZero(), "the delay must not run before a direct peer contends")
 
 	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
-	assert.Equal(t, route.ID("route2"), chosen, "a direct peer must take over from one that was relayed all along")
-	assert.Equal(t, switchReasonDirect, w.switchReason)
-	assert.Nil(t, w.relayedHold, "an upgrade must not schedule anything")
+	assert.Equal(t, route.ID("route1"), chosen, "a relayed peer must be kept when a direct one shows up")
+	assert.False(t, w.degradedSince.IsZero(), "the direct contender must start the delay")
+	assert.NotNil(t, w.relayedHold, "the pending switch must arm a timer so it is applied when due")
+
+	w.degradedSince = w.degradedSince.Add(-31 * time.Second)
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	assert.Equal(t, route.ID("route2"), chosen, "a peer still relayed after the delay must give way to a direct one")
+	assert.Equal(t, switchReasonDirect, w.switchReason, "the switch reason must name the relayed connection")
 }
 
-// An idle routing peer woken by traffic whose relay connection comes up before
-// the direct one was never direct: it is not degraded, and must give way to an
-// equivalent direct peer at once.
-func TestIdleRoutingPeerWokenOverRelayUpgradesAtOnce(t *testing.T) {
-	w := newRelayedTestWatcher(t, relayedSwitchPolicy{never: true})
+// The peers of an HA group woken from idle come up over relay first and turn
+// direct one after the other. The route must stay on the peer it was on when
+// the other one turns direct first and the current one follows within the
+// delay, including before the current peer's first latency sample.
+func TestIdleRoutingPeersWokenOverRelayKeepRoute(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
 
-	chosen, _ := w.getBestRouteFromStatuses(map[route.ID]routerPeerStatus{
-		"route1": {status: peer.StatusIdle},
-		"route2": {status: peer.StatusIdle},
-	})
-	require.Equal(t, route.ID("route1"), chosen)
+	steps := []struct {
+		name     string
+		statuses map[route.ID]routerPeerStatus
+	}{
+		{"both idle", map[route.ID]routerPeerStatus{
+			"route1": {status: peer.StatusIdle},
+			"route2": {status: peer.StatusIdle},
+		}},
+		{"both relayed", map[route.ID]routerPeerStatus{
+			"route1": {status: peer.StatusConnected, relayed: true},
+			"route2": {status: peer.StatusConnected, relayed: true},
+		}},
+		{"other direct first", map[route.ID]routerPeerStatus{
+			"route1": {status: peer.StatusConnected, relayed: true},
+			"route2": {status: peer.StatusConnected, latency: 20 * time.Millisecond},
+		}},
+		{"current direct, not sampled", map[route.ID]routerPeerStatus{
+			"route1": {status: peer.StatusConnected},
+			"route2": {status: peer.StatusConnected, latency: 20 * time.Millisecond},
+		}},
+		{"current direct, sampled", map[route.ID]routerPeerStatus{
+			"route1": {status: peer.StatusConnected, latency: 38 * time.Millisecond},
+			"route2": {status: peer.StatusConnected, latency: 20 * time.Millisecond},
+		}},
+	}
 
-	chosen, _ = w.getBestRouteFromStatuses(map[route.ID]routerPeerStatus{
-		"route1": {status: peer.StatusConnected, relayed: true},
-		"route2": {status: peer.StatusConnecting},
-	})
-	require.Equal(t, route.ID("route1"), chosen)
-	require.True(t, w.degradedSince.IsZero(), "waking up over relay is not a drop from direct")
-
-	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
-	assert.Equal(t, route.ID("route2"), chosen, "a direct peer must take over from one that was never direct")
-	assert.Nil(t, w.relayedHold, "an upgrade must not schedule anything")
+	for _, step := range steps {
+		chosen, _ := w.getBestRouteFromStatuses(step.statuses)
+		require.Equal(t, route.ID("route1"), chosen, "step %q must keep the route on route1", step.name)
+	}
+	assert.True(t, w.degradedSince.IsZero(), "the delay must end once the current peer is direct")
 }
 
 // A routing peer that drops to relay again, after recovering from an earlier
@@ -355,4 +376,129 @@ func TestRoutingPeerSwitchPublishesEvent(t *testing.T) {
 	require.Len(t, events, 2, "losing the last routing peer must publish an event")
 	assert.Equal(t, "No routing peer available", events[1].Message)
 	assert.Equal(t, "peer2", events[1].Metadata["previous_peer"])
+}
+
+// The statuses below follow the status recorder: a drop to relay clears the
+// latency, and a recovered direct connection reports no latency until the new
+// ICE agent's first sample lands.
+var (
+	flapDirect = map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, latency: 50 * time.Millisecond},
+		"route2": {status: peer.StatusConnected, latency: 60 * time.Millisecond},
+	}
+	flapRelayed = map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+		"route2": {status: peer.StatusConnected, latency: 60 * time.Millisecond},
+	}
+	flapRecoveredUnsampled = map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+		"route2": {status: peer.StatusConnected, latency: 60 * time.Millisecond},
+	}
+)
+
+// A routing peer whose direct connection drops to relay and comes back within
+// the delay must keep the route, including the window between the recovery and
+// the first latency sample of the new connection.
+func TestRecoveredRoutingPeerWithoutLatencySampleIsKept(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	chosen, _ := w.getBestRouteFromStatuses(flapDirect)
+	require.Equal(t, route.ID("route1"), chosen)
+
+	chosen, _ = w.getBestRouteFromStatuses(flapRelayed)
+	require.Equal(t, route.ID("route1"), chosen, "a routing peer that just dropped to relay must be kept")
+
+	chosen, _ = w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+	assert.Equal(t, route.ID("route1"), chosen, "a recovered routing peer must not lose the route before its latency is sampled")
+}
+
+// A routing peer that keeps dropping to relay for less than the delay, and
+// staying direct for less than the delay in between, must keep the route on
+// every cycle: each drop is a new degradation with its own delay.
+func TestFlappingRoutingPeerIsKept(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	chosen, _ := w.getBestRouteFromStatuses(flapDirect)
+	require.Equal(t, route.ID("route1"), chosen)
+
+	for cycle := 0; cycle < 3; cycle++ {
+		chosen, _ = w.getBestRouteFromStatuses(flapRelayed)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: drop to relay", cycle)
+
+		// relayed for 25s, still within the delay
+		w.degradedSince = w.degradedSince.Add(-25 * time.Second)
+		chosen, _ = w.getBestRouteFromStatuses(flapRelayed)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: relayed within the delay", cycle)
+
+		chosen, _ = w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: recovered, latency not sampled yet", cycle)
+
+		chosen, _ = w.getBestRouteFromStatuses(flapDirect)
+		require.Equal(t, route.ID("route1"), chosen, "cycle %d: recovered and sampled", cycle)
+	}
+}
+
+// "never" only keeps a routing peer that dropped from direct. A peer that was
+// never direct must still move to a direct one after the default delay, so the
+// route is not left on a relay for good.
+func TestNeverPolicyDoesNotPinNeverDirectPeer(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{never: true})
+
+	chosen, _ := w.getBestRouteFromStatuses(map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+		"route2": {status: peer.StatusConnecting},
+	})
+	require.Equal(t, route.ID("route1"), chosen)
+
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	require.Equal(t, route.ID("route1"), chosen, "a never-direct peer must be held for the default delay")
+	require.NotNil(t, w.relayedHold, "the default delay must arm the timer")
+
+	w.degradedSince = w.degradedSince.Add(-defaultRelayedSwitchDelay - time.Second)
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	assert.Equal(t, route.ID("route2"), chosen, "with never, a never-direct peer must still give way after the default delay")
+}
+
+// A current peer that never gets a latency sample must not keep the route
+// forever against a measured peer: once the hold runs out it is ranked as
+// unknown latency again.
+func TestUnmeasuredRoutingPeerHoldIsBounded(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	chosen, _ := w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+	require.Equal(t, route.ID("route1"), chosen, "an unsampled current peer must be held at first")
+	require.False(t, w.unmeasuredSince.IsZero(), "the hold must record when it started")
+
+	w.unmeasuredSince = w.unmeasuredSince.Add(-unmeasuredLatencyHold - time.Second)
+	chosen, _ = w.getBestRouteFromStatuses(flapRecoveredUnsampled)
+	assert.Equal(t, route.ID("route2"), chosen, "a peer still unsampled after the hold must give way to a measured one")
+	assert.Equal(t, switchReasonLatency, w.switchReason)
+}
+
+// The delay of a peer that was never direct runs from the first direct
+// contender. When that contender goes away the delay must start over, so a
+// later contender is held for the full delay instead of taking over at once.
+func TestNeverDirectDelayRestartsWhenContenderGoes(t *testing.T) {
+	w := newRelayedTestWatcher(t, relayedSwitchPolicy{delay: 30 * time.Second})
+
+	relayedAlone := map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+		"route2": {status: peer.StatusConnecting},
+	}
+	chosen, _ := w.getBestRouteFromStatuses(relayedAlone)
+	require.Equal(t, route.ID("route1"), chosen)
+
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	require.Equal(t, route.ID("route1"), chosen, "the first direct contender must be held")
+	require.False(t, w.degradedSince.IsZero())
+
+	// the first contender was seen longer ago than the delay
+	w.degradedSince = w.degradedSince.Add(-31 * time.Second)
+
+	chosen, _ = w.getBestRouteFromStatuses(relayedAlone)
+	require.Equal(t, route.ID("route1"), chosen)
+	assert.True(t, w.degradedSince.IsZero(), "the delay must start over once no direct contender is left")
+
+	chosen, _ = w.getBestRouteFromStatuses(currentRelayed)
+	assert.Equal(t, route.ID("route1"), chosen, "a new direct contender must be held for the full delay")
 }
