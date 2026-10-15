@@ -580,7 +580,7 @@ type PeerFilters struct {
 	UserId           string
 	GroupIds         []string
 	Connected        *bool
-	ApprovalRequried *bool
+	ApprovalRequired *bool
 	Os               []string
 	IP               string
 	MAC              string
@@ -599,8 +599,8 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 	if f.Connected != nil {
 		db = db.Where("peer_status_connected=?", *f.Connected)
 	}
-	if f.ApprovalRequried != nil {
-		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequried)
+	if f.ApprovalRequired != nil {
+		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequired)
 	}
 	if len(f.Os) > 0 {
 		db = db.Where("meta_go_os in (?)", f.Os)

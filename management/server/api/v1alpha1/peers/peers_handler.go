@@ -300,7 +300,7 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 		UserId:           v.Get("user_id"),
 		GroupIds:         v["group_ids"],
 		Connected:        connected,
-		ApprovalRequried: approvalRequired,
+		ApprovalRequired: approvalRequired,
 		Os:               v["os"],
 		IP:               v.Get("ip"),
 		MAC:              v.Get("mac"),

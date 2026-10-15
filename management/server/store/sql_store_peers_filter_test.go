@@ -29,7 +29,7 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 			},
 			{
 				description:    "filter by approval required status",
-				filters:        PeerFilters{ApprovalRequried: new(true)},
+				filters:        PeerFilters{ApprovalRequired: new(true)},
 				expectedLength: 2,
 				expectedPeers:  []string{"peer-2-name", "peer-3-name"},
 			},
@@ -77,7 +77,7 @@ func TestSqlStore_FilterPeers(t *testing.T) {
 			},
 			{
 				description:    "filter by peer id",
-				filters:        PeerFilters{PeersIds: []string{"peer-id-1", "peer-id-5", "peer-id-3"}},
+				filters:        PeerFilters{PeersIds: []string{"peer-id-one", "peer-id-five", "peer-id-three"}},
 				expectedLength: 3,
 				expectedPeers:  []string{"peer-1-name", "peer-3-name", "peer-5-name"},
 			},
