@@ -7,11 +7,15 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/server/account"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -260,4 +264,74 @@ func TestReRegisterWithEnvSetupKey(t *testing.T) {
 			t.Fatalf("expected nil on Register failure, got %v", got)
 		}
 	})
+}
+
+// TestLoginOrReRegisterAgainstManagement runs the recovery path against a real
+// management server: the peer is deleted on the server, as ephemeral cleanup or
+// an admin would do, and the next login has to enroll it again.
+func TestLoginOrReRegisterAgainstManagement(t *testing.T) {
+	const (
+		accountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		adminID   = "edafee4e-63fb-11ec-90d6-0242ac120003"
+		setupKey  = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	)
+
+	tests := []struct {
+		name       string
+		envKey     string
+		reRegister string
+		wantCode   codes.Code
+	}{
+		{name: "setup key set, peer enrolled again", envKey: setupKey, reRegister: "true", wantCode: codes.OK},
+		{name: "setup key set, not opted in, login stays denied", envKey: setupKey, wantCode: codes.PermissionDenied},
+		{name: "no setup key, login stays denied", reRegister: "true", wantCode: codes.PermissionDenied},
+		{name: "unknown setup key, login stays denied", envKey: "00000000-0000-0000-0000-000000000000", reRegister: "true", wantCode: codes.PermissionDenied},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			_, addr, accountManager, err := startManagementServer(t, t.TempDir(), "../testdata/store.sql")
+			require.NoError(t, err)
+
+			key, err := wgtypes.GeneratePrivateKey()
+			require.NoError(t, err)
+			client, err := mgm.NewClient(ctx, addr, key, false)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = client.Close() })
+
+			config := &profilemanager.Config{}
+			_, err = client.Register(setupKey, "", buildLoginSysInfo(ctx, config), nil, nil)
+			require.NoError(t, err)
+
+			peer := peerByKey(t, accountManager, accountID, adminID, key.PublicKey().String())
+			require.NotNil(t, peer, "peer was not registered")
+			require.NoError(t, accountManager.DeletePeer(ctx, accountID, peer.ID, adminID))
+
+			t.Setenv(envSetupKey, tt.envKey)
+			t.Setenv(envReRegister, tt.reRegister)
+			resp, err := loginOrReRegister(ctx, client, nil, config)
+
+			require.Equal(t, tt.wantCode, gstatus.Code(err), "error: %v", err)
+			if tt.wantCode != codes.OK {
+				require.Nil(t, resp)
+				return
+			}
+			require.NotNil(t, resp.GetPeerConfig())
+			require.NotNil(t, peerByKey(t, accountManager, accountID, adminID, key.PublicKey().String()), "peer was not enrolled again")
+		})
+	}
+}
+
+func peerByKey(t *testing.T, am account.Manager, accountID, userID, key string) *nbpeer.Peer {
+	t.Helper()
+
+	peers, err := am.GetPeers(context.Background(), accountID, userID, "", "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		if p.Key == key {
+			return p
+		}
+	}
+	return nil
 }
