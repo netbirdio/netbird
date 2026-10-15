@@ -724,7 +724,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, userID, "", "", "")
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "", "")
 			if err != nil {
 				t.Fatal(err)
 				return
