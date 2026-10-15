@@ -2,6 +2,7 @@ package stdnet
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -34,7 +35,7 @@ type WGDetector struct {
 	// probe is replaced in tests; it is the call this type exists to avoid repeating.
 	probe func(string) bool
 
-	ownIface string
+	ownIface atomic.Pointer[string]
 
 	mu    sync.RWMutex
 	cache map[string]wgDetectorEntry
@@ -44,12 +45,17 @@ type WGDetector struct {
 
 // NewWGDetector returns a detector with the default time to live.
 func NewWGDetector(ownIface string) *WGDetector {
-	return &WGDetector{
-		ttl:      wgDetectorTTL,
-		probe:    probeWireGuard,
-		ownIface: ownIface,
-		cache:    make(map[string]wgDetectorEntry),
+	d := &WGDetector{
+		ttl:   wgDetectorTTL,
+		probe: probeWireGuard,
+		cache: make(map[string]wgDetectorEntry),
 	}
+	d.SetOwnInterface(ownIface)
+	return d
+}
+
+func (d *WGDetector) SetOwnInterface(iFace string) {
+	d.ownIface.Store(&iFace)
 }
 
 // IsWireGuard reports whether the named interface is a WireGuard device. An interface
@@ -112,7 +118,8 @@ func (d *WGDetector) store(iFace string, isWireGuard bool) {
 }
 
 func (d *WGDetector) isOwnInterface(iFace string) bool {
-	return d.ownIface != "" && iFace == d.ownIface
+	own := d.ownIface.Load()
+	return own != nil && *own != "" && iFace == *own
 }
 
 func probeWireGuard(iFace string) bool {
