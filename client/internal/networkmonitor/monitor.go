@@ -143,8 +143,8 @@ func newChange(nexthop4, nexthop6 systemops.Nexthop) Change {
 // readNextHops returns the current underlay default next hops. It fails only
 // when neither family has one.
 func readNextHops() (systemops.Nexthop, systemops.Nexthop, error) {
-	nexthop4, errv4 := systemops.GetNextHop(netip.IPv4Unspecified())
-	nexthop6, errv6 := systemops.GetNextHop(netip.IPv6Unspecified())
+	nexthop4, errv4 := underlayNextHop(netip.IPv4Unspecified())
+	nexthop6, errv6 := underlayNextHop(netip.IPv6Unspecified())
 
 	if errv4 != nil && errv6 != nil {
 		return nexthop4, nexthop6, errors.New("failed to get default next hops")
