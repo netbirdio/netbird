@@ -7,6 +7,9 @@ import (
 	"os"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
+
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
@@ -88,6 +91,113 @@ func Test_freePort(t *testing.T) {
 			t.Errorf("got the same port %v, want a different port", busyPort)
 		}
 	})
+}
+
+func TestLoginOrReRegister(t *testing.T) {
+	denied := gstatus.Error(codes.PermissionDenied, "peer is not registered")
+	unavailable := gstatus.Error(codes.Unavailable, "management unreachable")
+	registered := &proto.LoginResponse{NetbirdConfig: &proto.NetbirdConfig{}}
+	loggedIn := &proto.LoginResponse{PeerConfig: &proto.PeerConfig{}}
+
+	tests := []struct {
+		name         string
+		setupKey     string
+		reRegister   string
+		loginResp    *proto.LoginResponse
+		loginErr     error
+		registerErr  error
+		wantResp     *proto.LoginResponse
+		wantCode     codes.Code
+		wantRegister bool
+	}{
+		{
+			name:      "login succeeds",
+			setupKey:  "secret-key",
+			loginResp: loggedIn,
+			wantResp:  loggedIn,
+			wantCode:  codes.OK,
+		},
+		{
+			name:         "login denied, setup key set, register succeeds",
+			setupKey:     "secret-key",
+			reRegister:   "true",
+			loginErr:     denied,
+			wantResp:     registered,
+			wantCode:     codes.OK,
+			wantRegister: true,
+		},
+		{
+			name:         "login denied, setup key set, register fails",
+			setupKey:     "secret-key",
+			reRegister:   "true",
+			loginErr:     denied,
+			registerErr:  gstatus.Error(codes.PermissionDenied, "peer login has expired"),
+			wantCode:     codes.PermissionDenied,
+			wantRegister: true,
+		},
+		{
+			name:       "login denied, no setup key",
+			reRegister: "true",
+			loginErr:   denied,
+			wantCode:   codes.PermissionDenied,
+		},
+		{
+			name:     "login denied, setup key set, not opted in",
+			setupKey: "secret-key",
+			loginErr: denied,
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name:       "login denied, setup key set, unparsable opt-in",
+			setupKey:   "secret-key",
+			reRegister: "maybe",
+			loginErr:   denied,
+			wantCode:   codes.PermissionDenied,
+		},
+		{
+			name:       "login unavailable, setup key set",
+			setupKey:   "secret-key",
+			reRegister: "true",
+			loginErr:   unavailable,
+			wantCode:   codes.Unavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envSetupKey, tt.setupKey)
+			t.Setenv(envReRegister, tt.reRegister)
+
+			var registerCalled bool
+			client := &mgm.MockClient{
+				LoginFunc: func(*system.Info, []byte, domain.List) (*proto.LoginResponse, error) {
+					return tt.loginResp, tt.loginErr
+				},
+				RegisterFunc: func(string, string, *system.Info, []byte, domain.List) (*proto.LoginResponse, error) {
+					registerCalled = true
+					if tt.registerErr != nil {
+						return nil, tt.registerErr
+					}
+					return registered, nil
+				},
+			}
+
+			resp, err := loginOrReRegister(context.Background(), client, []byte("ssh-stub"), &profilemanager.Config{})
+
+			if registerCalled != tt.wantRegister {
+				t.Errorf("Register called = %v, want %v", registerCalled, tt.wantRegister)
+			}
+			if resp != tt.wantResp {
+				t.Errorf("response = %v, want %v", resp, tt.wantResp)
+			}
+			if got := gstatus.Code(err); got != tt.wantCode {
+				t.Errorf("error code = %v, want %v (err: %v)", got, tt.wantCode, err)
+			}
+			if tt.loginErr != nil && err != nil && err != tt.loginErr {
+				t.Errorf("error = %v, want the original login error %v", err, tt.loginErr)
+			}
+		})
+	}
 }
 
 func TestReRegisterWithEnvSetupKey(t *testing.T) {
