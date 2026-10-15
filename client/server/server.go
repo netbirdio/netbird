@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/capture"
@@ -127,6 +128,9 @@ type Server struct {
 	connectClient *internal.ConnectClient
 
 	statusRecorder *peer.Status
+	// netEvents outlives every ConnectClient the daemon creates, so the
+	// network state and the connection sweeper survive client restarts.
+	netEvents      *netevents.Manager
 	sessionWatcher *internal.SessionWatcher
 	localMetrics   *localmetrics.Manager
 
@@ -199,11 +203,13 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, captureEnabled bool, networksDisabled bool) *Server {
+	statusRecorder := peer.NewRecorder("")
 	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
-		statusRecorder:         peer.NewRecorder(""),
+		statusRecorder:         statusRecorder,
+		netEvents:              netevents.NewManager(statusRecorder),
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
@@ -2733,7 +2739,9 @@ func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder, s.profileOwnerOption()...)
+	opts := s.profileOwnerOption()
+	opts = append(opts, internal.WithNetEvents(s.netEvents))
+	client := internal.NewConnectClient(ctx, config, statusRecorder, opts...)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 
