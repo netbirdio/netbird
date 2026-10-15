@@ -33,3 +33,15 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 		})
 	}
 }
+
+func TestCanHandleWithoutRestart_DisabledByEnv(t *testing.T) {
+	change := networkmonitor.Change{Kind: networkmonitor.ChangeInterface}
+
+	t.Setenv(EnvDisableNetworkChangeRedial, "true")
+	assert.False(t, canHandleWithoutRestart(change, true), "the env switch must force the restart")
+
+	// An unparsable value keeps the default behavior instead of silently disabling it.
+	t.Setenv(EnvDisableNetworkChangeRedial, "maybe")
+	lightPath := nbnet.AdvancedRouting() && !underlayPinnedAtStart
+	assert.Equal(t, lightPath, canHandleWithoutRestart(change, true), "an invalid value falls back to the default")
+}

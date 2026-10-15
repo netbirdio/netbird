@@ -1,13 +1,19 @@
 package internal
 
 import (
+	"os"
 	"runtime"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
+
+// EnvDisableNetworkChangeRedial restores the full client restart on every
+// network change, as a field switch should the redial path misbehave.
+const EnvDisableNetworkChangeRedial = "NB_DISABLE_NETWORK_CHANGE_REDIAL"
 
 // underlayPinnedAtStart reports the platforms that bind NetBird's own sockets
 // to the underlay interface once, at engine start: macOS (scoped default plus
@@ -35,11 +41,24 @@ func (e *Engine) handleUnderlayChange(change networkmonitor.Change) bool {
 // routing, whose /32 infra routes point at the old gateway, and for platforms
 // that pin the underlay at start.
 func canHandleWithoutRestart(change networkmonitor.Change, hasNetEvents bool) bool {
-	if !hasNetEvents || change.Kind == networkmonitor.ChangeNone {
+	if !hasNetEvents || change.Kind == networkmonitor.ChangeNone || redialDisabledByEnv() {
 		return false
 	}
 	if !nbnet.AdvancedRouting() {
 		return false
 	}
 	return !underlayPinnedAtStart
+}
+
+func redialDisabledByEnv() bool {
+	val := os.Getenv(EnvDisableNetworkChangeRedial)
+	if val == "" {
+		return false
+	}
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvDisableNetworkChangeRedial, err)
+		return false
+	}
+	return disabled
 }
