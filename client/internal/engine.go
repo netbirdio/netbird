@@ -2484,21 +2484,28 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	e.shutdownWg.Add(1)
-	go func() {
+	go func(monitor *networkmonitor.NetworkMonitor) {
 		defer e.shutdownWg.Done()
-		change, err := e.networkMonitor.Listen(e.ctx)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				log.Infof("network monitor stopped")
+		for {
+			change, err := monitor.Listen(e.ctx)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					log.Infof("network monitor stopped")
+					return
+				}
+				log.Errorf("network monitor error: %v", err)
 				return
 			}
-			log.Errorf("network monitor error: %v", err)
+
+			if e.handleUnderlayChange(change) {
+				continue
+			}
+
+			log.Infof("Network monitor: detected network change (%s), triggering client restart", change.Kind)
+			e.triggerClientRestart()
 			return
 		}
-
-		log.Infof("Network monitor: detected network change (%s), triggering client restart", change.Kind)
-		e.triggerClientRestart()
-	}()
+	}(e.networkMonitor)
 }
 
 func (e *Engine) stopDNSServer() {
