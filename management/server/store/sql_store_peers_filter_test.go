@@ -148,6 +148,12 @@ func TestSqlStore_PeersSorting(t *testing.T) {
 			expectedPeers  []string
 		}{
 			{
+				description:    "default order (by id ascending)",
+				sorting:        PeerSorting{Fields: []PeerSortingKey{}},
+				expectedLength: 6,
+				expectedPeers:  []string{"peer-5-name", "peer-4-name", "peer-1-name", "peer-6-name", "peer-3-name", "peer-2-name"},
+			},
+			{
 				description:    "by name ascending",
 				sorting:        PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByName}}},
 				expectedLength: 6,

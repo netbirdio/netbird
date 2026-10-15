@@ -667,9 +667,8 @@ func (s *PeerSorting) AsOderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 		}
 	}
 
-	if len(order) == 0 {
-		return db
-	}
+	// always order/break ties by id asc order
+	order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.id"}, Desc: false})
 	return db.Order(clause.OrderBy{Columns: order})
 }
 

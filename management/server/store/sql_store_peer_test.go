@@ -920,7 +920,7 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 2, count)
 
-			allPeers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID)
+			allPeers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "", "")
 			require.NoError(t, err)
 
 			for _, peer := range allPeers {
