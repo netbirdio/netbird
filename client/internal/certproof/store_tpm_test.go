@@ -36,7 +36,7 @@ func TestFileStore_TPMKeyFile(t *testing.T) {
 	writeFile(t, dir, "locked.pem", certtest.CertPEM(ca.Issue(t, locked, "locked")))
 	writeFile(t, dir, "locked.key", tpmtest.KeyPEM(t, locked.Public().(*ecdsa.PublicKey), tpmtest.WithAuth()))
 
-	candidates, err := NewFileStore(dir).Candidates(context.Background())
+	candidates, err := newFileStore(dir).Candidates(context.Background())
 	require.NoError(t, err)
 	require.Len(t, candidates, 1, "only the key without an authorization value is usable")
 	assert.True(t, leaf.Equal(candidates[0].Chain[0]), "candidate must carry the device certificate")
@@ -73,7 +73,7 @@ func TestCollect_TPMKeyEndToEnd(t *testing.T) {
 	nonce := challenger.Nonce(peerKey, now)
 	checks := []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: nonce, CaCertificates: []string{ca.PEM}}}}
 
-	proofs := Collect(context.Background(), NewFileStore(dir), checks, peerKey)
+	proofs := Collect(context.Background(), newFileStore(dir), checks, peerKey)
 	require.Len(t, proofs, 1, "the TPM-held key must prove the certificate")
 	chain, err := challenger.Verify(proofs[0], peerKey, now)
 	require.NoError(t, err)

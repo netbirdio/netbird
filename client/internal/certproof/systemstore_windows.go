@@ -49,10 +49,10 @@ type bcryptPSSPaddingInfo struct {
 // DefaultStore is the local machine's personal certificate store, where device
 // certificates enrolled through AD or Intune are kept.
 func DefaultStore() Store {
-	return NewSystemStore()
+	return newSystemStore()
 }
 
-// SystemStore yields the identities of a personal certificate store, completing their
+// systemStore yields the identities of a personal certificate store, completing their
 // chains from the matching intermediate CA store. Keys are used through CNG and never
 // exported.
 //
@@ -60,22 +60,22 @@ func DefaultStore() Store {
 // a service reads; the current user store lives in the signed-in user's registry hive
 // with keys protected against their profile, so it is only readable while running as
 // that user.
-type SystemStore struct {
+type systemStore struct {
 	location uint32
 }
 
-// NewSystemStore reads the local machine store, which is what the daemon uses.
-func NewSystemStore() *SystemStore {
-	return &SystemStore{location: windows.CERT_SYSTEM_STORE_LOCAL_MACHINE}
+// newSystemStore reads the local machine store, which is what the daemon uses.
+func newSystemStore() *systemStore {
+	return &systemStore{location: windows.CERT_SYSTEM_STORE_LOCAL_MACHINE}
 }
 
-// NewUserStore reads the calling user's personal store. It is only useful in a process
+// newUserStore reads the calling user's personal store. It is only useful in a process
 // already running as that user, which is what the posture helper is.
-func NewUserStore() *SystemStore {
-	return &SystemStore{location: windows.CERT_SYSTEM_STORE_CURRENT_USER}
+func newUserStore() *systemStore {
+	return &systemStore{location: windows.CERT_SYSTEM_STORE_CURRENT_USER}
 }
 
-func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
+func (s *systemStore) Candidates(_ context.Context) ([]Candidate, error) {
 	leaves, err := storeCertificates(s.location, personalStore)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
 }
 
 // String names the store location the way the Windows documentation does.
-func (s *SystemStore) String() string {
+func (s *systemStore) String() string {
 	if s.location == windows.CERT_SYSTEM_STORE_CURRENT_USER {
 		return "CurrentUser"
 	}

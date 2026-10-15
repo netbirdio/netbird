@@ -71,25 +71,25 @@ const systemKeychain = "/Library/Keychains/System.keychain"
 // by an ordinary user, it is that user's keychain search list.
 func DefaultStore() Store {
 	if os.Geteuid() == 0 {
-		return NewKeychainStore(systemKeychain)
+		return newKeychainStore(systemKeychain)
 	}
-	return NewKeychainStore()
+	return newKeychainStore()
 }
 
-// KeychainStore yields the identities of a set of keychains, or of the process's keychain
+// keychainStore yields the identities of a set of keychains, or of the process's keychain
 // search list when none is named, reached through purego so the client keeps building
 // with CGO_ENABLED=0.
-type KeychainStore struct {
+type keychainStore struct {
 	keychains []string
 }
 
-// NewKeychainStore returns a store that searches the keychain files at paths, or the
+// newKeychainStore returns a store that searches the keychain files at paths, or the
 // process's keychain search list when no path is given.
-func NewKeychainStore(paths ...string) *KeychainStore {
-	return &KeychainStore{keychains: paths}
+func newKeychainStore(paths ...string) *keychainStore {
+	return &keychainStore{keychains: paths}
 }
 
-func (s *KeychainStore) Candidates(_ context.Context) ([]Candidate, error) {
+func (s *keychainStore) Candidates(_ context.Context) ([]Candidate, error) {
 	if err := loadKeychain(); err != nil {
 		return nil, err
 	}
@@ -163,17 +163,24 @@ func (s *keychainSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts
 
 	algorithm := keychainAlgorithm(scheme)
 	var signature []byte
+	var attempts signAttempts
 	err = eachIdentity(searchList, func(identity uintptr, der []byte) (bool, error) {
 		if !bytes.Equal(der, s.leaf.Raw) {
 			return false, nil
 		}
-		signature, err = signWithIdentity(identity, algorithm, digest)
-		return true, err
+		// The same certificate can sit in the keychain with more than one key, of which
+		// only one may be usable, so a failure moves on to the next match.
+		var ok bool
+		signature, ok = attempts.try(func() ([]byte, error) { return signWithIdentity(identity, algorithm, digest) })
+		return ok, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	if signature == nil {
+		if err := attempts.err(); err != nil {
+			return nil, err
+		}
 		return nil, errors.New("certificate is no longer in the keychain")
 	}
 	log.Debugf("keychain signed certificate posture challenge for %q, %d bytes", s.leaf.Subject, len(signature))

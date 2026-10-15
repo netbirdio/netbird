@@ -50,6 +50,7 @@ const (
 	rvPINExpired          = 0xa3
 	rvPINLocked           = 0xa4
 	rvUserAlreadyLoggedIn = 0x100
+	rvBufferTooSmall      = 0x150
 	rvAlreadyInitialized  = 0x191
 )
 
