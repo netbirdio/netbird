@@ -770,7 +770,12 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 		ctx = context.WithValue(ctx, hook.ExecutionContextKey, fmt.Sprintf("%s-PEER-EXPIRATION", hook.SystemSource))
 
 		expiredPeers, err := am.getExpiredPeers(ctx, accountID)
+		if isNotFound(err) {
+			log.WithContext(ctx).Debugf("account %s not found, stopping peer login expiration job", accountID)
+			return 0, false
+		}
 		if err != nil {
+			log.WithContext(ctx).Errorf("failed getting expired peers for account %s: %v", accountID, err)
 			return peerSchedulerRetryInterval, true
 		}
 
@@ -806,8 +811,12 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
 		inactivePeers, err := am.getInactivePeers(ctx, accountID)
+		if isNotFound(err) {
+			log.WithContext(ctx).Debugf("account %s not found, stopping peer inactivity expiration job", accountID)
+			return 0, false
+		}
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s", accountID)
+			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s: %v", accountID, err)
 			return peerSchedulerRetryInterval, true
 		}
 
@@ -825,6 +834,14 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		return am.getNextInactivePeerExpiration(ctx, accountID)
 	}
+}
+
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	sErr, ok := status.FromError(err)
+	return ok && sErr.Type() == status.NotFound
 }
 
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
@@ -978,8 +995,8 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		log.WithContext(ctx).Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
-	// cancel peer login expiry job
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
+	am.peerInactivityExpiry.Cancel(ctx, []string{account.Id})
 	am.certChallenges.Forget(account.Id)
 
 	meta := map[string]any{"account_id": account.Id, "domain": account.Domain, "created_at": account.CreatedAt}
