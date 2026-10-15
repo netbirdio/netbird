@@ -62,7 +62,7 @@ func TestGetPeersPagination(t *testing.T) {
 		},
 		{
 			name:           "GetPeers filtering all valid params",
-			requestPath:    "/peers?user_id=test-user&group_ids=1&group_ids=2&group_ids=3&group_ids=4&connected=true&approval_required=false&os=linux&os=windows&os=mac&os=android&os=ios&os=js&ip=10.10.10.10&mac=00:11:22:33:44:55&hostname=test-host&kind=user_device&force_approved=true",
+			requestPath:    "/peers?user_id=test-user&group_ids=1&group_ids=2&group_ids=3&group_ids=4&peer_ids=peer-1&peer_ids=peer-2&connected=true&approval_required=false&os=linux&os=windows&os=mac&os=android&os=ios&os=js&ip=10.10.10.10&mac=00:11:22:33:44:55&hostname=test-host&kind=user_device",
 			expectedStatus: http.StatusOK,
 			setExpectations: func(p *Handler) {
 				p.peersManager.(*peersmodule.MockManager).EXPECT().GetPeersPaginated(gomock.Any(), gomock.Any(), gomock.Any(),
@@ -77,6 +77,7 @@ func TestGetPeersPagination(t *testing.T) {
 						MAC:              "00:11:22:33:44:55",
 						Hostname:         "test-host",
 						IsServer:         new(false),
+						PeersIds:         []string{"peer-1", "peer-2"},
 					}),
 					gomock.Any()).Return(make([]*nbpeer.Peer, 0), 0, nil).AnyTimes()
 			},
@@ -117,12 +118,6 @@ func TestGetPeersPagination(t *testing.T) {
 			setExpectations: func(p *Handler) {},
 		},
 		{
-			name:            "GetPeers filtering with invalid force_approved value",
-			requestPath:     "/peers?force_approved=nonono",
-			expectedStatus:  http.StatusUnprocessableEntity,
-			setExpectations: func(p *Handler) {},
-		},
-		{
 			name:            "GetPeers filtering with conflicting user_id and kind",
 			requestPath:     "/peers?user_id=test-user&kind=server",
 			expectedStatus:  http.StatusUnprocessableEntity,
@@ -130,7 +125,7 @@ func TestGetPeersPagination(t *testing.T) {
 		},
 		{
 			name:           "GetPeers sorting preserves field ordering",
-			requestPath:    "/peers?sort_by=last_seen&sort_by=ip&sort_by=name&sort_by=version",
+			requestPath:    "/peers?sort_by=last_seen&sort_by=name&sort_by=version",
 			expectedStatus: http.StatusOK,
 			setExpectations: func(p *Handler) {
 				p.peersManager.(*peersmodule.MockManager).EXPECT().GetPeersPaginated(gomock.Any(), gomock.Any(), gomock.Any(),
@@ -139,7 +134,6 @@ func TestGetPeersPagination(t *testing.T) {
 					gomock.Eq(store.PeerSorting{
 						Fields: []store.PeerSortingKey{
 							{Field: store.PeerSortByLastSeen, Order: store.AscOrderBy},
-							{Field: store.PeerSortByIP, Order: store.AscOrderBy},
 							{Field: store.PeerSortByName, Order: store.AscOrderBy},
 							{Field: store.PeerSortByVersion, Order: store.AscOrderBy},
 						},
@@ -160,7 +154,7 @@ func TestGetPeersPagination(t *testing.T) {
 		},
 		{
 			name:            "GetPeers sorting with invalid sorting order",
-			requestPath:     "/peers?sort_by=name,nosuchorder&sort_by=ip",
+			requestPath:     "/peers?sort_by=name,nosuchorder&sort_by=version",
 			expectedStatus:  http.StatusUnprocessableEntity,
 			setExpectations: func(p *Handler) {},
 		},

@@ -355,8 +355,6 @@ func sortingOrderFromQuery(v url.Values) (store.PeerSorting, error) {
 		switch field {
 		case "name":
 			sortkey.Field = store.PeerSortByName
-		case "ip":
-			sortkey.Field = store.PeerSortByIP
 		case "last_seen":
 			sortkey.Field = store.PeerSortByLastSeen
 		case "version":
