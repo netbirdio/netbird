@@ -227,6 +227,10 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 	return nil
 }
 
+// validationTimeout bounds the DNS check so it ends, and reports why, before a proxy in
+// front of management times the request out.
+const validationTimeout = 10 * time.Second
+
 // ValidateDomain checks the domain's validation CNAME and marks it validated. A failure
 // the user can act on is returned as PreconditionFailed carrying the reason.
 func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) error {
@@ -269,7 +273,9 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		"targetCluster": targetCluster,
 	}).Info("validating domain against target cluster")
 
-	_, err = m.validator.Validate(ctx, d.Domain, []string{targetCluster})
+	lookupCtx, cancel := context.WithTimeout(ctx, validationTimeout)
+	_, err = m.validator.Validate(lookupCtx, d.Domain, []string{targetCluster})
+	cancel()
 	if err == nil {
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(ctx, accountID, d); err != nil {

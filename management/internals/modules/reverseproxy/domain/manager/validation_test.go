@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -119,4 +120,32 @@ func TestValidateDomain_ConcurrentValidationSucceeds(t *testing.T) {
 	close(resolver.release)
 
 	assert.NoError(t, <-done, "a domain validated by a concurrent request is a success")
+}
+
+// hangingResolver never answers, so only a deadline on the context ends the lookup.
+type hangingResolver struct{}
+
+func (hangingResolver) LookupCNAME(ctx context.Context, _ string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+// A lookup that hangs must end on the validation timeout and still report the reason,
+// rather than leaving the request to whatever timeout sits in front of management.
+func TestValidateDomain_LookupTimeout(t *testing.T) {
+	env := setupClockDomainTest(t)
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		d, err := env.manager.CreateDomain(ctx, accountA, accountAUser, "slow.example.com", testCluster)
+		require.NoError(t, err)
+		env.manager.validator.Resolver = hangingResolver{}
+
+		start := time.Now()
+		err = env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID)
+		sErr, ok := status.FromError(err)
+		require.True(t, ok, "expected a status error, got %v", err)
+		assert.Equal(t, status.PreconditionFailed, sErr.Type(), "status type")
+		assert.Equal(t, "DNS lookup for validation.slow.example.com failed; retry the validation", sErr.Message, "user-facing message")
+		assert.Equal(t, validationTimeout, time.Since(start), "the lookup must end on the validation timeout")
+	})
 }
