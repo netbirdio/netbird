@@ -18,7 +18,7 @@ import (
 )
 
 const targetSelectColumns = `id, account_id, service_id, path, host, port, protocol,
-	target_id, target_type, enabled, proxy_protocol,
+	target_id, target_type, enabled, access_action, proxy_protocol,
 	skip_tls_verify, request_timeout, session_idle_timeout, path_rewrite, custom_headers,
 	direct_upstream, middlewares, capture_max_request_bytes, capture_max_response_bytes,
 	capture_content_types, agent_network, disable_access_log`
@@ -37,6 +37,7 @@ func (s *SqlStore) getServiceTargets(ctx context.Context, serviceIDs []string) (
 func scanTarget(row pgx.CollectableRow) (*rpservice.Target, error) {
 	var t rpservice.Target
 	var path sql.NullString
+	var accessAction sql.NullString
 	var pathRewrite sql.NullString
 	var proxyProtocol, skipTLSVerify, directUpstream, agentNetwork, disableAccessLog sql.NullBool
 	var requestTimeout, sessionIdleTimeout, captureMaxRequestBytes, captureMaxResponseBytes sql.NullInt64
@@ -52,6 +53,7 @@ func scanTarget(row pgx.CollectableRow) (*rpservice.Target, error) {
 		&t.TargetId,
 		&t.TargetType,
 		&t.Enabled,
+		&accessAction,
 		&proxyProtocol,
 		&skipTLSVerify,
 		&requestTimeout,
@@ -71,6 +73,11 @@ func scanTarget(row pgx.CollectableRow) (*rpservice.Target, error) {
 	}
 	if path.Valid {
 		t.Path = &path.String
+	}
+	if accessAction.Valid && accessAction.String != "" {
+		t.AccessAction = rpservice.TargetAccessAction(accessAction.String)
+	} else {
+		t.AccessAction = rpservice.TargetAccessActionInherit
 	}
 
 	t.ProxyProtocol = proxyProtocol.Bool

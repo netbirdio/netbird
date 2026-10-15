@@ -29,7 +29,7 @@ type URI struct {
 // module-path must be absolute and a module-name must be a bare name. Unknown query
 // attributes are ignored, as the RFC asks.
 func ParseURI(raw string) (*URI, error) {
-	rest, ok := strings.CutPrefix(raw, "pkcs11:")
+	rest, ok := cutPrefixFold(raw, "pkcs11:")
 	if !ok {
 		return nil, errors.New("PKCS#11 URI does not start with the pkcs11 scheme")
 	}
@@ -72,9 +72,59 @@ func (u *URI) setQueryAttribute(name, value string) error {
 	case "pin-value":
 		u.pinValue = &value
 	case "pin-source":
-		u.pinSource = value
+		path, err := pinSourcePath(value)
+		if err != nil {
+			return err
+		}
+		u.pinSource = path
 	}
 	return nil
+}
+
+// pinSourcePath turns a pin-source value into the file to read. A plain path is used as
+// it is; a file URI must name a local absolute path, with no host or localhost (RFC 8089
+// section 2), so a PIN is never read from somewhere the URI only appears to point to.
+func pinSourcePath(value string) (string, error) {
+	if value == "" {
+		return "", errors.New("PKCS#11 URI pin-source is empty")
+	}
+	rest, isFile := cutPrefixFold(value, "file:")
+	if !isFile {
+		return value, nil
+	}
+	authorityAndPath, hasAuthority := strings.CutPrefix(rest, "//")
+	if !hasAuthority {
+		if !isAbsolutePath(rest) {
+			return "", fmt.Errorf("PKCS#11 URI pin-source %q must be an absolute path", value)
+		}
+		return rest, nil
+	}
+	if isAbsolutePath(authorityAndPath) {
+		return authorityAndPath, nil
+	}
+	host, path, _ := strings.Cut(authorityAndPath, "/")
+	if host != "" && !strings.EqualFold(host, "localhost") {
+		return "", fmt.Errorf("PKCS#11 URI pin-source host %q is not the local machine", host)
+	}
+	if path == "" {
+		return "", fmt.Errorf("PKCS#11 URI pin-source %q names no file", value)
+	}
+	return "/" + path, nil
+}
+
+// isAbsolutePath reports whether p is absolute in a file URI. A path starting with a slash
+// is absolute there on every platform, including Windows, where filepath.IsAbs wants a
+// drive letter.
+func isAbsolutePath(p string) bool {
+	return strings.HasPrefix(p, "/") || filepath.IsAbs(p)
+}
+
+// cutPrefixFold is strings.CutPrefix with the prefix matched without regard to case.
+func cutPrefixFold(s, prefix string) (string, bool) {
+	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
+		return s, false
+	}
+	return s[len(prefix):], true
 }
 
 // Module is the library to load, DefaultModule when the URI names none.
@@ -99,8 +149,7 @@ func (u *URI) PIN() ([]byte, error) {
 	if u.pinSource == "" {
 		return nil, nil
 	}
-	path := strings.TrimPrefix(strings.TrimPrefix(u.pinSource, "file://"), "file:")
-	pin, err := os.ReadFile(path)
+	pin, err := os.ReadFile(u.pinSource)
 	if err != nil {
 		return nil, fmt.Errorf("read PIN: %w", err)
 	}

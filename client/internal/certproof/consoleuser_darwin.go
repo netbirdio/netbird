@@ -35,10 +35,10 @@ type ConsoleUser struct {
 	GID  uint32
 }
 
-// CurrentConsoleUser reports the user sitting at the desktop. The second return value is
+// currentConsoleUser reports the user sitting at the desktop. The second return value is
 // false when nobody is: at the login window macOS either reports no console user at all
 // or attributes the session to root, and neither has a login keychain to offer.
-func CurrentConsoleUser() (ConsoleUser, bool) {
+func currentConsoleUser() (ConsoleUser, bool) {
 	if err := loadConsoleUser(); err != nil {
 		log.Debugf("console user lookup unavailable: %v", err)
 		return ConsoleUser{}, false

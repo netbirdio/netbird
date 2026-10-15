@@ -26,8 +26,6 @@ type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) err
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
-type IsValidChildAccountFunc func(ctx context.Context, userID, accountID, childAccountID string) bool
-
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
 	authManager         serverauth.Manager
@@ -36,7 +34,6 @@ type AuthMiddleware struct {
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *ratelimit.APIRateLimiter
 	patUsageTracker     *PATUsageTracker
-	isValidChildAccount IsValidChildAccountFunc
 }
 
 // NewAuthMiddleware instance constructor
@@ -47,7 +44,6 @@ func NewAuthMiddleware(
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiter *ratelimit.APIRateLimiter,
 	meter metric.Meter,
-	isValidChildAccount IsValidChildAccountFunc,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -65,7 +61,6 @@ func NewAuthMiddleware(
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
-		isValidChildAccount: isValidChildAccount,
 	}
 }
 
@@ -125,13 +120,6 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(ctx, token)
 	if err != nil {
 		return err
-	}
-
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
 	}
 
 	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
@@ -208,13 +196,6 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		Domain:         accDomain,
 		DomainCategory: accCategory,
 		IsPAT:          true,
-	}
-
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
 	}
 
 	// propagates ctx change to upstream middleware

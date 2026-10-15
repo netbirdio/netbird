@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Manager, accountManager account.Manager, metrics telemetry.AppMetrics, isValidChildAcctFunc IsValidChildAccountFunc) []mux.MiddlewareFunc {
+func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Manager, accountManager account.Manager, metrics telemetry.AppMetrics) []mux.MiddlewareFunc {
 	toret := make([]mux.MiddlewareFunc, 0)
 
 	toret = append(toret, metrics.HTTPMiddleware().Handler)
@@ -28,7 +28,6 @@ func BuildMiddleware(rateLimiter *ratelimit.APIRateLimiter, authManager auth.Man
 		accountManager.GetUserFromUserAuth,
 		rateLimiter,
 		metrics.GetMeter(),
-		isValidChildAcctFunc,
 	).Handler)
 
 	return toret

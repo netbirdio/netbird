@@ -27,10 +27,10 @@ func TestConsoleUser_OnlyADesktopSessionCanBeValidated(t *testing.T) {
 	}
 }
 
-// CurrentConsoleUser runs against the real SystemConfiguration framework. A machine with
+// currentConsoleUser runs against the real SystemConfiguration framework. A machine with
 // a desktop open must report a non-root user; a headless runner must report none.
 func TestCurrentConsoleUser_AgreesWithItself(t *testing.T) {
-	user, ok := CurrentConsoleUser()
+	user, ok := currentConsoleUser()
 	if !ok {
 		t.Log("no console user, running headless")
 		return
