@@ -248,7 +248,3 @@ func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 		return &m
 	})
 }
-
-func (s *BaseServer) IsValidChildAccount(_ context.Context, _, _, _ string) bool {
-	return false
-}
