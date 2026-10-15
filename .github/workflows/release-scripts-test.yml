@@ -8,13 +8,17 @@ on:
     paths:
       - "release_files/skip-latest.sh"
       - "release_files/tests/**"
+      - ".github/workflows/release-scripts-test.yml"
   pull_request:
     paths:
       - "release_files/skip-latest.sh"
       - "release_files/tests/**"
+      - ".github/workflows/release-scripts-test.yml"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
+permissions:
+  contents: read
 jobs:
   bats:
     runs-on: ubuntu-latest

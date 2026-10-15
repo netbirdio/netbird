@@ -53,7 +53,10 @@ jobs:
                 # tag fetch, which would pull the history behind every tag.
                 SKIP_LATEST_TAGS=$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##')
                 export SKIP_LATEST_TAGS
-                if [[ "$(release_files/skip-latest.sh "$GITHUB_REF_NAME")" == "false" ]]; then
+                # An assignment, so a refused tag list fails the step; set -e ignores a
+                # substitution inside [[ ]].
+                skip_latest=$(release_files/skip-latest.sh "$GITHUB_REF_NAME")
+                if [[ "$skip_latest" == "false" ]]; then
                   run=true
                   echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
                 fi

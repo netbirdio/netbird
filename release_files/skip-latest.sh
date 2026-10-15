@@ -18,7 +18,11 @@
 #   v0.81.0' release_files/skip-latest.sh v0.80.3
 #
 # It is the variable being *set* that switches the source, not it being
-# non-empty, so an empty value means "no tags exist" rather than "ask git".
+# non-empty, so an empty value is an empty list rather than "ask git".
+#
+# The tag itself must be in the list. If it isn't, the list is broken -- a
+# checkout without tags, an empty ls-remote -- and the script exits 1 rather
+# than guess, since every guess about an empty list would move latest.
 #
 # Two rules, in order:
 #
@@ -31,7 +35,7 @@
 # ordinary separator, and only `~` sorts lower. Leaving release candidates in
 # the comparison would make a release look older than its own RC, and latest
 # would never move.
-set -eu
+set -euo pipefail
 
 tag=${1:-}
 if [ -z "$tag" ]; then
@@ -47,6 +51,13 @@ else
   candidates=$(git tag -l 'v*')
 fi
 
+# A here-string, not printf piped into grep -q: grep exits at the first match,
+# and under pipefail the SIGPIPE that leaves printf with would read as a miss.
+if ! grep -Fxq -- "$tag" <<<"$candidates"; then
+  echo "$0: $tag is not in the tag list -- refusing to decide on a broken list" >&2
+  exit 1
+fi
+
 # Strip the v prefix, drop anything holding a hyphen (prereleases, canaries,
 # the odd -hotfix-N), and take the highest. `sed` rather than `grep -v` so an
 # empty result is not a pipeline failure.
@@ -58,9 +69,6 @@ newest=$(printf '%s\n' "$candidates" \
 skip=true
 if [ "${version#*-}" != "$version" ]; then
   echo ":: $version is a prerelease -- latest never moves" >&2
-elif [ -z "$newest" ]; then
-  skip=false
-  echo ":: no release tagged yet -- $version moves latest" >&2
 elif [ "$(printf '%s\n%s\n' "$version" "$newest" | sort -V | tail -1)" = "$version" ]; then
   skip=false
   echo ":: $version is the newest release -- it moves latest" >&2

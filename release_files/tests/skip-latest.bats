@@ -96,12 +96,18 @@ v0.1.0'
   [ "${lines[-1]}" = "false" ]
 }
 
-@test "an empty SKIP_LATEST_TAGS means no tags, not ask git" {
-  # Guards the ${VAR+set} test: a plain -n check would fall through to git and
-  # silently read this repository's real tags.
-  decide v0.1.0 ''
-  [ "$status" -eq 0 ]
-  [ "${lines[-1]}" = "false" ]
+@test "a tag missing from the list is refused, not decided" {
+  # An empty ls-remote or a checkout without tags must not move latest.
+  decide v0.82.0
+  [ "$status" -eq 1 ]
+  [ "${lines[-1]}" != "false" ]
+}
+
+@test "an empty SKIP_LATEST_TAGS is an empty list, not ask git" {
+  # Guards the ${VAR+set} test: a plain -n check would fall through to git,
+  # where this repository's real v0.80.0 would let the script succeed.
+  decide v0.80.0 ''
+  [ "$status" -eq 1 ]
 }
 
 @test "falls back to git tag when SKIP_LATEST_TAGS is unset" {
