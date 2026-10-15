@@ -158,6 +158,9 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 	if params.Logger == nil {
 		params.Logger = getLogger()
 	}
+	if params.Net == nil {
+		params.Net = stdnet.NewNet(context.Background(), nil, nil)
+	}
 
 	mux := &SingleSocketUDPMux{
 		addressMap:       map[string][]*udpMuxedConn{},
@@ -200,10 +203,6 @@ func (m *SingleSocketUDPMux) updateLocalAddresses() {
 			m.params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", m.params.UDPConn.LocalAddr())
 		}
 		if len(networks) > 0 {
-			if m.params.Net == nil {
-				m.params.Net = stdnet.NewNet(context.Background(), nil, nil)
-			}
-
 			ips, err := localInterfaces(m.params.Net, m.params.InterfaceFilter, nil, networks, true)
 			if err == nil {
 				for _, ip := range ips {

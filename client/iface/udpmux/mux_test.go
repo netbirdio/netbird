@@ -3,6 +3,7 @@ package udpmux
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -79,4 +80,20 @@ func testInterface(name string, ip net.IP) *transport.Interface {
 	ifc := transport.NewInterface(net.Interface{Index: 1, MTU: 1500, Name: name, Flags: net.FlagUp | net.FlagMulticast})
 	ifc.AddAddress(&net.IPNet{IP: ip, Mask: net.CIDRMask(24, 32)})
 	return ifc
+}
+
+func TestSingleSocketUDPMux_ConcurrentListenAddressesWithDefaultNet(t *testing.T) {
+	conn := listenUDP(t, net.IPv4zero)
+	mux := NewSingleSocketUDPMux(Params{UDPConn: conn})
+	t.Cleanup(func() { _ = mux.Close() })
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NotEmpty(t, mux.GetListenAddresses(), "every caller gets at least the socket address")
+		}()
+	}
+	wg.Wait()
 }
