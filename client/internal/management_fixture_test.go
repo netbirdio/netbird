@@ -63,6 +63,8 @@ func startManagementServer(t *testing.T, dataDir, testFile string) (*grpc.Server
 	if err != nil {
 		return nil, "", nil, err
 	}
+	// Closes the socket if setup fails before Serve. After Serve, Stop has already closed it.
+	t.Cleanup(func() { _ = lis.Close() })
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), testFile, config.Datadir)
@@ -72,9 +74,6 @@ func startManagementServer(t *testing.T, dataDir, testFile string) (*grpc.Server
 	t.Cleanup(cleanUp)
 
 	eventStore := &activity.InMemoryEventStore{}
-	if err != nil {
-		return nil, "", nil, err
-	}
 
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
@@ -129,8 +128,8 @@ func startManagementServer(t *testing.T, dataDir, testFile string) (*grpc.Server
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
-		if err = s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+		if serveErr := s.Serve(lis); serveErr != nil {
+			log.Errorf("failed to serve: %v", serveErr)
 		}
 	}()
 	t.Cleanup(s.Stop)

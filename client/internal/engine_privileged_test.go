@@ -422,6 +422,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 	return s, lis.Addr().String(), nil
 }
 
+// startManagement keeps the signature the privileged tests use. See startManagementServer.
 func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 

@@ -323,6 +323,7 @@ func TestLoginOrReRegisterAgainstManagement(t *testing.T) {
 	}
 }
 
+// peerByKey returns the account's peer with the given WireGuard public key, or nil.
 func peerByKey(t *testing.T, am account.Manager, accountID, userID, key string) *nbpeer.Peer {
 	t.Helper()
 
