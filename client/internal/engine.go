@@ -407,6 +407,7 @@ func NewEngine(
 		updateManager:      services.UpdateManager,
 		syncStoreDir:       config.StateDir,
 	}
+	engine.wgDetector.SetOwnInterface(config.WgIfaceName)
 	// sessionWatcher keeps the SubscribeStatus consumers in sync with the
 	// session expiry deadline. Deadline-change ticks come for free via
 	// Status.SetSessionExpiresAt; the watcher exists to push a wake-up at
@@ -658,6 +659,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		return fmt.Errorf("create wg interface: %w", err)
 	}
+	e.wgDetector.SetOwnInterface(e.wgInterface.Name())
 
 	if filteredDevice := e.wgInterface.GetDevice(); filteredDevice != nil {
 		filteredDevice.SetPanicHandler(e.triggerClientRestart)

@@ -34,8 +34,9 @@ type WGDetector struct {
 	// probe is replaced in tests; it is the call this type exists to avoid repeating.
 	probe func(string) bool
 
-	mu    sync.RWMutex
-	cache map[string]wgDetectorEntry
+	mu       sync.RWMutex
+	cache    map[string]wgDetectorEntry
+	ownIface string
 
 	sf singleflight.Group
 }
@@ -49,12 +50,22 @@ func NewWGDetector() *WGDetector {
 	}
 }
 
+func (d *WGDetector) SetOwnInterface(iFace string) {
+	d.mu.Lock()
+	d.ownIface = iFace
+	d.mu.Unlock()
+}
+
 // IsWireGuard reports whether the named interface is a WireGuard device. An interface
 // it cannot ask about is reported as not being one, which leaves it available to ICE
 // exactly as an uncached probe would.
 func (d *WGDetector) IsWireGuard(iFace string) bool {
 	if d == nil {
 		return probeWireGuard(iFace)
+	}
+
+	if d.isOwnInterface(iFace) {
+		return true
 	}
 
 	if isWireGuard, ok := d.cached(iFace); ok {
@@ -102,6 +113,13 @@ func (d *WGDetector) store(iFace string, isWireGuard bool) {
 		}
 	}
 	d.cache[iFace] = wgDetectorEntry{isWireGuard: isWireGuard, expireAt: now.Add(d.ttl)}
+}
+
+func (d *WGDetector) isOwnInterface(iFace string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return d.ownIface != "" && iFace == d.ownIface
 }
 
 func probeWireGuard(iFace string) bool {
