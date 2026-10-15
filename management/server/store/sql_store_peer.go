@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -606,13 +607,13 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		db = db.Where("meta_go_os in (?)", f.Os)
 	}
 	if f.IP != "" {
-		db = db.Where("ip like ? or ipv6 like ?", fmt.Sprintf("%%%s%%", f.IP), fmt.Sprintf("%%%s%%", f.IP))
+		db = db.Where("ip like ? or lower(ipv6) like ?", fmt.Sprintf("%%%s%%", f.IP), fmt.Sprintf("%%%s%%", strings.ToLower(f.IP)))
 	}
 	if f.MAC != "" {
-		db = db.Where("meta_network_addresses like ?", fmt.Sprintf("%%%s%%", f.MAC))
+		db = db.Where("lower(meta_network_addresses) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.MAC)))
 	}
 	if f.Hostname != "" {
-		db = db.Where("name like ?", fmt.Sprintf("%%%s%%", f.Hostname))
+		db = db.Where("lower(name) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Hostname)))
 	}
 	if f.IsServer != nil {
 		if *f.IsServer {
@@ -632,7 +633,6 @@ type PeerSortByField int
 
 const (
 	PeerSortByName PeerSortByField = iota
-	PeerSortByIP
 	PeerSortByLastSeen
 	PeerSortByVersion
 )
@@ -660,9 +660,6 @@ func (s *PeerSorting) AsOderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 		switch key.Field {
 		case PeerSortByName:
 			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: key.Order == DescOrderBy})
-		case PeerSortByIP:
-			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.ip"}, Desc: key.Order == DescOrderBy},
-				clause.OrderByColumn{Column: clause.Column{Name: "peers.ipv6"}, Desc: key.Order == DescOrderBy})
 		case PeerSortByLastSeen:
 			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: key.Order == DescOrderBy})
 		case PeerSortByVersion:
@@ -672,9 +669,6 @@ func (s *PeerSorting) AsOderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 		}
 	}
 
-	// if len(order) == 0 {
-	// 	return db
-	// }
 	// always order/break ties by id asc order
 	order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.id"}, Desc: false})
 	return db.Order(clause.OrderBy{Columns: order})
