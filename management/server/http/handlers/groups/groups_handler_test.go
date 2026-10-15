@@ -21,7 +21,6 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -79,7 +78,7 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return nil, status.Errorf(status.NotFound, "unknown group name")
 			},
-			GetPeersFunc: func(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*nbpeer.Peer, int, error) {
+			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
 				return maps.Values(TestPeers), len(maps.Values(TestPeers)), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {

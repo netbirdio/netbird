@@ -724,22 +724,13 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			for _, f := range []func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error){
-				func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
-					return manager.GetPeers(context.Background(), accountID, userID)
-				},
-				func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
-					peers, _, err := manager.GetPeersPaginated(context.Background(), accountID, userID, store.PaginationState{}, store.PeerFilters{}, store.PeerSorting{})
-					return peers, err
-				}} {
-				peers, err := f(context.Background(), accountID, someUser)
-				if err != nil {
-					t.Fatal(err)
-					return
-				}
-				assert.NotNil(t, peers)
-				assert.Len(t, peers, testCase.expectedPeerCount)
+			peers, err := manager.GetPeers(context.Background(), accountID, userID, "", "", "")
+			if err != nil {
+				t.Fatal(err)
+				return
 			}
+			assert.NotNil(t, peers)
+			assert.Len(t, peers, testCase.expectedPeerCount)
 
 		})
 	}
@@ -785,7 +776,7 @@ func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, _, err := manager.GetPeersPaginated(ctx, account.Id, "mac-admin", store.PaginationState{}, store.PeerFilters{Hostname: tt.nameFilter, IP: tt.ipFilter, MAC: tt.macFilter}, store.PeerSorting{})
+			peers, err := manager.GetPeers(ctx, account.Id, "mac-admin", tt.nameFilter, tt.ipFilter, tt.macFilter)
 			require.NoError(t, err)
 			ids := make([]string, 0, len(peers))
 			for _, peer := range peers {
