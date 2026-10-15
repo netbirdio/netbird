@@ -1299,6 +1299,10 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 }
 
 func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
+	// Canceling closes the stream on management; a bare return leaves it open.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	connectTime := time.Now()
 	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId:      s.ID,
@@ -1321,6 +1325,10 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 }
 
 func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
+	// Canceling closes the stream on management; a bare return leaves it open.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	connectTime := time.Now()
 	stream, err := client.SyncMappings(ctx)
 	if err != nil {
