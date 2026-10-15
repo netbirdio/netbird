@@ -51,8 +51,7 @@ type managerImpl struct {
 	permissionsManager      permissions.Manager
 	integratedPeerValidator integrated_validator.IntegratedValidator
 	accountManager          account.Manager
-
-	networkMapController network_map.Controller
+	networkMapController    network_map.Controller
 }
 
 func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
