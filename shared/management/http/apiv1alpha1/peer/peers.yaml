@@ -34,7 +34,7 @@ get:
         type: array
         items:
           type: string
-    - name: peers_ids
+    - name: peer_ids
       in: query
       description: filter peers by their ids
       required: false
