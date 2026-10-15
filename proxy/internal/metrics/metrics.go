@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/responsewriter"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -46,6 +48,8 @@ type Metrics struct {
 	udpPacketsTotal  metric.Int64Counter
 	udpBytesTotal    metric.Int64Counter
 
+	engineNotStartedErrTotal metric.Int64Counter
+
 	mappingsMux  sync.Mutex
 	mappingPaths map[string]int
 }
@@ -72,6 +76,9 @@ func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 	if err := m.initL4Metrics(meter); err != nil {
+		return nil, err
+	}
+	if err := m.initErrorMetrics(meter); err != nil {
 		return nil, err
 	}
 
@@ -171,6 +178,17 @@ func (m *Metrics) initSyncMetrics(meter metric.Meter) error {
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration to add a peer for an account (keygen + gRPC CreateProxyPeer + embed.New)"),
 		metric.WithExplicitBucketBoundaries(10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
+	)
+	return err
+}
+
+func (m *Metrics) initErrorMetrics(meter metric.Meter) error {
+	var err error
+
+	m.engineNotStartedErrTotal, err = meter.Int64Counter(
+		"proxy.error.engine_not_started.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total number of 'engine not started' errors"),
 	)
 	return err
 }
@@ -348,8 +366,11 @@ func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 		start := time.Now()
 		res, err := next.RoundTrip(req)
 		duration := time.Since(start)
-
 		m.backendDuration.Record(m.ctx, duration.Milliseconds())
+
+		if errors.Is(err, embed.ErrEngineNotStarted) {
+			m.engineNotStartedErrTotal.Add(m.ctx, 1)
+		}
 
 		return res, err
 	})
