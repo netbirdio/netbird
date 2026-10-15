@@ -789,6 +789,11 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
+	return client.Login(buildLoginSysInfo(ctx, config), pubSSHKey, config.DNSLabels)
+}
+
+// buildLoginSysInfo returns the system info sent with a management login request.
+func buildLoginSysInfo(ctx context.Context, config *profilemanager.Config) *system.Info {
 	sysInfo := system.GetInfo(ctx)
 	sysInfo.SetFlags(
 		config.RosenpassEnabled,
@@ -809,7 +814,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableSSHAuth,
 		config.RemoteJobsAllowed,
 	)
-	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
+	return sysInfo
 }
 
 func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {
