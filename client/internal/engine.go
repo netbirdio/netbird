@@ -2486,7 +2486,8 @@ func (e *Engine) startNetworkMonitor() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		if err := e.networkMonitor.Listen(e.ctx); err != nil {
+		change, err := e.networkMonitor.Listen(e.ctx)
+		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				log.Infof("network monitor stopped")
 				return
@@ -2495,7 +2496,7 @@ func (e *Engine) startNetworkMonitor() {
 			return
 		}
 
-		log.Infof("Network monitor: detected network change, triggering client restart")
+		log.Infof("Network monitor: detected network change (%s), triggering client restart", change.Kind)
 		e.triggerClientRestart()
 	}()
 }

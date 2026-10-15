@@ -34,7 +34,7 @@ func TestNetworkMonitor_Close(t *testing.T) {
 	var resErr error
 	done := make(chan struct{})
 	go func() {
-		resErr = nw.Listen(context.Background())
+		_, resErr = nw.Listen(context.Background())
 		close(done)
 	}()
 
@@ -64,7 +64,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 	var resErr error
 	done := make(chan struct{})
 	go func() {
-		resErr = nw.Listen(context.Background())
+		_, resErr = nw.Listen(context.Background())
 		close(done)
 	}()
 
@@ -85,7 +85,7 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	done := make(chan struct{})
 	started := time.Now()
 	go func() {
-		if resErr := nw.Listen(context.Background()); resErr != nil {
+		if _, resErr := nw.Listen(context.Background()); resErr != nil {
 			t.Errorf("unexpected error: %v", resErr)
 		}
 		close(done)

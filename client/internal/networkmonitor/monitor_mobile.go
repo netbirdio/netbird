@@ -15,8 +15,8 @@ func New() *NetworkMonitor {
 	return &NetworkMonitor{}
 }
 
-func (nw *NetworkMonitor) Listen(_ context.Context) error {
-	return fmt.Errorf("network monitor not supported on mobile platforms")
+func (nw *NetworkMonitor) Listen(_ context.Context) (Change, error) {
+	return Change{}, fmt.Errorf("network monitor not supported on mobile platforms")
 }
 
 func (nw *NetworkMonitor) Stop() {

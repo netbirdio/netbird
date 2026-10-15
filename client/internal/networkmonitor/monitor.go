@@ -35,16 +35,18 @@ func New() *NetworkMonitor {
 	return &NetworkMonitor{}
 }
 
-// Listen begins monitoring network changes. When a change is detected, this function will return without error.
-func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
+// Listen begins monitoring network changes. When a change is detected, it
+// returns how the underlay default next hops moved. It can be called again
+// after it returns, to watch for the next change from the new baseline.
+func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error) {
 	nw.mu.Lock()
 	if nw.cancel != nil {
 		nw.mu.Unlock()
-		return errors.New("network monitor already started")
+		return Change{}, errors.New("network monitor already started")
 	}
 
 	ctx, nw.cancel = context.WithCancel(ctx)
-	defer nw.cancel()
+	defer nw.release()
 	nw.wg.Add(1)
 	nw.mu.Unlock()
 
@@ -61,7 +63,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 	expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 
 	if err := backoff.Retry(operation, expBackOff); err != nil {
-		return fmt.Errorf("failed to get default next hops: %w", err)
+		return Change{}, fmt.Errorf("failed to get default next hops: %w", err)
 	}
 
 	// recover in case sys ops panic
@@ -83,10 +85,10 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 		case <-event:
 			timer.Reset(debounceTime)
 		case <-timer.C:
-			return nil
+			return newChange(nexthop4, nexthop6), nil
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return Change{}, ctx.Err()
 		}
 	}
 }
@@ -104,6 +106,14 @@ func (nw *NetworkMonitor) Stop() {
 	nw.wg.Wait()
 }
 
+// release cancels the current Listen run and clears it, so Listen can run again.
+func (nw *NetworkMonitor) release() {
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
+	nw.cancel()
+	nw.cancel = nil
+}
+
 func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
 	defer close(event)
 	for {
@@ -119,6 +129,15 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 		default:
 		}
 	}
+}
+
+// newChange compares the baseline next hops with the current ones. A failed
+// lookup leaves After empty, which classifies as an interface change.
+func newChange(nexthop4, nexthop6 systemops.Nexthop) Change {
+	before := NextHops{V4: nexthop4, V6: nexthop6}
+	var after NextHops
+	after.V4, after.V6, _ = readNextHops()
+	return Change{Kind: classify(before, after), Before: before, After: after}
 }
 
 // readNextHops returns the current underlay default next hops. It fails only
