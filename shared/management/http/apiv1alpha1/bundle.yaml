@@ -756,7 +756,7 @@ components:
                 enum:
                   - linux
                   - windows
-                  - mac
+                  - darwin
                   - android
                   - ios
                   - js
