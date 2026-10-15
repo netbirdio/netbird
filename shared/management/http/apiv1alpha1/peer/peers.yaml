@@ -109,7 +109,6 @@ get:
           type: string
           enum:
            - name
-           - ip
            - last_seen
            - version
            - asc
