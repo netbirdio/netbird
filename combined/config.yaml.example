@@ -93,6 +93,9 @@ server:
     # Optional AES key for encrypting embedded IdP session cookies. Can also be set via NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY.
     # Must be 16/24/32 raw bytes or base64-encoded to one of those lengths (for example: openssl rand -hex 16).
     # sessionCookieEncryptionKey: ""
+    # Login page branding. Defaults to the NetBird name and logo.
+    # brandName: "Acme Access"                      # Replaces "NetBird" in the login page title and wording
+    # brandLogoURL: "https://example.com/logo.svg"  # Absolute http(s) URL of the logo shown on the login pages; https when the issuer is https
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
       - "https://app.example.com/nb-auth"

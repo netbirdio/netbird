@@ -11,6 +11,7 @@
         html,body{margin:0;padding:0;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:14px;line-height:1.5;background-color:#18191d;color:#e4e7e9;min-height:100vh}
         .nb-container{max-width:820px;margin:0 auto;padding:40px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}
         .nb-logo{width:180px;margin-bottom:40px}
+        .nb-logo img{display:block;max-width:100%;max-height:80px;margin:0 auto}
         .nb-card{background-color:#1b1f22;border:1px solid rgba(50,54,61,.5);border-radius:12px;padding:40px;width:100%;max-width:400px;box-shadow:0 20px 25px -5px rgba(0,0,0,.1),0 8px 10px -6px rgba(0,0,0,.1)}
         .nb-heading{font-size:24px;font-weight:500;text-align:center;margin:0 0 24px 0;color:#fff}
         .nb-subheading{font-size:14px;color:rgba(167,177,185,.8);text-align:center;margin-bottom:24px}
@@ -48,6 +49,9 @@
 <body>
 <div class="nb-container">
     <div class="nb-logo">
+        {{ with extra "brandLogoURL" }}
+        <img src="{{ . }}" alt="{{ issuer }}">
+        {{ else }}
         <svg width="180" height="31" viewBox="0 0 133 23" fill="none" xmlns="http://www.w3.org/2000/svg">
             <g clip-path="url(#clip0)">
                 <path d="M46.9438 7.5013C48.1229 8.64688 48.7082 10.3025 48.7082 12.4683V21.6663H46.1411V12.8362C46.1411 11.2809 45.7481 10.0851 44.9704 9.26566C44.1928 8.43783 43.1308 8.0281 41.7846 8.0281C40.4383 8.0281 39.3345 8.45455 38.5234 9.30747C37.7123 10.1604 37.3109 11.4063 37.3109 13.0369V21.6663H34.7188V6.06305H37.3109V8.28732C37.821 7.49294 38.5234 6.87416 39.4014 6.43934C40.2878 6.00452 41.2578 5.78711 42.3197 5.78711C44.2179 5.78711 45.7565 6.36408 46.9355 7.50966L46.9438 7.5013Z" fill="#F2F2F2"/>
@@ -67,4 +71,5 @@
                 </clipPath>
             </defs>
         </svg>
+        {{ end }}
     </div>
