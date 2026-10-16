@@ -181,7 +181,8 @@ func (r *Route) releaseAllowedIPsLocked() error {
 func (r *Route) retryPendingAllowedIPsLocked() error {
 	var merr *multierror.Error
 	for ref := range r.pendingAllowedIPRefs {
-		if _, err := r.allowedIPsRefcounter.Decrement(ref.prefix, ref.peerKey); err != nil {
+		// The reference was already released; retry cleanup without releasing another owner's.
+		if _, err := r.allowedIPsRefcounter.Decrement(ref.prefix, ""); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", ref.prefix, err))
 			continue
 		}
