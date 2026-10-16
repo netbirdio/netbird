@@ -218,7 +218,7 @@ func TestAuthEnvelopeRoundTrip(t *testing.T) {
 
 			msgType, err := DetermineClientMessageType(msg)
 			require.NoError(t, err)
-			assert.Equal(t, MsgTypeAuth, msgType, "the envelope is an auth message")
+			assert.Equal(t, MsgType(MsgTypeAuth), msgType, "the envelope is an auth message")
 
 			gotID, gotToken, err := UnmarshalAuthMsg(msg)
 			require.NoError(t, err)

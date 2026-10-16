@@ -25,7 +25,8 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	want, err := messages.MarshalAuthResponse(srv.InstanceURL().String())
+	instanceURL := srv.InstanceURL()
+	want, err := messages.MarshalAuthResponse(instanceURL.String())
 	require.NoError(t, err)
 
 	// A synthetic client advertising v2 with an extension area that a v1 server does not read.

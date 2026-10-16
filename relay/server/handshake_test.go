@@ -167,7 +167,7 @@ func TestRelay_AuthV1ResponseIsUnchanged(t *testing.T) {
 	relay.Accept(conn)
 
 	frames := conn.waitFrames(t, 1)
-	want, err := messages.MarshalAuthResponse(relay.InstanceURL().String())
+	want, err := messages.MarshalAuthResponse(relay.instanceURL.String())
 	require.NoError(t, err)
 	assert.Equal(t, want, frames[0], "a v1 client must receive the same response bytes as today")
 	assert.Equal(t, [][]byte{token}, validator.calls(), "the validator must receive the v1 token bytes")
@@ -202,7 +202,7 @@ func TestRelay_AuthEnvelopeSelectsV1(t *testing.T) {
 			relay.Accept(conn)
 
 			frames := conn.waitFrames(t, 1)
-			want, err := messages.MarshalAuthResponse(relay.InstanceURL().String())
+			want, err := messages.MarshalAuthResponse(relay.instanceURL.String())
 			require.NoError(t, err)
 			assert.Equal(t, want, frames[0], "the response must carry the selected v1 header")
 			assert.Equal(t, [][]byte{token}, validator.calls(), "the validator must receive the token without the extension")
