@@ -12,7 +12,10 @@ import (
 
 type recordingConnectionListener struct {
 	connecting int
+	states     []int
 }
+
+func (l *recordingConnectionListener) OnStateChanged(state int) { l.states = append(l.states, state) }
 
 func (*recordingConnectionListener) OnConnected()                    {}
 func (*recordingConnectionListener) OnDisconnected()                 {}
@@ -21,20 +24,21 @@ func (*recordingConnectionListener) OnDisconnecting()                {}
 func (*recordingConnectionListener) OnAddressChanged(string, string) {}
 func (*recordingConnectionListener) OnPeersListChanged(int)          {}
 
-func TestConnectionListenerReportsNetworkLoss(t *testing.T) {
+func TestConnectionListenerForwardsStates(t *testing.T) {
 	listener := &recordingConnectionListener{}
 	adapter := connectionListenerAdapter{listener}
-
-	adapter.OnStateChanged(peer.ClientStateNoNetwork)
-	assert.Equal(t, 1, listener.connecting, "network loss must reach the legacy reconnecting callback")
-
-	for _, state := range []peer.ClientState{
+	states := []peer.ClientState{
 		peer.ClientStateDisconnected,
 		peer.ClientStateConnected,
 		peer.ClientStateConnecting,
 		peer.ClientStateDisconnecting,
-	} {
-		adapter.OnStateChanged(state)
+		peer.ClientStateNoNetwork,
 	}
-	assert.Equal(t, 1, listener.connecting, "states with legacy callbacks must not emit duplicate reconnecting callbacks")
+	var want []int
+	for _, state := range states {
+		adapter.OnStateChanged(state)
+		want = append(want, int(state))
+	}
+	assert.Equal(t, want, listener.states)
+	assert.Zero(t, listener.connecting, "state forwarding must not synthesize legacy callbacks")
 }
