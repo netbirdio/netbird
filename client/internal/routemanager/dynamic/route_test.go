@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
@@ -141,6 +142,30 @@ func TestRemoveRouteRetriesAllowedIPCleanup(t *testing.T) {
 	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
 		"the retry must remove the old peer's allowed IP")
 	assert.Equal(t, 2, wg.attempts(), "the removal must be attempted again")
+}
+
+func TestAllowedIPCleanupRetryKeepsNewOwner(t *testing.T) {
+	wg := &wgAllowedIPMock{removeFailures: 1}
+	first, prefix := newRouteWithAllowedIP(t, wg)
+	require.Error(t, first.RemoveAllowedIPs(), "the first owner's physical removal fails")
+
+	second := static.NewRoute(common.HandlerParams{
+		Route:                &route.Route{Network: prefix},
+		AllowedIPsRefCounter: first.allowedIPsRefcounter,
+	})
+	require.NoError(t, second.AddAllowedIPs("peerA"))
+	require.NoError(t, first.RemoveAllowedIPs(), "the old owner retries only physical cleanup")
+	assert.Empty(t, wg.removedFor("peerA"), "the new owner's allowed IP must stay installed")
+
+	ref, err := first.allowedIPsRefcounter.Decrement(prefix, "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, ref.Count, "the new owner's logical reference must survive the retry")
+	assert.Equal(t, "peerA", ref.Out, "the new owner must remain active")
+
+	require.NoError(t, second.RemoveAllowedIPs())
+	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
+		"only the new owner's release may remove its allowed IP")
+	assert.Equal(t, 2, wg.attempts(), "the retry must not try to remove the new owner's allowed IP")
 }
 
 func TestRemoveRoutePreservesAllowedIPCleanupAfterPersistentFailure(t *testing.T) {
