@@ -387,7 +387,7 @@ func NewEngine(
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
 		peerStore:          peerstore.NewConnStore(),
-		wgDetector:         stdnet.NewWGDetector(),
+		wgDetector:         stdnet.NewWGDetector(config.WgIfaceName),
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,

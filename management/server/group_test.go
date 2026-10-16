@@ -20,6 +20,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -75,6 +76,42 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 			t.Errorf("should not create api group with the same name, %s", group.Name)
 		}
 	}
+}
+
+func TestDefaultAccountManager_BatchGroupChangesStoreEvents(t *testing.T) {
+	t.Setenv("NB_EVENT_ACTIVITY_LOG_ENABLED", "true")
+
+	am, _, err := createManager(t)
+	require.NoError(t, err)
+
+	_, account, err := initTestGroupAccount(am)
+	require.NoError(t, err)
+
+	group := &types.Group{ID: "grp-batch", Name: "Batch group", Issued: types.GroupIssuedAPI}
+	err = am.CreateGroups(context.Background(), account.Id, groupAdminUserID, []*types.Group{group})
+	require.NoError(t, err)
+
+	renamed := &types.Group{ID: group.ID, Name: "Batch group renamed", Issued: types.GroupIssuedAPI}
+	err = am.UpdateGroups(context.Background(), account.Id, groupAdminUserID, []*types.Group{renamed})
+	require.NoError(t, err)
+
+	hasEvent := func(code activity.Activity) bool {
+		events, err := am.eventStore.Get(context.Background(), account.Id, 0, 100, true)
+		if err != nil {
+			return false
+		}
+		for _, event := range events {
+			if event.Activity == code && event.TargetID == group.ID {
+				return true
+			}
+		}
+		return false
+	}
+
+	assert.Eventually(t, func() bool { return hasEvent(activity.GroupCreated) }, time.Second, 10*time.Millisecond,
+		"CreateGroups should store a group created event")
+	assert.Eventually(t, func() bool { return hasEvent(activity.GroupUpdated) }, time.Second, 10*time.Millisecond,
+		"UpdateGroups should store a group updated event on rename")
 }
 
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
@@ -1085,7 +1122,6 @@ func Test_AddPeerToGroup(t *testing.T) {
 				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
 				return
 			}
-
 		}(i)
 	}
 	startTime := time.Now()
@@ -1142,7 +1178,6 @@ func Test_AddPeerToAll(t *testing.T) {
 				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
 				return
 			}
-
 		}(i)
 	}
 	startTime := time.Now()

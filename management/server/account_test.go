@@ -4990,3 +4990,27 @@ func TestUpdateUserAuthWithSingleMode(t *testing.T) {
 		assert.Contains(t, err.Error(), "query failed")
 	})
 }
+
+func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	ctx := context.Background()
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	account, err := manager.Store.GetAccount(ctx, accountID)
+	require.NoError(t, err, "unable to get account")
+	require.NoError(t, manager.Store.DeleteAccount(ctx, account), "unable to delete account")
+
+	jobs := map[string]func() (time.Duration, bool){
+		"login":      manager.peerLoginExpirationJob(ctx, accountID),
+		"inactivity": manager.peerInactivityExpirationJob(ctx, accountID),
+	}
+	for name, job := range jobs {
+		t.Run(name, func(t *testing.T) {
+			_, reschedule := job()
+			assert.False(t, reschedule, "job must not reschedule for a deleted account")
+		})
+	}
+}
