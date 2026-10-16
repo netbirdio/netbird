@@ -55,9 +55,14 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	assertTransportFrame(t, readFrame(t, ctx, future), legacyID, "from legacy")
 
 	// After the response the connection is v1; a v2 frame is a protocol error and closes it.
+	// The server closes without a close frame, so the client sees a read error rather than a
+	// websocket.CloseError; a short deadline separates that from a server that keeps reading.
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, []byte{2, byte(messages.MsgTypeHealthCheck)}))
-	_, _, err = future.Read(ctx)
-	assert.Error(t, err, "the server must close a connection that changes version mid-session")
+	closeCtx, closeCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer closeCancel()
+	_, _, err = future.Read(closeCtx)
+	require.Error(t, err, "the server must close a connection that changes version mid-session")
+	assert.NotErrorIs(t, err, context.DeadlineExceeded, "the connection must be closed by the server, not time out")
 
 	require.NoError(t, legacy.Write(ctx, websocket.MessageBinary, messages.MarshalCloseMsg()))
 }
