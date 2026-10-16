@@ -10,7 +10,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { cn } from "@/lib/cn";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 import { useDirection } from "@/hooks/useDirection";
 
 type ProfileDropdownProps = {
