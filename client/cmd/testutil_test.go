@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
@@ -28,7 +28,6 @@ import (
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -124,9 +123,9 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersmanager), config, nil)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", manager.NewEphemeralManager(store, peersmanager), config, nil)
 
-	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
+	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		t.Fatal(err)
 	}

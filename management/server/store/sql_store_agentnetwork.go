@@ -663,6 +663,21 @@ func (s *SqlStore) IncrementAgentNetworkConsumptionBatch(
 	return nil
 }
 
+// DeleteAgentNetworkConsumptionOfDeletedAccounts deletes every consumption counter whose
+// account no longer exists and returns the number of rows deleted. Counters grow with
+// traffic, so they are swept in the background instead of in the account-deletion
+// transaction, and the sweep also catches counters a proxy writes after the deletion.
+func (s *SqlStore) DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx context.Context) (int64, error) {
+	res := s.db.
+		Where("NOT EXISTS (SELECT 1 FROM accounts WHERE accounts.id = agent_network_consumption.account_id)").
+		Delete(&agentNetworkTypes.Consumption{})
+	if res.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete agent-network consumption of deleted accounts: %v", res.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete agent-network consumption of deleted accounts")
+	}
+	return res.RowsAffected, nil
+}
+
 // ListAgentNetworkConsumption returns every consumption row recorded
 // for the account, ordered by window_start descending. Backs the
 // dashboard's basic counter view.

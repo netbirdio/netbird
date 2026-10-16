@@ -196,7 +196,7 @@ func TestWireguardPortZeroExplicit(t *testing.T) {
 	assert.Equal(t, 0, config.WgPort, "WgPort should be 0 when explicitly set by user")
 
 	// Verify it persists
-	readConfig, err := GetConfig(configPath)
+	readConfig, err := GetExistingConfig(configPath)
 	require.NoError(t, err)
 	assert.Equal(t, 0, readConfig.WgPort, "WgPort should remain 0 after reading from file")
 }
