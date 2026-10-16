@@ -1,6 +1,7 @@
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import { createContext, type ReactNode, useContext, useId, useMemo } from "react";
 import { cn } from "@/lib/cn";
+import { useDirection } from "@/hooks/useDirection";
 
 type SwitchItemGroupContextValue = {
     value: string;
@@ -37,11 +38,13 @@ export const SwitchItemGroup = ({
     "aria-labelledby": ariaLabelledBy,
 }: Props) => {
     const layoutId = useId();
+    const dir = useDirection();
     const contextValue = useMemo(() => ({ value, layoutId }), [value, layoutId]);
 
     return (
         <SwitchItemGroupContext.Provider value={contextValue}>
             <RadioGroup.Root
+                dir={dir}
                 value={value}
                 onValueChange={onChange}
                 disabled={disabled}

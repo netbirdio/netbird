@@ -380,7 +380,6 @@ func TestParsingToJSON(t *testing.T) {
           "networks": [
             "10.10.0.0/24"
           ],
-          "forwardingRules": 0,
           "dnsServers": [
             {
               "servers": [
@@ -500,7 +499,6 @@ mlkemEnabled: false
 mlkemStrict: false
 networks:
     - 10.10.0.0/24
-forwardingRules: 0
 dnsServers:
     - servers:
         - 8.8.8.8:53

@@ -47,6 +47,7 @@ type SingleSocketUDPMux struct {
 
 	// for UDP connection listen at unspecified address
 	localAddrsForUnspecified []net.Addr
+	unspecified              bool
 }
 
 const maxAddrSize = 512
@@ -157,6 +158,9 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 	if params.Logger == nil {
 		params.Logger = getLogger()
 	}
+	if params.Net == nil {
+		params.Net = stdnet.NewNet(context.Background(), nil, nil)
+	}
 
 	mux := &SingleSocketUDPMux{
 		addressMap:       map[string][]*udpMuxedConn{},
@@ -165,6 +169,7 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		connsIPv6:        make(map[string]*udpMuxedConn),
 		candidateConnMap: make(map[string]*udpMuxedConn),
 		closedChan:       make(chan struct{}, 1),
+		unspecified:      isUnspecified(params.UDPConn.LocalAddr()),
 		pool: &sync.Pool{
 			New: func() interface{} {
 				// big enough buffer to fit both packet and address
@@ -173,7 +178,6 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		},
 	}
 
-	mux.updateLocalAddresses()
 	return mux
 }
 
@@ -199,10 +203,6 @@ func (m *SingleSocketUDPMux) updateLocalAddresses() {
 			m.params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", m.params.UDPConn.LocalAddr())
 		}
 		if len(networks) > 0 {
-			if m.params.Net == nil {
-				m.params.Net = stdnet.NewNet(context.Background(), nil)
-			}
-
 			ips, err := localInterfaces(m.params.Net, m.params.InterfaceFilter, nil, networks, true)
 			if err == nil {
 				for _, ip := range ips {
@@ -241,10 +241,7 @@ func (m *SingleSocketUDPMux) GetListenAddresses() []net.Addr {
 // creates the connection if an existing one can't be found
 func (m *SingleSocketUDPMux) GetConn(ufrag string, addr net.Addr, candidateID string) (net.PacketConn, error) {
 	// don't check addr for mux using unspecified address
-	m.mu.Lock()
-	lenLocalAddrs := len(m.localAddrsForUnspecified)
-	m.mu.Unlock()
-	if lenLocalAddrs == 0 && m.params.UDPConn.LocalAddr().String() != addr.String() {
+	if !m.unspecified && m.params.UDPConn.LocalAddr().String() != addr.String() {
 		return nil, fmt.Errorf("invalid address %s", addr.String())
 	}
 
@@ -507,4 +504,9 @@ func getLogger() logging.LeveledLogger {
 	fac := logging.NewDefaultLoggerFactory()
 	//fac.Writer = log.StandardLogger().Writer()
 	return fac.NewLogger("ice")
+}
+
+func isUnspecified(addr net.Addr) bool {
+	udpAddr, ok := addr.(*net.UDPAddr)
+	return ok && udpAddr.IP.IsUnspecified()
 }

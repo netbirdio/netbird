@@ -267,10 +267,10 @@ func (c Change) isEmpty() bool {
 }
 
 // Expand returns the deduplicated affected peer IDs from the preloaded Snapshot,
-// no store access. Run after the producing tx commits. Logs the full walk at
-// trace level for diagnosing a miscalculation.
+// no store access. Run after the producing tx commits. A nil Snapshot expands to
+// nothing. Logs the full walk at trace level for diagnosing a miscalculation.
 func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []string {
-	if c.isEmpty() {
+	if snap == nil || c.isEmpty() {
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)

@@ -228,3 +228,27 @@ func TestRemoveProfile_DeletesStateFile(t *testing.T) {
 		assert.True(t, errors.Is(err, os.ErrNotExist), "state file should be removed")
 	})
 }
+
+// A profile file is written here and read back by whoever connects with it, so
+// it has to carry the peer's identity. While AddProfile used the bare
+// constructor, it wrote a config with no keys: the first reader had to mint
+// them, and the paths that read without writing — a gate deciding whether to
+// refuse a request, the mobile SDKs loading a stored profile — got a config
+// that cannot connect.
+func TestAddProfileWritesAnIdentity(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, username string) {
+		created, err := sm.AddProfile("work", username)
+		require.NoError(t, err)
+
+		stored, err := GetExistingConfig(created.Path)
+		require.NoError(t, err)
+
+		require.NotEmpty(t, stored.PrivateKey, "the profile was written without a WireGuard key")
+		require.NotEmpty(t, stored.SSHKey, "the profile was written without an SSH key")
+
+		// And the identity is the one on disk, not one minted per read.
+		reread, err := GetExistingConfig(created.Path)
+		require.NoError(t, err)
+		require.Equal(t, stored.PrivateKey, reread.PrivateKey)
+	})
+}

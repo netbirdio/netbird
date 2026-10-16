@@ -140,30 +140,29 @@ type SSHServerStateOutput struct {
 }
 
 type OutputOverview struct {
-	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
-	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
-	DaemonVersion           string                     `json:"daemonVersion" yaml:"daemonVersion"`
-	DaemonStatus            DaemonStatus               `json:"daemonStatus" yaml:"daemonStatus"`
-	ManagementState         ManagementStateOutput      `json:"management" yaml:"management"`
-	SignalState             SignalStateOutput          `json:"signal" yaml:"signal"`
-	Relays                  RelayStateOutput           `json:"relays" yaml:"relays"`
-	IP                      string                     `json:"netbirdIp" yaml:"netbirdIp"`
-	IPv6                    string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
-	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
-	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	WgPort                  int                        `json:"wireguardPort" yaml:"wireguardPort"`
-	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
-	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
-	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
-	MLKEMEnabled            bool                       `json:"mlkemEnabled" yaml:"mlkemEnabled"`
-	MLKEMStrict             bool                       `json:"mlkemStrict" yaml:"mlkemStrict"`
-	Networks                []string                   `json:"networks" yaml:"networks"`
-	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
-	NSServerGroups          []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
-	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
-	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
-	ProfileName             string                     `json:"profileName" yaml:"profileName"`
-	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	Peers                 PeersStateOutput           `json:"peers" yaml:"peers"`
+	CliVersion            string                     `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion         string                     `json:"daemonVersion" yaml:"daemonVersion"`
+	DaemonStatus          DaemonStatus               `json:"daemonStatus" yaml:"daemonStatus"`
+	ManagementState       ManagementStateOutput      `json:"management" yaml:"management"`
+	SignalState           SignalStateOutput          `json:"signal" yaml:"signal"`
+	Relays                RelayStateOutput           `json:"relays" yaml:"relays"`
+	IP                    string                     `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6                  string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
+	PubKey                string                     `json:"publicKey" yaml:"publicKey"`
+	KernelInterface       bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	WgPort                int                        `json:"wireguardPort" yaml:"wireguardPort"`
+	FQDN                  string                     `json:"fqdn" yaml:"fqdn"`
+	RosenpassEnabled      bool                       `json:"quantumResistance" yaml:"quantumResistance"`
+	RosenpassPermissive   bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+	MLKEMEnabled          bool                       `json:"mlkemEnabled" yaml:"mlkemEnabled"`
+	MLKEMStrict           bool                       `json:"mlkemStrict" yaml:"mlkemStrict"`
+	Networks              []string                   `json:"networks" yaml:"networks"`
+	NSServerGroups        []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
+	Events                []SystemEventOutput        `json:"events" yaml:"events"`
+	LazyConnectionEnabled bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
+	ProfileName           string                     `json:"profileName" yaml:"profileName"`
+	SSHServerState        SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
 	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. nil when the peer is not SSO-tracked or login
 	// expiration is disabled. Pointer (rather than zero-value time.Time) so
@@ -192,30 +191,29 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 	peersOverview := mapPeers(pbFullStatus.GetPeers(), opts.StatusFilter, opts.PrefixNamesFilter, opts.PrefixNamesFilterMap, opts.IPsFilter, opts.ConnectionTypeFilter)
 
 	overview := OutputOverview{
-		Peers:                   peersOverview,
-		CliVersion:              version.NetbirdVersion(),
-		DaemonVersion:           opts.DaemonVersion,
-		DaemonStatus:            opts.DaemonStatus,
-		ManagementState:         managementOverview,
-		SignalState:             signalOverview,
-		Relays:                  relayOverview,
-		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
-		IPv6:                    pbFullStatus.GetLocalPeerState().GetIpv6(),
-		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
-		WgPort:                  int(pbFullStatus.GetLocalPeerState().GetWgPort()),
-		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
-		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
-		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
-		MLKEMEnabled:            pbFullStatus.GetLocalPeerState().GetMlkemEnabled(),
-		MLKEMStrict:             pbFullStatus.GetLocalPeerState().GetMlkemStrict(),
-		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
-		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
-		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
-		Events:                  mapEvents(pbFullStatus.GetEvents()),
-		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
-		ProfileName:             opts.ProfileName,
-		SSHServerState:          sshServerOverview,
+		Peers:                 peersOverview,
+		CliVersion:            version.NetbirdVersion(),
+		DaemonVersion:         opts.DaemonVersion,
+		DaemonStatus:          opts.DaemonStatus,
+		ManagementState:       managementOverview,
+		SignalState:           signalOverview,
+		Relays:                relayOverview,
+		IP:                    pbFullStatus.GetLocalPeerState().GetIP(),
+		IPv6:                  pbFullStatus.GetLocalPeerState().GetIpv6(),
+		PubKey:                pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:       pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		WgPort:                int(pbFullStatus.GetLocalPeerState().GetWgPort()),
+		FQDN:                  pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:      pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive:   pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		MLKEMEnabled:          pbFullStatus.GetLocalPeerState().GetMlkemEnabled(),
+		MLKEMStrict:           pbFullStatus.GetLocalPeerState().GetMlkemStrict(),
+		Networks:              pbFullStatus.GetLocalPeerState().GetNetworks(),
+		NSServerGroups:        mapNSGroups(pbFullStatus.GetDnsServers()),
+		Events:                mapEvents(pbFullStatus.GetEvents()),
+		LazyConnectionEnabled: pbFullStatus.GetLazyConnectionEnabled(),
+		ProfileName:           opts.ProfileName,
+		SSHServerState:        sshServerOverview,
 	}
 	if !opts.SessionExpiresAt.IsZero() {
 		t := opts.SessionExpiresAt
@@ -579,11 +577,6 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		)
 	}
 
-	var forwardingRulesString string
-	if o.NumberOfForwardingRules > 0 {
-		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
-	}
-
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	goarm := ""
@@ -626,7 +619,6 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
-			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		daemonVersion,
@@ -646,7 +638,6 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
 		networks,
-		forwardingRulesString,
 		sessionExpiryString,
 		peersCountString,
 	)
@@ -701,7 +692,6 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.MlkemEnabled = fullStatus.MLKEMState.Enabled
 	pbFullStatus.LocalPeerState.MlkemStrict = fullStatus.MLKEMState.Strict
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
-	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
 
 	for _, peerState := range fullStatus.Peers {

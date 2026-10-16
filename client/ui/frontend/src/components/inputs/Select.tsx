@@ -64,7 +64,7 @@ export function Select<T extends string>({
                             className={"shrink-0 text-nb-gray-200"}
                         />
                     )}
-                    <span className={"flex-1 truncate text-left"}>{current?.label ?? "—"}</span>
+                    <span className={"flex-1 truncate text-start"}>{current?.label ?? "—"}</span>
                     <ChevronDown
                         size={12}
                         aria-hidden={"true"}
