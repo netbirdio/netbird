@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
-func openPostgres(t *testing.T) *db.Conn {
+func postgresDSN(t *testing.T) string {
 	t.Helper()
 	if os.Getenv("NETBIRD_STORE_ENGINE") != string(db.PostgresStoreEngine) {
 		t.Skip("NETBIRD_STORE_ENGINE is not postgres")
@@ -22,28 +22,44 @@ func openPostgres(t *testing.T) *db.Conn {
 	cleanup, dsn, err := testutil.CreatePostgresTestContainer()
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
+	return dsn
+}
 
+func openPostgres(t *testing.T, dsn string) *db.Conn {
+	t.Helper()
 	conn, err := db.OpenPostgres(context.Background(), dsn, db.DefaultPoolConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }
 
+// replicaConns opens one connection pool per simulated management instance.
+func replicaConns(t *testing.T, dsn string, n int) []*db.Conn {
+	t.Helper()
+	conns := make([]*db.Conn, n)
+	for i := range conns {
+		conns[i] = openPostgres(t, dsn)
+	}
+	return conns
+}
+
 func TestRun_Postgres_ConcurrentRunnersApplyOnce(t *testing.T) {
-	conn := openPostgres(t)
+	dsn := postgresDSN(t)
+	conn := openPostgres(t, dsn)
 	files := map[string]string{
 		"20260101000000_baseline.sql": baselineSQL,
 		"20260201000000_color.sql":    secondSQL,
 	}
 
 	const runners = 4
+	replicas := replicaConns(t, dsn, runners)
 	var wg sync.WaitGroup
 	errs := make([]error, runners)
 	for i := range runners {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = newRunner(t, conn, testSet(files)).Run(context.Background(), ModeAuto)
+			errs[i] = newRunner(t, replicas[i], testSet(files)).Run(context.Background(), ModeAuto)
 		}()
 	}
 	wg.Wait()
@@ -60,7 +76,8 @@ func TestRun_Postgres_ConcurrentRunnersApplyOnce(t *testing.T) {
 }
 
 func TestRun_Postgres_LegacyDatabaseIsStampedOnce(t *testing.T) {
-	conn := openPostgres(t)
+	dsn := postgresDSN(t)
+	conn := openPostgres(t, dsn)
 	require.NoError(t, conn.DB(nil).Exec("CREATE TABLE things (id TEXT PRIMARY KEY, name TEXT)").Error)
 
 	files := map[string]string{"20260101000000_baseline.sql": baselineSQL}
@@ -75,13 +92,14 @@ func TestRun_Postgres_LegacyDatabaseIsStampedOnce(t *testing.T) {
 	}
 
 	const runners = 3
+	replicas := replicaConns(t, dsn, runners)
 	var wg sync.WaitGroup
 	errs := make([]error, runners)
 	for i := range runners {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = newRunner(t, conn, set()).Run(context.Background(), ModeAuto)
+			errs[i] = newRunner(t, replicas[i], set()).Run(context.Background(), ModeAuto)
 		}()
 	}
 	wg.Wait()
