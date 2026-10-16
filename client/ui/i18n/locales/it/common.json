@@ -1,555 +1,739 @@
 {
     "tray.tooltip": {
-        "message": "NetBird"
+        "message": "NetBird",
+        "description": "Hover tooltip on the system-tray / menu-bar icon. Brand name — do not translate."
     },
     "tray.status.disconnected": {
-        "message": "Disconnesso"
+        "message": "Disconnesso",
+        "description": "Connection status surfaced through the tray icon: the client is not connected to the network."
     },
     "tray.status.daemonUnavailable": {
-        "message": "Non in esecuzione"
+        "message": "Non in esecuzione",
+        "description": "Tray status: the background NetBird service (daemon) is not running."
     },
     "tray.status.error": {
-        "message": "Errore"
+        "message": "Errore",
+        "description": "Tray status: the client is in an error state."
     },
     "tray.status.connected": {
-        "message": "Connesso"
+        "message": "Connesso",
+        "description": "Tray status: connected to the NetBird network."
     },
     "tray.status.connecting": {
-        "message": "Connessione"
+        "message": "Connessione",
+        "description": "Tray status: a connection is being established."
     },
     "tray.status.needsLogin": {
-        "message": "Accesso richiesto"
+        "message": "Accesso richiesto",
+        "description": "Tray status: the user must sign in before connecting."
     },
     "tray.status.loginFailed": {
-        "message": "Accesso non riuscito"
+        "message": "Accesso non riuscito",
+        "description": "Tray status: the last sign-in attempt failed."
     },
     "tray.status.sessionExpired": {
-        "message": "Sessione scaduta"
+        "message": "Sessione scaduta",
+        "description": "Tray status: the authenticated session expired; the user must sign in again."
     },
     "tray.session.expiresIn": {
-        "message": "La sessione scade tra {remaining}"
+        "message": "La sessione scade tra {remaining}",
+        "description": "Tray row showing time left before the session expires. {remaining} is a human-readable duration such as '5 minutes', built from the tray.session.unit.* strings. Keep {remaining} unchanged."
     },
     "tray.session.unit.lessThanMinute": {
-        "message": "meno di un minuto"
+        "message": "meno di un minuto",
+        "description": "Duration fragment substituted into {remaining} (see tray.session.expiresIn). Used when under one minute remains."
     },
     "tray.session.unit.minute": {
-        "message": "1 minuto"
+        "message": "1 minuto",
+        "description": "Duration fragment for exactly one minute, substituted into {remaining}."
     },
     "tray.session.unit.minutes": {
-        "message": "{count} minuti"
+        "message": "{count} minuti",
+        "description": "Duration fragment for several minutes, substituted into {remaining}. {count} is the number of minutes; keep {count}."
     },
     "tray.session.unit.hour": {
-        "message": "1 ora"
+        "message": "1 ora",
+        "description": "Duration fragment for exactly one hour, substituted into {remaining}."
     },
     "tray.session.unit.hours": {
-        "message": "{count} ore"
+        "message": "{count} ore",
+        "description": "Duration fragment for several hours. {count} is the number of hours; keep {count}."
     },
     "tray.session.unit.day": {
-        "message": "1 giorno"
+        "message": "1 giorno",
+        "description": "Duration fragment for exactly one day, substituted into {remaining}."
     },
     "tray.session.unit.days": {
-        "message": "{count} giorni"
+        "message": "{count} giorni",
+        "description": "Duration fragment for several days. {count} is the number of days; keep {count}."
     },
     "tray.menu.open": {
-        "message": "Apri NetBird"
+        "message": "Apri NetBird",
+        "description": "Tray menu item that opens the main NetBird window. Keep short."
     },
     "tray.menu.connect": {
-        "message": "Connetti"
+        "message": "Connetti",
+        "description": "Tray menu item that connects to the network. Keep short."
     },
     "tray.menu.disconnect": {
-        "message": "Disconnetti"
+        "message": "Disconnetti",
+        "description": "Tray menu item that disconnects from the network. Keep short."
     },
     "tray.menu.exitNode": {
-        "message": "Nodo di uscita"
+        "message": "Nodo di uscita",
+        "description": "Tray submenu title for choosing an exit node (route all traffic through another peer)."
     },
     "tray.menu.networks": {
-        "message": "Risorse"
+        "message": "Risorse",
+        "description": "Tray submenu title listing network resources the user can reach. Labelled 'Resources' in the UI even though the key says networks."
     },
     "tray.menu.profiles": {
-        "message": "Profili"
+        "message": "Profili",
+        "description": "Tray submenu title listing connection profiles."
     },
     "tray.menu.manageProfiles": {
-        "message": "Gestisci profili"
+        "message": "Gestisci profili",
+        "description": "Tray menu item that opens Settings → Profiles."
     },
     "tray.menu.settings": {
-        "message": "Impostazioni..."
+        "message": "Impostazioni...",
+        "description": "Tray menu item that opens the Settings window. The trailing '...' signals that a window opens; keep it."
     },
     "tray.menu.debugBundle": {
-        "message": "Crea pacchetto di debug"
+        "message": "Crea pacchetto di debug",
+        "description": "Tray menu item that generates a diagnostic log bundle for support."
     },
     "tray.menu.about": {
-        "message": "Guida e supporto"
+        "message": "Guida e supporto",
+        "description": "Tray submenu title for help and support links."
     },
     "tray.menu.github": {
-        "message": "GitHub"
+        "message": "GitHub",
+        "description": "Tray menu link to the GitHub repository. Brand name — do not translate."
     },
     "tray.menu.documentation": {
-        "message": "Documentazione"
+        "message": "Documentazione",
+        "description": "Tray menu link to the online documentation."
     },
     "tray.menu.troubleshoot": {
-        "message": "Risoluzione dei problemi"
+        "message": "Risoluzione dei problemi",
+        "description": "Tray menu link to troubleshooting help."
     },
     "tray.menu.downloadLatest": {
-        "message": "Scarica l'ultima versione"
+        "message": "Scarica l'ultima versione",
+        "description": "Tray menu item to download the latest available version."
     },
     "tray.menu.installVersion": {
-        "message": "Installa la versione {version}"
+        "message": "Installa la versione {version}",
+        "description": "Tray menu item to install a specific update. {version} is a version number like 0.30.1; keep {version}."
     },
     "tray.menu.guiVersion": {
-        "message": "GUI: {version}"
+        "message": "GUI: {version}",
+        "description": "Tray menu row showing the installed UI version. 'GUI' = the graphical app. {version} is a version number; keep it."
     },
     "tray.menu.daemonVersion": {
-        "message": "Daemon: {version}"
+        "message": "Daemon: {version}",
+        "description": "Tray menu row showing the background-service version. 'Daemon' = the background NetBird service. {version} is a version number; keep it."
     },
     "tray.menu.versionUnknown": {
-        "message": "—"
+        "message": "—",
+        "description": "Placeholder shown in version rows when the version can't be determined. It is an em dash — leave as-is."
     },
     "tray.menu.quit": {
-        "message": "Esci da NetBird"
+        "message": "Esci da NetBird",
+        "description": "Tray menu item that fully exits the app and removes the tray icon. Keep short."
     },
     "notify.daemonOutdated.title": {
-        "message": "Il servizio NetBird è obsoleto"
+        "message": "Il servizio NetBird è obsoleto",
+        "description": "Title of the OS desktop notification shown when the running daemon is too old for this UI."
     },
     "notify.daemonOutdated.body": {
-        "message": "Aggiorna il servizio NetBird per usare questa app."
+        "message": "Aggiorna il servizio NetBird per usare questa app.",
+        "description": "Body of the desktop notification telling the user to upgrade the daemon."
     },
     "notify.update.title": {
-        "message": "Aggiornamento NetBird disponibile"
+        "message": "Aggiornamento NetBird disponibile",
+        "description": "Title of the OS desktop notification shown when an app update is available."
     },
     "notify.update.body": {
-        "message": "NetBird {version} è disponibile."
+        "message": "NetBird {version} è disponibile.",
+        "description": "Body of the update-available desktop notification. {version} is the new version number; keep it."
     },
     "notify.update.enforcedSuffix": {
-        "message": " L'amministratore richiede questo aggiornamento."
+        "message": " L'amministratore richiede questo aggiornamento.",
+        "description": "Sentence appended to the update notification body when the admin has made the update mandatory. Note the leading space — keep it."
     },
     "notify.error.title": {
-        "message": "Errore"
+        "message": "Errore",
+        "description": "Title of a generic error desktop notification."
     },
     "notify.error.connect": {
-        "message": "Connessione non riuscita"
+        "message": "Connessione non riuscita",
+        "description": "Error notification body shown when connecting failed."
     },
     "notify.error.disconnect": {
-        "message": "Disconnessione non riuscita"
+        "message": "Disconnessione non riuscita",
+        "description": "Error notification body shown when disconnecting failed."
     },
     "notify.error.switchProfile": {
-        "message": "Impossibile passare a {profile}"
+        "message": "Impossibile passare a {profile}",
+        "description": "Error notification shown when switching profiles failed. {profile} is the target profile name; keep it."
     },
     "notify.error.exitNode": {
-        "message": "Impossibile aggiornare il nodo di uscita {name}"
+        "message": "Impossibile aggiornare il nodo di uscita {name}",
+        "description": "Error notification shown when updating the exit node failed. {name} is the exit node name; keep it."
     },
     "notify.sessionExpired.title": {
-        "message": "Sessione NetBird scaduta"
+        "message": "Sessione NetBird scaduta",
+        "description": "Title of the desktop notification shown when the session has expired."
     },
     "notify.sessionExpired.body": {
-        "message": "La sessione NetBird è scaduta. Effettui di nuovo l'accesso."
+        "message": "La sessione NetBird è scaduta. Effettui di nuovo l'accesso.",
+        "description": "Body of the session-expired desktop notification."
     },
     "notify.sessionWarning.title": {
-        "message": "La sessione sta per scadere"
+        "message": "La sessione sta per scadere",
+        "description": "Title of the desktop notification warning that the session will expire soon."
     },
     "notify.sessionWarning.body": {
-        "message": "La sessione NetBird scade tra {remaining}. Clicchi su Rinnova ora per rinnovarla."
+        "message": "La sessione NetBird scade tra {remaining}. Clicchi su Rinnova ora per rinnovarla.",
+        "description": "Body of the session-expiry warning notification. {remaining} is a human-readable duration (see tray.session.unit.*); keep it. 'Extend now' refers to the action button notify.sessionWarning.extend."
     },
     "notify.sessionWarning.bodyGeneric": {
-        "message": "La sessione NetBird sta per scadere. Clicchi su Rinnova ora per rinnovarla."
+        "message": "La sessione NetBird sta per scadere. Clicchi su Rinnova ora per rinnovarla.",
+        "description": "Generic session-expiry warning body used when the exact remaining time isn't known."
     },
     "notify.sessionWarning.extend": {
-        "message": "Rinnova ora"
+        "message": "Rinnova ora",
+        "description": "Action button on the session-expiry notification that renews the session. Keep short."
     },
     "notify.sessionWarning.dismiss": {
-        "message": "Ignora"
+        "message": "Ignora",
+        "description": "Action button on the session-expiry notification that dismisses it. Keep short."
     },
     "notify.sessionWarning.failed": {
-        "message": "Impossibile rinnovare la sessione NetBird"
+        "message": "Impossibile rinnovare la sessione NetBird",
+        "description": "Notification shown when renewing the session failed."
     },
     "notify.sessionWarning.successTitle": {
-        "message": "Sessione NetBird rinnovata"
+        "message": "Sessione NetBird rinnovata",
+        "description": "Title of the notification confirming the session was renewed."
     },
     "notify.sessionWarning.successBody": {
-        "message": "La sessione è stata rinnovata."
+        "message": "La sessione è stata rinnovata.",
+        "description": "Body of the notification confirming the session was renewed."
     },
     "notify.sessionDeadlineRejected.title": {
-        "message": "Scadenza sessione rifiutata"
+        "message": "Scadenza sessione rifiutata",
+        "description": "Title of the notification shown when the server sent an invalid session deadline."
     },
     "notify.sessionDeadlineRejected.body": {
-        "message": "Il server ha inviato una scadenza di sessione non valida. Effettui di nuovo l'accesso."
+        "message": "Il server ha inviato una scadenza di sessione non valida. Effettui di nuovo l'accesso.",
+        "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
     },
     "notify.mdm.policyApplied.title": {
-        "message": "Impostazioni NetBird aggiornate"
+        "message": "Impostazioni NetBird aggiornate",
+        "description": "Title of the desktop notification shown when an MDM (IT-managed) policy changed the daemon configuration at runtime."
     },
     "notify.mdm.policyApplied.body": {
-        "message": "La configurazione di NetBird è stata aggiornata dalla policy IT."
+        "message": "La configurazione di NetBird è stata aggiornata dalla policy IT.",
+        "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
     },
     "common.cancel": {
-        "message": "Annulla"
+        "message": "Annulla",
+        "description": "Generic Cancel button label, reused across dialogs. Keep short."
     },
     "common.save": {
-        "message": "Salva"
+        "message": "Salva",
+        "description": "Generic Save button label. Keep short."
     },
     "common.saveChanges": {
-        "message": "Salva modifiche"
+        "message": "Salva modifiche",
+        "description": "Button label to save edited settings. Keep short."
     },
     "common.saving": {
-        "message": "Salvataggio…"
+        "message": "Salvataggio…",
+        "description": "Button label / status shown while a save is in progress. Ends with an ellipsis."
     },
     "common.close": {
-        "message": "Chiudi"
+        "message": "Chiudi",
+        "description": "Generic Close button label. Keep short."
     },
     "common.copy": {
-        "message": "Copia"
+        "message": "Copia",
+        "description": "Generic Copy button label (copy to clipboard). Keep short."
     },
     "common.togglePasswordVisibility": {
-        "message": "Mostra/nascondi password"
+        "message": "Mostra/nascondi password",
+        "description": "Accessibility label for the show/hide button inside a password field."
     },
     "common.increase": {
-        "message": "Aumenta"
+        "message": "Aumenta",
+        "description": "Accessibility label for the increment (+) button on a numeric stepper input."
     },
     "common.decrease": {
-        "message": "Diminuisci"
+        "message": "Diminuisci",
+        "description": "Accessibility label for the decrement (−) button on a numeric stepper input."
     },
     "common.delete": {
-        "message": "Elimina"
+        "message": "Elimina",
+        "description": "Generic Delete button label. Keep short."
     },
     "common.create": {
-        "message": "Crea"
+        "message": "Crea",
+        "description": "Generic Create button label. Keep short."
     },
     "common.add": {
-        "message": "Aggiungi"
+        "message": "Aggiungi",
+        "description": "Generic Add button label. Keep short."
     },
     "common.remove": {
-        "message": "Rimuovi"
+        "message": "Rimuovi",
+        "description": "Generic Remove button label. Keep short."
     },
     "common.refresh": {
-        "message": "Aggiorna"
+        "message": "Aggiorna",
+        "description": "Generic Refresh button label. Keep short."
     },
     "common.loading": {
-        "message": "Caricamento…"
+        "message": "Caricamento…",
+        "description": "Generic loading indicator text. Ends with an ellipsis."
     },
     "common.netbird": {
-        "message": "NetBird"
+        "message": "NetBird",
+        "description": "The product name. Brand — do not translate."
     },
     "common.noResults.title": {
-        "message": "Nessun risultato trovato"
+        "message": "Nessun risultato trovato",
+        "description": "Title of the empty state shown when a search or filter returns nothing."
     },
     "common.noResults.description": {
-        "message": "Non è stato trovato alcun risultato. Provi un altro termine di ricerca o modifichi i filtri."
+        "message": "Non è stato trovato alcun risultato. Provi un altro termine di ricerca o modifichi i filtri.",
+        "description": "Body of the no-results empty state, suggesting a different search term or filters."
     },
     "notConnected.title": {
-        "message": "Disconnesso"
+        "message": "Disconnesso",
+        "description": "Title of the placeholder shown on data screens while disconnected."
     },
     "notConnected.description": {
-        "message": "Si connetta prima a NetBird per visualizzare informazioni dettagliate su peer, risorse di rete e nodi di uscita."
+        "message": "Si connetta prima a NetBird per visualizzare informazioni dettagliate su peer, risorse di rete e nodi di uscita.",
+        "description": "Body explaining the user must connect to NetBird first to see peer, resource, and exit-node details."
     },
     "connect.status.disconnected": {
-        "message": "Disconnesso"
+        "message": "Disconnesso",
+        "description": "Label on the main-window connection toggle: not connected."
     },
     "connect.status.connecting": {
-        "message": "Connessione..."
+        "message": "Connessione...",
+        "description": "Connection toggle label while connecting. Ends with an ellipsis."
     },
     "connect.status.connected": {
-        "message": "Connesso"
+        "message": "Connesso",
+        "description": "Connection toggle label when connected."
     },
     "connect.status.disconnecting": {
-        "message": "Disconnessione..."
+        "message": "Disconnessione...",
+        "description": "Connection toggle label while disconnecting. Ends with an ellipsis."
     },
     "connect.status.daemonUnavailable": {
-        "message": "Daemon non disponibile"
+        "message": "Daemon non disponibile",
+        "description": "Connection toggle label when the background service is unavailable. 'Daemon' = background service."
     },
     "connect.status.loginRequired": {
-        "message": "Accesso richiesto"
+        "message": "Accesso richiesto",
+        "description": "Connection toggle label when sign-in is required before connecting."
     },
     "connect.error.loginTitle": {
-        "message": "Accesso non riuscito"
+        "message": "Accesso non riuscito",
+        "description": "Error-dialog title shown when sign-in fails. The action-named '… Failed' style is intentional — keep it."
     },
     "connect.error.connectTitle": {
-        "message": "Connessione non riuscita"
+        "message": "Connessione non riuscita",
+        "description": "Error-dialog title shown when connecting fails."
     },
     "connect.error.disconnectTitle": {
-        "message": "Disconnessione non riuscita"
+        "message": "Disconnessione non riuscita",
+        "description": "Error-dialog title shown when disconnecting fails."
     },
     "nav.peers.title": {
-        "message": "Peer"
+        "message": "Peer",
+        "description": "Navigation label for the Peers section (other devices in the network)."
     },
     "nav.peers.description": {
-        "message": "{connected} di {total} connessi"
+        "message": "{connected} di {total} connessi",
+        "description": "Sub-label under Peers showing how many are connected. {connected} and {total} are numbers; keep both."
     },
     "nav.resources.title": {
-        "message": "Risorse"
+        "message": "Risorse",
+        "description": "Navigation label for the Resources section (routed networks)."
     },
     "nav.resources.description": {
-        "message": "{active} di {total} attive"
+        "message": "{active} di {total} attive",
+        "description": "Sub-label under Resources showing how many are active. {active} and {total} are numbers; keep both."
     },
     "nav.exitNode.title": {
-        "message": "Nodi di uscita"
+        "message": "Nodi di uscita",
+        "description": "Navigation label for the Exit Nodes section."
     },
     "nav.exitNode.none": {
-        "message": "Non attivo"
+        "message": "Non attivo",
+        "description": "Sub-label under Exit Nodes when no exit node is in use."
     },
     "nav.exitNode.using": {
-        "message": "Tramite {name}"
+        "message": "Tramite {name}",
+        "description": "Sub-label under Exit Nodes when one is active. {name} is the exit node's name; keep it."
     },
     "header.openSettings": {
-        "message": "Apri impostazioni"
+        "message": "Apri impostazioni",
+        "description": "Accessibility label / tooltip for the gear icon that opens Settings."
     },
     "header.togglePanel": {
-        "message": "Mostra/nascondi pannello laterale"
+        "message": "Mostra/nascondi pannello laterale",
+        "description": "Accessibility label / tooltip for the button that shows or hides the side panel."
     },
     "profile.selector.loading": {
-        "message": "Caricamento..."
+        "message": "Caricamento...",
+        "description": "Shown in the profile picker while profiles load. Ends with an ellipsis."
     },
     "profile.selector.noProfile": {
-        "message": "Nessun profilo"
+        "message": "Nessun profilo",
+        "description": "Shown in the profile picker when no profile is selected."
     },
     "profile.selector.searchPlaceholder": {
-        "message": "Cerca profilo per nome..."
+        "message": "Cerca profilo per nome...",
+        "description": "Placeholder text in the profile picker's search field."
     },
     "profile.selector.emptyTitle": {
-        "message": "Nessun profilo trovato"
+        "message": "Nessun profilo trovato",
+        "description": "Title shown in the profile picker when a search matches no profiles."
     },
     "profile.selector.emptyDescription": {
-        "message": "Provi un altro termine di ricerca o crei un nuovo profilo."
+        "message": "Provi un altro termine di ricerca o crei un nuovo profilo.",
+        "description": "Body shown when no profiles match the search, suggesting a different term or creating one."
     },
     "profile.selector.newProfile": {
-        "message": "Nuovo profilo"
+        "message": "Nuovo profilo",
+        "description": "Button in the profile picker to create a new profile. Keep short."
     },
     "profile.selector.moreOptions": {
-        "message": "Altre opzioni"
+        "message": "Altre opzioni",
+        "description": "Accessibility label for the per-profile kebab (⋯) menu."
     },
     "profile.selector.deregister": {
-        "message": "Annulla registrazione"
+        "message": "Annulla registrazione",
+        "description": "Per-profile menu action: deregister (sign out of the profile but keep it)."
     },
     "profile.selector.delete": {
-        "message": "Elimina"
+        "message": "Elimina",
+        "description": "Per-profile menu action: delete the profile."
     },
     "profile.selector.switchTo": {
-        "message": "Passa a questo profilo"
+        "message": "Passa a questo profilo",
+        "description": "Tooltip / label for the action that switches to a profile."
     },
     "profile.selector.edit": {
-        "message": "Modifica"
+        "message": "Modifica",
+        "description": "Per-profile menu action: open the edit dialog to rename or change the management server."
     },
     "profile.edit.title": {
-        "message": "Modifica profilo"
+        "message": "Modifica profilo",
+        "description": "Title of the dialog for editing an existing profile."
     },
     "profile.edit.submit": {
-        "message": "Salva modifiche"
+        "message": "Salva modifiche",
+        "description": "Submit button on the edit-profile dialog. Keep short."
     },
     "profile.dialog.title": {
-        "message": "Inserisci il nome del profilo"
+        "message": "Inserisci il nome del profilo",
+        "description": "Title of the dialog for naming a new profile."
     },
     "profile.dialog.nameLabel": {
-        "message": "Nome del profilo"
+        "message": "Nome del profilo",
+        "description": "Field label for the profile name."
     },
     "profile.dialog.description": {
-        "message": "Imposti un nome facilmente riconoscibile per il profilo."
+        "message": "Imposti un nome facilmente riconoscibile per il profilo.",
+        "description": "Helper text under the profile-name field."
     },
     "profile.dialog.placeholder": {
-        "message": "es. lavoro"
+        "message": "es. lavoro",
+        "description": "Example placeholder shown in the profile-name field. 'Work' is a sample value; translate it to a natural example."
     },
     "profile.dialog.submit": {
-        "message": "Aggiungi profilo"
+        "message": "Aggiungi profilo",
+        "description": "Submit button on the add-profile dialog. Keep short."
     },
     "profile.dialog.required": {
-        "message": "Inserisca un nome per il profilo, es. lavoro, casa"
+        "message": "Inserisca un nome per il profilo, es. lavoro, casa",
+        "description": "Validation message shown when the profile name is empty. The examples (work, home) may be localized."
     },
     "profile.dialog.managementHelp": {
-        "message": "Usi NetBird Cloud o il suo server."
+        "message": "Usi NetBird Cloud o il suo server.",
+        "description": "Helper text noting the profile can use NetBird Cloud or a self-hosted server."
     },
     "profile.dialog.urlUnreachable": {
-        "message": "Impossibile raggiungere questo server. Controlli l'URL, oppure aggiunga comunque il profilo se è certo che sia corretto."
+        "message": "Impossibile raggiungere questo server. Controlli l'URL, oppure aggiunga comunque il profilo se è certo che sia corretto.",
+        "description": "Soft warning when the entered server URL couldn't be reached; the user may add the profile anyway."
     },
     "header.menu.settings": {
-        "message": "Impostazioni..."
+        "message": "Impostazioni...",
+        "description": "'More' menu item in the header that opens Settings. The trailing '...' signals a window opens."
     },
     "header.menu.defaultView": {
-        "message": "Vista predefinita"
+        "message": "Vista predefinita",
+        "description": "'More' menu item that switches the main window to the compact default view."
     },
     "header.menu.advancedView": {
-        "message": "Vista avanzata"
+        "message": "Vista avanzata",
+        "description": "'More' menu item that switches the main window to the wider advanced view."
     },
     "header.menu.updateAvailable": {
-        "message": "Aggiornamento disponibile"
+        "message": "Aggiornamento disponibile",
+        "description": "'More' menu item / badge shown when an update is available."
     },
     "header.menu.open": {
-        "message": "Apri menu"
+        "message": "Apri menu",
+        "description": "Accessibility label for the header's more (⋮) button that opens the menu."
     },
     "header.profile.switch": {
-        "message": "Cambia profilo"
+        "message": "Cambia profilo",
+        "description": "Accessibility label for the header's profile selector button."
     },
     "connect.toggle.label": {
-        "message": "Attiva/disattiva connessione NetBird"
+        "message": "Attiva/disattiva connessione NetBird",
+        "description": "Accessibility label for the large connect/disconnect toggle on the main page."
     },
     "connect.localIp.label": {
-        "message": "Indirizzi IP locali"
+        "message": "Indirizzi IP locali",
+        "description": "Accessibility label for the local IP selector that toggles between IPv4 and IPv6 on the main page."
     },
     "common.search": {
-        "message": "Cerca"
+        "message": "Cerca",
+        "description": "Accessibility label for a generic search input."
     },
     "common.filter": {
-        "message": "Filtra"
+        "message": "Filtra",
+        "description": "Accessibility label for a generic filter control."
     },
     "exitNodes.dropdown.trigger": {
-        "message": "Seleziona nodo di uscita"
+        "message": "Seleziona nodo di uscita",
+        "description": "Accessibility label for the exit-node picker button at the bottom of the main page."
     },
     "peers.row.label": {
-        "message": "Apri dettagli di {name}, {status}"
+        "message": "Apri dettagli di {name}, {status}",
+        "description": "Accessibility label for a peer row in the list. {name} is the peer name and {status} is the connection status; keep both placeholders."
     },
     "peers.dialog.title": {
-        "message": "Dettagli peer"
+        "message": "Dettagli peer",
+        "description": "Accessibility title (announced to screen readers) for the peer details dialog/panel."
     },
     "networks.row.toggle": {
-        "message": "Attiva/disattiva {name}"
+        "message": "Attiva/disattiva {name}",
+        "description": "Accessibility label for the row-wide toggle on a network/resource. {name} is the resource id; keep the placeholder."
     },
     "networks.bulk.label": {
-        "message": "Attiva/disattiva tutte le risorse visibili"
+        "message": "Attiva/disattiva tutte le risorse visibili",
+        "description": "Accessibility label for the bulk enable/disable button at the bottom of the resources list."
     },
     "profile.switch.title": {
-        "message": "Passare al profilo «{name}»?"
+        "message": "Passare al profilo «{name}»?",
+        "description": "Confirmation-dialog title for switching profiles. {name} is the target profile name, shown in quotes; keep {name} and the surrounding quotes."
     },
     "profile.switch.message": {
-        "message": "Vuole davvero cambiare profilo?\nIl profilo attuale verrà disconnesso."
+        "message": "Vuole davvero cambiare profilo?\nIl profilo attuale verrà disconnesso.",
+        "description": "Confirmation body for switching profiles. Contains a line break (\\n) — keep it."
     },
     "profile.switch.confirm": {
-        "message": "Conferma"
+        "message": "Conferma",
+        "description": "Confirm button on the switch-profile dialog. Keep short."
     },
     "profile.deregister.title": {
-        "message": "Annullare la registrazione del profilo «{name}»?"
+        "message": "Annullare la registrazione del profilo «{name}»?",
+        "description": "Confirmation-dialog title for deregistering a profile. {name} is the profile name; keep it and the quotes."
     },
     "profile.deregister.message": {
-        "message": "Vuole davvero annullare la registrazione di questo profilo?\nDovrà accedere di nuovo per usarlo."
+        "message": "Vuole davvero annullare la registrazione di questo profilo?\nDovrà accedere di nuovo per usarlo.",
+        "description": "Confirmation body for deregistering; warns the user must sign in again. Contains a line break (\\n) — keep it."
     },
     "profile.deregister.confirm": {
-        "message": "Annulla registrazione"
+        "message": "Annulla registrazione",
+        "description": "Confirm button on the deregister dialog. Keep short."
     },
     "profile.delete.title": {
-        "message": "Eliminare il profilo «{name}»?"
+        "message": "Eliminare il profilo «{name}»?",
+        "description": "Confirmation-dialog title for deleting a profile. {name} is the profile name; keep it and the quotes."
     },
     "profile.delete.message": {
-        "message": "Vuole davvero eliminare questo profilo?\nQuesta azione non può essere annullata."
+        "message": "Vuole davvero eliminare questo profilo?\nQuesta azione non può essere annullata.",
+        "description": "Confirmation body for deleting; warns the action can't be undone. Contains a line break (\\n) — keep it."
     },
     "profile.delete.disabledActive": {
-        "message": "I profili attivi non possono essere eliminati. Passi a un altro profilo prima di eliminare questo."
+        "message": "I profili attivi non possono essere eliminati. Passi a un altro profilo prima di eliminare questo.",
+        "description": "Tooltip explaining the active profile can't be deleted until the user switches away."
     },
     "profile.delete.disabledDefault": {
-        "message": "Il profilo predefinito non può essere eliminato."
+        "message": "Il profilo predefinito non può essere eliminato.",
+        "description": "Tooltip explaining the default profile can't be deleted."
     },
     "profile.error.switchTitle": {
-        "message": "Cambio profilo non riuscito"
+        "message": "Cambio profilo non riuscito",
+        "description": "Error-dialog title when switching profiles fails."
     },
     "profile.error.deregisterTitle": {
-        "message": "Annullamento registrazione non riuscito"
+        "message": "Annullamento registrazione non riuscito",
+        "description": "Error-dialog title when deregistering a profile fails."
     },
     "profile.error.deleteTitle": {
-        "message": "Eliminazione profilo non riuscita"
+        "message": "Eliminazione profilo non riuscita",
+        "description": "Error-dialog title when deleting a profile fails."
     },
     "profile.error.createTitle": {
-        "message": "Creazione profilo non riuscita"
+        "message": "Creazione profilo non riuscita",
+        "description": "Error-dialog title when creating a profile fails."
     },
     "profile.error.editTitle": {
-        "message": "Modifica del profilo non riuscita"
+        "message": "Modifica del profilo non riuscita",
+        "description": "Error-dialog title when editing a profile (rename or management URL change) fails."
     },
     "profile.error.loadTitle": {
-        "message": "Caricamento profili non riuscito"
+        "message": "Caricamento profili non riuscito",
+        "description": "Error-dialog title when loading profiles fails."
     },
     "profile.dropdown.activeProfile": {
-        "message": "Profilo attivo"
+        "message": "Profilo attivo",
+        "description": "Section heading in the header profile dropdown for the current profile."
     },
     "profile.dropdown.switchProfile": {
-        "message": "Cambia profilo"
+        "message": "Cambia profilo",
+        "description": "Section heading / action in the profile dropdown to switch profiles."
     },
     "profile.dropdown.noEmail": {
-        "message": "Altro"
+        "message": "Altro",
+        "description": "Label shown for a profile that has no associated email address."
     },
     "profile.dropdown.addProfile": {
-        "message": "Aggiungi profilo"
+        "message": "Aggiungi profilo",
+        "description": "Profile dropdown action to add a profile."
     },
     "profile.dropdown.manageProfiles": {
-        "message": "Gestisci profili"
+        "message": "Gestisci profili",
+        "description": "Profile dropdown action that opens Settings → Profiles."
     },
     "profile.dropdown.settings": {
-        "message": "Impostazioni"
+        "message": "Impostazioni",
+        "description": "Profile dropdown action that opens Settings."
     },
     "settings.profiles.section.profiles": {
-        "message": "Profili"
+        "message": "Profili",
+        "description": "Section heading on the Profiles settings tab."
     },
     "settings.profiles.intro": {
-        "message": "Mantenga affiancate identità NetBird separate, ad esempio account di lavoro e personali, oppure server di gestione diversi. Aggiunga, annulli la registrazione o elimini i profili qui sotto."
+        "message": "Mantenga affiancate identità NetBird separate, ad esempio account di lavoro e personali, oppure server di gestione diversi. Aggiunga, annulli la registrazione o elimini i profili qui sotto.",
+        "description": "Intro paragraph on the Profiles settings tab explaining what profiles are for."
     },
     "settings.profiles.addProfile": {
-        "message": "Aggiungi profilo"
+        "message": "Aggiungi profilo",
+        "description": "Button on the Profiles settings tab to add a profile."
     },
     "settings.profiles.active": {
-        "message": "Attivo"
+        "message": "Attivo",
+        "description": "Badge marking the currently active profile in the profiles table."
     },
     "settings.profiles.emptyTitle": {
-        "message": "Nessun profilo"
+        "message": "Nessun profilo",
+        "description": "Title of the empty state when there are no profiles."
     },
     "settings.profiles.emptyDescription": {
-        "message": "Crei un profilo per connettersi a un server di gestione NetBird."
+        "message": "Crei un profilo per connettersi a un server di gestione NetBird.",
+        "description": "Body of the no-profiles empty state."
     },
     "settings.error.loadTitle": {
-        "message": "Caricamento impostazioni non riuscito"
+        "message": "Caricamento impostazioni non riuscito",
+        "description": "Error-dialog title when loading settings fails."
     },
     "settings.error.saveTitle": {
-        "message": "Salvataggio impostazioni non riuscito"
+        "message": "Salvataggio impostazioni non riuscito",
+        "description": "Error-dialog title when saving settings fails."
     },
     "settings.error.debugBundleTitle": {
-        "message": "Pacchetto di debug non riuscito"
+        "message": "Pacchetto di debug non riuscito",
+        "description": "Error-dialog title when creating the debug bundle fails."
     },
     "settings.nav.label": {
-        "message": "Sezioni delle impostazioni"
+        "message": "Sezioni delle impostazioni",
+        "description": "Accessibility label for the Settings page's side navigation (list of section tabs)."
     },
     "settings.tabs.general": {
-        "message": "Generale"
+        "message": "Generale",
+        "description": "Settings tab label: General. Keep short."
     },
     "settings.tabs.network": {
-        "message": "Rete"
+        "message": "Rete",
+        "description": "Settings tab label: Network. Keep short."
     },
     "settings.tabs.security": {
-        "message": "Sicurezza"
+        "message": "Sicurezza",
+        "description": "Settings tab label: Security. Keep short."
     },
     "settings.tabs.profiles": {
-        "message": "Profili"
+        "message": "Profili",
+        "description": "Settings tab label: Profiles. Keep short."
     },
     "settings.tabs.ssh": {
-        "message": "SSH"
+        "message": "SSH",
+        "description": "Settings tab label: SSH. Acronym — keep as-is."
     },
     "settings.tabs.advanced": {
-        "message": "Avanzate"
+        "message": "Avanzate",
+        "description": "Settings tab label: Advanced. Keep short."
     },
     "settings.tabs.troubleshooting": {
-        "message": "Risoluzione problemi"
+        "message": "Risoluzione problemi",
+        "description": "Settings tab label: Troubleshoot. Keep short."
     },
     "settings.tabs.about": {
-        "message": "Informazioni"
+        "message": "Informazioni",
+        "description": "Settings tab label: About. Keep short."
     },
     "settings.tabs.updateAvailable": {
-        "message": "Aggiornamento disponibile"
+        "message": "Aggiornamento disponibile",
+        "description": "Settings tab label / badge shown when an update is available."
     },
     "settings.general.section.general": {
-        "message": "Generale"
+        "message": "Generale",
+        "description": "Section heading on the General settings tab."
     },
     "settings.general.section.connection": {
-        "message": "Connessione"
+        "message": "Connessione",
+        "description": "Section heading for connection-related options on the General tab."
     },
     "settings.general.connectOnStartup.label": {
-        "message": "Connetti all'avvio"
+        "message": "Connetti all'avvio",
+        "description": "Toggle label: connect automatically when the service starts."
     },
     "settings.general.connectOnStartup.help": {
-        "message": "Stabilisce automaticamente una connessione all'avvio del servizio."
+        "message": "Stabilisce automaticamente una connessione all'avvio del servizio.",
+        "description": "Helper text for the connect-on-startup toggle."
     },
     "settings.general.notifications.label": {
-        "message": "Notifiche desktop"
+        "message": "Notifiche desktop",
+        "description": "Toggle label: enable desktop notifications."
     },
     "settings.general.notifications.help": {
-        "message": "Mostra notifiche desktop per nuovi aggiornamenti ed eventi di connessione."
+        "message": "Mostra notifiche desktop per nuovi aggiornamenti ed eventi di connessione.",
+        "description": "Helper text for the desktop-notifications toggle."
     },
     "settings.general.autostart.label": {
-        "message": "Avvia l'interfaccia NetBird all'accesso"
+        "message": "Avvia l'interfaccia NetBird all'accesso",
+        "description": "Toggle label: launch the NetBird UI at login."
     },
     "settings.general.autostart.help": {
-        "message": "Avvia automaticamente l'interfaccia NetBird quando effettua l'accesso. Riguarda solo l'interfaccia grafica, non il servizio in background."
+        "message": "Avvia automaticamente l'interfaccia NetBird quando effettua l'accesso. Riguarda solo l'interfaccia grafica, non il servizio in background.",
+        "description": "Helper text clarifying autostart affects only the UI, not the background service."
     },
     "settings.general.autostart.errorTitle": {
-        "message": "Modifica avvio automatico non riuscita"
+        "message": "Modifica avvio automatico non riuscita",
+        "description": "Error-dialog title when changing the autostart setting fails."
     },
     "settings.general.keepConnectedOnQuit.label": {
         "message": "Resta connesso dopo la chiusura",
@@ -560,840 +744,1119 @@
         "description": "Helper text for the stay-connected-after-quitting toggle."
     },
     "settings.general.language.label": {
-        "message": "Lingua dell'interfaccia"
+        "message": "Lingua dell'interfaccia",
+        "description": "Label for the display-language picker."
     },
     "settings.general.language.help": {
-        "message": "Scelga la lingua dell'interfaccia NetBird."
+        "message": "Scelga la lingua dell'interfaccia NetBird.",
+        "description": "Helper text for the language picker."
     },
     "settings.general.language.search": {
-        "message": "Cerca lingua…"
+        "message": "Cerca lingua…",
+        "description": "Placeholder in the language picker's search field."
     },
     "settings.general.language.empty": {
-        "message": "Nessuna lingua corrisponde."
+        "message": "Nessuna lingua corrisponde.",
+        "description": "Shown when no languages match the search."
     },
     "settings.general.theme.label": {
-        "message": "Tema"
+        "message": "Tema",
+        "description": "Label for the appearance/theme picker."
     },
     "settings.general.theme.help": {
-        "message": "Scelga il tema chiaro o scuro, oppure segua l'aspetto del sistema."
+        "message": "Scelga il tema chiaro o scuro, oppure segua l'aspetto del sistema.",
+        "description": "Helper text for the theme picker."
     },
     "settings.general.theme.system": {
-        "message": "Sistema"
+        "message": "Sistema",
+        "description": "Theme option: follow the OS appearance."
     },
     "settings.general.theme.light": {
-        "message": "Chiaro"
+        "message": "Chiaro",
+        "description": "Theme option: light appearance."
     },
     "settings.general.theme.dark": {
-        "message": "Scuro"
+        "message": "Scuro",
+        "description": "Theme option: dark appearance."
     },
     "settings.general.management.label": {
-        "message": "Server di gestione"
+        "message": "Server di gestione",
+        "description": "Label for the management-server selector."
     },
     "settings.general.management.help": {
-        "message": "Si connetta a NetBird Cloud o al suo server di gestione self-hosted. Le modifiche riconnettono il client."
+        "message": "Si connetta a NetBird Cloud o al suo server di gestione self-hosted. Le modifiche riconnettono il client.",
+        "description": "Helper text explaining Cloud vs self-hosted management server; warns that changes reconnect the client."
     },
     "settings.general.management.cloud": {
-        "message": "Cloud"
+        "message": "Cloud",
+        "description": "Option label for using NetBird Cloud as the management server."
     },
     "settings.general.management.selfHosted": {
-        "message": "Self-hosted"
+        "message": "Self-hosted",
+        "description": "Option label for using a self-hosted management server. 'Self-hosted' is a common technical term."
     },
     "settings.general.management.urlPlaceholder": {
-        "message": "https://netbird.selfhosted.com:443"
+        "message": "https://netbird.selfhosted.com:443",
+        "description": "Example URL placeholder for the self-hosted server field. It is a sample URL — do not translate the URL itself."
     },
     "settings.general.management.urlError": {
-        "message": "Inserisca un URL valido, es. https://netbird.selfhosted.com:443"
+        "message": "Inserisca un URL valido, es. https://netbird.selfhosted.com:443",
+        "description": "Validation message for an invalid management-server URL. The example URL stays as-is."
     },
     "settings.general.management.urlUnreachable": {
-        "message": "Impossibile raggiungere questo server. Controlli l'URL, oppure salvi comunque se è certo che sia corretto."
+        "message": "Impossibile raggiungere questo server. Controlli l'URL, oppure salvi comunque se è certo che sia corretto.",
+        "description": "Soft warning when the management URL couldn't be reached; the user may save anyway."
     },
     "settings.general.management.switchCloudTitle": {
-        "message": "Passare a NetBird Cloud?"
+        "message": "Passare a NetBird Cloud?",
+        "description": "Confirmation-dialog title for switching to NetBird Cloud."
     },
     "settings.general.management.switchCloudMessage": {
-        "message": "Questo disconnette il suo server self-hosted.\nPotrebbe dover accedere di nuovo."
+        "message": "Questo disconnette il suo server self-hosted.\nPotrebbe dover accedere di nuovo.",
+        "description": "Confirmation body warning the self-hosted server will be disconnected. Contains a line break (\\n) — keep it."
     },
     "settings.general.management.switchCloudConfirm": {
-        "message": "Passa a Cloud"
+        "message": "Passa a Cloud",
+        "description": "Confirm button for switching to Cloud. Keep short."
     },
     "settings.network.section.connectivity": {
-        "message": "Connettività"
+        "message": "Connettività",
+        "description": "Section heading for connectivity options on the Network tab."
     },
     "settings.network.section.routingDns": {
-        "message": "Routing e DNS"
+        "message": "Routing e DNS",
+        "description": "Section heading for routing and DNS options. 'DNS' is an acronym — keep it."
     },
     "settings.network.monitor.label": {
-        "message": "Riconnetti al cambio di rete"
+        "message": "Riconnetti al cambio di rete",
+        "description": "Toggle label: reconnect automatically on network change."
     },
     "settings.network.monitor.help": {
-        "message": "Monitora la rete e si riconnette automaticamente ai cambiamenti, come il passaggio di Wi-Fi, le modifiche Ethernet o la ripresa dalla sospensione."
+        "message": "Monitora la rete e si riconnette automaticamente ai cambiamenti, come il passaggio di Wi-Fi, le modifiche Ethernet o la ripresa dalla sospensione.",
+        "description": "Helper text for the network-change reconnect toggle."
     },
     "settings.network.dns.label": {
-        "message": "Abilita DNS"
+        "message": "Abilita DNS",
+        "description": "Toggle label: enable DNS. 'DNS' — keep acronym."
     },
     "settings.network.dns.help": {
-        "message": "Applica le impostazioni DNS gestite da NetBird al resolver dell'host."
+        "message": "Applica le impostazioni DNS gestite da NetBird al resolver dell'host.",
+        "description": "Helper text for the enable-DNS toggle."
     },
     "settings.network.clientRoutes.label": {
-        "message": "Abilita route client"
+        "message": "Abilita route client",
+        "description": "Toggle label: enable client routes."
     },
     "settings.network.clientRoutes.help": {
-        "message": "Accetta le route da altri peer per raggiungere le loro reti."
+        "message": "Accetta le route da altri peer per raggiungere le loro reti.",
+        "description": "Helper text for client routes (accept routes from other peers)."
     },
     "settings.network.serverRoutes.label": {
-        "message": "Abilita route server"
+        "message": "Abilita route server",
+        "description": "Toggle label: enable server routes."
     },
     "settings.network.serverRoutes.help": {
-        "message": "Annuncia le route locali di questo host agli altri peer."
+        "message": "Annuncia le route locali di questo host agli altri peer.",
+        "description": "Helper text for server routes (advertise this host's local routes to other peers)."
     },
     "settings.network.ipv6.label": {
-        "message": "Abilita IPv6"
+        "message": "Abilita IPv6",
+        "description": "Toggle label: enable IPv6. 'IPv6' — keep as-is."
     },
     "settings.network.ipv6.help": {
-        "message": "Usa l'indirizzamento IPv6 per la rete overlay NetBird."
+        "message": "Usa l'indirizzamento IPv6 per la rete overlay NetBird.",
+        "description": "Helper text for the IPv6 toggle."
     },
     "settings.security.section.firewall": {
-        "message": "Firewall"
+        "message": "Firewall",
+        "description": "Section heading: Firewall."
     },
     "settings.security.section.encryption": {
-        "message": "Crittografia"
+        "message": "Crittografia",
+        "description": "Section heading: Encryption."
     },
     "settings.security.blockInbound.label": {
-        "message": "Blocca traffico in entrata"
+        "message": "Blocca traffico in entrata",
+        "description": "Toggle label: block inbound traffic."
     },
     "settings.security.blockInbound.help": {
-        "message": "Rifiuta le connessioni non richieste dai peer verso questo dispositivo e le reti che instrada. Il traffico in uscita non è interessato."
+        "message": "Rifiuta le connessioni non richieste dai peer verso questo dispositivo e le reti che instrada. Il traffico in uscita non è interessato.",
+        "description": "Helper text for blocking inbound traffic."
     },
     "settings.security.blockLan.label": {
-        "message": "Blocca accesso alla LAN"
+        "message": "Blocca accesso alla LAN",
+        "description": "Toggle label: block LAN access. 'LAN' — keep acronym."
     },
     "settings.security.blockLan.help": {
-        "message": "Impedisce ai peer di raggiungere la sua rete locale o i suoi dispositivi quando questo dispositivo instrada il loro traffico."
+        "message": "Impedisce ai peer di raggiungere la sua rete locale o i suoi dispositivi quando questo dispositivo instrada il loro traffico.",
+        "description": "Helper text for blocking LAN access."
     },
     "settings.security.rosenpass.label": {
-        "message": "Abilita resistenza quantistica"
+        "message": "Abilita resistenza quantistica",
+        "description": "Toggle label: enable quantum-resistance."
     },
     "settings.security.rosenpass.help": {
-        "message": "Aggiunge uno scambio di chiavi post-quantistico tramite Rosenpass sopra WireGuard®."
+        "message": "Aggiunge uno scambio di chiavi post-quantistico tramite Rosenpass sopra WireGuard®.",
+        "description": "Helper text: adds a post-quantum key exchange via Rosenpass on top of WireGuard®. 'Rosenpass' and 'WireGuard®' are product names — do not translate; keep the ® symbol."
     },
     "settings.security.rosenpassPermissive.label": {
-        "message": "Abilita modalità permissiva"
+        "message": "Abilita modalità permissiva",
+        "description": "Toggle label: enable permissive mode (for quantum-resistance)."
     },
     "settings.security.rosenpassPermissive.help": {
-        "message": "Consente le connessioni con peer privi del supporto alla resistenza quantistica."
+        "message": "Consente le connessioni con peer privi del supporto alla resistenza quantistica.",
+        "description": "Helper text for permissive mode (allow peers without quantum-resistance support)."
     },
     "settings.ssh.section.server": {
-        "message": "Server"
+        "message": "Server",
+        "description": "Section heading: Server (SSH settings)."
     },
     "settings.ssh.section.capabilities": {
-        "message": "Funzionalità"
+        "message": "Funzionalità",
+        "description": "Section heading: Capabilities (SSH features)."
     },
     "settings.ssh.section.authentication": {
-        "message": "Autenticazione"
+        "message": "Autenticazione",
+        "description": "Section heading: Authentication (SSH)."
     },
     "settings.ssh.server.label": {
-        "message": "Abilita server SSH"
+        "message": "Abilita server SSH",
+        "description": "Toggle label: enable the SSH server."
     },
     "settings.ssh.server.help": {
-        "message": "Esegue il server SSH di NetBird su questo host in modo che altri peer possano connettersi."
+        "message": "Esegue il server SSH di NetBird su questo host in modo che altri peer possano connettersi.",
+        "description": "Helper text for the SSH server toggle."
     },
     "settings.ssh.root.label": {
-        "message": "Consenti accesso come root"
+        "message": "Consenti accesso come root",
+        "description": "Toggle label: allow root login over SSH. 'root' is the Unix superuser account — keep as-is."
     },
     "settings.ssh.root.help": {
-        "message": "Permette ai peer di accedere come utente root. Disabiliti per richiedere un account senza privilegi."
+        "message": "Permette ai peer di accedere come utente root. Disabiliti per richiedere un account senza privilegi.",
+        "description": "Helper text for allowing root login."
     },
     "settings.ssh.sftp.label": {
-        "message": "Consenti SFTP"
+        "message": "Consenti SFTP",
+        "description": "Toggle label: allow SFTP. 'SFTP' — keep acronym."
     },
     "settings.ssh.sftp.help": {
-        "message": "Trasferisca file in modo sicuro usando client SFTP o SCP nativi."
+        "message": "Trasferisca file in modo sicuro usando client SFTP o SCP nativi.",
+        "description": "Helper text about SFTP/SCP file transfer. Keep the acronyms."
     },
     "settings.ssh.localForward.label": {
-        "message": "Inoltro porte locale"
+        "message": "Inoltro porte locale",
+        "description": "Toggle label: local port forwarding."
     },
     "settings.ssh.localForward.help": {
-        "message": "Permette ai peer in connessione di inoltrare porte locali verso servizi raggiungibili da questo host."
+        "message": "Permette ai peer in connessione di inoltrare porte locali verso servizi raggiungibili da questo host.",
+        "description": "Helper text for local port forwarding."
     },
     "settings.ssh.remoteForward.label": {
-        "message": "Inoltro porte remoto"
+        "message": "Inoltro porte remoto",
+        "description": "Toggle label: remote port forwarding."
     },
     "settings.ssh.remoteForward.help": {
-        "message": "Permette ai peer in connessione di esporre porte di questo host verso la loro macchina."
+        "message": "Permette ai peer in connessione di esporre porte di questo host verso la loro macchina.",
+        "description": "Helper text for remote port forwarding."
     },
     "settings.ssh.jwt.label": {
-        "message": "Abilita autenticazione JWT"
+        "message": "Abilita autenticazione JWT",
+        "description": "Toggle label: enable JWT authentication. 'JWT' — keep acronym."
     },
     "settings.ssh.jwt.help": {
-        "message": "Verifica ogni sessione SSH con il suo IdP per l'identità utente e l'audit. Disabiliti per basarsi solo sulle policy ACL di rete, utile quando non è disponibile un IdP."
+        "message": "Verifica ogni sessione SSH con il suo IdP per l'identità utente e l'audit. Disabiliti per basarsi solo sulle policy ACL di rete, utile quando non è disponibile un IdP.",
+        "description": "Helper text for JWT auth. 'IdP' (identity provider) and 'ACL' are acronyms — keep them."
     },
     "settings.ssh.jwtTtl.label": {
-        "message": "TTL cache JWT"
+        "message": "TTL cache JWT",
+        "description": "Label for the JWT cache time-to-live field. 'JWT' and 'TTL' — keep acronyms."
     },
     "settings.ssh.jwtTtl.help": {
-        "message": "Per quanto tempo questo client memorizza un JWT prima di richiederlo di nuovo sulle connessioni SSH in uscita. Imposti 0 per disabilitare la cache e autenticarsi a ogni connessione."
+        "message": "Per quanto tempo questo client memorizza un JWT prima di richiederlo di nuovo sulle connessioni SSH in uscita. Imposti 0 per disabilitare la cache e autenticarsi a ogni connessione.",
+        "description": "Helper text for the JWT cache TTL; mentions setting 0 to disable caching."
     },
     "settings.ssh.jwtTtl.suffix": {
-        "message": "sec."
+        "message": "sec.",
+        "description": "Unit suffix shown after the JWT TTL number field. The '(s)' marks an optional plural."
     },
     "settings.advanced.section.interface": {
-        "message": "Interfaccia"
+        "message": "Interfaccia",
+        "description": "Section heading: Interface (network-interface settings)."
     },
     "settings.advanced.section.security": {
-        "message": "Sicurezza"
+        "message": "Sicurezza",
+        "description": "Section heading: Security (advanced)."
     },
     "settings.advanced.interfaceName.label": {
-        "message": "Nome"
+        "message": "Nome",
+        "description": "Field label for the WireGuard interface name."
     },
     "settings.advanced.interfaceName.error": {
-        "message": "Usi da 1 a 15 lettere, cifre, punti, trattini o trattini bassi."
+        "message": "Usi da 1 a 15 lettere, cifre, punti, trattini o trattini bassi.",
+        "description": "Validation message for the interface name (allowed characters)."
     },
     "settings.advanced.interfaceName.errorMac": {
-        "message": "Deve iniziare con \"utun\" seguito da un numero (es. utun100)."
+        "message": "Deve iniziare con \"utun\" seguito da un numero (es. utun100).",
+        "description": "Validation message specific to macOS, where the name must start with 'utun' followed by a number. Keep 'utun' and the example."
     },
     "settings.advanced.port.label": {
-        "message": "Porta"
+        "message": "Porta",
+        "description": "Field label: Port."
     },
     "settings.advanced.port.error": {
-        "message": "Inserisca una porta compresa tra {min} e {max}."
+        "message": "Inserisca una porta compresa tra {min} e {max}.",
+        "description": "Validation message for the port range. {min} and {max} are numbers; keep them."
     },
     "settings.advanced.port.help": {
-        "message": "Se impostata su 0, verrà usata una porta libera casuale."
+        "message": "Se impostata su 0, verrà usata una porta libera casuale.",
+        "description": "Helper text: 0 means a random free port is used."
     },
     "settings.advanced.mtu.label": {
-        "message": "MTU"
+        "message": "MTU",
+        "description": "Field label: MTU. 'MTU' — keep acronym."
     },
     "settings.advanced.mtu.error": {
-        "message": "Inserisca un valore MTU compreso tra {min} e {max}."
+        "message": "Inserisca un valore MTU compreso tra {min} e {max}.",
+        "description": "Validation message for the MTU range. {min} and {max} are numbers; keep them."
     },
     "settings.advanced.psk.label": {
-        "message": "Chiave pre-condivisa"
+        "message": "Chiave pre-condivisa",
+        "description": "Field label: Pre-shared Key."
     },
     "settings.advanced.psk.help": {
-        "message": "PSK WireGuard opzionale per una crittografia simmetrica aggiuntiva. Non è la stessa cosa di una chiave di configurazione NetBird. Comunicherà solo con i peer che usano la stessa chiave pre-condivisa."
+        "message": "PSK WireGuard opzionale per una crittografia simmetrica aggiuntiva. Non è la stessa cosa di una chiave di configurazione NetBird. Comunicherà solo con i peer che usano la stessa chiave pre-condivisa.",
+        "description": "Helper text for the WireGuard PSK. 'WireGuard', 'PSK', and 'NetBird Setup Key' are product/technical terms — keep them."
     },
     "settings.troubleshooting.section.title": {
-        "message": "Pacchetto di debug"
+        "message": "Pacchetto di debug",
+        "description": "Section heading: Debug bundle."
     },
     "settings.troubleshooting.anonymize.label": {
-        "message": "Anonimizza informazioni sensibili"
+        "message": "Anonimizza informazioni sensibili",
+        "description": "Label for the anonymization level dropdown (None, Default, Strict)."
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Nasconde indirizzi IP, domini e altri valori sensibili."
+        "message": "Nasconde indirizzi IP, domini e altri valori sensibili.",
+        "description": "Helper text under the anonymization dropdown. The level details live in the info tooltip."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "La modalità predefinita mantiene leggibili gli indirizzi IPv4 interni e i nomi dei peer per il supporto. La modalità rigorosa anonimizza inoltre gli indirizzi IP privati (RFC 1918), CGNAT e link-local, i nomi dei peer e le chiavi pubbliche WireGuard. I valori ricorrenti vengono associati allo stesso segnaposto, quindi i peer restano distinguibili. Usa la modalità rigorosa quando condividi il pacchetto di debug al di fuori della tua organizzazione."
+        "message": "La modalità predefinita mantiene leggibili gli indirizzi IPv4 interni e i nomi dei peer per il supporto. La modalità rigorosa anonimizza inoltre gli indirizzi IP privati (RFC 1918), CGNAT e link-local, i nomi dei peer e le chiavi pubbliche WireGuard. I valori ricorrenti vengono associati allo stesso segnaposto, quindi i peer restano distinguibili. Usa la modalità rigorosa quando condividi il pacchetto di debug al di fuori della tua organizzazione.",
+        "description": "Info tooltip explaining the anonymization levels. 'RFC 1918', 'CGNAT', 'link-local', and 'WireGuard' are technical terms — keep them."
     },
     "settings.troubleshooting.anonymize.none": {
-        "message": "Nessuna"
+        "message": "Nessuna",
+        "description": "Dropdown option: no anonymization."
     },
     "settings.troubleshooting.anonymize.default": {
-        "message": "Predefinito"
+        "message": "Predefinito",
+        "description": "Dropdown option: default anonymization level."
     },
     "settings.troubleshooting.anonymize.strict": {
-        "message": "Rigoroso"
+        "message": "Rigoroso",
+        "description": "Dropdown option: strict anonymization level."
     },
     "settings.troubleshooting.systemInfo.label": {
-        "message": "Includi informazioni di sistema"
+        "message": "Includi informazioni di sistema",
+        "description": "Toggle label: include system information in the bundle."
     },
     "settings.troubleshooting.systemInfo.help": {
-        "message": "Include OS, kernel, interfacce di rete e tabelle di routing."
+        "message": "Include OS, kernel, interfacce di rete e tabelle di routing.",
+        "description": "Helper text listing the system info included (OS, kernel, interfaces, routing tables)."
     },
     "settings.troubleshooting.upload.label": {
-        "message": "Carica il pacchetto sui server NetBird"
+        "message": "Carica il pacchetto sui server NetBird",
+        "description": "Toggle label: upload the bundle to NetBird servers."
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Restituisce una chiave di caricamento da condividere con il supporto NetBird."
+        "message": "Restituisce una chiave di caricamento da condividere con il supporto NetBird.",
+        "description": "Helper text for uploading the bundle."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Abilita log di traccia"
+        "message": "Abilita log di traccia",
+        "description": "Toggle label: raise daemon log level to TRACE while the bundle is built. 'TRACE' is a log level."
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Aumenta il livello di log a TRACE e lo ripristina al termine."
+        "message": "Aumenta il livello di log a TRACE e lo ripristina al termine.",
+        "description": "Helper text for the trace toggle. 'TRACE' is a log level — keep as-is."
     },
     "settings.troubleshooting.capture.label": {
-        "message": "Sessione di acquisizione"
+        "message": "Sessione di acquisizione",
+        "description": "Toggle label: open a capture session — reconnect NetBird, wait a duration, optionally record packets."
     },
     "settings.troubleshooting.capture.help": {
-        "message": "Si riconnette e attende per consentirle di riprodurre il problema."
+        "message": "Si riconnette e attende per consentirle di riprodurre il problema.",
+        "description": "Helper text for the master Capture Session toggle."
     },
     "settings.troubleshooting.packets.label": {
-        "message": "Acquisisci pacchetti di rete"
+        "message": "Acquisisci pacchetti di rete",
+        "description": "Toggle label: capture packets to a .pcap during the capture session."
     },
     "settings.troubleshooting.packets.help": {
-        "message": "Salva un .pcap del traffico di rete durante la sessione di acquisizione."
+        "message": "Salva un .pcap del traffico di rete durante la sessione di acquisizione.",
+        "description": "Helper text for the packet recording toggle. '.pcap' is a file extension — keep it."
     },
     "settings.troubleshooting.duration.label": {
-        "message": "Durata acquisizione"
+        "message": "Durata acquisizione",
+        "description": "Label for the trace-capture duration field."
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Per quanto tempo viene eseguita la sessione di acquisizione."
+        "message": "Per quanto tempo viene eseguita la sessione di acquisizione.",
+        "description": "Helper text for the capture duration."
     },
     "settings.troubleshooting.duration.suffix": {
-        "message": "min."
+        "message": "min.",
+        "description": "Unit suffix after the duration field. The '(s)' marks an optional plural."
     },
     "settings.troubleshooting.create": {
-        "message": "Crea pacchetto"
+        "message": "Crea pacchetto",
+        "description": "Button to create the debug bundle. Keep short."
     },
     "settings.troubleshooting.progress.description": {
-        "message": "Raccolta di log, dettagli di sistema e stato della connessione. Di solito richiede un momento: tenga aperta questa finestra fino al completamento."
+        "message": "Raccolta di log, dettagli di sistema e stato della connessione. Di solito richiede un momento: tenga aperta questa finestra fino al completamento.",
+        "description": "Status text shown while the debug bundle is being collected; reassures the user they can keep using NetBird or close Settings meanwhile."
     },
     "settings.troubleshooting.cancelling": {
-        "message": "Annullamento…"
+        "message": "Annullamento…",
+        "description": "Status shown while cancelling bundle creation. Ends with an ellipsis."
     },
     "settings.troubleshooting.done.uploadedTitle": {
-        "message": "Pacchetto di debug caricato con successo!"
+        "message": "Pacchetto di debug caricato con successo!",
+        "description": "Success title after the bundle was uploaded."
     },
     "settings.troubleshooting.done.savedTitle": {
-        "message": "Pacchetto salvato"
+        "message": "Pacchetto salvato",
+        "description": "Title shown when the bundle was saved locally (not uploaded)."
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Condivida la chiave di caricamento qui sotto con il <docs>supporto NetBird</docs>. Una copia locale è stata salvata anche sul suo dispositivo."
+        "message": "Condivida la chiave di caricamento qui sotto con il <docs>supporto NetBird</docs>. Una copia locale è stata salvata anche sul suo dispositivo.",
+        "description": "Body after upload, telling the user to share the upload key with support. '<docs>…</docs>' wraps the inline link to the NetBird support docs — keep the tags exactly and wrap the phrase that means 'NetBird support'."
     },
     "settings.troubleshooting.done.savedDescription": {
-        "message": "Il pacchetto di debug è stato salvato localmente."
+        "message": "Il pacchetto di debug è stato salvato localmente.",
+        "description": "Body shown when the bundle was only saved locally."
     },
     "settings.troubleshooting.done.copyKey": {
-        "message": "Copia chiave"
+        "message": "Copia chiave",
+        "description": "Button to copy the upload key. Keep short."
     },
     "settings.troubleshooting.done.openFolder": {
-        "message": "Apri cartella"
+        "message": "Apri cartella",
+        "description": "Button to open the folder containing the bundle. Keep short."
     },
     "settings.troubleshooting.done.openFileLocation": {
-        "message": "Apri posizione file"
+        "message": "Apri posizione file",
+        "description": "Button to reveal the bundle file in the OS file manager."
     },
     "settings.troubleshooting.uploadFailedWithReason": {
-        "message": "Caricamento non riuscito: {reason} Il pacchetto è comunque salvato localmente."
+        "message": "Caricamento non riuscito: {reason} Il pacchetto è comunque salvato localmente.",
+        "description": "Shown when upload failed but the bundle was saved locally. {reason} is the server error text; keep it."
     },
     "settings.troubleshooting.uploadFailed": {
-        "message": "Caricamento non riuscito. Il pacchetto è comunque salvato localmente."
+        "message": "Caricamento non riuscito. Il pacchetto è comunque salvato localmente.",
+        "description": "Shown when upload failed (no specific reason) but the bundle was saved locally."
     },
     "settings.troubleshooting.stage.reconnecting": {
-        "message": "Riconnessione di NetBird…"
+        "message": "Riconnessione di NetBird…",
+        "description": "Progress stage: reconnecting NetBird. Ends with an ellipsis."
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Acquisizione log di debug"
+        "message": "Acquisizione log di debug",
+        "description": "Progress stage: capturing logs. {elapsed} and {total} are time values (e.g. 0:30 / 2:00); keep both."
     },
     "settings.troubleshooting.stage.bundling": {
-        "message": "Generazione del pacchetto di debug…"
+        "message": "Generazione del pacchetto di debug…",
+        "description": "Progress stage: generating the debug bundle. Ends with an ellipsis."
     },
     "settings.troubleshooting.stage.uploading": {
-        "message": "Caricamento su NetBird…"
+        "message": "Caricamento su NetBird…",
+        "description": "Progress stage: uploading to NetBird. Ends with an ellipsis."
     },
     "settings.troubleshooting.stage.cancelling": {
-        "message": "Annullamento…"
+        "message": "Annullamento…",
+        "description": "Progress stage: cancelling. Ends with an ellipsis."
     },
     "settings.about.client": {
-        "message": "NetBird Client v{version}"
+        "message": "NetBird Client v{version}",
+        "description": "About tab: client product name and version. {version} is a version number; keep it. 'NetBird Client' — keep brand."
     },
     "settings.about.clientName": {
-        "message": "NetBird Client"
+        "message": "NetBird Client",
+        "description": "About tab: the client product name shown when no version is available. Brand — do not translate."
     },
     "settings.about.development": {
-        "message": "[Development]"
+        "message": "[Development]",
+        "description": "Badge shown next to the version on development builds. Keep the square brackets."
     },
     "settings.about.gui": {
-        "message": "GUI v{version}"
+        "message": "GUI v{version}",
+        "description": "About tab: UI component name and version. {version} is a version number; keep it. 'GUI' = the graphical app."
     },
     "settings.about.guiName": {
-        "message": "GUI"
+        "message": "GUI",
+        "description": "About tab: the UI component name shown without a version. 'GUI' = the graphical app."
     },
     "settings.about.copyright": {
-        "message": "© {year} NetBird. Tutti i diritti riservati."
+        "message": "© {year} NetBird. Tutti i diritti riservati.",
+        "description": "Copyright line. {year} is the current year; keep it. 'NetBird' — brand."
     },
     "settings.about.links.imprint": {
-        "message": "Note legali"
+        "message": "Note legali",
+        "description": "Footer link: Imprint (legal notice / Impressum)."
     },
     "settings.about.links.privacy": {
-        "message": "Privacy"
+        "message": "Privacy",
+        "description": "Footer link: Privacy policy."
     },
     "settings.about.links.cla": {
-        "message": "CLA"
+        "message": "CLA",
+        "description": "Footer link: CLA (Contributor License Agreement). Acronym — keep as-is."
     },
     "settings.about.links.terms": {
-        "message": "Termini di servizio"
+        "message": "Termini di servizio",
+        "description": "Footer link: Terms of Service."
     },
     "settings.about.community.github": {
-        "message": "GitHub"
+        "message": "GitHub",
+        "description": "Community link: GitHub. Brand — do not translate."
     },
     "settings.about.community.slack": {
-        "message": "Slack"
+        "message": "Slack",
+        "description": "Community link: Slack. Brand — do not translate."
     },
     "settings.about.community.forum": {
-        "message": "Forum"
+        "message": "Forum",
+        "description": "Community link: Forum."
     },
     "settings.about.community.documentation": {
-        "message": "Documentazione"
+        "message": "Documentazione",
+        "description": "Community link: Documentation."
     },
     "settings.about.community.feedback": {
-        "message": "Feedback"
+        "message": "Feedback",
+        "description": "Community link: Feedback."
     },
     "update.banner.message": {
-        "message": "NetBird {version} è pronto per l'installazione."
+        "message": "NetBird {version} è pronto per l'installazione.",
+        "description": "Update banner text when a new version is ready to install. {version} is the version number; keep it."
     },
     "update.banner.later": {
-        "message": "Più tardi"
+        "message": "Più tardi",
+        "description": "Banner button to postpone the update. Keep short."
     },
     "update.banner.installNow": {
-        "message": "Installa ora"
+        "message": "Installa ora",
+        "description": "Banner button to install the update now. Keep short."
     },
     "update.card.versionAvailableDownload": {
-        "message": "La versione {version} è disponibile per il download."
+        "message": "La versione {version} è disponibile per il download.",
+        "description": "Update card text when a version is available to download. {version} is the version number; keep it."
     },
     "update.card.versionAvailableInstall": {
-        "message": "La versione {version} è disponibile per l'installazione."
+        "message": "La versione {version} è disponibile per l'installazione.",
+        "description": "Update card text when a version is available to install. {version} is the version number; keep it."
     },
     "update.card.whatsNew": {
-        "message": "Novità?"
+        "message": "Novità?",
+        "description": "Link / label that opens the release notes."
     },
     "update.card.installNow": {
-        "message": "Installa ora"
+        "message": "Installa ora",
+        "description": "Update card button: install now. Keep short."
     },
     "update.card.getInstaller": {
-        "message": "Scarica"
+        "message": "Scarica",
+        "description": "Update card button: download the installer."
     },
     "update.card.autoCheckInterval": {
-        "message": "NetBird verifica gli aggiornamenti in background."
+        "message": "NetBird verifica gli aggiornamenti in background.",
+        "description": "Note that NetBird checks for updates in the background."
     },
     "update.card.changelog": {
-        "message": "Changelog"
+        "message": "Changelog",
+        "description": "Link / label: Changelog."
     },
     "update.card.onLatestVersion": {
-        "message": "Sta usando l'ultima versione"
+        "message": "Sta usando l'ultima versione",
+        "description": "Shown when the client is already up to date."
     },
     "update.header.tooltip": {
-        "message": "Aggiornamento disponibile"
+        "message": "Aggiornamento disponibile",
+        "description": "Tooltip on the header update badge."
     },
     "update.overlay.updatingVersion": {
-        "message": "Aggiornamento di NetBird alla v{version}"
+        "message": "Aggiornamento di NetBird alla v{version}",
+        "description": "Heading in the install-progress window while updating to a specific version. {version} is the version number; keep it. The 'v' prefix is part of the version display."
     },
     "update.overlay.updating": {
-        "message": "Aggiornamento di NetBird"
+        "message": "Aggiornamento di NetBird",
+        "description": "Heading in the install-progress window while updating when the target version isn't known."
     },
     "update.overlay.description": {
-        "message": "È disponibile una versione più recente ed è in corso l'installazione. NetBird si riavvierà automaticamente al termine dell'aggiornamento."
+        "message": "È disponibile una versione più recente ed è in corso l'installazione. NetBird si riavvierà automaticamente al termine dell'aggiornamento.",
+        "description": "Install-progress window body explaining NetBird will restart automatically after the update."
     },
     "update.overlay.error.timeoutTitle": {
-        "message": "L'aggiornamento richiede troppo tempo"
+        "message": "L'aggiornamento richiede troppo tempo",
+        "description": "Install-progress window error title: the update took too long."
     },
     "update.overlay.error.timeoutDescription": {
-        "message": "L'installazione di {target} ha richiesto troppo tempo e non è stata completata."
+        "message": "L'installazione di {target} ha richiesto troppo tempo e non è stata completata.",
+        "description": "Install-progress window error body for a timeout. {target} is the target-version label (see update.overlay.error.targetVersion / targetFallback); keep it."
     },
     "update.overlay.error.canceledTitle": {
-        "message": "Aggiornamento interrotto"
+        "message": "Aggiornamento interrotto",
+        "description": "Install-progress window error title: the update was stopped / canceled."
     },
     "update.overlay.error.canceledDescription": {
-        "message": "L'aggiornamento a {target} è stato annullato prima del completamento."
+        "message": "L'aggiornamento a {target} è stato annullato prima del completamento.",
+        "description": "Install-progress window error body for a canceled update. {target} is the target-version label; keep it."
     },
     "update.overlay.error.failTitle": {
-        "message": "Impossibile installare l'aggiornamento"
+        "message": "Impossibile installare l'aggiornamento",
+        "description": "Install-progress window error title: the update couldn't be installed."
     },
     "update.overlay.error.failDescription": {
-        "message": "Impossibile installare {target}."
+        "message": "Impossibile installare {target}.",
+        "description": "Install-progress window error body for a failed install. {target} is the target-version label; keep it."
     },
     "update.overlay.error.unknownMessage": {
-        "message": "errore sconosciuto"
+        "message": "errore sconosciuto",
+        "description": "Fallback text for an unspecified error, used inside other messages."
     },
     "update.overlay.error.targetVersion": {
-        "message": "v{version}"
+        "message": "v{version}",
+        "description": "The target-version label substituted into {target}. {version} is a number; keep the 'v' prefix."
     },
     "update.overlay.error.targetFallback": {
-        "message": "la nuova versione"
+        "message": "la nuova versione",
+        "description": "Fallback target label used when the version isn't known, substituted into {target}."
     },
     "update.error.loadStateTitle": {
-        "message": "Caricamento stato aggiornamento non riuscito"
+        "message": "Caricamento stato aggiornamento non riuscito",
+        "description": "Error-dialog title when loading update state fails."
     },
     "update.error.triggerTitle": {
-        "message": "Avvio aggiornamento non riuscito"
+        "message": "Avvio aggiornamento non riuscito",
+        "description": "Error-dialog title when starting the update fails."
     },
     "update.page.versionLine": {
-        "message": "Aggiornamento del client a: {version}."
+        "message": "Aggiornamento del client a: {version}.",
+        "description": "Install-progress window text naming the target version. {version} is the version number; keep it."
     },
     "update.page.versionLineGeneric": {
-        "message": "Aggiornamento del client."
+        "message": "Aggiornamento del client.",
+        "description": "Install-progress text used when the target version isn't known."
     },
     "update.page.outdated": {
-        "message": "La versione del client è precedente alla versione di aggiornamento automatico impostata in Management."
+        "message": "La versione del client è precedente alla versione di aggiornamento automatico impostata in Management.",
+        "description": "Note that the client is older than the auto-update version set in Management. 'Management' = the NetBird management server / console."
     },
     "update.page.status.running": {
-        "message": "Aggiornamento in corso"
+        "message": "Aggiornamento in corso",
+        "description": "Install status: updating."
     },
     "update.page.status.timeout": {
-        "message": "Aggiornamento scaduto. Riprovi."
+        "message": "Aggiornamento scaduto. Riprovi.",
+        "description": "Install status: timed out; asks the user to retry."
     },
     "update.page.status.canceled": {
-        "message": "Aggiornamento annullato."
+        "message": "Aggiornamento annullato.",
+        "description": "Install status: canceled."
     },
     "update.page.status.failed": {
-        "message": "Aggiornamento non riuscito: {message}"
+        "message": "Aggiornamento non riuscito: {message}",
+        "description": "Install status: failed. {message} is the error detail; keep it."
     },
     "update.page.status.unknownError": {
-        "message": "errore di aggiornamento sconosciuto"
+        "message": "errore di aggiornamento sconosciuto",
+        "description": "Fallback text for an unknown update error, used inside update.page.status.failed."
     },
     "update.page.failedTitle": {
-        "message": "Aggiornamento non riuscito"
+        "message": "Aggiornamento non riuscito",
+        "description": "Heading shown when the install failed."
     },
     "update.page.timeoutMessage": {
-        "message": "Aggiornamento scaduto."
+        "message": "Aggiornamento scaduto.",
+        "description": "Message shown when the install timed out."
     },
     "update.page.dontClose": {
-        "message": "Non chiuda questa finestra."
+        "message": "Non chiuda questa finestra.",
+        "description": "Warning asking the user not to close the install window."
     },
     "update.page.updating": {
-        "message": "Aggiornamento…"
+        "message": "Aggiornamento…",
+        "description": "Short status: updating. Ends with an ellipsis."
     },
     "update.page.complete": {
-        "message": "Aggiornamento completato"
+        "message": "Aggiornamento completato",
+        "description": "Short status: update complete."
     },
     "update.page.failed": {
-        "message": "Aggiornamento non riuscito"
+        "message": "Aggiornamento non riuscito",
+        "description": "Short status: update failed."
     },
     "window.title.settings": {
-        "message": "Impostazioni"
+        "message": "Impostazioni",
+        "description": "OS window-chrome title for the Settings window. The app prefixes it with 'NetBird - '."
     },
     "window.title.signIn": {
-        "message": "Accesso"
+        "message": "Accesso",
+        "description": "OS window-chrome title for the sign-in window."
     },
     "window.title.sessionExpiration": {
-        "message": "Sessione in scadenza"
+        "message": "Sessione in scadenza",
+        "description": "OS window-chrome title for the session-expiration window."
     },
     "window.title.updating": {
-        "message": "Aggiornamento"
+        "message": "Aggiornamento",
+        "description": "OS window-chrome title for the update / install window."
     },
     "window.title.welcome": {
-        "message": "Benvenuto in NetBird"
+        "message": "Benvenuto in NetBird",
+        "description": "OS window-chrome title for the first-launch welcome window. 'NetBird' — brand."
     },
     "window.title.error": {
-        "message": "Errore"
+        "message": "Errore",
+        "description": "OS window-chrome title for the error window."
     },
     "welcome.title": {
-        "message": "Cerchi NetBird nella tray"
+        "message": "Cerchi NetBird nella tray",
+        "description": "Heading on the first onboarding step, pointing the user to the tray icon. Shown on Windows and Linux; macOS uses welcome.titleMac."
     },
     "welcome.titleMac": {
-        "message": "Cerchi NetBird nella barra dei menu"
+        "message": "Cerchi NetBird nella barra dei menu",
+        "description": "Heading on the first onboarding step on macOS, pointing the user to the menu bar icon. Use your language's Apple term for the macOS menu bar."
     },
     "welcome.description": {
-        "message": "NetBird risiede nella tray. Clicchi sull'icona per connettersi, cambiare profilo o aprire le impostazioni."
+        "message": "NetBird risiede nella tray. Clicchi sull'icona per connettersi, cambiare profilo o aprire le impostazioni.",
+        "description": "Body of the first onboarding step explaining the tray icon. Shown on Windows and Linux; macOS uses welcome.descriptionMac."
     },
     "welcome.descriptionMac": {
-        "message": "NetBird risiede nella barra dei menu. Clicchi sull'icona per connettersi, cambiare profilo o aprire le impostazioni."
+        "message": "NetBird risiede nella barra dei menu. Clicchi sull'icona per connettersi, cambiare profilo o aprire le impostazioni.",
+        "description": "Body of the first onboarding step on macOS explaining the menu bar icon. Use your language's Apple term for the macOS menu bar."
     },
     "welcome.continue": {
-        "message": "Continua"
+        "message": "Continua",
+        "description": "Primary button to advance the onboarding. Keep short."
     },
     "welcome.back": {
-        "message": "Indietro"
+        "message": "Indietro",
+        "description": "Button to go back a step in onboarding. Keep short."
     },
     "welcome.management.title": {
-        "message": "Configura NetBird"
+        "message": "Configura NetBird",
+        "description": "Heading on the onboarding step for choosing a management server."
     },
     "welcome.management.description": {
-        "message": "Clicchi su Continua per iniziare, oppure scelga Self-hosted se dispone di un proprio server NetBird."
+        "message": "Clicchi su Continua per iniziare, oppure scelga Self-hosted se dispone di un proprio server NetBird.",
+        "description": "Body of the management step; mentions choosing Self-hosted if the user runs their own server."
     },
     "welcome.management.cloud.title": {
-        "message": "NetBird Cloud"
+        "message": "NetBird Cloud",
+        "description": "Option title: NetBird Cloud. Brand — do not translate 'NetBird Cloud'."
     },
     "welcome.management.cloud.description": {
-        "message": "Usi il nostro servizio gestito. Nessuna configurazione necessaria."
+        "message": "Usi il nostro servizio gestito. Nessuna configurazione necessaria.",
+        "description": "Option body for NetBird Cloud (hosted service, no setup required)."
     },
     "welcome.management.selfHosted.title": {
-        "message": "Self-hosted"
+        "message": "Self-hosted",
+        "description": "Option title: Self-hosted."
     },
     "welcome.management.selfHosted.description": {
-        "message": "Si connetta al suo server di gestione."
+        "message": "Si connetta al suo server di gestione.",
+        "description": "Option body for connecting to your own management server."
     },
     "welcome.management.urlLabel": {
-        "message": "URL del server di gestione"
+        "message": "URL del server di gestione",
+        "description": "Field label for the management-server URL."
     },
     "welcome.management.urlPlaceholder": {
-        "message": "https://netbird.selfhosted.com:443"
+        "message": "https://netbird.selfhosted.com:443",
+        "description": "Example URL placeholder. Sample URL — do not translate it."
     },
     "welcome.management.urlInvalid": {
-        "message": "Inserisca un URL valido, es. https://netbird.selfhosted.com:443"
+        "message": "Inserisca un URL valido, es. https://netbird.selfhosted.com:443",
+        "description": "Validation message for an invalid URL. The example URL stays as-is."
     },
     "welcome.management.urlUnreachable": {
-        "message": "Impossibile raggiungere questo server. Controlli l'URL o la sua rete, poi prosegua se è certo che sia corretto."
+        "message": "Impossibile raggiungere questo server. Controlli l'URL o la sua rete, poi prosegua se è certo che sia corretto.",
+        "description": "Soft warning when the server couldn't be reached during onboarding; the user may continue anyway."
     },
     "welcome.management.checking": {
-        "message": "Verifica…"
+        "message": "Verifica…",
+        "description": "Status shown while checking the server URL. Ends with an ellipsis."
     },
     "browserLogin.title": {
-        "message": "Continui nel browser per completare l'accesso"
+        "message": "Continui nel browser per completare l'accesso",
+        "description": "Heading telling the user to finish signing in via their browser."
     },
     "browserLogin.notSeeing": {
-        "message": "Non vede la scheda del browser?"
+        "message": "Non vede la scheda del browser?",
+        "description": "Prompt asking whether the user doesn't see the opened browser tab."
     },
     "browserLogin.tryAgain": {
-        "message": "Riprova"
+        "message": "Riprova",
+        "description": "Button to re-open the browser sign-in page. Keep short."
     },
     "browserLogin.openFailedTitle": {
-        "message": "Apertura browser non riuscita"
+        "message": "Apertura browser non riuscita",
+        "description": "Error-dialog title when the browser couldn't be opened."
     },
     "sessionExpiration.title": {
-        "message": "La sessione sta per scadere"
+        "message": "La sessione sta per scadere",
+        "description": "Heading warning the session will expire soon."
     },
     "sessionExpiration.titleLater": {
-        "message": "La sessione scadrà"
+        "message": "La sessione scadrà",
+        "description": "Alternate, less-urgent heading: the session will expire."
     },
     "sessionExpiration.description": {
-        "message": "Questo dispositivo verrà disconnesso a breve. Rinnovi con un accesso dal browser."
+        "message": "Questo dispositivo verrà disconnesso a breve. Rinnovi con un accesso dal browser.",
+        "description": "Body warning the device will disconnect soon; renew via a browser sign-in."
     },
     "sessionExpiration.descriptionLater": {
-        "message": "Un accesso dal browser mantiene questo dispositivo connesso alla sua rete."
+        "message": "Un accesso dal browser mantiene questo dispositivo connesso alla sua rete.",
+        "description": "Body for the less-urgent variant; a browser sign-in keeps the device connected."
     },
     "sessionExpiration.stay": {
-        "message": "Rinnova sessione"
+        "message": "Rinnova sessione",
+        "description": "Button to renew the session (keep connected). Keep short."
     },
     "sessionExpiration.authenticate": {
-        "message": "Autenticati"
+        "message": "Autenticati",
+        "description": "Button to authenticate / sign in. Keep short."
     },
     "sessionExpiration.logout": {
-        "message": "Esci"
+        "message": "Esci",
+        "description": "Button to log out. Keep short."
     },
     "sessionExpiration.expired": {
-        "message": "Sessione scaduta"
+        "message": "Sessione scaduta",
+        "description": "Heading shown once the session has actually expired."
     },
     "sessionExpiration.expiredDescription": {
-        "message": "Dispositivo disconnesso. Si autentichi con un accesso dal browser per riconnettersi."
+        "message": "Dispositivo disconnesso. Si autentichi con un accesso dal browser per riconnettersi.",
+        "description": "Body shown after expiry; authenticate via a browser sign-in to reconnect."
     },
     "sessionExpiration.close": {
-        "message": "Chiudi"
+        "message": "Chiudi",
+        "description": "Close button on the session window. Keep short."
     },
     "sessionExpiration.extendFailedTitle": {
-        "message": "Rinnovo sessione non riuscito"
+        "message": "Rinnovo sessione non riuscito",
+        "description": "Error-dialog title when extending the session fails."
     },
     "sessionExpiration.logoutFailedTitle": {
-        "message": "Disconnessione non riuscita"
+        "message": "Disconnessione non riuscita",
+        "description": "Error-dialog title when logging out fails."
     },
     "peers.search.placeholder": {
-        "message": "Cerca per nome o IP"
+        "message": "Cerca per nome o IP",
+        "description": "Placeholder in the peers search field."
     },
     "peers.filter.all": {
-        "message": "Tutti"
+        "message": "Tutti",
+        "description": "Peers filter option: All. Keep short."
     },
     "peers.filter.online": {
-        "message": "Online"
+        "message": "Online",
+        "description": "Peers filter option: Online. Keep short."
     },
     "peers.filter.offline": {
-        "message": "Offline"
+        "message": "Offline",
+        "description": "Peers filter option: Offline. Keep short."
     },
     "peers.empty.title": {
-        "message": "Nessun peer disponibile"
+        "message": "Nessun peer disponibile",
+        "description": "Title of the empty state when no peers are available."
     },
     "peers.empty.description": {
-        "message": "Non ha peer disponibili oppure non ha accesso a nessuno di essi."
+        "message": "Non ha peer disponibili oppure non ha accesso a nessuno di essi.",
+        "description": "Body of the no-peers empty state."
     },
     "peers.details.domain": {
-        "message": "Dominio"
+        "message": "Dominio",
+        "description": "Peer detail label: Domain."
     },
     "peers.details.netbirdIp": {
-        "message": "IP NetBird"
+        "message": "IP NetBird",
+        "description": "Peer detail label: NetBird IP address. 'NetBird' — brand; 'IP' — keep acronym."
     },
     "peers.details.netbirdIpv6": {
-        "message": "IPv6 NetBird"
+        "message": "IPv6 NetBird",
+        "description": "Peer detail label: NetBird IPv6 address. Keep 'NetBird' and 'IPv6'."
     },
     "peers.details.publicKey": {
-        "message": "Chiave pubblica"
+        "message": "Chiave pubblica",
+        "description": "Peer detail label: WireGuard public key."
     },
     "peers.details.connection": {
-        "message": "Connessione"
+        "message": "Connessione",
+        "description": "Peer detail label: Connection."
     },
     "peers.details.latency": {
-        "message": "Latenza"
+        "message": "Latenza",
+        "description": "Peer detail label: Latency."
     },
     "peers.details.lastHandshake": {
-        "message": "Ultimo handshake"
+        "message": "Ultimo handshake",
+        "description": "Peer detail label: time of the last WireGuard handshake."
     },
     "peers.details.statusSince": {
-        "message": "Ultimo aggiornamento connessione"
+        "message": "Ultimo aggiornamento connessione",
+        "description": "Peer detail label: time since the last connection-status update."
     },
     "peers.details.bytes": {
-        "message": "Byte"
+        "message": "Byte",
+        "description": "Peer detail label: Bytes (data transferred)."
     },
     "peers.details.bytesSent": {
-        "message": "Inviati"
+        "message": "Inviati",
+        "description": "Peer detail label: bytes sent."
     },
     "peers.details.bytesReceived": {
-        "message": "Ricevuti"
+        "message": "Ricevuti",
+        "description": "Peer detail label: bytes received."
     },
     "peers.details.localIce": {
-        "message": "ICE locale"
+        "message": "ICE locale",
+        "description": "Peer detail label: local ICE candidate. 'ICE' — keep acronym."
     },
     "peers.details.remoteIce": {
-        "message": "ICE remoto"
+        "message": "ICE remoto",
+        "description": "Peer detail label: remote ICE candidate. 'ICE' — keep acronym."
     },
     "peers.details.never": {
-        "message": "Mai"
+        "message": "Mai",
+        "description": "Value shown when an event has never happened (e.g. last handshake = Never)."
     },
     "peers.details.justNow": {
-        "message": "Proprio ora"
+        "message": "Proprio ora",
+        "description": "Relative-time value meaning a moment ago."
     },
     "peers.details.refresh": {
-        "message": "Aggiorna"
+        "message": "Aggiorna",
+        "description": "Button to refresh peer details. Keep short."
     },
     "peers.status.connected": {
-        "message": "Connesso"
+        "message": "Connesso",
+        "description": "Peer status: connected."
     },
     "peers.status.connecting": {
-        "message": "Connessione"
+        "message": "Connessione",
+        "description": "Peer status: connecting."
     },
     "peers.status.disconnected": {
-        "message": "Disconnesso"
+        "message": "Disconnesso",
+        "description": "Peer status: disconnected."
     },
     "peers.details.relayAddress": {
-        "message": "Relay"
+        "message": "Relay",
+        "description": "Peer detail label: Relay (relay-server address)."
     },
     "peers.details.networks": {
-        "message": "Risorse"
+        "message": "Risorse",
+        "description": "Peer detail label for the peer's network resources. Labelled 'Resources' in the UI."
     },
     "peers.details.relayed": {
-        "message": "Tramite relay"
+        "message": "Tramite relay",
+        "description": "Connection-type value: the connection is relayed (not direct). Technical term."
     },
     "peers.details.p2p": {
-        "message": "P2P"
+        "message": "P2P",
+        "description": "Connection-type value: peer-to-peer (direct). 'P2P' — keep as-is."
     },
     "peers.details.rosenpass": {
-        "message": "Rosenpass abilitato"
+        "message": "Rosenpass abilitato",
+        "description": "Peer detail indicating Rosenpass (quantum-resistance) is enabled. 'Rosenpass' — product name, do not translate."
     },
     "networks.search.placeholder": {
-        "message": "Cerca per rete o dominio"
+        "message": "Cerca per rete o dominio",
+        "description": "Placeholder in the resources search field."
     },
     "networks.filter.all": {
-        "message": "Tutte"
+        "message": "Tutte",
+        "description": "Resources filter: All. Keep short."
     },
     "networks.filter.active": {
-        "message": "Attive"
+        "message": "Attive",
+        "description": "Resources filter: Active. Keep short."
     },
     "networks.filter.overlapping": {
-        "message": "Sovrapposte"
+        "message": "Sovrapposte",
+        "description": "Resources filter: Overlapping (overlapping IP ranges). Keep short."
     },
     "networks.empty.title": {
-        "message": "Nessuna risorsa disponibile"
+        "message": "Nessuna risorsa disponibile",
+        "description": "Title of the empty state when no resources are available."
     },
     "networks.empty.description": {
-        "message": "Non ha risorse di rete disponibili oppure non ha accesso a nessuna di esse."
+        "message": "Non ha risorse di rete disponibili oppure non ha accesso a nessuna di esse.",
+        "description": "Body of the no-resources empty state."
     },
     "networks.selected": {
-        "message": "Selezionata"
+        "message": "Selezionata",
+        "description": "Label / badge: the resource is selected (enabled)."
     },
     "networks.unselected": {
-        "message": "Non selezionata"
+        "message": "Non selezionata",
+        "description": "Label / badge: the resource is not selected."
     },
     "networks.ips.heading": {
-        "message": "IP risolti"
+        "message": "IP risolti",
+        "description": "Heading for the list of a resource's resolved IP addresses."
     },
     "networks.bulk.selectionCount": {
-        "message": "{selected} di {total} attive"
+        "message": "{selected} di {total} attive",
+        "description": "Header showing how many resources are active. {selected} and {total} are numbers; keep both."
     },
     "networks.bulk.enableAll": {
-        "message": "Abilita tutte"
+        "message": "Abilita tutte",
+        "description": "Button to enable all resources. Keep short."
     },
     "networks.bulk.disableAll": {
-        "message": "Disabilita tutte"
+        "message": "Disabilita tutte",
+        "description": "Button to disable all resources. Keep short."
     },
     "exitNodes.search.placeholder": {
-        "message": "Cerca nodi di uscita"
+        "message": "Cerca nodi di uscita",
+        "description": "Placeholder in the exit-nodes search field."
     },
     "exitNodes.none": {
-        "message": "Nessuno"
+        "message": "Nessuno",
+        "description": "Option meaning no exit node. Keep short."
     },
     "exitNodes.empty.title": {
-        "message": "Nessun nodo di uscita disponibile"
+        "message": "Nessun nodo di uscita disponibile",
+        "description": "Title of the empty state when no exit nodes are available."
     },
     "exitNodes.empty.description": {
-        "message": "Nessun nodo di uscita è stato condiviso con questo peer."
+        "message": "Nessun nodo di uscita è stato condiviso con questo peer.",
+        "description": "Body of the no-exit-nodes empty state."
     },
     "exitNodes.card.title": {
-        "message": "Nodo di uscita"
+        "message": "Nodo di uscita",
+        "description": "Card heading: Exit Node."
     },
     "exitNodes.card.statusActive": {
-        "message": "Attivo"
+        "message": "Attivo",
+        "description": "Exit node card status: Active."
     },
     "exitNodes.card.statusInactive": {
-        "message": "Inattivo"
+        "message": "Inattivo",
+        "description": "Exit node card status: Inactive."
     },
     "exitNodes.dropdown.noneTitle": {
-        "message": "Nessuno"
+        "message": "Nessuno",
+        "description": "Dropdown option title: None (no exit node)."
     },
     "exitNodes.dropdown.noneDescription": {
-        "message": "Connessione diretta senza nodo di uscita"
+        "message": "Connessione diretta senza nodo di uscita",
+        "description": "Dropdown option body for None: direct connection without an exit node."
     },
     "quickActions.connect": {
-        "message": "Connetti"
+        "message": "Connetti",
+        "description": "Quick-action button: Connect. Keep short."
     },
     "quickActions.disconnect": {
-        "message": "Disconnetti"
+        "message": "Disconnetti",
+        "description": "Quick-action button: Disconnect. Keep short."
     },
     "daemon.unavailable.title": {
-        "message": "Il servizio NetBird non è in esecuzione"
+        "message": "Il servizio NetBird non è in esecuzione",
+        "description": "Title of the overlay shown when the NetBird background service isn't running."
     },
     "daemon.unavailable.description": {
-        "message": "L'app si riconnetterà automaticamente non appena il servizio sarà in esecuzione."
+        "message": "L'app si riconnetterà automaticamente non appena il servizio sarà in esecuzione.",
+        "description": "Body reassuring the user the app will reconnect once the service is running."
     },
     "daemon.unavailable.docsLink": {
-        "message": "Documentazione"
+        "message": "Documentazione",
+        "description": "Documentation link on the daemon-unavailable overlay."
     },
     "daemon.outdated.title": {
-        "message": "NetBird Client è obsoleto"
+        "message": "NetBird Client è obsoleto",
+        "description": "Title of the overlay shown when the NetBird client (daemon) is too old to drive this UI."
     },
     "daemon.outdated.description": {
-        "message": "La nuova GUI non è compatibile con il tuo client precedente. Aggiorna il client per usare la nuova applicazione."
+        "message": "La nuova GUI non è compatibile con il tuo client precedente. Aggiorna il client per usare la nuova applicazione.",
+        "description": "Body of the daemon-outdated overlay explaining that the GUI is newer than the client and the client must be updated."
     },
     "daemon.outdated.download": {
-        "message": "Scarica l'ultima versione"
+        "message": "Scarica l'ultima versione",
+        "description": "Button on the daemon-outdated overlay that opens the download page for the latest release."
     },
     "error.jwt_clock_skew": {
-        "message": "Accesso non riuscito: l'orologio di questo dispositivo non è sincronizzato con il server. Sincronizzi l'orologio di sistema e riprovi."
+        "message": "Accesso non riuscito: l'orologio di questo dispositivo non è sincronizzato con il server. Sincronizzi l'orologio di sistema e riprovi.",
+        "description": "Sign-in error shown to the user: the device clock is out of sync with the server."
     },
     "error.jwt_expired": {
-        "message": "Il token di accesso è scaduto. Effettui di nuovo l'accesso."
+        "message": "Il token di accesso è scaduto. Effettui di nuovo l'accesso.",
+        "description": "Sign-in error: the sign-in token expired; sign in again."
     },
     "error.jwt_signature_invalid": {
-        "message": "Accesso non riuscito: la firma del token non è valida. Contatti il suo amministratore."
+        "message": "Accesso non riuscito: la firma del token non è valida. Contatti il suo amministratore.",
+        "description": "Sign-in error: the token signature is invalid; contact the administrator."
     },
     "error.session_expired": {
-        "message": "La sessione è scaduta. Effettui di nuovo l'accesso."
+        "message": "La sessione è scaduta. Effettui di nuovo l'accesso.",
+        "description": "Error: the session expired; sign in again."
     },
     "error.invalid_setup_key": {
-        "message": "La chiave di configurazione è mancante o non valida."
+        "message": "La chiave di configurazione è mancante o non valida.",
+        "description": "Error: the setup key is missing or invalid. 'setup key' is a NetBird term."
     },
     "error.permission_denied": {
-        "message": "L'accesso è stato rifiutato dal server."
+        "message": "L'accesso è stato rifiutato dal server.",
+        "description": "Error: the server rejected the sign-in."
     },
     "error.daemon_unreachable": {
-        "message": "Il daemon NetBird non risponde. Verifichi che il servizio sia in esecuzione."
+        "message": "Il daemon NetBird non risponde. Verifichi che il servizio sia in esecuzione.",
+        "description": "Error: the NetBird background service isn't responding. 'daemon' = the background service."
     },
     "error.settings_locked": {
-        "message": "Le impostazioni non possono essere modificate su questo dispositivo: un amministratore le ha bloccate."
+        "message": "Le impostazioni non possono essere modificate su questo dispositivo: un amministratore le ha bloccate.",
+        "description": "Error: the local daemon was started with update-settings disabled, so it refuses configuration changes."
     },
     "error.settings_managed_by_mdm": {
-        "message": "Questa impostazione è gestita dalla sua organizzazione e non può essere modificata."
+        "message": "Questa impostazione è gestita dalla sua organizzazione e non può essere modificata.",
+        "description": "Error: the setting is enforced by an MDM policy. 'MDM' = mobile device management, the organization's device-management system."
     },
     "error.unknown": {
-        "message": "Operazione non riuscita."
+        "message": "Operazione non riuscita.",
+        "description": "Generic fallback error message used when no specific error applies."
     },
     "error.elevation_unavailable": {
-        "message": "NetBird non ha potuto richiedere a questo sistema i privilegi necessari. Esegua invece questo:"
+        "message": "NetBird non ha potuto richiedere a questo sistema i privilegi necessari. Esegua invece questo:",
+        "description": "Error: this computer has no way to prompt for elevated privileges. Followed by a copyable command that applies the setting from a terminal."
     },
     "error.elevation_failed": {
-        "message": "Non è stato possibile applicare la modifica con privilegi elevati. Esegua invece questo:"
+        "message": "Non è stato possibile applicare la modifica con privilegi elevati. Esegua invece questo:",
+        "description": "Error: the authorization succeeded but applying the setting afterwards failed. Followed by a copyable command that applies the setting from a terminal."
     },
     "settings.ssh.privilege.actorRoot": {
-        "message": "i privilegi di root"
+        "message": "i privilegi di root",
+        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Linux, macOS and BSD, where the daemon requires the root account. 'root' is an account name and stays as it is; add the word for privileges or rights around it if the sentence needs one to read naturally."
     },
     "settings.ssh.privilege.actorAdministrator": {
-        "message": "i privilegi di amministratore"
+        "message": "i privilegi di amministratore",
+        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Windows, where the daemon requires an elevated administrator. The Windows term for the rights an account is asked to elevate to."
     },
     "settings.ssh.privilege.hint": {
-        "message": "Richiede {actor}. Esegua invece questo:"
+        "message": "Richiede {actor}. Esegua invece questo:",
+        "description": "Help text under an SSH setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}."
+        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}.",
+        "description": "Help text under an SSH setting that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}."
+        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}.",
+        "description": "Same as settings.ssh.privilege.oneWay, for the SSH authentication setting once it has been switched off: switching it off again is what needs the privileges."
     },
     "settings.ssh.privilege.authorizePending": {
-        "message": "In attesa dell'autorizzazione…"
+        "message": "In attesa dell'autorizzazione…",
+        "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
     }
 }
