@@ -26,7 +26,6 @@ type WGUSPConfigurer struct {
 	deviceName       string
 	activityRecorder *bind.ActivityRecorder
 	statsCache       *statsCache
-	allowedIPs       *allowedIPStore
 
 	uapiListener net.Listener
 }
@@ -44,7 +43,6 @@ func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRe
 		device:           device,
 		deviceName:       deviceName,
 		activityRecorder: activityRecorder,
-		allowedIPs:       newAllowedIPStore(),
 	}
 	wgCfg.statsCache = newStatsCache(statsCacheTTL, wgCfg.fetchStats)
 	return wgCfg
@@ -129,8 +127,6 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 	if endpoint != nil {
 		c.activityRecorder.UpsertAddress(peerKey, addrPort)
 	}
-
-	c.allowedIPs.add(peerKeyParsed, allowedIps)
 	return nil
 }
 

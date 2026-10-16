@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +56,8 @@ func updateFunc(cmd *cobra.Command, args []string) error {
 	log.Infof("updater started: %s", serviceDirFlag)
 	updater := installer.NewWithDir(tempDirFlag)
 	if err := updater.Setup(context.Background(), dryRunFlag, installerFile, serviceDirFlag); err != nil {
-		return fmt.Errorf("update application: %w", err)
+		log.Errorf("failed to update application: %v", err)
+		return err
 	}
 	return nil
 }

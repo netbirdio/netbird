@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 )
+
 // prefixesToIPNets converts prefixes on their way to a device. It is the only place that
 // conversion happens, so it also normalizes: the device is then given the same form the
 // store records, and a v4-mapped prefix cannot reach net.IPNet, which prints such an
