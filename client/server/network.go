@@ -162,6 +162,10 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		return nil, fmt.Errorf("no route manager")
 	}
 
+	return s.selectNetworks(req, routeManager)
+}
+
+func (s *Server) selectNetworks(req *proto.SelectNetworksRequest, routeManager routemanager.Manager) (*proto.SelectNetworksResponse, error) {
 	var err error
 	if req.GetAll() {
 		routeManager.SelectAllRoutes()
@@ -203,6 +207,10 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		return nil, fmt.Errorf("no route manager")
 	}
 
+	return s.deselectNetworks(req, routeManager)
+}
+
+func (s *Server) deselectNetworks(req *proto.SelectNetworksRequest, routeManager routemanager.Manager) (*proto.SelectNetworksResponse, error) {
 	var err error
 	if req.GetAll() {
 		routeManager.DeselectAllRoutes()
