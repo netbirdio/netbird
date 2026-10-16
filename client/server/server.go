@@ -268,7 +268,7 @@ func (s *Server) Start() error {
 
 	if s.updateManager == nil {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
-		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
+		s.updateManager = updater.NewManager(s.rootCtx, s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
 	}
 
