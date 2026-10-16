@@ -43,6 +43,7 @@ import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { peerStatusLabelKey } from "./Peers";
+import { useDirection } from "@/hooks/useDirection";
 
 const DEFAULT_TRANSITION: Transition = {
     duration: 0.32,
@@ -54,9 +55,9 @@ const DASH = "-";
 const dotClass = (connStatus: string): string => {
     switch (connStatus) {
         case "Connected":
-            return "bg-green-400";
+            return "bg-green-500 dark:bg-green-400";
         case "Connecting":
-            return "bg-yellow-300 animate-pulse-slow";
+            return "bg-yellow-500 animate-pulse-slow dark:bg-yellow-300";
         default:
             return "bg-nb-gray-500";
     }
@@ -70,6 +71,8 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     const { t } = useTranslation();
     const { selected, setSelected } = usePeerDetail();
     const { status, refresh } = useStatus();
+    const dir = useDirection();
+    const offscreenX = dir === "rtl" ? "-100%" : "100%";
 
     useEffect(() => {
         if (!selected) return;
@@ -111,7 +114,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                 setSelected(null);
                 return;
             }
-            if (e.key === "ArrowLeft") {
+            if (e.key === (dir === "rtl" ? "ArrowRight" : "ArrowLeft")) {
                 const target = e.target as HTMLElement | null;
                 const tag = target?.tagName;
                 if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
@@ -120,7 +123,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
         };
         globalThis.addEventListener("keydown", onKey);
         return () => globalThis.removeEventListener("keydown", onKey);
-    }, [selected, setSelected]);
+    }, [selected, setSelected, dir]);
 
     const dialogRef = useRef<HTMLDivElement>(null);
     const backButtonRef = useRef<HTMLButtonElement>(null);
@@ -172,9 +175,9 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                     aria-modal={"true"}
                     aria-labelledby={"nb-peer-detail-title"}
                     onKeyDown={onDialogKeyDown}
-                    initial={{ x: "100%" }}
+                    initial={{ x: offscreenX }}
                     animate={{ x: 0 }}
-                    exit={{ x: "100%" }}
+                    exit={{ x: offscreenX }}
                     transition={transition}
                     style={{ willChange: "transform" }}
                     className={cn("absolute inset-0 z-20 flex flex-col", "bg-nb-gray-940")}
@@ -195,11 +198,15 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                 "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
                                 "cursor-default outline-none transition-colors",
-                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "wails-no-draggable",
                             )}
                         >
-                            <ArrowLeftIcon size={16} aria-hidden={"true"} />
+                            <ArrowLeftIcon
+                                size={16}
+                                aria-hidden={"true"}
+                                className={"rtl:-scale-x-100"}
+                            />
                         </button>
                         <Tooltip content={t(peerStatusLabelKey(selected.connStatus))} side={"top"}>
                             <span
@@ -235,7 +242,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                     "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                     "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
                                     "cursor-default outline-none transition-colors",
-                                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                     "wails-no-draggable",
                                     "disabled:opacity-50 disabled:hover:bg-transparent",
                                 )}
@@ -248,7 +255,11 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             </button>
                         </Tooltip>
                     </div>
-                    <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                    <ScrollArea.Root
+                        dir={dir}
+                        type={"auto"}
+                        className={"min-h-0 flex-1 overflow-hidden"}
+                    >
                         <ScrollArea.Viewport className={"h-full w-full"}>
                             <PeerDetails peer={selected} now={now} />
                         </ScrollArea.Viewport>
@@ -466,9 +477,9 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                         "inline-flex shrink-0 items-center gap-1 rounded",
                         "bg-nb-gray-930 hover:bg-nb-gray-910/80 data-[state=open]:bg-nb-gray-910",
                         "border border-nb-gray-900",
-                        "py-1 pl-2.5 pr-2 text-xs font-medium text-nb-gray-300",
+                        "py-1 pe-2 ps-2.5 text-xs font-medium text-nb-gray-300",
                         "wails-no-draggable cursor-default outline-none transition-all",
-                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     )}
                 >
                     {networks.length}
@@ -526,11 +537,11 @@ const ResourceRow = ({ value }: { value: string }) => {
             aria-label={`${t("common.copy")} ${value}`}
             className={cn(
                 "group/resourcerow relative flex items-center justify-between gap-3",
-                "rounded-md px-2 py-1.5 text-left",
+                "rounded-md px-2 py-1.5 text-start",
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
                 "cursor-default outline-none transition-colors",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
             )}
         >
             <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>
@@ -547,6 +558,7 @@ const ResourceRow = ({ value }: { value: string }) => {
 const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) => (
     <TruncatedText
         text={value}
+        dir={mono ? "ltr" : "auto"}
         className={cn(
             "inline-block min-w-0 max-w-[260px] truncate align-middle",
             mono && "font-mono",
@@ -564,7 +576,7 @@ const Row = ({ icon: Icon, iconClassName, label, children }: RowProps) => (
         <span className={"shrink-0 font-semibold text-nb-gray-200"}>{label}</span>
         <span
             className={cn(
-                "min-w-0 flex-1 pl-8 text-right",
+                "min-w-0 flex-1 ps-8 text-end",
                 "font-medium text-nb-gray-350",
                 "flex items-center justify-end",
             )}

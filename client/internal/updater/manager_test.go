@@ -66,7 +66,7 @@ func Test_LatestVersion(t *testing.T) {
 			t.Errorf("%s: Initial update version mismatch, expected %v, got %v", c.name, c.initialLatestVersion.String(), ver)
 		}
 
-		mockUpdate.latestVersion = c.latestVersion
+		mockUpdate.setLatestVersion(c.latestVersion)
 		mockUpdate.onUpdate()
 
 		ver, _ = waitForUpdateEvent(sub, 500*time.Millisecond)

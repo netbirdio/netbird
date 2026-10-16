@@ -21,7 +21,8 @@ import (
 )
 
 type Listener interface {
-	Listen(func(conn listener.Conn)) error
+	Bind() error
+	Serve(func(conn listener.Conn)) error
 	Shutdown(ctx context.Context) error
 	Protocol() protocol.Protocol
 }
@@ -122,6 +123,9 @@ func (r *Relay) Accept(conn listener.Conn) {
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
 	if r.closed {
+		if err := conn.Close(); err != nil {
+			log.Debugf("failed to close connection after shutdown, %s: %s", conn.RemoteAddr(), err)
+		}
 		return
 	}
 

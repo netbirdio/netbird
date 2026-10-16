@@ -2,6 +2,7 @@ package profilemanager
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
@@ -21,7 +22,51 @@ func TestInvokingUserFallsBackToProcessUser(t *testing.T) {
 
 	current, err := user.Current()
 	require.NoError(t, err)
-	assert.Equal(t, current.Username, got.Username)
+	assert.Equal(t, current.Username, got.Username, "invoking user should match the process user without sudo")
+}
+
+func TestInvokingUserFailsClosedWithoutPositiveUID(t *testing.T) {
+	for _, uid := range []int{0, -1} {
+		t.Run(fmt.Sprintf("UID%d", uid), func(t *testing.T) {
+			t.Setenv(envSudoUser, "")
+			lookupErr := errors.New("current user unavailable")
+			fakeUnmappedUser(t, uid, 0, lookupErr)
+
+			got, err := InvokingUser()
+			require.ErrorIs(t, err, lookupErr)
+			assert.Nil(t, got, "root or unavailable UID must not become a synthetic identity")
+		})
+	}
+}
+
+func TestProfileFilePathUsesNumericIdentityForUnmappedNonRoot(t *testing.T) {
+	t.Setenv(envSudoUser, "")
+	fakeUnmappedUser(t, 1001230000, 0, errors.New("user: unknown userid 1001230000"))
+
+	profilesRoot := t.TempDir()
+	origDir := DefaultConfigPathDir
+	origOverride := ConfigDirOverride
+	DefaultConfigPathDir = profilesRoot
+	ConfigDirOverride = ""
+	t.Cleanup(func() {
+		DefaultConfigPathDir = origDir
+		ConfigDirOverride = origOverride
+	})
+
+	profileID := ID("0123456789abcdef0123456789abcdef")
+	got, err := (&Profile{ID: profileID}).FilePath()
+	require.NoError(t, err)
+	assert.Equal(t,
+		filepath.Join(profilesRoot, "1001230000", profileID.String()+".json"),
+		got,
+		"profile path should use the numeric UID namespace",
+	)
+
+	entries, err := os.ReadDir(profilesRoot)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only the numeric UID directory should be created")
+	assert.Equal(t, "1001230000", entries[0].Name(), "profile namespace should be numeric")
+	assert.True(t, entries[0].IsDir(), "profile namespace should be a directory")
 }
 
 func TestSudoInvokingUserInactiveWithoutSudoContext(t *testing.T) {
@@ -59,6 +104,13 @@ func TestSudoInvokingUserResolvesInvokingUser(t *testing.T) {
 func TestInvokingUserFailsClosedWhenSudoLookupFails(t *testing.T) {
 	fakeSudo(t, filepath.Join("/home", "misha"))
 	lookupUser = func(string) (*user.User, error) { return nil, errors.New("nss unavailable") }
+
+	origCurrentUser := currentUser
+	currentUser = func() (*user.User, error) {
+		t.Fatal("currentUser must not be called after a sudo lookup failure")
+		return nil, errors.New("currentUser called unexpectedly")
+	}
+	t.Cleanup(func() { currentUser = origCurrentUser })
 
 	got, err := InvokingUser()
 	require.Error(t, err)
@@ -212,6 +264,22 @@ func fakeSudo(t *testing.T, home string) {
 		geteuid = origEuid
 		lookupUser = origLookup
 		ConfigDirOverride = origOverride
+	})
+}
+
+func fakeUnmappedUser(t *testing.T, uid, gid int, lookupErr error) {
+	t.Helper()
+
+	origCurrentUser := currentUser
+	origEuid := geteuid
+	origEgid := getegid
+	currentUser = func() (*user.User, error) { return nil, lookupErr }
+	geteuid = func() int { return uid }
+	getegid = func() int { return gid }
+	t.Cleanup(func() {
+		currentUser = origCurrentUser
+		geteuid = origEuid
+		getegid = origEgid
 	})
 }
 

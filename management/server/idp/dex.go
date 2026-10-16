@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/dexidp/dex/api/v2"
 	log "github.com/sirupsen/logrus"
@@ -44,13 +42,7 @@ func NewDexManager(config DexClientConfig, appMetrics telemetry.AppMetrics) (*De
 		return nil, fmt.Errorf("dex IdP configuration is incomplete, GRPCAddr is missing")
 	}
 
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
-
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httpTransport,
-	}
+	httpClient := newHTTPClient()
 	helper := JsonParser{}
 
 	return &DexManager{
