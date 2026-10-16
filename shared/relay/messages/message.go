@@ -9,6 +9,9 @@ import (
 )
 
 const (
+	// TODO: MaxHandshakeSize is the buffer size of the first read on every connection before
+	// authentication. Weigh it against memory use under many unauthenticated connections; a
+	// smaller limit may still fit the extension area.
 	MaxHandshakeSize     = 8192
 	MaxHandshakeRespSize = 8192
 	MaxMessageSize       = 8820
