@@ -52,7 +52,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 		sub := recorder.SubscribeToEvents()
 		defer recorder.UnsubscribeFromEvents(sub)
 
-		m := NewManager(recorder, statemanager.New(tmpFile))
+		m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 		m.update = mockUpdate
 		m.currentVersion = c.daemonVersion
 		m.Start(context.Background())
@@ -95,7 +95,7 @@ func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
 	sub := recorder.SubscribeToEvents()
 	defer recorder.UnsubscribeFromEvents(sub)
 
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.5"))}
 	m.currentVersion = "1.0.0"
 	m.Start(context.Background())

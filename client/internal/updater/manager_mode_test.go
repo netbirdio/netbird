@@ -19,7 +19,7 @@ func Test_UndecidedMode_SuppressesNotification(t *testing.T) {
 	defer recorder.UnsubscribeFromEvents(sub)
 
 	mockUpdate := &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = mockUpdate
 	m.currentVersion = "1.0.0"
 	m.Start(context.Background())
@@ -52,7 +52,7 @@ func Test_ResetMode_ReturnsToUndecided(t *testing.T) {
 	defer recorder.UnsubscribeFromEvents(sub)
 
 	mockUpdate := &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = mockUpdate
 	m.currentVersion = "1.0.0"
 	m.autoUpdateSupported = func() bool { return true }
@@ -94,7 +94,7 @@ func Test_SetDownloadOnly_ClearsPendingVersion(t *testing.T) {
 	sub := recorder.SubscribeToEvents()
 	defer recorder.UnsubscribeFromEvents(sub)
 
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
 	m.currentVersion = "1.0.0"
 	m.autoUpdateSupported = func() bool { return true }
@@ -123,7 +123,7 @@ func Test_ResetMode_SilencesStaleForceDirective(t *testing.T) {
 	defer recorder.UnsubscribeFromEvents(sub)
 
 	mockUpdate := &versionUpdateMock{}
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = mockUpdate
 	m.currentVersion = "1.0.0"
 	m.autoUpdateSupported = func() bool { return true }
@@ -159,7 +159,7 @@ func Test_SetVersion_MalformedFallsBackToDownloadOnly(t *testing.T) {
 	sub := recorder.SubscribeToEvents()
 	defer recorder.UnsubscribeFromEvents(sub)
 
-	m := NewManager(recorder, statemanager.New(tmpFile))
+	m := NewManager(context.Background(), recorder, statemanager.New(tmpFile))
 	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
 	m.currentVersion = "1.0.0"
 	m.autoUpdateSupported = func() bool { return true }
@@ -177,7 +177,7 @@ func Test_SetVersion_MalformedFallsBackToDownloadOnly(t *testing.T) {
 }
 
 func Test_SetVersion_ForceChangeAppliesWithSameVersion(t *testing.T) {
-	m := NewManager(peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-force-change.json")))
+	m := NewManager(context.Background(), peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-force-change.json")))
 	m.update = &versionUpdateMock{}
 	m.autoUpdateSupported = func() bool { return true }
 
@@ -195,7 +195,7 @@ func Test_SetVersion_ForceChangeAppliesWithSameVersion(t *testing.T) {
 }
 
 func Test_SetVersion_RepeatedDirectiveKeepsMode(t *testing.T) {
-	m := NewManager(peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-repeat.json")))
+	m := NewManager(context.Background(), peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-repeat.json")))
 	m.update = &versionUpdateMock{}
 	m.autoUpdateSupported = func() bool { return true }
 
@@ -213,5 +213,48 @@ func Test_SetVersion_RepeatedDirectiveKeepsMode(t *testing.T) {
 		if repeatedGen != gen {
 			t.Errorf("repeating the %q directive must not reset the mode", expected)
 		}
+	}
+}
+
+func managerStarted(m *Manager) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cancel != nil
+}
+
+func Test_SetVersion_ForceStartsLoopWithoutSubscriber(t *testing.T) {
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	m := NewManager(context.Background(), recorder, statemanager.New(path.Join(t.TempDir(), "update-test-force-start.json")))
+	m.update = &versionUpdateMock{}
+	// Already on the forced version, so the started loop has nothing to install.
+	m.currentVersion = "1.0.1"
+	m.autoUpdateSupported = func() bool { return true }
+	defer m.Stop()
+
+	// No UI has subscribed to daemon events, so nothing else calls Start.
+	m.SetVersion("1.0.1", true)
+
+	if !managerStarted(m) {
+		t.Fatal("a forced directive must start the update loop without a UI subscriber")
+	}
+	if event := waitForAnyEvent(sub, 300*time.Millisecond); event != nil {
+		t.Fatalf("no install expected when already on the forced version, got %v", event)
+	}
+}
+
+func Test_SetVersion_EnforcedWithoutForceWaitsForSubscriber(t *testing.T) {
+	m := NewManager(context.Background(), peer.NewRecorder(""), statemanager.New(path.Join(t.TempDir(), "update-test-enforced-wait.json")))
+	m.update = &versionUpdateMock{}
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	defer m.Stop()
+
+	m.SetVersion("1.0.1", false)
+
+	if managerStarted(m) {
+		t.Fatal("an enforced directive without force needs the UI prompt, so it must not start the loop")
 	}
 }
