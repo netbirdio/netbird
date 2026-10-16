@@ -358,6 +358,14 @@ func (s *SqlStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr st
 	return s.getClusterCapability(ctx, clusterAddr, "private")
 }
 
+// GetClusterAllProxiesPrivate reports whether every active proxy in the cluster
+// has the private capability. Returns nil when no proxy reported the capability.
+// Use it where any proxy in the cluster may serve the result, since a single
+// non-private proxy would serve it without the private guarantees.
+func (s *SqlStore) GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterUnanimousCapability(ctx, clusterAddr, "private")
+}
+
 // GetClusterSupportsCrowdSec returns whether all active proxies in the cluster
 // have CrowdSec configured. Returns nil when no proxy reported the capability.
 // Unlike other capabilities that use ANY-true (for rolling upgrades), CrowdSec
@@ -365,6 +373,21 @@ func (s *SqlStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr st
 // bypass reputation checks.
 func (s *SqlStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_crowdsec")
+}
+
+// GetActiveProxyVersions returns every active proxy version in a cluster.
+func (s *SqlStore) GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error) {
+	var versions []string
+	err := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND status = ? AND last_seen > ?",
+			clusterAddr, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Pluck("version", &versions).Error
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy versions for %s: %v", clusterAddr, err)
+		return nil, status.Errorf(status.Internal, "get active proxy versions")
+	}
+	return versions, nil
 }
 
 // getClusterUnanimousCapability returns an aggregated boolean capability

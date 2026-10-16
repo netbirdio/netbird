@@ -18,7 +18,7 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 		return nil, nil
 	}
 	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user FROM policy_rules WHERE policy_id = ANY($1)`
-	rows, err := s.pool.Query(ctx, query, policyIDs)
+	rows, err := s.pgxPool().Query(ctx, query, policyIDs)
 	if err != nil {
 		return nil, err
 	}

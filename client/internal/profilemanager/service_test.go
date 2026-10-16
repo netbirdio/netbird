@@ -199,7 +199,7 @@ func TestAddProfile_PersistsName(t *testing.T) {
 		prof, err := sm.AddProfile("My Work Account", &userID)
 		require.NoError(t, err)
 
-		cfg, err := ReadConfig(prof.Path)
+		cfg, err := GetExistingConfig(prof.Path)
 		require.NoError(t, err)
 		assert.Equal(t, "My Work Account", cfg.Name, "stored config should carry the display name")
 		require.Len(t, cfg.Owners, 1, "profile should record its creator as owner")
@@ -967,5 +967,29 @@ func TestLoadAllProfiles_DefaultProfileIsNotNamedAfterItsFile(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, ID(defaultProfileName), byPath.ID)
 		})
+	})
+}
+
+// A profile file is written here and read back by whoever connects with it, so
+// it has to carry the peer's identity. While AddProfile used the bare
+// constructor, it wrote a config with no keys: the first reader had to mint
+// them, and the paths that read without writing — a gate deciding whether to
+// refuse a request, the mobile SDKs loading a stored profile — got a config
+// that cannot connect.
+func TestAddProfileWritesAnIdentity(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, id ipcauth.Identity) {
+		created, err := sm.AddProfile("work", &id)
+		require.NoError(t, err)
+
+		stored, err := GetExistingConfig(created.Path)
+		require.NoError(t, err)
+
+		require.NotEmpty(t, stored.PrivateKey, "the profile was written without a WireGuard key")
+		require.NotEmpty(t, stored.SSHKey, "the profile was written without an SSH key")
+
+		// And the identity is the one on disk, not one minted per read.
+		reread, err := GetExistingConfig(created.Path)
+		require.NoError(t, err)
+		require.Equal(t, stored.PrivateKey, reread.PrivateKey)
 	})
 }

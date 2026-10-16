@@ -129,11 +129,11 @@ func drainEmpty(ch chan *proto.GetMappingUpdateResponse) bool {
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		tokenStore:     tokenStore,
+		singleUseStore: singleUseStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -186,11 +186,11 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	ctx := context.Background()
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		tokenStore:     tokenStore,
+		singleUseStore: singleUseStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -220,11 +220,11 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
-		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		tokenStore:     tokenStore,
+		singleUseStore: singleUseStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -272,13 +272,13 @@ func generateState(s *ProxyServiceServer, redirectURL string) string {
 
 func TestOAuthState_NeverTheSame(t *testing.T) {
 	ctx := context.Background()
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
-		pkceVerifierStore: pkceStore,
+		singleUseStore: singleUseStore,
 	}
 
 	redirectURL := "https://app.example.com/callback"
@@ -300,20 +300,20 @@ func TestOAuthState_NeverTheSame(t *testing.T) {
 
 func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	ctx := context.Background()
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
-		pkceVerifierStore: pkceStore,
+		singleUseStore: singleUseStore,
 	}
 
 	// Old format had only 2 parts: base64(url)|hmac
-	err := s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
+	err := s.singleUseStore.Store("base64url|hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
-	_, _, err = s.ValidateState("base64url|hmac")
+	_, _, _, err = s.ValidateState("base64url|hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state format")
 }
@@ -372,22 +372,46 @@ func TestEnforceAccountScope_AllowsNoTokenInContext(t *testing.T) {
 
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	ctx := context.Background()
-	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
+	singleUseStore := NewSingleUseStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
-		pkceVerifierStore: pkceStore,
+		singleUseStore: singleUseStore,
 	}
 
 	// Store with tampered HMAC
-	err := s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
+	err := s.singleUseStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
-	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
+	_, _, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state signature")
+}
+
+func TestSessionCodeCannotConsumeOIDCState(t *testing.T) {
+	const verifier = "pkce-verifier"
+
+	store := NewSingleUseStore(context.Background(), testCacheStore(t))
+	server := &ProxyServiceServer{
+		oidcConfig: ProxyOIDCConfig{
+			HMACKey: []byte("test-hmac-key"),
+		},
+		singleUseStore: store,
+	}
+	state := generateState(server, "https://service.example.com/callback")
+	require.NoError(t, store.Store(state, verifier, time.Minute))
+
+	response, err := server.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		SessionCode: state,
+	})
+	require.NoError(t, err)
+	assert.False(t, response.GetValid())
+
+	gotVerifier, _, _, err := server.ValidateState(state)
+	require.NoError(t, err)
+	assert.Equal(t, verifier, gotVerifier)
 }
 
 func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {

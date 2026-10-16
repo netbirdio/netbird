@@ -1363,6 +1363,12 @@
     "error.daemon_unreachable": {
         "message": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft."
     },
+    "error.settings_locked": {
+        "message": "Die Einstellungen können auf diesem Gerät nicht geändert werden: Ein Administrator hat sie gesperrt."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Diese Einstellung wird von Ihrer Organisation verwaltet und kann nicht geändert werden."
+    },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
     },

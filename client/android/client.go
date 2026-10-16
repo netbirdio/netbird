@@ -104,8 +104,7 @@ type Client struct {
 
 	stateChangeMu    sync.Mutex
 	stateChangeSubID string
-	eventSub         *peer.EventSubscription
-	// Closed to stop the watch goroutines from delivering buffered items to a
+	// Closed to stop the watch goroutine from delivering buffered ticks to a
 	// listener that has been removed or replaced. See stopStateChangeWatchLocked.
 	stateChangeDone chan struct{}
 
@@ -213,6 +212,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	connectClient.SetSyncResponsePersistence(true)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
 	// only once the fresh connect client is installed: until then Status()
@@ -256,6 +256,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
@@ -327,6 +328,19 @@ func (c *Client) NotifyNetworkChange() {
 // or "strict"; strict also anonymizes internal IP ranges, peer names, and
 // WireGuard public keys, and implies anonymize.
 func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
+	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, true)
+}
+
+// DebugBundleFile generates a debug bundle and returns the path of the zip in
+// the cache directory instead of uploading it, so the app can hand the file to
+// the user for inspection. The caller owns the file and removes it once done;
+// the stale-bundle cleanup of later runs removes it only after a day.
+// anonymize and anonymizeLevel behave as in DebugBundle.
+func (c *Client) DebugBundleFile(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
+	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, false)
+}
+
+func (c *Client) debugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string, upload bool) (string, error) {
 	cfg, cacheDir, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config from disk
@@ -341,6 +355,11 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		c.applyMDMOverlay(cfg)
 		cacheDir = platformFiles.CacheDir()
 	}
+
+	// Clear what an interrupted earlier run may have left in the cache before
+	// adding to it. Remote debug jobs write to the same directory, so anything
+	// younger than an hour is treated as possibly still in use.
+	debug.RemoveStaleBundles(cacheDir, time.Hour)
 
 	deps := debug.GeneratorDependencies{
 		InternalConfig: cfg,
@@ -378,6 +397,9 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 	path, err := bundleGenerator.Generate()
 	if err != nil {
 		return "", fmt.Errorf("generate debug bundle: %w", err)
+	}
+	if !upload {
+		return debug.ExportBundle(path)
 	}
 	defer func() {
 		if err := os.Remove(path); err != nil {
@@ -475,6 +497,7 @@ func (c *Client) Networks() *NetworkArray {
 	routesMap := routeManager.GetClientRoutesWithNetID()
 	v6Merged := route.V6ExitMergeSet(routesMap)
 	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+	activeRoutePeers := c.recorder.GetActiveRoutePeers()
 
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
@@ -488,7 +511,7 @@ func (c *Client) Networks() *NetworkArray {
 			continue
 		}
 
-		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged)
+		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged, activeRoutePeers)
 		if network == nil {
 			continue
 		}
@@ -497,14 +520,14 @@ func (c *Client) Networks() *NetworkArray {
 	return networkArray
 }
 
-func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}) *Network {
+func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}, activeRoutePeers map[route.HAUniqueID]string) *Network {
 	r := routes[0]
 	netStr := r.Network.String()
 	if r.IsDynamic() {
 		netStr = r.Domains.SafeString()
 	}
 
-	routePeer, err := c.findBestRoutePeer(routes)
+	routePeer, err := c.findBestRoutePeer(routes, activeRoutePeers)
 	if err != nil {
 		log.Errorf("could not get peer info for route %s: %v", id, err)
 		return nil
@@ -528,12 +551,9 @@ func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bo
 
 // findBestRoutePeer returns the peer actively routing traffic for the given
 // HA route group. Falls back to the first connected peer, then the first peer.
-func (c *Client) findBestRoutePeer(routes []*route.Route) (peer.State, error) {
-	netStr := routes[0].Network.String()
-
-	fullStatus := c.recorder.GetFullStatus()
-	for _, p := range fullStatus.Peers {
-		if _, ok := p.GetRoutes()[netStr]; ok {
+func (c *Client) findBestRoutePeer(routes []*route.Route, activeRoutePeers map[route.HAUniqueID]string) (peer.State, error) {
+	if peerKey, ok := activeRoutePeers[routes[0].GetHAUniqueID()]; ok {
+		if p, err := c.recorder.GetPeer(peerKey); err == nil {
 			return p, nil
 		}
 	}

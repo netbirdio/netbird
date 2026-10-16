@@ -41,7 +41,9 @@ var errNoEmbeddedTransport = errors.New("multitransport: embedded roundtripper n
 // MultiTransport that only ever uses the direct branch. The direct
 // branches honour the same NB_PROXY_* tuning env vars as the embedded
 // transport (see loadTransportConfig) plus a dial-timeout wrapper that
-// respects types.WithDialTimeout.
+// respects types.WithDialTimeout. With NB_PROXY_DIRECT_UPSTREAM_BLOCK_PRIVATE
+// set, the direct branches refuse addresses that are not globally reachable
+// (see guardUpstreamDial).
 func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTransport {
 	if logger == nil {
 		logger = log.StandardLogger()
@@ -50,6 +52,9 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 	dialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
+	}
+	if cfg.blockPrivateUpstreams {
+		dialer.ControlContext = guardUpstreamDial
 	}
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
