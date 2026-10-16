@@ -118,6 +118,9 @@ type Options struct {
 	MTU *uint16
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
+	// NATExternalIPs maps external IPs to internal IPs or interfaces for ICE
+	// candidates, same format as the agent's --external-ip-map flag.
+	NATExternalIPs []string
 	// Performance configures the tunnel's buffer pool cap and batch size.
 	Performance Performance
 }
@@ -224,6 +227,7 @@ func New(opts Options) (*Client, error) {
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
+		NATExternalIPs:      opts.NATExternalIPs,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)

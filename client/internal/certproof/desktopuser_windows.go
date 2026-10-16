@@ -13,12 +13,8 @@ const (
 	noActiveSession = 0xFFFFFFFF
 	servicesSession = 0
 
-	// wtsCurrentServer is WTS_CURRENT_SERVER_HANDLE; wtsActive and wtsDisconnected are
-	// WTSActive and WTSDisconnected of WTS_CONNECTSTATE_CLASS. None is exported by
-	// x/sys/windows.
+	// wtsCurrentServer is WTS_CURRENT_SERVER_HANDLE, which x/sys/windows does not export.
 	wtsCurrentServer = windows.Handle(0)
-	wtsActive        = 0
-	wtsDisconnected  = 4
 )
 
 // DesktopUser is an interactive session and the account signed into it. The user's
@@ -37,7 +33,7 @@ func (u DesktopUser) Close() {
 	}
 }
 
-// CurrentDesktopUser returns a token for the session whose certificate store should be
+// currentDesktopUser returns a token for the session whose certificate store should be
 // asked: a session of owner, the account the active profile belongs to, with the
 // physical console preferred over remote sessions. With no owner only the console user
 // counts. Picking any signed-in user instead would let whoever else is logged in to a
@@ -46,7 +42,7 @@ func (u DesktopUser) Close() {
 //
 // Obtaining the token needs SE_TCB_NAME, which the LocalSystem service has and an
 // ordinary process does not.
-func CurrentDesktopUser(owner string) (DesktopUser, bool) {
+func currentDesktopUser(owner string) (DesktopUser, bool) {
 	console := windows.WTSGetActiveConsoleSessionId()
 	if owner == "" {
 		return consoleUser(console)
@@ -163,7 +159,7 @@ func userSessions(console uint32) ([]uint32, error) {
 	if console != noActiveSession && console != servicesSession {
 		sessions = append(sessions, console)
 	}
-	for _, state := range []uint32{wtsActive, wtsDisconnected} {
+	for _, state := range []uint32{windows.WTSActive, windows.WTSDisconnected} {
 		for _, session := range unsafe.Slice(info, count) {
 			if session.SessionID == servicesSession || session.SessionID == console || session.State != state {
 				continue

@@ -46,7 +46,7 @@ func (c Candidate) issuers() []*x509.Certificate {
 	return append(slices.Clip(c.Chain[1:]), c.Intermediates...)
 }
 
-// Store yields the certificates a peer may prove possession of. FileStore is the PEM
+// Store yields the certificates a peer may prove possession of. fileStore is the PEM
 // directory implementation; OS keystores (CNG, Keychain, PKCS#11) slot in here.
 type Store interface {
 	Candidates(ctx context.Context) ([]Candidate, error)
@@ -68,15 +68,15 @@ type Config struct {
 	OwnerUnknown bool
 }
 
-// FileStore reads PEM files from a directory. A file holds the chain (leaf first) and
+// fileStore reads PEM files from a directory. A file holds the chain (leaf first) and
 // either its private key or a sibling "<name>.key" file holds it. The key is a plain
 // PKCS#8, EC or RSA key, or a TSS2 key the TPM signs with.
-type FileStore struct {
+type fileStore struct {
 	dir string
 }
 
-func NewFileStore(dir string) *FileStore {
-	return &FileStore{dir: dir}
+func newFileStore(dir string) *fileStore {
+	return &fileStore{dir: dir}
 }
 
 func StoreDir() string {
@@ -86,7 +86,7 @@ func StoreDir() string {
 	return defaultStoreDir
 }
 
-func (s *FileStore) Candidates(_ context.Context) ([]Candidate, error) {
+func (s *fileStore) Candidates(_ context.Context) ([]Candidate, error) {
 	paths, err := certFiles(s.dir)
 	if err != nil {
 		return nil, err

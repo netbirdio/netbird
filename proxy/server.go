@@ -203,6 +203,9 @@ type Server struct {
 	// single-account deployments; multiple accounts will fail to bind
 	// the same port.
 	WireguardPort uint16
+	// NATExternalIPs maps external IPs advertised as ICE candidates by every
+	// embedded client. Requires a fixed WireguardPort forwarded on the NAT.
+	NATExternalIPs []string
 	// Performance configures the tunnel pool/batch sizes for every
 	// embedded client this proxy spawns.
 	Performance embed.Performance
@@ -581,10 +584,11 @@ func (s *Server) initManagementClient() error {
 // inbound listeners.
 func (s *Server) initNetBirdClient() error {
 	s.netbird = roundtrip.NewNetBird(s.ctx, s.ID, s.ProxyURL, roundtrip.ClientConfig{
-		MgmtAddr:     s.ManagementAddress,
-		WGPort:       s.WireguardPort,
-		PreSharedKey: s.PreSharedKey,
-		Performance:  s.Performance,
+		MgmtAddr:       s.ManagementAddress,
+		WGPort:         s.WireguardPort,
+		PreSharedKey:   s.PreSharedKey,
+		Performance:    s.Performance,
+		NATExternalIPs: s.NATExternalIPs,
 		// On --private the embedded client serves per-account inbound
 		// listeners and must apply management's ACL: keep BlockInbound off
 		// so the engine creates the ACL manager. On the standalone proxy
@@ -1299,6 +1303,10 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 }
 
 func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
+	// Canceling closes the stream on management; a bare return leaves it open.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	connectTime := time.Now()
 	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId:      s.ID,
@@ -1321,6 +1329,10 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 }
 
 func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
+	// Canceling closes the stream on management; a bare return leaves it open.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	connectTime := time.Now()
 	stream, err := client.SyncMappings(ctx)
 	if err != nil {

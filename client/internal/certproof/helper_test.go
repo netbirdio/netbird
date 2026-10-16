@@ -14,7 +14,10 @@ import (
 	"github.com/netbirdio/netbird/shared/management/certposture/certtest"
 )
 
-func TestRunHelper_ProofSurvivesTheProcessBoundary(t *testing.T) {
+// TestRunHelper_AnswersAChallengeFromItsStore runs the helper's request and response
+// handling in-process: the proof it writes verifies as the daemon will verify it. The
+// process boundary itself is covered by the runHelperCmd tests.
+func TestRunHelper_AnswersAChallengeFromItsStore(t *testing.T) {
 	ca := certtest.NewCA(t, "corp-root")
 	dir := storeDir(t)
 	key := certtest.ECDSAKey(t)
@@ -29,7 +32,7 @@ func TestRunHelper_ProofSurvivesTheProcessBoundary(t *testing.T) {
 	require.NoError(t, err, "request must encode")
 
 	var stdout bytes.Buffer
-	require.NoError(t, runHelper(context.Background(), NewFileStore(dir), bytes.NewReader(request), &stdout))
+	require.NoError(t, runHelper(context.Background(), newFileStore(dir), bytes.NewReader(request), &stdout))
 
 	var resp HelperResponse
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp), "helper must emit decodable JSON")
@@ -47,7 +50,7 @@ func TestRunHelper_NoChallengesYieldsEmptyResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout bytes.Buffer
-	require.NoError(t, runHelper(context.Background(), NewFileStore(storeDir(t)), bytes.NewReader(request), &stdout))
+	require.NoError(t, runHelper(context.Background(), newFileStore(storeDir(t)), bytes.NewReader(request), &stdout))
 
 	var resp HelperResponse
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp), "an empty request must still emit valid JSON")
@@ -56,7 +59,7 @@ func TestRunHelper_NoChallengesYieldsEmptyResponse(t *testing.T) {
 
 func TestRunHelper_RejectsMalformedRequest(t *testing.T) {
 	var stdout bytes.Buffer
-	err := runHelper(context.Background(), NewFileStore(storeDir(t)), bytes.NewReader([]byte("not json")), &stdout)
+	err := runHelper(context.Background(), newFileStore(storeDir(t)), bytes.NewReader([]byte("not json")), &stdout)
 
 	require.Error(t, err, "a malformed request must fail rather than emit an empty proof set")
 	assert.Empty(t, stdout.String(), "nothing should be written to stdout on a decode failure")
