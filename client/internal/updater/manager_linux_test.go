@@ -111,3 +111,25 @@ func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
 
 	m.Stop()
 }
+
+// The installer here is a stub that fails at once, so the forced install path
+// can run end to end in a test without installing anything.
+func Test_SetVersion_ForceInstallsWithoutSubscriber_Linux(t *testing.T) {
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	m := NewManager(context.Background(), recorder, statemanager.New(path.Join(t.TempDir(), "update-test-force-install.json")))
+	m.update = &versionUpdateMock{}
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	defer m.Stop()
+
+	// No UI has subscribed to daemon events, and the test never calls Start.
+	m.SetVersion("1.0.1", true)
+
+	event := waitForAnyEvent(sub, 2*time.Second)
+	if event == nil || event.GetMessage() != "Updating client" {
+		t.Fatalf("a forced directive newer than the current version must reach the installer without a UI subscriber, got %v", event)
+	}
+}
