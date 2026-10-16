@@ -15,6 +15,7 @@ const (
 	from zones
 	left join records as r on r.zone_id = zones.id
 	where zones.account_id=$1 and zones.enabled
+	order by zones.id
 	`
 )
 

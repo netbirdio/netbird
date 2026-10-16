@@ -82,10 +82,10 @@ type serviceNotification struct {
 // clientEntry holds an embedded NetBird client and tracks which services use it.
 type clientEntry struct {
 	client    *embed.Client
-	transport *http.Transport
+	transport *upstreamTransport
 	// insecureTransport is a clone of transport with TLS verification disabled,
 	// used when per-target skip_tls_verify is set.
-	insecureTransport *http.Transport
+	insecureTransport *upstreamTransport
 	services          map[ServiceKey]serviceInfo
 	createdAt         time.Time
 	started           bool
@@ -144,6 +144,8 @@ type ClientConfig struct {
 	WGPort       uint16
 	PreSharedKey string
 	Performance  embed.Performance
+	// NATExternalIPs mirrors embed.Options.NATExternalIPs.
+	NATExternalIPs []string
 	// BlockInbound mirrors embed.Options.BlockInbound. Set to true on the
 	// standalone proxy where the embedded client never accepts inbound;
 	// set to false on the private/embedded proxy so the engine creates
@@ -402,6 +404,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		WireguardPort:  &wgPort,
 		PreSharedKey:   n.clientCfg.PreSharedKey,
 		Performance:    n.clientCfg.Performance,
+		NATExternalIPs: n.clientCfg.NATExternalIPs,
 	}
 	logEmbedOptions(n.logger, accountID, serviceID, publicKey.String(), embedOpts)
 	client, err := embed.New(embedOpts)
@@ -414,7 +417,6 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// not work with reverse proxied requests.
 	transport := &http.Transport{
 		DialContext:           dialWithTimeout(client.DialContext),
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          n.transportCfg.maxIdleConns,
 		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
@@ -426,15 +428,17 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ReadBufferSize:        n.transportCfg.readBufferSize,
 		DisableCompression:    n.transportCfg.disableCompression,
 	}
-
+	// Clone runs the transport's one-time protocol setup, so the HTTP
+	// version must be applied first or the source loses HTTP/2 for good.
+	applyUpstreamHTTPVersion(transport, n.transportCfg.upstreamHTTPVersion)
 	insecureTransport := transport.Clone()
 	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 
 	return &clientEntry{
 		client:            client,
 		services:          map[ServiceKey]serviceInfo{key: si},
-		transport:         transport,
-		insecureTransport: insecureTransport,
+		transport:         newUpstreamTransport(transport, n.transportCfg.upstreamHTTPVersion, n.logger),
+		insecureTransport: newUpstreamTransport(insecureTransport, n.transportCfg.upstreamHTTPVersion, n.logger),
 		createdAt:         time.Now(),
 		started:           false,
 		inflightMap:       make(map[backendKey]chan struct{}),
@@ -913,6 +917,7 @@ func logEmbedOptions(logger *log.Logger, accountID types.AccountID, serviceID ty
 		"management_url":        opts.ManagementURL,
 		"log_level":             opts.LogLevel,
 		"wg_port":               wgPort,
+		"nat_external_ips":      opts.NATExternalIPs,
 		"mtu":                   mtu,
 		"block_inbound":         opts.BlockInbound,
 		"block_lan_access":      opts.BlockLANAccess,

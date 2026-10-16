@@ -9,12 +9,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
@@ -144,10 +143,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	err = WithBackOff(func() error {
 		var backOffErr error
 		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
+		if terminalLoginError(backOffErr) {
 			loginErr = backOffErr
 			return nil
 		}
@@ -326,10 +322,33 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 
 	}
 
-	config, err := profilemanager.ReadConfig(configFilePath)
+	config, err := profilemanager.ReadConfigOrDefault(configFilePath)
 	if err != nil {
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
+	// Reading a config does not provision one: this login is about to dial
+	// management with the profile's identity, so mint the keys if the profile
+	// has none yet and put them on disk — a key that stayed in memory would
+	// come back different on the next run and register a second peer.
+	//
+	// Before the MDM overlay below, on purpose: the file must keep the
+	// profile's own values. The overlay is runtime-only and re-derived on
+	// every load, so persisting it would turn an enforced management URL or
+	// pre-shared key into one the user appears to own once the policy is
+	// withdrawn.
+	if generated, err := config.EnsureIdentity(); err != nil {
+		return fmt.Errorf("ensure profile identity: %v", err)
+	} else if generated {
+		if err := profilemanager.WriteOutConfig(configFilePath, config); err != nil {
+			return fmt.Errorf("write out config file %s: %v", configFilePath, err)
+		}
+	}
+
+	// CLI standalone login: profilemanager no longer auto-applies MDM,
+	// so layer in the OS-native policy here. Desktop builds construct
+	// a Loader with no fetcher — the build-tagged loadPlatform reads
+	// the registry/plist directly.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	// Mirror runInForegroundMode: recover residual state (DNS, firewall,
 	// ssh config, legacy routing) from a previous unclean shutdown and
@@ -406,11 +425,44 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		hint = profileState.Email
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), false, hint, false)
 	if err != nil {
 		return nil, err
 	}
 
+	tokenInfo, err := runInteractiveFlow(cmd, oAuthFlow)
+	if err != nil {
+		return nil, err
+	}
+
+	if tokenInfo.MatchesAccount(hint) {
+		return tokenInfo, nil
+	}
+
+	// The IdP answered from a session belonging to another account. Retrying is
+	// what makes this recoverable: on a peer already registered the server would
+	// reject the token, and on a fresh one it would silently register the peer
+	// under the wrong account and bind the profile to it.
+	cmd.Println("The login returned a different account than this profile uses. Asking to sign in again.")
+	retryFlow := auth.RetryFlowForAccount(oAuthFlow)
+	if retryFlow == nil {
+		return tokenInfo, nil
+	}
+
+	retryToken, err := runInteractiveFlow(cmd, retryFlow)
+	if err != nil {
+		return nil, err
+	}
+	if !retryToken.MatchesAccount(hint) {
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
+
+	return retryToken, nil
+}
+
+// runInteractiveFlow requests the authorization info, shows the URL to the user
+// and blocks until the token comes back.
+func runInteractiveFlow(cmd *cobra.Command, oAuthFlow auth.OAuthFlow) (*auth.TokenInfo, error) {
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)

@@ -9,6 +9,9 @@ const (
 	StatusDisconnected = "disconnected"
 )
 
+// MaxVersionLength is the width of the Version column, in characters.
+const MaxVersionLength = 255
+
 // Capabilities describes what a proxy can handle, as reported via gRPC.
 // Nil fields mean the proxy never reported this capability.
 type Capabilities struct {
@@ -31,6 +34,7 @@ type Proxy struct {
 	SessionID      string    `gorm:"type:varchar(36)"`
 	ClusterAddress string    `gorm:"type:varchar(255);not null;index:idx_proxy_cluster_status"`
 	IPAddress      string    `gorm:"type:varchar(45)"`
+	Version        string    `gorm:"type:varchar(255)"`
 	AccountID      *string   `gorm:"type:varchar(255);index:idx_proxy_account_id"`
 	LastSeen       time.Time `gorm:"not null;index:idx_proxy_last_seen"`
 	ConnectedAt    *time.Time

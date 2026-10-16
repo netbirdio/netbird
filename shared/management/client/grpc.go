@@ -205,9 +205,9 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
-		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler, backOff)
+		return c.handleSyncStream(ctx, serverPubKey, getInfo, msgHandler, backOff)
 	})
 }
 
@@ -424,11 +424,11 @@ func (c *GrpcClient) sendJobResponse(
 	return nil
 }
 
-func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
@@ -621,7 +621,13 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 
 	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
 	if err != nil {
-		log.Errorf("failed to login to Management Service: %v", err)
+		// PermissionDenied is how management asks an unknown peer to register,
+		// which the caller does next, so it is not an error worth reporting.
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			log.Debugf("login to Management Service refused: %v", err)
+		} else {
+			log.Errorf("failed to login to Management Service: %v", err)
+		}
 		return nil, err
 	}
 
@@ -738,9 +744,13 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return flowInfoResp, nil
 }
 
-// GetPKCEAuthorizationFlow returns a pkce authorization flow information.
+// GetPKCEAuthorizationFlow returns the PKCE authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
+//
+// sessionExtend tells the server the flow will renew an existing peer's session
+// rather than log one in, so it can rule out a configuration that would let the
+// IdP answer from an unrelated account. See PKCEAuthorizationFlowRequest.
+func (c *GrpcClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
 	}
@@ -753,7 +763,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, e
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 
-	message := &proto.PKCEAuthorizationFlowRequest{}
+	message := &proto.PKCEAuthorizationFlowRequest{SessionExtend: sessionExtend}
 	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
 	if err != nil {
 		return nil, err
@@ -1014,6 +1024,19 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	proofs := make([]*proto.CertificateProof, 0, len(info.CertificateProofs))
+	for _, p := range info.CertificateProofs {
+		proofs = append(proofs, &proto.CertificateProof{
+			Nonce:     p.Nonce,
+			Chain:     p.Chain,
+			SigAlg:    p.SigAlg,
+			Signature: p.Signature,
+		})
+	}
+	if len(proofs) > 0 {
+		log.Debugf("peer meta carries %d certificate posture proofs", len(proofs))
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
 		GoOS:             info.GoOS,
@@ -1033,7 +1056,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
-		Files: files,
+		Files:             files,
+		CertificateProofs: proofs,
 
 		Flags: &proto.Flags{
 			RosenpassEnabled:    info.RosenpassEnabled,

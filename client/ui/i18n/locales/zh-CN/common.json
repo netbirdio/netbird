@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "没有匹配的语言。"
     },
+    "settings.general.theme.label": {
+        "message": "主题"
+    },
+    "settings.general.theme.help": {
+        "message": "选择浅色、深色或跟随系统外观。"
+    },
+    "settings.general.theme.system": {
+        "message": "跟随系统"
+    },
+    "settings.general.theme.light": {
+        "message": "浅色"
+    },
+    "settings.general.theme.dark": {
+        "message": "深色"
+    },
     "settings.general.management.label": {
         "message": "管理服务器"
     },
@@ -1347,6 +1362,12 @@
     },
     "error.daemon_unreachable": {
         "message": "NetBird 守护进程无响应。请检查服务是否正在运行。"
+    },
+    "error.settings_locked": {
+        "message": "此设备上的设置无法更改：管理员已将其锁定。"
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "此设置由您的组织管理，无法更改。"
     },
     "error.unknown": {
         "message": "操作失败。"
