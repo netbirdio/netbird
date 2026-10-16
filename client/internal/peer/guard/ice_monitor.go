@@ -28,6 +28,7 @@ type ICEMonitor struct {
 	tickerPeriod  time.Duration
 
 	currentCandidatesAddress []string
+	baselineInitialized      bool
 	candidatesMu             sync.Mutex
 }
 
@@ -49,9 +50,13 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 		return
 	}
 
-	// Initial check to populate the candidates for later comparison
-	if _, err := cm.handleCandidateTick(ctx, ufrag, pwd); err != nil {
-		log.Warnf("Failed to check initial ICE candidates: %v", err)
+	// Initial check to populate the candidates for later comparison, only if STUN/TURN config is ready
+	if cm.hasStunTurnConfig() {
+		if _, err := cm.handleCandidateTick(ctx, ufrag, pwd); err != nil {
+			log.Warnf("Failed to check initial ICE candidates: %v", err)
+		}
+	} else {
+		log.Debugf("STUN/TURN config not yet available, delaying initial ICE candidate gather")
 	}
 
 	ticker := time.NewTicker(cm.tickerPeriod)
@@ -60,6 +65,11 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 	for {
 		select {
 		case <-ticker.C:
+			if !cm.hasStunTurnConfig() {
+				log.Debugf("STUN/TURN config not yet available, skipping ICE candidate gather")
+				continue
+			}
+
 			changed, err := cm.handleCandidateTick(ctx, ufrag, pwd)
 			if err != nil {
 				log.Warnf("Failed to check ICE changes: %v", err)
@@ -131,6 +141,12 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 	}
 	sort.Strings(newAddresses)
 
+	if !cm.baselineInitialized {
+		cm.currentCandidatesAddress = newAddresses
+		cm.baselineInitialized = true
+		return false
+	}
+
 	if len(cm.currentCandidatesAddress) != len(newAddresses) {
 		cm.currentCandidatesAddress = newAddresses
 		return true
@@ -143,6 +159,10 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 	}
 
 	return false
+}
+
+func (cm *ICEMonitor) hasStunTurnConfig() bool {
+	return cm.iceConfig.StunTurn != nil && cm.iceConfig.StunTurn.Load() != nil
 }
 
 func candidateTypesP2P() []ice.CandidateType {
