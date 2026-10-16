@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
+	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
@@ -384,7 +385,10 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
-			m.pendingRemovals[id] = handler
+			// Only legacy dynamic handlers retain the state needed to retry removal.
+			if _, ok := handler.(*dynamic.Route); ok {
+				m.pendingRemovals[id] = handler
+			}
 			delete(m.activeRoutes, id)
 			continue
 		}
