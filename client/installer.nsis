@@ -198,6 +198,15 @@ FunctionEnd
 ######################################################################
 Section -MainProgram
     ${INSTALL_TYPE}
+    ; The previous uninstaller stops the service and the UI only when its uninstall key
+    ; is found and endpoint protection lets the unsigned uninstaller run. Extraction
+    ; fails on any exe that is still running.
+    DetailPrint "Stopping Netbird service..."
+    ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
+    DetailPrint "Terminating ${UI_APP_NAME} process..."
+    ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
+    ; Both return before the processes release their image files.
+    Sleep 1000
     # SetOverwrite ifnewer
     SetOutPath "$INSTDIR"
     !ifndef ARCH
