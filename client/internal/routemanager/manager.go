@@ -113,7 +113,13 @@ type DefaultManager struct {
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
 	dnsForwarderPort    atomic.Uint32
+	routeOpsNoop        bool
 }
+
+// localSubnetReconcileInterval polls interface topology for recovery that arrives without a
+// network-map update (e.g. DHCP renewing a LAN lease), converging withheld and installed VPN
+// routes with the host's current subnets.
+const localSubnetReconcileInterval = 30 * time.Second
 
 func NewManager(config ManagerConfig) *DefaultManager {
 	mCTX, cancel := context.WithCancel(config.Context)
@@ -145,6 +151,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
 
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
+	dm.routeOpsNoop = useNoop
 	dm.setupRefCounters(useNoop)
 
 	return dm
@@ -249,8 +256,34 @@ func (m *DefaultManager) Init() error {
 		return fmt.Errorf("setup routing: %w", err)
 	}
 
+	if !m.routeOpsNoop {
+		m.shutdownWg.Add(1)
+		go m.watchLocalSubnets()
+	}
+
 	log.Info("Routing setup complete")
 	return nil
+}
+
+// watchLocalSubnets converges VPN routes with interface topology on a timer, covering
+// recovery that arrives without a network-map update. It stops with the manager context.
+func (m *DefaultManager) watchLocalSubnets() {
+	defer m.shutdownWg.Done()
+	ticker := time.NewTicker(localSubnetReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.mux.Lock()
+			err := m.sysOps.ReconcileLocalSubnets(m.routeRefCounter)
+			m.mux.Unlock()
+			if err != nil {
+				log.Errorf("Failed to reconcile local subnets: %v", err)
+			}
+		}
+	}
 }
 
 func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
@@ -404,6 +437,14 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			continue
 		}
 		m.activeRoutes[id] = handler
+	}
+
+	// Converge routes added under a stale snapshot with the topology re-read above, so a
+	// burst that raced interface recovery ends verified rather than shadowing.
+	if !m.routeOpsNoop {
+		if err := m.sysOps.ReconcileLocalSubnets(m.routeRefCounter); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("reconcile local subnets: %w", err))
+		}
 	}
 
 	_ = batchStarted // Mark as used
