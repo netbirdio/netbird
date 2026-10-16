@@ -39,7 +39,7 @@ func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
 	for version := messages.ProtocolV1; ; version++ {
 		ram, err := messages.NewEncoder(version).AuthResponse(instanceURL)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal auth response msg for version %d: %w", version, err)
+			return nil, fmt.Errorf("marshal auth response for version %d: %w", version, err)
 		}
 		responses[version] = ram
 		if version == messages.CurrentProtocolVersion {
