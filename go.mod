@@ -75,7 +75,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.7.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.4.0
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
