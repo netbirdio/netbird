@@ -63,8 +63,8 @@ func NewMigrationRunner(ctx context.Context, kind types.Engine, dataDir string) 
 	return runner, conn.Close, nil
 }
 
-// storeModels lists every model the management store persists.
-func storeModels() []any {
+// Models lists every model the management store persists.
+func Models() []any {
 	return []any{
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.ProxyAccessToken{},
 		&types.Group{}, &types.GroupPeer{},
@@ -87,7 +87,7 @@ func legacyMigrate(ctx context.Context, gormDB *gorm.DB) error {
 	if err := migratePreAuto(ctx, gormDB); err != nil {
 		return fmt.Errorf("migratePreAuto: %w", err)
 	}
-	if err := gormDB.AutoMigrate(storeModels()...); err != nil {
+	if err := gormDB.AutoMigrate(Models()...); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 	if err := migratePostAuto(ctx, gormDB); err != nil {

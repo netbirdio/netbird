@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -211,6 +212,17 @@ func (r *Runner) Stamp(ctx context.Context) error {
 	return nil
 }
 
+// UpTo applies the set's migrations up to version without the legacy bootstrap.
+func (r *Runner) UpTo(ctx context.Context, version int64) error {
+	unlock, err := r.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	return r.up(ctx, version)
+}
+
 func (r *Runner) check(ctx context.Context) error {
 	if !r.versionTableExists() {
 		return fmt.Errorf("%s migrations: database has no version table, run `migrate up` first", r.set.Name)
@@ -261,11 +273,7 @@ func (r *Runner) apply(ctx context.Context) error {
 	}
 
 	log.WithContext(ctx).Infof("%s migrations: applying %d pending", r.set.Name, len(pending))
-	results, err := r.up(ctx)
-	for _, result := range results {
-		log.WithContext(ctx).Infof("%s migrations: applied %s in %s", r.set.Name, describe(result.Source), result.Duration.Round(time.Millisecond))
-	}
-	return err
+	return r.up(ctx, math.MaxInt64)
 }
 
 // bootstrapLegacy runs the set's Legacy path on a database that has tables
@@ -294,26 +302,27 @@ func (r *Runner) hasLegacyTables() bool {
 	return false
 }
 
-func (r *Runner) up(ctx context.Context) ([]*goose.MigrationResult, error) {
-	var applied []*goose.MigrationResult
+func (r *Runner) up(ctx context.Context, version int64) error {
 	for attempt := 1; ; attempt++ {
-		results, err := r.provider.Up(ctx)
+		results, err := r.provider.UpTo(ctx, version)
 		var partial *goose.PartialError
 		if errors.As(err, &partial) {
 			results = partial.Applied
 		}
-		applied = append(applied, results...)
+		for _, result := range results {
+			log.WithContext(ctx).Infof("%s migrations: applied %s in %s", r.set.Name, describe(result.Source), result.Duration.Round(time.Millisecond))
+		}
 		if err == nil {
-			return applied, nil
+			return nil
 		}
 		if !isLockTimeout(err) || attempt == lockRetries {
-			return applied, fmt.Errorf("%s migrations: %w", r.set.Name, err)
+			return fmt.Errorf("%s migrations: %w", r.set.Name, err)
 		}
 
 		log.WithContext(ctx).Warnf("%s migrations: lock timeout, retry %d of %d in %s", r.set.Name, attempt, lockRetries, lockRetryDelay)
 		select {
 		case <-ctx.Done():
-			return applied, ctx.Err()
+			return ctx.Err()
 		case <-time.After(lockRetryDelay):
 		}
 	}

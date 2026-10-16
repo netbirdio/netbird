@@ -23,7 +23,8 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
-	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
+	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
@@ -182,11 +183,16 @@ func openSources(cfg *config) ([]storeMigration, func(), error) {
 	}
 	migrations := []storeMigration{{
 		name: "management", source: mysqlDB, dialect: mysqlDialect,
-		targetDSN: cfg.postgresDSN, schema: createManagementSchema,
+		targetDSN: cfg.postgresDSN, schema: func(ctx context.Context, dsn string) error {
+			return createBaselineSchema(ctx, dsn, store.MigrationSet())
+		},
+		skipTables: map[string]bool{store.MigrationTable: true},
 	}}
 
 	sqliteStores := []storeMigration{
-		{name: "activity", targetDSN: cfg.eventsPostgresDSN, schema: createActivitySchema},
+		{name: "activity", targetDSN: cfg.eventsPostgresDSN, schema: func(ctx context.Context, dsn string) error {
+			return createBaselineSchema(ctx, dsn, activitystore.MigrationSet(nil))
+		}, skipTables: map[string]bool{activitystore.MigrationTable: true}},
 		{name: "auth", targetDSN: cfg.authPostgresDSN, schema: createAuthSchema, skipTables: map[string]bool{"migrations": true}},
 	}
 	for i, file := range []string{cfg.eventsDB, cfg.authDB} {
@@ -208,18 +214,17 @@ func openSources(cfg *config) ([]storeMigration, func(), error) {
 }
 
 func mysqlDSN(dsn, timezone string) string {
-	return strings.TrimSuffix(db.MysqlDSN(dsn), "&loc=Local") + "&loc=" + url.QueryEscape(timezone)
-}
-
-func createManagementSchema(ctx context.Context, dsn string) error {
-	s, err := store.NewPostgresqlStore(ctx, dsn, nil, false)
-	if err != nil {
-		return err
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
 	}
-	return s.Close(ctx)
+	return dsn + separator + "charset=utf8&parseTime=True&loc=" + url.QueryEscape(timezone)
 }
 
-func createActivitySchema(_ context.Context, dsn string) error {
+// createBaselineSchema creates the set's baseline schema on the empty Postgres target. The source
+// comes from the last release that supported MySQL, whose schema is the baseline; the server
+// applies later migrations on its first start.
+func createBaselineSchema(ctx context.Context, dsn string, set migrate.Set) error {
 	g, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		return err
@@ -229,7 +234,11 @@ func createActivitySchema(_ context.Context, dsn string) error {
 			_ = sqlDB.Close()
 		}
 	}()
-	return g.AutoMigrate(&activity.Event{}, &activity.DeletedUser{})
+	runner, err := migrate.New(g, db.PostgresStoreEngine, set)
+	if err != nil {
+		return err
+	}
+	return runner.UpTo(ctx, set.Baseline)
 }
 
 func createAuthSchema(_ context.Context, dsn string) error {

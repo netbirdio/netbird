@@ -229,6 +229,22 @@ func TestRun_AppliesVersionsMergedOutOfOrder(t *testing.T) {
 	assert.Equal(t, []int64{testBaseline, testSecond, testThird}, appliedVersions(t, runner))
 }
 
+func TestUpTo_AppliesOnlyUpToTheVersion(t *testing.T) {
+	conn := openSqlite(t)
+	runner := newRunner(t, conn, testSet(map[string]string{
+		"20260101000000_baseline.sql": baselineSQL,
+		"20260201000000_color.sql":    secondSQL,
+	}))
+
+	require.NoError(t, runner.UpTo(context.Background(), testBaseline))
+
+	assert.Equal(t, []int64{testBaseline}, appliedVersions(t, runner))
+	pending, err := runner.Pending(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	assert.Equal(t, testSecond, pending[0].Version)
+}
+
 func TestRun_ToleratesVersionsNewerThanTheBinary(t *testing.T) {
 	conn := openSqlite(t)
 	files := map[string]string{

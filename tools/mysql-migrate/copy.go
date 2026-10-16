@@ -99,7 +99,7 @@ func copyTable(ctx context.Context, src *sql.DB, d dialect, tx pgx.Tx, table str
 		}
 	}
 	if len(missing) > 0 {
-		return 0, fmt.Errorf("source lacks columns %v; start the management server once with this release before migrating", missing)
+		return 0, fmt.Errorf("source lacks columns %v; upgrade the source to the last release that supports MySQL and start it once before migrating", missing)
 	}
 
 	var hasRows bool
