@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,14 @@ func Test_SetVersion_ForceInstallsWithoutSubscriber_Linux(t *testing.T) {
 
 	event := waitForAnyEvent(sub, 2*time.Second)
 	if event == nil || event.GetMessage() != "Updating client" {
-		t.Fatalf("a forced directive newer than the current version must reach the installer without a UI subscriber, got %v", event)
+		t.Fatalf("a forced directive newer than the current version must start an install without a UI subscriber, got %v", event)
+	}
+
+	// The stub installer's error proves RunInstallation itself was called.
+	for event != nil && event.GetMessage() != "Auto-update failed" {
+		event = waitForAnyEvent(sub, 2*time.Second)
+	}
+	if event == nil || !strings.Contains(event.GetUserMessage(), "unsupported platform") {
+		t.Fatalf("the forced install must reach the installer, got %v", event)
 	}
 }
