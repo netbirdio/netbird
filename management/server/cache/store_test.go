@@ -3,101 +3,53 @@ package cache_test
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/eko/gocache/lib/v4/store"
-	"github.com/redis/go-redis/v9"
-	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/cache"
 )
 
-func TestMemoryStore(t *testing.T) {
-	memStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
-	if err != nil {
-		t.Fatalf("couldn't create memory store: %s", err)
-	}
-	ctx := context.Background()
-	key, value := "testing", "tested"
-	err = memStore.Set(ctx, key, value)
-	if err != nil {
-		t.Errorf("couldn't set testing data: %s", err)
-	}
-	result, err := memStore.Get(ctx, key)
-	if err != nil {
-		t.Errorf("couldn't get testing data: %s", err)
-	}
-	if value != result.(string) {
-		t.Errorf("value returned doesn't match testing data, got %s, expected %s", result, value)
-	}
-	// test expiration
-	time.Sleep(300 * time.Millisecond)
-	_, err = memStore.Get(ctx, key)
-	if err == nil {
-		t.Error("value should not be found")
-	}
-}
+func assertGetDelConsumedOnce(ctx context.Context, t *testing.T, stores []cache.Store, key, value string) {
+	t.Helper()
 
-func TestRedisStoreConnectionFailure(t *testing.T) {
-	t.Setenv(cache.RedisStoreEnvVar, "redis://127.0.0.1:6379")
-	_, err := cache.NewStore(context.Background(), 10*time.Millisecond, 30*time.Millisecond, 100)
-	if err == nil {
-		t.Fatal("getting redis cache store should return error")
-	}
-}
+	const getDelAttempts = 64
 
-func TestRedisStoreConnectionSuccess(t *testing.T) {
-	ctx := context.Background()
-	redisContainer, err := testcontainersredis.Run(ctx, "redis:7")
-	if err != nil {
-		t.Fatalf("couldn't start redis container: %s", err)
+	type getDelResult struct {
+		value string
+		found bool
+		err   error
 	}
-	defer func() {
-		if err := redisContainer.Terminate(ctx); err != nil {
-			t.Logf("failed to terminate container: %s", err)
+
+	start := make(chan struct{})
+	results := make(chan getDelResult, getDelAttempts)
+	for i := range getDelAttempts {
+		cacheStore := stores[i%len(stores)]
+		go func() {
+			<-start
+			value, found, err := cacheStore.GetDel(ctx, key)
+			results <- getDelResult{value: value, found: found, err: err}
+		}()
+	}
+	close(start)
+
+	consumers := 0
+	for range getDelAttempts {
+		result := <-results
+		require.NoError(t, result.err, "concurrent GetDel failed")
+		if !result.found {
+			continue
 		}
-	}()
-	redisURL, err := redisContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("couldn't get connection string: %s", err)
+		consumers++
+		require.Equal(t, value, result.value, "consumed value doesn't match testing data")
 	}
+	require.Equal(t, 1, consumers, "expected exactly one consumer")
+}
 
-	t.Setenv(cache.RedisStoreEnvVar, redisURL)
-	redisStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
-	if err != nil {
-		t.Fatalf("couldn't create redis store: %s", err)
-	}
+func assertGetDelMisses(ctx context.Context, t *testing.T, cacheStore cache.Store, key string) {
+	t.Helper()
 
-	key, value := "testing", "tested"
-	err = redisStore.Set(ctx, key, value, store.WithExpiration(100*time.Millisecond))
-	if err != nil {
-		t.Errorf("couldn't set testing data: %s", err)
-	}
-	result, err := redisStore.Get(ctx, key)
-	if err != nil {
-		t.Errorf("couldn't get testing data: %s", err)
-	}
-	if value != result.(string) {
-		t.Errorf("value returned doesn't match testing data, got %s, expected %s", result, value)
-	}
-
-	options, err := redis.ParseURL(redisURL)
-	if err != nil {
-		t.Errorf("parsing redis cache url: %s", err)
-	}
-
-	redisClient := redis.NewClient(options)
-	r, e := redisClient.Get(ctx, key).Result()
-	if e != nil {
-		t.Errorf("couldn't get testing data from redis: %s", e)
-	}
-	if value != r {
-		t.Errorf("value returned from redis doesn't match testing data, got %s, expected %s", r, value)
-	}
-	// test expiration
-	time.Sleep(300 * time.Millisecond)
-	_, err = redisStore.Get(ctx, key)
-	if err == nil {
-		t.Error("value should not be found")
-	}
+	value, found, err := cacheStore.GetDel(ctx, key)
+	require.NoError(t, err, "GetDel on a missing key should not error")
+	require.False(t, found, "GetDel should not find key %q, got value %q", key, value)
+	require.Empty(t, value, "GetDel should return an empty value when not found")
 }

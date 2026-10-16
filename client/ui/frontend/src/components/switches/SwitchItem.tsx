@@ -20,7 +20,7 @@ export const SwitchItem = ({ value, children, className }: Props) => {
             className={cn(
                 "relative inline-flex items-center justify-center gap-1 rounded-md px-3.5 py-2 text-xs font-semibold",
                 "cursor-default outline-none",
-                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 active
                     ? "text-nb-gray-100"
                     : "text-nb-gray-400 hover:text-nb-gray-200 active:text-nb-gray-100",
@@ -30,7 +30,9 @@ export const SwitchItem = ({ value, children, className }: Props) => {
             {active && (
                 <motion.span
                     layoutId={layoutId}
-                    className={"absolute inset-0 rounded-md bg-nb-gray-700"}
+                    className={
+                        "absolute inset-0 rounded-md bg-white shadow-sm dark:bg-nb-gray-700 dark:shadow-none"
+                    }
                     transition={{ type: "spring", stiffness: 500, damping: 35 }}
                 />
             )}

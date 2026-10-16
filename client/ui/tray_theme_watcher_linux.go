@@ -3,9 +3,10 @@
 package main
 
 // Sources: the freedesktop Settings portal's SettingChanged signal, and on KDE
-// the kdeglobals file (the portal's color-scheme doesn't track the panel's
-// Complementary colour — see readDarkMode). The dark/light decision lives in
-// tray_theme_linux.go; this file owns the session-bus connection and subscriptions.
+// the kdeglobals and plasmarc files (a pinned Plasma style fixes the panel's
+// appearance without touching the portal's color-scheme — see readDarkMode).
+// The dark/light decision lives in tray_theme_linux.go; this file owns the
+// session-bus connection and subscriptions.
 
 import (
 	"path/filepath"
@@ -66,9 +67,9 @@ func startThemeWatcher(onChange func()) *themeWatcher {
 		// Keep the connection: the seeded darkMode value is still useful.
 	}
 
-	// The portal's signal doesn't track KDE's panel Complementary colour.
+	// The portal's signal says nothing about a pinned Plasma style.
 	if isKDE() {
-		w.watchKdeglobals()
+		w.watchKdeConfig()
 	}
 
 	log.Infof("tray theme: panel dark mode = %v", w.IsDark())
@@ -88,12 +89,11 @@ func (w *themeWatcher) IsDark() bool {
 
 // readDarkMode resolves whether the panel the tray icon sits on is dark.
 //
-// On KDE the freedesktop color-scheme is the application preference, not the
-// panel's: Plasma paints its panel from the Breeze "Complementary" group, which
-// stays dark even under a Light global scheme, so we read the panel background
-// from kdeglobals first and decide by its luma. Off KDE the color-scheme portal
-// is the source; on "no preference" (0) or when unavailable we fall back to
-// GTK_THEME (":dark" suffix ⇒ dark), then default to dark.
+// KDE goes first because a pinned Plasma style decides the panel on its own,
+// independently of the application colour scheme the portal reports; with no
+// style pinned that check defers to KDE's own colour files. Off KDE the
+// color-scheme portal is the source; on "no preference" (0) or when unavailable
+// we fall back to GTK_THEME (":dark" suffix ⇒ dark), then default to dark.
 func (w *themeWatcher) readDarkMode() bool {
 	if dark, ok := kdePanelIsDark(); ok {
 		return dark
@@ -160,8 +160,8 @@ func (w *themeWatcher) loop(sigs chan *dbus.Signal) {
 			continue
 		}
 
-		// Re-resolve via readDarkMode, not the signal value: under KDE the panel
-		// colour comes from kdeglobals, so the signal value would be wrong.
+		// Re-resolve via readDarkMode, not the signal value: under KDE a pinned
+		// Plasma style overrides it, so the signal value would be wrong.
 		w.update()
 	}
 }
@@ -179,22 +179,23 @@ func (w *themeWatcher) update() {
 	}
 }
 
-// watchKdeglobals watches the parent directory, not the file: KDE rewrites
-// kdeglobals atomically (write-temp + rename), which would drop an inotify watch
-// on the original inode. Filtering by name re-arms implicitly.
-func (w *themeWatcher) watchKdeglobals() {
+// watchKdeConfig repaints on writes to either KDE file that decides the panel
+// appearance. It watches their parent directory, not the files: KDE rewrites
+// them atomically (write-temp + rename), which would drop an inotify watch on
+// the original inode. Filtering by name re-arms implicitly.
+func (w *themeWatcher) watchKdeConfig() {
 	path := kdeglobalsPath()
 	if path == "" {
 		return
 	}
-	dir, name := filepath.Split(path)
+	dir := filepath.Dir(path)
 
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Debugf("tray theme: kdeglobals watcher unavailable, theme is static: %v", err)
+		log.Debugf("tray theme: KDE config watcher unavailable, theme is static: %v", err)
 		return
 	}
-	if err := fw.Add(filepath.Clean(dir)); err != nil {
+	if err := fw.Add(dir); err != nil {
 		log.Debugf("tray theme: watching %s failed, theme is static: %v", dir, err)
 		_ = fw.Close()
 		return
@@ -208,10 +209,14 @@ func (w *themeWatcher) watchKdeglobals() {
 				if !ok {
 					return
 				}
-				if filepath.Base(event.Name) != name {
+				switch filepath.Base(event.Name) {
+				case kdeglobalsFile, plasmarcFile:
+				default:
 					continue
 				}
-				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
+				// Remove counts: deleting plasmarc unpins the Plasma style, which
+				// hands the decision back to the colour scheme and can flip it.
+				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
 					continue
 				}
 				w.update()
@@ -219,7 +224,7 @@ func (w *themeWatcher) watchKdeglobals() {
 				if !ok {
 					return
 				}
-				log.Debugf("tray theme: kdeglobals watch error: %v", err)
+				log.Debugf("tray theme: KDE config watch error: %v", err)
 			}
 		}
 	}()

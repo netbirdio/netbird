@@ -2,17 +2,22 @@ package bind
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
@@ -325,4 +330,87 @@ func listenUDP(t *testing.T, network, addr string) *net.UDPConn {
 	conn, err := net.ListenUDP(network, udpAddr)
 	require.NoError(t, err)
 	return conn
+}
+
+type countingNet struct {
+	transport.Net
+	calls  atomic.Int64
+	ifaces []*transport.Interface
+	before func()
+}
+
+func (n *countingNet) Interfaces() ([]*transport.Interface, error) {
+	n.calls.Add(1)
+	if n.before != nil {
+		n.before()
+	}
+	return n.ifaces, nil
+}
+
+func TestICEBind_OpenDoesNotDiscoverInterfaces(t *testing.T) {
+	n := newCountingNet()
+	iceBind := NewICEBind(n, testAddress(), 1280)
+
+	for i := 0; i < 2; i++ {
+		_, port, err := iceBind.Open(0)
+		require.NoError(t, err)
+		require.NotZero(t, port, "the bind listens on a port")
+		assert.Equal(t, int64(0), n.calls.Load(), "opening the bind must not enumerate interfaces, attempt %d", i+1)
+		require.NoError(t, iceBind.Close())
+	}
+
+	_, _, err := iceBind.Open(0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = iceBind.Close() })
+
+	mux, err := iceBind.GetICEMux()
+	require.NoError(t, err)
+	assert.NotEmpty(t, mux.SingleSocketUDPMux.GetListenAddresses(), "listen addresses come from the discovered interfaces")
+	assert.Equal(t, int64(1), n.calls.Load(), "interfaces are discovered when the listen addresses are asked for")
+}
+
+func TestICEBind_DeviceUpDoesNotWaitOnInterfaceDiscovery(t *testing.T) {
+	tunDev, _, err := netstack.CreateNetTUN([]netip.Addr{netip.MustParseAddr("100.64.0.1")}, nil, 1280)
+	require.NoError(t, err)
+
+	var dev *device.Device
+	n := newCountingNet()
+	n.before = func() {
+		_ = dev.IpcGetOperation(io.Discard)
+	}
+	iceBind := NewICEBind(n, testAddress(), 1280)
+	dev = device.NewDevice(tunDev, iceBind, device.NewLogger(device.LogLevelSilent, ""))
+
+	upDone := make(chan error, 1)
+	go func() {
+		upDone <- dev.Up()
+	}()
+
+	select {
+	case err := <-upDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("device Up did not return: interface discovery ran under the device lock and waited on the device itself")
+	}
+	t.Cleanup(dev.Close)
+
+	assert.Equal(t, int64(0), n.calls.Load(), "bringing the device up must not enumerate interfaces")
+
+	mux, err := iceBind.GetICEMux()
+	require.NoError(t, err)
+	assert.NotEmpty(t, mux.SingleSocketUDPMux.GetListenAddresses(), "discovery that talks to the device succeeds once the device is up")
+	assert.Equal(t, int64(1), n.calls.Load(), "interfaces are discovered outside the device lock")
+}
+
+func newCountingNet() *countingNet {
+	ifc := transport.NewInterface(net.Interface{Index: 1, MTU: 1500, Name: "eth0", Flags: net.FlagUp | net.FlagMulticast})
+	ifc.AddAddress(&net.IPNet{IP: net.IPv4(192, 168, 1, 10), Mask: net.CIDRMask(24, 32)})
+	return &countingNet{ifaces: []*transport.Interface{ifc}}
+}
+
+func testAddress() wgaddr.Address {
+	return wgaddr.Address{
+		IP:      netip.MustParseAddr("100.64.0.1"),
+		Network: netip.MustParsePrefix("100.64.0.0/10"),
+	}
 }

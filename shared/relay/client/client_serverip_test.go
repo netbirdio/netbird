@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -68,18 +70,17 @@ func TestClient_ServerIPRecoversFromUnresolvableFQDN(t *testing.T) {
 		if !c.Ready() {
 			t.Fatalf("client not ready after connect")
 		}
-		if got := c.ConnectedIP(); got.String() != "127.0.0.1" {
-			t.Fatalf("ConnectedIP = %q, want 127.0.0.1", got)
-		}
+		url, ip, err := c.serverInstanceAddress()
+		require.NoError(t, err)
+		assert.Equal(t, srvCfg.ExposedAddress, url, "relay URL must come from the handshake")
+		assert.Equal(t, netip.MustParseAddr("127.0.0.1"), ip, "relay IP must come from the connection")
 	})
 }
 
-// TestClient_ConnectedIPAfterFQDNDial verifies ConnectedIP returns the
-// resolved IP after a successful FQDN-based dial. The underlying socket's
-// RemoteAddr must be exposed through the dialer wrappers; if it returns
-// the dial-time URL instead, ConnectedIP returns empty and the dial
-// IP we advertise to peers is empty too.
-func TestClient_ConnectedIPAfterFQDNDial(t *testing.T) {
+// TestClient_ServerInstanceAddressAfterFQDNDial verifies the relay address
+// includes the resolved IP after an FQDN dial. The dialer wrappers must expose
+// the socket's RemoteAddr; returning the dial-time URL would lose the IP.
+func TestClient_ServerInstanceAddressAfterFQDNDial(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -111,10 +112,10 @@ func TestClient_ConnectedIPAfterFQDNDial(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	got := c.ConnectedIP().String()
-	if got != "127.0.0.1" && got != "::1" {
-		t.Fatalf("ConnectedIP after FQDN dial = %q, want 127.0.0.1 or ::1", got)
-	}
+	url, ip, err := c.serverInstanceAddress()
+	require.NoError(t, err)
+	assert.Equal(t, srvCfg.ExposedAddress, url, "relay URL must come from the handshake")
+	assert.Contains(t, []string{"127.0.0.1", "::1"}, ip.String(), "relay IP must resolve to localhost")
 }
 
 func TestSubstituteHost(t *testing.T) {
@@ -214,15 +215,12 @@ func TestSubstituteHost(t *testing.T) {
 	}
 }
 
-func TestClient_ConnectedIPEmptyWhenNotConnected(t *testing.T) {
-	c := NewClient("rel://example.invalid:80", hmacTokenStore, "x", iface.DefaultMTU)
-	if got := c.ConnectedIP(); got.IsValid() {
-		t.Fatalf("ConnectedIP on disconnected client = %q, want zero", got)
-	}
+func TestConnectedIPNilConnection(t *testing.T) {
+	assert.False(t, connectedIP(nil).IsValid(), "missing connection must not provide an IP")
 }
 
 // staticAddr is a net.Addr that returns a fixed string. Used to verify
-// ConnectedIP parses RemoteAddr correctly.
+// connectedIP parses RemoteAddr correctly.
 type staticAddr struct{ s string }
 
 func (a staticAddr) Network() string { return "tcp" }
@@ -235,7 +233,7 @@ type stubConn struct {
 
 func (s stubConn) RemoteAddr() net.Addr { return s.remote }
 
-func TestClient_ConnectedIPParsesRemoteAddr(t *testing.T) {
+func TestConnectedIPParsesRemoteAddr(t *testing.T) {
 	tests := []struct {
 		name string
 		s    string
@@ -252,15 +250,12 @@ func TestClient_ConnectedIPParsesRemoteAddr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := &Client{relayConn: stubConn{remote: staticAddr{s: tt.s}}}
-			got := c.ConnectedIP()
+			got := connectedIP(stubConn{remote: staticAddr{s: tt.s}})
 			var gotStr string
 			if got.IsValid() {
 				gotStr = got.String()
 			}
-			if gotStr != tt.want {
-				t.Errorf("ConnectedIP(%q) = %q, want %q", tt.s, gotStr, tt.want)
-			}
+			assert.Equal(t, tt.want, gotStr, "IP extracted from RemoteAddr %q", tt.s)
 		})
 	}
 }

@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/cn.ts";
+import { useDirection } from "@/hooks/useDirection";
 
 type Props = {
     children: ReactNode;
@@ -15,17 +16,19 @@ const PANEL_TRANSITION = {
 };
 
 export const AppRightPanel = ({ children, overlay, overlayOpen = false, className }: Props) => {
+    const dir = useDirection();
+    const parallaxX = dir === "rtl" ? 48 : -48;
     return (
         <div
             className={cn(
                 "wails-no-draggable relative m-5",
-                "border border-nb-gray-920 bg-nb-gray-940",
-                "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl rounded-br-2xl",
+                "border border-nb-gray-800 bg-nb-gray-940 dark:border-nb-gray-920",
+                "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl rounded-ee-2xl",
                 className,
             )}
         >
             <motion.div
-                animate={{ x: overlayOpen ? -48 : 0 }}
+                animate={{ x: overlayOpen ? parallaxX : 0 }}
                 transition={PANEL_TRANSITION}
                 className={"flex min-h-0 min-w-0 flex-1 flex-col"}
                 style={{ pointerEvents: overlayOpen ? "none" : "auto" }}

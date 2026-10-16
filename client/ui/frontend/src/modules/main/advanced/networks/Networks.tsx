@@ -23,6 +23,7 @@ import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { type NetworkFilter, NetworkFilters } from "./NetworkFilters";
+import { useDirection } from "@/hooks/useDirection";
 
 // Daemon renders DNS-route prefixes (zero netip.Prefix) as "invalid Prefix".
 const INVALID_PREFIX = "invalid Prefix";
@@ -70,6 +71,7 @@ const buildOverlapMap = (
 };
 
 export const Networks = () => {
+    const dir = useDirection();
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
@@ -175,7 +177,11 @@ export const Networks = () => {
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                <ScrollArea.Root
+                    dir={dir}
+                    type={"auto"}
+                    className={"min-h-0 flex-1 overflow-hidden"}
+                >
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
                         {scrollParent && (
                             <NetworksList
@@ -223,7 +229,7 @@ export const Networks = () => {
                             "text-xs font-medium text-nb-gray-100",
                             "border border-nb-gray-900 bg-nb-gray-920 hover:border-nb-gray-850 hover:bg-nb-gray-910",
                             "wails-no-draggable cursor-pointer outline-none transition-colors",
-                            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                            "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         )}
                     >
                         {bulkLabel}
@@ -343,7 +349,7 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
     return (
         <div
             className={cn(
-                "group relative flex min-w-0 items-start gap-2.5 py-3 pl-6 pr-9",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 pe-9 ps-6",
                 "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
@@ -358,7 +364,7 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
                 onKeyDown={handleKey}
                 className={cn(
                     "absolute inset-0 cursor-pointer outline-none",
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
                 )}
             />
             <ResourceIconBadge type={resourceTypeOf(n)} />
@@ -396,7 +402,8 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
             aria-hidden={"true"}
             className={cn(
                 "mt-[0.25rem] flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
-                "border border-nb-gray-900 bg-nb-gray-920 text-nb-gray-300",
+                "border border-nb-gray-800 bg-white text-nb-gray-300 transition-colors group-hover:border-nb-gray-700",
+                "dark:border-nb-gray-900 dark:bg-nb-gray-920 dark:group-hover:border-nb-gray-900",
             )}
         >
             <Icon size={14} />
@@ -422,6 +429,7 @@ const Subtitle = ({ network, onKeyDown }: SubtitleProps) => {
                 <CopyToClipboard message={network.range} onKeyDown={onKeyDown}>
                     <TruncatedText
                         text={network.range}
+                        dir={"ltr"}
                         className={
                             "block max-w-[300px] truncate font-mono text-xs text-nb-gray-400"
                         }
@@ -461,8 +469,8 @@ const DomainSubtitle = ({ domain, ips, onKeyDown }: DomainSubtitleProps) => {
                         keepOpenOnClick
                         contentClassName={cn(
                             "max-h-72 max-w-[18rem] overflow-auto",
-                            "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
-                            "p-2 pr-4",
+                            "rounded-lg border border-nb-gray-800 bg-white dark:border-nb-gray-900 dark:bg-nb-gray-935",
+                            "p-2 pe-4",
                         )}
                     >
                         {span}
@@ -507,7 +515,9 @@ type ToggleProps = {
 };
 
 const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
-    const checkedTranslate = checked ? "translate-x-[1.125rem]" : "translate-x-0.5";
+    const checkedTranslate = checked
+        ? "translate-x-[1.125rem] rtl:-translate-x-[1.125rem]"
+        : "translate-x-0.5 rtl:-translate-x-0.5";
     return (
         <span
             className={cn(
@@ -520,7 +530,7 @@ const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
             <span
                 className={cn(
                     "inline-block h-4 w-4 rounded-full bg-white transition-transform",
-                    mixed ? "translate-x-2.5" : checkedTranslate,
+                    mixed ? "translate-x-2.5 rtl:-translate-x-2.5" : checkedTranslate,
                 )}
             />
         </span>

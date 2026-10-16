@@ -77,7 +77,7 @@ make lint            # golangci-lint on files changed vs origin/main (also the p
 make lint-all        # full-repository lint, matches CI
 make test-unit       # host-safe unit tests, -tags devcert, no sudo
 make test-privileged # privileged-tagged suite in a Docker container with NET_ADMIN
-make setup-hooks     # wire make lint into .githooks/pre-push
+make setup-hooks     # wire .githooks: pre-push runs make lint, commit-msg refuses attribution trailers
 
 # Narrow runs
 go test ./client/internal/dns/...
