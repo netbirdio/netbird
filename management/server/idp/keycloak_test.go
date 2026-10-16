@@ -308,3 +308,51 @@ func TestKeycloakAuthenticate(t *testing.T) {
 		})
 	}
 }
+
+func TestKeycloakProfileUserData(t *testing.T) {
+	testCases := []struct {
+		name         string
+		body         string
+		expectedName string
+	}{
+		{
+			// Realms with "Email as username" store the email in username,
+			// so it must not be used as the display name.
+			name:         "first and last name",
+			body:         `{"id":"1","username":"jane.doe@example.com","email":"jane.doe@example.com","firstName":"Jane","lastName":"Doe"}`,
+			expectedName: "Jane Doe",
+		},
+		{
+			name:         "first name only",
+			body:         `{"id":"2","username":"jane","email":"jane@example.com","firstName":"Jane"}`,
+			expectedName: "Jane",
+		},
+		{
+			name:         "last name only",
+			body:         `{"id":"3","username":"doe","email":"doe@example.com","lastName":"Doe"}`,
+			expectedName: "Doe",
+		},
+		{
+			name:         "no name falls back to username",
+			body:         `{"id":"4","username":"svc-backup","email":""}`,
+			expectedName: "svc-backup",
+		},
+		{
+			name:         "whitespace-only name falls back to username",
+			body:         `{"id":"5","username":"jdoe","firstName":" ","lastName":""}`,
+			expectedName: "jdoe",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var profile keycloakProfile
+			require.NoError(t, JsonParser{}.Unmarshal([]byte(testCase.body), &profile))
+
+			userData := profile.userData()
+			assert.Equal(t, testCase.expectedName, userData.Name, "display name should be built from the keycloak profile")
+			assert.Equal(t, profile.Email, userData.Email, "email should be passed through unchanged")
+			assert.Equal(t, profile.ID, userData.ID, "id should be passed through unchanged")
+		})
+	}
+}
