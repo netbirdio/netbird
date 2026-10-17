@@ -171,6 +171,10 @@
         "message": "Failed to connect",
         "description": "Error notification body shown when connecting failed."
     },
+    "notify.error.daemonUnavailable": {
+        "message": "The NetBird background service is not running. Start or restart the NetBird system service, then try again.",
+        "description": "Actionable error shown when Connect is clicked but the background service cannot be reached."
+    },
     "notify.error.disconnect": {
         "message": "Failed to disconnect",
         "description": "Error notification body shown when disconnecting failed."
@@ -338,6 +342,14 @@
     "connect.status.daemonUnavailable": {
         "message": "Daemon unavailable",
         "description": "Connection toggle label when the background service is unavailable. 'Daemon' = background service."
+    },
+    "connect.error.daemonUnavailableTitle": {
+        "message": "NetBird service is not running",
+        "description": "Error dialog title shown when the connection toggle is clicked while the background service is unavailable."
+    },
+    "connect.error.daemonUnavailableMessage": {
+        "message": "Start or restart the NetBird system service, then try again.",
+        "description": "Actionable error dialog body shown when the background service is unavailable."
     },
     "connect.status.loginRequired": {
         "message": "Login required",
