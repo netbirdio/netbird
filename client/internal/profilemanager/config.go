@@ -20,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -102,6 +103,11 @@ type ConfigInput struct {
 
 	LocalMetricsEnabled *bool
 	LocalMetricsAddress *string
+
+	// Name is the profile's display name, independent of the on-disk
+	// filename. Empty leaves the stored name unchanged.
+	Name  string
+	Owner *ipcauth.Identity
 }
 
 // Config Configuration type
@@ -218,6 +224,8 @@ type Config struct {
 	// state via Policy() and the mdm.Policy API (HasKey, ManagedKeys,
 	// IsEmpty).
 	policy *mdm.Policy `json:"-"`
+
+	Owners []string
 }
 
 // ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
@@ -286,7 +294,7 @@ func baseConfigDir() (string, error) {
 	return os.UserConfigDir()
 }
 
-func getConfigDirForUser(username string) (string, error) {
+func getConfigDirForUserLegacy(username string) (string, error) {
 	if ConfigDirOverride != "" {
 		return ConfigDirOverride, nil
 	}
@@ -466,8 +474,12 @@ func (config *Config) EnsureIdentity() (bool, error) {
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
-	if config.Name != "" {
-		sanitized, err := sanitizeDisplayName(config.Name)
+	name := config.Name
+	if input.Name != "" {
+		name = input.Name
+	}
+	if name != "" {
+		sanitized, err := sanitizeDisplayName(name)
 		if err != nil {
 			return false, fmt.Errorf("invalid profile name: %w", err)
 		}
@@ -846,6 +858,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	} else if config.MTU == 0 {
 		config.MTU = iface.DefaultMTU
 		log.Infof("using default MTU %d", config.MTU)
+		updated = true
+	}
+
+	if input.Owner != nil {
+		ownerString := ipcauth.OwnerPrincipalForIdentity(*input.Owner)
+		config.Owners = append([]string{}, ownerString)
+		log.Infof("setting '%s' as owner for profile %s", ownerString, config.Name)
 		updated = true
 	}
 

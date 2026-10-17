@@ -12,7 +12,7 @@ import { SquareIcon } from "@/components/SquareIcon";
 import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 import { EVENT_BROWSER_LOGIN_CANCEL, EVENT_TRIGGER_LOGIN } from "@/lib/connection";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 import { formatRemaining } from "@/lib/formatters";
 
 const DEFAULT_SECONDS = 360;
@@ -159,10 +159,7 @@ export default function SessionExpirationDialog() {
             WindowManager.CloseRenewFlow().catch(console.error);
         } catch (e) {
             resetDialog();
-            await errorDialog({
-                Title: t("sessionExpiration.extendFailedTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("sessionExpiration.extendFailedTitle"), e);
         }
     }, [busy, t]);
 
@@ -174,10 +171,7 @@ export default function SessionExpirationDialog() {
             await WindowManager.CloseSessionExpiration();
         } catch (e) {
             setBusy(false);
-            await errorDialog({
-                Title: t("connect.error.loginTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.loginTitle"), e);
         }
     }, [busy, t]);
 
@@ -194,10 +188,7 @@ export default function SessionExpirationDialog() {
             WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
             setBusy(false);
-            await errorDialog({
-                Title: t("sessionExpiration.logoutFailedTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("sessionExpiration.logoutFailedTitle"), e);
         }
     }, [busy, t]);
 

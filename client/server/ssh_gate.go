@@ -8,9 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
@@ -154,7 +151,7 @@ func denyPrivileged(ctx context.Context, action, command string) error {
 	id, ok := ipcauth.CallerIdentity(ctx)
 	if !ok {
 		log.Warnf("denying %s: the caller's identity cannot be verified on this control channel", action)
-		return privilegeError(unidentifiedSummary(action), reinstallCommand())
+		return ipcauth.PrivilegeError(unidentifiedSummary(action), reinstallCommand())
 	}
 
 	if ipcauth.IsPrivilegedCaller(id) {
@@ -163,45 +160,8 @@ func denyPrivileged(ctx context.Context, action, command string) error {
 	}
 
 	log.Warnf("denying %s for unprivileged caller %s", action, id)
-	actor, command := requiredActor(command)
-	return privilegeError(privilegeSummary(action, actor), command)
-}
-
-// requiredActor names who may perform the operation and adjusts the command to
-// match. A daemon that is not itself privileged delegates to its own identity, so
-// telling that host's user to become root is wrong twice over: root is not what the
-// daemon checks for, and a rootless container has neither root nor sudo.
-func requiredActor(command string) (string, string) {
-	self, delegates := ipcauth.SelfDelegatesTo()
-	if !delegates {
-		return ipcauth.PrivilegedActor(), command
-	}
-	return fmt.Sprintf("the user the daemon runs as (%s)", self), strings.ReplaceAll(command, "sudo ", "")
-}
-
-// privilegeError builds the PermissionDenied carrying summary and command.
-func privilegeError(summary, command string) error {
-	st := gstatus.New(codes.PermissionDenied, fmt.Sprintf("%s\n\n%s", summary, command))
-
-	detailed, err := st.WithDetails(&errdetails.ErrorInfo{
-		Reason: ipcauth.ErrorReasonPrivilegeRequired,
-		Domain: ipcauth.ErrorDomain,
-		Metadata: map[string]string{
-			ipcauth.ErrorMetaSummary: summary,
-			ipcauth.ErrorMetaCommand: command,
-		},
-	})
-	if err != nil {
-		log.Debugf("attach privilege error detail: %v", err)
-		return st.Err()
-	}
-	return detailed.Err()
-}
-
-// privilegeSummary states what is refused and what it needs, in one sentence
-// that reads the same in a dialog and in a terminal.
-func privilegeSummary(action, actor string) string {
-	return fmt.Sprintf("%s requires %s.", capitalize(action), actor)
+	actor, command := ipcauth.RequiredActor(command)
+	return ipcauth.PrivilegeError(ipcauth.PrivilegeSummary(action, actor), command)
 }
 
 // unidentifiedSummary covers a control channel that carries no caller identity.

@@ -58,6 +58,10 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	ctx := privilegedTestCtx()
 	s := New(ctx, "console", "", false, false, false, false)
 
+	// The gate resolves the handle and hands the profile down in the context;
+	// driving the handler directly skips it, so the test stands in for it.
+	ctx = withTarget(ctx, ic.ConfigPath)
+
 	rosenpassEnabled := true
 	rosenpassPermissive := true
 	serverSSHAllowed := true

@@ -15,6 +15,10 @@ type Props = {
     keepOpenOnClick?: boolean;
     contentClassName?: string;
     closeDelay?: number;
+    // suppressed forces the tooltip shut, for a trigger that also opens
+    // something else (a popover on the same button) whose content would
+    // otherwise render underneath it.
+    suppressed?: boolean;
 };
 
 export const Tooltip = ({
@@ -29,6 +33,7 @@ export const Tooltip = ({
     keepOpenOnClick = true,
     contentClassName,
     closeDelay = 0,
+    suppressed = false,
 }: Props) => {
     const dir = useDirection();
     const physicalSide = dir === "rtl" ? mirrorSide(side) : side;
@@ -52,6 +57,12 @@ export const Tooltip = ({
     };
     useEffect(() => () => cancelClose(), []);
 
+    // Drops the hover that was in flight when the other surface opened, so the
+    // tooltip does not spring back the moment it closes again.
+    useEffect(() => {
+        if (suppressed) setOpen(false);
+    }, [suppressed]);
+
     const handleOpenChange = (next: boolean) => {
         if (!next && keepOpenOnClick && hoveringRef.current) return;
         if (next) cancelClose();
@@ -60,7 +71,7 @@ export const Tooltip = ({
 
     return (
         <RTooltip.Provider delayDuration={delayDuration} disableHoverableContent={!interactive}>
-            <RTooltip.Root open={open} onOpenChange={handleOpenChange}>
+            <RTooltip.Root open={open && !suppressed} onOpenChange={handleOpenChange}>
                 <RTooltip.Trigger
                     asChild
                     onPointerEnter={() => {

@@ -12,18 +12,23 @@ import { Events } from "@wailsio/runtime";
 import { Connection, ProfileSwitcher, Profiles as ProfilesSvc } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor, isDaemonUnavailable } from "@/lib/errors";
 
 const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
 type ProfileContextValue = {
     username: string;
-    // activeProfile is the display NAME of the active profile (for rendering
-    // and the "default" check). activeProfileId is its stable on-disk ID, used
-    // as the handle for daemon requests and for active-profile comparisons,
-    // since display names can collide.
+    // activeProfile is the display NAME of the active profile, empty when the
+    // daemon withholds it (see activeProfileForeign). activeProfileId is its
+    // stable on-disk ID, used as the handle for daemon requests and for
+    // active-profile comparisons, since display names can collide.
     activeProfile: string;
     activeProfileId: string;
+    // activeProfileForeign is set when the daemon is on a profile this user
+    // cannot address, so nothing in profiles is marked active and none of the
+    // profile actions will be allowed on it. Views render their own wording
+    // for it rather than a name.
+    activeProfileForeign: boolean;
     profiles: Profile[];
     loaded: boolean;
     refresh: () => Promise<void>;
@@ -49,6 +54,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     const [username, setUsername] = useState("");
     const [activeProfile, setActiveProfile] = useState("");
     const [activeProfileId, setActiveProfileId] = useState("");
+    const [activeProfileForeign, setActiveProfileForeign] = useState(false);
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [loaded, setLoaded] = useState(false);
     const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,23 +71,25 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
                 ProfilesSvc.List(u),
             ]);
             setUsername(u);
-            setActiveProfile(active.profileName || "default");
+            // The listing holds every profile this user may address, so an
+            // active profile missing from it is one they cannot act on at all:
+            // the daemon withholds its name too. Falling back to "default"
+            // would name the wrong profile, and a user who owns a profile of
+            // their own called "default" could not tell the two apart.
+            setActiveProfileForeign(!!active.id && !list.some((p) => p.id === active.id));
+            setActiveProfile(active.profileName);
             setActiveProfileId(active.id || "default");
             setProfiles(list);
             setLoaded(true);
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            if (msg.includes("code = Unavailable")) {
+            if (isDaemonUnavailable(e)) {
                 retryRef.current = setTimeout(() => {
                     void refresh();
                 }, 1000);
                 return;
             }
             setLoaded(true);
-            await errorDialog({
-                Title: i18next.t("profile.error.loadTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(i18next.t("profile.error.loadTitle"), e);
         }
     }, []);
 
@@ -165,6 +173,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             username,
             activeProfile,
             activeProfileId,
+            activeProfileForeign,
             profiles,
             loaded,
             refresh,
@@ -179,6 +188,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             username,
             activeProfile,
             activeProfileId,
+            activeProfileForeign,
             profiles,
             loaded,
             refresh,

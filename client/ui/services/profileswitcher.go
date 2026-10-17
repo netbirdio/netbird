@@ -4,7 +4,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -68,9 +67,12 @@ func (s *ProfileSwitcher) switchActive(ctx context.Context, p ProfileRef, connec
 		s.feed.BeginProfileSwitch()
 	}
 
+	// Returned unwrapped: the Wails binding marshals the outermost error, so a
+	// wrapper replaces the classified headline and the daemon's suggested
+	// command with a raw gRPC string. The Infof above names the profile.
 	resolvedID, err := s.profiles.Switch(ctx, p)
 	if err != nil {
-		return fmt.Errorf("switch profile %q: %w", p.ProfileName, err)
+		return err
 	}
 
 	// Mirror into the user-side ProfileManager state: the CLI's `netbird up`
@@ -90,8 +92,9 @@ func (s *ProfileSwitcher) switchActive(ctx context.Context, p ProfileRef, connec
 	}
 
 	if connect {
+		// Unwrapped for the same reason as the switch above.
 		if err := s.connection.Up(ctx, UpParams(p)); err != nil {
-			return fmt.Errorf("connect %q: %w", p.ProfileName, err)
+			return err
 		}
 	}
 
