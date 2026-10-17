@@ -1,4 +1,4 @@
-//go:build !darwin || ios
+//go:build (!darwin && !windows) || ios
 
 package sleep
 
