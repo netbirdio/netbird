@@ -50,8 +50,15 @@ func (p *PeerNetworkRangeCheck) Check(ctx context.Context, peer nbpeer.Peer) (bo
 		}
 	}
 
+	// No usable address information at all (older mobile clients without
+	// NetworkAddresses AND no ConnectionIP recorded). Decide action-aware:
+	//   - Deny:  allow the peer, since we cannot confirm it IS in a denied range.
+	//   - Allow: deny the peer, since we cannot confirm it IS in an allowed range.
 	if len(peerPrefixes) == 0 {
-		return false, fmt.Errorf("peer's does not contain peer network range addresses")
+		if p.Action == CheckActionDeny {
+			return true, nil
+		}
+		return false, nil
 	}
 
 	for _, peerPrefix := range peerPrefixes {
