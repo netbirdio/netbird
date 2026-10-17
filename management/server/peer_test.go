@@ -1567,8 +1567,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine == "sqlite" || engine == "mysql" || engine == "" {
-		// we intentionally disabled foreign keys in mysql
+	if engine == "sqlite" || engine == "" {
 		t.Skip("Skipping test because store is not respecting foreign keys")
 	}
 	if runtime.GOOS == "windows" {
@@ -2219,10 +2218,6 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 		{
 			name:   "PostgreSQL uniqueness error",
 			engine: types.PostgresStoreEngine,
-		},
-		{
-			name:   "MySQL uniqueness error",
-			engine: types.MysqlStoreEngine,
 		},
 		{
 			name:   "SQLite uniqueness error",
