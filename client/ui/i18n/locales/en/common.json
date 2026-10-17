@@ -239,6 +239,90 @@
         "message": "Your NetBird configuration was updated by your IT policy.",
         "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
     },
+    "event.title": {
+        "message": "{severity}: {category}",
+        "description": "Notification title for a daemon event, composed from severity and category, e.g. \"Warning: DNS\". Keep both placeholders; use your locale's colon spacing."
+    },
+    "event.severity.info": {
+        "message": "Info",
+        "description": "Severity label used in the {severity} slot of event.title. Keep it short."
+    },
+    "event.severity.warning": {
+        "message": "Warning",
+        "description": "Severity label used in the {severity} slot of event.title. Keep it short."
+    },
+    "event.severity.error": {
+        "message": "Error",
+        "description": "Severity label used in the {severity} slot of event.title. Keep it short."
+    },
+    "event.severity.critical": {
+        "message": "Critical",
+        "description": "Severity label used in the {severity} slot of event.title. Keep it short."
+    },
+    "event.category.network": {
+        "message": "Network",
+        "description": "Event category label used in the {category} slot of event.title. Refers to the overlay network."
+    },
+    "event.category.dns": {
+        "message": "DNS",
+        "description": "Event category label used in the {category} slot of event.title. Acronym, do not translate."
+    },
+    "event.category.authentication": {
+        "message": "Authentication",
+        "description": "Event category label used in the {category} slot of event.title. Refers to signing in to the management server."
+    },
+    "event.category.connectivity": {
+        "message": "Connectivity",
+        "description": "Event category label used in the {category} slot of event.title. Refers to reaching peers."
+    },
+    "event.category.system": {
+        "message": "System",
+        "description": "Event category label used in the {category} slot of event.title. Refers to the local machine and the NetBird service."
+    },
+    "event.panic": {
+        "message": "The NetBird service panicked. Please restart the service and submit a bug report with the client logs.",
+        "description": "Notification body after the NetBird background service crashed. \"Service\" is the daemon, not a remote service."
+    },
+    "event.dns.recovered": {
+        "message": "DNS servers are reachable again.",
+        "description": "Notification body when previously unreachable upstream DNS servers respond again."
+    },
+    "event.dns.unreachable": {
+        "message": "Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
+        "description": "Notification body when one or more upstream DNS servers stop responding."
+    },
+    "event.exitNode.connected": {
+        "message": "Exit node connected.",
+        "description": "Notification body when a full-tunnel exit node becomes active."
+    },
+    "event.exitNode.disconnected": {
+        "message": "Exit node disconnected.",
+        "description": "Notification body when the user or the client shuts the exit node down deliberately."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "Exit node connection lost. Your internet access might be affected.",
+        "description": "Notification body when the exit node peer became unreachable. \"Internet access\" means the user's own browsing."
+    },
+    "event.exitNode.haChange": {
+        "message": "Exit node disconnected due to high availability change.",
+        "description": "Notification body when a high-availability group switched away from this exit node. High availability is the standard IT term."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "Exit node disconnected for unknown reasons.",
+        "description": "Notification body when the exit node dropped for a reason the client could not classify."
+    },
+    "event.update.installing": {
+        "message": "Installing update now.",
+        "description": "Notification body shown as an automatic client update starts installing."
+    },
+    "event.update.completed": {
+        "message": "Your NetBird client was auto-updated to version {version}.",
+        "description": "Notification body after an automatic client update succeeded. {version} is a version number, keep verbatim."
+    },
+    "event.update.failed": {
+        "message": "Auto-update failed: {reason}",
+        "description": "Notification body when an automatic client update failed. {reason} is an untranslated technical error string; keep your locale's colon spacing."
+    },
     "common.cancel": {
         "message": "Cancel",
         "description": "Generic Cancel button label, reused across dialogs. Keep short."

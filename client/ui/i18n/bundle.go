@@ -126,18 +126,29 @@ func (b *Bundle) BundleFor(code LanguageCode) (map[string]string, error) {
 // pairs ("version", "1.2.3" replaces "{version}"). Unknown keys fall back to
 // the default language, then to the key itself so a miss is visible in the UI.
 func (b *Bundle) Translate(lang LanguageCode, key string, args ...string) string {
+	if v, ok := b.Lookup(lang, key, args...); ok {
+		return v
+	}
+	return key
+}
+
+// Lookup resolves key like Translate but reports whether it was found in the
+// requested or the default bundle. Callers holding a better fallback than the
+// raw key — a daemon-supplied English string for a key this build predates —
+// use this to tell a miss from a hit.
+func (b *Bundle) Lookup(lang LanguageCode, key string, args ...string) (string, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	if v, ok := b.bundles[lang][key]; ok {
-		return applyPlaceholders(v, args)
+		return applyPlaceholders(v, args), true
 	}
 	if lang != DefaultLanguage {
 		if v, ok := b.bundles[DefaultLanguage][key]; ok {
-			return applyPlaceholders(v, args)
+			return applyPlaceholders(v, args), true
 		}
 	}
-	return key
+	return "", false
 }
 
 // applyPlaceholders substitutes {name} in s using args as flat name/value

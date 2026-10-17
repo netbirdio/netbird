@@ -179,6 +179,69 @@
     "notify.mdm.policyApplied.body": {
         "message": "Конфигурация NetBird была обновлена в соответствии с вашей ИТ-политикой."
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "Информация"
+    },
+    "event.severity.warning": {
+        "message": "Предупреждение"
+    },
+    "event.severity.error": {
+        "message": "Ошибка"
+    },
+    "event.severity.critical": {
+        "message": "Критично"
+    },
+    "event.category.network": {
+        "message": "Сеть"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "Аутентификация"
+    },
+    "event.category.connectivity": {
+        "message": "Связь"
+    },
+    "event.category.system": {
+        "message": "Система"
+    },
+    "event.panic": {
+        "message": "Служба NetBird аварийно завершилась. Перезапустите службу и отправьте отчёт об ошибке с журналами клиента."
+    },
+    "event.dns.recovered": {
+        "message": "DNS-серверы снова доступны."
+    },
+    "event.dns.unreachable": {
+        "message": "Не удалось связаться с одним или несколькими DNS-серверами. Это может повлиять на подключение к некоторым сервисам."
+    },
+    "event.exitNode.connected": {
+        "message": "Выходной узел подключён."
+    },
+    "event.exitNode.disconnected": {
+        "message": "Выходной узел отключён."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "Соединение с выходным узлом потеряно. Доступ в интернет может быть нарушен."
+    },
+    "event.exitNode.haChange": {
+        "message": "Выходной узел отключён из-за изменения конфигурации высокой доступности."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "Выходной узел отключён по неизвестной причине."
+    },
+    "event.update.installing": {
+        "message": "Устанавливается обновление."
+    },
+    "event.update.completed": {
+        "message": "Клиент NetBird автоматически обновлён до версии {version}."
+    },
+    "event.update.failed": {
+        "message": "Не удалось выполнить автоматическое обновление: {reason}"
+    },
     "common.cancel": {
         "message": "Отмена"
     },
