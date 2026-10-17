@@ -118,6 +118,26 @@ func TestProcessCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
+			name: "linux with regex processes",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS: "linux",
+					Files: []peer.File{
+						{Path: "/usr/bin/proc1", ProcessIsRunning: true},
+						{Path: "/usr/bin/proc2", ProcessIsRunning: true},
+					},
+				},
+			},
+			check: ProcessCheck{
+				Processes: []Process{
+					{LinuxPath: "/usr/bin/proc[0-9]"},
+					{LinuxPath: "/usr/bin/proc2"},
+				},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
 			name: "linux with non-matching processes",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
@@ -196,6 +216,24 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			wantErr: false,
 			isValid: false,
+		},
+		{
+			name: "windows with regex processes",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS: "windows",
+					Files: []peer.File{
+						{Path: "C:\\Program Files\\App\\proc.exe", ProcessIsRunning: true},
+					},
+				},
+			},
+			check: ProcessCheck{
+				Processes: []Process{
+					{WindowsPath: `C:\\Program Files\\.*\\proc\.exe`},
+				},
+			},
+			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "unsupported ios operating system",
