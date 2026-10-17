@@ -90,6 +90,17 @@ func (s *ServiceViaMemory) DeregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
+// ResolverAddress returns the active in-memory resolver endpoint.
+func (s *ServiceViaMemory) ResolverAddress() (netip.AddrPort, bool) {
+	s.listenerFlagLock.Lock()
+	defer s.listenerFlagLock.Unlock()
+
+	if !s.listenerIsRunning || !s.runtimeIP.IsValid() {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(s.runtimeIP.Unmap(), uint16(s.runtimePort)), true
+}
+
 func (s *ServiceViaMemory) RuntimePort() int {
 	return s.runtimePort
 }

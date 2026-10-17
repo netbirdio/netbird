@@ -234,6 +234,25 @@ func (s *serviceViaListener) DeregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
+func (s *serviceViaListener) ResolverAddress() (netip.AddrPort, bool) {
+	s.listenerFlagLock.Lock()
+	if !s.listenerIsRunning || !s.listenIP.IsValid() {
+		s.listenerFlagLock.Unlock()
+		return netip.AddrPort{}, false
+	}
+	listenIP, listenPort := s.listenIP, s.listenPort
+	s.listenerFlagLock.Unlock()
+
+	runtimePort := s.RuntimePort()
+
+	s.listenerFlagLock.Lock()
+	defer s.listenerFlagLock.Unlock()
+	if !s.listenerIsRunning || s.listenIP != listenIP || s.listenPort != listenPort {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(listenIP, uint16(runtimePort)), true
+}
+
 func (s *serviceViaListener) RuntimePort() int {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
