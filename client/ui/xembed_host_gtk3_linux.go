@@ -19,12 +19,18 @@ import (
 
 // xembedHost is a placeholder so the package compiles on gtk3 builds; the real
 // type (with X11/GTK4 state) lives in xembed_host_linux.go. It is never
-// instantiated here because xembedTrayAvailable always reports false.
-type xembedHost struct{}
+// instantiated here because xembedTrayAvailable always reports false. Its
+// fields and methods mirror what tray_watcher_linux.go touches, which is shared
+// by both builds.
+type xembedHost struct {
+	busName string
+}
 
-// run satisfies the call in tray_watcher_linux.go; unreachable on gtk3 because
-// newXembedHost never returns a non-nil host.
-func (*xembedHost) run() {}
+// run, signalStop and destroy satisfy the calls in tray_watcher_linux.go; all
+// are unreachable on gtk3 because newXembedHost never returns a non-nil host.
+func (*xembedHost) run()        {}
+func (*xembedHost) signalStop() {}
+func (*xembedHost) destroy()    {}
 
 // xembedTrayAvailable always reports false on gtk3 builds, so the watcher probe
 // loop in startStatusNotifierWatcher exits immediately and newXembedHost is

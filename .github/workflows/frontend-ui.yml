@@ -97,3 +97,11 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # Only the root package: its subpackages are covered by the Client UI /
+      # Unit job in golang-test-linux.yml, which skips client/ui itself because
+      # main.go embeds frontend/dist. This job has that bundle, plus the GTK4
+      # headers the tray's cgo needs, so it is where those tests can run.
+      - name: Go unit tests
+        working-directory: ${{ github.workspace }}
+        run: go test -timeout 5m ./client/ui
