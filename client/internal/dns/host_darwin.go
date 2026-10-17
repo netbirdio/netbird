@@ -331,10 +331,14 @@ func parseSystemDNSSettings(out []byte) (SystemDNSSettings, []netip.Addr, error)
 		}
 
 		ip, err := netip.ParseAddr(value)
-		if err != nil || ip.IsUnspecified() {
+		if err != nil {
 			continue
 		}
+		// unmap first: ::ffff:0.0.0.0 only becomes unspecified (0.0.0.0) afterwards
 		ip = ip.Unmap()
+		if ip.IsUnspecified() {
+			continue
+		}
 		serverAddresses = append(serverAddresses, ip)
 		// Prefer the first IPv4 server as ServerIP since our DNS listener is IPv4.
 		if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
