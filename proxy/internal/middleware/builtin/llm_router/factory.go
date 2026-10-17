@@ -34,8 +34,8 @@ type ProviderRoute struct {
 	// "anthropic", …), matching the llm.provider value llm_request_parser
 	// emits from the request. When set, the router keeps a vendor-tagged
 	// request on a same-vendor route so catch-all gateways of a different
-	// vendor can't swallow it. Empty disables vendor filtering for this
-	// route.
+	// vendor can't swallow it. Model-less API requests with a parsed surface
+	// require an explicit matching Vendor or Vendors declaration.
 	Vendor string `json:"vendor,omitempty"`
 	// Vendors lists every parser surface a multi-surface gateway accepts.
 	// Vendor remains supported for existing single-surface configurations.
