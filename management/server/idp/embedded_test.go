@@ -391,12 +391,16 @@ func TestResolveSessionCookieEncryptionKey(t *testing.T) {
 		assert.Equal(t, rawKey, key)
 	})
 
-	t.Run("empty key disables encryption", func(t *testing.T) {
+	t.Run("empty key falls back to a random per-process key", func(t *testing.T) {
 		t.Setenv(sessionCookieEncryptionKeyEnv, "")
 
 		key, err := resolveSessionCookieEncryptionKey("")
 		require.NoError(t, err)
-		assert.Empty(t, key)
+		// 32 raw bytes, and a fresh key per call
+		assert.Len(t, []byte(key), 32)
+		key2, err := resolveSessionCookieEncryptionKey("")
+		require.NoError(t, err)
+		assert.NotEqual(t, key, key2)
 	})
 
 	t.Run("rejects invalid key length", func(t *testing.T) {
