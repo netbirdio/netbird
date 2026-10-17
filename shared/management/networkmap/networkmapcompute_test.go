@@ -962,11 +962,22 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 			sshEnabled: true,
 		},
 		{
-			name: "netbird-ssh only counts on the destination side",
+			name: "netbird-ssh on a unidirectional rule only counts on the destination side",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+				r.Bidirectional = false
+			},
+			targetInSrc: true,
+		},
+		{
+			// the reverse direction makes the source-side peer a destination too,
+			// so it has to authorize inbound SSH from the rule's destinations
+			name: "netbird-ssh on a bidirectional rule counts on the source side",
 			mutateRule: func(r *nmdata.PolicyRule) {
 				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
 			},
 			targetInSrc: true,
+			wantAllowed: true,
 		},
 	}
 
