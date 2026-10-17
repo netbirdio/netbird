@@ -65,6 +65,12 @@ const (
 	// well above any usable path so that slow paths keep their order.
 	unknownLatency = 10 * time.Second
 
+	// unmeasuredLatencyHold is how long a current routing peer without a
+	// latency sample is kept against a measured one. A direct connection is
+	// sampled within seconds, so a peer still unsampled after this is ranked
+	// at unknownLatency rather than held indefinitely.
+	unmeasuredLatencyHold = 30 * time.Second
+
 	// holdReportInterval is how long a routing peer held back by a switch rule
 	// is reported at debug level only, after being reported at info level once.
 	holdReportInterval = 10 * time.Minute
@@ -99,6 +105,7 @@ type holdKind int
 const (
 	holdLatencyMargin holdKind = iota
 	holdLatencyDwell
+	holdLatencyUnmeasured
 	holdRelayedDelay
 )
 
@@ -124,6 +131,9 @@ type routeCandidate struct {
 	relayed   bool
 	latency   time.Duration
 	noise     time.Duration
+	// measured is false while the peer has no latency sample, as right after a
+	// direct connection comes up: latency then holds unknownLatency
+	measured bool
 }
 
 func newRouteCandidate(r *route.Route, status routerPeerStatus) routeCandidate {
@@ -140,6 +150,7 @@ func newRouteCandidate(r *route.Route, status routerPeerStatus) routeCandidate {
 		relayed:   status.relayed,
 		latency:   latency,
 		noise:     status.noise,
+		measured:  status.latency > 0,
 	}
 }
 
@@ -230,6 +241,9 @@ type WatcherConfig struct {
 	StatusRecorder   *peer.Status
 	Route            *route.Route
 	Handler          RouteHandler
+	// ReconcileAllowedIPs re-applies the routed allowed IPs tracked for a
+	// routing peer onto the interface. Optional.
+	ReconcileAllowedIPs func(peerKey string) error
 }
 
 // Watcher watches route and peer changes and updates allowed IPs accordingly.
@@ -271,11 +285,20 @@ type Watcher struct {
 	trackedCurrent route.ID
 	trackedPeer    string
 	trackedDirect  bool
-	// degradedSince is when the current routing peer dropped from direct to
-	// relayed, zero if it is direct or was already relayed when chosen
+	// degradedSince is when the relayedSwitch delay of the current relayed
+	// routing peer started: its drop from direct, or the first direct contender
+	// if it was never direct. Zero while it is direct or uncontended.
 	degradedSince time.Time
-	// relayedHold fires when a relayed switch being held back becomes due, so it
-	// is applied on time rather than on the next periodic re-evaluation
+	// unmeasuredRoute and unmeasuredSince track since when the current route's
+	// peer has had no latency sample, bounding the hold in shouldSwitchRoute
+	unmeasuredRoute route.ID
+	unmeasuredSince time.Time
+	// neverDirect marks a degradedSince started by a direct contender rather
+	// than by a drop from direct, which the "never" policy does not cover
+	neverDirect bool
+	// relayedHold fires when a switch held back by the relayed delay or the
+	// unmeasured latency hold becomes due, so it is applied on time rather than
+	// on the next periodic re-evaluation
 	relayedHold *time.Timer
 	// heldCandidate and heldKind identify the alternative last held back by the
 	// switch rules and the rule holding it, and heldReported is when that was
@@ -298,6 +321,9 @@ type Watcher struct {
 	stopped      bool
 	handler      RouteHandler
 	updateSerial uint64
+	// reconcileAllowedIPs re-applies a routing peer's routed allowed IPs when
+	// it connects while keeping the route, see keepChosenRoute. May be nil.
+	reconcileAllowedIPs func(peerKey string) error
 }
 
 func newPeerStateUpdate() chan struct{} {
@@ -320,6 +346,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		handler:             config.Handler,
 		currentChosenStatus: nil,
 		relayedSwitch:       relayedSwitch(),
+		reconcileAllowedIPs: config.ReconcileAllowedIPs,
 	}
 	return client
 }
@@ -393,6 +420,8 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 	}
 
 	w.trackRelayed(current, haveCurrent)
+	w.trackUnmeasured(current, haveCurrent)
+	w.trackContender(current, best, haveCurrent && haveBest)
 
 	if !haveBest {
 		w.reportUnassigned()
@@ -449,9 +478,8 @@ func (w *Watcher) reportUnassigned() {
 
 // trackRelayed records when the current routing peer dropped from a direct to a
 // relayed connection while carrying the route, which starts the relayedSwitch
-// delay. A peer that was never direct, because it was relayed when chosen or
-// came up over relay from idle, is not degraded: holding on to it would only
-// keep the route on the slower path.
+// delay at once. A peer that was never direct starts it later, when a direct
+// peer first contends for the route, see relayedSwitchDue.
 func (w *Watcher) trackRelayed(current routeCandidate, haveCurrent bool) {
 	if !haveCurrent {
 		w.trackedCurrent, w.trackedPeer, w.trackedDirect, w.degradedSince = "", "", false, time.Time{}
@@ -462,7 +490,7 @@ func (w *Watcher) trackRelayed(current routeCandidate, haveCurrent bool) {
 	case current.id != w.trackedCurrent, current.peer != w.trackedPeer, !current.relayed:
 		w.degradedSince = time.Time{}
 	case w.trackedDirect:
-		w.degradedSince = time.Now()
+		w.degradedSince, w.neverDirect = time.Now(), false
 		// a new degradation, reported as such even if an earlier one held
 		// back the same candidate
 		w.heldCandidate = ""
@@ -494,6 +522,20 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 		return true
 	}
 
+	// Without a sample on both sides there is no gain to weigh. A direct
+	// connection reports no latency until its first sample, so comparing it as
+	// unknownLatency would move the route away from a peer that just recovered.
+	// The hold is bounded so a peer that never gets a sample does not keep the
+	// route for good.
+	if w.unmeasuredHoldActive(current, candidate) {
+		if level := w.holdLevel(candidate, holdLatencyUnmeasured); log.IsLevelEnabled(level) {
+			log.StandardLogger().Logf(level,
+				"keeping routing peer %s for [%v] over %s: latency not measured on both peers yet (%s)",
+				current.peer, w.handler, candidate.peer, candidate)
+		}
+		return false
+	}
+
 	gain := current.latency - candidate.latency
 	if margin := switchMargin(current, candidate); gain < margin {
 		if level := w.holdLevel(candidate, holdLatencyMargin); log.IsLevelEnabled(level) {
@@ -518,22 +560,75 @@ func (w *Watcher) shouldSwitchRoute(current, candidate routeCandidate) bool {
 	return true
 }
 
+// trackContender restarts the relayed delay of a peer that was never direct
+// once no direct contender is left. That delay runs from the first contender,
+// so keeping it would let a later contender take over without waiting. The
+// delay of a peer that dropped from direct keeps running from the drop.
+func (w *Watcher) trackContender(current, best routeCandidate, have bool) {
+	if !w.neverDirect || w.degradedSince.IsZero() {
+		return
+	}
+	if have && best.winsOnlyOnRelay(current) {
+		return
+	}
+	w.degradedSince = time.Time{}
+}
+
+// trackUnmeasured records since when the current route's peer has had no
+// latency sample, and forgets it once the peer is measured or the route moves.
+func (w *Watcher) trackUnmeasured(current routeCandidate, haveCurrent bool) {
+	if !haveCurrent || current.measured || current.id != w.unmeasuredRoute {
+		w.unmeasuredRoute, w.unmeasuredSince = "", time.Time{}
+	}
+	if haveCurrent && !current.measured && w.unmeasuredSince.IsZero() {
+		w.unmeasuredRoute, w.unmeasuredSince = current.id, time.Now()
+	}
+}
+
+// unmeasuredHoldActive reports whether a latency comparison must wait because
+// a side has no sample: always for an unsampled candidate, and for an unsampled
+// current peer until unmeasuredLatencyHold runs out. A pending hold arms
+// relayedHold so the switch is reconsidered when it runs out.
+func (w *Watcher) unmeasuredHoldActive(current, candidate routeCandidate) bool {
+	if !candidate.measured {
+		return true
+	}
+	if current.measured {
+		return false
+	}
+
+	remaining := unmeasuredLatencyHold - time.Since(w.unmeasuredSince)
+	if remaining <= 0 {
+		return false
+	}
+	w.armRelayedHold(remaining)
+
+	return true
+}
+
 // relayedSwitchDue reports whether a relayed current routing peer should give
 // way to a candidate that is better only by being direct.
 //
-// A peer that dropped from direct to relayed while carrying the route is kept
-// for the relayedSwitch delay: the relay still carries the traffic, staying
-// keeps every flow through this routing peer alive, and a direct connection that
-// dropped often recovers within seconds. A peer that was already relayed when
-// chosen gives way at once, so the route is not stuck on the slower path when a
-// direct one becomes available. A switch that is not due yet arms relayedHold so
-// it is applied as soon as it becomes due.
+// A relayed peer is kept for the relayedSwitch delay: the relay still carries
+// the traffic, and staying keeps every flow through this routing peer alive.
+// For a peer that dropped from direct to relayed the delay runs from the drop,
+// since a direct connection that dropped often recovers within seconds. For a
+// peer that was never direct, as when the peers of a group come up over relay
+// before their direct connections, it runs from the first evaluation that
+// finds a direct contender: the current peer usually turns direct within
+// seconds too. A switch that is not due yet arms relayedHold so it is applied
+// as soon as it becomes due.
 func (w *Watcher) relayedSwitchDue(current, candidate routeCandidate) bool {
 	if w.degradedSince.IsZero() {
-		return true
+		w.degradedSince, w.neverDirect = time.Now(), true
 	}
 
 	policy := w.relayedSwitch
+	// "never" keeps a peer whose direct connection dropped; one that was never
+	// direct still moves after the default delay instead of staying relayed
+	if policy.never && w.neverDirect {
+		policy = relayedSwitchPolicy{delay: defaultRelayedSwitchDelay}
+	}
 	if !policy.never {
 		remaining := policy.delay - time.Since(w.degradedSince)
 		if remaining <= 0 {
@@ -544,7 +639,7 @@ func (w *Watcher) relayedSwitchDue(current, candidate routeCandidate) bool {
 
 	if level := w.holdLevel(candidate, holdRelayedDelay); log.IsLevelEnabled(level) {
 		log.StandardLogger().Logf(level,
-			"keeping relayed routing peer %s for [%v] over direct %s: dropped to relay %v ago, switch delay %s",
+			"keeping relayed routing peer %s for [%v] over direct %s: held for %v, switch delay %s",
 			current.peer, w.handler, candidate.peer, time.Since(w.degradedSince).Round(time.Second), policy)
 	}
 
@@ -677,21 +772,46 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	return nil
 }
 
-// shouldSkipRecalculation checks if we can skip route recalculation for the same route without status changes
-func (w *Watcher) shouldSkipRecalculation(newChosenID route.ID, newStatus routerPeerStatus) bool {
-	if w.currentChosen == nil {
+// keepChosenRoute reports whether the evaluation keeps the current route, with
+// the same definition, on the same routing peer. A status change of that peer
+// is recorded without removing and re-adding its allowed IPs, which would leave
+// the prefix without an owner in between. When the peer connects, its routed
+// allowed IPs are re-applied instead: a peer recreated by a peer update comes
+// back with its overlay addresses only.
+func (w *Watcher) keepChosenRoute(newChosenID route.ID, newStatus routerPeerStatus) bool {
+	if w.currentChosen == nil || w.currentChosen.ID != newChosenID {
 		return false
 	}
 
-	isSameRoute := w.currentChosen.ID == newChosenID && w.currentChosen.Equal(w.routes[newChosenID])
-	if !isSameRoute {
+	newChosenRoute := w.routes[newChosenID]
+	if !w.currentChosen.Equal(newChosenRoute) {
 		return false
 	}
 
-	if w.currentChosenStatus != nil {
-		return w.currentChosenStatus.status == newStatus.status
+	if w.currentChosenStatus == nil || w.currentChosenStatus.status == newStatus.status {
+		return true
 	}
 
+	// a failed reconcile leaves the previous status recorded, so the next
+	// evaluation sees the change again and retries
+	if newStatus.status == peer.StatusConnected && !w.reconcileRoutedAllowedIPs(newChosenRoute.Peer) {
+		return true
+	}
+
+	w.currentChosen = newChosenRoute
+	w.currentChosenStatus = &newStatus
+
+	return true
+}
+
+func (w *Watcher) reconcileRoutedAllowedIPs(peerKey string) bool {
+	if w.reconcileAllowedIPs == nil {
+		return true
+	}
+	if err := w.reconcileAllowedIPs(peerKey); err != nil {
+		log.Warnf("failed to reconcile routed allowed IPs of routing peer %s for [%v], will retry: %v", peerKey, w.handler, err)
+		return false
+	}
 	return true
 }
 
@@ -719,8 +839,7 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 		return nil
 	}
 
-	// If we can skip recalculation for the same route without changes, do nothing
-	if w.shouldSkipRecalculation(newChosenID, newStatus) {
+	if w.keepChosenRoute(newChosenID, newStatus) {
 		return nil
 	}
 

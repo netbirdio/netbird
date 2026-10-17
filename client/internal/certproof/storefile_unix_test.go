@@ -26,7 +26,7 @@ func devicePair(t *testing.T, dir string) {
 
 func candidates(t *testing.T, dir string) ([]Candidate, error) {
 	t.Helper()
-	return NewFileStore(dir).Candidates(context.Background())
+	return newFileStore(dir).Candidates(context.Background())
 }
 
 func TestFileStore_AcceptsAPrivatePair(t *testing.T) {
