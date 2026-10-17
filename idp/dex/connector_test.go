@@ -46,6 +46,16 @@ func TestBuildOIDCConnectorConfig_EntraSetsUserIDKey(t *testing.T) {
 
 	assert.Equal(t, "oid", m["userIDKey"], "entra connectors must default userIDKey to oid")
 	assert.Equal(t, map[string]any{"email": "preferred_username"}, m["claimMapping"])
+	assert.Equal(t, []any{"openid", "profile", "email"}, m["scopes"])
+}
+
+func TestBuildOIDCConnectorConfig_GenericIncludesGroupsScope(t *testing.T) {
+	data, err := buildOIDCConnectorConfig(&ConnectorConfig{Type: "oidc"}, "https://example.com/oauth2/callback")
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+	assert.Equal(t, []any{"openid", "profile", "email", "groups"}, m["scopes"])
 }
 
 func TestBuildOIDCConnectorConfig_NonEntraDoesNotSetUserIDKey(t *testing.T) {
