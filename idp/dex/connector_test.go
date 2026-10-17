@@ -63,6 +63,129 @@ func TestBuildOIDCConnectorConfig_NonEntraDoesNotSetUserIDKey(t *testing.T) {
 	}
 }
 
+func TestGenericOIDCOptionsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	p, cleanup := newTestProvider(t)
+	defer cleanup()
+
+	claim := "iserv:groups"
+	getUserInfo := true
+	_, err := p.CreateConnector(ctx, &ConnectorConfig{
+		ID: "school", Name: "IServ", Type: "oidc",
+		Issuer: "https://idp.example.com", ClientID: "client", ClientSecret: "secret",
+		RedirectURI:      "https://example.com/oauth2/callback",
+		AdditionalScopes: []string{"iserv:groups", "email", "iserv:groups"}, GroupsClaim: &claim, GetUserInfo: &getUserInfo,
+	})
+	require.NoError(t, err)
+
+	stored, err := p.storage.GetConnector(ctx, "school")
+	require.NoError(t, err)
+	var config map[string]any
+	require.NoError(t, json.Unmarshal(stored.Config, &config))
+	assert.Equal(t, []any{"openid", "profile", "email", "iserv:groups"}, config["scopes"])
+	assert.Equal(t, map[string]any{"groups": "iserv:groups"}, config["claimMapping"])
+	assert.Equal(t, true, config["overrideClaimMapping"], "the selected claim must win over a standard groups claim")
+	assert.Equal(t, true, config["insecureEnableGroups"])
+	assert.Equal(t, true, config["getUserInfo"])
+
+	read, err := p.GetConnector(ctx, "school")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"iserv:groups"}, read.AdditionalScopes)
+	require.NotNil(t, read.GroupsClaim)
+	assert.Equal(t, claim, *read.GroupsClaim)
+	require.NotNil(t, read.GetUserInfo)
+	assert.True(t, *read.GetUserInfo)
+
+	require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{ID: "school", Type: "oidc", ClientSecret: "rotated"}))
+	read, err = p.GetConnector(ctx, "school")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"iserv:groups"}, read.AdditionalScopes)
+	require.NotNil(t, read.GroupsClaim)
+	assert.Equal(t, claim, *read.GroupsClaim)
+	require.NotNil(t, read.GetUserInfo)
+	assert.True(t, *read.GetUserInfo)
+
+	empty := ""
+	getUserInfo = false
+	require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{
+		ID: "school", Type: "oidc", AdditionalScopes: []string{}, GroupsClaim: &empty, GetUserInfo: &getUserInfo,
+	}))
+	stored, err = p.storage.GetConnector(ctx, "school")
+	require.NoError(t, err)
+	config = nil
+	require.NoError(t, json.Unmarshal(stored.Config, &config))
+	assert.Equal(t, []any{"openid", "profile", "email"}, config["scopes"])
+	assert.NotContains(t, config, "claimMapping")
+	assert.NotContains(t, config, "overrideClaimMapping")
+	assert.Equal(t, false, config["getUserInfo"])
+	read, err = p.GetConnector(ctx, "school")
+	require.NoError(t, err)
+	assert.Empty(t, read.AdditionalScopes)
+	assert.Nil(t, read.GroupsClaim)
+	require.NotNil(t, read.GetUserInfo)
+	assert.False(t, *read.GetUserInfo)
+
+	require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{ID: "school", Type: "oidc", GroupsClaim: &claim}))
+	stored, err = p.storage.GetConnector(ctx, "school")
+	require.NoError(t, err)
+	config = nil
+	require.NoError(t, json.Unmarshal(stored.Config, &config))
+	assert.Equal(t, true, config["overrideClaimMapping"])
+}
+
+func TestNonGenericOIDCOptionsDoNotChangeProviderDefaults(t *testing.T) {
+	ctx := context.Background()
+	p, cleanup := newTestProvider(t)
+	defer cleanup()
+	empty := ""
+	getUserInfo := false
+	_, err := p.CreateConnector(ctx, &ConnectorConfig{
+		ID: "okta-test", Type: "okta", AdditionalScopes: []string{}, GroupsClaim: &empty, GetUserInfo: &getUserInfo,
+	})
+	require.NoError(t, err)
+	require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{
+		ID: "okta-test", Type: "okta", AdditionalScopes: []string{}, GroupsClaim: &empty, GetUserInfo: &getUserInfo,
+	}))
+	stored, err := p.storage.GetConnector(ctx, "okta-test")
+	require.NoError(t, err)
+	var config map[string]any
+	require.NoError(t, json.Unmarshal(stored.Config, &config))
+	assert.Equal(t, []any{"openid", "profile", "email", "groups"}, config["scopes"])
+	assert.NotContains(t, config, "claimMapping")
+
+	_, err = p.CreateConnector(ctx, &ConnectorConfig{
+		ID: "okta-other", Type: "okta", AdditionalScopes: []string{"iserv:groups"},
+	})
+	require.Error(t, err)
+	require.Error(t, p.UpdateConnector(ctx, &ConnectorConfig{
+		ID: "okta-test", Type: "okta", GroupsClaim: new(string),
+		AdditionalScopes: []string{"iserv:groups"},
+	}))
+	getUserInfo = true
+	require.Error(t, p.UpdateConnector(ctx, &ConnectorConfig{ID: "okta-test", Type: "okta", GetUserInfo: &getUserInfo}))
+}
+
+func TestGroupsClaimDoesNotChangeExistingEmailMappingPrecedence(t *testing.T) {
+	ctx := context.Background()
+	p, cleanup := newTestProvider(t)
+	defer cleanup()
+	oldConfig, err := json.Marshal(map[string]any{
+		"scopes":       []string{"openid", "profile", "email"},
+		"claimMapping": map[string]string{"email": "preferred_username"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, p.storage.CreateConnector(ctx, storage.Connector{
+		ID: "generic", Type: "oidc", Config: oldConfig,
+	}))
+	claim := "iserv:groups"
+	err = p.UpdateConnector(ctx, &ConnectorConfig{ID: "generic", Type: "oidc", GroupsClaim: &claim})
+	require.ErrorIs(t, err, ErrIncompatibleClaimMapping)
+	assert.ErrorContains(t, err, "email")
+	stored, err := p.storage.GetConnector(ctx, "generic")
+	require.NoError(t, err)
+	assert.JSONEq(t, string(oldConfig), string(stored.Config))
+}
+
 func TestUpdateConnector_PreservesCreateTimeDefaults(t *testing.T) {
 	ctx := context.Background()
 	p, cleanup := newTestProvider(t)
