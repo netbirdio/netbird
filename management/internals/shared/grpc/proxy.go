@@ -54,6 +54,7 @@ type ProxyOIDCConfig struct {
 
 	Audience     string
 	KeysLocation string
+	UserIDClaim  string
 }
 
 // ProxyTokenChecker checks whether a proxy access token is still valid.
