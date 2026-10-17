@@ -54,7 +54,7 @@ var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEn
 
 var DefaultInterfaceBlacklist = []string{
 	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
-	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
+	"Tailscale", "tailscale", "docker", "veth", "lo",
 }
 
 // ConfigInput carries configuration changes to the client
