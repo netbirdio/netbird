@@ -84,8 +84,9 @@ func (e *EphemeralManager) LoadInitialPeers(ctx context.Context) {
 
 	e.loadEphemeralPeers(ctx)
 	if e.headPeer != nil {
+		cleanupCtx := context.WithoutCancel(ctx)
 		e.timer = time.AfterFunc(e.lifeTime, func() {
-			e.cleanup(ctx)
+			e.cleanup(cleanupCtx)
 		})
 	}
 }
@@ -146,8 +147,9 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 		if delay < 0 {
 			delay = 0
 		}
+		cleanupCtx := context.WithoutCancel(ctx)
 		e.timer = time.AfterFunc(delay, func() {
-			e.cleanup(ctx)
+			e.cleanup(cleanupCtx)
 		})
 	}
 }
