@@ -33,8 +33,10 @@ var (
 // This will be run by the updater process
 func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string, daemonFolder string) (resultErr error) {
 	resultHandler := NewResultHandler(u.tempDir)
+	uiWasRunning := u.isUIRunning()
 
-	// Always ensure daemon and UI are restarted after setup
+	// Restart the daemon after setup. Restore the UI only when it was running
+	// before the update, so a user-initiated quit is not undone by the updater.
 	defer func() {
 		log.Infof("write out result")
 		var err error
@@ -57,9 +59,13 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 			log.Errorf("failed to start daemon: %v", err)
 		}
 
-		log.Infof("starting UI back")
-		if err := u.startUIAsUser(); err != nil {
-			log.Errorf("failed to start UI: %v", err)
+		if uiWasRunning {
+			log.Infof("starting UI back")
+			if err := u.startUIAsUser(); err != nil {
+				log.Errorf("failed to start UI: %v", err)
+			}
+		} else {
+			log.Infof("UI was not running before update, leaving it stopped")
 		}
 
 	}()
@@ -79,6 +85,11 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 	}
 
 	return resultErr
+}
+
+func (u *Installer) isUIRunning() bool {
+	err := exec.Command("pgrep", "-x", "netbird-ui").Run()
+	return err == nil
 }
 
 func (u *Installer) startDaemon(daemonFolder string) error {
