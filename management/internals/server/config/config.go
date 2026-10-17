@@ -69,12 +69,14 @@ type Config struct {
 	PerAccountHighestSupportedSyncMessageVersion map[string]int
 }
 
-// GetAuthAudiences returns the audience from the http config and device authorization flow config
+// GetAuthAudiences returns the audience from the http config and device authorization flow config.
 func (c Config) GetAuthAudiences() []string {
-	audiences := []string{c.HttpConfig.AuthAudience}
-
-	if c.HttpConfig.ExtraAuthAudience != "" {
-		audiences = append(audiences, c.HttpConfig.ExtraAuthAudience)
+	var audiences []string
+	if c.HttpConfig != nil {
+		audiences = append(audiences, c.HttpConfig.AuthAudience)
+		if c.HttpConfig.ExtraAuthAudience != "" {
+			audiences = append(audiences, c.HttpConfig.ExtraAuthAudience)
+		}
 	}
 
 	if c.DeviceAuthorizationFlow != nil && c.DeviceAuthorizationFlow.ProviderConfig.Audience != "" {

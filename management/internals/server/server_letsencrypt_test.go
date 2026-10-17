@@ -53,3 +53,25 @@ func TestServeLetsEncryptChallenges_BindFailure(t *testing.T) {
 	require.Error(t, srv.serveLetsEncryptChallenges(context.Background()))
 	require.Nil(t, srv.certListener, "no challenge listener should be stored when the bind fails")
 }
+
+func TestSetupTLS_NilHttpConfig(t *testing.T) {
+	srv := NewServer(&Config{NbConfig: &nbconfig.Config{HttpConfig: nil}, MgmtPort: 80})
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	enabled, err := srv.setupTLS(context.Background())
+	require.NoError(t, err)
+	require.False(t, enabled)
+
+	// Verify that auth and proxy OIDC helpers handle nil HttpConfig without panic
+	authMgr := srv.AuthManager()
+	require.NotNil(t, authMgr)
+
+	proxyOIDC := srv.proxyOIDCConfig()
+	require.Empty(t, proxyOIDC.Issuer)
+
+	audiences := srv.Config.GetAuthAudiences()
+	require.Empty(t, audiences)
+
+	grpcServer := srv.GRPCServer()
+	require.NotNil(t, grpcServer)
+}
