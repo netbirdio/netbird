@@ -96,7 +96,7 @@ var storedAppearance atomic.Value // Appearance
 var resolveAppearance atomic.Value // func() Appearance
 
 func init() {
-	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: true})
+	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: false})
 }
 
 func setAppearance(pref preferences.Theme, dark bool) {
@@ -269,6 +269,7 @@ type WindowManager struct {
 	recenterOnShow func() bool
 }
 
+// NewWindowManager creates a WindowManager that owns the main window and spawns dialog windows.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
 	s := &WindowManager{
 		app:            app,
@@ -313,20 +314,19 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
 	a := CurrentAppearance()
 	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:                windowSettings,
-		Title:               s.title("window.title.settings"),
-		Width:               900,
-		Height:              WindowHeight,
-		Hidden:              true,
-		DisableResize:       true,
-		MinimiseButtonState: application.ButtonHidden,
-		MaximiseButtonState: application.ButtonHidden,
-		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour(a),
-		URL:                 "/#/settings",
-		Mac:                 AppleMacOSAppearanceOptions(a),
-		Windows:             MicrosoftWindowsAppearanceOptions(a),
-		Linux:               LinuxAppearanceOptions(s.linuxIcon),
+		Name:             windowSettings,
+		Title:            s.title("window.title.settings"),
+		Width:            900,
+		Height:           WindowHeight,
+		Hidden:           true,
+		CloseButtonState: application.ButtonEnabled,
+		BackgroundColour: WindowBackgroundColour(a),
+		MinWidth:         600,
+		MinHeight:        400,
+		URL:              "/#/settings",
+		Mac:              AppleMacOSAppearanceOptions(a),
+		Windows:          MicrosoftWindowsAppearanceOptions(a),
+		Linux:            LinuxAppearanceOptions(s.linuxIcon),
 	})
 	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		s.mu.Lock()

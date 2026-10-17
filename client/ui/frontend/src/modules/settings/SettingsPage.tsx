@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
-import { Events } from "@wailsio/runtime";
+import { Events, Window } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
-import { isMacOS } from "@/lib/platform";
+import { isLinux, isMacOS } from "@/lib/platform";
 import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigation } from "@/modules/settings/SettingsNavigation.tsx";
@@ -81,6 +81,22 @@ export const SettingsPage = () => {
     useEffect(() => {
         if (!visibleTabs.includes(active as Tab)) setActive(defaultTab);
     }, [visibleTabs, active, defaultTab]);
+
+    // On Linux, WebKitGTK applies its own DPR from Xft.dpi while GTK's
+    // window size stays in unscaled pixels, shrinking the CSS viewport.
+    // Scale the window up so the layout gets the intended pixel budget.
+    useEffect(() => {
+        if (!isLinux()) return;
+        const dpr = window.devicePixelRatio;
+        if (dpr <= 1) return;
+        Window.Size()
+            .then((frame) => {
+                const w = Math.round(frame.width * dpr);
+                const h = Math.round(frame.height * dpr);
+                return Window.SetSize(w, h);
+            })
+            .catch(() => {});
+    }, []);
 
     return (
         <>
