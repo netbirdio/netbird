@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/url"
@@ -19,7 +18,7 @@ import (
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/flow/proto"
-	"github.com/netbirdio/netbird/util/embeddedroots"
+	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
@@ -49,11 +48,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 	var opts []grpc.DialOption
 	tlsEnabled := parsedURL.Scheme == "https"
 	if tlsEnabled {
-		certPool, err := x509.SystemCertPool()
-		if err != nil || certPool == nil {
-			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
-			certPool = embeddedroots.Get()
-		}
+		certPool := util.GetGlobalCertPool()
 
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
 			RootCAs: certPool,
