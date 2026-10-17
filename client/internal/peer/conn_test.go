@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -264,8 +265,8 @@ func TestConn_presharedKey(t *testing.T) {
 			}
 			conn2.config.RosenpassConfig.PermissiveMode = test.conn2Permissive
 
-			conn1PresharedKey := conn1.presharedKey(conn2.config.RosenpassConfig.PubKey)
-			conn2PresharedKey := conn2.presharedKey(conn1.config.RosenpassConfig.PubKey)
+			conn1PresharedKey := conn1.presharedKey(conn2.config.RosenpassConfig.PubKey, nil)
+			conn2PresharedKey := conn2.presharedKey(conn1.config.RosenpassConfig.PubKey, nil)
 
 			if test.conn1ExpectedInitialKey {
 				if conn1PresharedKey == nil {
@@ -303,16 +304,12 @@ func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
 	// When Rosenpass has already initialized the PSK for this peer,
 	// presharedKey must return nil to avoid UpdatePeer overwriting it.
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return true }
-	if k := conn.presharedKey([]byte("remote")); k != nil {
-		t.Fatalf("expected nil presharedKey when Rosenpass manages PSK, got %v", k)
-	}
+	assert.Nil(t, conn.presharedKey([]byte("remote"), nil), "expected nil presharedKey when Rosenpass manages PSK")
 
 	// When Rosenpass hasn't taken over yet, presharedKey should provide
 	// a non-nil initial key (deterministic or from NetBird PSK).
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return false }
-	if k := conn.presharedKey([]byte("remote")); k == nil {
-		t.Fatalf("expected non-nil presharedKey before Rosenpass manages PSK")
-	}
+	assert.NotNil(t, conn.presharedKey([]byte("remote"), nil), "expected non-nil presharedKey before Rosenpass manages PSK")
 }
 
 func newWGTimeoutTestConn(rosenpassEnabled bool, disconnected *[]string) *Conn {
@@ -438,6 +435,10 @@ func (s *stubWGIface) GetStats() (map[string]configurer.WGStats, error) {
 func (s *stubWGIface) GetProxy() wgproxy.Proxy                { return nil }
 func (s *stubWGIface) Address() wgaddr.Address                { return wgaddr.Address{} }
 func (s *stubWGIface) RemoveEndpointAddress(key string) error { return nil }
+func (s *stubWGIface) IsUserspaceBind() bool                  { return false }
+func (s *stubWGIface) LastActivities() map[string]monotime.Time {
+	return map[string]monotime.Time{}
+}
 
 func TestConn_Close_CallsOnDisconnected(t *testing.T) {
 	var disconnected []string
