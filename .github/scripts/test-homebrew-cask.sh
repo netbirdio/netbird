@@ -219,6 +219,9 @@ assert_installed() {
 assert_uninstalled() {
     local log=$1
     assert_no_deprecations "$log"
+    if grep -E 'Boot-out failed|Unload failed' "$log"; then
+        fail "Homebrew printed launchctl errors during uninstall."
+    fi
     [[ ! -e "$app" ]] || fail "The UI app remains after uninstall."
     [[ ! -e "$plist" ]] || fail "The daemon plist remains after uninstall."
     assert_service_absent
