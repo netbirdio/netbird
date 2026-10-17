@@ -54,16 +54,15 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	require.NoError(t, legacy.Write(ctx, websocket.MessageBinary, toFuture))
 	assertTransportFrame(t, readFrame(t, ctx, future), legacyID, "from legacy")
 
-	// After the response the connection is v1; a v2 frame is a protocol error and closes it.
-	// The server closes without a close frame, so the client sees a read error rather than a
-	// websocket.CloseError; a short deadline separates that from a server that keeps reading.
+	// After the response the connection is v1. A frame with another version is dropped and the
+	// connection stays usable, which the transport message right after it proves.
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, []byte{2, byte(messages.MsgTypeHealthCheck)}))
-	closeCtx, closeCancel := context.WithTimeout(ctx, 3*time.Second)
-	defer closeCancel()
-	_, _, err = future.Read(closeCtx)
-	require.Error(t, err, "the server must close a connection that changes version mid-session")
-	assert.NotErrorIs(t, err, context.DeadlineExceeded, "the connection must be closed by the server, not time out")
+	toLegacyAgain, err := messages.MarshalTransportMsg(legacyID, []byte("after the dropped frame"))
+	require.NoError(t, err)
+	require.NoError(t, future.Write(ctx, websocket.MessageBinary, toLegacyAgain))
+	assertTransportFrame(t, readFrame(t, ctx, legacy), futureID, "after the dropped frame")
 
+	require.NoError(t, future.Write(ctx, websocket.MessageBinary, messages.MarshalCloseMsg()))
 	require.NoError(t, legacy.Write(ctx, websocket.MessageBinary, messages.MarshalCloseMsg()))
 }
 

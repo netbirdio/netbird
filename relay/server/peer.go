@@ -100,24 +100,17 @@ func (p *Peer) Work() {
 		msg := buf[:n]
 
 		if err := messages.ValidateConnectionVersion(msg, p.version); err != nil {
-			p.log.Warnf("failed to validate protocol version: %s", err)
-			return
+			p.log.Tracef("drop message: %s", err)
+			continue
 		}
 
 		msgType, err := messages.DetermineClientMessageType(msg)
 		if err != nil {
-			if errors.Is(err, messages.ErrUnknownMsgType) {
-				p.log.Tracef("skip message: %s", err)
-				continue
-			}
-			p.log.Errorf("failed to determine message type: %s", err)
-			return
+			p.log.Tracef("drop message: %s", err)
+			continue
 		}
 
-		if err := p.handleMsgType(ctx, msgType, hc, n, msg); err != nil {
-			p.log.Errorf("failed to handle %s message: %s", msgType, err)
-			return
-		}
+		p.handleMsgType(ctx, msgType, hc, n, msg)
 	}
 }
 
@@ -130,7 +123,7 @@ func (p *Peer) Version() messages.ProtocolVersion {
 	return p.version
 }
 
-func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) error {
+func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
@@ -148,9 +141,8 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	case messages.MsgTypeUnsubscribePeerState:
 		p.handleUnsubscribePeerState(msg)
 	default:
-		return errors.New("message type not allowed after authentication")
+		p.log.Tracef("drop %s message: not allowed after authentication", msgType)
 	}
-	return nil
 }
 
 // Write writes data to the connection

@@ -12,28 +12,7 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
-func TestPeer_SkipsUnknownMessageType(t *testing.T) {
-	relay := newTestRelay(t, &allow.Auth{})
-	alice, _ := acceptPeer(t, relay, "alice")
-	_, bobID := acceptPeer(t, relay, "bob")
-
-	alice.deliver(t, []byte{byte(messages.ProtocolV1), 200, 0xDE, 0xAD})
-	subscribe, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{bobID})
-	require.NoError(t, err)
-	alice.deliver(t, subscribe[0])
-
-	// The subscription answer proves the loop survived the unknown frame before it.
-	frames := alice.waitFrames(t, 2)
-	assert.False(t, alice.isClosed(), "an unknown message type must not close the connection")
-	online := frames[1]
-	assert.Equal(t, byte(messages.ProtocolV1), online[0], "notifications must carry the connection version")
-	assert.Equal(t, byte(messages.MsgTypePeersOnline), online[1], "the subscription must be answered")
-	ids, err := messages.UnmarshalPeersOnlineMsg(online)
-	require.NoError(t, err)
-	assert.Equal(t, []messages.PeerID{bobID}, ids, "the online peer must be reported")
-}
-
-func TestPeer_ClosesOnProtocolViolation(t *testing.T) {
+func TestPeer_DropsFramesItCannotHandle(t *testing.T) {
 	secondAuth, err := messages.MarshalAuthMsg(messages.HashID("alice"), []byte("token"))
 	require.NoError(t, err)
 
@@ -41,27 +20,50 @@ func TestPeer_ClosesOnProtocolViolation(t *testing.T) {
 		name  string
 		frame []byte
 	}{
-		{"version change mid connection", []byte{2, byte(messages.MsgTypeHealthCheck)}},
+		{"unknown message type", []byte{byte(messages.ProtocolV1), 200, 0xDE, 0xAD}},
+		{"version above the selected one", []byte{2, byte(messages.MsgTypeHealthCheck)}},
 		{"version zero", []byte{0, byte(messages.MsgTypeHealthCheck)}},
+		{"header shorter than two bytes", []byte{byte(messages.ProtocolV1)}},
 		{"reserved hello type", []byte{byte(messages.ProtocolV1), byte(messages.MsgTypeHello)}},
-		{"server-only peers online type", []byte{byte(messages.ProtocolV1), byte(messages.MsgTypePeersOnline)}},
+		{"server to client peers online type", []byte{byte(messages.ProtocolV1), byte(messages.MsgTypePeersOnline)}},
 		{"auth after authentication", secondAuth},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			relay := newTestRelay(t, &allow.Auth{})
-			conn, peerID := acceptPeer(t, relay, "alice")
+			alice, _ := acceptPeer(t, relay, "alice")
+			_, bobID := acceptPeer(t, relay, "bob")
 
-			conn.deliver(t, tc.frame)
+			alice.deliver(t, tc.frame)
+			subscribe, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{bobID})
+			require.NoError(t, err)
+			alice.deliver(t, subscribe[0])
 
-			conn.waitClosed(t)
-			assert.Len(t, conn.frames(), 1, "only the auth response may be written")
-			assert.Eventually(t, func() bool {
-				_, ok := relay.store.Peer(peerID)
-				return !ok
-			}, testWaitTimeout, 5*time.Millisecond, "the peer must be removed from the store")
+			// The subscription answer proves the loop survived the dropped frame before it.
+			frames := alice.waitFrames(t, 2)
+			assert.False(t, alice.isClosed(), "a dropped frame must not close the connection")
+			online := frames[1]
+			assert.Equal(t, byte(messages.ProtocolV1), online[0], "notifications must carry the connection version")
+			assert.Equal(t, byte(messages.MsgTypePeersOnline), online[1], "the subscription must be answered")
+			ids, err := messages.UnmarshalPeersOnlineMsg(online)
+			require.NoError(t, err)
+			assert.Equal(t, []messages.PeerID{bobID}, ids, "the online peer must be reported")
 		})
 	}
+}
+
+func TestPeer_ClosesOnClientCloseMessage(t *testing.T) {
+	relay := newTestRelay(t, &allow.Auth{})
+	conn, peerID := acceptPeer(t, relay, "alice")
+
+	conn.deliver(t, messages.MarshalCloseMsg())
+
+	conn.waitClosed(t)
+	assert.Len(t, conn.frames(), 1, "only the auth response may be written")
+	assert.Eventually(t, func() bool {
+		_, ok := relay.store.Peer(peerID)
+		return !ok
+	}, testWaitTimeout, 5*time.Millisecond, "the peer must be removed from the store")
 }
 
 func TestPeer_ForwardsTransportWithSenderAndDestinationVersion(t *testing.T) {
