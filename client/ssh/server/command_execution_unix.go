@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -75,29 +74,6 @@ func (s *Server) detectSuPtySupport(ctx context.Context) bool {
 	supported := strings.Contains(string(output), "--pty")
 	log.Debugf("su --pty support detected: %v", supported)
 	return supported
-}
-
-// detectUtilLinuxLogin checks if login is from util-linux (vs shadow-utils).
-// util-linux login uses vhangup() which requires setsid wrapper to avoid killing parent.
-// See https://bugs.debian.org/1078023 for details.
-func (s *Server) detectUtilLinuxLogin(ctx context.Context) bool {
-	if runtime.GOOS != "linux" {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "login", "--version")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Debugf("login --version failed (likely shadow-utils): %v", err)
-		return false
-	}
-
-	isUtilLinux := strings.Contains(string(output), "util-linux")
-	log.Debugf("util-linux login detected: %v", isUtilLinux)
-	return isUtilLinux
 }
 
 // createSuCommand creates a command using su - for privilege switching.
