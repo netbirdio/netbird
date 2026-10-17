@@ -1,6 +1,7 @@
 version: 2
 env:
   - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
+  - SKIP_LATEST={{ if index .Env "SKIP_LATEST" }}{{ .Env.SKIP_LATEST }}{{ else }}true{{ end }}
   - SKIP_DOCKER_PUSH={{ if index .Env "SKIP_DOCKER_PUSH" }}{{ .Env.SKIP_DOCKER_PUSH }}{{ else }}false{{ end }}
 project_name: netbird
 builds:
@@ -428,7 +429,7 @@ dockers_v2:
        - ghcr.io/netbirdio/netbird
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: client/Dockerfile
      extra_files:
        - client/netbird-entrypoint.sh
@@ -452,7 +453,7 @@ dockers_v2:
        - ghcr.io/netbirdio/netbird
      tags:
        - "{{ .Version }}-rootless"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}rootless-latest{{ end }}"
      dockerfile: client/Dockerfile-rootless
      extra_files:
        - client/netbird-entrypoint.sh
@@ -476,7 +477,7 @@ dockers_v2:
        - ghcr.io/netbirdio/netbird
      tags:
        - "{{ .Version }}-rootless-ubi"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-ubi-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}rootless-ubi-latest{{ end }}"
      dockerfile: client/Dockerfile-rootless.ubi
      extra_files:
        - client/netbird-entrypoint.sh
@@ -513,7 +514,7 @@ dockers_v2:
        - ghcr.io/netbirdio/relay
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: relay/Dockerfile
      platforms:
        - linux/amd64
@@ -535,7 +536,7 @@ dockers_v2:
        - ghcr.io/netbirdio/relay
      tags:
        - "{{ .Version }}-ubi"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}ubi-latest{{ end }}"
      dockerfile: relay/Dockerfile.ubi
      platforms:
        - linux/amd64
@@ -570,7 +571,7 @@ dockers_v2:
        - ghcr.io/netbirdio/signal
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: signal/Dockerfile
      platforms:
        - linux/amd64
@@ -592,7 +593,7 @@ dockers_v2:
        - ghcr.io/netbirdio/signal
      tags:
        - "{{ .Version }}-ubi"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}ubi-latest{{ end }}"
      dockerfile: signal/Dockerfile.ubi
      platforms:
        - linux/amd64
@@ -627,7 +628,7 @@ dockers_v2:
        - ghcr.io/netbirdio/management
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: management/Dockerfile
      platforms:
        - linux/amd64
@@ -649,7 +650,7 @@ dockers_v2:
        - ghcr.io/netbirdio/management
      tags:
        - "{{ .Version }}-ubi"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}ubi-latest{{ end }}"
      dockerfile: management/Dockerfile.ubi
      platforms:
        - linux/amd64
@@ -684,7 +685,7 @@ dockers_v2:
        - ghcr.io/netbirdio/upload
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: upload-server/Dockerfile.release
      platforms:
        - linux/amd64
@@ -706,7 +707,7 @@ dockers_v2:
        - ghcr.io/netbirdio/netbird-server
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: combined/Dockerfile
      platforms:
        - linux/amd64
@@ -728,7 +729,7 @@ dockers_v2:
        - ghcr.io/netbirdio/netbird-server
      tags:
        - "{{ .Version }}-ubi"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}ubi-latest{{ end }}"
      dockerfile: combined/Dockerfile.ubi
      platforms:
        - linux/amd64
@@ -763,7 +764,7 @@ dockers_v2:
        - ghcr.io/netbirdio/reverse-proxy
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: proxy/Dockerfile
      platforms:
        - linux/amd64
@@ -785,7 +786,7 @@ dockers_v2:
        - ghcr.io/netbirdio/nblink
      tags:
        - "{{ .Version }}"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}latest{{ end }}"
      dockerfile: client/Dockerfile-nblink
      platforms:
        - linux/amd64
@@ -807,7 +808,7 @@ dockers_v2:
        - ghcr.io/netbirdio/reverse-proxy
      tags:
        - "{{ .Version }}-ubi"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+       - "{{ if eq .Env.SKIP_LATEST \"false\" }}ubi-latest{{ end }}"
      dockerfile: proxy/Dockerfile.ubi
      platforms:
        - linux/amd64
@@ -837,7 +838,8 @@ dockers_v2:
 brews:
   - ids:
       - default
-    skip_upload: "{{ .Env.SKIP_PUBLISH }}"
+    # The tap holds one version, so a patch on an older line must not overwrite it.
+    skip_upload: "{{ .Env.SKIP_LATEST }}"
     repository:
       owner: netbirdio
       name: homebrew-tap
