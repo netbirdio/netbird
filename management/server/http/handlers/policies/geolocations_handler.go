@@ -43,8 +43,8 @@ func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationMa
 // getAllCountries retrieves a list of all countries
 func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Request) {
 	if l.geolocationManager == nil {
-		// TODO: update error message to include geo db self hosted doc link when ready
-		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized. "+
+			"Check the self-hosted Geo database documentation at https://docs.netbird.io/selfhosted/geo-support"), w)
 		return
 	}
 
