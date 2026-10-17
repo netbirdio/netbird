@@ -101,7 +101,7 @@ Gap: there is no store-level test for providers (encryption round-trip), policie
 
 - No retention / GC for `agent_network_consumption`.
 - No `Delete` for `Settings` (one row per account, cleared with the account).
-- No DB-engine-specific tuning — the same struct tags drive sqlite, mysql, postgres.
+- No DB-engine-specific tuning — the same struct tags drive sqlite and postgres.
 - Provider `extra_values` and `models` are JSON blobs; querying inside them is not supported by design.
 - `GetAgentNetworkConsumption` "not-found = zero row" contract is convenient but unconventional.
 

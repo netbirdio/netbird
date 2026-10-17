@@ -10,6 +10,7 @@ import (
 
 	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
 	nbdb "github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	gormstore "github.com/netbirdio/netbird/management/server/store"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
@@ -32,7 +33,7 @@ func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, fun
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}
-	_, err = gormstore.NewSqlStore(context.TODO(), conn, nil, false)
+	_, err = gormstore.NewSqlStore(context.TODO(), conn, nil, migrate.ModeAuto)
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}

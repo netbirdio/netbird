@@ -66,14 +66,7 @@ func MigrateAgentNetworkSettingsToDomain(ctx context.Context, db *gorm.DB) error
 		}
 
 		if hasCluster {
-			concat := "subdomain || '.' || cluster"
-			if tx.Name() == "mysql" {
-				concat = "CONCAT(subdomain, '.', cluster)"
-			}
-			res := tx.Exec(fmt.Sprintf(
-				"UPDATE agent_network_settings SET domain = %s, proxy_address = cluster WHERE (domain IS NULL OR domain = '') AND cluster <> '' AND subdomain <> ''",
-				concat,
-			))
+			res := tx.Exec("UPDATE agent_network_settings SET domain = subdomain || '.' || cluster, proxy_address = cluster WHERE (domain IS NULL OR domain = '') AND cluster <> '' AND subdomain <> ''")
 			if res.Error != nil {
 				return fmt.Errorf("backfill agent_network_settings domain: %w", res.Error)
 			}

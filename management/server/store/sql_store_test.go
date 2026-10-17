@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
@@ -336,10 +337,6 @@ func TestSqlStore_DatabaseBlocking(t *testing.T) {
 }
 
 func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("Skipping timeout test for MySQL")
-	}
-
 	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
 
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
@@ -367,7 +364,7 @@ func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
 // the Go side and can be hidden behind the 5-minute transactionTimeout.
 func TestNewSqliteStore_BusyTimeoutApplied(t *testing.T) {
 	dir := t.TempDir()
-	store, err := NewSqliteStore(context.Background(), dir, nil, true)
+	store, err := NewSqliteStore(context.Background(), dir, nil, migrate.ModeSkip)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = store.Close(context.Background())
@@ -397,7 +394,7 @@ func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", tc.envFile)
 			dir := t.TempDir()
-			store, err := NewSqliteStore(context.Background(), dir, nil, true)
+			store, err := NewSqliteStore(context.Background(), dir, nil, migrate.ModeSkip)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = store.Close(context.Background())
@@ -411,49 +408,6 @@ func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
 			assert.Equal(t, tc.expected, busyTimeout)
 		})
 	}
-}
-
-func TestSqlStore_ExecuteInTransaction_RestoresForeignKeyChecksOnMysql(t *testing.T) {
-	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
-		sqlStore := store.(*SqlStore)
-		if sqlStore.conn.Engine() != types.MysqlStoreEngine {
-			t.Skip("FOREIGN_KEY_CHECKS is MySQL specific")
-		}
-		sqlDB, err := sqlStore.GetDB().DB()
-		require.NoError(t, err)
-		sqlDB.SetMaxOpenConns(1)
-		ctx := context.Background()
-
-		foreignKeyChecks := func() int {
-			var enabled int
-			require.NoError(t, sqlStore.GetDB().Raw("SELECT @@SESSION.foreign_key_checks").Scan(&enabled).Error)
-			return enabled
-		}
-
-		err = store.ExecuteInTransaction(ctx, func(Store) error { return assert.AnError })
-		require.ErrorIs(t, err, assert.AnError)
-		assert.Equal(t, 1, foreignKeyChecks())
-
-		require.Panics(t, func() {
-			_ = store.ExecuteInTransaction(ctx, func(Store) error { panic("boom") })
-		})
-		assert.Equal(t, 1, foreignKeyChecks())
-
-		err = sqlStore.transaction(ctx, func(*gorm.DB) error { return assert.AnError })
-		require.ErrorIs(t, err, assert.AnError)
-		assert.Equal(t, 1, foreignKeyChecks())
-
-		err = store.ExecuteInTransaction(ctx, func(transaction Store) error {
-			bound := transaction.(*SqlStore)
-			require.NoError(t, bound.transaction(ctx, func(*gorm.DB) error { return nil }))
-			var enabled int
-			require.NoError(t, bound.GetDB().Raw("SELECT @@SESSION.foreign_key_checks").Scan(&enabled).Error)
-			assert.Equal(t, 0, enabled, "a savepoint must not re-enable FK checks for the rest of the transaction")
-			return nil
-		})
-		require.NoError(t, err)
-		assert.Equal(t, 1, foreignKeyChecks())
-	})
 }
 
 func TestSqlStore_Transaction_RollsBackOnError(t *testing.T) {

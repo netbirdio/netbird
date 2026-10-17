@@ -185,6 +185,9 @@ type ProviderConfig struct {
 // StoreConfig contains Store configuration
 type StoreConfig struct {
 	Engine types.Engine
+	// MigrationMode is the schema migration mode at startup: auto (default), check or skip.
+	// NB_STORE_MIGRATION_MODE overrides it.
+	MigrationMode string
 }
 
 // AgentNetwork contains agent-network (LLM gateway) configuration.

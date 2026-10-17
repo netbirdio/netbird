@@ -8,5 +8,4 @@ const (
 	PostgresStoreEngine        = db.PostgresStoreEngine
 	FileStoreEngine     Engine = "jsonfile"
 	SqliteStoreEngine          = db.SqliteStoreEngine
-	MysqlStoreEngine           = db.MysqlStoreEngine
 )
