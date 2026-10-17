@@ -45,6 +45,12 @@ func (p *Prefs) Get(namespace string, v any) (bool, error) {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
+	unlock, err := lockPrefsFile(p.path)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+
 	sections, err := readPrefsFile(p.path)
 	if err != nil {
 		return false, err
@@ -72,6 +78,12 @@ func (p *Prefs) Put(namespace string, v any) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
+	unlock, err := lockPrefsFile(p.path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	sections, err := readPrefsFile(p.path)
 	if err != nil {
 		return err
@@ -89,6 +101,12 @@ func (p *Prefs) Remove(namespace string) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
+	unlock, err := lockPrefsFile(p.path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	sections, err := readPrefsFile(p.path)
 	if err != nil {
 		return err
@@ -103,6 +121,19 @@ func (p *Prefs) Remove(namespace string) error {
 func removePrefsFile(path string) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
+
+	unlock, err := lockPrefsFile(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	// The lock file is left behind on purpose. The lock binds to the inode,
+	// not to the name, so unlinking it while holding it lets the next caller
+	// create a fresh inode under the same name and lock that instead — two
+	// processes would then be inside the read-modify-write at once, which is
+	// exactly what the lock exists to prevent. An empty file per deleted
+	// profile costs nothing next to that.
 	return os.Remove(path)
 }
 
