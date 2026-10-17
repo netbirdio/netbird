@@ -333,8 +333,15 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 
 func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {
 	hCfg := healthcheck.Config{
-		ListenAddress:  cfg.Server.HealthcheckAddress,
-		ServiceChecker: s.relaySrv,
+		ListenAddress: cfg.Server.HealthcheckAddress,
+	}
+	// s.relaySrv is a *relayServer.Server that stays nil when the relay is
+	// not enabled. Only assign it to the ServiceChecker interface when it's
+	// actually non-nil - a nil *relayServer.Server wrapped in the interface
+	// would compare non-nil, defeating healthcheck's own nil check while
+	// still panicking on any method call.
+	if s.relaySrv != nil {
+		hCfg.ServiceChecker = s.relaySrv
 	}
 
 	var err error
