@@ -197,7 +197,7 @@ type serverInstances struct {
 
 // createAllServers creates all server instances based on configuration.
 func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstances, error) {
-	metricsServer, err := sharedMetrics.NewServer(cfg.Server.MetricsPort, "")
+	metricsServer, err := sharedMetrics.NewServer(fmt.Sprintf(":%d", cfg.Server.MetricsPort), "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics server: %w", err)
 	}
