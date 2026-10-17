@@ -3,6 +3,7 @@
 package iptables
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -237,6 +238,10 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		require.NotNil(t, multi, "multi-source rule must produce one iptables rule")
 		sets := findSets(multi.(*Rule).specs)
 		require.Len(t, sets, 1, "multi-source rule must reference exactly one ipset")
+		// Guard the default: a regression that reported ipset as unusable
+		// would silently move every Linux client to per-prefix rules.
+		require.True(t, manager.ipsetSupport.supported(),
+			"ipset must not be latched off on a healthy kernel")
 
 		require.NoError(t, manager.DeleteFilterRule(multi))
 	})
@@ -264,7 +269,7 @@ func TestIptablesFilterIPSetFallback(t *testing.T) {
 	}()
 
 	// Simulate a kernel without the ipset hash module.
-	manager.family4.ipsetSupported = false
+	manager.ipsetSupport.markUnsupported(errors.New("test: pretend the kernel has no ipset"))
 
 	sources := []netip.Prefix{
 		netip.MustParsePrefix("10.20.0.42/32"),
@@ -296,30 +301,6 @@ func TestIptablesFilterIPSetFallback(t *testing.T) {
 		checkRuleSpecs(t, ipv4Client, rr.chain, false, fs.specs...)
 		checkTableRuleSpecs(t, ipv4Client, tableMangle, chainRTPre, false, fs.mangleSpecs...)
 	}
-}
-
-// TestIptablesFilterDestinationSetRequiresIPSet documents that a dynamic
-// (domain) destination cannot be expressed without ipset: its prefixes are only
-// known after DNS resolution, so there is nothing to expand into per-prefix
-// rules. The call must report that rather than install a broader rule than the
-// policy allows.
-func TestIptablesFilterDestinationSetRequiresIPSet(t *testing.T) {
-	manager, err := Create(ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err)
-	require.NoError(t, manager.Init(nil))
-
-	defer func() {
-		require.NoError(t, manager.Close(nil))
-	}()
-
-	manager.family4.ipsetSupported = false
-
-	destination := fw.Network{Set: fw.NewDomainSet(domain.List{"example.com"})}
-
-	_, err = manager.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("172.16.0.0/16")},
-		destination, fw.ProtocolALL, nil, nil, fw.ActionAccept)
-	require.Error(t, err, "a domain destination is not expressible without ipset")
-	require.ErrorContains(t, err, "requires ipset")
 }
 
 // TestIptablesNatRuleDropsSourceSetOnDestinationFailure covers a marking rule
@@ -417,7 +398,7 @@ func TestIptablesRouteFilterIPSetFallback(t *testing.T) {
 		require.NoError(t, manager.Close(nil))
 	}()
 
-	manager.family4.ipsetSupported = false
+	manager.ipsetSupport.markUnsupported(errors.New("test: pretend the kernel has no ipset"))
 
 	sources := []netip.Prefix{
 		netip.MustParsePrefix("172.16.0.0/16"),
@@ -447,6 +428,157 @@ func TestIptablesRouteFilterIPSetFallback(t *testing.T) {
 	for _, fs := range all {
 		checkRuleSpecs(t, ipv4Client, rr.chain, false, fs.specs...)
 	}
+}
+
+// TestIptablesFilterFallsBackOnSetFailure drives the real failure path: a set
+// with the rule's name already exists with an incompatible type, so the kernel
+// rejects the hash:net creation. The rule must still land in the chain,
+// matching each prefix directly; without the fallback it was dropped and the
+// catch-all DROP silently blocked traffic the policy permits. The capability
+// must survive, because this kernel does support ipset and a latch would also
+// take down the destination sets that have no per-prefix form.
+func TestIptablesFilterFallsBackOnSetFailure(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	sources := []netip.Prefix{
+		netip.MustParsePrefix("10.20.0.42/32"),
+		netip.MustParsePrefix("10.20.0.43/32"),
+	}
+
+	// Poison the name the rule's set would get so hash:net creation fails.
+	poisoned := fw.NewPrefixSet(sources).HashedName()
+	require.NoError(t, ipset.Create(poisoned, ipset.TypeHashIP, ipset.CreateOptions{}))
+	t.Cleanup(func() {
+		if err := ipset.Destroy(poisoned); err != nil {
+			t.Logf("destroy poisoned set %s: %v", poisoned, err)
+		}
+	})
+
+	port := &fw.Port{Values: []uint16{22}}
+	rule, err := manager.AddFilterRule(nil, sources, fw.Network{}, "tcp", nil, port, fw.ActionAccept)
+	require.NoError(t, err, "AddFilterRule must succeed by falling back")
+
+	rr := rule.(*Rule)
+	all := rr.allSpecs()
+	require.Len(t, all, len(sources), "each source prefix needs its own rule")
+	for i, fs := range all {
+		joined := strings.Join(fs.specs, " ")
+		require.Contains(t, joined, "-s "+sources[i].String(), "fallback rule must match the source prefix")
+		require.NotContains(t, joined, matchSet)
+		checkRuleSpecs(t, ipv4Client, rr.chain, true, fs.specs...)
+	}
+
+	require.True(t, manager.ipsetSupport.supported(),
+		"a failure specific to one set must not latch ipset off on a kernel that supports it")
+
+	// A subsequent multi-source rule still gets a set.
+	next, err := manager.AddFilterRule(nil, []netip.Prefix{
+		netip.MustParsePrefix("10.20.0.44/32"),
+		netip.MustParsePrefix("10.20.0.45/32"),
+	}, fw.Network{}, "tcp", nil, port, fw.ActionAccept)
+	require.NoError(t, err)
+	require.Len(t, findSets(next.(*Rule).specs), 1, "later rules must keep using ipset")
+	require.NoError(t, manager.DeleteFilterRule(next))
+}
+
+// TestIptablesIPSetProbe covers the confirmation step that decides whether a
+// suspected ipset failure latches the capability off. On a kernel with the
+// modules it must report ipset as usable and leave nothing behind: a probe rule
+// or set left in place would be untracked.
+func TestIptablesIPSetProbe(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	before, err := ipv4Client.List(tableFilter, chainACLInput)
+	require.NoError(t, err, "list acl chain")
+
+	require.True(t, manager.family4.ipsetUsable(chainACLInput), "ipset must be usable on this kernel")
+
+	after, err := ipv4Client.List(tableFilter, chainACLInput)
+	require.NoError(t, err, "list acl chain")
+	require.Equal(t, before, after, "the probe must leave the chain as it found it")
+
+	sets, err := ipset.ListAll()
+	require.NoError(t, err, "list sets")
+	for _, s := range sets {
+		require.NotContains(t, s.SetName, "nb-probe-", "the probe must destroy its set")
+	}
+}
+
+// TestIptablesFilterDestinationSetRequiresIPSet documents that a dynamic
+// (domain) destination cannot be expressed without ipset: its prefixes are only
+// known after DNS resolution, so there is nothing to expand into per-prefix
+// rules. The call must report that rather than install a broader rule than the
+// policy allows.
+func TestIptablesFilterDestinationSetRequiresIPSet(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	manager.ipsetSupport.markUnsupported(errors.New("test: pretend the kernel has no ipset"))
+
+	destination := fw.Network{Set: fw.NewDomainSet(domain.List{"example.com"})}
+
+	_, err = manager.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("172.16.0.0/16")},
+		destination, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.Error(t, err, "a domain destination is not expressible without ipset")
+	require.ErrorContains(t, err, "requires ipset")
+}
+
+// TestIptablesFilterRollsBackPartialInstall covers a fallback rule whose second
+// expanded rule cannot be installed. Nothing may be left behind: if the rule
+// were tracked, a later call would short-circuit on it and report success while
+// some sources were never installed, and an untracked leftover rule would keep
+// matching with no way to remove it.
+func TestIptablesFilterRollsBackPartialInstall(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	manager.ipsetSupport.markUnsupported(errors.New("test: pretend the kernel has no ipset"))
+
+	// The v6 prefix is rejected by the v4 iptables binary, so the second rule
+	// of the expansion fails after the first has been installed. Call the
+	// family directly since the manager dispatches by the first source.
+	good := netip.MustParsePrefix("172.16.0.0/16")
+	sources := []netip.Prefix{good, netip.MustParsePrefix("2001:db8::/32")}
+	destination := fw.Network{Prefix: netip.MustParsePrefix("10.0.0.0/8")}
+
+	_, err = manager.family4.AddFilterRule(nil, sources, destination, fw.ProtocolALL, nil, nil, fw.ActionDrop)
+	require.Error(t, err, "a source that iptables rejects must fail the whole rule")
+
+	require.Empty(t, manager.family4.filters, "no rule may stay tracked")
+
+	installed := []string{"-s", good.String(), "-d", "10.0.0.0/8", "-j", "DROP"}
+	checkRuleSpecs(t, ipv4Client, chainRTFwdIn, false, installed...)
 }
 
 // TestIptablesCloseRemovesAllState exercises a spread of rule kinds and then
