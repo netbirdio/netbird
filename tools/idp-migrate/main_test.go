@@ -348,7 +348,7 @@ func TestBuildUrl(t *testing.T) {
 		{"with https scheme", "https://example.com", "/oauth2", "https://example.com/oauth2"},
 		{"with http scheme", "http://example.com", "/oauth2/callback", "http://example.com/oauth2/callback"},
 		{"bare domain", "example.com", "/oauth2", "https://example.com/oauth2"},
-		{"domain with port", "example.com:8080", "/nb-auth", "https://example.com:8080/nb-auth"},
+		{"domain with port and fragment", "example.com:8080", "/#callback", "https://example.com:8080/#callback"},
 		{"trailing slash on uri", "https://example.com/", "/oauth2", "https://example.com/oauth2"},
 		{"nested path", "https://example.com", "/oauth2/callback", "https://example.com/oauth2/callback"},
 	}
@@ -437,6 +437,10 @@ func TestGenerateConfig(t *testing.T) {
 		assert.Nil(t, embeddedIDP["LocalAuthDisabled"], "LocalAuthDisabled should not be set")
 		assert.Nil(t, embeddedIDP["SignKeyRefreshEnabled"], "SignKeyRefreshEnabled should not be set")
 		assert.Nil(t, embeddedIDP["CLIRedirectURIs"], "CLIRedirectURIs should not be set")
+		assert.Equal(t, []any{
+			"https://mgmt.example.com/#callback",
+			"https://mgmt.example.com/#silent-callback",
+		}, embeddedIDP["DashboardRedirectURIs"])
 
 		// Static connector's redirectURI should use the management domain
 		connectors := embeddedIDP["StaticConnectors"].([]any)

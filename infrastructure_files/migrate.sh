@@ -772,8 +772,8 @@ server:
     issuer: "https://${DOMAIN}/oauth2"
     signKeyRefreshEnabled: ${SIGNKEY_REFRESH}
     dashboardRedirectURIs:
-      - "https://${DOMAIN}/nb-auth"
-      - "https://${DOMAIN}/nb-silent-auth"
+      - "https://${DOMAIN}/#callback"
+      - "https://${DOMAIN}/#silent-callback"
     cliRedirectURIs:
       - "http://localhost:53000/"
 
@@ -807,8 +807,8 @@ AUTH_CLIENT_SECRET=
 AUTH_AUTHORITY=https://${DOMAIN}/oauth2
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES=openid profile email groups
-AUTH_REDIRECT_URI=/nb-auth
-AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+AUTH_REDIRECT_URI=/#callback
+AUTH_SILENT_REDIRECT_URI=/#silent-callback
 # SSL
 NGINX_SSL_PORT=443
 # Letsencrypt
