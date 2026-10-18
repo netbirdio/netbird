@@ -241,17 +241,17 @@ func (s *serviceViaListener) ResolverAddress() (netip.AddrPort, bool) {
 	if !s.listenerIsRunning || !s.listenIP.IsValid() {
 		return netip.AddrPort{}, false
 	}
-	return netip.AddrPortFrom(s.listenIP, uint16(s.runtimePort())), true
+	return netip.AddrPortFrom(s.listenIP, uint16(s.runtimePortLocked())), true
 }
 
 func (s *serviceViaListener) RuntimePort() int {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
-	return s.runtimePort()
+	return s.runtimePortLocked()
 }
 
-func (s *serviceViaListener) runtimePort() int {
+func (s *serviceViaListener) runtimePortLocked() int {
 	if s.redirectInstalled() {
 		return DefaultPort
 	}
