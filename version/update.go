@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"sync"
@@ -27,8 +28,11 @@ type Update struct {
 	latestAvailable *goversion.Version
 	versionsLock    sync.Mutex
 
-	fetchTicker *time.Ticker
-	fetchDone   chan struct{}
+	// fetcherLock guards the fetcher lifecycle fields below.
+	fetcherLock  sync.Mutex
+	fetchStopped bool
+	fetchCancel  context.CancelFunc
+	fetcherDone  chan struct{}
 
 	onUpdateListener func()
 	listenerLock     sync.Mutex
@@ -44,7 +48,6 @@ func NewUpdate(httpAgent string) *Update {
 	u := &Update{
 		httpAgent: httpAgent,
 		uiVersion: currentVersion,
-		fetchDone: make(chan struct{}),
 	}
 
 	return u
@@ -57,18 +60,20 @@ func NewUpdateAndStart(httpAgent string) *Update {
 	return u
 }
 
-// StopWatch stop the version info fetch loop
+// StopWatch stops the version info fetch loop, cancelling an in-flight request, and waits
+// for StartFetcher to return. It is safe to call more than once, and a StartFetcher that
+// runs after it returns immediately.
 func (u *Update) StopWatch() {
-	if u.fetchTicker == nil {
+	u.fetcherLock.Lock()
+	u.fetchStopped = true
+	cancel, done := u.fetchCancel, u.fetcherDone
+	u.fetcherLock.Unlock()
+
+	if cancel == nil {
 		return
 	}
-
-	u.fetchTicker.Stop()
-
-	select {
-	case u.fetchDone <- struct{}{}:
-	default:
-	}
+	cancel()
+	<-done
 }
 
 // SetDaemonVersion update the currently running daemon version. If new version is available it will trigger
@@ -107,32 +112,45 @@ func (u *Update) LatestVersion() *goversion.Version {
 	return u.latestAvailable
 }
 
+// StartFetcher fetches the version info now and then every fetchPeriod until StopWatch is
+// called. It blocks, so callers run it in a goroutine. Only the first call starts a loop;
+// later calls, and any call after StopWatch, return immediately.
 func (u *Update) StartFetcher() {
-	if u.fetchTicker != nil {
+	u.fetcherLock.Lock()
+	if u.fetchStopped || u.fetcherDone != nil {
+		u.fetcherLock.Unlock()
 		return
 	}
-	u.fetchTicker = time.NewTicker(fetchPeriod)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	u.fetchCancel, u.fetcherDone = cancel, done
+	u.fetcherLock.Unlock()
 
-	if changed := u.fetchVersion(); changed {
-		u.checkUpdate()
-	}
+	defer close(done)
+	u.fetchLoop(ctx)
+}
+
+func (u *Update) fetchLoop(ctx context.Context) {
+	ticker := time.NewTicker(fetchPeriod)
+	defer ticker.Stop()
 
 	for {
+		if changed := u.fetchVersion(ctx); changed {
+			u.checkUpdate()
+		}
+
 		select {
-		case <-u.fetchDone:
+		case <-ctx.Done():
 			return
-		case <-u.fetchTicker.C:
-			if changed := u.fetchVersion(); changed {
-				u.checkUpdate()
-			}
+		case <-ticker.C:
 		}
 	}
 }
 
-func (u *Update) fetchVersion() bool {
+func (u *Update) fetchVersion(ctx context.Context) bool {
 	log.Debugf("fetching version info from %s", versionURL)
 
-	req, err := http.NewRequest("GET", versionURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
 	if err != nil {
 		log.Errorf("failed to create request for version info: %s", err)
 		return false
@@ -142,6 +160,10 @@ func (u *Update) fetchVersion() bool {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			log.Debugf("version info fetch cancelled: %s", err)
+			return false
+		}
 		log.Errorf("failed to fetch version info: %s", err)
 		return false
 	}
