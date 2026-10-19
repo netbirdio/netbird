@@ -66,19 +66,36 @@ func routeCheck(ctx context.Context, fd int, nexthopv4, nexthopv6 systemops.Next
 			}
 			switch msg.Type {
 			case unix.RTM_ADD:
-				if systemops.IgnoreAddedDefaultRoute(flags) {
+				if !defaultRouteChanged(int(msg.Type), route, flags, nexthopv4, nexthopv6) {
 					log.Debugf("Network monitor: ignoring added default route via %s, interface %s, flags %#x", route.Gw, intf, flags)
 					continue
 				}
 				log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
 				return nil
 			case unix.RTM_DELETE:
-				if nexthopv4.Intf != nil && route.Gw.Compare(nexthopv4.IP) == 0 || nexthopv6.Intf != nil && route.Gw.Compare(nexthopv6.IP) == 0 {
+				if defaultRouteChanged(int(msg.Type), route, flags, nexthopv4, nexthopv6) {
 					log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
 					return nil
 				}
 			}
 		}
+	}
+}
+
+func defaultRouteChanged(msgType int, r *systemops.Route, flags int, nexthopv4, nexthopv6 systemops.Nexthop) bool {
+	if r.Dst.Bits() != 0 {
+		return false
+	}
+	switch msgType {
+	case unix.RTM_ADD:
+		return !systemops.IgnoreAddedDefaultRoute(flags)
+	case unix.RTM_DELETE:
+		if systemops.IgnoreDeletedDefaultRoute(flags) {
+			return false
+		}
+		return nexthopv4.Intf != nil && r.Gw.Compare(nexthopv4.IP) == 0 || nexthopv6.Intf != nil && r.Gw.Compare(nexthopv6.IP) == 0
+	default:
+		return false
 	}
 }
 
