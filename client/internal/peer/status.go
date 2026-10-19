@@ -271,9 +271,12 @@ func (s *StatusChangeSubscription) deliver(snapshot *routerSnapshot, block bool)
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux              sync.RWMutex
-	muxRelays        sync.RWMutex
-	peers            map[string]State
+	mux       sync.RWMutex
+	muxRelays sync.RWMutex
+	peers     map[string]State
+	// pqMarked holds the peers with a programmed post-quantum PSK. It survives connection
+	// updates (see quantumResistantLocked) and is dropped with the peer.
+	pqMarked         map[string]struct{}
 	ipToKey          map[string]string
 	activeRoutePeers map[route.HAUniqueID]string
 	changeNotify     map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
@@ -338,6 +341,7 @@ type Status struct {
 func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:                 make(map[string]State),
+		pqMarked:              make(map[string]struct{}),
 		ipToKey:               make(map[string]string),
 		activeRoutePeers:      make(map[route.HAUniqueID]string),
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
@@ -440,6 +444,7 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 	}
 
 	delete(d.peers, peerPubKey)
+	delete(d.pqMarked, peerPubKey)
 	if mappedKey, exists := d.ipToKey[p.IP]; exists && mappedKey == peerPubKey {
 		delete(d.ipToKey, p.IP)
 	}
@@ -471,7 +476,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
 		peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
 		peerState.RelayServerAddress = receivedState.RelayServerAddress
-		peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+		peerState.RosenpassEnabled = d.quantumResistantLocked(receivedState.PubKey, receivedState.RosenpassEnabled)
 		peerState.clearLatency()
 	}
 
@@ -594,7 +599,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
 	peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
 	peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
-	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+	peerState.RosenpassEnabled = d.quantumResistantLocked(receivedState.PubKey, receivedState.RosenpassEnabled)
 
 	d.peers[receivedState.PubKey] = peerState
 
@@ -631,7 +636,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
 	peerState.Relayed = receivedState.Relayed
 	peerState.RelayServerAddress = receivedState.RelayServerAddress
-	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+	peerState.RosenpassEnabled = d.quantumResistantLocked(receivedState.PubKey, receivedState.RosenpassEnabled)
 
 	d.peers[receivedState.PubKey] = peerState
 
@@ -769,6 +774,34 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	d.peers[peerPubKey] = peerState
 
 	return nil
+}
+
+// MarkPeerQuantumResistant flags the peer's tunnel as post-quantum protected. The flag is
+// otherwise computed only when the connection comes up, so a PSK that lands after that
+// (e.g. the KEM answer arriving after the WireGuard endpoint was configured) needs this
+// to show up in the status. The mark persists until the peer is removed.
+func (d *Status) MarkPeerQuantumResistant(peerPubKey string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	d.pqMarked[peerPubKey] = struct{}{}
+	peerState.RosenpassEnabled = true
+	d.peers[peerPubKey] = peerState
+
+	return nil
+}
+
+// quantumResistantLocked merges a connection update's verdict with the PQ mark. The
+// connection path computes its verdict before configuring WireGuard, so it can write it
+// after the PSK was programmed; the mark keeps that stale false from clearing it.
+func (d *Status) quantumResistantLocked(peerPubKey string, fromConn bool) bool {
+	_, marked := d.pqMarked[peerPubKey]
+	return fromConn || marked
 }
 
 // UpdatePeerSSHHostKey updates peer's SSH host key

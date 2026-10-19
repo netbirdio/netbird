@@ -573,3 +573,46 @@ func TestActiveRoutePeers(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, "peerB", active[netB])
 }
+
+// TestStatus_PQMarkSurvivesStaleConnectionUpdate reproduces a lab race: the relay/ICE
+// path builds its status update from a PQ state read before the KEM answer landed, and
+// writes it after the PSK was programmed and the peer marked quantum resistant. That
+// stale "false" must not clear the mark, since the PQ PSK lives until the peer is removed.
+func TestStatus_PQMarkSurvivesStaleConnectionUpdate(t *testing.T) {
+	const key = "eDQmZp9jhQGX7XdYpHGaFSpAouldr3Sbf7MZRcGTGGQ="
+	updates := map[string]func(*Status, State) error{
+		"relayed": (*Status).UpdatePeerRelayedState,
+		"ice":     (*Status).UpdatePeerICEState,
+		"state":   (*Status).UpdatePeerState,
+	}
+	for name, update := range updates {
+		t.Run(name, func(t *testing.T) {
+			status := NewRecorder("https://mgm")
+			require.NoError(t, status.AddPeer(key, "peer.netbird.cloud", "100.64.0.2", ""))
+			require.NoError(t, status.MarkPeerQuantumResistant(key))
+
+			require.NoError(t, update(status, State{PubKey: key, ConnStatus: StatusConnected, RosenpassEnabled: false}))
+
+			st, err := status.GetPeer(key)
+			require.NoError(t, err)
+			assert.True(t, st.RosenpassEnabled, "a stale connection update must not clear the PQ mark")
+		})
+	}
+}
+
+// TestStatus_PQMarkClearedOnRemove verifies the mark does not outlive the peer: once the
+// peer is removed and re-added, a connection update without PQ reports it as such.
+func TestStatus_PQMarkClearedOnRemove(t *testing.T) {
+	const key = "eDQmZp9jhQGX7XdYpHGaFSpAouldr3Sbf7MZRcGTGGQ="
+	status := NewRecorder("https://mgm")
+	require.NoError(t, status.AddPeer(key, "peer.netbird.cloud", "100.64.0.2", ""))
+	require.NoError(t, status.MarkPeerQuantumResistant(key))
+	require.NoError(t, status.RemovePeer(key))
+	require.NoError(t, status.AddPeer(key, "peer.netbird.cloud", "100.64.0.2", ""))
+
+	require.NoError(t, status.UpdatePeerRelayedState(State{PubKey: key, ConnStatus: StatusConnected, RosenpassEnabled: false}))
+
+	st, err := status.GetPeer(key)
+	require.NoError(t, err)
+	assert.False(t, st.RosenpassEnabled, "a re-added peer must not inherit the removed peer's PQ mark")
+}

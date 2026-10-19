@@ -42,10 +42,19 @@ type pqPresharedKeySetter interface {
 	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
 }
 
+// pqStatusMarker is the subset of the status recorder the ML-KEM callback needs: flagging
+// a peer as post-quantum protected once its PSK is programmed. *peer.Status satisfies it.
+type pqStatusMarker interface {
+	MarkPeerQuantumResistant(peerPubKey string) error
+}
+
 // pqCallbackHandler programs the derived PQ PSK onto the WireGuard peer. It is the
 // engine-side implementation of pqkem.CallbackHandler.
 type pqCallbackHandler struct {
 	wg pqPresharedKeySetter
+	// status reflects a newly programmed PSK in the peer's "Quantum resistance" flag.
+	// Nil disables it.
+	status pqStatusMarker
 	// applied drops an out-of-order PSK apply so a stale callback can't overwrite a newer
 	// key. Nil disables the guard.
 	applied *appliedGenerations
@@ -67,7 +76,17 @@ func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, gen uint64, ps
 	// peer is not configured yet, so this is a no-op there and the PSK is instead
 	// pulled at peer-config time (pqHandshaker.PSK / conn.presharedKey).
 	log.Tracef("pqkem: programming PSK for peer %s (gen %d)", remoteID, gen)
-	return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
+	if err := h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true); err != nil {
+		return err
+	}
+	// The status flag is computed when the connection comes up; a PSK landing afterwards
+	// would otherwise leave the peer reported as not quantum resistant.
+	if h.status != nil {
+		if err := h.status.MarkPeerQuantumResistant(string(remoteID)); err != nil {
+			log.Debugf("pqkem: mark peer %s quantum resistant in status: %v", remoteID, err)
+		}
+	}
+	return nil
 }
 
 // OnRekeyFailed reports a failed PQ (re)key convergence and re-bootstraps the KEM over
