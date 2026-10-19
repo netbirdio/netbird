@@ -1,0 +1,129 @@
+UsersPath:
+  get:
+    summary: List all Users
+    description: Returns a list of all users
+    tags: [ Users ]
+    security:
+      - BearerAuth: [ ]
+      - TokenAuth: [ ]
+    parameters:
+      - in: query
+        name: service_user
+        schema:
+          type: boolean
+        description: Filters users and returns either regular users or service users
+    responses:
+      '200':
+        description: A JSON array of Users
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: './user_components.yaml#/components/schemas/User'
+      '400':
+        "$ref": "../openapi.yaml#/components/responses/bad_request"
+      '401':
+        "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+      '403':
+        "$ref": "../openapi.yaml#/components/responses/forbidden"
+      '422':
+        "$ref": "../openapi.yaml#/components/responses/unprocessable"
+      '500':
+        "$ref": "../openapi.yaml#/components/responses/internal_error"
+  post:
+    summary: Create a User
+    description: Creates a new service user or sends an invite to a regular user
+    tags: [ Users ]
+    security:
+      - BearerAuth: [ ]
+      - TokenAuth: [ ]
+    requestBody:
+      description: User invite information
+      required: true
+      content:
+        'application/json':
+          schema:
+            $ref: './user_components.yaml#/components/schemas/UserCreateRequest'
+    responses:
+      '200':
+        description: A User object
+        content:
+          application/json:
+            schema:
+              $ref: './user_components.yaml#/components/schemas/User'
+      '400':
+        "$ref": "../openapi.yaml#/components/responses/bad_request"
+      '401':
+        "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+      '403':
+        "$ref": "../openapi.yaml#/components/responses/forbidden"
+      '422':
+        "$ref": "../openapi.yaml#/components/responses/unprocessable"
+      '500':
+        "$ref": "../openapi.yaml#/components/responses/internal_error"
+UserPath:
+  put:
+    summary: Update a User
+    description: Update information about a User
+    tags: [ Users ]
+    security:
+      - BearerAuth: [ ]
+      - TokenAuth: [ ]
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema:
+          type: string
+        description: The unique identifier of a user
+    requestBody:
+      description: User update
+      required: true
+      content:
+        'application/json':
+          schema:
+            $ref: './user_components.yaml#/components/schemas/UserRequest'
+    responses:
+      '200':
+        description: A User object
+        content:
+          application/json:
+            schema:
+              $ref: './user_components.yaml#/components/schemas/User'
+      '400':
+        "$ref": "../openapi.yaml#/components/responses/bad_request"
+      '401':
+        "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+      '403':
+        "$ref": "../openapi.yaml#/components/responses/forbidden"
+      '422':
+        "$ref": "../openapi.yaml#/components/responses/unprocessable"
+      '500':
+        "$ref": "../openapi.yaml#/components/responses/internal_error"
+  delete:
+    summary: Delete a User
+    description: This method removes a user from accessing the system. For this leaves the IDP user intact unless the `--user-delete-from-idp` is passed to management startup.
+    tags: [ Users ]
+    security:
+      - BearerAuth: [ ]
+      - TokenAuth: [ ]
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema:
+          type: string
+        description: The unique identifier of a user
+    responses:
+      '200':
+        description: Delete status code
+        content: { }
+      '400':
+        "$ref": "../openapi.yaml#/components/responses/bad_request"
+      '401':
+        "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+      '403':
+        "$ref": "../openapi.yaml#/components/responses/forbidden"
+      '500':
+        "$ref": "../openapi.yaml#/components/responses/internal_error"

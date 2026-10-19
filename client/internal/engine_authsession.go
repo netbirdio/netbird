@@ -88,7 +88,7 @@ func (e *Engine) ExtendAuthSession(ctx context.Context, jwtToken string) (time.T
 		return time.Time{}, errors.New("management client is not initialised")
 	}
 
-	info, err := system.GetInfoWithChecks(ctx, e.checks)
+	info, err := system.GetInfoWithChecks(ctx, e.appliedChecks())
 	if err != nil {
 		log.Warnf("failed to collect system info for session extend: %v", err)
 		info = system.GetInfo(ctx)

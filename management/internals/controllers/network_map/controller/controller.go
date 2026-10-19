@@ -127,14 +127,20 @@ func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peer
 	return c.peersUpdateManager.CreateChannel(ctx, peerID), nil
 }
 
-func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string) {
-	c.peersUpdateManager.CloseChannel(ctx, peerID)
+// OnPeerDisconnected closes the session's updates channel and schedules an ephemeral peer for
+// cleanup. It returns false without touching anything when a newer session owns the peer. A nil
+// session closes any registered channel.
+func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string, session chan *network_map.UpdateMessage) bool {
+	if !c.peersUpdateManager.CloseSessionChannel(ctx, peerID, session) {
+		return false
+	}
 	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer %s: %v", peerID, err)
-		return
+		return true
 	}
 	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
+	return true
 }
 
 // injectAllProxyPolicies prepares an account for the per-peer network-map

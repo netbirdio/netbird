@@ -35,7 +35,10 @@ type Controller interface {
 	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
-	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
+	// OnPeerDisconnected tears down the stream state of the peer's session, identified by its
+	// updates channel. It returns false and leaves everything untouched when a newer session
+	// owns the peer. A nil session is the newest session and tears down any registered channel.
+	OnPeerDisconnected(ctx context.Context, accountID string, peerID string, session chan *UpdateMessage) bool
 
 	TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer)
 }
