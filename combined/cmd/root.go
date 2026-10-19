@@ -765,7 +765,7 @@ func logEnvVars() {
 			key, _, _ := strings.Cut(env, "=")
 			value := os.Getenv(key)
 			keyLower := strings.ToLower(key)
-			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") {
+			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") || strings.Contains(keyLower, "token") {
 				value = util.MaskSecret(value)
 			} else {
 				value = util.MaskCredentials(value)

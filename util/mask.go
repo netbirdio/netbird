@@ -2,27 +2,29 @@ package util
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
 const masked = "xxxxx"
 
+// Matches a key=value DSN password, quoted or not: password='a b', sslpassword = x.
+var dsnPassword = regexp.MustCompile(`(\w*password)\s*=\s*('(?:\\.|[^'\\])*'|\S*)`)
+
 // MaskCredentials masks the password in a connection string: a key=value DSN, a
 // "user:pass@host" DSN, or one or more comma-separated URLs.
 func MaskCredentials(value string) string {
-	if strings.Contains(value, "password=") {
-		fields := strings.Fields(value)
-		for i, field := range fields {
-			if strings.HasPrefix(field, "password=") {
-				fields[i] = "password=" + masked
-			}
+	if !strings.Contains(value, "://") && dsnPassword.MatchString(value) {
+		return dsnPassword.ReplaceAllString(value, "${1}="+masked)
+	}
+	var urls []string
+	for _, part := range strings.Split(value, ",") {
+		if n := len(urls); n > 0 && !strings.Contains(part, "://") {
+			urls[n-1] += "," + part // a comma inside the previous URL
+			continue
 		}
-		return strings.Join(fields, " ")
+		urls = append(urls, part)
 	}
-	if strings.Count(value, "://") < 2 {
-		return maskUserinfo(value)
-	}
-	urls := strings.Split(value, ",")
 	for i, raw := range urls {
 		urls[i] = maskUserinfo(strings.TrimSpace(raw))
 	}
@@ -31,34 +33,46 @@ func MaskCredentials(value string) string {
 
 // MaskSecret keeps the first 4 characters of secret.
 func MaskSecret(secret string) string {
-	if len(secret) <= 4 {
+	r := []rune(secret)
+	if len(r) <= 4 {
 		return masked
 	}
-	return secret[:4] + "..."
+	return string(r[:4]) + "..."
 }
 
 func maskUserinfo(raw string) string {
-	at := strings.Index(raw, "@")
-	if at == -1 {
-		return raw
-	}
 	if !strings.Contains(raw, "://") {
+		at := strings.LastIndex(raw, "@")
+		if at == -1 {
+			return raw
+		}
 		if colon := strings.Index(raw[:at], ":"); colon != -1 {
 			return raw[:colon+1] + masked + raw[at:]
 		}
 		return raw
 	}
 	u, err := url.Parse(raw)
-	switch {
-	case err != nil:
-		return masked
-	case u.User == nil:
+	if err != nil {
+		if strings.Contains(raw, "@") || strings.Contains(raw, "password=") {
+			return masked
+		}
 		return raw
 	}
-	if _, ok := u.User.Password(); ok {
-		return u.Redacted()
+	q := u.Query()
+	if u.User == nil && !q.Has("password") {
+		return raw
 	}
-	// A lone username is used as the password.
-	u.User = url.User(masked)
+	if q.Has("password") {
+		q.Set("password", masked)
+		u.RawQuery = q.Encode()
+	}
+	if u.User != nil {
+		if _, ok := u.User.Password(); ok {
+			u.User = url.UserPassword(u.User.Username(), masked)
+		} else {
+			// A lone username is used as the password.
+			u.User = url.User(masked)
+		}
+	}
 	return u.String()
 }
