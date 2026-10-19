@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -87,4 +88,35 @@ func TestConn_presharedKey_PQ(t *testing.T) {
 		require.Equal(t, sentinel, *got, "strict must return the blocking sentinel")
 		require.NotEqual(t, nbPSK, *got, "the sentinel must not be the ordinary key")
 	})
+}
+
+// TestConn_IdlePresharedKey covers the key an idle (lazy) peer is installed with. Strict
+// mode must never leave an idle peer without a key, since the remote can complete a
+// classical handshake with it directly; everything else leaves the idle key unchanged.
+func TestConn_IdlePresharedKey(t *testing.T) {
+	derivedPSK, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	sentinel, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	newConn := func(pq PQHandshaker, strict bool) *Conn {
+		c := &Conn{Log: log.WithField("peer", "pq-idle-test")}
+		c.config.PQ = pq
+		c.config.PQStrict = strict
+		if strict {
+			c.pqStrictSentinelKey = &sentinel
+		}
+		return c
+	}
+
+	got := newConn(fakePQ{ok: false}, true).IdlePresharedKey()
+	require.NotNil(t, got, "strict mode must install a key on an idle peer")
+	assert.Equal(t, sentinel, *got, "before a PQ PSK exists strict mode installs the sentinel")
+
+	got = newConn(fakePQ{psk: derivedPSK, ok: true}, true).IdlePresharedKey()
+	require.NotNil(t, got, "strict mode must install a key on an idle peer")
+	assert.Equal(t, derivedPSK, *got, "once derived, strict mode installs the PQ PSK")
+
+	assert.Nil(t, newConn(fakePQ{ok: false}, false).IdlePresharedKey(), "non-strict mode leaves the idle key unchanged")
+	assert.Nil(t, newConn(nil, false).IdlePresharedKey(), "without ML-KEM the idle key is left unchanged")
 }

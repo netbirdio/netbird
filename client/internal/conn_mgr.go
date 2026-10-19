@@ -185,10 +185,11 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 // newLazyPeerConfig describes a peer connection to the lazy connection manager.
 func newLazyPeerConfig(peerKey string, conn *peer.Conn) lazyconn.PeerConfig {
 	return lazyconn.PeerConfig{
-		PublicKey:  peerKey,
-		AllowedIPs: conn.WgConfig().AllowedIps,
-		PeerConnID: conn.ConnID(),
-		Log:        conn.Log,
+		PublicKey:    peerKey,
+		AllowedIPs:   conn.WgConfig().AllowedIps,
+		PeerConnID:   conn.ConnID(),
+		Log:          conn.Log,
+		PresharedKey: conn.IdlePresharedKey,
 	}
 }
 

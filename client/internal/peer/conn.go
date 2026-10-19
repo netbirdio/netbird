@@ -1141,6 +1141,21 @@ func (conn *Conn) pqPSK() (*wgtypes.Key, bool) {
 	return &psk, true
 }
 
+// IdlePresharedKey is the preshared key an idle (lazy) WireGuard peer is installed with.
+// An idle peer accepts a handshake the remote initiates directly, so in ML-KEM strict
+// mode it must already carry the PQ PSK, or the strict sentinel until one exists;
+// installed without a key, a fresh peer would accept a classical session before any
+// exchange. Outside strict mode it returns nil and leaves the idle peer's key unchanged.
+func (conn *Conn) IdlePresharedKey() *wgtypes.Key {
+	if conn.config.PQ == nil || !conn.config.PQStrict {
+		return nil
+	}
+	if psk, ok := conn.pqPSK(); ok {
+		return psk
+	}
+	return conn.pqStrictSentinelKey
+}
+
 // presharedKey resolves the WireGuard preshared key for the peer. pqPSK is the
 // post-quantum PSK looked up out of band via pqPSK (nil when none is derived yet), passed
 // in so the manager lock is never taken under conn.mu.
