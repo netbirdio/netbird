@@ -567,9 +567,20 @@ func (m *Manager) OnDataPathDown(remoteID RemoteID) {}
 
 // ---- internals ----
 
-// pushDataPath resolves the peer's endpoint and sends over the data-path transport,
-// erroring if the peer is unknown or no transport is set.
+// commitPSKLocked records a freshly derived PSK as the peer's current one. Assumes m.mu
+// is held.
+func (m *Manager) commitPSKLocked(remoteID RemoteID, psk PSK) {
+	m.psks[remoteID] = psk
+}
+
+// pushDataPath sends a message to the peer over the data-path transport.
 func (m *Manager) pushDataPath(remoteID RemoteID, msg []byte) error {
+	return m.sendDataPath(remoteID, msg)
+}
+
+// sendDataPath resolves the peer's endpoint and sends over the data-path transport,
+// erroring if the peer is unknown or no transport is set.
+func (m *Manager) sendDataPath(remoteID RemoteID, msg []byte) error {
 	m.mu.Lock()
 	ep, ok := m.peerAddrs[remoteID]
 	t := m.transport

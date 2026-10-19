@@ -160,7 +160,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]by
 	ex.state = stateAwaitingAck
 	ex.lastSent = raw
 	gen := ex.gen
-	m.psks[remoteID] = psk
+	m.commitPSKLocked(remoteID, psk)
 	m.capable[remoteID] = true // a real KEM offer proves the peer runs the exchange
 	m.mu.Unlock()
 
@@ -255,7 +255,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) err
 	cur.state = stateAwaitingRekey
 	m.established[remoteID] = true
 	m.failures[remoteID] = 0
-	m.psks[remoteID] = psk
+	m.commitPSKLocked(remoteID, psk)
 	m.capable[remoteID] = true // a real KEM answer proves the peer runs the exchange
 	m.mu.Unlock()
 
