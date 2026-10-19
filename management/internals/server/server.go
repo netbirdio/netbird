@@ -339,7 +339,11 @@ func (s *BaseServer) Stop() error {
 	}
 
 	select {
-	case <-s.Errors():
+	case err := <-s.Errors():
+		if err != nil {
+			log.WithContext(ctx).Infof("stopped Management Service: %v", err)
+			return nil
+		}
 		log.WithContext(ctx).Infof("stopped Management Service")
 		return nil
 	case <-ctx.Done():

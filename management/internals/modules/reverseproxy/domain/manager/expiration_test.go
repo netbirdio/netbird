@@ -29,7 +29,7 @@ func TestValidateDomain_ExpiredRegistration(t *testing.T) {
 		Update("validation_expires_at", expiresAt).Error)
 	env.resolver.set("validation.expired.example.com", testCluster)
 
-	env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID)
+	assert.Error(t, env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID), "an expired registration must be refused")
 
 	stored := storedDomain(t, env.store, accountA, d.Domain)
 	require.NotNil(t, stored)
@@ -47,7 +47,7 @@ func TestCreateDomain_ValidationDeadline(t *testing.T) {
 		assert.Equal(t, createdAt.Add(48*time.Hour), *d.ValidationExpiresAt, "new registrations get 48 hours")
 
 		time.Sleep(time.Hour)
-		env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID)
+		assert.Error(t, env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID), "a missing CNAME must fail validation")
 		stored := storedDomain(t, env.store, accountA, d.Domain)
 		require.NotNil(t, stored)
 		require.NotNil(t, stored.ValidationExpiresAt)
@@ -198,9 +198,10 @@ func TestValidateDomain_DeadlinePassesDuringLookup(t *testing.T) {
 				resolver := blockingDomainResolver{started: make(chan struct{}), release: make(chan struct{})}
 				env.manager.validator.Resolver = resolver
 				done := make(chan struct{})
+				var validateErr error
 				go func() {
 					defer close(done)
-					env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID)
+					validateErr = env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID)
 				}()
 				<-resolver.started
 				time.Sleep(48 * time.Hour)
@@ -211,6 +212,7 @@ func TestValidateDomain_DeadlinePassesDuringLookup(t *testing.T) {
 				}
 				close(resolver.release)
 				<-done
+				assert.Error(t, validateErr, "a validation finishing after the deadline must be refused")
 				owner := accountA
 				if cleanup {
 					assert.Nil(t, storedDomain(t, env.store, accountA, d.Domain), "late validation must not restore the old claim")
