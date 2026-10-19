@@ -195,21 +195,12 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.RoutesFirewallRules = routesFirewallRules
 	response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
 
-	if networkMap.ForwardingRules != nil {
-		forwardingRules := make([]*proto.ForwardingRule, 0, len(networkMap.ForwardingRules))
-		for _, rule := range networkMap.ForwardingRules {
-			forwardingRules = append(forwardingRules, rule.ToProto())
-		}
-		response.NetworkMap.ForwardingRules = forwardingRules
-	}
-
-	userIDClaim := auth.DefaultUserIDClaim
-	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
-		userIDClaim = httpConfig.AuthUserIDClaim
-	}
-
 	if networkMap.AuthorizedUsers != nil {
 		hashedUsers, machineUsers := networkmap.BuildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
+		userIDClaim := auth.DefaultUserIDClaim
+		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
+			userIDClaim = httpConfig.AuthUserIDClaim
+		}
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
 	}
 

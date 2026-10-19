@@ -331,8 +331,8 @@ type vncApprover struct {
 func (a *vncApprover) Request(ctx context.Context, info vncserver.ApprovalInfo) (vncserver.ApprovalDecision, error) {
 	// Resolve the source overlay IP to a peer FQDN for the prompt label.
 	if info.PeerName == "" && info.SourceIP != "" && a.statusRecorder != nil {
-		if fqdn, ok := a.statusRecorder.PeerByIP(info.SourceIP); ok {
-			info.PeerName = fqdn
+		if state, ok := a.statusRecorder.PeerStateByIP(info.SourceIP); ok {
+			info.PeerName = state.FQDN
 		}
 	}
 	subject := fmt.Sprintf("VNC connection from %s", displayPeer(info))

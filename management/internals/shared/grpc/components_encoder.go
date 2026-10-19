@@ -28,10 +28,6 @@ type ComponentsEnvelopeInput struct {
 	// SshAuth.UserIDClaim when reconstructing the NetworkMap. Empty value
 	// is OK — client treats empty as "no SshAuth to build".
 	UserIDClaim string
-	// ProxyPatch carries pre-expanded NetworkMap fragments injected by
-	// external controllers (BYOP/port-forwarding). Nil when no proxy data
-	// is present; encoder skips the field in that case.
-	ProxyPatch *proto.ProxyPatch
 }
 
 // EncodeNetworkMapEnvelope converts NetworkMapComponents into the component
@@ -69,7 +65,6 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 					DnsForwarderPort: in.DNSForwarderPort,
 					UserIdClaim:      in.UserIDClaim,
 					AccountSettings:  &proto.AccountSettingsCompact{},
-					ProxyPatch:       in.ProxyPatch,
 				},
 			},
 		}
@@ -101,7 +96,6 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		AccountSettings:     toAccountSettingsCompact(c.AccountSettings),
 		DnsForwarderPort:    in.DNSForwarderPort,
 		UserIdClaim:         in.UserIDClaim,
-		ProxyPatch:          in.ProxyPatch,
 		DnsSettings:         enc.encodeDNSSettings(c.DNSSettings),
 		DnsDomain:           in.DNSDomain,
 		CustomZoneDomain:    c.CustomZoneDomain,

@@ -40,14 +40,18 @@ func init() {
 	peerPubKey = peerPrivateKey.PublicKey().String()
 }
 
+// testIFaceBlackList mirrors the prefixes profilemanager.DefaultInterfaceBlacklist
+// carries for the overlay interface. These tests create their own utun device, and
+// stdnet's filter probes with wgctrl every interface it is not told to skip, which
+// on a userspace WireGuard platform reaches the UAPI socket of this same process.
+// Declared here rather than imported because profilemanager imports this package.
+var testIFaceBlackList = []string{"wt", "utun", "tun0"}
+
 func TestWGIface_UpdateAddr(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	addr := "100.64.0.1/8"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -127,10 +131,7 @@ func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+1)
 	wgIP := "10.99.99.1/32"
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
 		Address:      wgaddr.MustParseWGAddress(wgIP),
@@ -170,10 +171,7 @@ func Test_Close(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 	wgIP := "10.99.99.2/32"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -215,10 +213,7 @@ func TestRecreation(t *testing.T) {
 			ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 			wgIP := "10.99.99.2/32"
 			wgPort := 33100
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 			opts := WGIFaceOpts{
 				IFaceName:    ifaceName,
@@ -288,10 +283,7 @@ func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+3)
 	wgIP := "10.99.99.5/30"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
 		Address:      wgaddr.MustParseWGAddress(wgIP),
@@ -343,10 +335,7 @@ func Test_ConfigureInterface(t *testing.T) {
 func Test_UpdatePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.9/30"
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -413,10 +402,7 @@ func Test_UpdatePeer(t *testing.T) {
 func Test_RemovePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.13/30"
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -477,10 +463,7 @@ func Test_ConnectPeers(t *testing.T) {
 	peer2wgPort := 33200
 
 	keepAlive := 1 * time.Second
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 	guid := fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
@@ -516,10 +499,7 @@ func Test_ConnectPeers(t *testing.T) {
 	guid = fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
-	newNet, err = stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet = stdnet.NewNet(context.Background(), testIFaceBlackList, nil)
 
 	optsPeer2 := WGIFaceOpts{
 		IFaceName:    peer2ifaceName,
@@ -568,11 +548,14 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The peers use userspace WireGuard (stdnet transport). A tight busy-loop
-	// here starves the wireguard-go goroutines that process the handshake, so
-	// poll on a ticker instead and yield the CPU between checks. WireGuard also
-	// only retries a lost handshake initiation every REKEY_TIMEOUT (5s), which
-	// is why the overall wait can occasionally stretch to tens of seconds.
+	// On Linux with the kernel module both peers are kernel devices, elsewhere
+	// they run on wireguard-go. A tight busy-loop here would starve the
+	// wireguard-go goroutines that process the handshake, so poll on a ticker
+	// instead and yield the CPU between checks. WireGuard also only retries a
+	// lost handshake initiation every REKEY_TIMEOUT (5s), which is why the
+	// overall wait can occasionally stretch to tens of seconds. Each side sends
+	// its first initiation when its peer is configured, and the first one leaves
+	// before the other device knows the peer, so that one is always wasted.
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -590,11 +573,24 @@ func Test_ConnectPeers(t *testing.T) {
 
 		select {
 		case <-timeoutChannel:
-			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
+			// The counters tell whether initiations were sent at all, whether they
+			// arrived, and whether only one direction is working.
+			t.Fatalf("waiting for peer handshake timeout after %s\n%s\n%s", timeout.String(),
+				describePeer(peer1ifaceName, peer2Key.PublicKey().String()),
+				describePeer(peer2ifaceName, peer1Key.PublicKey().String()))
 		case <-ticker.C:
 		}
 	}
 
+}
+
+func describePeer(ifaceName, peerPubKey string) string {
+	peer, err := getPeer(ifaceName, peerPubKey)
+	if err != nil {
+		return fmt.Sprintf("%s: peer %s: %v", ifaceName, peerPubKey, err)
+	}
+	return fmt.Sprintf("%s: peer %s endpoint=%v tx=%d rx=%d last_handshake=%v",
+		ifaceName, peerPubKey, peer.Endpoint, peer.TransmitBytes, peer.ReceiveBytes, peer.LastHandshakeTime)
 }
 
 func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {

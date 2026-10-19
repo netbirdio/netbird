@@ -3,12 +3,15 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { type LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
+import { useDirection } from "@/hooks/useDirection";
 
 const Root = forwardRef<HTMLDivElement, Omit<Tabs.TabsProps, "orientation">>(
     function VerticalTabsRoot({ className, ...props }, ref) {
+        const dir = useDirection();
         return (
             <Tabs.Root
                 ref={ref}
+                dir={dir}
                 orientation={"vertical"}
                 className={cn("flex min-h-0 flex-1", className)}
                 {...props}
@@ -24,7 +27,7 @@ const List = forwardRef<HTMLDivElement, Tabs.TabsListProps>(function VerticalTab
     return (
         <Tabs.List
             ref={ref}
-            className={cn("flex w-full flex-col gap-1 p-5 pr-0", className)}
+            className={cn("flex w-full flex-col gap-1 p-5 pe-0", className)}
             {...props}
         />
     );
@@ -46,7 +49,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
         <Tabs.Trigger
             ref={ref}
             className={cn(
-                "group flex w-full cursor-default items-center gap-3 rounded-md border border-transparent px-2 py-2.5 text-left outline-none dark:border-0",
+                "group flex w-full cursor-default items-center gap-3 rounded-md border border-transparent px-2 py-2.5 text-start outline-none dark:border-0",
                 "transition-colors duration-150",
                 "data-[state=active]:border-nb-gray-800 data-[state=active]:bg-white dark:data-[state=active]:bg-nb-gray-930",
                 "data-[state=inactive]:hover:bg-nb-gray-850 dark:data-[state=inactive]:hover:bg-nb-gray-935",
@@ -60,7 +63,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 size={iconSize}
                 aria-hidden={"true"}
                 className={cn(
-                    "ml-2 shrink-0 transition-colors duration-150",
+                    "ms-2 shrink-0 transition-colors duration-150",
                     "text-nb-gray-350 dark:text-nb-gray-400",
                     "group-data-[state=active]:text-nb-gray-100",
                 )}
@@ -75,7 +78,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 {title}
             </span>
             {adornment && (
-                <div aria-hidden={"true"} className={"ml-auto mr-2 shrink-0"}>
+                <div aria-hidden={"true"} className={"me-2 ms-auto shrink-0"}>
                     {adornment}
                 </div>
             )}
