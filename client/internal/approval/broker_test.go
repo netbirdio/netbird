@@ -309,7 +309,7 @@ func TestPromptMetadataInjected(t *testing.T) {
 	assert.Equal(t, "peerA", ev.Metadata["peer_name"], "caller metadata must pass through")
 
 	require.True(t, b.Respond(id, Decision{Accept: true}))
-	<-done
+	assert.NoError(t, <-done, "accepted request must return no error")
 }
 
 // TestConcurrentRequests verifies that two concurrent prompts are tracked
