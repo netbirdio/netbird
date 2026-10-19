@@ -90,10 +90,10 @@ export function WelcomeStepManagement({
     return (
         <>
             <div className={cn("flex flex-col items-center gap-1", isMacOS() && "mt-4")}>
-                <DialogHeading id={"nb-welcome-management-title"} align={"left"}>
+                <DialogHeading id={"nb-welcome-management-title"} align={"start"}>
                     {t("welcome.management.title")}
                 </DialogHeading>
-                <DialogDescription align={"left"}>
+                <DialogDescription align={"start"}>
                     {t("welcome.management.description")}
                 </DialogDescription>
             </div>
@@ -103,9 +103,10 @@ export function WelcomeStepManagement({
             </div>
 
             {mode === ManagementMode.SelfHosted && (
-                <div className={"wails-no-draggable w-full text-left"}>
+                <div className={"wails-no-draggable w-full text-start"}>
                     <Input
                         ref={inputRef}
+                        dir={"ltr"}
                         placeholder={t("welcome.management.urlPlaceholder")}
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}

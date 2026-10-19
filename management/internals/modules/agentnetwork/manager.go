@@ -80,6 +80,9 @@ type Manager interface {
 	ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error)
 	GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error)
 	StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int)
+	// RemoveAccountGateway drops the account's gateway mappings from the
+	// proxies. It runs as an account deletion hook.
+	RemoveAccountGateway(ctx context.Context, accountID string) error
 	RecordConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds, tokensIn, tokensOut int64, costUSD float64) error
 	RecordAccountBudgetUsage(ctx context.Context, accountID, userID string, groupIDs []string, tokensIn, tokensOut int64, costUSD float64) error
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
@@ -1350,8 +1353,8 @@ func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes
 // each account's agent-network access-log rows older than that account's
-// AccessLogRetentionDays. Usage records are never swept. A non-positive
-// interval defaults to 24h.
+// AccessLogRetentionDays, and the consumption counters of deleted accounts.
+// Usage records are never swept. A non-positive interval defaults to 24h.
 func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int) {
 	if cleanupIntervalHours <= 0 {
 		cleanupIntervalHours = 24
@@ -1362,21 +1365,40 @@ func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupInterval
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		m.cleanupAccessLogsOnce(ctx) // run once on startup
+		m.cleanupOnce(ctx) // run once on startup
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.cleanupAccessLogsOnce(ctx)
+				m.cleanupOnce(ctx)
 			}
 		}
 	}()
 }
 
+func (m *managerImpl) cleanupOnce(ctx context.Context) {
+	m.cleanupAccessLogsOnce(ctx)
+	m.cleanupDeletedAccountConsumption(ctx)
+}
+
+// cleanupDeletedAccountConsumption deletes the consumption counters of accounts
+// that no longer exist. Best-effort: a failure is logged and retried next sweep.
+func (m *managerImpl) cleanupDeletedAccountConsumption(ctx context.Context) {
+	deleted, err := m.store.DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx)
+	if err != nil {
+		log.WithContext(ctx).Warnf("agent-network consumption cleanup: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.WithContext(ctx).Infof("agent-network consumption cleanup: deleted %d counters of deleted accounts", deleted)
+	}
+}
+
 // cleanupAccessLogsOnce sweeps every account's expired access-log rows against
-// its configured retention. Best-effort: a per-account failure is logged and
-// the sweep continues.
+// its configured retention. Deleted accounts, whose settings rows went with
+// them, get the default retention. Best-effort: a per-account failure is
+// logged and the sweep continues.
 func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 	settings, err := m.store.GetAllAgentNetworkSettings(ctx, store.LockingStrengthNone)
 	if err != nil {
@@ -1384,18 +1406,31 @@ func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 		return
 	}
 	for _, s := range settings {
-		if s.AccessLogRetentionDays <= 0 {
-			continue // keep indefinitely
-		}
-		cutoff := time.Now().UTC().AddDate(0, 0, -s.AccessLogRetentionDays)
-		deleted, err := m.store.DeleteOldAgentNetworkAccessLogs(ctx, s.AccountID, cutoff)
-		if err != nil {
-			log.WithContext(ctx).Warnf("agent-network access-log cleanup for account %s: %v", s.AccountID, err)
-			continue
-		}
-		if deleted > 0 {
-			log.WithContext(ctx).Infof("agent-network access-log cleanup: deleted %d rows for account %s (retention %d days)", deleted, s.AccountID, s.AccessLogRetentionDays)
-		}
+		m.cleanupAccountAccessLogs(ctx, s.AccountID, s.AccessLogRetentionDays)
+	}
+
+	deleted, err := m.store.GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("agent-network access-log cleanup: list deleted accounts: %v", err)
+		return
+	}
+	for _, accountID := range deleted {
+		m.cleanupAccountAccessLogs(ctx, accountID, types.DefaultAccessLogRetentionDays)
+	}
+}
+
+func (m *managerImpl) cleanupAccountAccessLogs(ctx context.Context, accountID string, retentionDays int) {
+	if retentionDays <= 0 {
+		return // keep indefinitely
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	deleted, err := m.store.DeleteOldAgentNetworkAccessLogs(ctx, accountID, cutoff)
+	if err != nil {
+		log.WithContext(ctx).Warnf("agent-network access-log cleanup for account %s: %v", accountID, err)
+		return
+	}
+	if deleted > 0 {
+		log.WithContext(ctx).Infof("agent-network access-log cleanup: deleted %d rows for account %s (retention %d days)", deleted, accountID, retentionDays)
 	}
 }
 
@@ -1544,6 +1579,8 @@ func (*mockManager) GetUsageOverview(_ context.Context, _, _ string, _ types.Age
 }
 
 func (*mockManager) StartAccessLogCleanup(_ context.Context, _ int) {}
+
+func (*mockManager) RemoveAccountGateway(_ context.Context, _ string) error { return nil }
 
 func (*mockManager) RecordConsumption(_ context.Context, _ string, _ types.ConsumptionDimension, _ string, _, _, _ int64, _ float64) error {
 	return nil

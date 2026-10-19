@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import * as RTooltip from "@radix-ui/react-tooltip";
 import { cn } from "@/lib/cn";
+import { useDirection } from "@/hooks/useDirection";
 
 type Props = {
     content: ReactNode;
@@ -29,6 +30,8 @@ export const Tooltip = ({
     contentClassName,
     closeDelay = 0,
 }: Props) => {
+    const dir = useDirection();
+    const physicalSide = dir === "rtl" ? mirrorSide(side) : side;
     const [open, setOpen] = useState(false);
     const hoveringRef = useRef(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,7 +76,7 @@ export const Tooltip = ({
                 </RTooltip.Trigger>
                 <RTooltip.Portal>
                     <RTooltip.Content
-                        side={side}
+                        side={physicalSide}
                         align={align}
                         sideOffset={sideOffset}
                         alignOffset={alignOffset}
@@ -96,3 +99,9 @@ export const Tooltip = ({
         </RTooltip.Provider>
     );
 };
+
+function mirrorSide(side: Props["side"]): Props["side"] {
+    if (side === "left") return "right";
+    if (side === "right") return "left";
+    return side;
+}

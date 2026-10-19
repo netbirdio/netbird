@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -31,6 +33,24 @@ func (s *SingleUseStore) Store(key, value string, ttl time.Duration) error {
 		return fmt.Errorf("store single-use value: %w", err)
 	}
 	return nil
+}
+
+// Generate stores a value under a namespaced random key and returns the random key.
+func (s *SingleUseStore) Generate(namespace, value string, ttl time.Duration) (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate single-use key: %w", err)
+	}
+
+	key := base64.RawURLEncoding.EncodeToString(buf)
+	if err := s.Store(singleUseCacheKey(namespace, key), value, ttl); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+func singleUseCacheKey(namespace, key string) string {
+	return namespace + ":" + key
 }
 
 // LoadAndDelete retrieves and removes the value for a key.

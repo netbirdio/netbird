@@ -11,6 +11,7 @@ import { useProfile } from "@/contexts/ProfileContext";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { cn } from "@/lib/cn";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { useDirection } from "@/hooks/useDirection";
 
 type ProfileDropdownProps = {
     onManageProfiles?: () => void;
@@ -19,6 +20,7 @@ type ProfileDropdownProps = {
 const MANAGE_VALUE = "__manage_profiles__";
 
 export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
+    const dir = useDirection();
     const { t } = useTranslation();
     const { activeProfile, activeProfileId, profiles, switchProfile, loaded } = useProfile();
     const [open, setOpen] = useState(false);
@@ -116,6 +118,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                             {sortedProfiles.length > 0 && (
                                 <>
                                     <ScrollArea.Root
+                                        dir={dir}
                                         type={"auto"}
                                         className={"-mx-1 overflow-hidden"}
                                     >
@@ -252,7 +255,7 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
             value={profile.id}
             onSelect={() => onSelect(profile.id)}
             className={cn(
-                "flex w-auto gap-2 px-2 py-2 pr-3 last:mb-1",
+                "flex w-auto gap-2 px-2 py-2 pe-3 last:mb-1",
                 "cursor-default rounded-md text-sm outline-none",
                 "data-[selected=true]:bg-nb-gray-900",
                 showEmail ? "items-start" : "items-center",
