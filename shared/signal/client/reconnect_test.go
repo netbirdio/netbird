@@ -12,11 +12,13 @@ func TestReconnectListenerCanBeClearedWhileCallbackIsBlocked(t *testing.T) {
 	client := &GrpcClient{}
 	var listenerMu sync.Mutex
 	callbackStarted := make(chan struct{})
+	callbackFinished := make(chan struct{})
 	callbackCalls := 0
 	client.SetOnReconnectedListener(func() {
 		callbackCalls++
 		close(callbackStarted)
 		listenerMu.Lock()
+		close(callbackFinished)
 		listenerMu.Unlock()
 	})
 
@@ -35,6 +37,11 @@ func TestReconnectListenerCanBeClearedWhileCallbackIsBlocked(t *testing.T) {
 		listenerMu.Unlock()
 		select {
 		case <-notificationDone:
+			select {
+			case <-callbackFinished:
+			default:
+				t.Error("in-flight callback did not finish after listener removal")
+			}
 		case <-time.After(5 * time.Second):
 			t.Error("reconnect notification did not finish after releasing the listener")
 		}
