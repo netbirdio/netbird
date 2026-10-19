@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"runtime"
 	"strings"
@@ -28,14 +27,9 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/externalipmap"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
-)
-
-const (
-	invalidInputType int = iota
-	ipInputType
-	interfaceInputType
 )
 
 const (
@@ -108,7 +102,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
 
-	err = validateNATExternalIPs(natExternalIPs)
+	err = externalipmap.Validate(natExternalIPs)
 	if err != nil {
 		return err
 	}
@@ -391,9 +385,17 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	// set the new config
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
-		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
-		} else {
+		switch reason, refused := refusedSettingsUpdate(err); {
+		case refused:
+			// Failing here is the point: carrying on would connect while
+			// silently dropping the settings the caller asked for, since
+			// nothing further down the line applies them.
+			return fmt.Errorf("the daemon refused the settings update: %s", reason)
+		case gstatus.Code(err) == codes.Unavailable:
+			// The daemon cannot serve the method at all, which is what this
+			// code means; an older daemon without it lands here.
+			log.Warnf("the daemon did not apply the settings update: %s", gstatus.Convert(err).Message())
+		default:
 			return daemonCallError("call service setConfig method", err)
 		}
 	}
@@ -434,10 +436,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	err = WithBackOff(func() error {
 		var backOffErr error
 		loginResp, backOffErr = client.Login(ctx, loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
+		if terminalLoginError(backOffErr) {
 			loginErr = backOffErr
 			return nil
 		}
@@ -504,6 +503,22 @@ func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
+}
+
+// refusedSettingsUpdate reports whether err is the daemon refusing the settings
+// a request carried — the update-settings kill switch, or a field an MDM policy
+// manages — and returns the reason it gave.
+//
+// The distinction that matters is against codes.Unavailable, which means the
+// daemon cannot serve the call: that one is worth a warning, because an older
+// daemon without the method lands there and the rest of `netbird up` still
+// works. A refusal is not, because the settings would be silently dropped.
+func refusedSettingsUpdate(err error) (string, bool) {
+	st, ok := gstatus.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return "", false
+	}
+	return st.Message(), true
 }
 
 func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
@@ -849,36 +864,6 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	return &loginRequest, nil
 }
 
-func validateNATExternalIPs(list []string) error {
-	for _, element := range list {
-		if element == "" {
-			return fmt.Errorf("empty string is not a valid input for %s", externalIPMapFlag)
-		}
-
-		subElements := strings.Split(element, "/")
-		if len(subElements) > 2 {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"String\" or \"String/String\"", element, externalIPMapFlag)
-		}
-
-		if len(subElements) == 1 && !isValidIP(subElements[0]) {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
-		}
-
-		last := 0
-		for _, singleElement := range subElements {
-			inputType, err := validateElement(singleElement)
-			if err != nil {
-				return fmt.Errorf("%s is not a valid input for %s. it should be an IP string or a network name", singleElement, externalIPMapFlag)
-			}
-			if last == interfaceInputType && inputType == interfaceInputType {
-				return fmt.Errorf("%s is not a valid input for %s. it should not contain two interface names", element, externalIPMapFlag)
-			}
-			last = inputType
-		}
-	}
-	return nil
-}
-
 func parseInterfaceName(name string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
@@ -889,39 +874,6 @@ func parseInterfaceName(name string) error {
 	}
 
 	return fmt.Errorf("invalid interface name %s. Please use the prefix utun followed by a number on MacOS. e.g., utun1 or utun199", name)
-}
-
-func validateElement(element string) (int, error) {
-	if isValidIP(element) {
-		return ipInputType, nil
-	}
-	validIface, err := isValidInterface(element)
-	if err != nil {
-		return invalidInputType, fmt.Errorf("unable to validate the network interface name, error: %s", err)
-	}
-
-	if validIface {
-		return interfaceInputType, nil
-	}
-
-	return interfaceInputType, fmt.Errorf("invalid IP or network interface name not found")
-}
-
-func isValidIP(ip string) bool {
-	return net.ParseIP(ip) != nil
-}
-
-func isValidInterface(name string) (bool, error) {
-	netInterfaces, err := net.Interfaces()
-	if err != nil {
-		return false, err
-	}
-	for _, iface := range netInterfaces {
-		if iface.Name == name {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func parseCustomDNSAddress(modified bool) ([]byte, error) {

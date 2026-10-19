@@ -45,7 +45,7 @@ func (s *SqlStore) getPersonalAccessTokens(ctx context.Context, userIDs []string
 		return nil, nil
 	}
 	const query = `SELECT id, user_id, name, hashed_token, expiration_date, created_by, created_at, last_used FROM personal_access_tokens WHERE user_id = ANY($1)`
-	rows, err := s.pool.Query(ctx, query, userIDs)
+	rows, err := s.pgxPool().Query(ctx, query, userIDs)
 	if err != nil {
 		return nil, err
 	}

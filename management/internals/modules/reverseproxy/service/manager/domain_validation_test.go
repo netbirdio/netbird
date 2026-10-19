@@ -125,3 +125,53 @@ func TestUpdateService_RefusesMoveToUnvalidatedDomain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "app.proven.example.com", stored.Domain, "the service must keep its original domain")
 }
+
+func TestCreateService_DomainDeletedBeforeWrite(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore := setupIntegrationTest(t)
+	withRealDomainManager(t, mgr, testStore)
+
+	d, err := testStore.CreateCustomDomain(ctx, testAccountID, "proven.example.com", validationTestCluster, true)
+	require.NoError(t, err)
+	svc := newTestService("app.proven.example.com")
+	require.NoError(t, mgr.initializeServiceForCreate(ctx, testAccountID, svc))
+
+	// Delete after the initial authorization check, before the service transaction starts.
+	require.NoError(t, testStore.DeleteCustomDomain(ctx, testAccountID, d.ID))
+	err = mgr.persistNewService(ctx, testAccountID, svc)
+	require.Error(t, err, "an earlier validation result must not authorize a deleted registration")
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "the caller must receive a typed precondition error")
+	assert.Equal(t, status.PreconditionFailed, sErr.Type(), "the service must require current domain authorization")
+	services, err := testStore.GetAccountServices(ctx, store.LockingStrengthNone, testAccountID)
+	require.NoError(t, err)
+	assert.Empty(t, services, "the failed write must not leave a service")
+}
+
+func TestUpdateService_DomainDeletedBeforeWrite(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore := setupIntegrationTest(t)
+	withRealDomainManager(t, mgr, testStore)
+	_, err := testStore.CreateCustomDomain(ctx, testAccountID, "original.example.com", validationTestCluster, true)
+	require.NoError(t, err)
+	d, err := testStore.CreateCustomDomain(ctx, testAccountID, "destination.example.com", validationTestCluster, true)
+	require.NoError(t, err)
+	svc, err := mgr.CreateService(ctx, testAccountID, testUserID, newTestService("app.original.example.com"))
+	require.NoError(t, err)
+	moved := svc.Copy()
+	moved.Domain = "app.destination.example.com"
+	cluster, err := mgr.resolveEffectiveCluster(ctx, testAccountID, moved)
+	require.NoError(t, err)
+
+	require.NoError(t, testStore.DeleteCustomDomain(ctx, testAccountID, d.ID))
+	err = testStore.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		return mgr.executeServiceUpdate(ctx, tx, testAccountID, moved, &serviceUpdateInfo{}, nil, cluster)
+	})
+	require.Error(t, err, "a domain deleted after cluster resolution must reject the update")
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "the caller must receive a typed precondition error")
+	assert.Equal(t, status.PreconditionFailed, sErr.Type(), "the move must require current domain authorization")
+	stored, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, svc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, svc.Domain, stored.Domain, "the service must retain its authorized domain")
+}
