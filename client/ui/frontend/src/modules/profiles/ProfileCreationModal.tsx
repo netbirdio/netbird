@@ -175,7 +175,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: 
                 <form onSubmit={handleSubmit}>
                     <div className={"flex flex-col gap-6 px-7"}>
                         <div className={"flex flex-col gap-2"}>
-                            <div className={"pl-1"}>
+                            <div className={"ps-1"}>
                                 <Label htmlFor={nameId} className={"mb-0.5"}>
                                     {t("profile.dialog.nameLabel")}
                                 </Label>
@@ -200,7 +200,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: 
 
                         {!managedManagementUrl && (
                             <div className={"flex flex-col gap-2"}>
-                                <div className={"pl-1"}>
+                                <div className={"ps-1"}>
                                     <Label as={"div"} className={"mb-0.5"}>
                                         {t("settings.general.management.label")}
                                     </Label>
@@ -217,6 +217,7 @@ export const ProfileCreationModal = ({ open, onOpenChange, onSubmit, initial }: 
                                     {mode === ManagementMode.SelfHosted && (
                                         <Input
                                             id={urlId}
+                                            dir={"ltr"}
                                             ref={urlRef}
                                             aria-label={t("settings.general.management.label")}
                                             placeholder={t(

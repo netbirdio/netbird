@@ -1,0 +1,77 @@
+get:
+  summary: List all Peers
+  description: Returns a list of all peers
+  tags: [ Peers ]
+  parameters:
+    - name: page
+      in: query
+      description: Page number
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    - name: page_size
+      in: query
+      description: Number of peers per page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 250
+        default: 100
+    - name: connected
+      in: query
+      description: Filter by peer connected status
+      required: false
+      schema:
+        type: boolean
+    - name: approval_required
+      in: query
+      description: Filter by approval_required field
+      required: false
+      schema:
+        type: boolean
+    - name: os
+      in: query
+      description: Peer os
+      required: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum:
+           - linux
+           - windows
+           - mac
+           - android
+           - ios
+           - js
+    - name: search
+      in: query
+      description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names, mac
+      required: false
+      schema:
+        type: string
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  responses:
+    '200':
+      description: A JSON Array of Peers
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: './components.yaml#/components/schemas/PeerBatch'
+    '400':
+      "$ref": "../openapi.yaml#/components/responses/bad_request"
+    '401':
+      "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+    '403':
+      "$ref": "../openapi.yaml#/components/responses/forbidden"
+    '422':
+      "$ref": "../openapi.yaml#/components/responses/unprocessable"
+    '500':
+      "$ref": "../openapi.yaml#/components/responses/internal_error"

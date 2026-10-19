@@ -54,6 +54,9 @@ type Client struct {
 	jwtToken   string
 	connect    *internal.ConnectClient
 	recorder   *peer.Status
+	// inMemoryState is set when no StatePath was given in netstack mode,
+	// where the client changes nothing on the host that needs restoring.
+	inMemoryState bool
 }
 
 // Options configures a new Client.
@@ -78,7 +81,8 @@ type Options struct {
 	NoUserspace bool
 	// ConfigPath is the path to the netbird config file. If empty, the config will be stored in memory and not persisted.
 	ConfigPath string
-	// StatePath is the path to the netbird state file
+	// StatePath is the path to the netbird state file. When empty in netstack
+	// mode, state is kept in memory; with NoUserspace the default path is used.
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
@@ -114,6 +118,9 @@ type Options struct {
 	MTU *uint16
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
+	// NATExternalIPs maps external IPs to internal IPs or interfaces for ICE
+	// candidates, same format as the agent's --external-ip-map flag.
+	NATExternalIPs []string
 	// Performance configures the tunnel's buffer pool cap and batch size.
 	Performance Performance
 }
@@ -193,7 +200,6 @@ func New(opts Options) (*Client, error) {
 	}
 
 	if opts.StatePath != "" {
-		// TODO: Disable state if path not provided
 		if err := os.Setenv("NB_DNS_STATE_FILE", opts.StatePath); err != nil {
 			return nil, fmt.Errorf("setenv: %w", err)
 		}
@@ -221,6 +227,7 @@ func New(opts Options) (*Client, error) {
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
+		NATExternalIPs:      opts.NATExternalIPs,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
@@ -261,6 +268,9 @@ func New(opts Options) (*Client, error) {
 		jwtToken:   opts.JWTToken,
 		config:     config,
 		recorder:   peer.NewRecorder(config.ManagementURL.String()),
+		// Without a path the default would be the installed agent's state
+		// file, which this client must neither read nor overwrite.
+		inMemoryState: opts.StatePath == "" && !opts.NoUserspace,
 	}, nil
 }
 
@@ -292,7 +302,11 @@ func (c *Client) Start(startCtx context.Context) error {
 	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-	client := internal.NewConnectClient(ctx, c.config, c.recorder)
+	var connectOpts []internal.ConnectClientOption
+	if c.inMemoryState {
+		connectOpts = append(connectOpts, internal.WithInMemoryState())
+	}
+	client := internal.NewConnectClient(ctx, c.config, c.recorder, connectOpts...)
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)

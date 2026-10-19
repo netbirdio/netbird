@@ -1,0 +1,31 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-server" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Server" \
+      description="NetBird Server runs the Management, Signal, Relay and STUN services of a self-hosted NetBird deployment in a single process."
+
+COPY --chmod=0555 ${TARGETPLATFORM}/netbird-server /go/bin/netbird-server
+COPY licenses/ /licenses/
+# Only the data directory shares the root group for arbitrary non-root UIDs.
+# Runtime-created keys and databases retain the application's restrictive modes.
+RUN mkdir -p /var/lib/netbird /etc/netbird && \
+    chown 1000:0 /var/lib/netbird && \
+    chmod 0770 /var/lib/netbird && \
+    chmod -R a+rX /licenses
+
+USER 1000:0
+ENV HOME=/var/lib/netbird
+# Runtimes such as OpenShift and Podman reserve ports below 1024 for root, so
+# the mounted config must set server.listenAddress to an unprivileged port.
+EXPOSE 8443 3478/udp
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/go/bin/netbird-server"]
+CMD ["--config", "/etc/netbird/config.yaml"]
