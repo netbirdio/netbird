@@ -34,14 +34,14 @@ func (f *fakeTunDevice) Create() (device.WGConfigurer, error) {
 func (f *fakeTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return nil, errors.New("not implemented")
 }
-func (f *fakeTunDevice) UpdateAddr(wgaddr.Address) error      { return nil }
-func (f *fakeTunDevice) WgAddress() wgaddr.Address            { return wgaddr.Address{} }
-func (f *fakeTunDevice) MTU() uint16                          { return DefaultMTU }
-func (f *fakeTunDevice) DeviceName() string                   { return "nb-close-test" }
+func (f *fakeTunDevice) UpdateAddr(wgaddr.Address) error        { return nil }
+func (f *fakeTunDevice) WgAddress() wgaddr.Address              { return wgaddr.Address{} }
+func (f *fakeTunDevice) MTU() uint16                            { return DefaultMTU }
+func (f *fakeTunDevice) DeviceName() string                     { return "nb-close-test" }
 func (f *fakeTunDevice) FilteredDevice() *device.FilteredDevice { return nil }
-func (f *fakeTunDevice) Device() *wgdevice.Device             { return nil }
-func (f *fakeTunDevice) GetNet() *netstack.Net                { return nil }
-func (f *fakeTunDevice) GetICEBind() device.EndpointManager   { return nil }
+func (f *fakeTunDevice) Device() *wgdevice.Device               { return nil }
+func (f *fakeTunDevice) GetNet() *netstack.Net                  { return nil }
+func (f *fakeTunDevice) GetICEBind() device.EndpointManager     { return nil }
 
 func (f *fakeTunDevice) Close() error {
 	close(f.closeStarted)
@@ -105,7 +105,10 @@ func TestWGIface_CloseReleasesMutexBeforeTunClose(t *testing.T) {
 
 	close(tun.unblockClose)
 	select {
-	case <-closeDone:
+	case err := <-closeDone:
+		if err != nil {
+			t.Errorf("WGIface.Close() returned an error: %v", err)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("WGIface.Close() never returned after the tun was unblocked")
 	}
