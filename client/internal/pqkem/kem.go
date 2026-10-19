@@ -15,9 +15,9 @@
 // Combiner note: this follows draft-ietf-tls-ecdhe-mlkem for X25519MLKEM768 — on
 // the wire ML-KEM ‖ X25519 (the draft deliberately reversed the share order for
 // this group), and ML-KEM_ss ‖ X25519_ss as the KDF input. The PSK is derived with
-// HKDF-SHA256 over that hybrid secret, salted with a domain-separation label and
-// bound (via the HKDF info) to the full transcript and the canonicalised peer
-// identities.
+// HKDF-SHA256 over that hybrid secret (plus an optional pre-shared secret both peers
+// hold), salted with a domain-separation label and bound (via the HKDF info) to the
+// full transcript and the canonicalised peer identities.
 package pqkem
 
 import (
@@ -47,6 +47,10 @@ type PSK [32]byte
 type Binding struct {
 	LocalID  []byte
 	RemoteID []byte
+	// Secret is an optional pre-shared secret both peers must hold. It is mixed into the
+	// derivation, so peers holding different secrets (or only one holding one) derive
+	// different PSKs and the consumer's channel fails closed.
+	Secret []byte
 }
 
 // Initiator holds the ephemeral secrets between Offer and Finish.
@@ -144,10 +148,10 @@ func Respond(offer []byte, b Binding) (answer []byte, psk PSK, err error) {
 }
 
 // derivePSK runs HKDF-SHA256 over the hybrid shared secret (ML-KEM_ss ‖ X25519_ss,
-// per draft-ietf-tls-ecdhe-mlkem), salted with the domain-separation label, and binds
-// the result — via the HKDF info — to the full transcript (offer ‖ answer) and the
-// canonicalised peer identities, so the PSK cannot be transplanted to another peer
-// pair or a different exchange.
+// per draft-ietf-tls-ecdhe-mlkem) plus the binding's optional pre-shared secret, salted
+// with the domain-separation label, and binds the result — via the HKDF info — to the
+// full transcript (offer ‖ answer) and the canonicalised peer identities, so the PSK
+// cannot be transplanted to another peer pair or a different exchange.
 func derivePSK(ssMLKEM, ssX, offer, answer []byte, b Binding) (PSK, error) {
 	// A PSK not bound to both peer identities could be transplanted to a different peer
 	// pair, so refuse to derive one from an empty binding.
@@ -156,9 +160,13 @@ func derivePSK(ssMLKEM, ssX, offer, answer []byte, b Binding) (PSK, error) {
 	}
 	lo, hi := canonicalPair(b.LocalID, b.RemoteID)
 
-	ikm := make([]byte, 0, len(ssMLKEM)+len(ssX))
+	// The shared secrets have fixed lengths, so appending the optional pre-shared secret
+	// after them keeps the input unambiguous. It sits in the keying material rather than
+	// the info, so a peer without it cannot derive the PSK at all.
+	ikm := make([]byte, 0, len(ssMLKEM)+len(ssX)+len(b.Secret))
 	ikm = append(ikm, ssMLKEM...)
 	ikm = append(ikm, ssX...)
+	ikm = append(ikm, b.Secret...)
 
 	info := make([]byte, 0, len(offer)+len(answer)+len(lo)+len(hi))
 	info = append(info, offer...)

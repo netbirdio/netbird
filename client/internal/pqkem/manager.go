@@ -99,6 +99,7 @@ type Manager struct {
 	localID   LocalID
 	cbHandler CallbackHandler
 	logger    *slog.Logger
+	secret    []byte // optional pre-shared secret bound into every derivation; immutable
 
 	retryInterval    time.Duration
 	maxRetries       int
@@ -129,15 +130,28 @@ func (m *Manager) nextGenLocked(remoteID RemoteID) uint64 {
 	return m.genCounter[remoteID]
 }
 
+// Option configures a Manager at construction.
+type Option func(*Manager)
+
+// WithPresharedSecret binds every derived PSK, bootstrap and rotation alike, to a secret
+// both peers must already share. A peer with a different secret, or none, derives a
+// different PSK, so the consumer's channel fails closed instead of bypassing the secret.
+// An empty secret is the same as no option.
+func WithPresharedSecret(secret []byte) Option {
+	return func(m *Manager) {
+		m.secret = append([]byte(nil), secret...)
+	}
+}
+
 // NewManager builds a manager for the local peer identified by its peer identity key
 // (used for the deterministic initiator role and the identity binding). A nil logger
 // falls back to slog.Default(). Install the data-path transport with Start.
-func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manager {
+func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger, opts ...Option) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{
+	m := &Manager{
 		localID:          localID,
 		cbHandler:        h,
 		logger:           logger,
@@ -155,6 +169,10 @@ func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger) *Manage
 		peersByAddr:      make(map[netip.AddrPort]RemoteID),
 		genCounter:       make(map[RemoteID]uint64),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Start installs the data-path transport and begins its inbound delivery. The Manager
@@ -566,7 +584,7 @@ func (m *Manager) pushDataPath(remoteID RemoteID, msg []byte) error {
 }
 
 func (m *Manager) binding(remoteID RemoteID) Binding {
-	return Binding{LocalID: []byte(m.localID), RemoteID: []byte(remoteID)}
+	return Binding{LocalID: []byte(m.localID), RemoteID: []byte(remoteID), Secret: m.secret}
 }
 
 func newExchangeID() (ExchangeID, error) {

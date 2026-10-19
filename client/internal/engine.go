@@ -619,7 +619,13 @@ func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
 			}
 		},
 	}
-	e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger())
+	var opts []pqkem.Option
+	if e.config.PreSharedKey != nil {
+		// The configured key promises that only peers holding it can communicate. The PQ
+		// PSK replaces it in WireGuard, so it has to carry that guarantee itself.
+		opts = append(opts, pqkem.WithPresharedSecret(e.config.PreSharedKey[:]))
+	}
+	e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger(), opts...)
 	e.pqkemManager.Start(tr)
 	log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 	return nil
