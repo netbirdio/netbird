@@ -9,7 +9,7 @@ import (
 
 // TestManager_NonCapablePeerNotOffered: a peer known not to run the KEM (it answered our
 // offer with an empty KEM payload over signalling) is never offered an exchange, and no
-// failure is raised — this is what stops the reoffer storm against non-PQ peers (e.g.
+// failure is raised — this is what stops the recovery storm against non-PQ peers (e.g.
 // Rosenpass peers).
 func TestManager_NonCapablePeerNotOffered(t *testing.T) {
 	wg := newFakeWG()

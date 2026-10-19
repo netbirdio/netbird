@@ -757,12 +757,13 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
-// RequestReoffer sends a fresh signalling offer for the peer, re-running the
-// post-quantum bootstrap over Signal. Used to recover from a persistent data-path
-// rekey failure: a new exchange overwrites the stalled PSK on both sides. No-op if the
+// RecoverPQKeyOverSignal re-runs the post-quantum bootstrap over Signal after the ML-KEM
+// exchange failed (the initial exchange, or repeated rotation failures): a fresh
+// signalling offer starts a new exchange that overwrites the stalled PSK on both sides.
+// It is not part of normal key rotation, which runs over the data path. No-op if the
 // connection is not open yet, or if the peer is not connected: then the reconnect guard
 // already retries it with backoff, and each of its offers starts a fresh exchange.
-func (conn *Conn) RequestReoffer() {
+func (conn *Conn) RecoverPQKeyOverSignal() {
 	conn.mu.Lock()
 	h := conn.handshaker
 	connected := conn.evalStatus() == StatusConnected
@@ -775,7 +776,7 @@ func (conn *Conn) RequestReoffer() {
 		return
 	}
 	if err := h.SendOffer(); err != nil {
-		conn.Log.Debugf("pqkem: recovery re-offer failed: %v", err)
+		conn.Log.Debugf("pqkem: PQ key recovery over signal failed: %v", err)
 	}
 }
 
@@ -806,7 +807,7 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	key := conn.config.Key
 	conn.mu.Unlock()
 
-	// Signal the PQ manager outside conn.mu: it may re-enter Conn (reoffer) under
+	// Signal the PQ manager outside conn.mu: it may re-enter Conn (PQ key recovery) under
 	// conn.mu, so calling it while holding the lock would invert the lock order.
 	if pq != nil {
 		pq.OnDataPathDown(key)
@@ -1135,7 +1136,7 @@ func (conn *Conn) AgentVersionString() string {
 // pqPSK returns the post-quantum PSK derived for this peer, if the ML-KEM exchange has
 // produced one. It reads the manager WITHOUT conn.mu, so callers fetch it before taking
 // conn.mu: the lock order is always conn.mu -> manager, never the reverse (the manager's
-// reoffer callback re-enters Conn under conn.mu).
+// PQ key recovery callback re-enters Conn under conn.mu).
 func (conn *Conn) pqPSK() (*wgtypes.Key, bool) {
 	if conn.config.PQ == nil {
 		return nil, false

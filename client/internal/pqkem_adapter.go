@@ -61,9 +61,9 @@ type pqCallbackHandler struct {
 	// applied drops an out-of-order PSK apply so a stale callback can't overwrite a newer
 	// key. Nil disables the guard.
 	applied *appliedGenerations
-	// reoffer re-bootstraps the KEM over Signal for a peer (a fresh signalling offer)
-	// to recover from a persistent data-path rekey failure. Nil disables recovery.
-	reoffer func(remoteKey string)
+	// recoverPQKeyOverSignal re-bootstraps the KEM over Signal for a peer (a fresh
+	// signalling offer) after its exchange failed. Nil disables recovery.
+	recoverPQKeyOverSignal func(remoteKey string)
 }
 
 // OnNewPSKReady programs the freshly derived PSK for the peer (updateOnly: a no-op
@@ -109,8 +109,8 @@ func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, gen uint64, ps
 // broken data path).
 func (h pqCallbackHandler) OnRekeyFailed(remoteID pqkem.RemoteID) error {
 	log.Warnf("pqkem: post-quantum rekey failed for peer %s, re-bootstrapping over signal", remoteID)
-	if h.reoffer != nil {
-		h.reoffer(string(remoteID))
+	if h.recoverPQKeyOverSignal != nil {
+		h.recoverPQKeyOverSignal(string(remoteID))
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func (p pqHandshaker) OnAnswer(remoteKey string, recvAnswer []byte) {
 	if len(recvAnswer) == 0 {
 		// Capability signal (initiator side): the KEM answer flows responder->initiator,
 		// so an empty answer to our offer means the peer does not run the KEM — mark it
-		// non-capable to stop offering (no failure/reoffer storm). Only meaningful when
+		// non-capable to stop offering (no failure/recovery storm). Only meaningful when
 		// we are the initiator: as the responder we also receive an (empty) answer to
 		// our own non-KEM offer from a perfectly capable peer, which must not be flagged.
 		if p.mgr.IsInitiator(pqkem.RemoteID(remoteKey)) {

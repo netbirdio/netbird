@@ -364,7 +364,7 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 	m.mu.Lock()
 	if capable, ok := m.capable[remoteID]; ok && !capable {
 		m.mu.Unlock()
-		return nil, nil // peer does not run the KEM; do not offer (avoids a failure/reoffer loop)
+		return nil, nil // peer does not run the KEM; do not offer (avoids a failure/recovery loop)
 	}
 	// Idempotent ONLY while a signalling bootstrap is still in flight (awaitingAnswer):
 	// a repeat call returns the SAME offer instead of starting a duplicate exchange. Once

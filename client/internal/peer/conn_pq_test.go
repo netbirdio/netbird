@@ -126,16 +126,16 @@ func TestConn_IdlePresharedKey(t *testing.T) {
 	assert.Nil(t, newConn(nil, false).IdlePresharedKey(), "without ML-KEM the idle key is left unchanged")
 }
 
-// TestConn_RequestReofferOnlyWhenConnected covers the PQ recovery path. A failed KEM
+// TestConn_RecoverPQKeyOverSignalOnlyWhenConnected covers the PQ recovery path. A failed KEM
 // exchange makes the manager ask for a fresh signalling offer. For a peer with no
 // transport (offline) that offer cannot be answered: with lazy connections off it was
 // repeated at every exchange timeout, a fixed-rate stream on top of the reconnect guard's
-// own backed-off offers. The re-offer must only be sent while the peer is connected.
-func TestConn_RequestReofferOnlyWhenConnected(t *testing.T) {
+// own backed-off offers. The recovery offer must only be sent while the peer is connected.
+func TestConn_RecoverPQKeyOverSignalOnlyWhenConnected(t *testing.T) {
 	newConn := func() (*Conn, *logtest.Hook) {
 		logger, hook := logtest.NewNullLogger()
 		logger.SetLevel(log.DebugLevel)
-		entry := logger.WithField("peer", "reoffer-test")
+		entry := logger.WithField("peer", "pq-recovery-test")
 		// The signal client is never ready, so an attempted offer fails fast and is logged.
 		signaler := NewSignaler(&signal.MockClient{}, wgtypes.Key{})
 		c := &Conn{
@@ -148,7 +148,7 @@ func TestConn_RequestReofferOnlyWhenConnected(t *testing.T) {
 	}
 	offerAttempted := func(hook *logtest.Hook) bool {
 		for _, e := range hook.AllEntries() {
-			if strings.Contains(e.Message, "recovery re-offer failed") {
+			if strings.Contains(e.Message, "PQ key recovery over signal failed") {
 				return true
 			}
 		}
@@ -156,11 +156,11 @@ func TestConn_RequestReofferOnlyWhenConnected(t *testing.T) {
 	}
 
 	c, hook := newConn()
-	c.RequestReoffer()
+	c.RecoverPQKeyOverSignal()
 	assert.False(t, offerAttempted(hook), "a disconnected peer must be left to the reconnect guard")
 
 	c, hook = newConn()
 	c.statusRelay.SetConnected()
-	c.RequestReoffer()
-	assert.True(t, offerAttempted(hook), "a connected peer must be re-offered")
+	c.RecoverPQKeyOverSignal()
+	assert.True(t, offerAttempted(hook), "a connected peer must get a recovery offer")
 }
