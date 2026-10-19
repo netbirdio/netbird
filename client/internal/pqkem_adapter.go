@@ -23,17 +23,20 @@ func newAppliedGenerations() *appliedGenerations {
 	return &appliedGenerations{last: make(map[string]uint64)}
 }
 
-// claim reports whether gen is newer than the last applied for the peer; when it is, it
-// records gen as the newest and returns true. The check and record are atomic, so the
-// slow SetPresharedKey call runs outside this lock.
-func (a *appliedGenerations) claim(peer string, gen uint64) bool {
+// apply runs set when gen is newer than the last generation applied for the peer, and
+// reports whether it ran. The check and set run under one lock: with only the check
+// atomic, an older apply already inside set could finish after a newer one and restore
+// its stale key. The generation is recorded before set runs, so a failed newer apply
+// still keeps an older one from landing afterwards. The lock is shared by all peers,
+// which is cheap because set is a quick local interface call.
+func (a *appliedGenerations) apply(peer string, gen uint64, set func() error) (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if gen <= a.last[peer] {
-		return false
+		return false, nil
 	}
 	a.last[peer] = gen
-	return true
+	return true, set()
 }
 
 // pqPresharedKeySetter is the subset of the WireGuard interface the ML-KEM callback
@@ -68,16 +71,26 @@ type pqCallbackHandler struct {
 // newer than the last applied for the peer is dropped, so a reordered apply can't
 // restore an older PSK over a newer one.
 func (h pqCallbackHandler) OnNewPSKReady(remoteID pqkem.RemoteID, gen uint64, psk pqkem.PSK) error {
-	if h.applied != nil && !h.applied.claim(string(remoteID), gen) {
-		log.Tracef("pqkem: dropping stale PSK apply for peer %s (gen %d)", remoteID, gen)
-		return nil
-	}
 	// updateOnly: applies to an already-configured peer (rotation). At bootstrap the
 	// peer is not configured yet, so this is a no-op there and the PSK is instead
 	// pulled at peer-config time (pqHandshaker.PSK / conn.presharedKey).
-	log.Tracef("pqkem: programming PSK for peer %s (gen %d)", remoteID, gen)
-	if err := h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true); err != nil {
-		return err
+	set := func() error {
+		log.Tracef("pqkem: programming PSK for peer %s (gen %d)", remoteID, gen)
+		return h.wg.SetPresharedKey(string(remoteID), wgtypes.Key(psk), true)
+	}
+	if h.applied == nil {
+		if err := set(); err != nil {
+			return err
+		}
+	} else {
+		applied, err := h.applied.apply(string(remoteID), gen, set)
+		if err != nil {
+			return err
+		}
+		if !applied {
+			log.Tracef("pqkem: dropping stale PSK apply for peer %s (gen %d)", remoteID, gen)
+			return nil
+		}
 	}
 	// The status flag is computed when the connection comes up; a PSK landing afterwards
 	// would otherwise leave the peer reported as not quantum resistant.

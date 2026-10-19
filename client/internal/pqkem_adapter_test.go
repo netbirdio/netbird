@@ -2,7 +2,9 @@ package internal
 
 import (
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,25 +78,86 @@ func TestPQCallbackHandler_UnknownStatusPeerDoesNotFailApply(t *testing.T) {
 // reordered PSK callback cannot restore an older key over a newer one.
 func TestAppliedGenerations_DropsStale(t *testing.T) {
 	a := newAppliedGenerations()
+	accept := func(peer string, gen uint64) bool {
+		ran, err := a.apply(peer, gen, func() error { return nil })
+		require.NoError(t, err)
+		return ran
+	}
 
-	if !a.claim("peerA", 1) {
+	if !accept("peerA", 1) {
 		t.Fatal("first generation must be accepted")
 	}
-	if !a.claim("peerA", 2) {
+	if !accept("peerA", 2) {
 		t.Fatal("a newer generation must be accepted")
 	}
-	if a.claim("peerA", 2) {
+	if accept("peerA", 2) {
 		t.Fatal("re-applying the same generation must be dropped")
 	}
-	if a.claim("peerA", 1) {
+	if accept("peerA", 1) {
 		t.Fatal("an older generation arriving late must be dropped")
 	}
-	if !a.claim("peerA", 3) {
+	if !accept("peerA", 3) {
 		t.Fatal("a newer generation after a dropped stale one must still be accepted")
 	}
 
 	// Generations are tracked independently per peer.
-	if !a.claim("peerB", 1) {
+	if !accept("peerB", 1) {
 		t.Fatal("a different peer's first generation must be accepted")
 	}
+}
+
+// blockingPSKSetter holds the first SetPresharedKey call until released, recording the
+// key WireGuard ends up with.
+type blockingPSKSetter struct {
+	mu      sync.Mutex
+	calls   int
+	last    wgtypes.Key
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingPSKSetter) SetPresharedKey(_ string, psk wgtypes.Key, _ bool) error {
+	s.mu.Lock()
+	s.calls++
+	first := s.calls == 1
+	s.mu.Unlock()
+	if first {
+		close(s.entered)
+		<-s.release
+	}
+	s.mu.Lock()
+	s.last = psk
+	s.mu.Unlock()
+	return nil
+}
+
+// TestPQCallbackHandler_AppliesGenerationsInOrder covers two PSK callbacks for one peer
+// overlapping. The newer generation must be the one WireGuard keeps: with the generation
+// checked under a lock but the key set outside it, an older apply that was already
+// writing could finish last and restore its stale key.
+func TestPQCallbackHandler_AppliesGenerationsInOrder(t *testing.T) {
+	setter := &blockingPSKSetter{entered: make(chan struct{}), release: make(chan struct{})}
+	h := pqCallbackHandler{wg: setter, applied: newAppliedGenerations()}
+	older, newer := pqkem.PSK{3}, pqkem.PSK{4}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		assert.NoError(t, h.OnNewPSKReady(pqkem.RemoteID(pqTestPeerKey), 3, older))
+	}()
+	<-setter.entered // the older apply is now inside SetPresharedKey
+
+	go func() {
+		defer wg.Done()
+		assert.NoError(t, h.OnNewPSKReady(pqkem.RemoteID(pqTestPeerKey), 4, newer))
+	}()
+	// Give the newer apply the chance to overtake the blocked older one.
+	time.Sleep(50 * time.Millisecond)
+	close(setter.release)
+	wg.Wait()
+
+	setter.mu.Lock()
+	defer setter.mu.Unlock()
+	assert.Equal(t, wgtypes.Key(newer), setter.last, "WireGuard must keep the newest generation's PSK")
 }
