@@ -1376,22 +1376,22 @@
     "error.elevation_failed": {
         "message": "אי אפשר להחיל את השינויים עם הרשאות גבוהות יותר. יש להריץ את זה במקום:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "משתמש על/root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "הרשאות ניהול"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.hint": {
         "message": "דורש {actor}. יש להריץ את זה במקום:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "אפשר לכבות את זה, אבל ההפעלה דורשת {actor}."
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "אפשר להפעיל את זה, אבל הכיבוי דורש {actor}."
     },
-    "settings.ssh.privilege.authorizePending": {
+    "settings.privilege.authorizePending": {
         "message": "בהמתנה לאימות…"
     }
 }
