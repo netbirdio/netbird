@@ -549,6 +549,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config, tl
 			TLSConfig:               tlsConfig,
 			DisableMetrics:          mgmt.DisableAnonymousMetrics,
 			DisableGeoliteUpdate:    mgmt.DisableGeoliteUpdate,
+			GeoliteUpdateInterval:   mgmt.GeoliteUpdateInterval,
 			// Always enable user deletion from IDP in combined server (embedded IdP is always enabled)
 			UserDeleteFromIDPEnabled: true,
 		},

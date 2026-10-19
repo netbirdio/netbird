@@ -83,6 +83,7 @@ var (
 	requireSubdomain      bool
 	private               bool
 	geoDataDir            string
+	geoUpdateInterval     time.Duration
 	crowdsecAPIURL        string
 	crowdsecAPIKey        string
 )
@@ -130,6 +131,7 @@ func init() {
 	rootCmd.Flags().DurationVar(&maxDialTimeout, "max-dial-timeout", envDurationOrDefault("NB_PROXY_MAX_DIAL_TIMEOUT", 0), "Cap per-service backend dial timeout (0 = no cap)")
 	rootCmd.Flags().DurationVar(&maxSessionIdleTimeout, "max-session-idle-timeout", envDurationOrDefault("NB_PROXY_MAX_SESSION_IDLE_TIMEOUT", 0), "Cap per-service session idle timeout (0 = no cap)")
 	rootCmd.Flags().StringVar(&geoDataDir, "geo-data-dir", envStringOrDefault("NB_PROXY_GEO_DATA_DIR", "/var/lib/netbird/geolocation"), "Directory for the GeoLite2 MMDB file (auto-downloaded if missing)")
+	rootCmd.Flags().DurationVar(&geoUpdateInterval, "geo-update-interval", envDurationOrDefault("NB_PROXY_GEO_UPDATE_INTERVAL", 24*time.Hour), "How often to check for a newer GeoLite2 database (minimum 1h)")
 	rootCmd.Flags().StringVar(&crowdsecAPIURL, "crowdsec-api-url", envStringOrDefault("NB_PROXY_CROWDSEC_API_URL", ""), "CrowdSec LAPI URL for IP reputation checks")
 	rootCmd.Flags().StringVar(&crowdsecAPIKey, "crowdsec-api-key", envStringOrDefault("NB_PROXY_CROWDSEC_API_KEY", ""), "CrowdSec bouncer API key")
 }
@@ -270,6 +272,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
 		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
 		GeoDataDir:               geoDataDir,
+		GeoUpdateInterval:        geoUpdateInterval,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
 	})

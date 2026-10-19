@@ -45,10 +45,7 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	}
 
 	return Create(s, func() geolocation.Geolocation {
-		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate)
-		if err != nil {
-			log.Fatalf("could not initialize geolocation service: %v", err)
-		}
+		geo := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate, s.geoliteUpdateInterval)
 
 		log.Infof("geolocation service has been initialized from %s", s.Config.Datadir)
 

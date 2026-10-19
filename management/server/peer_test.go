@@ -2936,6 +2936,8 @@ func (g *fakeGeo) GetAllCountries() ([]geolocation.Country, error) { return nil,
 
 func (g *fakeGeo) GetCitiesByCountry(string) ([]geolocation.City, error) { return nil, nil }
 
+func (g *fakeGeo) WaitReady(context.Context) error { return nil }
+
 func (g *fakeGeo) Stop() error { return nil }
 
 func TestResolvePeerLocation(t *testing.T) {

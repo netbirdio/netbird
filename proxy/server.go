@@ -238,6 +238,9 @@ type Server struct {
 	// GeoDataDir is the directory containing GeoLite2 MMDB files for
 	// country-based access restrictions. Empty disables geo lookups.
 	GeoDataDir string
+	// GeoUpdateInterval is how often the GeoLite2 database is checked for a
+	// newer version. Non-positive means the default (24h), minimum 1h.
+	GeoUpdateInterval time.Duration
 	// CrowdSecAPIURL is the CrowdSec LAPI URL. Empty disables CrowdSec.
 	CrowdSecAPIURL string
 	// CrowdSecAPIKey is the CrowdSec bouncer API key. Empty disables CrowdSec.
@@ -619,7 +622,7 @@ func (s *Server) initReverseProxy() {
 // initGeoLookup configures the GeoLite2 lookup used for country-based
 // access restrictions and access-log enrichment.
 func (s *Server) initGeoLookup() error {
-	geoLookup, err := geolocation.NewLookup(s.Logger, s.GeoDataDir)
+	geoLookup, err := geolocation.NewLookup(s.Logger, s.GeoDataDir, s.GeoUpdateInterval)
 	if err != nil {
 		return fmt.Errorf("initialize geolocation: %w", err)
 	}

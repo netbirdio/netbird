@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"os"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,4 +146,81 @@ func createConfig(config string) (string, error) {
 		return "", err
 	}
 	return tmpfile.Name(), nil
+}
+
+type fakeServer struct {
+	blockStart bool
+	startErr   error
+	errCh      chan error
+	starting   atomic.Bool
+	stopCalls  atomic.Int32
+	stopDuring atomic.Bool
+}
+
+func (f *fakeServer) Start(ctx context.Context) error {
+	f.starting.Store(true)
+	defer f.starting.Store(false)
+	if f.blockStart {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return f.startErr
+}
+
+func (f *fakeServer) Stop() error {
+	if f.starting.Load() {
+		f.stopDuring.Store(true)
+	}
+	f.stopCalls.Add(1)
+	return nil
+}
+
+func (f *fakeServer) Errors() <-chan error            { return f.errCh }
+func (f *fakeServer) GetContainer(string) (any, bool) { return nil, false }
+func (f *fakeServer) SetContainer(string, any)        {}
+
+func TestRunServer_SignalDuringStartCancelsStart(t *testing.T) {
+	srv := &fakeServer{blockStart: true, errCh: make(chan error)}
+	stop := make(chan os.Signal, 1)
+
+	done := make(chan error, 1)
+	go func() { done <- runServer(context.Background(), srv, stop) }()
+
+	require.Eventually(t, srv.starting.Load, time.Second, time.Millisecond)
+	stop <- os.Interrupt
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a start cancelled by a signal must exit quietly")
+	case <-time.After(5 * time.Second):
+		t.Fatal("runServer did not return after a signal during start")
+	}
+	assert.Zero(t, srv.stopCalls.Load(), "Stop must not run for an interrupted start")
+	assert.False(t, srv.stopDuring.Load(), "Stop must never overlap Start")
+}
+
+func TestRunServer_SignalAfterStartStops(t *testing.T) {
+	srv := &fakeServer{errCh: make(chan error)}
+	stop := make(chan os.Signal, 1)
+	stop <- os.Interrupt
+
+	require.NoError(t, runServer(context.Background(), srv, stop))
+	assert.Equal(t, int32(1), srv.stopCalls.Load())
+	assert.False(t, srv.stopDuring.Load())
+}
+
+func TestRunServer_StartError(t *testing.T) {
+	srv := &fakeServer{startErr: errors.New("boom"), errCh: make(chan error)}
+
+	err := runServer(context.Background(), srv, make(chan os.Signal))
+	require.ErrorContains(t, err, "boom")
+	assert.Zero(t, srv.stopCalls.Load())
+}
+
+func TestRunServer_UnexpectedStop(t *testing.T) {
+	srv := &fakeServer{errCh: make(chan error, 1)}
+	srv.errCh <- errors.New("listener died")
+
+	err := runServer(context.Background(), srv, make(chan os.Signal))
+	require.ErrorContains(t, err, "listener died")
 }

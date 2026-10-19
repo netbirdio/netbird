@@ -146,31 +146,64 @@ var (
 				LetsEncryptListenAddress:    mgmtLetsencryptListen,
 				DisableMetrics:              disableMetrics,
 				DisableGeoliteUpdate:        disableGeoliteUpdate,
+				GeoliteUpdateInterval:       geoliteUpdateInterval,
 				UserDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
 			})
-			go func() {
-				if err := srv.Start(cmd.Context()); err != nil {
-					log.Fatalf("Server error: %v", err)
-				}
-			}()
-
 			stopChan := make(chan os.Signal, 1)
 			signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
-			select {
-			case <-stopChan:
-				log.Info("Received shutdown signal, stopping server...")
-				err = srv.Stop()
-				if err != nil {
-					log.Errorf("Failed to stop server gracefully: %v", err)
-				}
-			case err := <-srv.Errors():
-				log.Fatalf("Server stopped unexpectedly: %v", err)
+			if err := runServer(cmd.Context(), srv, stopChan); err != nil {
+				log.Fatal(err)
 			}
 
 			return nil
 		},
 	}
 )
+
+// runServer starts srv and stops it on a signal from stop. A signal during startup cancels the start instead, so Stop
+// never runs concurrently with Start. It returns an error only when the server fails to start or stops unexpectedly.
+func runServer(ctx context.Context, srv server.Server, stop <-chan os.Signal) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	started := make(chan error, 1)
+	go func() { started <- srv.Start(ctx) }()
+
+	select {
+	case <-stop:
+		log.Info("Received shutdown signal during startup, aborting...")
+		cancel()
+		err := <-started
+		switch {
+		case err == nil:
+			stopServer(srv)
+			return nil
+		case errors.Is(err, context.Canceled):
+			return nil
+		default:
+			return fmt.Errorf("server error: %w", err)
+		}
+	case err := <-started:
+		if err != nil {
+			return fmt.Errorf("server error: %w", err)
+		}
+	}
+
+	select {
+	case <-stop:
+		log.Info("Received shutdown signal, stopping server...")
+		stopServer(srv)
+		return nil
+	case err := <-srv.Errors():
+		return fmt.Errorf("server stopped unexpectedly: %w", err)
+	}
+}
+
+func stopServer(srv server.Server) {
+	if err := srv.Stop(); err != nil {
+		log.Errorf("Failed to stop server gracefully: %v", err)
+	}
+}
 
 func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
 	loadedConfig := &nbconfig.Config{}

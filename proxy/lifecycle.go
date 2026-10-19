@@ -124,6 +124,9 @@ type Config struct {
 
 	// GeoDataDir is the directory containing GeoLite2 MMDB files.
 	GeoDataDir string
+	// GeoUpdateInterval is how often the GeoLite2 database is checked for a
+	// newer version.
+	GeoUpdateInterval time.Duration
 	// CrowdSecAPIURL is the CrowdSec LAPI URL. Empty disables CrowdSec.
 	CrowdSecAPIURL string
 	// CrowdSecAPIKey is the CrowdSec bouncer API key. Empty disables
@@ -174,6 +177,7 @@ func New(ctx context.Context, cfg Config) *Server {
 		MaxSessionIdleTimeout:    cfg.MaxSessionIdleTimeout,
 		MappingBatchWatchdog:     cfg.MappingBatchWatchdog,
 		GeoDataDir:               cfg.GeoDataDir,
+		GeoUpdateInterval:        cfg.GeoUpdateInterval,
 		CrowdSecAPIURL:           cfg.CrowdSecAPIURL,
 		CrowdSecAPIKey:           cfg.CrowdSecAPIKey,
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -15,6 +16,11 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+// memoryDBSeq names each store's in-memory database; a shared-cache name is process-wide, so stores must not share one.
+var memoryDBSeq atomic.Uint64
+
+var errLocationDBNotLoaded = status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
 
 type GeoNames struct {
 	GeoNameID           int    `gorm:"column:geoname_id"`
@@ -66,7 +72,7 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 	defer s.mux.RUnlock()
 
 	if s.closed {
-		return nil, status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
+		return nil, errLocationDBNotLoaded
 	}
 
 	var countries []Country
@@ -87,7 +93,7 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	defer s.mux.RUnlock()
 
 	if s.closed {
-		return nil, status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
+		return nil, errLocationDBNotLoaded
 	}
 
 	var cities []City
@@ -126,7 +132,7 @@ func connectDB(ctx context.Context, filePath string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	storeStr := "file::memory:?cache=shared"
+	storeStr := fmt.Sprintf("file:geonames-%d?mode=memory&cache=shared", memoryDBSeq.Add(1))
 	if runtime.GOOS == "windows" {
 		storeStr = "file::memory:"
 	}
@@ -138,14 +144,16 @@ func connectDB(ctx context.Context, filePath string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := setupInMemoryDBFromFile(db, filePath); err != nil {
-		return nil, err
-	}
-
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
+
+	if err := setupInMemoryDBFromFile(db, filePath); err != nil {
+		_ = sql.Close()
+		return nil, err
+	}
+
 	conns := runtime.NumCPU()
 	sql.SetMaxOpenConns(conns)
 
@@ -177,12 +185,12 @@ func setupInMemoryDBFromFile(db *gorm.DB, source string) error {
 	// index geoname_id and country_iso_code field
 	err = db.Exec("CREATE INDEX idx_geonames_country_iso_code ON geonames(country_iso_code);").Error
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	err = db.Exec("CREATE INDEX idx_geonames_geoname_id ON geonames(geoname_id);").Error
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	return nil
