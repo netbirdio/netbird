@@ -83,6 +83,12 @@ get:
       required: false
       schema:
         type: string
+    - name: name
+      in: query
+      description: filter peers by hostname
+      required: false
+      schema:
+        type: string
     - name: hostname
       in: query
       description: filter peers by hostname

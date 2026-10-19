@@ -62,7 +62,7 @@ func TestGetPeersPagination(t *testing.T) {
 		},
 		{
 			name:           "GetPeers filtering all valid params",
-			requestPath:    "/peers?user_id=test-user&group_ids=1&group_ids=2&group_ids=3&group_ids=4&peer_ids=peer-1&peer_ids=peer-2&connected=true&approval_required=false&os=linux&os=windows&os=darwin&os=android&os=ios&os=js&ip=10.10.10.10&mac=00:11:22:33:44:55&hostname=test-host&kind=user_device",
+			requestPath:    "/peers?user_id=test-user&group_ids=1&group_ids=2&group_ids=3&group_ids=4&peer_ids=peer-1&peer_ids=peer-2&connected=true&approval_required=false&os=linux&os=windows&os=darwin&os=android&os=ios&os=js&ip=10.10.10.10&mac=00:11:22:33:44:55&name=test&hostname=test-host&kind=user_device",
 			expectedStatus: http.StatusOK,
 			setExpectations: func(p *Handler) {
 				p.peersManager.(*peersmodule.MockManager).EXPECT().GetPeersPaginated(gomock.Any(), gomock.Any(), gomock.Any(),
@@ -75,6 +75,7 @@ func TestGetPeersPagination(t *testing.T) {
 						Os:               []string{"linux", "windows", "darwin", "android", "ios", "js"},
 						IP:               "10.10.10.10",
 						MAC:              "00:11:22:33:44:55",
+						Name:             "test",
 						Hostname:         "test-host",
 						IsServer:         new(false),
 						PeersIds:         []string{"peer-1", "peer-2"},
@@ -160,10 +161,9 @@ func TestGetPeersPagination(t *testing.T) {
 		},
 	}
 
-	p := initTestMetaData(t, peer)
-
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+			p := initTestMetaData(t, peer)
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tc.requestPath, nil)

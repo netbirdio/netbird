@@ -25,80 +25,88 @@ insert into peers (id, account_id, "key", ssh_key, name, dns_label, extra_dns_la
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-one','account-1','key-1','ssh-key-1','Peer-1-name','peer-1','["extra-peer-1"]','user-id-1',true,true,'2026-08-06 13:25:59.12999','"10.10.10.1"','"fdf4:ba80:6aa5:89f1:44d7:8701:8677:4940"',
                    false,true,false,'2026-08-06 13:25:59.12999','cluster-1.netbird.services',
                    '0.76.0','linux','26.4.1','6.8.0-134-generic','[{"NetIP":"fe80::8b4c:973f:a76b:3771/64","Mac":"00:15:5d:24:0c:ac"},{"NetIP":"192.168.16.1/20","Mac":"00:15:5d:24:0c:ac"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.148.187"');
+                   'peer-one-name.local', 'DE','Berlin','"46.201.148.187"');
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-two','account-1','key-2','ssh-key-2','peer-2-name','peer-2','["extra-peer-2"]','user-id-2',true,true,'2026-08-06 14:25:59.12999','"10.10.100.1"','"fdf5:ba80:6aa5:89f1:44d7:8701:8698:4940"',
                    true,true,false,'2026-08-06 12:25:59.12999','cluster-2.netbird.services',
                    '0.76.1','ios','26.4.2','6.8.0-135-generic','[{"NetIP":"fe81::8b4c:973f:a76b:3771/64","Mac":"00:15:5d:24:0c:ad"},{"NetIP":"192.168.17.1/20","Mac":"00:15:5d:24:0c:ad"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',0,
-                   'DE','Berlin','"46.201.149.187"');
+                   'peer-two-name.local', 'DE','Berlin','"46.201.149.187"');
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
-	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
-                   meta_capabilities, meta_flags, meta_sync_message_version,
+	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses,
+                   meta_files,
+                   meta_capabilities, meta_flags, meta_sync_message_version, meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-three','account-1','key-3','ssh-key-3','peer-3-name','peer-3','["extra-peer-3"]','user-id-3',true,true,'2026-08-06 12:25:59.12999','"10.10.200.1"','"fdf6:ba80:6aa5:89f1:44d7:8701:8699:4940"',
                    true,false,false,'2026-08-06 11:25:59.12999','cluster-3.netbird.services',
                    '0.76.3','windows','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:5d:24:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:5d:24:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.150.187"');
+                   'peer-three-name.local','DE','Berlin','"46.201.150.187"');
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-four','account-1','key-4','ssh-key-4','peer-4-name','peer-4','["extra-peer-4"]','',true,true,'2026-08-06 12:25:59.12999','"10.10.20.1"','"fdf6:ba80:6aa5:89f1:44d7:8701:8669:4940"',
                    false,false,false,'2026-08-06 07:25:59.12999','cluster-4.netbird.services',
                    '0.76.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.150.187"');
+                   'peer-four-name.local','DE','Berlin','"46.201.150.187"');
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-five','account-1','key-5','ssh-key-5','peer-5-name','peer-5','["extra-peer-5"]','',true,true,'2026-08-06 12:25:59.12999','"10.10.9.2"','"fdf6:ba80:6aa5:89f1:44d7:8701:8669:4941"',
                    false,false,false,'2026-08-06 09:25:59.12999','cluster-4.netbird.services',
                    '0.78.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.150.187"');
+                   'peer-five-name.local','DE','Berlin','"46.201.150.187"');
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-six','account-1','key-6','ssh-key-6','peer-6-name','peer-6','["extra-peer-6"]','',true,true,'2026-08-06 12:25:59.12999','"10.10.8.3"','"fdf6:ba80:6aa5:89f1:44d7:8701:8669:4942"',
                    false,false,false,'2026-08-06 03:25:59.12999','cluster-4.netbird.services',
                    '0.77.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.150.187"');
+                   'peer-six-name.local','DE','Berlin','"46.201.150.187"');
               --      peer-id-8 should never appear in any of the results, as we are filtering out proxy peers
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-8','account-1','key-8','ssh-key-8','peer-8-name','peer-8','["extra-peer-8"]','',true,true,'2026-08-06 12:25:59.12999','"10.10.88.3"','"fdf6:ba80:6aa5:89f1:44d7:8701:8669:4943"',
                    false,false,true,'2026-08-06 03:25:59.12999','cluster-4.netbird.services',
                    '0.77.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.150.187"');
+                   'peer-eight-name.local','DE','Berlin','"46.201.150.187"');
 insert into peers (id,account_id,"key", ssh_key, name, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
 	            peer_status_requires_approval, peer_status_connected, proxy_meta_embedded, peer_status_last_seen, proxy_meta_cluster,
 	            meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files,
                    meta_capabilities, meta_flags, meta_sync_message_version,
+                   meta_hostname,
 	            location_country_code, location_city_name, location_connection_ip)
             values('peer-id-7','account-2','key-7','ssh-key-7','peer-7-name','peer-7','["extra-peer-7"]','',true,true,'2026-08-06 12:25:59.12999','"10.10.8.3"','"fdf6:ba80:6aa5:89f1:44d7:8701:8669:4942"',
                    false,false,false,'2026-08-06 03:25:59.12999','cluster-4.netbird.services',
                    '0.77.2','linux','26.4.3','6.8.0-136-generic','[{"NetIP":"fe82::8b4c:973f:a76b:3771/64","Mac":"00:15:7d:44:0c:ae"},{"NetIP":"192.168.18.1/20","Mac":"00:15:6d:34:0c:ae"}]','[{"Path":"/usr/bin/netbird","Exist":false,"ProcessIsRunning":false}]',
                    '[1,2]','{"RosenpassEnabled":false,"RosenpassPermissive":false,"ServerSSHAllowed":true,"DisableClientRoutes":false,"DisableServerRoutes":false,"DisableDNS":false,"DisableFirewall":false,"BlockLANAccess":false,"BlockInbound":false,"DisableIPv6":false,"LazyConnectionEnabled":false}',1,
-                   'DE','Berlin','"46.201.150.187"');
+                   'peer-seven-name.local','DE','Berlin','"46.201.150.187"');

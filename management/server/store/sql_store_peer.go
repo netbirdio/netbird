@@ -535,7 +535,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
 		query = filters.AsConditions(query)
 		query = pagination.AsScope(query)
-		query = sorting.AsOderBy(ctx, query)
+		query = sorting.AsOrderBy(ctx, query)
 
 		if err := query.Distinct().Find(&peers).Error; err != nil {
 			log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
@@ -586,6 +586,7 @@ type PeerFilters struct {
 	IP               string
 	MAC              string
 	Hostname         string
+	Name             string
 	IsServer         *bool
 	PeersIds         []string
 }
@@ -613,7 +614,10 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		db = db.Where("lower(meta_network_addresses) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.MAC)))
 	}
 	if f.Hostname != "" {
-		db = db.Where("lower(name) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Hostname)))
+		db = db.Where("lower(meta_hostname) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Hostname)))
+	}
+	if f.Name != "" {
+		db = db.Where("lower(name) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Name)))
 	}
 	if f.IsServer != nil {
 		if *f.IsServer {
@@ -653,7 +657,7 @@ type PeerSorting struct {
 	Fields []PeerSortingKey
 }
 
-func (s *PeerSorting) AsOderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
+func (s *PeerSorting) AsOrderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 	order := make([]clause.OrderByColumn, 0)
 
 	for _, key := range s.Fields {

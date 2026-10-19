@@ -304,6 +304,7 @@ func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
 		Os:               v["os"],
 		IP:               v.Get("ip"),
 		MAC:              v.Get("mac"),
+		Name:             v.Get("name"),
 		Hostname:         v.Get("hostname"),
 		IsServer:         isServer,
 		PeersIds:         v["peer_ids"],
