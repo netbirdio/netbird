@@ -87,6 +87,7 @@ type exchangeCtl struct {
 	lastSent  []byte
 	initiator *Initiator
 	viaSignal bool
+	acks      ExchangeID // exchange this one acknowledges; zero for a bootstrap
 }
 
 // Manager is the stateful orchestrator — the analogue of go-rosenpass's Server. It

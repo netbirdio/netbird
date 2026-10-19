@@ -72,6 +72,7 @@ func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID E
 		lastSent:  raw,
 		initiator: init,
 		viaSignal: viaSignal,
+		acks:      ackID,
 	}
 
 	m.wait.Add(1)
@@ -325,6 +326,12 @@ func (m *Manager) initiatorLoop(ctx context.Context, remoteID RemoteID, id Excha
 			case stateAwaitingAnswer:
 				if attempts >= m.maxRetries {
 					delete(m.exchanges, remoteID)
+					// A timed-out rotation hands the chain back to the exchange it
+					// acknowledged, so the next data-path rekey starts a new rotation.
+					// Without it rotation stops until the next Signal re-bootstrap.
+					if ex.acks != (ExchangeID{}) {
+						m.exchanges[remoteID] = &exchangeCtl{id: ex.acks, state: stateAwaitingRekey}
+					}
 					initial := !m.established[remoteID]
 					fail := m.registerFailureLocked(remoteID)
 					m.mu.Unlock()
