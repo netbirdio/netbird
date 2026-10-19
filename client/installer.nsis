@@ -204,9 +204,9 @@ Section -MainProgram
     DetailPrint "Stopping Netbird service..."
     ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
     DetailPrint "Terminating ${UI_APP_NAME} process..."
-    ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
+    ExecWait '"$SYSDIR\taskkill.exe" /im ${UI_APP_EXE}.exe /f'
     ; Both return before the processes release their image files.
-    Sleep 1000
+    Sleep 3000
     # SetOverwrite ifnewer
     SetOutPath "$INSTDIR"
     !ifndef ARCH
