@@ -163,13 +163,7 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 			continue
 		}
 
-		lazyPeerCfg := lazyconn.PeerConfig{
-			PublicKey:  peerID,
-			AllowedIPs: peerConn.WgConfig().AllowedIps,
-			PeerConnID: peerConn.ConnID(),
-			Log:        peerConn.Log,
-		}
-		excludedPeers = append(excludedPeers, lazyPeerCfg)
+		excludedPeers = append(excludedPeers, newLazyPeerConfig(peerID, peerConn))
 	}
 
 	added := e.lazyConnMgr.ExcludePeer(excludedPeers)
@@ -185,6 +179,16 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 		if err := peerConn.Open(ctx); err != nil {
 			peerConn.Log.Errorf("failed to open connection: %v", err)
 		}
+	}
+}
+
+// newLazyPeerConfig describes a peer connection to the lazy connection manager.
+func newLazyPeerConfig(peerKey string, conn *peer.Conn) lazyconn.PeerConfig {
+	return lazyconn.PeerConfig{
+		PublicKey:  peerKey,
+		AllowedIPs: conn.WgConfig().AllowedIps,
+		PeerConnID: conn.ConnID(),
+		Log:        conn.Log,
 	}
 }
 
@@ -212,13 +216,7 @@ func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Co
 		return
 	}
 
-	lazyPeerCfg := lazyconn.PeerConfig{
-		PublicKey:  peerKey,
-		AllowedIPs: conn.WgConfig().AllowedIps,
-		PeerConnID: conn.ConnID(),
-		Log:        conn.Log,
-	}
-	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
+	excluded, err := e.lazyConnMgr.AddPeer(newLazyPeerConfig(peerKey, conn))
 	if err != nil {
 		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
 		if err := conn.Open(ctx); err != nil {
