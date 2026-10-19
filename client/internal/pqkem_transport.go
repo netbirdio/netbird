@@ -19,7 +19,7 @@ const DefaultPort = 51833
 // overlay IP. It implements pqkem.Transport — the manager owns the remoteID<->endpoint
 // routing and drives this socket's lifecycle (Run / Close).
 type pqTransport struct {
-	conn *net.UDPConn
+	conn net.PacketConn
 	port int
 	wg   sync.WaitGroup
 }
@@ -36,21 +36,32 @@ func newPQTransport(overlayIP netip.Addr) (*pqTransport, error) {
 	// so the transport binds over IPv4. Unmap first so AsSlice() yields 4 bytes for an
 	// IPv4-mapped IPv6 address (a hardcoded "udp4" would otherwise fail on its 16 bytes).
 	overlayIP = overlayIP.Unmap()
-	ip := net.IP(overlayIP.AsSlice())
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: ip, Port: DefaultPort})
+	listen := func(port uint16) (net.PacketConn, error) {
+		conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IP(overlayIP.AsSlice()), Port: int(port)})
+		if err != nil {
+			return nil, err
+		}
+		return conn, nil
+	}
+	conn, err := listen(DefaultPort)
 	if err != nil {
 		log.Debugf("pqkem: default port %d unavailable on %s (%v), using an ephemeral port", DefaultPort, overlayIP, err)
-		conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: ip, Port: 0})
+		conn, err = listen(0)
 		if err != nil {
 			return nil, fmt.Errorf("bind pqkem udp on overlay %s: %w", overlayIP, err)
 		}
 	}
-	return &pqTransport{conn: conn, port: conn.LocalAddr().(*net.UDPAddr).Port}, nil
+	local, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		_ = conn.Close()
+		return nil, fmt.Errorf("pqkem transport bound to a non-UDP address %s", conn.LocalAddr())
+	}
+	return &pqTransport{conn: conn, port: local.Port}, nil
 }
 
 // Send implements pqkem.Transport.
 func (t *pqTransport) Send(endpoint netip.AddrPort, msg []byte) error {
-	_, err := t.conn.WriteToUDPAddrPort(msg, endpoint)
+	_, err := t.conn.WriteTo(msg, net.UDPAddrFromAddrPort(endpoint))
 	return err
 }
 
@@ -65,13 +76,18 @@ func (t *pqTransport) Run(onInbound func(src netip.AddrPort, msg []byte)) {
 		defer t.wg.Done()
 		buf := make([]byte, 2048)
 		for {
-			n, src, err := t.conn.ReadFromUDPAddrPort(buf)
+			n, addr, err := t.conn.ReadFrom(buf)
 			if err != nil {
 				return
 			}
+			src, ok := addr.(*net.UDPAddr)
+			if !ok {
+				continue
+			}
+			ap := src.AddrPort()
 			msg := make([]byte, n)
 			copy(msg, buf[:n])
-			onInbound(src, msg)
+			onInbound(netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), msg)
 		}
 	}()
 }
