@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 type pqInbound struct {
@@ -45,9 +46,9 @@ func receivePQ(t *testing.T, got <-chan pqInbound) pqInbound {
 func TestPQTransport_HostRoundTrip(t *testing.T) {
 	loopback := netip.MustParseAddr("127.0.0.1")
 
-	a, err := newPQTransport(loopback)
+	a, err := newPQTransport(loopback, nil)
 	require.NoError(t, err)
-	b, err := newPQTransport(loopback)
+	b, err := newPQTransport(loopback, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, a.LocalPort(), b.LocalPort(), "two transports on one IP must get distinct ports")
 
@@ -59,4 +60,33 @@ func TestPQTransport_HostRoundTrip(t *testing.T) {
 	in := receivePQ(t, gotB)
 	assert.Equal(t, []byte("offer"), in.msg, "payload must arrive intact")
 	assert.Equal(t, netip.AddrPortFrom(loopback, uint16(a.LocalPort())), in.src, "source must be the sender's unmapped IPv4 endpoint")
+}
+
+// TestPQTransport_NetstackRoundTrip covers netstack mode (js/wasm and embedded clients),
+// where the overlay IP exists only inside the userspace stack. Binding it on the host
+// fails, which disabled the exchange (or, in strict mode, stopped the engine from
+// starting); the transport must open its socket on the netstack instead.
+func TestPQTransport_NetstackRoundTrip(t *testing.T) {
+	overlay := netip.MustParseAddr("192.0.2.1")
+	dev, ns, err := netstack.CreateNetTUN([]netip.Addr{overlay}, nil, 1280)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close() })
+
+	_, err = newPQTransport(overlay, nil)
+	require.Error(t, err, "the netstack-only overlay IP must not be bindable on the host")
+
+	a, err := newPQTransport(overlay, ns)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultPort, a.LocalPort(), "the default port must be free on a fresh netstack")
+	b, err := newPQTransport(overlay, ns)
+	require.NoError(t, err)
+
+	runPQTransport(t, a)
+	gotB := runPQTransport(t, b)
+
+	require.NoError(t, a.Send(netip.AddrPortFrom(overlay, uint16(b.LocalPort())), []byte("offer")))
+
+	in := receivePQ(t, gotB)
+	assert.Equal(t, []byte("offer"), in.msg, "payload must arrive intact")
+	assert.Equal(t, netip.AddrPortFrom(overlay, uint16(a.LocalPort())), in.src, "source must be the sender's overlay endpoint")
 }

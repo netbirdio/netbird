@@ -598,7 +598,7 @@ func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
 	if !pqkem.Enabled() {
 		return nil
 	}
-	tr, err := newPQTransport(e.config.WgAddr.IP)
+	tr, err := newPQTransport(e.config.WgAddr.IP, e.wgInterface.GetNet())
 	if err != nil {
 		if pqkem.Strict() {
 			return fmt.Errorf("pqkem: strict mode enabled but transport bind failed: %w", err)

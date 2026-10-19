@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 // DefaultPort is the preferred UDP port for the ML-KEM data-path service, bound on
@@ -25,10 +26,15 @@ type pqTransport struct {
 }
 
 // newPQTransport binds a UDP socket on the WG overlay IP, preferring DefaultPort and
-// falling back to an OS-assigned ephemeral port if it is in use. Call it after the WG
-// interface is up so the overlay IP is assigned; when the bound port is not
-// DefaultPort it must be announced to peers via Body.mlkemPort.
-func newPQTransport(overlayIP netip.Addr) (*pqTransport, error) {
+// falling back to an ephemeral port if it is in use. Call it after the WG interface is
+// up so the overlay IP is assigned; when the bound port is not DefaultPort it must be
+// announced to peers via Body.mlkemPort.
+//
+// ns is the interface's netstack when it runs in netstack mode (js/wasm, embedded
+// clients): the overlay IP then exists only inside that userspace stack, so the socket
+// is opened there and its datagrams ride the tunnel like any other overlay traffic. A
+// nil ns binds on the host.
+func newPQTransport(overlayIP netip.Addr, ns *netstack.Net) (*pqTransport, error) {
 	if !overlayIP.IsValid() {
 		return nil, fmt.Errorf("invalid overlay IP for pqkem transport")
 	}
@@ -37,6 +43,13 @@ func newPQTransport(overlayIP netip.Addr) (*pqTransport, error) {
 	// IPv4-mapped IPv6 address (a hardcoded "udp4" would otherwise fail on its 16 bytes).
 	overlayIP = overlayIP.Unmap()
 	listen := func(port uint16) (net.PacketConn, error) {
+		if ns != nil {
+			conn, err := ns.ListenUDPAddrPort(netip.AddrPortFrom(overlayIP, port))
+			if err != nil {
+				return nil, err
+			}
+			return conn, nil
+		}
 		conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IP(overlayIP.AsSlice()), Port: int(port)})
 		if err != nil {
 			return nil, err
