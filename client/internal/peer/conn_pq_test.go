@@ -2,13 +2,18 @@ package peer
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/client/internal/peer/worker"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
 )
 
 // fakePQ is a minimal PQHandshaker: only PSK is exercised by presharedKey, the rest
@@ -119,4 +124,43 @@ func TestConn_IdlePresharedKey(t *testing.T) {
 
 	assert.Nil(t, newConn(fakePQ{ok: false}, false).IdlePresharedKey(), "non-strict mode leaves the idle key unchanged")
 	assert.Nil(t, newConn(nil, false).IdlePresharedKey(), "without ML-KEM the idle key is left unchanged")
+}
+
+// TestConn_RequestReofferOnlyWhenConnected covers the PQ recovery path. A failed KEM
+// exchange makes the manager ask for a fresh signalling offer. For a peer with no
+// transport (offline) that offer cannot be answered: with lazy connections off it was
+// repeated at every exchange timeout, a fixed-rate stream on top of the reconnect guard's
+// own backed-off offers. The re-offer must only be sent while the peer is connected.
+func TestConn_RequestReofferOnlyWhenConnected(t *testing.T) {
+	newConn := func() (*Conn, *logtest.Hook) {
+		logger, hook := logtest.NewNullLogger()
+		logger.SetLevel(log.DebugLevel)
+		entry := logger.WithField("peer", "reoffer-test")
+		// The signal client is never ready, so an attempted offer fails fast and is logged.
+		signaler := NewSignaler(&signal.MockClient{}, wgtypes.Key{})
+		c := &Conn{
+			Log:         entry,
+			statusRelay: worker.NewAtomicStatus(),
+			statusICE:   worker.NewAtomicStatus(),
+		}
+		c.handshaker = NewHandshaker(entry, ConnConfig{}, signaler, nil, nil, nil)
+		return c, hook
+	}
+	offerAttempted := func(hook *logtest.Hook) bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "recovery re-offer failed") {
+				return true
+			}
+		}
+		return false
+	}
+
+	c, hook := newConn()
+	c.RequestReoffer()
+	assert.False(t, offerAttempted(hook), "a disconnected peer must be left to the reconnect guard")
+
+	c, hook = newConn()
+	c.statusRelay.SetConnected()
+	c.RequestReoffer()
+	assert.True(t, offerAttempted(hook), "a connected peer must be re-offered")
 }
