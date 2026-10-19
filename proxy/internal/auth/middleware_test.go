@@ -153,6 +153,22 @@ func TestAddDomain_OverwritesPreviousConfig(t *testing.T) {
 	assert.Equal(t, 2*time.Hour, config.SessionExpiration)
 }
 
+func TestAddDomainConfigRejectsDifferentServiceOwner(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	first, err := NewDomainConfig("Example.COM.", nil, "", 0, "acct", "svc-1", nil, false, nil)
+	require.NoError(t, err)
+	require.NoError(t, mw.AddDomainConfig("Example.COM.", first))
+
+	replacement, err := NewDomainConfig("example.com", nil, "", 0, "acct", "svc-2", nil, false, nil)
+	require.NoError(t, err)
+	err = mw.AddDomainConfig("example.com", replacement)
+	require.EqualError(t, err, "domain example.com is owned by service svc-1")
+
+	stored, ok := mw.getDomainConfig("example.com")
+	require.True(t, ok)
+	assert.Equal(t, types.ServiceID("svc-1"), stored.ServiceID, "conflicting snapshot must not replace the owner")
+}
+
 func TestRemoveDomain(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)

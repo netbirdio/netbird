@@ -38,14 +38,16 @@ func serviceAuthToAPI(auth AuthConfig) api.ServiceAuthConfig {
 func serviceTargetsToAPI(targets []*Target, terminated bool) []api.ServiceTarget {
 	apiTargets := make([]api.ServiceTarget, 0, len(targets))
 	for _, target := range targets {
+		accessAction := api.ServiceTargetAccessAction(target.effectiveAccessAction())
 		converted := api.ServiceTarget{
-			Path:       target.Path,
-			Host:       &target.Host,
-			Port:       int(target.Port),
-			Protocol:   api.ServiceTargetProtocol(target.Protocol),
-			TargetId:   target.TargetId,
-			TargetType: api.ServiceTargetTargetType(target.TargetType),
-			Enabled:    target.Enabled && !terminated,
+			Path:         target.Path,
+			Host:         &target.Host,
+			Port:         int(target.Port),
+			Protocol:     api.ServiceTargetProtocol(target.Protocol),
+			TargetId:     target.TargetId,
+			TargetType:   api.ServiceTargetTargetType(target.TargetType),
+			Enabled:      target.Enabled && !terminated,
+			AccessAction: &accessAction,
 		}
 		opts := targetOptionsToAPI(target.Options)
 		if opts == nil {
@@ -281,13 +283,18 @@ func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Ta
 			return nil, fmt.Errorf("target %d: port must be between 0 and 65535, got %d", i, apiTarget.Port)
 		}
 		target := &Target{
-			AccountID:  accountID,
-			Path:       apiTarget.Path,
-			Port:       uint16(apiTarget.Port), //nolint:gosec // validated by API layer
-			Protocol:   string(apiTarget.Protocol),
-			TargetId:   apiTarget.TargetId,
-			TargetType: TargetType(apiTarget.TargetType),
-			Enabled:    apiTarget.Enabled,
+			AccountID:    accountID,
+			Path:         apiTarget.Path,
+			Port:         uint16(apiTarget.Port), //nolint:gosec // validated by API layer
+			Protocol:     string(apiTarget.Protocol),
+			TargetId:     apiTarget.TargetId,
+			TargetType:   TargetType(apiTarget.TargetType),
+			Enabled:      apiTarget.Enabled,
+			AccessAction: TargetAccessActionInherit,
+		}
+		if apiTarget.AccessAction != nil {
+			target.AccessAction = TargetAccessAction(*apiTarget.AccessAction)
+			target.AccessActionProvided = true
 		}
 		if apiTarget.Host != nil {
 			target.Host = *apiTarget.Host

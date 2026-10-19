@@ -146,6 +146,8 @@ type ClientConfig struct {
 	WGPort       uint16
 	PreSharedKey string
 	Performance  embed.Performance
+	// NATExternalIPs mirrors embed.Options.NATExternalIPs.
+	NATExternalIPs []string
 	// BlockInbound mirrors embed.Options.BlockInbound. Set to true on the
 	// standalone proxy where the embedded client never accepts inbound;
 	// set to false on the private/embedded proxy so the engine creates
@@ -404,6 +406,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		WireguardPort:  &wgPort,
 		PreSharedKey:   n.clientCfg.PreSharedKey,
 		Performance:    n.clientCfg.Performance,
+		NATExternalIPs: n.clientCfg.NATExternalIPs,
 	}
 	logEmbedOptions(n.logger, accountID, serviceID, publicKey.String(), embedOpts)
 	client, err := embed.New(embedOpts)
@@ -916,6 +919,7 @@ func logEmbedOptions(logger *log.Logger, accountID types.AccountID, serviceID ty
 		"management_url":        opts.ManagementURL,
 		"log_level":             opts.LogLevel,
 		"wg_port":               wgPort,
+		"nat_external_ips":      opts.NATExternalIPs,
 		"mtu":                   mtu,
 		"block_inbound":         opts.BlockInbound,
 		"block_lan_access":      opts.BlockLANAccess,

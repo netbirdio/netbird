@@ -118,18 +118,20 @@ type MiddlewareConfig struct {
 }
 
 type Target struct {
-	ID            uint          `gorm:"primaryKey" json:"-"`
-	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
-	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
-	Path          *string       `json:"path,omitempty"`
-	Host          string        `json:"host"`
-	Port          uint16        `gorm:"index:idx_target_port" json:"port"`
-	Protocol      string        `gorm:"index:idx_target_protocol" json:"protocol"`
-	TargetId      string        `gorm:"index:idx_target_id" json:"target_id"`
-	TargetType    TargetType    `gorm:"index:idx_target_type" json:"target_type"`
-	Enabled       bool          `gorm:"index:idx_target_enabled" json:"enabled"`
-	Options       TargetOptions `gorm:"embedded" json:"options"`
-	ProxyProtocol bool          `json:"proxy_protocol"`
+	ID                   uint               `gorm:"primaryKey" json:"-"`
+	AccountID            string             `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID            string             `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path                 *string            `json:"path,omitempty"`
+	Host                 string             `json:"host"`
+	Port                 uint16             `gorm:"index:idx_target_port" json:"port"`
+	Protocol             string             `gorm:"index:idx_target_protocol" json:"protocol"`
+	TargetId             string             `gorm:"index:idx_target_id" json:"target_id"`
+	TargetType           TargetType         `gorm:"index:idx_target_type" json:"target_type"`
+	Enabled              bool               `gorm:"index:idx_target_enabled" json:"enabled"`
+	AccessAction         TargetAccessAction `gorm:"type:varchar(16);not null;default:'inherit'" json:"access_action"`
+	AccessActionProvided bool               `gorm:"-" json:"-"`
+	Options              TargetOptions      `gorm:"embedded" json:"options"`
+	ProxyProtocol        bool               `json:"proxy_protocol"`
 }
 
 // PortMapping describes an inclusive public listener range translated
@@ -578,8 +580,9 @@ func (s *Service) buildPathMappings() []*proto.PathMapping {
 		}
 
 		pm := &proto.PathMapping{
-			Path:   path,
-			Target: targetURL.String(),
+			Path:         path,
+			Target:       targetURL.String(),
+			AccessAction: targetAccessActionToProto(target.effectiveAccessAction()),
 		}
 		pm.Options = targetOptionsToProto(target.Options)
 		pathMappings = append(pathMappings, pm)
@@ -965,39 +968,68 @@ func (s *Service) validateTLSMode() error {
 }
 
 func (s *Service) validateHTTPTargets() error {
+	strictPaths := false
 	for i, target := range s.Targets {
-		switch target.TargetType {
-		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-			// Host is normally overwritten by replaceHostByLookup with the
-			// resolved peer IP / resource address; operator-supplied values
-			// are honored only when DirectUpstream is set. Validate the
-			// override here so misconfigured hosts fail fast at API time.
-			if err := validateDirectUpstreamHost(i, target); err != nil {
-				return err
-			}
-		case TargetTypeSubnet:
-			if err := validateSubnetTarget(i, target); err != nil {
-				return err
-			}
-		case TargetTypeCluster:
-			if err := validateClusterTarget(i, target); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
-		}
-		if target.TargetId == "" {
-			return fmt.Errorf("target %d has empty target_id", i)
-		}
-		if target.ProxyProtocol {
-			return fmt.Errorf("target %d: proxy_protocol is not supported for HTTP services", i)
-		}
-		if err := validateTargetOptions(i, &target.Options); err != nil {
+		if err := s.validateHTTPTarget(i, target); err != nil {
 			return err
 		}
+		if target.Enabled && target.effectiveAccessAction() != TargetAccessActionInherit {
+			strictPaths = true
+		}
+	}
+	if !strictPaths {
+		return nil
+	}
+
+	paths := make(map[string]int, len(s.Targets))
+	for i, target := range s.Targets {
+		if !target.Enabled {
+			continue
+		}
+		normalizedPath := normalizedTargetPath(target.Path)
+		if previous, ok := paths[normalizedPath]; ok {
+			return fmt.Errorf("targets %d and %d have duplicate path %q", previous, i, normalizedPath)
+		}
+		paths[normalizedPath] = i
 	}
 
 	return nil
+}
+
+func (s *Service) validateHTTPTarget(idx int, target *Target) error {
+	if target == nil {
+		return fmt.Errorf("target %d is nil", idx)
+	}
+	if err := validateTargetAccessAction(idx, target, s.Private); err != nil {
+		return err
+	}
+	switch target.TargetType {
+	case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
+		// Host is normally overwritten by replaceHostByLookup with the
+		// resolved peer IP / resource address; operator-supplied values
+		// are honored only when DirectUpstream is set. Validate the
+		// override here so misconfigured hosts fail fast at API time.
+		if err := validateDirectUpstreamHost(idx, target); err != nil {
+			return err
+		}
+	case TargetTypeSubnet:
+		if err := validateSubnetTarget(idx, target); err != nil {
+			return err
+		}
+	case TargetTypeCluster:
+		if err := validateClusterTarget(idx, target); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("target %d has invalid target_type %q", idx, target.TargetType)
+	}
+	if target.TargetId == "" {
+		return fmt.Errorf("target %d has empty target_id", idx)
+	}
+	if target.ProxyProtocol {
+		return fmt.Errorf("target %d: proxy_protocol is not supported for HTTP services", idx)
+	}
+	return validateTargetOptions(idx, &target.Options)
 }
 
 func validateSubnetTarget(idx int, target *Target) error {
@@ -1075,10 +1107,20 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 }
 
 func (s *Service) validateL4Target(target *Target) error {
+	if target == nil {
+		return errors.New("target 0 is nil")
+	}
 	// L4 services have a single target; per-target disable is meaningless
 	// (use the service-level Enabled flag instead). Force it on so that
 	// buildPathMappings always includes the target in the proto.
 	target.Enabled = true
+	action, err := validatedTargetAccessAction(0, target)
+	if err != nil {
+		return err
+	}
+	if action != TargetAccessActionInherit {
+		return errors.New("access_action is only supported for HTTP services")
+	}
 
 	if target.TargetId == "" {
 		return errors.New("target_id is required for L4 services")

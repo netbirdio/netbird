@@ -32,6 +32,7 @@ const (
 	// signature is 2 KiB.
 	maxAttributeLen = 1 << 20
 	maxSignatureLen = 1 << 16
+	maxFoundObjects = 1 << 16
 )
 
 type version struct {
@@ -103,6 +104,15 @@ const (
 	fnSign              = 43
 )
 
+// checkFunctionListVersion refuses a module whose function list is older than the layout
+// functionList mirrors, which would otherwise be read past its end.
+func checkFunctionListVersion(v version) error {
+	if v.major < 2 {
+		return fmt.Errorf("PKCS#11 function list version %d.%d is older than 2.0", v.major, v.minor)
+	}
+	return nil
+}
+
 // module holds the entry points of one loaded library, bound straight from its
 // CK_FUNCTION_LIST.
 type module struct {
@@ -152,6 +162,10 @@ func load(path string) (_ driver, err error) {
 		return nil, Error{Op: "C_GetFunctionList", Code: uint(rv)}
 	}
 
+	if err := checkFunctionListVersion(list.version); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+
 	m := &module{}
 	for _, entry := range []struct {
 		fn    any
@@ -185,21 +199,43 @@ func load(path string) (_ driver, err error) {
 	return m, nil
 }
 
+// slotListAttempts bounds how often the slot list is asked for again after it grew between
+// the size query and the read.
+const slotListAttempts = 3
+
+// slotList returns the slots with a token present. A token plugged in between the size
+// query and the read makes the module answer CKR_BUFFER_TOO_SMALL, in which case the list
+// is asked for again.
+func (m *module) slotList() ([]ulong, error) {
+	for range slotListAttempts {
+		var count ulong
+		if rv := m.cGetSlotList(1, nil, &count); rv != rvOK {
+			return nil, Error{Op: "C_GetSlotList", Code: uint(rv)}
+		}
+		if count == 0 {
+			return nil, nil
+		}
+		slots := make([]ulong, count)
+		rv := m.cGetSlotList(1, &slots[0], &count)
+		if rv == rvBufferTooSmall {
+			continue
+		}
+		if rv != rvOK {
+			return nil, Error{Op: "C_GetSlotList", Code: uint(rv)}
+		}
+		return slots[:count], nil
+	}
+	return nil, Error{Op: "C_GetSlotList", Code: rvBufferTooSmall}
+}
+
 func (m *module) tokens() ([]Token, error) {
-	var count ulong
-	if rv := m.cGetSlotList(1, nil, &count); rv != rvOK {
-		return nil, Error{Op: "C_GetSlotList", Code: uint(rv)}
-	}
-	if count == 0 {
-		return nil, nil
-	}
-	slots := make([]ulong, count)
-	if rv := m.cGetSlotList(1, &slots[0], &count); rv != rvOK {
-		return nil, Error{Op: "C_GetSlotList", Code: uint(rv)}
+	slots, err := m.slotList()
+	if err != nil {
+		return nil, err
 	}
 
-	tokens := make([]Token, 0, count)
-	for _, slot := range slots[:count] {
+	tokens := make([]Token, 0, len(slots))
+	for _, slot := range slots {
 		var info tokenInfo
 		if rv := m.cGetTokenInfo(slot, &info); rv != rvOK {
 			continue
@@ -262,11 +298,16 @@ func (m *module) findObjects(session uint, template []Attribute) ([]Object, erro
 		if count > findBatch {
 			return nil, fmt.Errorf("C_FindObjects reported %d handles for a batch of %d", count, findBatch)
 		}
+		// Only an empty batch ends the search: a module may return fewer handles than
+		// asked for before it has returned them all.
+		if count == 0 {
+			return objects, nil
+		}
 		for _, handle := range batch[:count] {
 			objects = append(objects, Object(handle))
 		}
-		if count < findBatch {
-			return objects, nil
+		if len(objects) > maxFoundObjects {
+			return nil, fmt.Errorf("C_FindObjects returned more than %d objects", maxFoundObjects)
 		}
 	}
 }

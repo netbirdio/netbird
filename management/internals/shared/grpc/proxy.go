@@ -152,6 +152,10 @@ type ProxyServiceServer struct {
 	// initial snapshot delivery. Configurable via NB_PROXY_SNAPSHOT_BATCH_SIZE.
 	snapshotBatchSize int
 
+	// snapshotAckTimeout bounds the wait for each snapshot batch ack.
+	// Defaults to defaultSnapshotAckTimeout when zero.
+	snapshotAckTimeout time.Duration
+
 	cancel context.CancelFunc
 }
 
@@ -168,6 +172,8 @@ const defaultProxyTokenTTL = 5 * time.Minute
 
 const defaultSnapshotBatchSize = 500
 
+const defaultSnapshotAckTimeout = 5 * time.Minute
+
 func snapshotBatchSizeFromEnv() int {
 	if v := os.Getenv("NB_PROXY_SNAPSHOT_BATCH_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -183,6 +189,14 @@ func (s *ProxyServiceServer) proxyTokenTTL() time.Duration {
 		return s.tokenTTL
 	}
 	return defaultProxyTokenTTL
+}
+
+// snapshotAckWait returns the configured snapshot ack timeout or the default when unset.
+func (s *ProxyServiceServer) snapshotAckWait() time.Duration {
+	if s.snapshotAckTimeout > 0 {
+		return s.snapshotAckTimeout
+	}
+	return defaultSnapshotAckTimeout
 }
 
 // proxyConnection represents a connected proxy
@@ -484,7 +498,7 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		return err
 	}
 
-	if err := s.sendSnapshotSync(stream.Context(), conn, stream); err != nil {
+	if err := s.sendSnapshotSync(conn.ctx, conn, stream); err != nil {
 		s.cleanupFailedSnapshot(stream.Context(), conn)
 		return fmt.Errorf("send snapshot to proxy %s: %w", params.proxyID, err)
 	}
@@ -729,7 +743,7 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 			return fmt.Errorf("send snapshot batch: %w", err)
 		}
 
-		if err := waitForAck(stream); err != nil {
+		if err := waitForAck(ctx, stream, s.snapshotAckWait()); err != nil {
 			return err
 		}
 	}
@@ -741,7 +755,7 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 			return fmt.Errorf("send snapshot completion: %w", err)
 		}
 
-		if err := waitForAck(stream); err != nil {
+		if err := waitForAck(ctx, stream, s.snapshotAckWait()); err != nil {
 			return err
 		}
 	}
@@ -749,15 +763,38 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 	return nil
 }
 
-func waitForAck(stream proto.ProxyService_SyncMappingsServer) error {
-	msg, err := stream.Recv()
-	if err != nil {
-		return fmt.Errorf("receive ack: %w", err)
+// waitForAck waits for the proxy to ack a snapshot batch. It gives up when ctx
+// is canceled or no ack arrives within timeout, since a proxy that abandoned the
+// stream without closing it would otherwise block the handler indefinitely.
+func waitForAck(ctx context.Context, stream proto.ProxyService_SyncMappingsServer, timeout time.Duration) error {
+	type recvResult struct {
+		msg *proto.SyncMappingsRequest
+		err error
 	}
-	if msg.GetAck() == nil {
-		return fmt.Errorf("expected ack, got %T", msg.GetMsg())
+	// Recv returns once the handler exits and gRPC tears the stream down.
+	result := make(chan recvResult, 1)
+	go func() {
+		msg, err := stream.Recv()
+		result <- recvResult{msg: msg, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-result:
+		if r.err != nil {
+			return fmt.Errorf("receive ack: %w", r.err)
+		}
+		if r.msg.GetAck() == nil {
+			return fmt.Errorf("expected ack, got %T", r.msg.GetMsg())
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for ack: %w", ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("no ack within %s", timeout)
 	}
-	return nil
 }
 
 // heartbeat updates the proxy's last_seen timestamp every minute and
