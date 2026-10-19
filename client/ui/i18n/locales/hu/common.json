@@ -1,1862 +1,1397 @@
 {
     "tray.tooltip": {
-        "message": "NetBird",
-        "description": "Hover tooltip on the system-tray / menu-bar icon. Brand name — do not translate."
+        "message": "NetBird"
     },
     "tray.status.disconnected": {
-        "message": "Lecsatlakozva",
-        "description": "Connection status surfaced through the tray icon: the client is not connected to the network."
+        "message": "Lecsatlakozva"
     },
     "tray.status.daemonUnavailable": {
-        "message": "Nem fut",
-        "description": "Tray status: the background NetBird service (daemon) is not running."
+        "message": "Nem fut"
     },
     "tray.status.error": {
-        "message": "Hiba",
-        "description": "Tray status: the client is in an error state."
+        "message": "Hiba"
     },
     "tray.status.connected": {
-        "message": "Csatlakozva",
-        "description": "Tray status: connected to the NetBird network."
+        "message": "Csatlakozva"
     },
     "tray.status.connecting": {
-        "message": "Csatlakozás",
-        "description": "Tray status: a connection is being established."
+        "message": "Csatlakozás"
     },
     "tray.status.needsLogin": {
-        "message": "Bejelentkezés szükséges",
-        "description": "Tray status: the user must sign in before connecting."
+        "message": "Bejelentkezés szükséges"
     },
     "tray.status.loginFailed": {
-        "message": "Sikertelen bejelentkezés",
-        "description": "Tray status: the last sign-in attempt failed."
+        "message": "Sikertelen bejelentkezés"
     },
     "tray.status.sessionExpired": {
-        "message": "Munkamenet lejárt",
-        "description": "Tray status: the authenticated session expired; the user must sign in again."
+        "message": "Munkamenet lejárt"
     },
     "tray.session.expiresIn": {
-        "message": "Munkamenet lejár {remaining} múlva",
-        "description": "Tray row showing time left before the session expires. {remaining} is a human-readable duration such as '5 minutes', built from the tray.session.unit.* strings. Keep {remaining} unchanged."
+        "message": "Munkamenet lejár {remaining} múlva"
     },
     "tray.session.unit.lessThanMinute": {
-        "message": "egy percnél kevesebb",
-        "description": "Duration fragment substituted into {remaining} (see tray.session.expiresIn). Used when under one minute remains."
+        "message": "egy percnél kevesebb"
     },
     "tray.session.unit.minute": {
-        "message": "1 perc",
-        "description": "Duration fragment for exactly one minute, substituted into {remaining}."
+        "message": "1 perc"
     },
     "tray.session.unit.minutes": {
-        "message": "{count} perc",
-        "description": "Duration fragment for several minutes, substituted into {remaining}. {count} is the number of minutes; keep {count}."
+        "message": "{count} perc"
     },
     "tray.session.unit.hour": {
-        "message": "1 óra",
-        "description": "Duration fragment for exactly one hour, substituted into {remaining}."
+        "message": "1 óra"
     },
     "tray.session.unit.hours": {
-        "message": "{count} óra",
-        "description": "Duration fragment for several hours. {count} is the number of hours; keep {count}."
+        "message": "{count} óra"
     },
     "tray.session.unit.day": {
-        "message": "1 nap",
-        "description": "Duration fragment for exactly one day, substituted into {remaining}."
+        "message": "1 nap"
     },
     "tray.session.unit.days": {
-        "message": "{count} nap",
-        "description": "Duration fragment for several days. {count} is the number of days; keep {count}."
+        "message": "{count} nap"
     },
     "tray.menu.open": {
-        "message": "NetBird megnyitása",
-        "description": "Tray menu item that opens the main NetBird window. Keep short."
+        "message": "NetBird megnyitása"
     },
     "tray.menu.connect": {
-        "message": "Csatlakozás",
-        "description": "Tray menu item that connects to the network. Keep short."
+        "message": "Csatlakozás"
     },
     "tray.menu.disconnect": {
-        "message": "Bontás",
-        "description": "Tray menu item that disconnects from the network. Keep short."
+        "message": "Bontás"
     },
     "tray.menu.exitNode": {
-        "message": "Exit Node",
-        "description": "Tray submenu title for choosing an exit node (route all traffic through another peer)."
+        "message": "Exit Node"
     },
     "tray.menu.networks": {
-        "message": "Erőforrások",
-        "description": "Tray submenu title listing network resources the user can reach. Labelled 'Resources' in the UI even though the key says networks."
+        "message": "Erőforrások"
     },
     "tray.menu.profiles": {
-        "message": "Profilok",
-        "description": "Tray submenu title listing connection profiles."
+        "message": "Profilok"
     },
     "tray.menu.manageProfiles": {
-        "message": "Profilok kezelése",
-        "description": "Tray menu item that opens Settings → Profiles."
+        "message": "Profilok kezelése"
     },
     "tray.menu.settings": {
-        "message": "Beállítások…",
-        "description": "Tray menu item that opens the Settings window. The trailing '...' signals that a window opens; keep it."
+        "message": "Beállítások…"
     },
     "tray.menu.debugBundle": {
-        "message": "Hibakeresési csomag készítése",
-        "description": "Tray menu item that generates a diagnostic log bundle for support."
+        "message": "Hibakeresési csomag készítése"
     },
     "tray.menu.about": {
-        "message": "Súgó és támogatás",
-        "description": "Tray submenu title for help and support links."
+        "message": "Súgó és támogatás"
     },
     "tray.menu.github": {
-        "message": "GitHub",
-        "description": "Tray menu link to the GitHub repository. Brand name — do not translate."
+        "message": "GitHub"
     },
     "tray.menu.documentation": {
-        "message": "Dokumentáció",
-        "description": "Tray menu link to the online documentation."
+        "message": "Dokumentáció"
     },
     "tray.menu.troubleshoot": {
-        "message": "Hibakeresés",
-        "description": "Tray menu link to troubleshooting help."
+        "message": "Hibakeresés"
     },
     "tray.menu.downloadLatest": {
-        "message": "Legfrissebb verzió letöltése",
-        "description": "Tray menu item to download the latest available version."
+        "message": "Legfrissebb verzió letöltése"
     },
     "tray.menu.installVersion": {
-        "message": "{version} verzió telepítése",
-        "description": "Tray menu item to install a specific update. {version} is a version number like 0.30.1; keep {version}."
+        "message": "{version} verzió telepítése"
     },
     "tray.menu.guiVersion": {
-        "message": "GUI: {version}",
-        "description": "Tray menu row showing the installed UI version. 'GUI' = the graphical app. {version} is a version number; keep it."
+        "message": "GUI: {version}"
     },
     "tray.menu.daemonVersion": {
-        "message": "Daemon: {version}",
-        "description": "Tray menu row showing the background-service version. 'Daemon' = the background NetBird service. {version} is a version number; keep it."
+        "message": "Daemon: {version}"
     },
     "tray.menu.versionUnknown": {
-        "message": "—",
-        "description": "Placeholder shown in version rows when the version can't be determined. It is an em dash — leave as-is."
+        "message": "—"
     },
     "tray.menu.quit": {
-        "message": "NetBird bezárása",
-        "description": "Tray menu item that fully exits the app and removes the tray icon. Keep short."
+        "message": "NetBird bezárása"
     },
     "notify.daemonOutdated.title": {
-        "message": "A NetBird szolgáltatás elavult",
-        "description": "Title of the OS desktop notification shown when the running daemon is too old for this UI."
+        "message": "A NetBird szolgáltatás elavult"
     },
     "notify.daemonOutdated.body": {
-        "message": "Frissítsd a NetBird szolgáltatást az alkalmazás használatához.",
-        "description": "Body of the desktop notification telling the user to upgrade the daemon."
+        "message": "Frissítsd a NetBird szolgáltatást az alkalmazás használatához."
     },
     "notify.update.title": {
-        "message": "NetBird frissítés elérhető",
-        "description": "Title of the OS desktop notification shown when an app update is available."
+        "message": "NetBird frissítés elérhető"
     },
     "notify.update.body": {
-        "message": "Elérhető a NetBird {version}.",
-        "description": "Body of the update-available desktop notification. {version} is the new version number; keep it."
+        "message": "Elérhető a NetBird {version}."
     },
     "notify.update.enforcedSuffix": {
-        "message": " A rendszergazda kötelezővé tette ezt a frissítést.",
-        "description": "Sentence appended to the update notification body when the admin has made the update mandatory. Note the leading space — keep it."
+        "message": " A rendszergazda kötelezővé tette ezt a frissítést."
     },
     "notify.error.title": {
-        "message": "Hiba",
-        "description": "Title of a generic error desktop notification."
+        "message": "Hiba"
     },
     "notify.error.connect": {
-        "message": "Csatlakozás sikertelen",
-        "description": "Error notification body shown when connecting failed."
+        "message": "Csatlakozás sikertelen"
     },
     "notify.error.disconnect": {
-        "message": "Bontás sikertelen",
-        "description": "Error notification body shown when disconnecting failed."
+        "message": "Bontás sikertelen"
     },
     "notify.error.switchProfile": {
-        "message": "Átváltás sikertelen erre: {profile}",
-        "description": "Error notification shown when switching profiles failed. {profile} is the target profile name; keep it."
+        "message": "Átváltás sikertelen erre: {profile}"
     },
     "notify.error.exitNode": {
-        "message": "Az Exit Node frissítése sikertelen: {name}",
-        "description": "Error notification shown when updating the exit node failed. {name} is the exit node name; keep it."
+        "message": "Az Exit Node frissítése sikertelen: {name}"
     },
     "notify.sessionExpired.title": {
-        "message": "NetBird munkamenet lejárt",
-        "description": "Title of the desktop notification shown when the session has expired."
+        "message": "NetBird munkamenet lejárt"
     },
     "notify.sessionExpired.body": {
-        "message": "A NetBird munkamenet lejárt. Kérjük, jelentkezzen be újra.",
-        "description": "Body of the session-expired desktop notification."
+        "message": "A NetBird munkamenet lejárt. Kérjük, jelentkezzen be újra."
     },
     "notify.sessionWarning.title": {
-        "message": "Munkamenet hamarosan lejár",
-        "description": "Title of the desktop notification warning that the session will expire soon."
+        "message": "Munkamenet hamarosan lejár"
     },
     "notify.sessionWarning.body": {
-        "message": "A NetBird munkamenet {remaining} múlva lejár. Kattintson a Meghosszabbítás gombra a megújításhoz.",
-        "description": "Body of the session-expiry warning notification. {remaining} is a human-readable duration (see tray.session.unit.*); keep it. 'Extend now' refers to the action button notify.sessionWarning.extend."
+        "message": "A NetBird munkamenet {remaining} múlva lejár. Kattintson a Meghosszabbítás gombra a megújításhoz."
     },
     "notify.sessionWarning.bodyGeneric": {
-        "message": "A NetBird munkamenet hamarosan lejár. Kattintson a Meghosszabbítás gombra a megújításhoz.",
-        "description": "Generic session-expiry warning body used when the exact remaining time isn't known."
+        "message": "A NetBird munkamenet hamarosan lejár. Kattintson a Meghosszabbítás gombra a megújításhoz."
     },
     "notify.sessionWarning.extend": {
-        "message": "Meghosszabbítás",
-        "description": "Action button on the session-expiry notification that renews the session. Keep short."
+        "message": "Meghosszabbítás"
     },
     "notify.sessionWarning.dismiss": {
-        "message": "Elvetés",
-        "description": "Action button on the session-expiry notification that dismisses it. Keep short."
+        "message": "Elvetés"
     },
     "notify.sessionWarning.failed": {
-        "message": "A NetBird munkamenet meghosszabbítása sikertelen",
-        "description": "Notification shown when renewing the session failed."
+        "message": "A NetBird munkamenet meghosszabbítása sikertelen"
     },
     "notify.sessionWarning.successTitle": {
-        "message": "NetBird munkamenet meghosszabbítva",
-        "description": "Title of the notification confirming the session was renewed."
+        "message": "NetBird munkamenet meghosszabbítva"
     },
     "notify.sessionWarning.successBody": {
-        "message": "A munkamenet frissítve.",
-        "description": "Body of the notification confirming the session was renewed."
+        "message": "A munkamenet frissítve."
     },
     "notify.sessionDeadlineRejected.title": {
-        "message": "Munkamenet-határidő elutasítva",
-        "description": "Title of the notification shown when the server sent an invalid session deadline."
+        "message": "Munkamenet-határidő elutasítva"
     },
     "notify.sessionDeadlineRejected.body": {
-        "message": "A szerver érvénytelen munkamenet-határidőt küldött. Kérjük, jelentkezzen be újra.",
-        "description": "Body explaining the server sent an invalid session deadline and the user must sign in again."
+        "message": "A szerver érvénytelen munkamenet-határidőt küldött. Kérjük, jelentkezzen be újra."
     },
     "notify.mdm.policyApplied.title": {
-        "message": "NetBird beállítások frissítve",
-        "description": "Title of the desktop notification shown when an MDM (IT-managed) policy changed the daemon configuration at runtime."
+        "message": "NetBird beállítások frissítve"
     },
     "notify.mdm.policyApplied.body": {
-        "message": "A NetBird konfigurációt az IT-szabályzat frissítette.",
-        "description": "Body of the MDM policy-applied notification, telling the user their settings were changed by their organization's device-management policy."
+        "message": "A NetBird konfigurációt az IT-szabályzat frissítette."
     },
     "common.cancel": {
-        "message": "Mégse",
-        "description": "Generic Cancel button label, reused across dialogs. Keep short."
+        "message": "Mégse"
     },
     "common.save": {
-        "message": "Mentés",
-        "description": "Generic Save button label. Keep short."
+        "message": "Mentés"
     },
     "common.saveChanges": {
-        "message": "Módosítások mentése",
-        "description": "Button label to save edited settings. Keep short."
+        "message": "Módosítások mentése"
     },
     "common.saving": {
-        "message": "Mentés…",
-        "description": "Button label / status shown while a save is in progress. Ends with an ellipsis."
+        "message": "Mentés…"
     },
     "common.close": {
-        "message": "Bezárás",
-        "description": "Generic Close button label. Keep short."
+        "message": "Bezárás"
     },
     "common.copy": {
-        "message": "Másolás",
-        "description": "Generic Copy button label (copy to clipboard). Keep short."
+        "message": "Másolás"
     },
     "common.togglePasswordVisibility": {
-        "message": "Jelszó láthatóságának váltása",
-        "description": "Accessibility label for the show/hide button inside a password field."
+        "message": "Jelszó láthatóságának váltása"
     },
     "common.increase": {
-        "message": "Növelés",
-        "description": "Accessibility label for the increment (+) button on a numeric stepper input."
+        "message": "Növelés"
     },
     "common.decrease": {
-        "message": "Csökkentés",
-        "description": "Accessibility label for the decrement (−) button on a numeric stepper input."
+        "message": "Csökkentés"
     },
     "common.delete": {
-        "message": "Törlés",
-        "description": "Generic Delete button label. Keep short."
+        "message": "Törlés"
     },
     "common.create": {
-        "message": "Létrehozás",
-        "description": "Generic Create button label. Keep short."
+        "message": "Létrehozás"
     },
     "common.add": {
-        "message": "Hozzáadás",
-        "description": "Generic Add button label. Keep short."
+        "message": "Hozzáadás"
     },
     "common.remove": {
-        "message": "Eltávolítás",
-        "description": "Generic Remove button label. Keep short."
+        "message": "Eltávolítás"
     },
     "common.refresh": {
-        "message": "Frissítés",
-        "description": "Generic Refresh button label. Keep short."
+        "message": "Frissítés"
     },
     "common.loading": {
-        "message": "Betöltés…",
-        "description": "Generic loading indicator text. Ends with an ellipsis."
+        "message": "Betöltés…"
     },
     "common.netbird": {
-        "message": "NetBird",
-        "description": "The product name. Brand — do not translate."
+        "message": "NetBird"
     },
     "common.noResults.title": {
-        "message": "Nincs találat",
-        "description": "Title of the empty state shown when a search or filter returns nothing."
+        "message": "Nincs találat"
     },
     "common.noResults.description": {
-        "message": "Nem találtunk eredményt. Próbáljon meg másik keresési kifejezést, vagy módosítsa a szűrőket.",
-        "description": "Body of the no-results empty state, suggesting a different search term or filters."
+        "message": "Nem találtunk eredményt. Próbáljon meg másik keresési kifejezést, vagy módosítsa a szűrőket."
     },
     "notConnected.title": {
-        "message": "Lecsatlakozva",
-        "description": "Title of the placeholder shown on data screens while disconnected."
+        "message": "Lecsatlakozva"
     },
     "notConnected.description": {
-        "message": "Csatlakozzon először a NetBirdhöz, hogy részletes információkat láthasson a Peerekről, a hálózati erőforrásokról és az Exit Node-okról.",
-        "description": "Body explaining the user must connect to NetBird first to see peer, resource, and exit-node details."
+        "message": "Csatlakozzon először a NetBirdhöz, hogy részletes információkat láthasson a Peerekről, a hálózati erőforrásokról és az Exit Node-okról."
     },
     "connect.status.disconnected": {
-        "message": "Lecsatlakozva",
-        "description": "Label on the main-window connection toggle: not connected."
+        "message": "Lecsatlakozva"
     },
     "connect.status.connecting": {
-        "message": "Csatlakozás…",
-        "description": "Connection toggle label while connecting. Ends with an ellipsis."
+        "message": "Csatlakozás…"
     },
     "connect.status.connected": {
-        "message": "Csatlakozva",
-        "description": "Connection toggle label when connected."
+        "message": "Csatlakozva"
     },
     "connect.status.disconnecting": {
-        "message": "Lecsatlakozás…",
-        "description": "Connection toggle label while disconnecting. Ends with an ellipsis."
+        "message": "Lecsatlakozás…"
     },
     "connect.status.daemonUnavailable": {
-        "message": "Daemon nem elérhető",
-        "description": "Connection toggle label when the background service is unavailable. 'Daemon' = background service."
+        "message": "Daemon nem elérhető"
     },
     "connect.status.loginRequired": {
-        "message": "Bejelentkezés szükséges",
-        "description": "Connection toggle label when sign-in is required before connecting."
+        "message": "Bejelentkezés szükséges"
     },
     "connect.error.loginTitle": {
-        "message": "Bejelentkezés sikertelen",
-        "description": "Error-dialog title shown when sign-in fails. The action-named '… Failed' style is intentional — keep it."
+        "message": "Bejelentkezés sikertelen"
     },
     "connect.error.connectTitle": {
-        "message": "Csatlakozás sikertelen",
-        "description": "Error-dialog title shown when connecting fails."
+        "message": "Csatlakozás sikertelen"
     },
     "connect.error.disconnectTitle": {
-        "message": "Bontás sikertelen",
-        "description": "Error-dialog title shown when disconnecting fails."
+        "message": "Bontás sikertelen"
     },
     "nav.peers.title": {
-        "message": "Peerek",
-        "description": "Navigation label for the Peers section (other devices in the network)."
+        "message": "Peerek"
     },
     "nav.peers.description": {
-        "message": "{connected} / {total} csatlakoztatva",
-        "description": "Sub-label under Peers showing how many are connected. {connected} and {total} are numbers; keep both."
+        "message": "{connected} / {total} csatlakoztatva"
     },
     "nav.resources.title": {
-        "message": "Erőforrások",
-        "description": "Navigation label for the Resources section (routed networks)."
+        "message": "Erőforrások"
     },
     "nav.resources.description": {
-        "message": "{active} / {total} aktív",
-        "description": "Sub-label under Resources showing how many are active. {active} and {total} are numbers; keep both."
+        "message": "{active} / {total} aktív"
     },
     "nav.exitNode.title": {
-        "message": "Exit Node-ok",
-        "description": "Navigation label for the Exit Nodes section."
+        "message": "Exit Node-ok"
     },
     "nav.exitNode.none": {
-        "message": "Nem aktív",
-        "description": "Sub-label under Exit Nodes when no exit node is in use."
+        "message": "Nem aktív"
     },
     "nav.exitNode.using": {
-        "message": "Ezen át: {name}",
-        "description": "Sub-label under Exit Nodes when one is active. {name} is the exit node's name; keep it."
+        "message": "Ezen át: {name}"
     },
     "header.openSettings": {
-        "message": "Beállítások megnyitása",
-        "description": "Accessibility label / tooltip for the gear icon that opens Settings."
+        "message": "Beállítások megnyitása"
     },
     "header.togglePanel": {
-        "message": "Oldalsó panel váltása",
-        "description": "Accessibility label / tooltip for the button that shows or hides the side panel."
+        "message": "Oldalsó panel váltása"
     },
     "profile.selector.loading": {
-        "message": "Betöltés…",
-        "description": "Shown in the profile picker while profiles load. Ends with an ellipsis."
+        "message": "Betöltés…"
     },
     "profile.selector.noProfile": {
-        "message": "Nincs profil",
-        "description": "Shown in the profile picker when no profile is selected."
+        "message": "Nincs profil"
     },
     "profile.selector.searchPlaceholder": {
-        "message": "Profil keresése név alapján…",
-        "description": "Placeholder text in the profile picker's search field."
+        "message": "Profil keresése név alapján…"
     },
     "profile.selector.emptyTitle": {
-        "message": "Nem található profil",
-        "description": "Title shown in the profile picker when a search matches no profiles."
+        "message": "Nem található profil"
     },
     "profile.selector.emptyDescription": {
-        "message": "Próbáljon más keresőkifejezést, vagy hozzon létre új profilt.",
-        "description": "Body shown when no profiles match the search, suggesting a different term or creating one."
+        "message": "Próbáljon más keresőkifejezést, vagy hozzon létre új profilt."
     },
     "profile.selector.newProfile": {
-        "message": "Új profil",
-        "description": "Button in the profile picker to create a new profile. Keep short."
+        "message": "Új profil"
     },
     "profile.selector.moreOptions": {
-        "message": "További műveletek",
-        "description": "Accessibility label for the per-profile kebab (⋯) menu."
+        "message": "További műveletek"
     },
     "profile.selector.deregister": {
-        "message": "Leválasztás",
-        "description": "Per-profile menu action: deregister (sign out of the profile but keep it)."
+        "message": "Leválasztás"
     },
     "profile.selector.delete": {
-        "message": "Profil törlése",
-        "description": "Per-profile menu action: delete the profile."
+        "message": "Profil törlése"
     },
     "profile.selector.switchTo": {
-        "message": "Váltás erre a profilra",
-        "description": "Tooltip / label for the action that switches to a profile."
+        "message": "Váltás erre a profilra"
     },
     "profile.selector.edit": {
-        "message": "Szerkesztés",
-        "description": "Per-profile menu action: open the edit dialog to rename or change the management server."
+        "message": "Szerkesztés"
     },
     "profile.edit.title": {
-        "message": "Profil szerkesztése",
-        "description": "Title of the dialog for editing an existing profile."
+        "message": "Profil szerkesztése"
     },
     "profile.edit.submit": {
-        "message": "Módosítások mentése",
-        "description": "Submit button on the edit-profile dialog. Keep short."
+        "message": "Módosítások mentése"
     },
     "profile.dialog.title": {
-        "message": "Új profil",
-        "description": "Title of the dialog for naming a new profile."
+        "message": "Új profil"
     },
     "profile.dialog.nameLabel": {
-        "message": "Profilnév",
-        "description": "Field label for the profile name."
+        "message": "Profilnév"
     },
     "profile.dialog.description": {
-        "message": "Adjon profiljának egy könnyen azonosítható nevet.",
-        "description": "Helper text under the profile-name field."
+        "message": "Adjon profiljának egy könnyen azonosítható nevet."
     },
     "profile.dialog.placeholder": {
-        "message": "pl. Munka",
-        "description": "Example placeholder shown in the profile-name field. 'Work' is a sample value; translate it to a natural example."
+        "message": "pl. Munka"
     },
     "profile.dialog.submit": {
-        "message": "Profil hozzáadása",
-        "description": "Submit button on the add-profile dialog. Keep short."
+        "message": "Profil hozzáadása"
     },
     "profile.dialog.required": {
-        "message": "Adjon meg egy profilnevet, pl. Munka, Otthon",
-        "description": "Validation message shown when the profile name is empty. The examples (work, home) may be localized."
+        "message": "Adjon meg egy profilnevet, pl. Munka, Otthon"
     },
     "profile.dialog.managementHelp": {
-        "message": "NetBird Cloud vagy saját kiszolgáló.",
-        "description": "Helper text noting the profile can use NetBird Cloud or a self-hosted server."
+        "message": "NetBird Cloud vagy saját kiszolgáló."
     },
     "profile.dialog.urlUnreachable": {
-        "message": "A szerver nem érhető el. Ellenőrizze az URL-t, vagy adja hozzá a profilt, ha biztos benne, hogy helyes.",
-        "description": "Soft warning when the entered server URL couldn't be reached; the user may add the profile anyway."
+        "message": "A szerver nem érhető el. Ellenőrizze az URL-t, vagy adja hozzá a profilt, ha biztos benne, hogy helyes."
     },
     "header.menu.settings": {
-        "message": "Beállítások…",
-        "description": "'More' menu item in the header that opens Settings. The trailing '...' signals a window opens."
+        "message": "Beállítások…"
     },
     "header.menu.defaultView": {
-        "message": "Alapnézet",
-        "description": "'More' menu item that switches the main window to the compact default view."
+        "message": "Alapnézet"
     },
     "header.menu.advancedView": {
-        "message": "Speciális nézet",
-        "description": "'More' menu item that switches the main window to the wider advanced view."
+        "message": "Speciális nézet"
     },
     "header.menu.updateAvailable": {
-        "message": "Frissítés elérhető",
-        "description": "'More' menu item / badge shown when an update is available."
+        "message": "Frissítés elérhető"
     },
     "header.menu.open": {
-        "message": "Menü megnyitása",
-        "description": "Accessibility label for the header's more (⋮) button that opens the menu."
+        "message": "Menü megnyitása"
     },
     "header.profile.switch": {
-        "message": "Profilváltás",
-        "description": "Accessibility label for the header's profile selector button."
+        "message": "Profilváltás"
     },
     "connect.toggle.label": {
-        "message": "NetBird-kapcsolat be/ki",
-        "description": "Accessibility label for the large connect/disconnect toggle on the main page."
+        "message": "NetBird-kapcsolat be/ki"
     },
     "connect.localIp.label": {
-        "message": "Helyi IP-címek",
-        "description": "Accessibility label for the local IP selector that toggles between IPv4 and IPv6 on the main page."
+        "message": "Helyi IP-címek"
     },
     "common.search": {
-        "message": "Keresés",
-        "description": "Accessibility label for a generic search input."
+        "message": "Keresés"
     },
     "common.filter": {
-        "message": "Szűrés",
-        "description": "Accessibility label for a generic filter control."
+        "message": "Szűrés"
     },
     "exitNodes.dropdown.trigger": {
-        "message": "Kilépőcsomópont kiválasztása",
-        "description": "Accessibility label for the exit-node picker button at the bottom of the main page."
+        "message": "Kilépőcsomópont kiválasztása"
     },
     "peers.row.label": {
-        "message": "Részletek megnyitása: {name}, {status}",
-        "description": "Accessibility label for a peer row in the list. {name} is the peer name and {status} is the connection status; keep both placeholders."
+        "message": "Részletek megnyitása: {name}, {status}"
     },
     "peers.dialog.title": {
-        "message": "Társ részletei",
-        "description": "Accessibility title (announced to screen readers) for the peer details dialog/panel."
+        "message": "Társ részletei"
     },
     "networks.row.toggle": {
-        "message": "{name} be/ki",
-        "description": "Accessibility label for the row-wide toggle on a network/resource. {name} is the resource id; keep the placeholder."
+        "message": "{name} be/ki"
     },
     "networks.bulk.label": {
-        "message": "Összes látható erőforrás be/ki",
-        "description": "Accessibility label for the bulk enable/disable button at the bottom of the resources list."
+        "message": "Összes látható erőforrás be/ki"
     },
     "profile.switch.title": {
-        "message": "Váltás a(z) \"{name}\" profilra?",
-        "description": "Confirmation-dialog title for switching profiles. {name} is the target profile name, shown in quotes; keep {name} and the surrounding quotes."
+        "message": "Váltás a(z) \"{name}\" profilra?"
     },
     "profile.switch.message": {
-        "message": "Biztosan profilt szeretne váltani?\nAz aktuális profilja le lesz választva.",
-        "description": "Confirmation body for switching profiles. Contains a line break (\\n) — keep it."
+        "message": "Biztosan profilt szeretne váltani?\nAz aktuális profilja le lesz választva."
     },
     "profile.switch.confirm": {
-        "message": "Megerősítés",
-        "description": "Confirm button on the switch-profile dialog. Keep short."
+        "message": "Megerősítés"
     },
     "profile.deregister.title": {
-        "message": "\"{name}\" profil leválasztása?",
-        "description": "Confirmation-dialog title for deregistering a profile. {name} is the profile name; keep it and the quotes."
+        "message": "\"{name}\" profil leválasztása?"
     },
     "profile.deregister.message": {
-        "message": "Biztosan le szeretné választani ezt a profilt?\nÚjra be kell jelentkeznie a használatához.",
-        "description": "Confirmation body for deregistering; warns the user must sign in again. Contains a line break (\\n) — keep it."
+        "message": "Biztosan le szeretné választani ezt a profilt?\nÚjra be kell jelentkeznie a használatához."
     },
     "profile.deregister.confirm": {
-        "message": "Leválasztás",
-        "description": "Confirm button on the deregister dialog. Keep short."
+        "message": "Leválasztás"
     },
     "profile.delete.title": {
-        "message": "\"{name}\" profil törlése?",
-        "description": "Confirmation-dialog title for deleting a profile. {name} is the profile name; keep it and the quotes."
+        "message": "\"{name}\" profil törlése?"
     },
     "profile.delete.message": {
-        "message": "Biztosan törölni szeretné ezt a profilt?\nEz a művelet nem vonható vissza.",
-        "description": "Confirmation body for deleting; warns the action can't be undone. Contains a line break (\\n) — keep it."
+        "message": "Biztosan törölni szeretné ezt a profilt?\nEz a művelet nem vonható vissza."
     },
     "profile.delete.disabledActive": {
-        "message": "Aktív profilok nem törölhetők. Váltson másik profilra, mielőtt törölné ezt.",
-        "description": "Tooltip explaining the active profile can't be deleted until the user switches away."
+        "message": "Aktív profilok nem törölhetők. Váltson másik profilra, mielőtt törölné ezt."
     },
     "profile.delete.disabledDefault": {
-        "message": "Az alapértelmezett profil nem törölhető.",
-        "description": "Tooltip explaining the default profile can't be deleted."
+        "message": "Az alapértelmezett profil nem törölhető."
     },
     "profile.error.switchTitle": {
-        "message": "Profilváltás sikertelen",
-        "description": "Error-dialog title when switching profiles fails."
+        "message": "Profilváltás sikertelen"
     },
     "profile.error.deregisterTitle": {
-        "message": "Leválasztás sikertelen",
-        "description": "Error-dialog title when deregistering a profile fails."
+        "message": "Leválasztás sikertelen"
     },
     "profile.error.deleteTitle": {
-        "message": "Profil törlése sikertelen",
-        "description": "Error-dialog title when deleting a profile fails."
+        "message": "Profil törlése sikertelen"
     },
     "profile.error.createTitle": {
-        "message": "Profil létrehozása sikertelen",
-        "description": "Error-dialog title when creating a profile fails."
+        "message": "Profil létrehozása sikertelen"
     },
     "profile.error.editTitle": {
-        "message": "Profil szerkesztése sikertelen",
-        "description": "Error-dialog title when editing a profile (rename or management URL change) fails."
+        "message": "Profil szerkesztése sikertelen"
     },
     "profile.error.loadTitle": {
-        "message": "Profilok betöltése sikertelen",
-        "description": "Error-dialog title when loading profiles fails."
+        "message": "Profilok betöltése sikertelen"
     },
     "profile.dropdown.activeProfile": {
-        "message": "Aktív profil",
-        "description": "Section heading in the header profile dropdown for the current profile."
+        "message": "Aktív profil"
     },
     "profile.dropdown.switchProfile": {
-        "message": "Profilváltás",
-        "description": "Section heading / action in the profile dropdown to switch profiles."
+        "message": "Profilváltás"
     },
     "profile.dropdown.noEmail": {
-        "message": "Egyéb",
-        "description": "Label shown for a profile that has no associated email address."
+        "message": "Egyéb"
     },
     "profile.dropdown.addProfile": {
-        "message": "Profil hozzáadása",
-        "description": "Profile dropdown action to add a profile."
+        "message": "Profil hozzáadása"
     },
     "profile.dropdown.manageProfiles": {
-        "message": "Profilok kezelése",
-        "description": "Profile dropdown action that opens Settings → Profiles."
+        "message": "Profilok kezelése"
     },
     "profile.dropdown.settings": {
-        "message": "Beállítások",
-        "description": "Profile dropdown action that opens Settings."
+        "message": "Beállítások"
     },
     "settings.profiles.section.profiles": {
-        "message": "Profilok",
-        "description": "Section heading on the Profiles settings tab."
+        "message": "Profilok"
     },
     "settings.profiles.intro": {
-        "message": "Kezeljen több NetBird-profilt párhuzamosan, például munkahelyi és személyes fiókokat, vagy különböző felügyeleti szervereket. Lent hozzáadhat, leválaszthat vagy törölhet profilokat.",
-        "description": "Intro paragraph on the Profiles settings tab explaining what profiles are for."
+        "message": "Kezeljen több NetBird-profilt párhuzamosan, például munkahelyi és személyes fiókokat, vagy különböző felügyeleti szervereket. Lent hozzáadhat, leválaszthat vagy törölhet profilokat."
     },
     "settings.profiles.addProfile": {
-        "message": "Profil hozzáadása",
-        "description": "Button on the Profiles settings tab to add a profile."
+        "message": "Profil hozzáadása"
     },
     "settings.profiles.active": {
-        "message": "Aktív",
-        "description": "Badge marking the currently active profile in the profiles table."
+        "message": "Aktív"
     },
     "settings.profiles.emptyTitle": {
-        "message": "Nincsenek profilok",
-        "description": "Title of the empty state when there are no profiles."
+        "message": "Nincsenek profilok"
     },
     "settings.profiles.emptyDescription": {
-        "message": "Hozzon létre egy profilt a NetBird felügyeleti szerverhez való csatlakozáshoz.",
-        "description": "Body of the no-profiles empty state."
+        "message": "Hozzon létre egy profilt a NetBird felügyeleti szerverhez való csatlakozáshoz."
     },
     "settings.error.loadTitle": {
-        "message": "Beállítások betöltése sikertelen",
-        "description": "Error-dialog title when loading settings fails."
+        "message": "Beállítások betöltése sikertelen"
     },
     "settings.error.saveTitle": {
-        "message": "Beállítások mentése sikertelen",
-        "description": "Error-dialog title when saving settings fails."
+        "message": "Beállítások mentése sikertelen"
     },
     "settings.error.debugBundleTitle": {
-        "message": "Hibakeresési csomag sikertelen",
-        "description": "Error-dialog title when creating the debug bundle fails."
+        "message": "Hibakeresési csomag sikertelen"
     },
     "settings.nav.label": {
-        "message": "Beállítások szakaszai",
-        "description": "Accessibility label for the Settings page's side navigation (list of section tabs)."
+        "message": "Beállítások szakaszai"
     },
     "settings.tabs.general": {
-        "message": "Általános",
-        "description": "Settings tab label: General. Keep short."
+        "message": "Általános"
     },
     "settings.tabs.network": {
-        "message": "Hálózat",
-        "description": "Settings tab label: Network. Keep short."
+        "message": "Hálózat"
     },
     "settings.tabs.security": {
-        "message": "Biztonság",
-        "description": "Settings tab label: Security. Keep short."
+        "message": "Biztonság"
     },
     "settings.tabs.profiles": {
-        "message": "Profilok",
-        "description": "Settings tab label: Profiles. Keep short."
+        "message": "Profilok"
     },
     "settings.tabs.ssh": {
-        "message": "SSH",
-        "description": "Settings tab label: SSH. Acronym — keep as-is."
+        "message": "SSH"
     },
     "settings.tabs.advanced": {
-        "message": "Speciális",
-        "description": "Settings tab label: Advanced. Keep short."
+        "message": "Speciális"
     },
     "settings.tabs.troubleshooting": {
-        "message": "Hibaelhárítás",
-        "description": "Settings tab label: Troubleshoot. Keep short."
+        "message": "Hibaelhárítás"
     },
     "settings.tabs.about": {
-        "message": "Névjegy",
-        "description": "Settings tab label: About. Keep short."
+        "message": "Névjegy"
     },
     "settings.tabs.updateAvailable": {
-        "message": "Frissítés elérhető",
-        "description": "Settings tab label / badge shown when an update is available."
+        "message": "Frissítés elérhető"
     },
     "settings.general.section.general": {
-        "message": "Általános",
-        "description": "Section heading on the General settings tab."
+        "message": "Általános"
     },
     "settings.general.section.connection": {
-        "message": "Kapcsolat",
-        "description": "Section heading for connection-related options on the General tab."
+        "message": "Kapcsolat"
     },
     "settings.general.connectOnStartup.label": {
-        "message": "Csatlakozás indításkor",
-        "description": "Toggle label: connect automatically when the service starts."
+        "message": "Csatlakozás indításkor"
     },
     "settings.general.connectOnStartup.help": {
-        "message": "A szolgáltatás indulásakor automatikusan kapcsolatot létesít.",
-        "description": "Helper text for the connect-on-startup toggle."
+        "message": "A szolgáltatás indulásakor automatikusan kapcsolatot létesít."
     },
     "settings.general.notifications.label": {
-        "message": "Asztali értesítések",
-        "description": "Toggle label: enable desktop notifications."
+        "message": "Asztali értesítések"
     },
     "settings.general.notifications.help": {
-        "message": "Asztali értesítések megjelenítése új frissítésekről és kapcsolati eseményekről.",
-        "description": "Helper text for the desktop-notifications toggle."
+        "message": "Asztali értesítések megjelenítése új frissítésekről és kapcsolati eseményekről."
     },
     "settings.general.autostart.label": {
-        "message": "NetBird UI indítása bejelentkezéskor",
-        "description": "Toggle label: launch the NetBird UI at login."
+        "message": "NetBird UI indítása bejelentkezéskor"
     },
     "settings.general.autostart.help": {
-        "message": "A NetBird felület automatikus indítása bejelentkezéskor. Ez csak a grafikus felületet érinti, a háttérszolgáltatást nem.",
-        "description": "Helper text clarifying autostart affects only the UI, not the background service."
+        "message": "A NetBird felület automatikus indítása bejelentkezéskor. Ez csak a grafikus felületet érinti, a háttérszolgáltatást nem."
     },
     "settings.general.autostart.errorTitle": {
-        "message": "Az automatikus indítás módosítása sikertelen",
-        "description": "Error-dialog title when changing the autostart setting fails."
+        "message": "Az automatikus indítás módosítása sikertelen"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Kapcsolat megtartása kilépéskor",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Kapcsolat megtartása kilépéskor"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "A kapcsolat a háttérben megmarad, miután bezárod a NetBirdöt. Csak akkor szakad meg, ha te magad bontod.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "A kapcsolat a háttérben megmarad, miután bezárod a NetBirdöt. Csak akkor szakad meg, ha te magad bontod."
     },
     "settings.general.language.label": {
-        "message": "Megjelenítési nyelv",
-        "description": "Label for the display-language picker."
+        "message": "Megjelenítési nyelv"
     },
     "settings.general.language.help": {
-        "message": "Válassza ki a NetBird felület nyelvét.",
-        "description": "Helper text for the language picker."
+        "message": "Válassza ki a NetBird felület nyelvét."
     },
     "settings.general.language.search": {
-        "message": "Nyelv keresése…",
-        "description": "Placeholder in the language picker's search field."
+        "message": "Nyelv keresése…"
     },
     "settings.general.language.empty": {
-        "message": "Nincs találat.",
-        "description": "Shown when no languages match the search."
+        "message": "Nincs találat."
     },
     "settings.general.theme.label": {
-        "message": "Téma",
-        "description": "Label for the appearance/theme picker."
+        "message": "Téma"
     },
     "settings.general.theme.help": {
-        "message": "Válassza a világos vagy sötét témát, vagy kövesse a rendszer beállítását.",
-        "description": "Helper text for the theme picker."
+        "message": "Válassza a világos vagy sötét témát, vagy kövesse a rendszer beállítását."
     },
     "settings.general.theme.system": {
-        "message": "Rendszer",
-        "description": "Theme option: follow the OS appearance."
+        "message": "Rendszer"
     },
     "settings.general.theme.light": {
-        "message": "Világos",
-        "description": "Theme option: light appearance."
+        "message": "Világos"
     },
     "settings.general.theme.dark": {
-        "message": "Sötét",
-        "description": "Theme option: dark appearance."
+        "message": "Sötét"
     },
     "settings.general.management.label": {
-        "message": "Felügyeleti szerver",
-        "description": "Label for the management-server selector."
+        "message": "Felügyeleti szerver"
     },
     "settings.general.management.help": {
-        "message": "Csatlakozás a NetBird Cloudhoz vagy saját üzemeltetésű felügyeleti szerverhez. A módosítások újracsatlakozást váltanak ki.",
-        "description": "Helper text explaining Cloud vs self-hosted management server; warns that changes reconnect the client."
+        "message": "Csatlakozás a NetBird Cloudhoz vagy saját üzemeltetésű felügyeleti szerverhez. A módosítások újracsatlakozást váltanak ki."
     },
     "settings.general.management.cloud": {
-        "message": "Felhő",
-        "description": "Option label for using NetBird Cloud as the management server."
+        "message": "Felhő"
     },
     "settings.general.management.selfHosted": {
-        "message": "Saját üzemeltetésű",
-        "description": "Option label for using a self-hosted management server. 'Self-hosted' is a common technical term."
+        "message": "Saját üzemeltetésű"
     },
     "settings.general.management.urlPlaceholder": {
-        "message": "https://netbird.selfhosted.com:443",
-        "description": "Example URL placeholder for the self-hosted server field. It is a sample URL — do not translate the URL itself."
+        "message": "https://netbird.selfhosted.com:443"
     },
     "settings.general.management.urlError": {
-        "message": "Adjon meg egy érvényes URL-t, pl. https://netbird.selfhosted.com:443",
-        "description": "Validation message for an invalid management-server URL. The example URL stays as-is."
+        "message": "Adjon meg egy érvényes URL-t, pl. https://netbird.selfhosted.com:443"
     },
     "settings.general.management.urlUnreachable": {
-        "message": "A szerver nem érhető el. Ellenőrizze az URL-t, vagy mentse el, ha biztos benne, hogy helyes.",
-        "description": "Soft warning when the management URL couldn't be reached; the user may save anyway."
+        "message": "A szerver nem érhető el. Ellenőrizze az URL-t, vagy mentse el, ha biztos benne, hogy helyes."
     },
     "settings.general.management.switchCloudTitle": {
-        "message": "Átváltás a NetBird Cloudra?",
-        "description": "Confirmation-dialog title for switching to NetBird Cloud."
+        "message": "Átváltás a NetBird Cloudra?"
     },
     "settings.general.management.switchCloudMessage": {
-        "message": "Ez leválasztja a saját üzemeltetésű kiszolgálót.\nLehet, hogy újra be kell jelentkeznie.",
-        "description": "Confirmation body warning the self-hosted server will be disconnected. Contains a line break (\\n) — keep it."
+        "message": "Ez leválasztja a saját üzemeltetésű kiszolgálót.\nLehet, hogy újra be kell jelentkeznie."
     },
     "settings.general.management.switchCloudConfirm": {
-        "message": "Váltás a felhőre",
-        "description": "Confirm button for switching to Cloud. Keep short."
+        "message": "Váltás a felhőre"
     },
     "settings.network.section.connectivity": {
-        "message": "Kapcsolódás",
-        "description": "Section heading for connectivity options on the Network tab."
+        "message": "Kapcsolódás"
     },
     "settings.network.section.routingDns": {
-        "message": "Útválasztás és DNS",
-        "description": "Section heading for routing and DNS options. 'DNS' is an acronym — keep it."
+        "message": "Útválasztás és DNS"
     },
     "settings.network.monitor.label": {
-        "message": "Újracsatlakozás hálózatváltáskor",
-        "description": "Toggle label: reconnect automatically on network change."
+        "message": "Újracsatlakozás hálózatváltáskor"
     },
     "settings.network.monitor.help": {
-        "message": "A hálózat figyelése és automatikus újracsatlakozás változások (pl. Wi-Fi-váltás, Ethernet-változás vagy alvó állapotból való visszatérés) esetén.",
-        "description": "Helper text for the network-change reconnect toggle."
+        "message": "A hálózat figyelése és automatikus újracsatlakozás változások (pl. Wi-Fi-váltás, Ethernet-változás vagy alvó állapotból való visszatérés) esetén."
     },
     "settings.network.dns.label": {
-        "message": "DNS engedélyezése",
-        "description": "Toggle label: enable DNS. 'DNS' — keep acronym."
+        "message": "DNS engedélyezése"
     },
     "settings.network.dns.help": {
-        "message": "A NetBird által kezelt DNS-beállítások alkalmazása a gazda DNS-feloldójára.",
-        "description": "Helper text for the enable-DNS toggle."
+        "message": "A NetBird által kezelt DNS-beállítások alkalmazása a gazda DNS-feloldójára."
     },
     "settings.network.clientRoutes.label": {
-        "message": "Kliens útvonalak engedélyezése",
-        "description": "Toggle label: enable client routes."
+        "message": "Kliens útvonalak engedélyezése"
     },
     "settings.network.clientRoutes.help": {
-        "message": "Más Peerek útvonalainak elfogadása a hálózataik eléréséhez.",
-        "description": "Helper text for client routes (accept routes from other peers)."
+        "message": "Más Peerek útvonalainak elfogadása a hálózataik eléréséhez."
     },
     "settings.network.serverRoutes.label": {
-        "message": "Szerver útvonalak engedélyezése",
-        "description": "Toggle label: enable server routes."
+        "message": "Szerver útvonalak engedélyezése"
     },
     "settings.network.serverRoutes.help": {
-        "message": "Ennek a gazdának a helyi útvonalainak meghirdetése más Peerek számára.",
-        "description": "Helper text for server routes (advertise this host's local routes to other peers)."
+        "message": "Ennek a gazdának a helyi útvonalainak meghirdetése más Peerek számára."
     },
     "settings.network.ipv6.label": {
-        "message": "IPv6 engedélyezése",
-        "description": "Toggle label: enable IPv6. 'IPv6' — keep as-is."
+        "message": "IPv6 engedélyezése"
     },
     "settings.network.ipv6.help": {
-        "message": "IPv6-címzés használata a NetBird overlay hálózathoz.",
-        "description": "Helper text for the IPv6 toggle."
+        "message": "IPv6-címzés használata a NetBird overlay hálózathoz."
     },
     "settings.security.section.firewall": {
-        "message": "Tűzfal",
-        "description": "Section heading: Firewall."
+        "message": "Tűzfal"
     },
     "settings.security.section.encryption": {
-        "message": "Titkosítás",
-        "description": "Section heading: Encryption."
+        "message": "Titkosítás"
     },
     "settings.security.blockInbound.label": {
-        "message": "Bejövő forgalom blokkolása",
-        "description": "Toggle label: block inbound traffic."
+        "message": "Bejövő forgalom blokkolása"
     },
     "settings.security.blockInbound.help": {
-        "message": "Visszautasítja a Peerektől érkező nem kért kapcsolatokat ezen eszközhöz és az általa irányított hálózatokhoz. A kimenő forgalmat nem érinti.",
-        "description": "Helper text for blocking inbound traffic."
+        "message": "Visszautasítja a Peerektől érkező nem kért kapcsolatokat ezen eszközhöz és az általa irányított hálózatokhoz. A kimenő forgalmat nem érinti."
     },
     "settings.security.blockLan.label": {
-        "message": "LAN-hozzáférés blokkolása",
-        "description": "Toggle label: block LAN access. 'LAN' — keep acronym."
+        "message": "LAN-hozzáférés blokkolása"
     },
     "settings.security.blockLan.help": {
-        "message": "Megakadályozza, hogy a Peerek elérjék a helyi hálózatot vagy annak eszközeit, amikor ez az eszköz irányítja a forgalmukat.",
-        "description": "Helper text for blocking LAN access."
+        "message": "Megakadályozza, hogy a Peerek elérjék a helyi hálózatot vagy annak eszközeit, amikor ez az eszköz irányítja a forgalmukat."
     },
     "settings.security.rosenpass.label": {
-        "message": "Kvantumellenálló titkosítás engedélyezése",
-        "description": "Toggle label: enable quantum-resistance."
+        "message": "Kvantumellenálló titkosítás engedélyezése"
     },
     "settings.security.rosenpass.help": {
-        "message": "Post-kvantum kulcscsere hozzáadása Rosenpass segítségével a WireGuard® tetejére.",
-        "description": "Helper text: adds a post-quantum key exchange via Rosenpass on top of WireGuard®. 'Rosenpass' and 'WireGuard®' are product names — do not translate; keep the ® symbol."
+        "message": "Post-kvantum kulcscsere hozzáadása Rosenpass segítségével a WireGuard® tetejére."
     },
     "settings.security.rosenpassPermissive.label": {
-        "message": "Engedékeny mód engedélyezése",
-        "description": "Toggle label: enable permissive mode (for quantum-resistance)."
+        "message": "Engedékeny mód engedélyezése"
     },
     "settings.security.rosenpassPermissive.help": {
-        "message": "Kapcsolatok engedélyezése kvantumellenálló titkosítás nélküli Peerekkel.",
-        "description": "Helper text for permissive mode (allow peers without quantum-resistance support)."
+        "message": "Kapcsolatok engedélyezése kvantumellenálló titkosítás nélküli Peerekkel."
     },
     "settings.ssh.section.server": {
-        "message": "Szerver",
-        "description": "Section heading: Server (SSH settings)."
+        "message": "Szerver"
     },
     "settings.ssh.section.capabilities": {
-        "message": "Képességek",
-        "description": "Section heading: Capabilities (SSH features)."
+        "message": "Képességek"
     },
     "settings.ssh.section.authentication": {
-        "message": "Hitelesítés",
-        "description": "Section heading: Authentication (SSH)."
+        "message": "Hitelesítés"
     },
     "settings.ssh.server.label": {
-        "message": "SSH szerver engedélyezése",
-        "description": "Toggle label: enable the SSH server."
+        "message": "SSH szerver engedélyezése"
     },
     "settings.ssh.server.help": {
-        "message": "Futtassa a NetBird SSH szervert ezen a gazdán, hogy más Peerek csatlakozhassanak.",
-        "description": "Helper text for the SSH server toggle."
+        "message": "Futtassa a NetBird SSH szervert ezen a gazdán, hogy más Peerek csatlakozhassanak."
     },
     "settings.ssh.root.label": {
-        "message": "Root bejelentkezés engedélyezése",
-        "description": "Toggle label: allow root login over SSH. 'root' is the Unix superuser account — keep as-is."
+        "message": "Root bejelentkezés engedélyezése"
     },
     "settings.ssh.root.help": {
-        "message": "A Peerek bejelentkezhetnek root felhasználóként. Tiltsa le, ha nem privilegizált fiók szükséges.",
-        "description": "Helper text for allowing root login."
+        "message": "A Peerek bejelentkezhetnek root felhasználóként. Tiltsa le, ha nem privilegizált fiók szükséges."
     },
     "settings.ssh.sftp.label": {
-        "message": "SFTP engedélyezése",
-        "description": "Toggle label: allow SFTP. 'SFTP' — keep acronym."
+        "message": "SFTP engedélyezése"
     },
     "settings.ssh.sftp.help": {
-        "message": "Fájlok biztonságos átvitele natív SFTP- vagy SCP-kliensekkel.",
-        "description": "Helper text about SFTP/SCP file transfer. Keep the acronyms."
+        "message": "Fájlok biztonságos átvitele natív SFTP- vagy SCP-kliensekkel."
     },
     "settings.ssh.localForward.label": {
-        "message": "Helyi porttovábbítás",
-        "description": "Toggle label: local port forwarding."
+        "message": "Helyi porttovábbítás"
     },
     "settings.ssh.localForward.help": {
-        "message": "A csatlakozó Peerek helyi portokat alagútba helyezhetnek erről a gazdáról elérhető szolgáltatásokhoz.",
-        "description": "Helper text for local port forwarding."
+        "message": "A csatlakozó Peerek helyi portokat alagútba helyezhetnek erről a gazdáról elérhető szolgáltatásokhoz."
     },
     "settings.ssh.remoteForward.label": {
-        "message": "Távoli porttovábbítás",
-        "description": "Toggle label: remote port forwarding."
+        "message": "Távoli porttovábbítás"
     },
     "settings.ssh.remoteForward.help": {
-        "message": "A csatlakozó Peerek ezen a gazdán lévő portokat tehetnek elérhetővé a saját gépük számára.",
-        "description": "Helper text for remote port forwarding."
+        "message": "A csatlakozó Peerek ezen a gazdán lévő portokat tehetnek elérhetővé a saját gépük számára."
     },
     "settings.ssh.jwt.label": {
-        "message": "JWT-hitelesítés engedélyezése",
-        "description": "Toggle label: enable JWT authentication. 'JWT' — keep acronym."
+        "message": "JWT-hitelesítés engedélyezése"
     },
     "settings.ssh.jwt.help": {
-        "message": "Minden SSH-munkamenet ellenőrzése az IdP-vel a felhasználói identitás és audit céljából. Tiltsa le, ha csak a hálózati ACL-szabályokra kíván támaszkodni — hasznos, ha nincs elérhető IdP.",
-        "description": "Helper text for JWT auth. 'IdP' (identity provider) and 'ACL' are acronyms — keep them."
+        "message": "Minden SSH-munkamenet ellenőrzése az IdP-vel a felhasználói identitás és audit céljából. Tiltsa le, ha csak a hálózati ACL-szabályokra kíván támaszkodni — hasznos, ha nincs elérhető IdP."
     },
     "settings.ssh.jwtTtl.label": {
-        "message": "JWT gyorsítótár TTL",
-        "description": "Label for the JWT cache time-to-live field. 'JWT' and 'TTL' — keep acronyms."
+        "message": "JWT gyorsítótár TTL"
     },
     "settings.ssh.jwtTtl.help": {
-        "message": "Mennyi ideig őrzi meg a kliens a JWT-t, mielőtt újra kérné a kimenő SSH-kapcsolatoknál. 0 érték esetén a gyorsítótárazás kikapcsol, és minden kapcsolatnál hitelesít.",
-        "description": "Helper text for the JWT cache TTL; mentions setting 0 to disable caching."
+        "message": "Mennyi ideig őrzi meg a kliens a JWT-t, mielőtt újra kérné a kimenő SSH-kapcsolatoknál. 0 érték esetén a gyorsítótárazás kikapcsol, és minden kapcsolatnál hitelesít."
     },
     "settings.ssh.jwtTtl.suffix": {
-        "message": "másodperc",
-        "description": "Unit suffix shown after the JWT TTL number field. The '(s)' marks an optional plural."
+        "message": "másodperc"
     },
     "settings.advanced.section.interface": {
-        "message": "Interfész",
-        "description": "Section heading: Interface (network-interface settings)."
+        "message": "Interfész"
     },
     "settings.advanced.section.security": {
-        "message": "Biztonság",
-        "description": "Section heading: Security (advanced)."
+        "message": "Biztonság"
     },
     "settings.advanced.interfaceName.label": {
-        "message": "Név",
-        "description": "Field label for the WireGuard interface name."
+        "message": "Név"
     },
     "settings.advanced.interfaceName.error": {
-        "message": "Használjon 1–15 betűt, számot, pontot, kötőjelet vagy aláhúzást.",
-        "description": "Validation message for the interface name (allowed characters)."
+        "message": "Használjon 1–15 betűt, számot, pontot, kötőjelet vagy aláhúzást."
     },
     "settings.advanced.interfaceName.errorMac": {
-        "message": "„utun” után számmal kezdődjön (pl. utun100).",
-        "description": "Validation message specific to macOS, where the name must start with 'utun' followed by a number. Keep 'utun' and the example."
+        "message": "„utun” után számmal kezdődjön (pl. utun100)."
     },
     "settings.advanced.port.label": {
-        "message": "Port",
-        "description": "Field label: Port."
+        "message": "Port"
     },
     "settings.advanced.port.error": {
-        "message": "Adjon meg egy portot {min} és {max} között.",
-        "description": "Validation message for the port range. {min} and {max} are numbers; keep them."
+        "message": "Adjon meg egy portot {min} és {max} között."
     },
     "settings.advanced.port.help": {
-        "message": "Ha 0-ra állítja, egy véletlenszerű szabad portot használ.",
-        "description": "Helper text: 0 means a random free port is used."
+        "message": "Ha 0-ra állítja, egy véletlenszerű szabad portot használ."
     },
     "settings.advanced.mtu.label": {
-        "message": "MTU",
-        "description": "Field label: MTU. 'MTU' — keep acronym."
+        "message": "MTU"
     },
     "settings.advanced.mtu.error": {
-        "message": "Adjon meg egy MTU értéket {min} és {max} között.",
-        "description": "Validation message for the MTU range. {min} and {max} are numbers; keep them."
+        "message": "Adjon meg egy MTU értéket {min} és {max} között."
     },
     "settings.advanced.psk.label": {
-        "message": "Pre-shared kulcs",
-        "description": "Field label: Pre-shared Key."
+        "message": "Pre-shared kulcs"
     },
     "settings.advanced.psk.help": {
-        "message": "Opcionális WireGuard PSK további szimmetrikus titkosításhoz. Nem azonos a NetBird telepítőkulccsal. Csak olyan Peerekkel kommunikál, akik ugyanazt a pre-shared kulcsot használják.",
-        "description": "Helper text for the WireGuard PSK. 'WireGuard', 'PSK', and 'NetBird Setup Key' are product/technical terms — keep them."
+        "message": "Opcionális WireGuard PSK további szimmetrikus titkosításhoz. Nem azonos a NetBird telepítőkulccsal. Csak olyan Peerekkel kommunikál, akik ugyanazt a pre-shared kulcsot használják."
     },
     "settings.troubleshooting.section.title": {
-        "message": "Hibakeresési csomag",
-        "description": "Section heading: Debug bundle."
+        "message": "Hibakeresési csomag"
     },
     "settings.troubleshooting.anonymize.label": {
-        "message": "Érzékeny információk anonimizálása",
-        "description": "Label for the anonymization level dropdown (None, Default, Strict)."
+        "message": "Érzékeny információk anonimizálása"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Elrejti az IP-címeket, a tartományokat és más érzékeny értékeket.",
-        "description": "Helper text under the anonymization dropdown. The level details live in the info tooltip."
+        "message": "Elrejti az IP-címeket, a tartományokat és más érzékeny értékeket."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "Az Alapértelmezett szint a belső IPv4-címeket és a peer-neveket olvashatóan hagyja a támogatás számára. A Szigorú ezen felül anonimizálja a privát (RFC 1918), CGNAT és link-local IP-címeket, a peer-neveket és a WireGuard nyilvános kulcsokat. Az ismétlődő értékek ugyanazt a helyettesítőt kapják, így a peerek megkülönböztethetők maradnak. Használja a Szigorú szintet, ha a hibakeresési csomagot a szervezetén kívül osztja meg.",
-        "description": "Info tooltip explaining the anonymization levels. 'RFC 1918', 'CGNAT', 'link-local', and 'WireGuard' are technical terms — keep them."
+        "message": "Az Alapértelmezett szint a belső IPv4-címeket és a peer-neveket olvashatóan hagyja a támogatás számára. A Szigorú ezen felül anonimizálja a privát (RFC 1918), CGNAT és link-local IP-címeket, a peer-neveket és a WireGuard nyilvános kulcsokat. Az ismétlődő értékek ugyanazt a helyettesítőt kapják, így a peerek megkülönböztethetők maradnak. Használja a Szigorú szintet, ha a hibakeresési csomagot a szervezetén kívül osztja meg."
     },
     "settings.troubleshooting.anonymize.none": {
-        "message": "Nincs",
-        "description": "Dropdown option: no anonymization."
+        "message": "Nincs"
     },
     "settings.troubleshooting.anonymize.default": {
-        "message": "Alapértelmezett",
-        "description": "Dropdown option: default anonymization level."
+        "message": "Alapértelmezett"
     },
     "settings.troubleshooting.anonymize.strict": {
-        "message": "Szigorú",
-        "description": "Dropdown option: strict anonymization level."
+        "message": "Szigorú"
     },
     "settings.troubleshooting.systemInfo.label": {
-        "message": "Rendszerinformációk beillesztése",
-        "description": "Toggle label: include system information in the bundle."
+        "message": "Rendszerinformációk beillesztése"
     },
     "settings.troubleshooting.systemInfo.help": {
-        "message": "Tartalmazza az OS-t, a kernelt, a hálózati interfészeket és az útválasztási táblákat.",
-        "description": "Helper text listing the system info included (OS, kernel, interfaces, routing tables)."
+        "message": "Tartalmazza az OS-t, a kernelt, a hálózati interfészeket és az útválasztási táblákat."
     },
     "settings.troubleshooting.upload.label": {
-        "message": "Csomag feltöltése a NetBird szerverekre",
-        "description": "Toggle label: upload the bundle to NetBird servers."
+        "message": "Csomag feltöltése a NetBird szerverekre"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Egy feltöltési kulcsot ad vissza, amelyet megoszthat a NetBird támogatással.",
-        "description": "Helper text for uploading the bundle."
+        "message": "Egy feltöltési kulcsot ad vissza, amelyet megoszthat a NetBird támogatással."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Trace naplók engedélyezése",
-        "description": "Toggle label: raise daemon log level to TRACE while the bundle is built. 'TRACE' is a log level."
+        "message": "Trace naplók engedélyezése"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "TRACE szintre emeli a naplózást, majd utána visszaállítja.",
-        "description": "Helper text for the trace toggle. 'TRACE' is a log level — keep as-is."
+        "message": "TRACE szintre emeli a naplózást, majd utána visszaállítja."
     },
     "settings.troubleshooting.capture.label": {
-        "message": "Rögzítési munkamenet",
-        "description": "Toggle label: open a capture session — reconnect NetBird, wait a duration, optionally record packets."
+        "message": "Rögzítési munkamenet"
     },
     "settings.troubleshooting.capture.help": {
-        "message": "Újra csatlakozik és vár, hogy reprodukálhassa a problémát.",
-        "description": "Helper text for the master Capture Session toggle."
+        "message": "Újra csatlakozik és vár, hogy reprodukálhassa a problémát."
     },
     "settings.troubleshooting.packets.label": {
-        "message": "Hálózati csomagok rögzítése",
-        "description": "Toggle label: capture packets to a .pcap during the capture session."
+        "message": "Hálózati csomagok rögzítése"
     },
     "settings.troubleshooting.packets.help": {
-        "message": "A rögzítés ideje alatt elmenti a hálózati forgalom .pcap fájlját.",
-        "description": "Helper text for the packet recording toggle. '.pcap' is a file extension — keep it."
+        "message": "A rögzítés ideje alatt elmenti a hálózati forgalom .pcap fájlját."
     },
     "settings.troubleshooting.duration.label": {
-        "message": "Rögzítés időtartama",
-        "description": "Label for the trace-capture duration field."
+        "message": "Rögzítés időtartama"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Mennyi ideig fusson a rögzítési munkamenet.",
-        "description": "Helper text for the capture duration."
+        "message": "Mennyi ideig fusson a rögzítési munkamenet."
     },
     "settings.troubleshooting.duration.suffix": {
-        "message": "perc",
-        "description": "Unit suffix after the duration field. The '(s)' marks an optional plural."
+        "message": "perc"
     },
     "settings.troubleshooting.create": {
-        "message": "Hibakeresési csomag létrehozása",
-        "description": "Button to create the debug bundle. Keep short."
+        "message": "Hibakeresési csomag létrehozása"
     },
     "settings.troubleshooting.progress.description": {
-        "message": "Naplók, rendszerinformációk és kapcsolati állapot gyűjtése folyamatban. Általában néhány pillanatot vesz igénybe — tartsa nyitva ezt az ablakot a befejezésig.",
-        "description": "Status text shown while the debug bundle is being collected; reassures the user they can keep using NetBird or close Settings meanwhile."
+        "message": "Naplók, rendszerinformációk és kapcsolati állapot gyűjtése folyamatban. Általában néhány pillanatot vesz igénybe — tartsa nyitva ezt az ablakot a befejezésig."
     },
     "settings.troubleshooting.cancelling": {
-        "message": "Megszakítás…",
-        "description": "Status shown while cancelling bundle creation. Ends with an ellipsis."
+        "message": "Megszakítás…"
     },
     "settings.troubleshooting.done.uploadedTitle": {
-        "message": "A hibakeresési csomag feltöltése sikeres!",
-        "description": "Success title after the bundle was uploaded."
+        "message": "A hibakeresési csomag feltöltése sikeres!"
     },
     "settings.troubleshooting.done.savedTitle": {
-        "message": "Csomag elmentve",
-        "description": "Title shown when the bundle was saved locally (not uploaded)."
+        "message": "Csomag elmentve"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Ossza meg az alábbi feltöltési kulcsot a <docs>NetBird támogatással</docs>. A helyi másolat is elmentve van az eszközén.",
-        "description": "Body after upload, telling the user to share the upload key with support. '<docs>…</docs>' wraps the inline link to the NetBird support docs — keep the tags exactly and wrap the phrase that means 'NetBird support'."
+        "message": "Ossza meg az alábbi feltöltési kulcsot a <docs>NetBird támogatással</docs>. A helyi másolat is elmentve van az eszközén."
     },
     "settings.troubleshooting.done.savedDescription": {
-        "message": "A hibakeresési csomag helyileg elmentve.",
-        "description": "Body shown when the bundle was only saved locally."
+        "message": "A hibakeresési csomag helyileg elmentve."
     },
     "settings.troubleshooting.done.copyKey": {
-        "message": "Kulcs másolása",
-        "description": "Button to copy the upload key. Keep short."
+        "message": "Kulcs másolása"
     },
     "settings.troubleshooting.done.openFolder": {
-        "message": "Mappa megnyitása",
-        "description": "Button to open the folder containing the bundle. Keep short."
+        "message": "Mappa megnyitása"
     },
     "settings.troubleshooting.done.openFileLocation": {
-        "message": "Fájl helyének megnyitása",
-        "description": "Button to reveal the bundle file in the OS file manager."
+        "message": "Fájl helyének megnyitása"
     },
     "settings.troubleshooting.uploadFailedWithReason": {
-        "message": "Feltöltés sikertelen: {reason} A csomag továbbra is el van mentve helyileg.",
-        "description": "Shown when upload failed but the bundle was saved locally. {reason} is the server error text; keep it."
+        "message": "Feltöltés sikertelen: {reason} A csomag továbbra is el van mentve helyileg."
     },
     "settings.troubleshooting.uploadFailed": {
-        "message": "Feltöltés sikertelen. A csomag továbbra is el van mentve helyileg.",
-        "description": "Shown when upload failed (no specific reason) but the bundle was saved locally."
+        "message": "Feltöltés sikertelen. A csomag továbbra is el van mentve helyileg."
     },
     "settings.troubleshooting.stage.reconnecting": {
-        "message": "NetBird újracsatlakoztatása…",
-        "description": "Progress stage: reconnecting NetBird. Ends with an ellipsis."
+        "message": "NetBird újracsatlakoztatása…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Hibakeresési naplók rögzítése",
-        "description": "Progress stage: capturing logs. {elapsed} and {total} are time values (e.g. 0:30 / 2:00); keep both."
+        "message": "Hibakeresési naplók rögzítése"
     },
     "settings.troubleshooting.stage.bundling": {
-        "message": "Hibakeresési csomag generálása…",
-        "description": "Progress stage: generating the debug bundle. Ends with an ellipsis."
+        "message": "Hibakeresési csomag generálása…"
     },
     "settings.troubleshooting.stage.uploading": {
-        "message": "Feltöltés a NetBirdhöz…",
-        "description": "Progress stage: uploading to NetBird. Ends with an ellipsis."
+        "message": "Feltöltés a NetBirdhöz…"
     },
     "settings.troubleshooting.stage.cancelling": {
-        "message": "Megszakítás…",
-        "description": "Progress stage: cancelling. Ends with an ellipsis."
+        "message": "Megszakítás…"
     },
     "settings.about.client": {
-        "message": "NetBird Kliens v{version}",
-        "description": "About tab: client product name and version. {version} is a version number; keep it. 'NetBird Client' — keep brand."
+        "message": "NetBird Kliens v{version}"
     },
     "settings.about.clientName": {
-        "message": "NetBird Kliens",
-        "description": "About tab: the client product name shown when no version is available. Brand — do not translate."
+        "message": "NetBird Kliens"
     },
     "settings.about.development": {
-        "message": "[Fejlesztés]",
-        "description": "Badge shown next to the version on development builds. Keep the square brackets."
+        "message": "[Fejlesztés]"
     },
     "settings.about.gui": {
-        "message": "GUI v{version}",
-        "description": "About tab: UI component name and version. {version} is a version number; keep it. 'GUI' = the graphical app."
+        "message": "GUI v{version}"
     },
     "settings.about.guiName": {
-        "message": "GUI",
-        "description": "About tab: the UI component name shown without a version. 'GUI' = the graphical app."
+        "message": "GUI"
     },
     "settings.about.copyright": {
-        "message": "© {year} NetBird. Minden jog fenntartva.",
-        "description": "Copyright line. {year} is the current year; keep it. 'NetBird' — brand."
+        "message": "© {year} NetBird. Minden jog fenntartva."
     },
     "settings.about.links.imprint": {
-        "message": "Impresszum",
-        "description": "Footer link: Imprint (legal notice / Impressum)."
+        "message": "Impresszum"
     },
     "settings.about.links.privacy": {
-        "message": "Adatvédelem",
-        "description": "Footer link: Privacy policy."
+        "message": "Adatvédelem"
     },
     "settings.about.links.cla": {
-        "message": "CLA",
-        "description": "Footer link: CLA (Contributor License Agreement). Acronym — keep as-is."
+        "message": "CLA"
     },
     "settings.about.links.terms": {
-        "message": "Felhasználási feltételek",
-        "description": "Footer link: Terms of Service."
+        "message": "Felhasználási feltételek"
     },
     "settings.about.community.github": {
-        "message": "GitHub",
-        "description": "Community link: GitHub. Brand — do not translate."
+        "message": "GitHub"
     },
     "settings.about.community.slack": {
-        "message": "Slack",
-        "description": "Community link: Slack. Brand — do not translate."
+        "message": "Slack"
     },
     "settings.about.community.forum": {
-        "message": "Fórum",
-        "description": "Community link: Forum."
+        "message": "Fórum"
     },
     "settings.about.community.documentation": {
-        "message": "Dokumentáció",
-        "description": "Community link: Documentation."
+        "message": "Dokumentáció"
     },
     "settings.about.community.feedback": {
-        "message": "Visszajelzés",
-        "description": "Community link: Feedback."
+        "message": "Visszajelzés"
     },
     "update.banner.message": {
-        "message": "A NetBird {version} telepítésre kész.",
-        "description": "Update banner text when a new version is ready to install. {version} is the version number; keep it."
+        "message": "A NetBird {version} telepítésre kész."
     },
     "update.banner.later": {
-        "message": "Később",
-        "description": "Banner button to postpone the update. Keep short."
+        "message": "Később"
     },
     "update.banner.installNow": {
-        "message": "Telepítés most",
-        "description": "Banner button to install the update now. Keep short."
+        "message": "Telepítés most"
     },
     "update.card.versionAvailableDownload": {
-        "message": "A {version} verzió letöltésre elérhető.",
-        "description": "Update card text when a version is available to download. {version} is the version number; keep it."
+        "message": "A {version} verzió letöltésre elérhető."
     },
     "update.card.versionAvailableInstall": {
-        "message": "A {version} verzió telepítésre elérhető.",
-        "description": "Update card text when a version is available to install. {version} is the version number; keep it."
+        "message": "A {version} verzió telepítésre elérhető."
     },
     "update.card.whatsNew": {
-        "message": "Mi az újdonság?",
-        "description": "Link / label that opens the release notes."
+        "message": "Mi az újdonság?"
     },
     "update.card.installNow": {
-        "message": "Telepítés most",
-        "description": "Update card button: install now. Keep short."
+        "message": "Telepítés most"
     },
     "update.card.getInstaller": {
-        "message": "Letöltés",
-        "description": "Update card button: download the installer."
+        "message": "Letöltés"
     },
     "update.card.autoCheckInterval": {
-        "message": "A NetBird a háttérben keres frissítéseket.",
-        "description": "Note that NetBird checks for updates in the background."
+        "message": "A NetBird a háttérben keres frissítéseket."
     },
     "update.card.changelog": {
-        "message": "Változásnapló",
-        "description": "Link / label: Changelog."
+        "message": "Változásnapló"
     },
     "update.card.onLatestVersion": {
-        "message": "A legfrissebb verziót használja",
-        "description": "Shown when the client is already up to date."
+        "message": "A legfrissebb verziót használja"
     },
     "update.header.tooltip": {
-        "message": "Frissítés elérhető",
-        "description": "Tooltip on the header update badge."
+        "message": "Frissítés elérhető"
     },
     "update.overlay.updatingVersion": {
-        "message": "NetBird frissítése a következőre: v{version}",
-        "description": "Heading in the install-progress window while updating to a specific version. {version} is the version number; keep it. The 'v' prefix is part of the version display."
+        "message": "NetBird frissítése a következőre: v{version}"
     },
     "update.overlay.updating": {
-        "message": "NetBird frissítése",
-        "description": "Heading in the install-progress window while updating when the target version isn't known."
+        "message": "NetBird frissítése"
     },
     "update.overlay.description": {
-        "message": "Egy újabb verzió elérhető és települ. A NetBird automatikusan újraindul a frissítés befejeztével.",
-        "description": "Install-progress window body explaining NetBird will restart automatically after the update."
+        "message": "Egy újabb verzió elérhető és települ. A NetBird automatikusan újraindul a frissítés befejeztével."
     },
     "update.overlay.error.timeoutTitle": {
-        "message": "A frissítés túl sokáig tart",
-        "description": "Install-progress window error title: the update took too long."
+        "message": "A frissítés túl sokáig tart"
     },
     "update.overlay.error.timeoutDescription": {
-        "message": "A(z) {target} telepítése túl sokáig tartott, és nem fejeződött be.",
-        "description": "Install-progress window error body for a timeout. {target} is the target-version label (see update.overlay.error.targetVersion / targetFallback); keep it."
+        "message": "A(z) {target} telepítése túl sokáig tartott, és nem fejeződött be."
     },
     "update.overlay.error.canceledTitle": {
-        "message": "A frissítés megszakítva",
-        "description": "Install-progress window error title: the update was stopped / canceled."
+        "message": "A frissítés megszakítva"
     },
     "update.overlay.error.canceledDescription": {
-        "message": "A(z) {target} frissítését megszakították a befejezés előtt.",
-        "description": "Install-progress window error body for a canceled update. {target} is the target-version label; keep it."
+        "message": "A(z) {target} frissítését megszakították a befejezés előtt."
     },
     "update.overlay.error.failTitle": {
-        "message": "A frissítés nem telepíthető",
-        "description": "Install-progress window error title: the update couldn't be installed."
+        "message": "A frissítés nem telepíthető"
     },
     "update.overlay.error.failDescription": {
-        "message": "A(z) {target} nem volt telepíthető.",
-        "description": "Install-progress window error body for a failed install. {target} is the target-version label; keep it."
+        "message": "A(z) {target} nem volt telepíthető."
     },
     "update.overlay.error.unknownMessage": {
-        "message": "ismeretlen hiba",
-        "description": "Fallback text for an unspecified error, used inside other messages."
+        "message": "ismeretlen hiba"
     },
     "update.overlay.error.targetVersion": {
-        "message": "v{version}",
-        "description": "The target-version label substituted into {target}. {version} is a number; keep the 'v' prefix."
+        "message": "v{version}"
     },
     "update.overlay.error.targetFallback": {
-        "message": "az új verzió",
-        "description": "Fallback target label used when the version isn't known, substituted into {target}."
+        "message": "az új verzió"
     },
     "update.error.loadStateTitle": {
-        "message": "Frissítési állapot betöltése sikertelen",
-        "description": "Error-dialog title when loading update state fails."
+        "message": "Frissítési állapot betöltése sikertelen"
     },
     "update.error.triggerTitle": {
-        "message": "Frissítés indítása sikertelen",
-        "description": "Error-dialog title when starting the update fails."
+        "message": "Frissítés indítása sikertelen"
     },
     "update.page.versionLine": {
-        "message": "Kliens frissítése erre: {version}.",
-        "description": "Install-progress window text naming the target version. {version} is the version number; keep it."
+        "message": "Kliens frissítése erre: {version}."
     },
     "update.page.versionLineGeneric": {
-        "message": "Kliens frissítése.",
-        "description": "Install-progress text used when the target version isn't known."
+        "message": "Kliens frissítése."
     },
     "update.page.outdated": {
-        "message": "Az Ön kliensverziója régebbi, mint a Managementben beállított automatikus frissítési verzió.",
-        "description": "Note that the client is older than the auto-update version set in Management. 'Management' = the NetBird management server / console."
+        "message": "Az Ön kliensverziója régebbi, mint a Managementben beállított automatikus frissítési verzió."
     },
     "update.page.status.running": {
-        "message": "Frissítés",
-        "description": "Install status: updating."
+        "message": "Frissítés"
     },
     "update.page.status.timeout": {
-        "message": "A frissítés időtúllépés miatt megszakadt. Kérjük, próbálja újra.",
-        "description": "Install status: timed out; asks the user to retry."
+        "message": "A frissítés időtúllépés miatt megszakadt. Kérjük, próbálja újra."
     },
     "update.page.status.canceled": {
-        "message": "Frissítés megszakítva.",
-        "description": "Install status: canceled."
+        "message": "Frissítés megszakítva."
     },
     "update.page.status.failed": {
-        "message": "Frissítés sikertelen: {message}",
-        "description": "Install status: failed. {message} is the error detail; keep it."
+        "message": "Frissítés sikertelen: {message}"
     },
     "update.page.status.unknownError": {
-        "message": "ismeretlen frissítési hiba",
-        "description": "Fallback text for an unknown update error, used inside update.page.status.failed."
+        "message": "ismeretlen frissítési hiba"
     },
     "update.page.failedTitle": {
-        "message": "Frissítés sikertelen",
-        "description": "Heading shown when the install failed."
+        "message": "Frissítés sikertelen"
     },
     "update.page.timeoutMessage": {
-        "message": "Frissítés időtúllépés.",
-        "description": "Message shown when the install timed out."
+        "message": "Frissítés időtúllépés."
     },
     "update.page.dontClose": {
-        "message": "Kérjük, ne zárja be ezt az ablakot.",
-        "description": "Warning asking the user not to close the install window."
+        "message": "Kérjük, ne zárja be ezt az ablakot."
     },
     "update.page.updating": {
-        "message": "Frissítés…",
-        "description": "Short status: updating. Ends with an ellipsis."
+        "message": "Frissítés…"
     },
     "update.page.complete": {
-        "message": "Frissítés kész",
-        "description": "Short status: update complete."
+        "message": "Frissítés kész"
     },
     "update.page.failed": {
-        "message": "Frissítés sikertelen",
-        "description": "Short status: update failed."
+        "message": "Frissítés sikertelen"
     },
     "window.title.settings": {
-        "message": "Beállítások",
-        "description": "OS window-chrome title for the Settings window. The app prefixes it with 'NetBird - '."
+        "message": "Beállítások"
     },
     "window.title.signIn": {
-        "message": "Bejelentkezés",
-        "description": "OS window-chrome title for the sign-in window."
+        "message": "Bejelentkezés"
     },
     "window.title.sessionExpiration": {
-        "message": "Munkamenet lejár",
-        "description": "OS window-chrome title for the session-expiration window."
+        "message": "Munkamenet lejár"
     },
     "window.title.updating": {
-        "message": "Frissítés",
-        "description": "OS window-chrome title for the update / install window."
+        "message": "Frissítés"
     },
     "window.title.welcome": {
-        "message": "Üdvözli a NetBird",
-        "description": "OS window-chrome title for the first-launch welcome window. 'NetBird' — brand."
+        "message": "Üdvözli a NetBird"
     },
     "window.title.error": {
-        "message": "Hiba",
-        "description": "OS window-chrome title for the error window."
+        "message": "Hiba"
     },
     "welcome.title": {
-        "message": "Keresse a NetBirdöt a tálcán",
-        "description": "Heading on the first onboarding step, pointing the user to the tray icon. Shown on Windows and Linux; macOS uses welcome.titleMac."
+        "message": "Keresse a NetBirdöt a tálcán"
     },
     "welcome.titleMac": {
-        "message": "Keresse a NetBirdöt a menüsorban",
-        "description": "Heading on the first onboarding step on macOS, pointing the user to the menu bar icon. Use your language's Apple term for the macOS menu bar."
+        "message": "Keresse a NetBirdöt a menüsorban"
     },
     "welcome.description": {
-        "message": "A NetBird a tálcán fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához.",
-        "description": "Body of the first onboarding step explaining the tray icon. Shown on Windows and Linux; macOS uses welcome.descriptionMac."
+        "message": "A NetBird a tálcán fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához."
     },
     "welcome.descriptionMac": {
-        "message": "A NetBird a menüsorban fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához.",
-        "description": "Body of the first onboarding step on macOS explaining the menu bar icon. Use your language's Apple term for the macOS menu bar."
+        "message": "A NetBird a menüsorban fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához."
     },
     "welcome.continue": {
-        "message": "Folytatás",
-        "description": "Primary button to advance the onboarding. Keep short."
+        "message": "Folytatás"
     },
     "welcome.back": {
-        "message": "Vissza",
-        "description": "Button to go back a step in onboarding. Keep short."
+        "message": "Vissza"
     },
     "welcome.management.title": {
-        "message": "NetBird beállítása",
-        "description": "Heading on the onboarding step for choosing a management server."
+        "message": "NetBird beállítása"
     },
     "welcome.management.description": {
-        "message": "Kattintson a Folytatás gombra a kezdéshez, vagy válassza a „Saját üzemeltetésű” lehetőséget, ha saját NetBird-szervere van.",
-        "description": "Body of the management step; mentions choosing Self-hosted if the user runs their own server."
+        "message": "Kattintson a Folytatás gombra a kezdéshez, vagy válassza a „Saját üzemeltetésű” lehetőséget, ha saját NetBird-szervere van."
     },
     "welcome.management.cloud.title": {
-        "message": "NetBird Cloud",
-        "description": "Option title: NetBird Cloud. Brand — do not translate 'NetBird Cloud'."
+        "message": "NetBird Cloud"
     },
     "welcome.management.cloud.description": {
-        "message": "Használja az általunk üzemeltetett szolgáltatást. Nincs szükség beállításra.",
-        "description": "Option body for NetBird Cloud (hosted service, no setup required)."
+        "message": "Használja az általunk üzemeltetett szolgáltatást. Nincs szükség beállításra."
     },
     "welcome.management.selfHosted.title": {
-        "message": "Saját üzemeltetésű",
-        "description": "Option title: Self-hosted."
+        "message": "Saját üzemeltetésű"
     },
     "welcome.management.selfHosted.description": {
-        "message": "Csatlakozás a saját felügyeleti szerveréhez.",
-        "description": "Option body for connecting to your own management server."
+        "message": "Csatlakozás a saját felügyeleti szerveréhez."
     },
     "welcome.management.urlLabel": {
-        "message": "Felügyeleti szerver URL",
-        "description": "Field label for the management-server URL."
+        "message": "Felügyeleti szerver URL"
     },
     "welcome.management.urlPlaceholder": {
-        "message": "https://netbird.selfhosted.com:443",
-        "description": "Example URL placeholder. Sample URL — do not translate it."
+        "message": "https://netbird.selfhosted.com:443"
     },
     "welcome.management.urlInvalid": {
-        "message": "Adjon meg egy érvényes URL-t, pl. https://netbird.selfhosted.com:443",
-        "description": "Validation message for an invalid URL. The example URL stays as-is."
+        "message": "Adjon meg egy érvényes URL-t, pl. https://netbird.selfhosted.com:443"
     },
     "welcome.management.urlUnreachable": {
-        "message": "A szerver nem érhető el. Ellenőrizze az URL-t vagy a hálózatot, majd folytassa, ha biztos benne, hogy helyes.",
-        "description": "Soft warning when the server couldn't be reached during onboarding; the user may continue anyway."
+        "message": "A szerver nem érhető el. Ellenőrizze az URL-t vagy a hálózatot, majd folytassa, ha biztos benne, hogy helyes."
     },
     "welcome.management.checking": {
-        "message": "Ellenőrzés…",
-        "description": "Status shown while checking the server URL. Ends with an ellipsis."
+        "message": "Ellenőrzés…"
     },
     "browserLogin.title": {
-        "message": "Folytassa a böngészőben a bejelentkezés befejezéséhez",
-        "description": "Heading telling the user to finish signing in via their browser."
+        "message": "Folytassa a böngészőben a bejelentkezés befejezéséhez"
     },
     "browserLogin.notSeeing": {
-        "message": "Nem látja a böngésző fülét?",
-        "description": "Prompt asking whether the user doesn't see the opened browser tab."
+        "message": "Nem látja a böngésző fülét?"
     },
     "browserLogin.tryAgain": {
-        "message": "Próbálja újra",
-        "description": "Button to re-open the browser sign-in page. Keep short."
+        "message": "Próbálja újra"
     },
     "browserLogin.openFailedTitle": {
-        "message": "A böngésző megnyitása sikertelen",
-        "description": "Error-dialog title when the browser couldn't be opened."
+        "message": "A böngésző megnyitása sikertelen"
     },
     "sessionExpiration.title": {
-        "message": "A munkamenet hamarosan lejár",
-        "description": "Heading warning the session will expire soon."
+        "message": "A munkamenet hamarosan lejár"
     },
     "sessionExpiration.titleLater": {
-        "message": "A munkamenete lejár",
-        "description": "Alternate, less-urgent heading: the session will expire."
+        "message": "A munkamenete lejár"
     },
     "sessionExpiration.description": {
-        "message": "Az eszköz hamarosan lecsatlakozik. Megújításhoz böngészős bejelentkezés kell.",
-        "description": "Body warning the device will disconnect soon; renew via a browser sign-in."
+        "message": "Az eszköz hamarosan lecsatlakozik. Megújításhoz böngészős bejelentkezés kell."
     },
     "sessionExpiration.descriptionLater": {
-        "message": "Egy böngészős bejelentkezés a hálózaton tartja az eszközt.",
-        "description": "Body for the less-urgent variant; a browser sign-in keeps the device connected."
+        "message": "Egy böngészős bejelentkezés a hálózaton tartja az eszközt."
     },
     "sessionExpiration.stay": {
-        "message": "Munkamenet megújítása",
-        "description": "Button to renew the session (keep connected). Keep short."
+        "message": "Munkamenet megújítása"
     },
     "sessionExpiration.authenticate": {
-        "message": "Bejelentkezés",
-        "description": "Button to authenticate / sign in. Keep short."
+        "message": "Bejelentkezés"
     },
     "sessionExpiration.logout": {
-        "message": "Kijelentkezés",
-        "description": "Button to log out. Keep short."
+        "message": "Kijelentkezés"
     },
     "sessionExpiration.expired": {
-        "message": "Munkamenet lejárt",
-        "description": "Heading shown once the session has actually expired."
+        "message": "Munkamenet lejárt"
     },
     "sessionExpiration.expiredDescription": {
-        "message": "Eszköz lecsatlakozott. Hitelesítés böngészős bejelentkezéssel az újracsatlakozáshoz.",
-        "description": "Body shown after expiry; authenticate via a browser sign-in to reconnect."
+        "message": "Eszköz lecsatlakozott. Hitelesítés böngészős bejelentkezéssel az újracsatlakozáshoz."
     },
     "sessionExpiration.close": {
-        "message": "Bezárás",
-        "description": "Close button on the session window. Keep short."
+        "message": "Bezárás"
     },
     "sessionExpiration.extendFailedTitle": {
-        "message": "A munkamenet meghosszabbítása sikertelen",
-        "description": "Error-dialog title when extending the session fails."
+        "message": "A munkamenet meghosszabbítása sikertelen"
     },
     "sessionExpiration.logoutFailedTitle": {
-        "message": "Kijelentkezés sikertelen",
-        "description": "Error-dialog title when logging out fails."
+        "message": "Kijelentkezés sikertelen"
     },
     "peers.search.placeholder": {
-        "message": "Keresés név vagy IP alapján",
-        "description": "Placeholder in the peers search field."
+        "message": "Keresés név vagy IP alapján"
     },
     "peers.filter.all": {
-        "message": "Összes",
-        "description": "Peers filter option: All. Keep short."
+        "message": "Összes"
     },
     "peers.filter.online": {
-        "message": "Online",
-        "description": "Peers filter option: Online. Keep short."
+        "message": "Online"
     },
     "peers.filter.offline": {
-        "message": "Offline",
-        "description": "Peers filter option: Offline. Keep short."
+        "message": "Offline"
     },
     "peers.empty.title": {
-        "message": "Nincs elérhető Peer",
-        "description": "Title of the empty state when no peers are available."
+        "message": "Nincs elérhető Peer"
     },
     "peers.empty.description": {
-        "message": "Önnek vagy nincsenek elérhető Peerei, vagy nincs hozzáférése egyikhez sem.",
-        "description": "Body of the no-peers empty state."
+        "message": "Önnek vagy nincsenek elérhető Peerei, vagy nincs hozzáférése egyikhez sem."
     },
     "peers.details.domain": {
-        "message": "Domain",
-        "description": "Peer detail label: Domain."
+        "message": "Domain"
     },
     "peers.details.netbirdIp": {
-        "message": "NetBird IP",
-        "description": "Peer detail label: NetBird IP address. 'NetBird' — brand; 'IP' — keep acronym."
+        "message": "NetBird IP"
     },
     "peers.details.netbirdIpv6": {
-        "message": "NetBird IPv6",
-        "description": "Peer detail label: NetBird IPv6 address. Keep 'NetBird' and 'IPv6'."
+        "message": "NetBird IPv6"
     },
     "peers.details.publicKey": {
-        "message": "Nyilvános kulcs",
-        "description": "Peer detail label: WireGuard public key."
+        "message": "Nyilvános kulcs"
     },
     "peers.details.connection": {
-        "message": "Kapcsolat",
-        "description": "Peer detail label: Connection."
+        "message": "Kapcsolat"
     },
     "peers.details.latency": {
-        "message": "Késleltetés",
-        "description": "Peer detail label: Latency."
+        "message": "Késleltetés"
     },
     "peers.details.lastHandshake": {
-        "message": "Utolsó Handshake",
-        "description": "Peer detail label: time of the last WireGuard handshake."
+        "message": "Utolsó Handshake"
     },
     "peers.details.statusSince": {
-        "message": "Utolsó kapcsolati frissítés",
-        "description": "Peer detail label: time since the last connection-status update."
+        "message": "Utolsó kapcsolati frissítés"
     },
     "peers.details.bytes": {
-        "message": "Bájtok",
-        "description": "Peer detail label: Bytes (data transferred)."
+        "message": "Bájtok"
     },
     "peers.details.bytesSent": {
-        "message": "Küldve",
-        "description": "Peer detail label: bytes sent."
+        "message": "Küldve"
     },
     "peers.details.bytesReceived": {
-        "message": "Fogadva",
-        "description": "Peer detail label: bytes received."
+        "message": "Fogadva"
     },
     "peers.details.localIce": {
-        "message": "Helyi ICE",
-        "description": "Peer detail label: local ICE candidate. 'ICE' — keep acronym."
+        "message": "Helyi ICE"
     },
     "peers.details.remoteIce": {
-        "message": "Távoli ICE",
-        "description": "Peer detail label: remote ICE candidate. 'ICE' — keep acronym."
+        "message": "Távoli ICE"
     },
     "peers.details.never": {
-        "message": "Soha",
-        "description": "Value shown when an event has never happened (e.g. last handshake = Never)."
+        "message": "Soha"
     },
     "peers.details.justNow": {
-        "message": "Épp most",
-        "description": "Relative-time value meaning a moment ago."
+        "message": "Épp most"
     },
     "peers.details.refresh": {
-        "message": "Frissítés",
-        "description": "Button to refresh peer details. Keep short."
+        "message": "Frissítés"
     },
     "peers.status.connected": {
-        "message": "Csatlakozva",
-        "description": "Peer status: connected."
+        "message": "Csatlakozva"
     },
     "peers.status.connecting": {
-        "message": "Csatlakozás",
-        "description": "Peer status: connecting."
+        "message": "Csatlakozás"
     },
     "peers.status.disconnected": {
-        "message": "Lecsatlakozva",
-        "description": "Peer status: disconnected."
+        "message": "Lecsatlakozva"
     },
     "peers.details.relayAddress": {
-        "message": "Relay",
-        "description": "Peer detail label: Relay (relay-server address)."
+        "message": "Relay"
     },
     "peers.details.networks": {
-        "message": "Erőforrások",
-        "description": "Peer detail label for the peer's network resources. Labelled 'Resources' in the UI."
+        "message": "Erőforrások"
     },
     "peers.details.relayed": {
-        "message": "Relayed",
-        "description": "Connection-type value: the connection is relayed (not direct). Technical term."
+        "message": "Relayed"
     },
     "peers.details.p2p": {
-        "message": "P2P",
-        "description": "Connection-type value: peer-to-peer (direct). 'P2P' — keep as-is."
+        "message": "P2P"
     },
     "peers.details.rosenpass": {
-        "message": "Rosenpass engedélyezve",
-        "description": "Peer detail indicating Rosenpass (quantum-resistance) is enabled. 'Rosenpass' — product name, do not translate."
+        "message": "Rosenpass engedélyezve"
     },
     "networks.search.placeholder": {
-        "message": "Keresés hálózat vagy domain alapján",
-        "description": "Placeholder in the resources search field."
+        "message": "Keresés hálózat vagy domain alapján"
     },
     "networks.filter.all": {
-        "message": "Összes",
-        "description": "Resources filter: All. Keep short."
+        "message": "Összes"
     },
     "networks.filter.active": {
-        "message": "Aktív",
-        "description": "Resources filter: Active. Keep short."
+        "message": "Aktív"
     },
     "networks.filter.overlapping": {
-        "message": "Átfedő",
-        "description": "Resources filter: Overlapping (overlapping IP ranges). Keep short."
+        "message": "Átfedő"
     },
     "networks.empty.title": {
-        "message": "Nincs elérhető erőforrás",
-        "description": "Title of the empty state when no resources are available."
+        "message": "Nincs elérhető erőforrás"
     },
     "networks.empty.description": {
-        "message": "Önnek vagy nincsenek elérhető hálózati erőforrásai vagy nincs hozzáférése egyikhez sem.",
-        "description": "Body of the no-resources empty state."
+        "message": "Önnek vagy nincsenek elérhető hálózati erőforrásai vagy nincs hozzáférése egyikhez sem."
     },
     "networks.selected": {
-        "message": "Kiválasztva",
-        "description": "Label / badge: the resource is selected (enabled)."
+        "message": "Kiválasztva"
     },
     "networks.unselected": {
-        "message": "Nincs kiválasztva",
-        "description": "Label / badge: the resource is not selected."
+        "message": "Nincs kiválasztva"
     },
     "networks.ips.heading": {
-        "message": "Feloldott IP-címek",
-        "description": "Heading for the list of a resource's resolved IP addresses."
+        "message": "Feloldott IP-címek"
     },
     "networks.bulk.selectionCount": {
-        "message": "{selected} / {total} aktív",
-        "description": "Header showing how many resources are active. {selected} and {total} are numbers; keep both."
+        "message": "{selected} / {total} aktív"
     },
     "networks.bulk.enableAll": {
-        "message": "Összes engedélyezése",
-        "description": "Button to enable all resources. Keep short."
+        "message": "Összes engedélyezése"
     },
     "networks.bulk.disableAll": {
-        "message": "Összes letiltása",
-        "description": "Button to disable all resources. Keep short."
+        "message": "Összes letiltása"
     },
     "exitNodes.search.placeholder": {
-        "message": "Keresés az Exit Node-ok között",
-        "description": "Placeholder in the exit-nodes search field."
+        "message": "Keresés az Exit Node-ok között"
     },
     "exitNodes.none": {
-        "message": "Egyik sem",
-        "description": "Option meaning no exit node. Keep short."
+        "message": "Egyik sem"
     },
     "exitNodes.empty.title": {
-        "message": "Nincs elérhető Exit Node",
-        "description": "Title of the empty state when no exit nodes are available."
+        "message": "Nincs elérhető Exit Node"
     },
     "exitNodes.empty.description": {
-        "message": "Ehhez a Peerhez nem osztottak meg Exit Node-okat.",
-        "description": "Body of the no-exit-nodes empty state."
+        "message": "Ehhez a Peerhez nem osztottak meg Exit Node-okat."
     },
     "exitNodes.card.title": {
-        "message": "Exit Node",
-        "description": "Card heading: Exit Node."
+        "message": "Exit Node"
     },
     "exitNodes.card.statusActive": {
-        "message": "Aktív",
-        "description": "Exit node card status: Active."
+        "message": "Aktív"
     },
     "exitNodes.card.statusInactive": {
-        "message": "Inaktív",
-        "description": "Exit node card status: Inactive."
+        "message": "Inaktív"
     },
     "exitNodes.dropdown.noneTitle": {
-        "message": "Egyik sem",
-        "description": "Dropdown option title: None (no exit node)."
+        "message": "Egyik sem"
     },
     "exitNodes.dropdown.noneDescription": {
-        "message": "Közvetlen kapcsolat Exit Node nélkül",
-        "description": "Dropdown option body for None: direct connection without an exit node."
+        "message": "Közvetlen kapcsolat Exit Node nélkül"
     },
     "quickActions.connect": {
-        "message": "Csatlakozás",
-        "description": "Quick-action button: Connect. Keep short."
+        "message": "Csatlakozás"
     },
     "quickActions.disconnect": {
-        "message": "Bontás",
-        "description": "Quick-action button: Disconnect. Keep short."
+        "message": "Bontás"
     },
     "daemon.unavailable.title": {
-        "message": "A NetBird szolgáltatás nem fut",
-        "description": "Title of the overlay shown when the NetBird background service isn't running."
+        "message": "A NetBird szolgáltatás nem fut"
     },
     "daemon.unavailable.description": {
-        "message": "Az alkalmazás automatikusan újracsatlakozik, amint a szolgáltatás újra elérhető.",
-        "description": "Body reassuring the user the app will reconnect once the service is running."
+        "message": "Az alkalmazás automatikusan újracsatlakozik, amint a szolgáltatás újra elérhető."
     },
     "daemon.unavailable.docsLink": {
-        "message": "Dokumentáció",
-        "description": "Documentation link on the daemon-unavailable overlay."
+        "message": "Dokumentáció"
     },
     "daemon.outdated.title": {
-        "message": "A NetBird Kliens elavult",
-        "description": "Title of the overlay shown when the NetBird client (daemon) is too old to drive this UI."
+        "message": "A NetBird Kliens elavult"
     },
     "daemon.outdated.description": {
-        "message": "Az új GUI nem kompatibilis a régebbi klienseddel. Frissítsd a klienst az új alkalmazás használatához.",
-        "description": "Body of the daemon-outdated overlay explaining that the GUI is newer than the client and the client must be updated."
+        "message": "Az új GUI nem kompatibilis a régebbi klienseddel. Frissítsd a klienst az új alkalmazás használatához."
     },
     "daemon.outdated.download": {
-        "message": "Legújabb letöltése",
-        "description": "Button on the daemon-outdated overlay that opens the download page for the latest release."
+        "message": "Legújabb letöltése"
     },
     "error.jwt_clock_skew": {
-        "message": "A bejelentkezés sikertelen: az eszköz órája eltér a szerverétől. Kérjük, szinkronizálja a rendszer óráját, majd próbálja újra.",
-        "description": "Sign-in error shown to the user: the device clock is out of sync with the server."
+        "message": "A bejelentkezés sikertelen: az eszköz órája eltér a szerverétől. Kérjük, szinkronizálja a rendszer óráját, majd próbálja újra."
     },
     "error.jwt_expired": {
-        "message": "A bejelentkezési token lejárt. Kérjük, jelentkezzen be újra.",
-        "description": "Sign-in error: the sign-in token expired; sign in again."
+        "message": "A bejelentkezési token lejárt. Kérjük, jelentkezzen be újra."
     },
     "error.jwt_signature_invalid": {
-        "message": "A bejelentkezés sikertelen: a token aláírása érvénytelen. Kérjük, lépjen kapcsolatba a rendszergazdával.",
-        "description": "Sign-in error: the token signature is invalid; contact the administrator."
+        "message": "A bejelentkezés sikertelen: a token aláírása érvénytelen. Kérjük, lépjen kapcsolatba a rendszergazdával."
     },
     "error.session_expired": {
-        "message": "A munkamenet lejárt. Kérjük, jelentkezzen be újra.",
-        "description": "Error: the session expired; sign in again."
+        "message": "A munkamenet lejárt. Kérjük, jelentkezzen be újra."
     },
     "error.invalid_setup_key": {
-        "message": "A telepítőkulcs hiányzik vagy érvénytelen.",
-        "description": "Error: the setup key is missing or invalid. 'setup key' is a NetBird term."
+        "message": "A telepítőkulcs hiányzik vagy érvénytelen."
     },
     "error.permission_denied": {
-        "message": "A szerver elutasította a bejelentkezést.",
-        "description": "Error: the server rejected the sign-in."
+        "message": "A szerver elutasította a bejelentkezést."
     },
     "error.daemon_unreachable": {
-        "message": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás.",
-        "description": "Error: the NetBird background service isn't responding. 'daemon' = the background service."
+        "message": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás."
     },
     "error.settings_locked": {
-        "message": "A beállítások ezen az eszközön nem módosíthatók: egy rendszergazda zárolta őket.",
-        "description": "Error: the local daemon was started with update-settings disabled, so it refuses configuration changes."
+        "message": "A beállítások ezen az eszközön nem módosíthatók: egy rendszergazda zárolta őket."
     },
     "error.settings_managed_by_mdm": {
-        "message": "Ezt a beállítást a szervezete kezeli, ezért nem módosítható.",
-        "description": "Error: the setting is enforced by an MDM policy. 'MDM' = mobile device management, the organization's device-management system."
+        "message": "Ezt a beállítást a szervezete kezeli, ezért nem módosítható."
     },
     "error.unknown": {
-        "message": "A művelet meghiúsult.",
-        "description": "Generic fallback error message used when no specific error applies."
+        "message": "A művelet meghiúsult."
     },
     "error.elevation_unavailable": {
-        "message": "A NetBird nem tudta bekérni a rendszertől a szükséges jogosultságokat. Futtassa inkább ezt:",
-        "description": "Error: this computer has no way to prompt for elevated privileges. Followed by a copyable command that applies the setting from a terminal."
+        "message": "A NetBird nem tudta bekérni a rendszertől a szükséges jogosultságokat. Futtassa inkább ezt:"
     },
     "error.elevation_failed": {
-        "message": "A módosítást emelt szintű jogosultságokkal sem sikerült alkalmazni. Futtassa inkább ezt:",
-        "description": "Error: the authorization succeeded but applying the setting afterwards failed. Followed by a copyable command that applies the setting from a terminal."
+        "message": "A módosítást emelt szintű jogosultságokkal sem sikerült alkalmazni. Futtassa inkább ezt:"
     },
     "settings.ssh.privilege.actorRoot": {
-        "message": "root jogosultság",
-        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Linux, macOS and BSD, where the daemon requires the root account. 'root' is an account name and stays as it is; add the word for privileges or rights around it if the sentence needs one to read naturally."
+        "message": "root jogosultság"
     },
     "settings.ssh.privilege.actorAdministrator": {
-        "message": "rendszergazdai jogosultság",
-        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Windows, where the daemon requires an elevated administrator. The Windows term for the rights an account is asked to elevate to."
+        "message": "rendszergazdai jogosultság"
     },
     "settings.ssh.privilege.hint": {
-        "message": "{actor} szükséges hozzá. Futtassa inkább ezt:",
-        "description": "Help text under an SSH setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+        "message": "{actor} szükséges hozzá. Futtassa inkább ezt:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Kikapcsolhatja, de a visszakapcsolásához {actor} szükséges.",
-        "description": "Help text under an SSH setting that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
+        "message": "Kikapcsolhatja, de a visszakapcsolásához {actor} szükséges."
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Bekapcsolhatja, de az ismételt kikapcsolásához {actor} szükséges.",
-        "description": "Same as settings.ssh.privilege.oneWay, for the SSH authentication setting once it has been switched off: switching it off again is what needs the privileges."
+        "message": "Bekapcsolhatja, de az ismételt kikapcsolásához {actor} szükséges."
     },
     "settings.ssh.privilege.authorizePending": {
-        "message": "Várakozás az engedélyezésre…",
-        "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+        "message": "Várakozás az engedélyezésre…"
     }
 }
