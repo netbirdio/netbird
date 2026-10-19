@@ -1704,6 +1704,9 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1747,6 +1750,9 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return peerSchedulerRetryInterval, true
