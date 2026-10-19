@@ -114,6 +114,7 @@ type Manager struct {
 	established map[RemoteID]bool           // peer has completed at least one exchange
 	failures    map[RemoteID]int            // consecutive rekey failures per peer
 	psks        map[RemoteID]PSK            // latest derived PSK per peer (pulled at WG peer-config time)
+	prevPSKs    map[RemoteID]PSK            // PSK before the latest commit; still authenticates data-path messages sealed under it
 	capable     map[RemoteID]bool           // peer runs the KEM (advertised a PQ port); false = known non-capable
 	peerAddrs   map[RemoteID]netip.AddrPort // remoteID -> data-path endpoint (send routing)
 	peersByAddr map[netip.AddrPort]RemoteID // reverse: source endpoint -> remoteID (inbound)
@@ -164,6 +165,7 @@ func NewManager(localID LocalID, h CallbackHandler, logger *slog.Logger, opts ..
 		established:      make(map[RemoteID]bool),
 		failures:         make(map[RemoteID]int),
 		psks:             make(map[RemoteID]PSK),
+		prevPSKs:         make(map[RemoteID]PSK),
 		capable:          make(map[RemoteID]bool),
 		peerAddrs:        make(map[RemoteID]netip.AddrPort),
 		peersByAddr:      make(map[netip.AddrPort]RemoteID),
@@ -297,6 +299,7 @@ func (m *Manager) RemovePeer(remoteID RemoteID) {
 	delete(m.established, remoteID)
 	delete(m.failures, remoteID)
 	delete(m.psks, remoteID)
+	delete(m.prevPSKs, remoteID)
 	delete(m.capable, remoteID)
 	if ep, ok := m.peerAddrs[remoteID]; ok {
 		delete(m.peersByAddr, ep)
@@ -479,22 +482,37 @@ func (m *Manager) onDataPathInbound(src netip.AddrPort, msg []byte) {
 }
 
 // OnDataPathMessage handles a KEM message received over the data path from remoteID
-// and pushes any reply back over the data path.
+// and pushes any reply back over the data path. The sender is only known by its source
+// address, which can be spoofed, so a message that does not carry a valid MAC under a PSK
+// shared with remoteID is rejected.
 func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
-	typ, msg, err := Decode(raw)
+	frame, key, err := m.openDataPathFrom(remoteID, raw)
+	if err != nil {
+		return err
+	}
+	typ, msg, err := Decode(frame)
 	if err != nil {
 		return fmt.Errorf("decode data-path msg from %s: %w", remoteID, err)
 	}
 	switch typ {
 	case MsgOffer:
-		answer, err := m.processOffer(remoteID, msg.(*OfferMsg), viaDataPathLabel)
+		o := msg.(*OfferMsg)
+		// The data path only carries rotations of an established exchange. A bootstrap
+		// starts from scratch, so it must come over the authenticated signalling channel.
+		if o.AckID == (ExchangeID{}) {
+			m.debug("pqkem: dropping a bootstrap offer received over the data path", "peer", remoteID, "exchange", idHex(o.ExchangeID))
+			return nil
+		}
+		answer, err := m.processOffer(remoteID, o, viaDataPathLabel)
 		if err != nil {
 			return err
 		}
 		if answer == nil {
 			return nil
 		}
-		return m.pushDataPath(remoteID, answer)
+		// Seal the reply under the key that verified the offer. processOffer has just
+		// committed the new PSK, which the initiator only derives once it reads this answer.
+		return m.sendDataPath(remoteID, sealDataPath(key, answer))
 	case MsgAnswer:
 		return m.processAnswer(remoteID, msg.(*AnswerMsg), viaDataPathLabel)
 	case MsgError:
@@ -567,15 +585,57 @@ func (m *Manager) OnDataPathDown(remoteID RemoteID) {}
 
 // ---- internals ----
 
-// commitPSKLocked records a freshly derived PSK as the peer's current one. Assumes m.mu
-// is held.
+// commitPSKLocked records a freshly derived PSK as the peer's current one, keeping the one
+// it replaces: messages sealed under it may still be in flight (see openDataPathFrom).
+// Assumes m.mu is held.
 func (m *Manager) commitPSKLocked(remoteID RemoteID, psk PSK) {
+	if old, ok := m.psks[remoteID]; ok {
+		m.prevPSKs[remoteID] = old
+	}
 	m.psks[remoteID] = psk
 }
 
-// pushDataPath sends a message to the peer over the data-path transport.
+// pushDataPath sends a message to the peer over the data-path transport, sealed under
+// the PSK the two peers currently share.
 func (m *Manager) pushDataPath(remoteID RemoteID, msg []byte) error {
-	return m.sendDataPath(remoteID, msg)
+	m.mu.Lock()
+	psk, ok := m.psks[remoteID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no PSK to authenticate a data-path message to %s", remoteID)
+	}
+	key, err := dataPathMACKey(psk)
+	if err != nil {
+		return err
+	}
+	return m.sendDataPath(remoteID, sealDataPath(key, msg))
+}
+
+// openDataPathFrom authenticates a data-path message from a peer under its current PSK,
+// or failing that the previous one: an offer retransmitted after this side committed the
+// PSK it derived was still sealed under the old key. It returns the frame and the key
+// that verified it.
+func (m *Manager) openDataPathFrom(remoteID RemoteID, raw []byte) ([]byte, []byte, error) {
+	m.mu.Lock()
+	candidates := make([]PSK, 0, 2)
+	if psk, ok := m.psks[remoteID]; ok {
+		candidates = append(candidates, psk)
+	}
+	if psk, ok := m.prevPSKs[remoteID]; ok {
+		candidates = append(candidates, psk)
+	}
+	m.mu.Unlock()
+
+	for _, psk := range candidates {
+		key, err := dataPathMACKey(psk)
+		if err != nil {
+			return nil, nil, err
+		}
+		if frame, ok := openDataPath(key, raw); ok {
+			return frame, key, nil
+		}
+	}
+	return nil, nil, fmt.Errorf("unauthenticated data-path message from %s", remoteID)
 }
 
 // sendDataPath resolves the peer's endpoint and sends over the data-path transport,

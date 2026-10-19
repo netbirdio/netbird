@@ -55,12 +55,19 @@ func TestManager_PresharedSecretBindsPSK(t *testing.T) {
 			require.NotEqual(t, PSK{}, bootB, "initiator must derive a bootstrap PSK")
 			assert.Equal(t, tc.match, bootA == bootB, "bootstrap PSKs must match only when the secrets match")
 
-			// Rotation over the data path re-derives the PSK; it must honour the secret too.
 			dB.OnDataPathRekeyed("aaaa", 0)
+			if !tc.match {
+				// The peers share no PSK, so the responder cannot authenticate the data-path
+				// rotation offer and keeps its key: a rotation cannot bridge the secret either.
+				assert.Never(t, func() bool { return wgA.psk("bbbb") != bootA }, 200*time.Millisecond, 10*time.Millisecond,
+					"a rotation between peers with different secrets must not re-key the responder")
+				return
+			}
+			// Rotation over the data path re-derives the PSK; it must honour the secret too.
 			require.Eventually(t, func() bool {
 				return wgA.psk("bbbb") != bootA && wgB.psk("aaaa") != bootB
 			}, time.Second, 5*time.Millisecond, "the rotation must re-key both peers")
-			assert.Equal(t, tc.match, wgA.psk("bbbb") == wgB.psk("aaaa"), "rotated PSKs must match only when the secrets match")
+			assert.Equal(t, wgA.psk("bbbb"), wgB.psk("aaaa"), "rotated PSKs must match when the secrets match")
 		})
 	}
 }

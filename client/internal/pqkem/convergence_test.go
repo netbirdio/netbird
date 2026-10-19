@@ -87,9 +87,13 @@ func TestManager_InitiatorRejectsOfferFromResponderRole(t *testing.T) {
 	psk1 := wgB.psk("aaaa")
 	require.NotEqual(t, PSK{}, psk1, "bootstrap established a PSK")
 
-	rogue, err := dA.startExchangeTest("bbbb", false, ExchangeID{})
+	// Authenticated (sealed under the shared PSK) and shaped as a rotation, so only the
+	// role guard can stop it.
+	ack, err := newExchangeID()
 	require.NoError(t, err)
-	require.NoError(t, dB.OnDataPathMessage("aaaa", rogue))
+	rogue, err := dA.startExchangeTest("bbbb", false, ack)
+	require.NoError(t, err)
+	require.NoError(t, dB.OnDataPathMessage("aaaa", sealForPeer(t, dA, "bbbb", rogue)))
 
 	assert.Equal(t, psk1, wgB.psk("aaaa"),
 		"the initiator must not adopt a PSK from an offer sent by the role-responder")
