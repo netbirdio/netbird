@@ -12,6 +12,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
@@ -62,6 +63,10 @@ func (fakeProxyFactory) Free() error             { return nil }
 // WGIface.GetDevice() which needs the same mutex. The fix is to drop
 // the lock before tun.Close() returns control.
 func TestWGIface_CloseReleasesMutexBeforeTunClose(t *testing.T) {
+	// Netstack mode skips the platform interface cleanup in Close, so only
+	// the mutex and tun close behavior is exercised.
+	t.Setenv(nbnetstack.EnvUseNetstackMode, "true")
+
 	tun := &fakeTunDevice{
 		closeStarted: make(chan struct{}),
 		unblockClose: make(chan struct{}),
