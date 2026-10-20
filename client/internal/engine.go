@@ -2512,7 +2512,9 @@ func (e *Engine) startNetworkMonitor() {
 				baseline = change.After
 				continue
 			case actionRedial:
-				e.redialOnUnderlayChange(change)
+				if !e.redialOnUnderlayChange(change) {
+					break
+				}
 				watchCtx := watch.replace(e.ctx)
 				e.shutdownWg.Add(1)
 				go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))

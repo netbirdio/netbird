@@ -32,11 +32,16 @@ const (
 	controlPlaneRecoveryPoll    = 500 * time.Millisecond
 )
 
-// underlayPinnedAtStart reports the platforms that bind NetBird's own sockets
-// to the underlay interface once, at engine start: macOS (scoped default plus
-// IP_BOUND_IF) and Windows (IP_UNICAST_IF on the WireGuard socket). Until that
-// binding can be refreshed in place, a change there still needs a restart.
-const underlayPinnedAtStart = runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+// underlayPinnedAtStart reports the platforms whose binding of NetBird's own
+// sockets to the underlay cannot be refreshed in place yet: macOS caches the
+// interface for its scoped default and IP_BOUND_IF at engine start. A change
+// there still needs a restart.
+const underlayPinnedAtStart = runtime.GOOS == "darwin"
+
+// wgSocketPinned reports the platforms that bind the WireGuard UDP socket to
+// the underlay interface when it opens (IP_UNICAST_IF on Windows, IP_BOUND_IF
+// on macOS), so the socket must be reopened when the interface changes.
+const wgSocketPinned = runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 
 // underlayAction is what the engine does about one network change.
 type underlayAction int
@@ -64,20 +69,50 @@ type recoveryWatch struct {
 
 // redialOnUnderlayChange moves the control connections to the new underlay
 // without restarting the client.
-func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) {
+// It returns false when the change could not be handled in place and only a
+// restart can recover.
+func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
 	log.Infof("Network monitor: underlay %s change, redialing control connections without restart", change.Kind)
 	log.Debugf("Network monitor: underlay next hops v4 %s -> %s, v6 %s -> %s",
 		change.Before.V4, change.After.V4, change.Before.V6, change.After.V6)
+
+	rebound := false
+	if wgSocketPinned && change.Kind == networkmonitor.ChangeInterface {
+		if err := e.rebindWGSocket(); err != nil {
+			log.Warnf("Network monitor: failed to reopen the WireGuard socket on the new interface: %v", err)
+			return false
+		}
+		rebound = true
+	}
+
 	e.netMgr.NotifyNetworkChange()
-	e.moveP2PPeersToRelay()
+	e.moveP2PPeersToRelay(rebound)
+	return true
+}
+
+// rebindWGSocket reopens the userspace WireGuard socket, on the same port, so
+// it binds to the interface that now holds the default route. Kernel
+// WireGuard has no such socket to reopen.
+func (e *Engine) rebindWGSocket() error {
+	dev := e.wgInterface.GetWGDevice()
+	if dev == nil {
+		return nil
+	}
+	log.Infof("Network monitor: interface changed, reopening the WireGuard socket")
+	return dev.BindUpdate()
 }
 
 // moveP2PPeersToRelay makes relay the active path of every P2P peer whose
 // path did not survive the change and renegotiates P2P on the new network, so
-// traffic does not wait for the ICE timeouts on a dead path.
-func (e *Engine) moveP2PPeersToRelay() {
+// traffic does not wait for the ICE timeouts on a dead path. After the
+// WireGuard socket was reopened every P2P path is gone, whatever its
+// candidate.
+func (e *Engine) moveP2PPeersToRelay(socketReopened bool) {
 	hostAddrs := currentHostAddrs()
 	localAddrExists := func(addr netip.Addr) bool {
+		if socketReopened {
+			return false
+		}
 		_, ok := hostAddrs[addr]
 		return ok
 	}
