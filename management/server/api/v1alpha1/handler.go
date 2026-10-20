@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/permissions"
 
+	peersmodule "github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/peers"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/users"
 )
@@ -20,6 +21,7 @@ func NewAPIV1Handler(
 	ctx context.Context,
 	router *mux.Router,
 	accountManager account.Manager,
+	peerManager peersmodule.Manager,
 	networkMapController network_map.Controller,
 	permissionsManager permissions.Manager) (http.Handler, error) {
 
@@ -30,7 +32,7 @@ func NewAPIV1Handler(
 
 	router.Use(v1validatorMiddleware.Handler)
 
-	peersHandler := peers.NewHandler(accountManager, networkMapController, permissionsManager)
+	peersHandler := peers.NewHandler(accountManager, peerManager, networkMapController, permissionsManager)
 	_ = peersHandler.WithEndpointsForRouter(router)
 
 	usersHandler := users.NewHandler(accountManager)

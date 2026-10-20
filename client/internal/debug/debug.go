@@ -179,7 +179,6 @@ The profiles.txt file lists every profile JSON on disk, including profiles the r
 Configuration
 The config.txt file contains anonymized configuration information of the NetBird client. Sensitive information such as private keys and SSH keys are excluded. The following fields are anonymized:
 - ManagementURL
-- AdminURL
 - NATExternalIPs
 - CustomDNSAddress
 
@@ -611,9 +610,6 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String())))
 		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String())))
-		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", anonymizeNATExternalIPs(g.internalConfig.NATExternalIPs, g.anonymizer)))
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress)))
@@ -621,9 +617,6 @@ func (g *BundleGenerator) addConfig() error {
 	} else {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.internalConfig.ManagementURL.String()))
-		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.internalConfig.AdminURL.String()))
 		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", g.internalConfig.NATExternalIPs))
 		if g.internalConfig.CustomDNSAddress != "" {

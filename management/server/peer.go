@@ -73,7 +73,9 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	peers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
+	return peers, err
 }
 
 // MarkPeerConnected marks a peer as connected with optimistic-locked

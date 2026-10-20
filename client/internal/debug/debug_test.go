@@ -858,14 +858,12 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")
-	aURL, _ := url.Parse("https://admin.example.com:443")
 	bTrue := true
 	iVal := 42
 	cfg := &profilemanager.Config{
 		PrivateKey:                    "priv",
 		PreSharedKey:                  "psk",
 		ManagementURL:                 mURL,
-		AdminURL:                      aURL,
 		WgIface:                       "wt0",
 		WgPort:                        51820,
 		NetworkMonitor:                &bTrue,
@@ -949,7 +947,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 }
 
 // renderAddConfigSpecific renders the fields handled by the anonymize/non-anonymize
-// branches in addConfig (ManagementURL, AdminURL, NATExternalIPs, CustomDNSAddress).
+// branches in addConfig (ManagementURL, NATExternalIPs, CustomDNSAddress).
 // addCommonConfigFields covers the rest. Keeping this in the test mirrors the
 // production shape without needing to write an actual zip.
 func renderAddConfigSpecific(g *BundleGenerator) string {
@@ -958,9 +956,6 @@ func renderAddConfigSpecific(g *BundleGenerator) string {
 		if g.internalConfig.ManagementURL != nil {
 			sb.WriteString("ManagementURL: " + g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String()) + "\n")
 		}
-		if g.internalConfig.AdminURL != nil {
-			sb.WriteString("AdminURL: " + g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String()) + "\n")
-		}
 		sb.WriteString("NATExternalIPs: x\n")
 		if g.internalConfig.CustomDNSAddress != "" {
 			sb.WriteString("CustomDNSAddress: " + g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress) + "\n")
@@ -968,9 +963,6 @@ func renderAddConfigSpecific(g *BundleGenerator) string {
 	} else {
 		if g.internalConfig.ManagementURL != nil {
 			sb.WriteString("ManagementURL: " + g.internalConfig.ManagementURL.String() + "\n")
-		}
-		if g.internalConfig.AdminURL != nil {
-			sb.WriteString("AdminURL: " + g.internalConfig.AdminURL.String() + "\n")
 		}
 		sb.WriteString("NATExternalIPs: x\n")
 		if g.internalConfig.CustomDNSAddress != "" {

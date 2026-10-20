@@ -105,7 +105,7 @@ require (
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	github.com/quic-go/quic-go v0.62.0
+	github.com/quic-go/quic-go v0.64.0
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.3.0
 	github.com/shirou/gopsutil/v4 v4.25.8
@@ -113,7 +113,6 @@ require (
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.37.0
-	github.com/testcontainers/testcontainers-go/modules/mysql v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.37.0
 	github.com/things-go/go-socks5 v0.0.4
@@ -142,7 +141,6 @@ require (
 	google.golang.org/api v0.276.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9
 	gopkg.in/yaml.v3 v3.0.1
-	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
@@ -369,7 +367,7 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2024
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
 
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261008122457-d2b1ce9bfee9
+replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261016113635-bd0cb75a3df0
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 

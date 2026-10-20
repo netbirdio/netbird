@@ -472,12 +472,6 @@ detect_store_config() {
     if [[ -n "$pg_dsn" ]]; then
       STORE_DSN="$pg_dsn"
     fi
-
-    local mysql_dsn
-    mysql_dsn=$(grep '^NETBIRD_STORE_ENGINE_MYSQL_DSN=' "$INSTALL_DIR/setup.env" 2>/dev/null | sed 's/^NETBIRD_STORE_ENGINE_MYSQL_DSN=//' | tr -d '"' || echo "")
-    if [[ -n "$mysql_dsn" ]]; then
-      STORE_DSN="$mysql_dsn"
-    fi
   fi
 
   # Also check base.setup.env
@@ -486,12 +480,6 @@ detect_store_config() {
     pg_dsn=$(grep '^NETBIRD_STORE_ENGINE_POSTGRES_DSN=' "$INSTALL_DIR/base.setup.env" 2>/dev/null | sed 's/^NETBIRD_STORE_ENGINE_POSTGRES_DSN=//' | tr -d '"' || echo "")
     if [[ -n "$pg_dsn" ]]; then
       STORE_DSN="$pg_dsn"
-    fi
-
-    local mysql_dsn
-    mysql_dsn=$(grep '^NETBIRD_STORE_ENGINE_MYSQL_DSN=' "$INSTALL_DIR/base.setup.env" 2>/dev/null | sed 's/^NETBIRD_STORE_ENGINE_MYSQL_DSN=//' | tr -d '"' || echo "")
-    if [[ -n "$mysql_dsn" ]]; then
-      STORE_DSN="$mysql_dsn"
     fi
   fi
 
