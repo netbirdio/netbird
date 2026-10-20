@@ -746,6 +746,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
+			settings_peer_hostname_collision_rejected,
 			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
 			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
@@ -771,6 +772,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
 		sMetricsPushEnabled              sql.NullBool
+		sPeerHostnameCollisionRejected   sql.NullBool
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
 		autoUpdateVersion                sql.NullString
@@ -800,6 +802,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
+		&sPeerHostnameCollisionRejected,
 		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
 		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
@@ -869,6 +872,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sMetricsPushEnabled.Valid {
 		account.Settings.MetricsPushEnabled = sMetricsPushEnabled.Bool
+	}
+	if sPeerHostnameCollisionRejected.Valid {
+		account.Settings.PeerHostnameCollisionRejected = sPeerHostnameCollisionRejected.Bool
 	}
 	if sAgentNetworkOnly.Valid {
 		account.Settings.AgentNetworkOnly = sAgentNetworkOnly.Bool

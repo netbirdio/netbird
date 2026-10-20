@@ -127,7 +127,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.PreconditionFailed, "setup key not found")
+			return nil, status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")

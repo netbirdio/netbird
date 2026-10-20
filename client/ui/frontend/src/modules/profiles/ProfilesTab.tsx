@@ -440,7 +440,7 @@ const ProfileRow = ({
                     {showEmail && <TruncatedEmail email={profile.email} />}
                 </div>
             </td>
-            <td className={"shrink-0 text-right"}>
+            <td className={"shrink-0 text-end"}>
                 <RowActions
                     canSwitch={!isActive}
                     canDeregister={!!profile.email}

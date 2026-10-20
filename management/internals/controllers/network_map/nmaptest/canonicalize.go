@@ -123,7 +123,6 @@ func canonicalize(nm *proto.NetworkMap) {
 	slices.SortFunc(nm.Routes, cmpRoute)
 	slices.SortFunc(nm.FirewallRules, cmpFirewallRule)
 	slices.SortFunc(nm.RoutesFirewallRules, cmpRouteFirewallRule)
-	slices.SortFunc(nm.ForwardingRules, cmpForwardingRule)
 
 	for _, r := range nm.FirewallRules {
 		slices.SortFunc(r.SourcePrefixes, bytes.Compare)
@@ -351,16 +350,6 @@ func cmpRouteFirewallRule(a, b *proto.RouteFirewallRule) int {
 		return c
 	}
 	return boolCmp(a.IsDynamic, b.IsDynamic)
-}
-
-func cmpForwardingRule(a, b *proto.ForwardingRule) int {
-	if a == nil || b == nil {
-		return boolCmp(a == nil, b == nil)
-	}
-	if c := cmp.Compare(int32(a.Protocol), int32(b.Protocol)); c != 0 {
-		return c
-	}
-	return bytes.Compare(a.TranslatedAddress, b.TranslatedAddress)
 }
 
 func portInfoKey(pi *proto.PortInfo) string {

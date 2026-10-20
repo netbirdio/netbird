@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
+import { useDirection } from "@/hooks/useDirection";
 
 type TabEntry = {
     value: NavSection;
@@ -48,6 +49,10 @@ export const Navigation = () => {
         requestAnimationFrame(() => tabRefs.current[value]?.focus());
     };
 
+    const dir = useDirection();
+    const forwardKey = dir === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const backwardKey = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
+
     const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
         const enabled = tabs.filter((t) => isConnected || t.value === section);
         if (enabled.length < 2) return;
@@ -55,10 +60,10 @@ export const Navigation = () => {
         if (currentIndex === -1) return;
         let nextIndex: number;
         switch (e.key) {
-            case "ArrowRight":
+            case forwardKey:
                 nextIndex = (currentIndex + 1) % enabled.length;
                 break;
-            case "ArrowLeft":
+            case backwardKey:
                 nextIndex = (currentIndex - 1 + enabled.length) % enabled.length;
                 break;
             case "Home":
@@ -106,8 +111,8 @@ export const Navigation = () => {
                             "group relative flex flex-1 items-center justify-center",
                             "gap-2.5 px-5 py-3.5",
                             "outline-none transition-all",
-                            isFirst && "rounded-tl-xl",
-                            isLast && "rounded-tr-xl",
+                            isFirst && "rounded-ss-xl",
+                            isLast && "rounded-se-xl",
                             "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",

@@ -105,6 +105,9 @@ func (m *mockStore) GetClusterSupportsCrowdSec(_ context.Context, _ string) *boo
 func (m *mockStore) GetClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
+func (m *mockStore) GetClusterAllProxiesPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
 func (m *mockStore) GetActiveProxyVersions(ctx context.Context, clusterAddress string) ([]string, error) {
 	if m.getActiveProxyVersionsFunc != nil {
 		return m.getActiveProxyVersionsFunc(ctx, clusterAddress)

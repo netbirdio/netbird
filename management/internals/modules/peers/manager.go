@@ -28,8 +28,8 @@ import (
 type Manager interface {
 	GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error)
 	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
-	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
+	GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*peer.Peer, int, error)
 	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error
 	SetNetworkMapController(networkMapController network_map.Controller)
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
@@ -51,8 +51,7 @@ type managerImpl struct {
 	permissionsManager      permissions.Manager
 	integratedPeerValidator integrated_validator.IntegratedValidator
 	accountManager          account.Manager
-
-	networkMapController network_map.Controller
+	networkMapController    network_map.Controller
 }
 
 func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
@@ -87,25 +86,41 @@ func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID str
 	return m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
-func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-	}
-
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
-}
-
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
 	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 }
 
 func (m *managerImpl) GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error) {
 	return m.store.GetPeersByGroupIDs(ctx, accountID, groupsIDs)
+}
+
+func (m *managerImpl) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*peer.Peer, int, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		return nil, 0, status.NewPermissionValidationError(err)
+	}
+
+	if allowed {
+		return m.store.GetAccountPeersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
+	}
+
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	if user.IsRestrictable() && settings.RegularUsersViewBlocked {
+		return []*peer.Peer{}, 0, nil
+	}
+
+	peers, err := m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
+	return peers, len(peers), err
 }
 
 // GetPeerByTunnelIP delegates to the store's indexed lookup.

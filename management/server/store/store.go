@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
@@ -158,7 +159,8 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
@@ -334,6 +336,7 @@ type Store interface {
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
 	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
@@ -735,7 +738,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
-		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind, dataDir)
 		if err == nil {
 			return sqlStore, cleanup, nil
 		}
@@ -745,6 +748,48 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 	store.Close(ctx)
 	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+}
+
+// NewTestStore creates a test store and optionally loads SQL after migrating its schema.
+func NewTestStore(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
+	kind := getStoreEngineFromEnv()
+	if kind == "" {
+		kind = types.SqliteStoreEngine
+	}
+
+	var sqlStore *SqlStore
+	var cleanup func()
+	var err error
+
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, nil, kind, dataDir)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+	}
+
+	if filename != "" {
+		err = LoadSQL(sqlStore.db, filename)
+		if err != nil {
+			_ = sqlStore.Close(ctx)
+			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
+		}
+	}
+
+	err = addAllGroupToAccount(ctx, sqlStore)
+	if err != nil {
+		_ = sqlStore.Close(ctx)
+		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
+	}
+
+	return sqlStore, cleanup, nil
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {
@@ -770,8 +815,8 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 	return nil
 }
 
-func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine) (Store, func(), error) {
-	store := sqliteStore
+func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine, dataDir string) (*SqlStore, func(), error) {
+	var store *SqlStore
 	var cleanup func()
 	var err error
 	switch kind {
@@ -781,6 +826,15 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 		cleanup = func() {
 			// sqlite doesn't need to be cleaned up
 		}
+		store = sqliteStore
+		var conn *db.Conn
+		if store == nil {
+			conn, err = db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
+			}
+			store, err = NewSqlStore(ctx, conn, nil, false)
+		}
 	}
 	if err != nil {
 		return nil, cleanup, fmt.Errorf("failed to create test store: %v", err)
@@ -789,7 +843,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
-		if store != sqliteStore {
+		if sqliteStore != nil && store != sqliteStore {
 			// The sqlite store only seeded the engine under test; without this
 			// every test leaks its connection and the opener goroutines.
 			sqliteStore.Close(ctx)
@@ -799,7 +853,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore) (*SqlStore, func(), error) {
+func newReusedPostgresStore(ctx context.Context, sqliteStore *SqlStore) (*SqlStore, func(), error) {
 	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
@@ -832,10 +886,19 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore) (*SqlStore, fu
 		return nil, nil, err
 	}
 
-	store, err = newPostgresqlStoreFromSqlStore(ctx, store, dsn, nil, true)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
+	var store *SqlStore
+	if sqliteStore != nil {
+		store, err = newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, true)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+	} else {
+		store, err = NewPostgresqlStoreForTests(ctx, dsn, nil, false)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
 	}
 
 	return store, cleanup, nil
@@ -945,6 +1008,7 @@ func createRandomDB(dsn string, admin *gorm.DB, template string) (string, func()
 		dropDB, err := gorm.Open(postgres.Open(originalDSN), &gorm.Config{
 			SkipDefaultTransaction: true,
 			PrepareStmt:            false,
+			Logger:                 logger.Default.LogMode(logger.Info),
 		})
 		if err != nil {
 			log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
@@ -989,6 +1053,7 @@ func replaceDBName(dsn, newDBName string) string {
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
+// LoadSQL executes the SQL statements from the given file.
 func LoadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {

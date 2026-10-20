@@ -786,8 +786,14 @@ func TestWasCredentialSubmitted(t *testing.T) {
 		{
 			name:     "OIDC code in query",
 			method:   auth.MethodOIDC,
-			query:    url.Values{"session_code": {"abc123"}},
+			query:    url.Values{"nb_session_code": {"abc123"}},
 			expected: true,
+		},
+		{
+			name:     "OIDC backend session_code in query",
+			method:   auth.MethodOIDC,
+			query:    url.Values{"session_code": {"abc123"}},
+			expected: false,
 		},
 		{
 			name:     "OIDC token not in query",
@@ -1585,8 +1591,9 @@ func TestStripSessionTokenParam(t *testing.T) {
 		want string
 	}{
 		{"strips session_token", "https://ex.com/p?a=1&session_token=tok", "/p?a=1"},
-		{"strips session_code", "https://ex.com/p?a=1&session_code=code", "/p?a=1"},
-		{"strips both", "https://ex.com/p?session_token=tok&session_code=code&a=1", "/p?a=1"},
+		{"strips nb_session_code", "https://ex.com/p?a=1&nb_session_code=code", "/p?a=1"},
+		{"strips both", "https://ex.com/p?session_token=tok&nb_session_code=code&a=1", "/p?a=1"},
+		{"keeps backend session_code", "https://ex.com/p?a=1&session_code=backend", "/p?a=1&session_code=backend"},
 		{"no-op when absent", "https://ex.com/p?a=1", "/p?a=1"},
 	}
 	for _, tc := range cases {
