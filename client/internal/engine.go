@@ -1075,6 +1075,7 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 // when the update carries one. A config-only update leaves syncTargetMap nil. The
 // caller holds syncMsgMux.
 func (e *Engine) loadSyncTarget(update *mgmProto.SyncResponse) error {
+	pending := e.syncTargetMap
 	e.syncTargetMap = nil
 
 	e.ApplySessionDeadline(update.GetSessionExpiresAt())
@@ -1156,6 +1157,14 @@ func (e *Engine) loadSyncTarget(update *mgmProto.SyncResponse) error {
 	// incremental-delta base on a future envelope sync.
 	if components != nil {
 		e.latestComponents = components
+	}
+
+	// updateNetworkMap ignores a stale map and reports convergence, which would
+	// strand the remaining peer batches of a newer map still being applied.
+	if pending != nil && nm.GetSerial() < e.networkSerial {
+		log.Debugf("ignoring network map with serial %d while serial %d is converging", nm.GetSerial(), e.networkSerial)
+		e.syncTargetMap = pending
+		return nil
 	}
 
 	e.syncTargetMap = nm

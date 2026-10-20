@@ -1798,3 +1798,23 @@ func TestEngine_ApplySyncPassDecodesOncePerTarget(t *testing.T) {
 	_, err = e.applySyncPass(undecodable, true)
 	assert.Error(t, err, "the first pass of a target decodes it")
 }
+
+// A map older than the one still converging must not take its place: the
+// stale guard in updateNetworkMap would ignore it and report convergence,
+// leaving the newer map's remaining peer batches unapplied.
+func TestEngine_LoadSyncTargetKeepsNewerPendingMap(t *testing.T) {
+	pending := &mgmtProto.NetworkMap{Serial: 10}
+	e := &Engine{
+		ctx:           context.Background(),
+		syncMsgMux:    &sync.Mutex{},
+		networkSerial: 10,
+		syncTargetMap: pending,
+	}
+
+	require.NoError(t, e.loadSyncTarget(&mgmtProto.SyncResponse{NetworkMap: &mgmtProto.NetworkMap{Serial: 9}}))
+	assert.Same(t, pending, e.syncTargetMap, "a stale map should leave the pending newer map in place")
+
+	newer := &mgmtProto.NetworkMap{Serial: 11}
+	require.NoError(t, e.loadSyncTarget(&mgmtProto.SyncResponse{NetworkMap: newer}))
+	assert.Same(t, newer, e.syncTargetMap, "a newer map should replace the pending one")
+}
