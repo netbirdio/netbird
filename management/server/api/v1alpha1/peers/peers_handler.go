@@ -6,17 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1/groups"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -26,12 +31,14 @@ type Handler struct {
 	accountManager       account.Manager
 	permissionsManager   permissions.Manager
 	networkMapController network_map.Controller
+	peersManager         peers.Manager
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
+func NewHandler(accountManager account.Manager, peerManager peers.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
 	return &Handler{
 		accountManager:       accountManager,
+		peersManager:         peerManager,
 		networkMapController: networkMapController,
 		permissionsManager:   permissionsManager,
 	}
@@ -210,14 +217,32 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nameFilter := r.URL.Query().Get("name")
-	ipFilter := r.URL.Query().Get("ip")
-	macFilter := r.URL.Query().Get("mac")
+	pagination, err := paginationFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	filters, err := filtersFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	sorting, err := sortingOrderFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter, macFilter)
+	peers, peerCount, err := h.peersManager.GetPeersPaginated(r.Context(), accountID, userID, pagination, filters, sorting)
 	if err != nil {
+		log.WithContext(r.Context()).Errorf("error getting peers: %v", err)
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -232,35 +257,135 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
-	respBody := make([]*apiv1alpha1.PeerBatch, 0, len(peers))
-	for _, peer := range peers {
-		if peer.ProxyMeta.Embedded {
-			continue
-		}
-		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
-	}
-
-	validPeersMap, invalidPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to get validated peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
-	h.setApprovalRequiredFlag(respBody, validPeersMap, invalidPeersMap)
+
+	respBody := apiv1alpha1.PeerBatch{Peers: make([]apiv1alpha1.Peer, 0, len(peers))}
+	for _, peer := range peers {
+		_, valid := validPeers[peer.ID]
+		reason := invalidPeers[peer.ID]
+
+		respBody.Peers = append(respBody.Peers, *toSinglePeerResponse(peer, grpsInfoMap[peer.ID], dnsDomain, valid, reason))
+	}
+	respBody.Page = pagination.Page
+	respBody.PageSize = pagination.PageSize
+	respBody.PeerCount = peerCount
 
 	util.WriteJSONObject(r.Context(), w, respBody)
 }
 
-func (h *Handler) setApprovalRequiredFlag(respBody []*apiv1alpha1.PeerBatch, validPeersMap map[string]struct{}, invalidPeersMap map[string]string) {
-	for _, peer := range respBody {
-		_, ok := validPeersMap[peer.Id]
-		if !ok {
-			peer.ApprovalRequired = true
+func filtersFromQuery(v url.Values) (store.PeerFilters, error) {
+	connected, err := parseBool(v.Get("connected"))
+	if err != nil {
+		return store.PeerFilters{}, err
+	}
 
-			reason := invalidPeersMap[peer.Id]
-			peer.DisapprovalReason = &reason
+	approvalRequired, err := parseBool(v.Get("approval_required"))
+	if err != nil {
+		return store.PeerFilters{}, err
+	}
+
+	var isServer *bool
+	if v.Get("kind") != "" {
+		isServer = new(v.Get("kind") == "server")
+		if *isServer && v.Get("user_id") != "" {
+			return store.PeerFilters{}, fmt.Errorf("incompatible filters: kind == server and a non-empty user_id")
 		}
 	}
+	return store.PeerFilters{
+		UserId:           v.Get("user_id"),
+		GroupIds:         v["group_ids"],
+		Connected:        connected,
+		ApprovalRequired: approvalRequired,
+		Os:               v["os"],
+		IP:               v.Get("ip"),
+		MAC:              v.Get("mac"),
+		Name:             v.Get("name"),
+		Hostname:         v.Get("hostname"),
+		IsServer:         isServer,
+		PeersIds:         v["peer_ids"],
+	}, nil
+}
+
+func parseBool(maybeBool string) (*bool, error) {
+	if maybeBool == "" {
+		return nil, nil //nolint:nilnil
+	}
+
+	parsed, err := strconv.ParseBool(maybeBool)
+	if err != nil {
+		return nil, err
+	}
+
+	return new(parsed), nil
+}
+
+func paginationFromQuery(v url.Values) (store.PaginationState, error) {
+	page, err := strconv.Atoi(v.Get("page"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	pageSize, err := strconv.Atoi(v.Get("page_size"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	return store.PaginationState{
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+func sortingOrderFromQuery(v url.Values) (store.PeerSorting, error) {
+	toret := store.PeerSorting{}
+	sortby, ok := v["sort_by"]
+	if !ok {
+		return toret, nil
+	}
+
+	for i := 0; i < len(sortby); {
+		// ascending sorting order by default
+		sortkey := store.PeerSortingKey{Order: store.AscOrderBy}
+		field, order := parseFieldAndOrder(sortby[i])
+
+		switch field {
+		case "name":
+			sortkey.Field = store.PeerSortByName
+		case "last_seen":
+			sortkey.Field = store.PeerSortByLastSeen
+		case "version":
+			sortkey.Field = store.PeerSortByVersion
+		default:
+			return toret, fmt.Errorf("unable to parse sorting order '%s'", sortby)
+		}
+
+		switch order {
+		case "asc", "":
+			// nop, already set
+		case "desc":
+			sortkey.Order = store.DescOrderBy
+		default:
+			return store.PeerSorting{}, fmt.Errorf("unable to parse sorting order '%s'", sortby)
+		}
+
+		toret.Fields = append(toret.Fields, sortkey)
+		i++
+	}
+
+	return toret, nil
+}
+
+func parseFieldAndOrder(fieldOrder string) (string, string) {
+	maybeFieldAndOrder := strings.SplitN(fieldOrder, ",", 2)
+	if len(maybeFieldAndOrder) == 2 {
+		return strings.TrimSpace(maybeFieldAndOrder[0]), strings.TrimSpace(maybeFieldAndOrder[1])
+	}
+	return strings.TrimSpace(maybeFieldAndOrder[0]), ""
 }
 
 func parseIPv6(s *string) (netip.Addr, error) {
@@ -335,61 +460,6 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMinim
 	}
 
 	return apiPeer
-}
-
-func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []apiv1alpha1.GroupMinimum, dnsDomain string, accessiblePeersCount int) *apiv1alpha1.PeerBatch {
-	osVersion := peer.Meta.OSVersion
-	if osVersion == "" {
-		osVersion = peer.Meta.Core
-	}
-
-	return &apiv1alpha1.PeerBatch{
-		CreatedAt:            peer.CreatedAt,
-		AccessiblePeersCount: accessiblePeersCount,
-		Peer: apiv1alpha1.Peer{
-			PeerMinimum: apiv1alpha1.PeerMinimum{
-				Id:   peer.ID,
-				Name: peer.Name,
-			},
-			Ip:                          peer.IP.String(),
-			Ipv6:                        peerIPv6String(peer),
-			ConnectionIp:                peer.Location.ConnectionIP.String(),
-			Connected:                   peer.Status.Connected,
-			LastSeen:                    peer.Status.LastSeen,
-			Os:                          fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
-			KernelVersion:               peer.Meta.KernelVersion,
-			GeonameId:                   int(peer.Location.GeoNameID),
-			Version:                     peer.Meta.WtVersion,
-			Groups:                      groupsInfo,
-			SshEnabled:                  peer.SSHEnabled,
-			Hostname:                    peer.Meta.Hostname,
-			UserId:                      peer.UserID,
-			UiVersion:                   peer.Meta.UIVersion,
-			DnsLabel:                    fqdn(peer, dnsDomain),
-			ExtraDnsLabels:              fqdnList(peer.ExtraDNSLabels, dnsDomain),
-			LoginExpirationEnabled:      peer.LoginExpirationEnabled,
-			LastLogin:                   peer.GetLastLogin(),
-			LoginExpired:                peer.Status.LoginExpired,
-			CountryCode:                 apiv1alpha1.CountryCode(peer.Location.CountryCode),
-			CityName:                    apiv1alpha1.CityName(peer.Location.CityName),
-			SerialNumber:                peer.Meta.SystemSerialNumber,
-			InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
-			Ephemeral:                   peer.Ephemeral,
-			LocalFlags: &apiv1alpha1.PeerLocalFlags{
-				BlockInbound:          &peer.Meta.Flags.BlockInbound,
-				BlockLanAccess:        &peer.Meta.Flags.BlockLANAccess,
-				DisableClientRoutes:   &peer.Meta.Flags.DisableClientRoutes,
-				DisableDns:            &peer.Meta.Flags.DisableDNS,
-				DisableFirewall:       &peer.Meta.Flags.DisableFirewall,
-				DisableServerRoutes:   &peer.Meta.Flags.DisableServerRoutes,
-				LazyConnectionEnabled: &peer.Meta.Flags.LazyConnectionEnabled,
-				RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
-				RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
-				ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
-				RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
-			},
-		},
-	}
 }
 
 func fqdn(peer *nbpeer.Peer, dnsDomain string) string {
