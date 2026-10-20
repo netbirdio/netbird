@@ -67,9 +67,16 @@ jobs:
             exit 0
           fi
 
+          # goreleaser leaves the body empty; the notes are written on the release page afterwards.
+          url=$(jq -r '.html_url' <<<"$release")
+          body=$(jq -r '.body // ""' <<<"$release")
+          if [ -z "${body//[[:space:]]/}" ]; then
+            body="Release notes and downloads: ${url}"
+          fi
+
           jq -n \
             --arg title "$title" \
-            --arg raw "$(printf '[%s](%s)\n\n%s' "$title" "$(jq -r '.html_url' <<<"$release")" "$(jq -r '.body // ""' <<<"$release")")" \
+            --arg raw "$(printf '[%s](%s)\n\n%s' "$title" "$url" "$body")" \
             --argjson category "$DISCOURSE_CATEGORY" \
             '{title: $title, raw: $raw, category: $category, tags: ["releases"]}' \
             | curl -fsS -X POST "${DISCOURSE_URL}/posts.json" \
