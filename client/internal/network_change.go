@@ -32,12 +32,6 @@ const (
 	controlPlaneRecoveryPoll    = 500 * time.Millisecond
 )
 
-// underlayPinnedAtStart reports the platforms whose binding of NetBird's own
-// sockets to the underlay cannot be refreshed in place yet: macOS caches the
-// interface for its scoped default and IP_BOUND_IF at engine start. A change
-// there still needs a restart.
-const underlayPinnedAtStart = runtime.GOOS == "darwin"
-
 // wgSocketPinned reports the platforms that bind the WireGuard UDP socket to
 // the underlay interface when it opens (IP_UNICAST_IF on Windows, IP_BOUND_IF
 // on macOS), so the socket must be reopened when the interface changes.
@@ -75,6 +69,15 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
 	log.Infof("Network monitor: underlay %s change, redialing control connections without restart", change.Kind)
 	log.Debugf("Network monitor: underlay next hops v4 %s -> %s, v6 %s -> %s",
 		change.Before.V4, change.After.V4, change.Before.V6, change.After.V6)
+
+	// Point NetBird's own traffic at the new physical default first, so the
+	// reopened WireGuard socket and the redialed connections bind to it.
+	if change.Kind == networkmonitor.ChangeInterface || change.Kind == networkmonitor.ChangeGateway {
+		if err := e.routeManager.RefreshUnderlay(); err != nil {
+			log.Warnf("Network monitor: failed to refresh the underlay binding: %v", err)
+			return false
+		}
+	}
 
 	rebound := false
 	if wgSocketPinned && change.Kind == networkmonitor.ChangeInterface {
@@ -154,16 +157,13 @@ func decideUnderlayAction(change networkmonitor.Change, hasNetEvents bool) under
 }
 
 // canHandleWithoutRestart keeps the restart for a wake-up, out of scope and
-// still covered by the restart, for legacy routing, whose /32 infra routes
-// point at the old gateway, and for platforms that pin the underlay at start.
+// still covered by the restart, and for legacy routing, whose /32 infra routes
+// point at the old gateway.
 func canHandleWithoutRestart(change networkmonitor.Change, hasNetEvents bool) bool {
 	if !hasNetEvents || change.Kind == networkmonitor.ChangeWake || redialDisabledByEnv() {
 		return false
 	}
-	if !nbnet.AdvancedRouting() {
-		return false
-	}
-	return !underlayPinnedAtStart
+	return nbnet.AdvancedRouting()
 }
 
 func (w *recoveryWatch) replace(parent context.Context) context.Context {

@@ -13,9 +13,9 @@ import (
 )
 
 func TestCanHandleWithoutRestart(t *testing.T) {
-	// The light path is available only with advanced routing and on a platform
-	// that does not pin the underlay at start; everything else restarts.
-	lightPath := nbnet.AdvancedRouting() && !underlayPinnedAtStart
+	// The light path is available only with advanced routing; legacy routing
+	// restarts.
+	lightPath := nbnet.AdvancedRouting()
 
 	tests := []struct {
 		name         string
@@ -40,8 +40,8 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 }
 
 func TestDecideUnderlayAction(t *testing.T) {
-	if !nbnet.AdvancedRouting() || underlayPinnedAtStart {
-		t.Skip("the redial path is not available on this platform or routing mode")
+	if !nbnet.AdvancedRouting() {
+		t.Skip("the redial path is not available with legacy routing")
 	}
 	assert.Equal(t, actionWait, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, true), "losing the network waits for it to come back")
 	assert.Equal(t, actionRedial, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeInterface}, true), "a moved default redials")
@@ -58,7 +58,7 @@ func TestCanHandleWithoutRestart_DisabledByEnv(t *testing.T) {
 
 	// An unparsable value keeps the default behavior instead of silently disabling it.
 	t.Setenv(EnvDisableNetworkChangeRedial, "maybe")
-	lightPath := nbnet.AdvancedRouting() && !underlayPinnedAtStart
+	lightPath := nbnet.AdvancedRouting()
 	assert.Equal(t, lightPath, canHandleWithoutRestart(change, true), "an invalid value falls back to the default")
 }
 
