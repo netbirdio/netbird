@@ -84,6 +84,7 @@ func (s *SqlStore) pgxPool() *pgxpool.Pool {
 	return s.conn.Pool(s.tx)
 }
 
+// AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	log.WithContext(ctx).Tracef("acquiring global lock")
 	start := time.Now()
@@ -131,6 +132,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 	return newStore(ctx, conn, metrics, mode)
 }
 
+// NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
 func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics, mode migrate.Mode) (*SqlStore, error) {
 	store, err := NewSqliteStore(ctx, dataDir, metrics, mode)
 	if err != nil {
@@ -187,6 +189,8 @@ func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemet
 	return newStore(ctx, conn, metrics, mode)
 }
 
+// seedFromSqliteStore copies the installation ID and the accounts of the
+// sqlite seed store into a freshly created engine store.
 func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) error {
 	if err := store.SaveInstallationID(ctx, sqliteStore.GetInstallationID()); err != nil {
 		return err
@@ -199,6 +203,8 @@ func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) erro
 	return nil
 }
 
+// ExecuteInTransaction runs operation in a transaction. A store that is already
+// bound to one joins it instead of opening a second, independent transaction.
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
 	if s.tx != nil {
 		return operation(s)

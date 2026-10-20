@@ -150,22 +150,30 @@ components:
           description: A human-readable error message.
           example: "couldn't parse JSON request"
     PeerBatch:
-      allOf:
-        - $ref: '#/components/schemas/Peer'
-        - type: object
-          properties:
-            created_at:
-              description: Peer creation date (UTC)
-              type: string
-              format: date-time
-              example: "2023-05-05T09:00:35.477782Z"
-            accessible_peers_count:
-              description: Number of accessible peers
-              type: integer
-              example: 5
-          required:
-            - created_at
-            - accessible_peers_count
+      type: object
+      properties:
+        peer_count:
+          description: Total number of peers
+          type: integer
+          example: 5
+        page:
+          description: Current page number
+          type: integer
+          example: 5
+        page_size:
+          description: Page size
+          type: integer
+          example: 5
+        peers:
+          description: List of peers
+          type: array
+          items:
+            $ref: '#/components/schemas/Peer'
+      required:
+        - peer_count
+        - page
+        - page_size
+        - peers
     PeerMinimum:
       type: object
       properties:
@@ -701,6 +709,30 @@ components:
               minimum: 1
               maximum: 250
               default: 100
+          - name: user_id
+            in: query
+            description: filter peers by their user_id
+            required: false
+            schema:
+              type: string
+          - name: group_ids
+            in: query
+            description: filter peers by group_ids
+            required: false
+            schema:
+              type: array
+              items:
+                type: string
+          - name: peer_ids
+            in: query
+            description: filter peers by their ids
+            required: false
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 50
+              items:
+                type: string
           - name: connected
             in: query
             description: Filter by peer connected status
@@ -724,16 +756,58 @@ components:
                 enum:
                   - linux
                   - windows
-                  - mac
+                  - darwin
                   - android
                   - ios
                   - js
-          - name: search
+          - name: ip
             in: query
-            description: filter peers by name, dns_label, ip, os, version, serial_number, owner name, owner email, group names, mac
+            description: filter peers by ip
             required: false
             schema:
               type: string
+          - name: mac
+            in: query
+            description: filter peers by mac address
+            required: false
+            schema:
+              type: string
+          - name: name
+            in: query
+            description: filter peers by hostname
+            required: false
+            schema:
+              type: string
+          - name: hostname
+            in: query
+            description: filter peers by hostname
+            required: false
+            schema:
+              type: string
+          - name: kind
+            in: query
+            description: filter peers by host kind
+            required: false
+            schema:
+              type: string
+              enum:
+                - server
+                - user_device
+          - name: sort_by
+            in: query
+            description: sorting of peers
+            required: false
+            example: sort_by=name,asc&sort_by=last_seen,desc&sort_by=version
+            schema:
+              type: array
+              items:
+                type: string
+                enum:
+                  - name
+                  - last_seen
+                  - version
+                  - asc
+                  - desc
         security:
           - BearerAuth: []
           - TokenAuth: []
@@ -743,9 +817,7 @@ components:
             content:
               application/json:
                 schema:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/PeerBatch'
+                  $ref: '#/components/schemas/PeerBatch'
           '400':
             "$ref": "#/components/responses/bad_request"
           '401':

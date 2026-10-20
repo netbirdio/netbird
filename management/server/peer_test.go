@@ -730,7 +730,6 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 			assert.NotNil(t, peers)
-
 			assert.Len(t, peers, testCase.expectedPeerCount)
 
 		})

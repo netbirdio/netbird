@@ -40,12 +40,12 @@ func TestMigrationsMatchAutoMigrate(t *testing.T) {
 			t.Cleanup(cleanup)
 			dsn = containerDSN
 		}
-		admin, err := openDBWithRetry(dsn, types.PostgresStoreEngine, 5)
+		admin, err := openDBWithRetry(dsn, 5)
 		require.NoError(t, err)
 		t.Cleanup(func() { closeGormDB(admin) })
 
 		open := func() *db.Conn {
-			randomDSN, cleanup, err := createRandomDB(dsn, admin, types.PostgresStoreEngine, "")
+			randomDSN, cleanup, err := createRandomDB(dsn, admin, "")
 			require.NoError(t, err)
 			t.Cleanup(cleanup)
 			conn, err := db.OpenPostgres(ctx, randomDSN, testPoolConfig)

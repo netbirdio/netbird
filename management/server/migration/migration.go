@@ -19,9 +19,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// MigrateFieldFromGobToJSON migrates a column from Gob encoding to JSON encoding.
+// T is the type of the model that contains the field to be migrated.
+// S is the type of the field to be migrated.
 func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, fieldName string) error {
-	orgColumnName := fieldName
-	oldColumnName := orgColumnName
+	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
 
 	var model T
@@ -76,7 +78,7 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 		for _, row := range rows {
 			var field S
 
-			str, ok := row[orgColumnName].(string)
+			str, ok := row[oldColumnName].(string)
 			if !ok {
 				return fmt.Errorf("type assertion failed")
 			}
@@ -115,8 +117,7 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 // MigrateNetIPFieldFromBlobToJSON migrates a Net IP column from Blob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
 func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fieldName string, indexName string) error {
-	orgColumnName := fieldName
-	oldColumnName := orgColumnName
+	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
 
 	var model T
@@ -168,7 +169,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 
 		for _, row := range rows {
 			var blobValue string
-			if columnValue := row[orgColumnName]; columnValue != nil {
+			if columnValue := row[oldColumnName]; columnValue != nil {
 				value, ok := columnValue.(string)
 				if !ok {
 					return fmt.Errorf("type assertion failed")
@@ -215,8 +216,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 }
 
 func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) error {
-	orgColumnName := "key"
-	oldColumnName := orgColumnName
+	oldColumnName := "key"
 	newColumnName := "key_secret"
 
 	var model T
@@ -258,7 +258,7 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 		for _, row := range rows {
 
 			var plainKey string
-			if columnValue := row[orgColumnName]; columnValue != nil {
+			if columnValue := row[oldColumnName]; columnValue != nil {
 				value, ok := columnValue.(string)
 				if !ok {
 					return fmt.Errorf("type assertion failed")

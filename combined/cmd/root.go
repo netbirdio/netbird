@@ -128,7 +128,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 
 // initializeConfig loads and validates the configuration, then initializes logging.
 func applyServerStoreEnv(storeConfig StoreConfig) {
-	if dsn := storeConfig.DSN; dsn != "" && strings.ToLower(storeConfig.Engine) == "postgres" {
+	if dsn := storeConfig.DSN; dsn != "" && strings.EqualFold(storeConfig.Engine, "postgres") {
 		os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
 	}
 	if file := storeConfig.File; file != "" {
@@ -754,7 +754,7 @@ func logAgentNetworkConfig(cfg *CombinedConfig) {
 
 // logEnvVars logs all NB_ environment variables that are currently set
 func logEnvVars() {
-	log.Info("=== Environment Variables ===")
+	log.Debug("=== Environment Variables ===")
 	found := false
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, "NB_") {
@@ -766,14 +766,14 @@ func logEnvVars() {
 			} else if strings.Contains(keyLower, "dsn") {
 				value = maskDSNPassword(value)
 			}
-			log.Infof("  %s=%s", key, value)
+			log.Debugf("  %s=%s", key, value)
 			found = true
 		}
 	}
 	if !found {
-		log.Info("  (none set)")
+		log.Debug("  (none set)")
 	}
-	log.Info("=== End Environment Variables ===")
+	log.Debug("=== End Environment Variables ===")
 }
 
 // maskDSNPassword masks the password in a DSN string.

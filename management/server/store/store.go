@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
@@ -160,6 +161,7 @@ type Store interface {
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
 	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
@@ -469,7 +471,7 @@ func getStoreEngineFromEnv() types.Engine {
 	}
 
 	value := types.Engine(strings.ToLower(kind))
-	if slices.Contains(supportedEngines, value) {
+	if slices.Contains(supportedEngines, value) || value == types.MysqlStoreEngine {
 		return value
 	}
 
@@ -534,6 +536,9 @@ func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn,
 			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 		}
 		return db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
+	case types.MysqlStoreEngine:
+		return nil, fmt.Errorf("the MySQL store engine is no longer supported. Please refer to the documentation for " +
+			"migrating to PostgreSQL: https://docs.netbird.io/selfhosted/migration/mysql-to-postgresql")
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
@@ -737,7 +742,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
-		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind, dataDir)
 		if err == nil {
 			return sqlStore, cleanup, nil
 		}
@@ -747,6 +752,48 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 	store.Close(ctx)
 	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+}
+
+// NewTestStore creates a test store and optionally loads SQL after migrating its schema.
+func NewTestStore(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
+	kind := getStoreEngineFromEnv()
+	if kind == "" {
+		kind = types.SqliteStoreEngine
+	}
+
+	var sqlStore *SqlStore
+	var cleanup func()
+	var err error
+
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, nil, kind, dataDir)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+	}
+
+	if filename != "" {
+		err = LoadSQL(sqlStore.db, filename)
+		if err != nil {
+			_ = sqlStore.Close(ctx)
+			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
+		}
+	}
+
+	err = addAllGroupToAccount(ctx, sqlStore)
+	if err != nil {
+		_ = sqlStore.Close(ctx)
+		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
+	}
+
+	return sqlStore, cleanup, nil
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {
@@ -772,16 +819,25 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 	return nil
 }
 
-func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine) (Store, func(), error) {
-	store := sqliteStore
+func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine, dataDir string) (*SqlStore, func(), error) {
+	var store *SqlStore
 	var cleanup func()
 	var err error
 	switch kind {
 	case types.PostgresStoreEngine:
-		store, cleanup, err = newReusedPostgresStore(ctx, sqliteStore, kind)
+		store, cleanup, err = newReusedPostgresStore(ctx, sqliteStore)
 	default:
 		cleanup = func() {
 			// sqlite doesn't need to be cleaned up
+		}
+		store = sqliteStore
+		var conn *db.Conn
+		if store == nil {
+			conn, err = db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
+			}
+			store, err = NewSqlStore(ctx, conn, nil, migrate.ModeAuto)
 		}
 	}
 	if err != nil {
@@ -791,7 +847,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
-		if store != sqliteStore {
+		if sqliteStore != nil && store != sqliteStore {
 			// The sqlite store only seeded the engine under test; without this
 			// every test leaks its connection and the opener goroutines.
 			sqliteStore.Close(ctx)
@@ -801,7 +857,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
+func newReusedPostgresStore(ctx context.Context, sqliteStore *SqlStore) (*SqlStore, func(), error) {
 	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
@@ -815,7 +871,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 
-	db, err := openDBWithRetry(dsn, kind, 5)
+	db, err := openDBWithRetry(dsn, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
 	}
@@ -826,7 +882,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, err
 	}
 
-	dsn, cleanup, err := createRandomDB(dsn, db, kind, template)
+	dsn, cleanup, err := createRandomDB(dsn, db, template)
 
 	closeGormDB(db)
 
@@ -834,10 +890,19 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, err
 	}
 
-	store, err = newPostgresqlStoreFromSqlStore(ctx, store, dsn, nil, migrate.ModeSkip)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
+	var store *SqlStore
+	if sqliteStore != nil {
+		store, err = newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, migrate.ModeSkip)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+	} else {
+		store, err = NewPostgresqlStoreForTests(ctx, dsn, nil, migrate.ModeSkip)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
 	}
 
 	return store, cleanup, nil
@@ -893,6 +958,10 @@ func postgresSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB)
 	return name, nil
 }
 
+// dropDatabase removes a template that never became usable, so a failed setup
+// does not leave it behind on a shared server. The server may still be tearing
+// down the sessions the failed migration held, so the drop retries while
+// Postgres reports the database as in use.
 func dropDatabase(admin *gorm.DB, name string) {
 	if err := execWithTemplateRetry(admin, fmt.Sprintf("DROP DATABASE IF EXISTS %s", name)); err != nil {
 		log.Warnf("failed to drop template database %s: %v", name, err)
@@ -905,15 +974,12 @@ func closeGormDB(db *gorm.DB) {
 	}
 }
 
-func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
+func openDBWithRetry(dsn string, maxRetries int) (*gorm.DB, error) {
 	var gormDB *gorm.DB
 	var err error
 
 	for i := range maxRetries {
-		if engine == types.PostgresStoreEngine {
-			gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		}
-
+		gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err == nil {
 			return gormDB, nil
 		}
@@ -927,13 +993,13 @@ func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB,
 	return nil, err
 }
 
-// createRandomDB creates a uniquely named database for one test. On postgres a
-// non-empty template is copied server-side with CREATE DATABASE ... TEMPLATE.
-func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template string) (string, func(), error) {
+// createRandomDB creates a uniquely named database for one test. A non-empty
+// template is copied server-side with CREATE DATABASE ... TEMPLATE.
+func createRandomDB(dsn string, admin *gorm.DB, template string) (string, func(), error) {
 	dbName := newTestDBName("test_db")
 
 	createStmt := fmt.Sprintf("CREATE DATABASE %s", dbName)
-	if template != "" && engine == types.PostgresStoreEngine {
+	if template != "" {
 		createStmt = fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, template)
 	}
 	if err := execWithTemplateRetry(admin, createStmt); err != nil {
@@ -943,36 +1009,28 @@ func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template st
 	originalDSN := dsn
 
 	cleanup := func() {
-		var dropDB *gorm.DB
-		var err error
-
-		switch engine {
-		case types.PostgresStoreEngine:
-			dropDB, err = gorm.Open(postgres.Open(originalDSN), &gorm.Config{
-				SkipDefaultTransaction: true,
-				PrepareStmt:            false,
-			})
-			if err != nil {
-				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
-				return
-			}
-			defer func() {
-				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-					sqlDB.Close()
-				}
-			}()
-
+		dropDB, err := gorm.Open(postgres.Open(originalDSN), &gorm.Config{
+			SkipDefaultTransaction: true,
+			PrepareStmt:            false,
+			Logger:                 logger.Default.LogMode(logger.Info),
+		})
+		if err != nil {
+			log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
+			return
+		}
+		defer func() {
 			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-				sqlDB.SetMaxOpenConns(1)
-				sqlDB.SetMaxIdleConns(0)
-				sqlDB.SetConnMaxLifetime(time.Second)
+				sqlDB.Close()
 			}
+		}()
 
-			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
-
+		if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+			sqlDB.SetMaxOpenConns(1)
+			sqlDB.SetMaxIdleConns(0)
+			sqlDB.SetConnMaxLifetime(time.Second)
 		}
 
-		if err != nil {
+		if err := dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error; err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
 		}
 	}
@@ -999,6 +1057,7 @@ func replaceDBName(dsn, newDBName string) string {
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
+// LoadSQL executes the SQL statements from the given file.
 func LoadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {

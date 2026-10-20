@@ -585,8 +585,7 @@ func TestCleanupOrphanedResources_Idempotent(t *testing.T) {
 }
 
 func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
-	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine != "postgres" {
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "postgres" {
 		t.Skip("FK constraint early-exit test requires postgres")
 	}
 
@@ -693,8 +692,6 @@ func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
 	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.AgentNetworkUsage{}))
 
 	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.AgentNetworkUsage{}))
-	// Timestamp must be set explicitly: a zero time.Time serialises as
-	// '0000-00-00 00:00:00', which MySQL rejects under strict mode.
 	require.NoError(t, db.Create(&agentNetworkTypes.AgentNetworkUsage{
 		ID: "u1", AccountID: "acct-1", Model: "claude-sonnet-4-6",
 		Timestamp:    time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
@@ -795,10 +792,9 @@ func TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow(t *testing.T
 	assert.Contains(t, err.Error(), "resolve them manually", "the error must tell the operator what to do")
 }
 
-// partialAgentNetworkSettings models the one non-atomic state a MySQL run can
-// be interrupted in: DDL auto-commits there, so a crash between the two legacy
-// column drops leaves subdomain behind while cluster (and the completed
-// backfill) are already committed.
+// partialAgentNetworkSettings models a schema left between the two legacy
+// column drops: subdomain is still present while cluster is gone and the
+// backfill has already completed.
 type partialAgentNetworkSettings struct {
 	AccountID    string `gorm:"primaryKey"`
 	Subdomain    string
@@ -808,8 +804,8 @@ type partialAgentNetworkSettings struct {
 
 func (partialAgentNetworkSettings) TableName() string { return "agent_network_settings" }
 
-// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins MySQL
-// resumability: a rerun over the interrupted state must remove the leftover
+// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins
+// resumability: a rerun over the partial state must remove the leftover
 // subdomain column without re-running the backfill (the cluster column that
 // feeds it is gone) and without touching the migrated values.
 func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.T) {
