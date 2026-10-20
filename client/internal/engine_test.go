@@ -1703,3 +1703,26 @@ func TestEngine_SyncResponsePersistenceKeepsEnvelope(t *testing.T) {
 	assert.NotNil(t, got.GetNetworkMapEnvelope(), "the envelope sync should be the persisted one")
 	assert.Equal(t, int32(sharedgrpc.ComponentNetworkMap), got.GetVersion(), "the persisted sync should keep its wire version")
 }
+
+// Decoding a components envelope runs Calculate(), the most expensive step of a
+// sync. It belongs to the target, not to the pass: the bounded re-runs that
+// drain peer batches must reuse the map the first pass decoded. The second
+// update below claims the components format without an envelope, which only
+// fails if it gets decoded.
+func TestEngine_ApplySyncPassDecodesOncePerTarget(t *testing.T) {
+	e := &Engine{
+		ctx:        context.Background(),
+		syncMsgMux: &sync.Mutex{},
+	}
+
+	more, err := e.applySyncPass(&mgmtProto.SyncResponse{}, true)
+	require.NoError(t, err)
+	require.False(t, more, "a target without a network map has nothing left to apply")
+
+	undecodable := &mgmtProto.SyncResponse{Version: int32(sharedgrpc.ComponentNetworkMap)}
+	_, err = e.applySyncPass(undecodable, false)
+	assert.NoError(t, err, "a later pass must not decode the update again")
+
+	_, err = e.applySyncPass(undecodable, true)
+	assert.Error(t, err, "the first pass of a target decodes it")
+}

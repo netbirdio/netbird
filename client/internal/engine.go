@@ -262,6 +262,11 @@ type Engine struct {
 	// peers. Guarded by syncMsgMux.
 	latestComponents *types.NetworkMapComponents
 
+	// syncTargetMap is the network map of the target the map-state manager is
+	// converging, decoded once on its first pass and reused by the passes that
+	// drain the remaining peer batches. Guarded by syncMsgMux.
+	syncTargetMap *mgmProto.NetworkMap
+
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
@@ -1041,6 +1046,39 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		return false, e.ctx.Err()
 	}
 
+	if firstPass {
+		if err := e.loadSyncTarget(update); err != nil {
+			return false, err
+		}
+	}
+
+	nm := e.syncTargetMap
+	if nm == nil {
+		return false, nil
+	}
+
+	// only apply new changes and ignore old ones
+	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass, firstPass)
+	if err != nil || !more {
+		e.syncTargetMap = nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
+
+	return more, nil
+}
+
+// loadSyncTarget applies the parts of an update that belong to the target rather
+// than to a pass (session deadline, auto-update, NetBird config, posture checks)
+// and stores its network map in syncTargetMap, decoding the components envelope
+// when the update carries one. A config-only update leaves syncTargetMap nil. The
+// caller holds syncMsgMux.
+func (e *Engine) loadSyncTarget(update *mgmProto.SyncResponse) error {
+	e.syncTargetMap = nil
+
 	e.ApplySessionDeadline(update.GetSessionExpiresAt())
 
 	// Envelope sync responses carry PeerConfig at the top level; legacy
@@ -1055,7 +1093,7 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 	err := e.updateNetbirdConfig(update.GetNetbirdConfig())
 	done()
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	// Decode the network map from either the components envelope or the
@@ -1073,7 +1111,7 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		// of doing a full reconstruction.
 		envelope := update.GetNetworkMapEnvelope()
 		if envelope == nil {
-			return false, fmt.Errorf("received a SyncReponse indicating use of components network map, but components are missing")
+			return fmt.Errorf("received a SyncReponse indicating use of components network map, but components are missing")
 		}
 
 		localKey := e.config.WgPrivateKey.PublicKey().String()
@@ -1090,7 +1128,7 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		// step of the sync.
 		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
 		if err != nil {
-			return false, fmt.Errorf("decode network map envelope: %w", err)
+			return fmt.Errorf("decode network map envelope: %w", err)
 		}
 		nm = result.NetworkMap
 		components = result.Components
@@ -1104,14 +1142,14 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 	//   NetworkMap == nil                 -> config-only update (e.g. relay token rotation),
 	//                                        leave the previously applied checks untouched
 	if nm == nil {
-		return false, nil
+		return nil
 	}
 
 	done = e.phase("checks")
 	err = e.updateChecksIfNew(update.Checks)
 	done()
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	// Only retain the components view when the server sent the envelope
@@ -1122,15 +1160,8 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		e.latestComponents = components
 	}
 
-	// only apply new changes and ignore old ones
-	more, err := e.updateNetworkMap(nm, maxPeersPerSyncPass, firstPass)
-	if err != nil {
-		return false, err
-	}
-
-	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
-
-	return more, nil
+	e.syncTargetMap = nm
+	return nil
 }
 
 // extractDNSDomainFromFQDN returns the trailing dotted domain part of the
