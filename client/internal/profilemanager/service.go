@@ -452,7 +452,18 @@ func (s *ServiceManager) RenameProfile(id ID, newName string) error {
 		return err
 	}
 
-	return writeProfileName(target.Path, displayName)
+	// Through the reader rather than a single-key patch, so an optional field
+	// left unset is resolved to its default like on every other write.
+	cfg, err := GetExistingConfig(target.Path)
+	if err != nil {
+		return fmt.Errorf("read profile config: %w", err)
+	}
+	cfg.Name = displayName
+
+	if err := WriteOutConfig(target.Path, cfg); err != nil {
+		return fmt.Errorf("write profile name: %w", err)
+	}
+	return nil
 }
 
 // RemoveProfile deletes the profile identified by id. Callers must have already
@@ -1025,8 +1036,8 @@ func stampPrincipal(path, principal string) error {
 	return setProfileField(path, ownersFieldName, []string{principal})
 }
 
-// writeProfileName sets a profile's display name. Renaming does it on request,
-// migration does it to move a name out of a filename that is about to change.
+// writeProfileName sets a profile's display name without rewriting the rest of
+// the file. Migration uses it to move a name out of a filename about to change.
 func writeProfileName(path, name string) error {
 	return setProfileField(path, nameFieldName, name)
 }
