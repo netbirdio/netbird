@@ -1778,22 +1778,26 @@ func TestEngine_SyncResponsePersistenceKeepsEnvelope(t *testing.T) {
 
 // Decoding a components envelope runs Calculate(), the most expensive step of a
 // sync. It belongs to the target, not to the pass: the bounded re-runs that
-// drain peer batches must reuse the map the first pass decoded. The second
-// update below claims the components format without an envelope, which only
-// fails if it gets decoded.
+// drain peer batches must apply the map the first pass decoded. The update
+// handed to the later pass claims the components format without an envelope,
+// which only fails if it gets decoded again.
 func TestEngine_ApplySyncPassDecodesOncePerTarget(t *testing.T) {
+	// The pending map stands for one a first pass decoded and left unfinished.
+	// Its serial is below the applied one so updateNetworkMap consumes it
+	// without needing the interface, firewall or peer machinery.
+	pending := &mgmtProto.NetworkMap{Serial: 1}
 	e := &Engine{
-		ctx:        context.Background(),
-		syncMsgMux: &sync.Mutex{},
+		ctx:           context.Background(),
+		syncMsgMux:    &sync.Mutex{},
+		networkSerial: 5,
+		syncTargetMap: pending,
 	}
 
-	more, err := e.applySyncPass(&mgmtProto.SyncResponse{}, true)
-	require.NoError(t, err)
-	require.False(t, more, "a target without a network map has nothing left to apply")
-
 	undecodable := &mgmtProto.SyncResponse{Version: int32(sharedgrpc.ComponentNetworkMap)}
-	_, err = e.applySyncPass(undecodable, false)
-	assert.NoError(t, err, "a later pass must not decode the update again")
+	more, err := e.applySyncPass(undecodable, false)
+	require.NoError(t, err, "a later pass must apply the pending map, not decode the update again")
+	assert.False(t, more, "the pending map has no peer batches left")
+	assert.Nil(t, e.syncTargetMap, "the later pass should have consumed the pending map")
 
 	_, err = e.applySyncPass(undecodable, true)
 	assert.Error(t, err, "the first pass of a target decodes it")
