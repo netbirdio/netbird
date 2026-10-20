@@ -1586,13 +1586,18 @@ func (e *Engine) receiveManagementEvents() {
 			log.Infof("sync finished in %s", d)
 			e.clientMetrics.RecordSyncDuration(e.ctx, d)
 		})
-		e.shutdownWg.Add(1)
+		// The manager only has work while the stream can feed it, so it lives as
+		// long as Sync and not as long as the engine.
+		managerCtx, cancelManager := context.WithCancel(e.ctx)
+		managerDone := make(chan struct{})
 		go func() {
-			defer e.shutdownWg.Done()
-			manager.run(e.ctx)
+			defer close(managerDone)
+			manager.run(managerCtx)
 		}()
 
 		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), manager.SetTarget)
+		cancelManager()
+		<-managerDone
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client

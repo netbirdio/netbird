@@ -143,6 +143,10 @@ func (m *mapStateManager) run(ctx context.Context) {
 	// true on a fresh target and on a coalesced switch to a newer target mid-flight.
 	var passGen uint64
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+
 		m.mu.Lock()
 		target, tg, ag := m.target, m.targetGen, m.appliedGen
 		m.mu.Unlock()

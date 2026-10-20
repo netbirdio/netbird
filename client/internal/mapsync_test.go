@@ -279,3 +279,33 @@ func TestMapStateManager_ReappliesOnNewTarget(t *testing.T) {
 		t.Fatal("new target not applied")
 	}
 }
+
+// cancelling the context while a target still has passes left stops the loop
+// between passes instead of draining the target to convergence.
+func TestMapStateManager_StopsBetweenPassesOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var passes atomic.Int32
+	apply := func(_ *mgmProto.SyncResponse, _ bool) (bool, error) {
+		if passes.Add(1) == 1 {
+			cancel()
+		}
+		return true, nil // never converges on its own
+	}
+	m := newMapStateManager(apply, nil, nil)
+	require.NoError(t, m.SetTarget(&mgmProto.SyncResponse{}))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.run(ctx)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run kept applying passes after the context was cancelled")
+	}
+	require.EqualValues(t, 1, passes.Load(), "no pass should run after the cancelling one")
+}
