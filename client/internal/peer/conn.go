@@ -692,6 +692,33 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
+// OnUnderlayChanged reacts to a change of the host's physical network. A P2P
+// path was negotiated on the old network and may already be dead, but ICE
+// would only notice after its own timeouts. When the relay is ready, closing
+// the ICE agent switches the peer to relay at once, through the same path as
+// an ICE disconnect, and lets the guard renegotiate P2P on the new network;
+// P2P becomes active again as soon as the new negotiation connects. Without
+// a ready relay the P2P path is left alone, since closing it would drop the
+// peer with nothing to carry its traffic.
+func (conn *Conn) OnUnderlayChanged() {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil {
+		return
+	}
+	if conn.currentConnPriority != conntype.ICEP2P && conn.currentConnPriority != conntype.ICETurn {
+		return
+	}
+	if !conn.isReadyToUpgrade() {
+		conn.Log.Debugf("network changed, relay not ready: keeping the current %s path", conn.currentConnPriority)
+		return
+	}
+
+	conn.Log.Infof("network changed, switching to relay while P2P renegotiates")
+	conn.workerICE.Close()
+}
+
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()

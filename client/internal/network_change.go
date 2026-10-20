@@ -67,6 +67,18 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) {
 	log.Debugf("Network monitor: underlay next hops v4 %s -> %s, v6 %s -> %s",
 		change.Before.V4, change.After.V4, change.Before.V6, change.After.V6)
 	e.netMgr.NotifyNetworkChange()
+	e.moveP2PPeersToRelay()
+}
+
+// moveP2PPeersToRelay makes relay the active path of every P2P peer and
+// renegotiates P2P on the new network, so traffic does not wait for the ICE
+// timeouts on a path bound to the old one.
+func (e *Engine) moveP2PPeersToRelay() {
+	for _, key := range e.peerStore.PeersPubKey() {
+		if conn, ok := e.peerStore.PeerConn(key); ok {
+			conn.OnUnderlayChanged()
+		}
+	}
 }
 
 func decideUnderlayAction(change networkmonitor.Change, hasNetEvents bool) underlayAction {
