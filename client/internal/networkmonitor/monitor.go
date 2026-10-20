@@ -80,7 +80,19 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 
 	event := make(chan struct{}, 1)
 	var woke atomic.Bool
-	go nw.checkChanges(ctx, event, &woke, baseline.V4, baseline.V6)
+	// The checker must be gone before Listen returns: the next Listen starts a
+	// new one, and two checkers on the same monitor must not overlap.
+	checkCtx, stopCheck := context.WithCancel(ctx)
+	var checker sync.WaitGroup
+	checker.Add(1)
+	defer func() {
+		stopCheck()
+		checker.Wait()
+	}()
+	go func() {
+		defer checker.Done()
+		nw.checkChanges(checkCtx, event, &woke, baseline.V4, baseline.V6)
+	}()
 
 	log.Infof("start watching for network changes")
 	// debounce changes
