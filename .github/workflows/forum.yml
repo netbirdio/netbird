@@ -3,9 +3,16 @@ name: Post release topic on Discourse
 on:
   release:
     types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  contents: read
 
 jobs:
   post:
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: roots/discourse-topic-github-release-action@557d74ea05b6cc0c47f555c1d5d28a89d904005b # v1.1.0
@@ -15,3 +22,59 @@ jobs:
           discourse-author-username: NetBird
           discourse-category: 17
           discourse-tags: releases
+
+  # goreleaser publishes the release of a pushed tag with GITHUB_TOKEN, and events
+  # raised by that token start no workflow, so the release event above never fires.
+  post-tag-release:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v') &&
+      !contains(github.event.workflow_run.head_branch, '-rc.')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the release topic
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          DISCOURSE_API_KEY: ${{ secrets.DISCOURSE_RELEASES_API_KEY }}
+          DISCOURSE_URL: https://forum.netbird.io
+          DISCOURSE_USER: NetBird
+          DISCOURSE_CATEGORY: "17"
+        run: |
+          set -euo pipefail
+
+          if ! release=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"); then
+            echo "no release for ${TAG}, nothing to announce"
+            exit 0
+          fi
+
+          # A release a person published already fired the release event above.
+          author=$(jq -r '.author.login' <<<"$release")
+          if [ "$author" != "github-actions[bot]" ] || [ "$(jq -r '.draft' <<<"$release")" = "true" ]; then
+            echo "${TAG} published by ${author}, announced by the release event"
+            exit 0
+          fi
+
+          # Same title and body as the action above, so both paths read alike.
+          title="${GITHUB_REPOSITORY#*/} ${TAG} released"
+
+          # A re-run of a successful Release run fires this event again.
+          if curl -fsSL "${DISCOURSE_URL}/c/${DISCOURSE_CATEGORY}.json" \
+              | jq -e --arg t "$title" '.topic_list.topics[] | select((.title | ascii_downcase) == ($t | ascii_downcase))' >/dev/null; then
+            echo "topic '${title}' already exists"
+            exit 0
+          fi
+
+          jq -n \
+            --arg title "$title" \
+            --arg raw "$(printf '[%s](%s)\n\n%s' "$title" "$(jq -r '.html_url' <<<"$release")" "$(jq -r '.body // ""' <<<"$release")")" \
+            --argjson category "$DISCOURSE_CATEGORY" \
+            '{title: $title, raw: $raw, category: $category, tags: ["releases"]}' \
+            | curl -fsS -X POST "${DISCOURSE_URL}/posts.json" \
+                -H "Api-Key: ${DISCOURSE_API_KEY}" \
+                -H "Api-Username: ${DISCOURSE_USER}" \
+                -H "Content-Type: application/json" \
+                --data @- \
+            | jq -r '"posted \(env.DISCOURSE_URL)/t/\(.topic_slug)/\(.topic_id)"'
