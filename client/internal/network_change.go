@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"strconv"
@@ -70,15 +72,36 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) {
 	e.moveP2PPeersToRelay()
 }
 
-// moveP2PPeersToRelay makes relay the active path of every P2P peer and
-// renegotiates P2P on the new network, so traffic does not wait for the ICE
-// timeouts on a path bound to the old one.
+// moveP2PPeersToRelay makes relay the active path of every P2P peer whose
+// path did not survive the change and renegotiates P2P on the new network, so
+// traffic does not wait for the ICE timeouts on a dead path.
 func (e *Engine) moveP2PPeersToRelay() {
+	hostAddrs := currentHostAddrs()
+	localAddrExists := func(addr netip.Addr) bool {
+		_, ok := hostAddrs[addr]
+		return ok
+	}
 	for _, key := range e.peerStore.PeersPubKey() {
 		if conn, ok := e.peerStore.PeerConn(key); ok {
-			conn.OnUnderlayChanged()
+			conn.OnUnderlayChanged(localAddrExists)
 		}
 	}
+}
+
+// currentHostAddrs returns every address configured on the host right now.
+func currentHostAddrs() map[netip.Addr]struct{} {
+	addrs := make(map[netip.Addr]struct{})
+	ifAddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Debugf("Network monitor: failed to read host addresses: %v", err)
+		return addrs
+	}
+	for _, a := range ifAddrs {
+		if prefix, err := netip.ParsePrefix(a.String()); err == nil {
+			addrs[prefix.Addr().Unmap()] = struct{}{}
+		}
+	}
+	return addrs
 }
 
 func decideUnderlayAction(change networkmonitor.Change, hasNetEvents bool) underlayAction {
