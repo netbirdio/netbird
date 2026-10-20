@@ -718,6 +718,36 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		require.False(t, more, "pass 2 should converge")
 		require.Len(t, engine.peerStore.PeersPubKey(), 1)
 	})
+
+	// The UI shows one "Network map updated" event per map, so the passes that
+	// only drain peer batches must stay silent and the converging one publishes.
+	t.Run("chunked apply publishes one network map event", func(t *testing.T) {
+		countMapEvents := func() int {
+			n := 0
+			for _, ev := range engine.statusRecorder.GetEventHistory() {
+				if ev.GetMessage() == "Network map updated" {
+					n++
+				}
+			}
+			return n
+		}
+		before := countMapEvents()
+
+		nm := &mgmtProto.NetworkMap{
+			Serial:      8,
+			RemotePeers: []*mgmtProto.RemotePeerConfig{peer1, peer2, peer3},
+		}
+
+		more, err := engine.updateNetworkMap(nm, 1, true)
+		require.NoError(t, err)
+		require.True(t, more, "pass 1 should signal more")
+		assert.Equal(t, before, countMapEvents(), "a draining pass should not publish the event")
+
+		more, err = engine.updateNetworkMap(nm, 1, false)
+		require.NoError(t, err)
+		require.False(t, more, "pass 2 should converge")
+		assert.Equal(t, before+1, countMapEvents(), "the converging pass should publish exactly one event")
+	})
 }
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {

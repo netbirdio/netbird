@@ -1066,8 +1066,6 @@ func (e *Engine) applySyncPass(update *mgmProto.SyncResponse, firstPass bool) (b
 		return false, err
 	}
 
-	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
-
 	return more, nil
 }
 
@@ -1766,6 +1764,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 		excludedLazyPeers := e.toExcludedLazyPeers(remotePeers)
 		e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
 		doneLazy()
+
+		e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 	}
 
 	e.networkSerial = serial
