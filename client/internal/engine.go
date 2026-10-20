@@ -1709,13 +1709,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 	// remaining peer batches they are skipped.
 	if firstPass {
 		e.applyWholesale(networkMap, serial)
+
+		doneOffline := e.phase("offline_peers")
+		e.updateOfflinePeers(networkMap.GetOfflinePeers())
+		doneOffline()
 	}
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
-
-	doneOffline := e.phase("offline_peers")
-	e.updateOfflinePeers(networkMap.GetOfflinePeers())
-	doneOffline()
 
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
@@ -1756,18 +1756,18 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 
 	e.statusRecorder.FinishPeerListModifications()
 
-	e.updatePeerSSHHostKeys(remotePeers)
-
-	if err := e.updateSSHClientConfig(remotePeers); err != nil {
-		log.Warnf("failed to update SSH client config: %v", err)
-	}
-
-	e.updateSSHServerAuth(networkMap.GetSshAuth())
-
-	// Set the exclude list only once peers have fully converged (this pass added
-	// the last batch). It needs all target peers present in the store, and
-	// ExcludePeer has replace-semantics — a partial set mid-convergence would be wrong.
+	// The SSH and lazy-exclude steps walk the whole map and need every target peer
+	// in the store, so they run once, on the pass that added the last batch. The
+	// exclude list also has replace-semantics: a partial set would be wrong.
 	if !needMore {
+		e.updatePeerSSHHostKeys(remotePeers)
+
+		if err := e.updateSSHClientConfig(remotePeers); err != nil {
+			log.Warnf("failed to update SSH client config: %v", err)
+		}
+
+		e.updateSSHServerAuth(networkMap.GetSshAuth())
+
 		doneLazy := e.phase("lazy_exclude")
 		excludedLazyPeers := e.toExcludedLazyPeers(remotePeers)
 		e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)

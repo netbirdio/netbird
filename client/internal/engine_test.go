@@ -790,6 +790,44 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		require.False(t, more, "pass 2 should converge")
 		assert.Equal(t, before+1, countMapEvents(), "the converging pass should publish exactly one event")
 	})
+
+	// The SSH steps walk the whole map and need every peer in the store, so the
+	// draining passes skip them and the converging pass records every host key.
+	t.Run("chunked apply records SSH host keys once peers converge", func(t *testing.T) {
+		sshPeer := func(key, ip string) *mgmtProto.RemotePeerConfig {
+			return &mgmtProto.RemotePeerConfig{
+				WgPubKey:   key,
+				AllowedIps: []string{ip},
+				SshConfig:  &mgmtProto.SSHConfig{SshPubKey: []byte("ssh-ed25519 " + key)},
+			}
+		}
+		peers := []*mgmtProto.RemotePeerConfig{
+			sshPeer("SSHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.20/32"),
+			sshPeer("TSHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.21/32"),
+		}
+		hostKey := func(p *mgmtProto.RemotePeerConfig) []byte {
+			state, err := engine.statusRecorder.GetPeer(p.GetWgPubKey())
+			if err != nil {
+				return nil
+			}
+			return state.SSHHostKey
+		}
+		nm := &mgmtProto.NetworkMap{Serial: 9, RemotePeers: peers}
+
+		more, err := engine.updateNetworkMap(nm, 1, true)
+		require.NoError(t, err)
+		require.True(t, more, "the first pass should leave batches to drain")
+		assert.Nil(t, hostKey(peers[0]), "a draining pass should not record SSH host keys")
+
+		for i := 0; more && i < 10; i++ {
+			more, err = engine.updateNetworkMap(nm, 1, false)
+			require.NoError(t, err)
+		}
+		require.False(t, more, "the map should converge")
+		for _, p := range peers {
+			assert.Equal(t, p.GetSshConfig().GetSshPubKey(), hostKey(p), "the converging pass should record the host key of %s", p.GetWgPubKey())
+		}
+	})
 }
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
