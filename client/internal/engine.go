@@ -1730,29 +1730,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 	// peer was deleted), remotePeers is already empty, so the bounded diff below removes
 	// every peer in batches — same path as a normal update, no unbounded removeAllPeers
 	// held under syncMsgMux in one shot.
-	doneRemoved := e.phase("removed_peers")
-	removeMore, err := e.removePeers(remotePeers, maxBatch)
-	doneRemoved()
+	needMore, err := e.applyPeerPhases(remotePeers, maxBatch)
 	if err != nil {
 		return false, err
 	}
-
-	doneModified := e.phase("modified_peers")
-	modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
-	doneModified()
-	if err != nil {
-		return false, err
-	}
-
-	doneAdded := e.phase("added_peers")
-	addMore, err := e.addNewPeers(remotePeers, maxBatch)
-	doneAdded()
-	if err != nil {
-		return false, err
-	}
-
-	// needMore signals the caller to re-run when a peer phase hit its per-pass cap.
-	needMore := removeMore || modifyMore || addMore
 
 	e.statusRecorder.FinishPeerListModifications()
 
@@ -1779,6 +1760,33 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 	e.networkSerial = serial
 
 	return needMore, nil
+}
+
+// applyPeerPhases removes, modifies and adds up to maxBatch peers each, and
+// reports whether any phase hit the cap.
+func (e *Engine) applyPeerPhases(remotePeers []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
+	doneRemoved := e.phase("removed_peers")
+	removeMore, err := e.removePeers(remotePeers, maxBatch)
+	doneRemoved()
+	if err != nil {
+		return false, err
+	}
+
+	doneModified := e.phase("modified_peers")
+	modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
+	doneModified()
+	if err != nil {
+		return false, err
+	}
+
+	doneAdded := e.phase("added_peers")
+	addMore, err := e.addNewPeers(remotePeers, maxBatch)
+	doneAdded()
+	if err != nil {
+		return false, err
+	}
+
+	return removeMore || modifyMore || addMore, nil
 }
 
 // applyWholesale applies the cheap, local, idempotent map sections (lazy feature
