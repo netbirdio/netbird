@@ -91,6 +91,7 @@ type candidateRoute struct {
 	prefixLength    uint8
 	routeMetric     uint32
 	interfaceMetric int
+	nextHop         netip.Addr
 }
 
 // IP_ADDRESS_PREFIX is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-ip_address_prefix
@@ -860,6 +861,7 @@ func parseCandidateRoute(entry *MIB_IPFORWARD_ROW2, dest netip.Addr, skipInterfa
 		prefixLength:    entry.DestinationPrefix.PrefixLength,
 		routeMetric:     entry.Metric,
 		interfaceMetric: interfaceMetric,
+		nextHop:         parseIPNexthop(entry.NextHop, int(entry.InterfaceIndex)),
 	}
 }
 
@@ -919,6 +921,17 @@ func combinedMetric(candidate candidateRoute) uint64 {
 func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 	_, iface, err := bestRoute(dest, vpnIntf)
 	return iface, err
+}
+
+// GetUnderlayNextHop returns the physical network's default next hop for the
+// family of unspec. The VPN interface is skipped: with an exit node its split
+// 0/1 and 128/1 routes would otherwise win the lookup for the default.
+func GetUnderlayNextHop(unspec netip.Addr, vpnIntf string) (Nexthop, error) {
+	candidate, iface, err := bestRoute(unspec, vpnIntf)
+	if err != nil {
+		return Nexthop{}, err
+	}
+	return Nexthop{IP: candidate.nextHop, Intf: iface}, nil
 }
 
 // bestRoute picks the route GetBestInterface uses for dest, with its usable
