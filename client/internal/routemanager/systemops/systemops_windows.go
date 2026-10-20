@@ -917,6 +917,13 @@ func combinedMetric(candidate candidateRoute) uint64 {
 // 2. Lowest combined metric (route metric + interface metric)
 // 3. Lowest route metric.
 func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
+	_, iface, err := bestRoute(dest, vpnIntf)
+	return iface, err
+}
+
+// bestRoute picks the route GetBestInterface uses for dest, with its usable
+// interface, skipping the VPN interface.
+func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface, error) {
 	var skipInterfaceIndex int
 	if vpnIntf != "" {
 		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
@@ -929,14 +936,14 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 
 	table, err := getWindowsRoutingTable()
 	if err != nil {
-		return nil, fmt.Errorf("get routing table: %w", err)
+		return candidateRoute{}, nil, fmt.Errorf("get routing table: %w", err)
 	}
 	defer freeWindowsRoutingTable(table)
 
 	candidates := parseCandidatesFromTable(table, dest, skipInterfaceIndex)
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no route to %s", dest)
+		return candidateRoute{}, nil, fmt.Errorf("no route to %s", dest)
 	}
 
 	sortRouteCandidates(candidates)
@@ -959,10 +966,10 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 
 		log.Debugf("route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
 			dest, iface.Name, iface.Index, candidate.routeMetric, candidate.interfaceMetric)
-		return iface, nil
+		return candidate, iface, nil
 	}
 
-	return nil, fmt.Errorf("no usable interface found for %s", dest)
+	return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s", dest)
 }
 
 // formatRouteAge formats the route age in seconds to a human-readable string
