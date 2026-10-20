@@ -99,3 +99,15 @@ func TestDefaultInterfaceAddrs(t *testing.T) {
 	assert.Empty(t, defaultInterfaceAddrs(systemops.Nexthop{Intf: lo}), "loopback addresses are skipped")
 	assert.Empty(t, defaultInterfaceAddrs(systemops.Nexthop{}), "a family without a default contributes nothing")
 }
+
+func TestKindOf(t *testing.T) {
+	wifi := &net.Interface{Index: 2, Name: "en0"}
+	cable := &net.Interface{Index: 5, Name: "en5"}
+	gw := netip.MustParseAddr("192.168.1.1")
+	online := NextHops{V4: systemops.Nexthop{IP: gw, Intf: wifi}}
+
+	assert.Equal(t, ChangeOffline, kindOf(online, NextHops{}), "no default left is offline, not an interface change")
+	assert.Equal(t, ChangeInterface, kindOf(online, NextHops{V4: systemops.Nexthop{IP: gw, Intf: cable}}), "a default on another interface")
+	assert.False(t, NextHops{}.HasDefault(), "an empty snapshot has no default")
+	assert.True(t, online.HasDefault(), "a snapshot with a v4 default has one")
+}

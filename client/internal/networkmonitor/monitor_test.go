@@ -3,6 +3,8 @@ package networkmonitor
 import (
 	"context"
 	"errors"
+	"net"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,7 +40,7 @@ func TestNetworkMonitor_Close(t *testing.T) {
 	var resErr error
 	done := make(chan struct{})
 	go func() {
-		_, resErr = nw.Listen(context.Background())
+		_, resErr = nw.Listen(context.Background(), NextHops{})
 		close(done)
 	}()
 
@@ -68,7 +70,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 	var resErr error
 	done := make(chan struct{})
 	go func() {
-		_, resErr = nw.Listen(context.Background())
+		_, resErr = nw.Listen(context.Background(), NextHops{})
 		close(done)
 	}()
 
@@ -89,7 +91,7 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	done := make(chan struct{})
 	started := time.Now()
 	go func() {
-		if _, resErr := nw.Listen(context.Background()); resErr != nil {
+		if _, resErr := nw.Listen(context.Background(), NextHops{}); resErr != nil {
 			t.Errorf("unexpected error: %v", resErr)
 		}
 		close(done)
@@ -116,7 +118,31 @@ func TestNetworkMonitor_WakeUp(t *testing.T) {
 	nw := New()
 	defer nw.Stop()
 
-	change, err := nw.Listen(context.Background())
+	change, err := nw.Listen(context.Background(), NextHops{})
 	require.NoError(t, err)
 	assert.Equal(t, ChangeWake, change.Kind, "a wake-up must be reported as its own kind")
+}
+
+func TestNetworkMonitor_ChangeBetweenRounds(t *testing.T) {
+	// The checker never fires, as when the change happened before this round
+	// subscribed. The baseline points at an interface that does not exist, so
+	// the current snapshot differs from it and Listen must still report.
+	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	current, err := readSnapshot()
+	if err != nil || !current.HasDefault() {
+		t.Skip("this host has no default route to compare with")
+	}
+	stale := NextHops{V4: systemops.Nexthop{IP: netip.MustParseAddr("192.0.2.1"), Intf: &net.Interface{Index: 99999, Name: "gone0"}}}
+
+	nw := New()
+	defer nw.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*debounceTime)
+	defer cancel()
+	change, err := nw.Listen(ctx, stale)
+	require.NoError(t, err, "a change between rounds must be reported, not time out")
+	assert.Equal(t, ChangeInterface, change.Kind, "the default moved away from the stale interface")
 }

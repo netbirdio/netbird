@@ -2488,8 +2488,11 @@ func (e *Engine) startNetworkMonitor() {
 		defer e.shutdownWg.Done()
 		var watch recoveryWatch
 		defer watch.stop()
+		// baseline is the last snapshot with a default route; it survives an
+		// offline spell so the change is measured against the network before it.
+		var baseline networkmonitor.NextHops
 		for {
-			change, err := monitor.Listen(e.ctx)
+			change, err := monitor.Listen(e.ctx, baseline)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					log.Infof("network monitor stopped")
@@ -2499,11 +2502,17 @@ func (e *Engine) startNetworkMonitor() {
 				return
 			}
 
-			if decideUnderlayAction(change, e.netMgr != nil) == actionRedial {
+			switch decideUnderlayAction(change, e.netMgr != nil) {
+			case actionWait:
+				log.Infof("Network monitor: no default route left, waiting for the network to come back")
+				baseline = change.Before
+				continue
+			case actionRedial:
 				e.redialOnUnderlayChange(change)
 				watchCtx := watch.replace(e.ctx)
 				e.shutdownWg.Add(1)
 				go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
+				baseline = change.After
 				continue
 			}
 

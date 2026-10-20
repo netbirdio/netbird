@@ -44,6 +44,9 @@ const (
 	actionRestart underlayAction = iota
 	// actionRedial redials the control connections and keeps the engine up.
 	actionRedial
+	// actionWait does nothing yet: the network is gone, and the change is
+	// handled when it comes back.
+	actionWait
 )
 
 // recoveryWatch keeps a single safety net running: the latest network change
@@ -63,10 +66,13 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) {
 }
 
 func decideUnderlayAction(change networkmonitor.Change, hasNetEvents bool) underlayAction {
-	if canHandleWithoutRestart(change, hasNetEvents) {
-		return actionRedial
+	if !canHandleWithoutRestart(change, hasNetEvents) {
+		return actionRestart
 	}
-	return actionRestart
+	if change.Kind == networkmonitor.ChangeOffline {
+		return actionWait
+	}
+	return actionRedial
 }
 
 // canHandleWithoutRestart keeps the restart for an unchanged underlay (a flap

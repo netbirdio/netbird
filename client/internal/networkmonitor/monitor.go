@@ -42,9 +42,11 @@ func New() *NetworkMonitor {
 }
 
 // Listen begins monitoring network changes. When a change is detected, it
-// returns how the underlay default next hops moved. It can be called again
-// after it returns, to watch for the next change from the new baseline.
-func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error) {
+// returns how the underlay moved. It can be called again after it returns,
+// to watch for the next change. The caller passes the snapshot to compare
+// with, normally the After of the previous change; an empty baseline makes
+// Listen read the current one and wait until a default route exists.
+func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change Change, err error) {
 	nw.mu.Lock()
 	if nw.cancel != nil {
 		nw.mu.Unlock()
@@ -58,18 +60,19 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 
 	defer nw.wg.Done()
 
-	var baseline NextHops
+	given := baseline.HasDefault()
+	if !given {
+		operation := func() error {
+			var err error
+			baseline, err = readSnapshot()
+			return err
+		}
 
-	operation := func() error {
-		var err error
-		baseline, err = readSnapshot()
-		return err
-	}
+		expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 
-	expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
-
-	if err := backoff.Retry(operation, expBackOff); err != nil {
-		return Change{}, fmt.Errorf("failed to get default next hops: %w", err)
+		if err := backoff.Retry(operation, expBackOff); err != nil {
+			return Change{}, fmt.Errorf("failed to get default next hops: %w", err)
+		}
 	}
 
 	// recover in case sys ops panic
@@ -99,6 +102,14 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 	// debounce changes
 	timer := time.NewTimer(0)
 	timer.Stop()
+	// A change that landed between two Listen rounds raised its event before
+	// this checker subscribed: catch it by comparing with the baseline now.
+	// While still offline there is nothing new to report.
+	if given {
+		if current, _ := readSnapshot(); current.HasDefault() && classify(baseline, current) != ChangeNone {
+			timer.Reset(debounceTime)
+		}
+	}
 	for {
 		select {
 		case <-event:
@@ -159,10 +170,10 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 }
 
 // newChange compares the baseline with the current snapshot. A failed lookup
-// leaves After empty, which classifies as an interface change.
+// leaves After empty, which classifies as ChangeOffline.
 func newChange(before NextHops) Change {
 	after, _ := readSnapshot()
-	return Change{Kind: classify(before, after), Before: before, After: after}
+	return Change{Kind: kindOf(before, after), Before: before, After: after}
 }
 
 // readSnapshot returns the current underlay snapshot. It fails only when

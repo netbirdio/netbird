@@ -23,6 +23,10 @@ const (
 	// ChangeInterface means the default route moved to another interface,
 	// even through the same gateway, as when a cable or a dock is plugged in.
 	ChangeInterface
+	// ChangeOffline means no default route is left at all, as with Wi-Fi off
+	// and no cable. The snapshot after it is empty and must not become the
+	// baseline: the next change is compared with the network before it.
+	ChangeOffline
 	// ChangeWake means the system woke up from sleep during the change,
 	// whatever the routes did. Wake-ups keep today's restart.
 	ChangeWake
@@ -56,11 +60,27 @@ func (k ChangeKind) String() string {
 		return "gateway"
 	case ChangeInterface:
 		return "interface"
+	case ChangeOffline:
+		return "offline"
 	case ChangeWake:
 		return "wake"
 	default:
 		return "unknown"
 	}
+}
+
+// HasDefault reports whether the snapshot has a default route in any family.
+func (n NextHops) HasDefault() bool {
+	return n.V4.Intf != nil || n.V6.Intf != nil
+}
+
+// kindOf classifies a change, reporting a snapshot without any default route
+// as ChangeOffline.
+func kindOf(before, after NextHops) ChangeKind {
+	if !after.HasDefault() {
+		return ChangeOffline
+	}
+	return classify(before, after)
 }
 
 // classify reports the strongest change across both address families. An

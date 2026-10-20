@@ -39,6 +39,15 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 	}
 }
 
+func TestDecideUnderlayAction(t *testing.T) {
+	if !nbnet.AdvancedRouting() || underlayPinnedAtStart {
+		t.Skip("the redial path is not available on this platform or routing mode")
+	}
+	assert.Equal(t, actionWait, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, true), "losing the network waits for it to come back")
+	assert.Equal(t, actionRedial, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeInterface}, true), "a moved default redials")
+	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, false), "without netevents everything restarts")
+}
+
 func TestCanHandleWithoutRestart_DisabledByEnv(t *testing.T) {
 	change := networkmonitor.Change{Kind: networkmonitor.ChangeInterface}
 
