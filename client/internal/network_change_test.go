@@ -27,6 +27,7 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 		{name: "no netevents manager restarts", kind: networkmonitor.ChangeGateway, hasNetEvents: false, want: false},
 		{name: "gateway change", kind: networkmonitor.ChangeGateway, hasNetEvents: true, want: lightPath},
 		{name: "interface change, as with a cable plugged in", kind: networkmonitor.ChangeInterface, hasNetEvents: true, want: lightPath},
+		{name: "wake-up keeps the restart", kind: networkmonitor.ChangeWake, hasNetEvents: true, want: false},
 	}
 
 	for _, tt := range tests {

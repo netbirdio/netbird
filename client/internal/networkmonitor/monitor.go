@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -22,6 +23,10 @@ const (
 )
 
 var checkChangeFn = checkChange
+
+// errWokeUp is returned by a checkChange that detected a wake-up from sleep
+// rather than a route change, so Listen can report it as its own kind.
+var errWokeUp = errors.New("system woke up from sleep")
 
 // NetworkMonitor watches for changes in network configuration.
 type NetworkMonitor struct {
@@ -74,7 +79,8 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 	}()
 
 	event := make(chan struct{}, 1)
-	go nw.checkChanges(ctx, event, nexthop4, nexthop6)
+	var woke atomic.Bool
+	go nw.checkChanges(ctx, event, &woke, nexthop4, nexthop6)
 
 	log.Infof("start watching for network changes")
 	// debounce changes
@@ -85,7 +91,11 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 		case <-event:
 			timer.Reset(debounceTime)
 		case <-timer.C:
-			return newChange(nexthop4, nexthop6), nil
+			change := newChange(nexthop4, nexthop6)
+			if woke.Load() {
+				change.Kind = ChangeWake
+			}
+			return change, nil
 		case <-ctx.Done():
 			timer.Stop()
 			return Change{}, ctx.Err()
@@ -114,10 +124,14 @@ func (nw *NetworkMonitor) release() {
 	nw.cancel = nil
 }
 
-func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
+func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, woke *atomic.Bool, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
 	defer close(event)
 	for {
-		if err := checkChangeFn(ctx, nexthop4, nexthop6); err != nil {
+		err := checkChangeFn(ctx, nexthop4, nexthop6)
+		switch {
+		case errors.Is(err, errWokeUp):
+			woke.Store(true)
+		case err != nil:
 			if !errors.Is(err, context.Canceled) {
 				log.Errorf("Network monitor: failed to check for changes: %v", err)
 			}

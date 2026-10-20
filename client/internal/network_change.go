@@ -63,7 +63,7 @@ func (e *Engine) handleUnderlayChange(change networkmonitor.Change) bool {
 // routing, whose /32 infra routes point at the old gateway, and for platforms
 // that pin the underlay at start.
 func canHandleWithoutRestart(change networkmonitor.Change, hasNetEvents bool) bool {
-	if !hasNetEvents || change.Kind == networkmonitor.ChangeNone || redialDisabledByEnv() {
+	if !hasNetEvents || change.Kind == networkmonitor.ChangeNone || change.Kind == networkmonitor.ChangeWake || redialDisabledByEnv() {
 		return false
 	}
 	if !nbnet.AdvancedRouting() {

@@ -7,7 +7,7 @@ type ChangeKind int
 
 const (
 	// ChangeNone means the default next hops are the same as before, as after
-	// a route flap or a wake-up on the same network.
+	// a route flap.
 	ChangeNone ChangeKind = iota
 	// ChangeGateway means the default route stayed on the same interface but
 	// its gateway changed, as when the same Wi-Fi adapter joins another network.
@@ -15,6 +15,9 @@ const (
 	// ChangeInterface means the default route moved to another interface,
 	// even through the same gateway, as when a cable or a dock is plugged in.
 	ChangeInterface
+	// ChangeWake means the system woke up from sleep during the change,
+	// whatever the routes did. Wake-ups keep today's restart.
+	ChangeWake
 )
 
 // NextHops holds the underlay default next hop of each address family.
@@ -39,6 +42,8 @@ func (k ChangeKind) String() string {
 		return "gateway"
 	case ChangeInterface:
 		return "interface"
+	case ChangeWake:
+		return "wake"
 	default:
 		return "unknown"
 	}

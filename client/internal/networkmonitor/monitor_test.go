@@ -3,8 +3,12 @@ package networkmonitor
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
@@ -96,4 +100,23 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	if time.Since(started) < expectedResponseTime {
 		t.Errorf("unexpected duration: %v", time.Since(started))
 	}
+}
+
+func TestNetworkMonitor_WakeUp(t *testing.T) {
+	// The first check reports a wake-up instead of a route change; the next
+	// one blocks, as a real checker does until the following event.
+	var calls atomic.Int32
+	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+		if calls.Add(1) == 1 {
+			return errWokeUp
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	nw := New()
+	defer nw.Stop()
+
+	change, err := nw.Listen(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, ChangeWake, change.Kind, "a wake-up must be reported as its own kind")
 }
