@@ -2,7 +2,6 @@ package pqkem
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -74,33 +73,17 @@ func TestExchange_RejectsMalformedMessages(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestExchange_ReportSizesAndTiming is a spike measurement, not a pass/fail gate.
-// Run with: go test -run TestExchange_ReportSizesAndTiming -v ./client/internal/pqkem/
-func TestExchange_ReportSizesAndTiming(t *testing.T) {
-	const iters = 200
-
-	var tInit, tResp, tFinish time.Duration
-	for i := 0; i < iters; i++ {
-		s0 := time.Now()
+// BenchmarkExchange measures a full hybrid exchange (keygen, encapsulation, decapsulation)
+// and reports its on-wire size.
+// Run with: go test -run '^$' -bench BenchmarkExchange ./client/internal/pqkem/
+func BenchmarkExchange(b *testing.B) {
+	for i := 0; i < b.N; i++ {
 		init, err := NewInitiator()
-		require.NoError(t, err)
-		tInit += time.Since(s0)
-
-		s1 := time.Now()
+		require.NoError(b, err)
 		answer, _, err := Respond(init.Offer(), Binding{LocalID: wgB, RemoteID: wgA})
-		require.NoError(t, err)
-		tResp += time.Since(s1)
-
-		s2 := time.Now()
+		require.NoError(b, err)
 		_, err = init.Finish(answer, Binding{LocalID: wgA, RemoteID: wgB})
-		require.NoError(t, err)
-		tFinish += time.Since(s2)
+		require.NoError(b, err)
 	}
-
-	t.Logf("wire sizes:   offer=%d B   answer=%d B   (Rosenpass static pubkey ~524160 B)", OfferSize, AnswerSize)
-	t.Logf("total on-wire per handshake: %d B  (~%.0fx smaller than RP static key)", OfferSize+AnswerSize, 524160.0/float64(OfferSize+AnswerSize))
-	t.Logf("avg NewInitiator (keygen): %s", tInit/iters)
-	t.Logf("avg Respond (encaps+dh):   %s", tResp/iters)
-	t.Logf("avg Finish (decaps+dh):    %s", tFinish/iters)
-	t.Logf("avg full handshake CPU:    %s", (tInit+tResp+tFinish)/iters)
+	b.ReportMetric(float64(OfferSize+AnswerSize), "wire-B/exchange")
 }

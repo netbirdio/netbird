@@ -60,7 +60,27 @@ func TestDecodeRejects(t *testing.T) {
 	_, _, err = Decode(bad2)
 	require.Error(t, err)
 
-	// offer with wrong payload size
+	// the encoder refuses an offer with the wrong payload size
 	_, err = (&OfferMsg{KEMOffer: []byte{1, 2, 3}}).Encode()
 	require.Error(t, err)
+
+	// the decoder refuses a framed offer, answer or error marker whose payload has the
+	// wrong size
+	short := make([]byte, headerSize+ExchangeIDSize+OfferSize-1)
+	short[0] = byte(MsgOffer)
+	short[1] = ProtocolVersion
+	_, _, err = Decode(short)
+	require.Error(t, err, "a truncated offer must be rejected")
+
+	long := make([]byte, headerSize+AnswerSize+1)
+	long[0] = byte(MsgAnswer)
+	long[1] = ProtocolVersion
+	_, _, err = Decode(long)
+	require.Error(t, err, "an oversized answer must be rejected")
+
+	marker := make([]byte, headerSize+1)
+	marker[0] = byte(MsgError)
+	marker[1] = ProtocolVersion
+	_, _, err = Decode(marker)
+	require.Error(t, err, "an error marker with a payload must be rejected")
 }

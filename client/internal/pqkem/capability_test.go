@@ -1,6 +1,7 @@
 package pqkem
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,8 +40,27 @@ func TestManager_MarkNonCapableCancelsInFlight(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, offer)
 
+	// Record the cancellation of the in-flight exchange's loop. Without it the loop would
+	// time out and raise OnRekeyFailed, the re-bootstrap storm MarkNonCapable prevents.
+	var cancelled atomic.Bool
+	d.mu.Lock()
+	ex := d.exchanges["aaaa"]
+	require.NotNil(t, ex, "precondition: the bootstrap exchange is in flight")
+	loopCancel := ex.cancel
+	ex.cancel = func() {
+		cancelled.Store(true)
+		loopCancel()
+	}
+	d.mu.Unlock()
+
 	// Now we learn the peer is non-PQ: the exchange must be dropped.
 	d.MarkNonCapable("aaaa")
+
+	assert.True(t, cancelled.Load(), "the in-flight exchange's loop must be cancelled")
+	d.mu.Lock()
+	_, stillTracked := d.exchanges["aaaa"]
+	d.mu.Unlock()
+	assert.False(t, stillTracked, "the in-flight exchange must be dropped")
 
 	next, err := d.SignalOffer("aaaa")
 	require.NoError(t, err)
@@ -96,4 +116,24 @@ func TestManager_ErrorMarkerIsBenign(t *testing.T) {
 
 	assert.Equal(t, wgB.psk("aaaa"), wgA.psk("bbbb"), "the exchange must still converge after a benign error marker")
 	assert.NotEqual(t, PSK{}, wgB.psk("aaaa"))
+}
+
+// TestManager_OfferErrorMarkerAnsweredWithMarker covers the other direction: the initiator
+// failed to build its offer and sent a marker. The responder must answer with a marker of
+// its own, never an empty answer, which the initiator would read as "peer has no KEM".
+func TestManager_OfferErrorMarkerAnsweredWithMarker(t *testing.T) {
+	dA, dB, _, _, _ := pair(t)
+	defer dA.Stop()
+	defer dB.Stop()
+
+	reply, err := dA.SignalOnOffer("bbbb", (&ErrorMsg{}).Encode())
+	require.NoError(t, err)
+	require.NotEmpty(t, reply, "an empty reply would mark the responder non-capable")
+
+	typ, _, err := Decode(reply)
+	require.NoError(t, err)
+	assert.Equal(t, MsgError, typ, "the reply to an offer marker must be a marker")
+
+	_, established := dA.PSK("bbbb")
+	assert.False(t, established, "a marker must not derive a PSK")
 }

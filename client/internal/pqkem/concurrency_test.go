@@ -17,11 +17,12 @@ func TestConcurrency_RecoversViaResignalAfterDataPathBreak(t *testing.T) {
 	defer dA.Stop()
 	defer dB.Stop()
 
-	// Tighten B's timings and make a single rotation miss raise OnRekeyFailed. Set
-	// before any exchange loop spawns (the loop reads these fields).
+	// A fast retransmit tick, set before any exchange loop spawns because the loop reads it
+	// unguarded at start. The retry budget stays generous for the two bootstraps, which
+	// must succeed: with a tight budget the loop could time an exchange out while the test
+	// goroutine is descheduled between the offer and the answer.
 	dB.retryInterval = 5 * time.Millisecond
-	dB.maxRetries = 2
-	dB.maxRekeyFailures = 1
+	setRetryBudget(dB, 1000, 1)
 
 	bootstrap(t, dA, dB)
 	dA.OnDataPathRekeyed("bbbb", 0)
@@ -30,7 +31,9 @@ func TestConcurrency_RecoversViaResignalAfterDataPathBreak(t *testing.T) {
 	require.NotEqual(t, PSK{}, psk1)
 	require.Equal(t, psk1, wgA.psk("bbbb"), "converged on the same PSK after bootstrap+rotation")
 
-	// Data path breaks: the rotation can no longer converge -> OnRekeyFailed.
+	// Data path breaks: the rotation can no longer converge, and with a budget of two
+	// retransmits a single miss raises OnRekeyFailed.
+	setRetryBudget(dB, 2, 1)
 	lbB.drop.Store(true)
 	_, err := dB.startExchangeTest("aaaa", false, ExchangeID{})
 	require.NoError(t, err)
@@ -38,10 +41,20 @@ func TestConcurrency_RecoversViaResignalAfterDataPathBreak(t *testing.T) {
 
 	// Recovery: re-bootstrap over signalling with the data path STILL broken. It must
 	// still converge (signal is independent of the data path) on a fresh PSK.
+	setRetryBudget(dB, 1000, 1)
 	bootstrap(t, dA, dB)
 	psk2 := wgB.psk("aaaa")
 	require.NotEqual(t, psk1, psk2, "recovery derived a fresh PSK")
 	require.Equal(t, psk2, wgA.psk("bbbb"), "both sides resync after recovery")
+}
+
+// setRetryBudget changes the retry and failure budgets of a running manager. The exchange
+// loops read both under the manager lock, so they can change between phases of a test.
+func setRetryBudget(m *Manager, maxRetries, maxRekeyFailures int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maxRetries = maxRetries
+	m.maxRekeyFailures = maxRekeyFailures
 }
 
 // TestConcurrency_ConcurrentRekeysNoRace hammers both managers with concurrent rotation
