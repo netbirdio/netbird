@@ -73,42 +73,42 @@ func TestIdentityIsPrivileged(t *testing.T) {
 	}{
 		{
 			name: "Root",
-			id:   Identity{UID: 0, GID: 0},
+			id:   Identity{known: true, UID: 0, GID: 0},
 			want: true,
 		},
 		{
 			name: "Non-root",
-			id:   Identity{UID: 1000, GID: 1000},
+			id:   Identity{known: true, UID: 1000, GID: 1000},
 			want: false,
 		},
 		{
 			name: "Local system windows",
-			id:   Identity{SID: sidLocalSystem},
+			id:   Identity{known: true, SID: sidLocalSystem},
 			want: true,
 		},
 		{
 			name: "Windows elevated",
-			id:   Identity{SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Elevated: true},
+			id:   Identity{known: true, SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Elevated: true},
 			want: true,
 		},
 		{
 			name: "Admin group windows",
-			id:   Identity{SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Groups: []string{sidAdministrators}},
+			id:   Identity{known: true, SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Groups: []string{sidAdministrators}},
 			want: true,
 		},
 		{
 			name: "Regular user windows",
-			id:   Identity{SID: "S-1-5-21-1927267129-3959769253-3036563910-1001"},
+			id:   Identity{known: true, SID: "S-1-5-21-1927267129-3959769253-3036563910-1001"},
 			want: false,
 		},
 		{
 			name: "Network service windows",
-			id:   Identity{SID: sidNetworkService},
+			id:   Identity{known: true, SID: sidNetworkService},
 			want: false,
 		},
 		{
 			name: "Local service windows",
-			id:   Identity{SID: sidLocalService},
+			id:   Identity{known: true, SID: sidLocalService},
 			want: false,
 		},
 	}
