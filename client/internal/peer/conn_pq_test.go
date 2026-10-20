@@ -164,3 +164,34 @@ func TestConn_RecoverPQKeyOverSignalOnlyWhenConnected(t *testing.T) {
 	c.RecoverPQKeyOverSignal()
 	assert.True(t, offerAttempted(hook), "a connected peer must get a recovery offer")
 }
+
+// TestConn_QuantumResistant covers the status flag: Rosenpass counts only when both sides
+// run it, and an established ML-KEM PSK counts on its own.
+func TestConn_QuantumResistant(t *testing.T) {
+	localRP := []byte("local-rosenpass-key")
+	remoteRP := []byte("remote-rosenpass-key")
+
+	cases := []struct {
+		name          string
+		localRP       []byte
+		remoteRP      []byte
+		pqEstablished bool
+		want          bool
+	}{
+		{"nothing", nil, nil, false, false},
+		{"rosenpass on both sides", localRP, remoteRP, false, true},
+		{"rosenpass only locally", localRP, nil, false, false},
+		{"rosenpass only remotely", nil, remoteRP, false, false},
+		{"ml-kem established", nil, nil, true, true},
+		{"ml-kem established, rosenpass only remotely", nil, remoteRP, true, true},
+		{"ml-kem established, rosenpass on both sides", localRP, remoteRP, true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			conn := &Conn{config: ConnConfig{RosenpassConfig: RosenpassConfig{PubKey: c.localRP}}}
+			assert.Equal(t, c.want, conn.quantumResistant(c.remoteRP, c.pqEstablished),
+				"local rosenpass %t, remote rosenpass %t, ml-kem %t",
+				c.localRP != nil, c.remoteRP != nil, c.pqEstablished)
+		})
+	}
+}
