@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -828,7 +829,52 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			assert.Equal(t, p.GetSshConfig().GetSshPubKey(), hostKey(p), "the converging pass should record the host key of %s", p.GetWgPubKey())
 		}
 	})
+
+	newPeer := func(key, ip string) *mgmtProto.RemotePeerConfig {
+		return &mgmtProto.RemotePeerConfig{WgPubKey: key, AllowedIps: []string{ip}}
+	}
+
+	// Local peer config handling notifies the UI listener. It belongs to the
+	// map, so a map drained over several passes notifies once.
+	t.Run("chunked apply handles the local peer config once", func(t *testing.T) {
+		listener := &countingListener{}
+		engine.statusRecorder.SetConnectionListener(listener)
+		defer engine.statusRecorder.RemoveConnectionListener()
+		// Registering replays the last known address to the new listener.
+		registered := listener.addressChanges.Load()
+
+		nm := &mgmtProto.NetworkMap{
+			Serial:     10,
+			PeerConfig: &mgmtProto.PeerConfig{Address: "10.20.0.1/24", Fqdn: "local.netbird.cloud"},
+			RemotePeers: []*mgmtProto.RemotePeerConfig{
+				newPeer("AAHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.30/32"),
+				newPeer("ABHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.31/32"),
+				newPeer("ACHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.32/32"),
+			},
+		}
+
+		more, err := engine.updateNetworkMap(nm, 1, true)
+		require.NoError(t, err)
+		for i := 0; more && i < 20; i++ {
+			more, err = engine.updateNetworkMap(nm, 1, false)
+			require.NoError(t, err)
+		}
+		require.False(t, more, "the map should converge")
+		assert.EqualValues(t, 1, listener.addressChanges.Load()-registered, "the local peer config should be applied once per map")
+	})
 }
+
+type countingListener struct {
+	addressChanges atomic.Int32
+}
+
+func (l *countingListener) OnStateChanged(peer.ClientState) {}
+func (l *countingListener) OnConnected()                    {}
+func (l *countingListener) OnDisconnected()                 {}
+func (l *countingListener) OnConnecting()                   {}
+func (l *countingListener) OnDisconnecting()                {}
+func (l *countingListener) OnAddressChanged(string, string) { l.addressChanges.Add(1) }
+func (l *countingListener) OnPeersListChanged(int)          {}
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 	testCases := []struct {

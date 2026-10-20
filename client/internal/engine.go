@@ -1690,9 +1690,8 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 // than the cap, so the caller re-runs until convergence.
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int, firstPass bool) (bool, error) {
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
-	if networkMap.GetPeerConfig() != nil {
-		err := e.updateConfig(networkMap.GetPeerConfig())
-		if err != nil {
+	if firstPass && networkMap.GetPeerConfig() != nil {
+		if err := e.updateConfig(networkMap.GetPeerConfig()); err != nil {
 			return false, err
 		}
 	}
@@ -1713,9 +1712,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 		doneOffline := e.phase("offline_peers")
 		e.updateOfflinePeers(networkMap.GetOfflinePeers())
 		doneOffline()
-	}
 
-	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+		log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+	}
 
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
@@ -1731,11 +1730,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 	// every peer in batches — same path as a normal update, no unbounded removeAllPeers
 	// held under syncMsgMux in one shot.
 	needMore, err := e.applyPeerPhases(remotePeers, maxBatch)
+	if err != nil || !needMore {
+		// The peer list notification snapshots every peer and wakes the UI, so it
+		// goes out once per map, or for whatever was applied before a failure.
+		e.statusRecorder.FinishPeerListModifications()
+	}
 	if err != nil {
 		return false, err
 	}
-
-	e.statusRecorder.FinishPeerListModifications()
 
 	// The SSH and lazy-exclude steps walk the whole map and need every target peer
 	// in the store, so they run once, on the pass that added the last batch. The
