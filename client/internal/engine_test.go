@@ -862,6 +862,35 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		require.False(t, more, "the map should converge")
 		assert.EqualValues(t, 1, listener.addressChanges.Load()-registered, "the local peer config should be applied once per map")
 	})
+
+	// The peer work of a map is planned on its first pass. Later passes drain
+	// that plan under one budget shared by removals, modifications and
+	// additions, instead of re-diffing the whole map against the store.
+	t.Run("later passes drain the plan made on the first pass", func(t *testing.T) {
+		before := engine.peerStore.PeersPubKey()
+		require.Len(t, before, 3, "precondition: the previous map left three peers")
+
+		x := newPeer("BAHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.40/32")
+		y := newPeer("BBHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.41/32")
+		nm := &mgmtProto.NetworkMap{Serial: 11, RemotePeers: []*mgmtProto.RemotePeerConfig{x, y}}
+
+		passes := 1
+		more, err := engine.updateNetworkMap(nm, 1, true)
+		require.NoError(t, err)
+
+		// A peer showing up after planning is not this pass's work: it belongs
+		// to the next map, which plans again.
+		late := newPeer("BCHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=", "100.64.0.42/32")
+		nm.RemotePeers = append(nm.RemotePeers, late)
+
+		for ; more && passes < 20; passes++ {
+			more, err = engine.updateNetworkMap(nm, 1, false)
+			require.NoError(t, err)
+		}
+		require.False(t, more, "the map should converge")
+		assert.Equal(t, 5, passes, "three removals and two additions at one operation per pass")
+		assert.ElementsMatch(t, []string{x.GetWgPubKey(), y.GetWgPubKey()}, engine.peerStore.PeersPubKey(), "the store should hold the planned peers only")
+	})
 }
 
 type countingListener struct {

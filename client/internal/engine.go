@@ -266,6 +266,8 @@ type Engine struct {
 	// converging, decoded once on its first pass and reused by the passes that
 	// drain the remaining peer batches. Guarded by syncMsgMux.
 	syncTargetMap *mgmProto.NetworkMap
+	// syncPeerPlan is the peer work left for syncTargetMap. Guarded by syncMsgMux.
+	syncPeerPlan *syncPeerPlan
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
@@ -867,92 +869,127 @@ func (e *Engine) blockLanAccess() {
 	}
 }
 
-// modifyPeers updates peers that have been modified (e.g. IP address has been changed).
-// It closes the existing connection, removes it from the peerConns map, and creates a new one.
-// maxPeersPerSyncPass is the default per-pass cap on how many peers each of
-// removePeers/modifyPeers/addNewPeers applies, so syncMsgMux is held only for a
-// batch at a time and other subsystems can interleave between passes. It is
-// passed in (not read globally) so tests can exercise the multi-pass path.
+// maxPeersPerSyncPass caps how many peer operations (removals, modifications and
+// additions together) one sync pass applies, so syncMsgMux is held for a batch at a
+// time and other subsystems can interleave between passes. It is passed in rather
+// than read globally so tests can exercise the multi-pass path.
 const maxPeersPerSyncPass = 300
 
-// modifyPeers re-applies up to maxBatch changed peers per call. It returns true
-// when more changed peers remained than the cap, so the caller re-runs.
-func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
-
-	// first, check if peers have been modified
-	var modified []*mgmProto.RemotePeerConfig
-	for _, p := range peersUpdate {
-		peerPubKey := p.GetWgPubKey()
-		currentPeer, ok := e.peerStore.PeerConn(peerPubKey)
-		if !ok {
-			continue
-		}
-
-		if currentPeer.AgentVersionString() != p.AgentVersion {
-			modified = append(modified, p)
-			continue
-		}
-
-		allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey)
-		if !ok {
-			continue
-		}
-		if !compareNetIPLists(allowedIPs, e.filterAllowedIPs(p.GetAllowedIps())) {
-			modified = append(modified, p)
-			continue
-		}
-
-		if err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn()); err != nil {
-			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
-		}
-	}
-
-	more := false
-	if len(modified) > maxBatch {
-		modified = modified[:maxBatch]
-		more = true
-	}
-
-	// second, close all modified connections and remove them from the state map
-	for _, p := range modified {
-		if err := e.removePeer(p.GetWgPubKey()); err != nil {
-			return false, err
-		}
-	}
-	// third, add the peer connections again
-	for _, p := range modified {
-		if err := e.addNewPeer(p); err != nil {
-			return false, err
-		}
-	}
-	return more, nil
+// syncPeerPlan is the peer work of one sync target. It is diffed against the peer
+// store once, on the first pass, and drained by every pass under a shared budget, so
+// a pass costs its batch and not a walk over the whole map. Guarded by syncMsgMux.
+type syncPeerPlan struct {
+	// remotePeers is the target's peer list with our own peer filtered out.
+	remotePeers []*mgmProto.RemotePeerConfig
+	toRemove    []string
+	// toModify holds peers whose connection must be rebuilt (e.g. allowed IPs or
+	// agent version changed): each one is removed and added again.
+	toModify []*mgmProto.RemotePeerConfig
+	toAdd    []*mgmProto.RemotePeerConfig
 }
 
-// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
-// It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
-// removePeers removes up to maxBatch peers per call. It returns true when more
-// peers remained to remove than the cap, so the caller re-runs.
-func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
-	newPeers := make([]string, 0, len(peersUpdate))
-	for _, p := range peersUpdate {
-		newPeers = append(newPeers, p.GetWgPubKey())
+func (p *syncPeerPlan) pending() bool {
+	return len(p.toRemove) > 0 || len(p.toModify) > 0 || len(p.toAdd) > 0
+}
+
+// planPeerChanges diffs the target's peers against the peer store. Peers that
+// stay unchanged get their FQDN refreshed here, since that is a field update rather
+// than connection work.
+func (e *Engine) planPeerChanges(networkMap *mgmProto.NetworkMap) *syncPeerPlan {
+	localPubKey := e.config.WgPrivateKey.PublicKey().String()
+	plan := &syncPeerPlan{
+		remotePeers: make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers())),
+	}
+	for _, p := range networkMap.GetRemotePeers() {
+		if p.GetWgPubKey() != localPubKey {
+			plan.remotePeers = append(plan.remotePeers, p)
+		}
 	}
 
-	toRemove := util.SliceDiff(e.peerStore.PeersPubKey(), newPeers)
+	keys := make([]string, 0, len(plan.remotePeers))
+	for _, p := range plan.remotePeers {
+		keys = append(keys, p.GetWgPubKey())
+		e.classifyPlannedPeer(plan, p)
+	}
+	// When management signals RemotePeersIsEmpty (e.g. our peer was deleted),
+	// remotePeers is empty and every peer lands here, removed in batches like any
+	// other update instead of one unbounded removeAllPeers under syncMsgMux.
+	plan.toRemove = util.SliceDiff(e.peerStore.PeersPubKey(), keys)
+	return plan
+}
 
-	more := false
-	if len(toRemove) > maxBatch {
-		toRemove = toRemove[:maxBatch]
-		more = true
+// classifyPlannedPeer files a target peer as new, modified or unchanged.
+func (e *Engine) classifyPlannedPeer(plan *syncPeerPlan, p *mgmProto.RemotePeerConfig) {
+	peerPubKey := p.GetWgPubKey()
+	currentPeer, ok := e.peerStore.PeerConn(peerPubKey)
+	if !ok {
+		plan.toAdd = append(plan.toAdd, p)
+		return
 	}
 
-	for _, p := range toRemove {
-		if err := e.removePeer(p); err != nil {
+	if currentPeer.AgentVersionString() != p.AgentVersion {
+		plan.toModify = append(plan.toModify, p)
+		return
+	}
+
+	allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey)
+	if !ok {
+		return
+	}
+	if !compareNetIPLists(allowedIPs, e.filterAllowedIPs(p.GetAllowedIps())) {
+		plan.toModify = append(plan.toModify, p)
+		return
+	}
+
+	if err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn()); err != nil {
+		log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
+	}
+}
+
+// applyPeerPlan applies up to budget operations from the plan, removals first, then
+// modifications, then additions, and reports whether work remains. An operation is
+// taken off the plan before it runs, so a failing one is not retried by a later
+// pass; the caller drops the target and the next map plans again.
+func (e *Engine) applyPeerPlan(plan *syncPeerPlan, budget int) (bool, error) {
+	doneRemoved := e.phase("removed_peers")
+	for ; budget > 0 && len(plan.toRemove) > 0; budget-- {
+		key := plan.toRemove[0]
+		plan.toRemove = plan.toRemove[1:]
+		if err := e.removePeer(key); err != nil {
+			doneRemoved()
 			return false, err
 		}
-		log.Infof("removed peer %s", p)
+		log.Infof("removed peer %s", key)
 	}
-	return more, nil
+	doneRemoved()
+
+	doneModified := e.phase("modified_peers")
+	for ; budget > 0 && len(plan.toModify) > 0; budget-- {
+		p := plan.toModify[0]
+		plan.toModify = plan.toModify[1:]
+		if err := e.removePeer(p.GetWgPubKey()); err != nil {
+			doneModified()
+			return false, err
+		}
+		if err := e.addNewPeer(p); err != nil {
+			doneModified()
+			return false, err
+		}
+	}
+	doneModified()
+
+	doneAdded := e.phase("added_peers")
+	for ; budget > 0 && len(plan.toAdd) > 0; budget-- {
+		p := plan.toAdd[0]
+		plan.toAdd = plan.toAdd[1:]
+		if err := e.addNewPeer(p); err != nil {
+			doneAdded()
+			return false, err
+		}
+	}
+	doneAdded()
+
+	return plan.pending(), nil
 }
 
 func (e *Engine) removeAllPeers() error {
@@ -1685,9 +1722,10 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	return nil
 }
 
-// updateNetworkMap applies the wholesale parts (config, routes, ACL, DNS) in full
-// and up to maxBatch peers per phase. It returns true when more peers remained
-// than the cap, so the caller re-runs until convergence.
+// updateNetworkMap applies one pass of a map. The first pass applies the parts that
+// describe the whole map (config, routes, ACL, DNS, offline peers) and plans the peer
+// work; every pass then applies up to maxBatch peer operations. It returns true while
+// peer work remains, so the caller re-runs until convergence.
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int, firstPass bool) (bool, error) {
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if firstPass && networkMap.GetPeerConfig() != nil {
@@ -1716,21 +1754,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 		log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 	}
 
-	// Filter out own peer from the remote peers list
-	localPubKey := e.config.WgPrivateKey.PublicKey().String()
-	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
-	for _, p := range networkMap.GetRemotePeers() {
-		if p.GetWgPubKey() != localPubKey {
-			remotePeers = append(remotePeers, p)
-		}
+	if firstPass || e.syncPeerPlan == nil {
+		e.syncPeerPlan = e.planPeerChanges(networkMap)
 	}
+	plan := e.syncPeerPlan
+	remotePeers := plan.remotePeers
 
-	// No special case for cleanup: when management signals RemotePeersIsEmpty (e.g. our
-	// peer was deleted), remotePeers is already empty, so the bounded diff below removes
-	// every peer in batches — same path as a normal update, no unbounded removeAllPeers
-	// held under syncMsgMux in one shot.
-	needMore, err := e.applyPeerPhases(remotePeers, maxBatch)
+	needMore, err := e.applyPeerPlan(plan, maxBatch)
 	if err != nil || !needMore {
+		e.syncPeerPlan = nil
 		// The peer list notification snapshots every peer and wakes the UI, so it
 		// goes out once per map, or for whatever was applied before a failure.
 		e.statusRecorder.FinishPeerListModifications()
@@ -1762,33 +1794,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap, maxBatch int,
 	e.networkSerial = serial
 
 	return needMore, nil
-}
-
-// applyPeerPhases removes, modifies and adds up to maxBatch peers each, and
-// reports whether any phase hit the cap.
-func (e *Engine) applyPeerPhases(remotePeers []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
-	doneRemoved := e.phase("removed_peers")
-	removeMore, err := e.removePeers(remotePeers, maxBatch)
-	doneRemoved()
-	if err != nil {
-		return false, err
-	}
-
-	doneModified := e.phase("modified_peers")
-	modifyMore, err := e.modifyPeers(remotePeers, maxBatch)
-	doneModified()
-	if err != nil {
-		return false, err
-	}
-
-	doneAdded := e.phase("added_peers")
-	addMore, err := e.addNewPeers(remotePeers, maxBatch)
-	doneAdded()
-	if err != nil {
-		return false, err
-	}
-
-	return removeMore || modifyMore || addMore, nil
 }
 
 // applyWholesale applies the cheap, local, idempotent map sections (lazy feature
@@ -2040,26 +2045,6 @@ func addrToString(addr netip.Addr) string {
 		return ""
 	}
 	return addr.String()
-}
-
-// addNewPeers adds peers that were not know before but arrived from the Management service with the update
-// addNewPeers adds up to maxBatch not-yet-present peers per call. It returns true
-// when more new peers remained than the cap, so the caller re-runs.
-func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig, maxBatch int) (bool, error) {
-	added := 0
-	for _, p := range peersUpdate {
-		if _, ok := e.peerStore.PeerConn(p.GetWgPubKey()); ok {
-			continue // already present (cheap skip), does not count toward the cap
-		}
-		if added >= maxBatch {
-			return true, nil // at least one more new peer remains
-		}
-		if err := e.addNewPeer(p); err != nil {
-			return false, err
-		}
-		added++
-	}
-	return false, nil
 }
 
 // addNewPeer add peer if connection doesn't exist. A peer that is not lazy by
