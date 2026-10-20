@@ -18,7 +18,7 @@ import (
 
 func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*types.Account, error) {
 	var key types.SetupKey
-	result := s.db.Select("account_id").Take(&key, GetKeyQueryCondition(s), setupKey)
+	result := s.db.Select("account_id").Take(&key, keyQueryCondition, setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewSetupKeyNotFoundError(setupKey)
@@ -37,7 +37,7 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.SetupKey, error) {
 	const query = `SELECT id, account_id, key, key_secret, name, type, created_at, expires_at, updated_at, 
 	revoked, used_times, last_used, auto_groups, usage_limit, ephemeral, allow_extra_dns_labels FROM setup_keys WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 
 func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) (string, error) {
 	var accountID string
-	result := s.db.Model(&types.SetupKey{}).Select("account_id").Where(GetKeyQueryCondition(s), setupKey).Take(&accountID)
+	result := s.db.Model(&types.SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).Take(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.NewSetupKeyNotFoundError(setupKey)
@@ -123,11 +123,11 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	var setupKey types.SetupKey
 	result := tx.
-		Take(&setupKey, GetKeyQueryCondition(s), key)
+		Take(&setupKey, keyQueryCondition, key)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.PreconditionFailed, "setup key not found")
+			return nil, status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")

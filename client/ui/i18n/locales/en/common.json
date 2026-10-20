@@ -1831,6 +1831,14 @@
         "message": "Your account is not allowed to use the NetBird service on this device. Contact your administrator for access.",
         "description": "Error: the NetBird background service refused this user account because an administrator restricted it to other users or groups."
     },
+    "error.settings_locked": {
+        "message": "Settings cannot be changed on this device: an administrator has locked them.",
+        "description": "Error: the local daemon was started with update-settings disabled, so it refuses configuration changes."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "This setting is managed by your organization and cannot be changed.",
+        "description": "Error: the setting is enforced by an MDM policy. 'MDM' = mobile device management, the organization's device-management system."
+    },
     "error.unknown": {
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."

@@ -413,7 +413,11 @@ func (s *ServiceManager) AddProfile(displayName string, callerId *ipcauth.Identi
 	}
 
 	profPath := filepath.Join(configDir, id.String()+".json")
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: callerId, Name: displayName})
+	// Provisioned, not bare: this config goes straight to disk, and a profile
+	// file with no identity is one whose first reader has to mint the keys and
+	// remember to write them back. Before identity generation moved out of
+	// apply() into EnsureIdentity, createNewConfig produced them here too.
+	cfg, err := createProvisionedConfig(ConfigInput{ConfigPath: profPath, Owner: callerId, Name: displayName})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
@@ -429,6 +433,10 @@ func (s *ServiceManager) AddProfile(displayName string, callerId *ipcauth.Identi
 	}, nil
 }
 
+// RenameProfile changes a profile's display name. It rewrites the whole
+// profile file, not just the name: the config is read through the normalizing
+// reader, so apply()'s resolved values (optional booleans, interface
+// blacklist, DNS route interval) are persisted along with the new name.
 func (s *ServiceManager) RenameProfile(id ID, newName string) error {
 	displayName, err := sanitizeDisplayName(newName)
 	if err != nil {

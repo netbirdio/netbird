@@ -486,16 +486,6 @@ func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	return ^uint16(sum)
 }
 
-// AddDNATRule adds outbound DNAT rule for forwarding external traffic to NetBird network.
-func (m *Manager) AddDNATRule(firewall.ForwardRule) (firewall.Rule, error) {
-	return nil, errNotSupported
-}
-
-// DeleteDNATRule deletes outbound DNAT rule.
-func (m *Manager) DeleteDNATRule(firewall.Rule) error {
-	return errNotSupported
-}
-
 // addPortRedirection adds a port redirection rule.
 func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, originalPort, translatedPort uint16) error {
 	m.portDNATMutex.Lock()

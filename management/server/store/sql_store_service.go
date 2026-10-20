@@ -30,7 +30,7 @@ const serviceSelectColumns = `id, account_id, name, domain, enabled, auth, restr
 func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
 	const serviceQuery = `SELECT ` + serviceSelectColumns + ` FROM services WHERE account_id = $1`
 
-	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
+	serviceRows, err := s.pgxPool().Query(ctx, serviceQuery, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 	targetType := &rpservice.Target{}
 
 	// Use a transaction to ensure atomic updates of the service and its targets
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		// Delete existing targets
 		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(targetType).Error; err != nil {
 			return err
