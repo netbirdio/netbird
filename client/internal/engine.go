@@ -1602,7 +1602,6 @@ func (e *Engine) receiveManagementEvents() {
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
-		e.applyInfoFlags(info)
 
 		// The map-state manager converges the latest update in the background in
 		// bounded passes; the stream callback only hands it the newest target.

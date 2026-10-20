@@ -294,6 +294,48 @@ func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
 	engine.shutdownWg.Wait()
 }
 
+// A refresh cut short by the engine shutting down returns no info. The sync
+// connect must still go ahead without dereferencing it: syncInfoFunc gathers a
+// fresh info when the refreshed one is missing.
+func TestEngine_SyncConnectSurvivesCancelledInfoRefresh(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	cancel()
+
+	synced := make(chan struct{}, 1)
+	mgmClient := &mgmt.MockClient{
+		SyncFunc: func(context.Context, func(context.Context) *system.Info, func(*mgmtProto.SyncResponse) error) error {
+			synced <- struct{}{}
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun105",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	engine.receiveManagementEvents()
+	engine.shutdownWg.Wait()
+
+	select {
+	case <-synced:
+	default:
+		t.Fatal("the sync stream should be opened even when the info refresh was cancelled")
+	}
+}
+
 func TestEngine_SyncInfoFuncReusesRefreshedInfoOnce(t *testing.T) {
 	engine := &Engine{config: &EngineConfig{}}
 
