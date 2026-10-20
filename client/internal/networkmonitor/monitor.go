@@ -57,11 +57,11 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 
 	defer nw.wg.Done()
 
-	var nexthop4, nexthop6 systemops.Nexthop
+	var baseline NextHops
 
 	operation := func() error {
 		var err error
-		nexthop4, nexthop6, err = readNextHops()
+		baseline, err = readSnapshot()
 		return err
 	}
 
@@ -80,7 +80,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 
 	event := make(chan struct{}, 1)
 	var woke atomic.Bool
-	go nw.checkChanges(ctx, event, &woke, nexthop4, nexthop6)
+	go nw.checkChanges(ctx, event, &woke, baseline.V4, baseline.V6)
 
 	log.Infof("start watching for network changes")
 	// debounce changes
@@ -91,7 +91,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (change Change, err error)
 		case <-event:
 			timer.Reset(debounceTime)
 		case <-timer.C:
-			change := newChange(nexthop4, nexthop6)
+			change := newChange(baseline)
 			if woke.Load() {
 				change.Kind = ChangeWake
 			}
@@ -145,13 +145,20 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 	}
 }
 
-// newChange compares the baseline next hops with the current ones. A failed
-// lookup leaves After empty, which classifies as an interface change.
-func newChange(nexthop4, nexthop6 systemops.Nexthop) Change {
-	before := NextHops{V4: nexthop4, V6: nexthop6}
-	var after NextHops
-	after.V4, after.V6, _ = readNextHops()
+// newChange compares the baseline with the current snapshot. A failed lookup
+// leaves After empty, which classifies as an interface change.
+func newChange(before NextHops) Change {
+	after, _ := readSnapshot()
 	return Change{Kind: classify(before, after), Before: before, After: after}
+}
+
+// readSnapshot returns the current underlay snapshot. It fails only when
+// neither family has a default next hop.
+func readSnapshot() (NextHops, error) {
+	var snapshot NextHops
+	var err error
+	snapshot.V4, snapshot.V6, err = readNextHops()
+	return snapshot, err
 }
 
 // readNextHops returns the current underlay default next hops. It fails only
