@@ -470,7 +470,7 @@ func getStoreEngineFromEnv() types.Engine {
 	}
 
 	value := types.Engine(strings.ToLower(kind))
-	if slices.Contains(supportedEngines, value) {
+	if slices.Contains(supportedEngines, value) || value == types.MysqlStoreEngine {
 		return value
 	}
 
@@ -535,6 +535,9 @@ func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn,
 			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 		}
 		return db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
+	case types.MysqlStoreEngine:
+		return nil, fmt.Errorf("the MySQL store engine is no longer supported. Please refer to the documentation for " +
+			"migrating to PostgreSQL: https://docs.netbird.io/selfhosted/migration/mysql-to-postgresql")
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
