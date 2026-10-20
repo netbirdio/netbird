@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -58,10 +59,10 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 	// wrap UDP connection, process server reflexive messages
 	// before they are passed to the UDPMux connection handler (connWorker)
 	m.params.UDPConn = &UDPConn{
-		PacketConn: params.UDPConn,
-		mux:        m,
-		logger:     params.Logger,
-		address:    params.WGAddress,
+		conn:    params.UDPConn,
+		mux:     m,
+		logger:  params.Logger,
+		address: params.WGAddress,
 	}
 
 	udpMuxParams := Params{
@@ -108,8 +109,11 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 }
 
 // UDPConn is a wrapper around UDPMux conn that overrides WriteTo to drop packets destined for the overlay subnet.
+// The underlying socket can be replaced, so the mux and everything holding it outlive a rebind of the
+// WireGuard sockets.
 type UDPConn struct {
-	net.PacketConn
+	mu      sync.RWMutex
+	conn    net.PacketConn
 	mux     *UniversalUDPMuxDefault
 	logger  logging.LeveledLogger
 	address wgaddr.Address
@@ -117,20 +121,60 @@ type UDPConn struct {
 
 // GetPacketConn returns the underlying PacketConn
 func (u *UDPConn) GetPacketConn() net.PacketConn {
-	return u.PacketConn
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	return u.conn
+}
+
+func (u *UDPConn) setPacketConn(conn net.PacketConn) {
+	u.mu.Lock()
+	u.conn = conn
+	u.mu.Unlock()
 }
 
 func (u *UDPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	udpAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
-		return u.PacketConn.WriteTo(b, addr)
+		return u.GetPacketConn().WriteTo(b, addr)
 	}
 	dst := udpAddr.AddrPort().Addr().Unmap()
 	if (u.address.Network.IsValid() && u.address.Network.Contains(dst)) || (u.address.IPv6Net.IsValid() && u.address.IPv6Net.Contains(dst)) {
 		log.Warnf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 		return 0, fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
-	return u.PacketConn.WriteTo(b, addr)
+	return u.GetPacketConn().WriteTo(b, addr)
+}
+
+func (u *UDPConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	return u.GetPacketConn().ReadFrom(b)
+}
+
+func (u *UDPConn) Close() error {
+	return u.GetPacketConn().Close()
+}
+
+func (u *UDPConn) LocalAddr() net.Addr {
+	return u.GetPacketConn().LocalAddr()
+}
+
+func (u *UDPConn) SetDeadline(t time.Time) error {
+	return u.GetPacketConn().SetDeadline(t)
+}
+
+func (u *UDPConn) SetReadDeadline(t time.Time) error {
+	return u.GetPacketConn().SetReadDeadline(t)
+}
+
+func (u *UDPConn) SetWriteDeadline(t time.Time) error {
+	return u.GetPacketConn().SetWriteDeadline(t)
+}
+
+// UpdateConn points the mux at a new socket, keeping its registered ICE
+// connections. Used when the WireGuard sockets it shares are reopened.
+func (m *UniversalUDPMuxDefault) UpdateConn(conn net.PacketConn) {
+	if wrapped, ok := m.params.UDPConn.(*UDPConn); ok {
+		wrapped.setPacketConn(conn)
+	}
 }
 
 // GetSharedConn returns the shared udp conn
