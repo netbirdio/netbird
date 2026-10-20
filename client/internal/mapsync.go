@@ -103,29 +103,21 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 // and returns the new desired state. It is called under m.mu from SetTarget and is
 // the single seam where the replace-vs-squash decision lives.
 //
-// Today management always sends a FULL map (the complete desired state), so the
-// update simply replaces whatever was pending — prev is ignored. When management
-// starts sending incremental/delta updates, squash `update` onto `prev` here; the
-// rest of the manager (generation tracking, convergence, signaling) is unaffected
-// because it already treats target as "the complete desired state, whatever it is".
+// Management sends full maps today, but an update may still omit a component: a
+// config-only update carries no map, a map-only one no NetBird config. A nil
+// component means "no change", so while prev is not yet applied, the components
+// update omits are filled in from prev and the ones it carries win. Once prev is
+// applied there is nothing to preserve and update replaces it. Delta updates will
+// squash onto prev here as well; the rest of the manager treats the target as the
+// complete desired state either way.
 func (m *mapStateManager) mergeTarget(prev, update *mgmProto.SyncResponse) *mgmProto.SyncResponse {
-	// Nothing pending to preserve (no prev, or prev already fully applied): plain replace.
 	if prev == nil || update == nil || m.targetGen == m.appliedGen {
 		return update
 	}
 
-	// prev still has unapplied state (targetGen > appliedGen). In the sync protocol a
-	// nil component means "no change", so if `update` omits a component that prev
-	// carried, carry prev's forward — otherwise coalescing an update that superseded a
-	// not-yet-applied one would silently drop the map or config it uniquely brought.
-	// A present component in `update` is newer and wins. Management may send map-only
-	// updates (nil config) and config-only updates (nil map); both are handled here.
-	// A nil component in `update` means "no change", so fill it in from prev — otherwise
-	// coalescing an update that superseded a not-yet-applied one would drop the map or
-	// config it uniquely carried. A present component in `update` is newer and wins.
-	// We mutate `update` in place: it is a fresh per-message allocation from the sync
-	// stream (see receiveUpdatesEvents — not reused), and persisting this squashed target
-	// is correct, since it is the current full (superset) desired state.
+	// update is mutated in place: receiveUpdatesEvents allocates a fresh message per
+	// stream read, and persisting the merged target is correct since it is the
+	// current desired state.
 	if !syncCarriesNetworkMap(update) && syncCarriesNetworkMap(prev) {
 		update.NetworkMap = prev.GetNetworkMap()
 		update.NetworkMapEnvelope = prev.GetNetworkMapEnvelope()
