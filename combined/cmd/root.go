@@ -701,7 +701,7 @@ func logRelayConfig(cfg *CombinedConfig) {
 	}
 	log.Info("--- Relay ---")
 	log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
-	log.Infof("  Auth secret: %s", util.MaskSecret(cfg.Relay.AuthSecret))
+	log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
 	if cfg.Relay.Stun.Enabled {
 		log.Infof("  STUN ports: %v (log level: %s)", cfg.Relay.Stun.Ports, cfg.Relay.Stun.LogLevel)
 	} else {
@@ -718,7 +718,7 @@ func logManagementConfig(cfg *CombinedConfig) {
 	log.Infof("  DNS domain: %s", cfg.Management.DnsDomain)
 	log.Infof("  Store engine: %s", cfg.Management.Store.Engine)
 	if cfg.Server.Store.DSN != "" {
-		log.Infof("  Store DSN: %s", util.MaskCredentials(cfg.Server.Store.DSN))
+		log.Infof("  Store DSN: %s", maskDSNPassword(cfg.Server.Store.DSN))
 	}
 
 	log.Info("  Auth (embedded IdP):")
@@ -758,24 +758,57 @@ func logAgentNetworkConfig(cfg *CombinedConfig) {
 
 // logEnvVars logs all NB_ environment variables that are currently set
 func logEnvVars() {
-	log.Info("=== Environment Variables ===")
+	log.Debug("=== Environment Variables ===")
 	found := false
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, "NB_") {
 			key, _, _ := strings.Cut(env, "=")
 			value := os.Getenv(key)
 			keyLower := strings.ToLower(key)
-			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") || strings.Contains(keyLower, "token") {
-				value = util.MaskSecret(value)
-			} else {
-				value = util.MaskCredentials(value)
+			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") {
+				value = maskSecret(value)
+			} else if strings.Contains(keyLower, "dsn") {
+				value = maskDSNPassword(value)
 			}
-			log.Infof("  %s=%s", key, value)
+			log.Debugf("  %s=%s", key, value)
 			found = true
 		}
 	}
 	if !found {
-		log.Info("  (none set)")
+		log.Debug("  (none set)")
 	}
-	log.Info("=== End Environment Variables ===")
+	log.Debug("=== End Environment Variables ===")
+}
+
+// maskDSNPassword masks the password in a DSN string.
+// Handles both key=value format ("password=secret") and URI format ("user:secret@host").
+func maskDSNPassword(dsn string) string {
+	// Key=value format: "host=localhost user=nb password=secret dbname=nb"
+	if strings.Contains(dsn, "password=") {
+		parts := strings.Fields(dsn)
+		for i, p := range parts {
+			if strings.HasPrefix(p, "password=") {
+				parts[i] = "password=****"
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+
+	// URI format: "user:password@host..."
+	if atIdx := strings.Index(dsn, "@"); atIdx != -1 {
+		prefix := dsn[:atIdx]
+		if colonIdx := strings.Index(prefix, ":"); colonIdx != -1 {
+			return prefix[:colonIdx+1] + "****" + dsn[atIdx:]
+		}
+	}
+
+	return dsn
+}
+
+// maskSecret returns first 4 chars of secret followed by "..."
+func maskSecret(secret string) string {
+	if len(secret) <= 4 {
+		return "****"
+	}
+	return secret[:4] + "..."
 }
