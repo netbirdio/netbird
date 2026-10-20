@@ -2507,6 +2507,10 @@ func (e *Engine) startNetworkMonitor() {
 				log.Infof("Network monitor: no default route left, waiting for the network to come back")
 				baseline = change.Before
 				continue
+			case actionNone:
+				log.Infof("Network monitor: route event without any underlay change, nothing to do")
+				baseline = change.After
+				continue
 			case actionRedial:
 				e.redialOnUnderlayChange(change)
 				watchCtx := watch.replace(e.ctx)

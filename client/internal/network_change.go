@@ -47,6 +47,10 @@ const (
 	// actionWait does nothing yet: the network is gone, and the change is
 	// handled when it comes back.
 	actionWait
+	// actionNone does nothing: nothing NetBird depends on moved. What the
+	// snapshot cannot see is left to the control connections' own retries and
+	// to the safety net of the next redial.
+	actionNone
 )
 
 // recoveryWatch keeps a single safety net running: the latest network change
@@ -69,18 +73,21 @@ func decideUnderlayAction(change networkmonitor.Change, hasNetEvents bool) under
 	if !canHandleWithoutRestart(change, hasNetEvents) {
 		return actionRestart
 	}
-	if change.Kind == networkmonitor.ChangeOffline {
+	switch change.Kind {
+	case networkmonitor.ChangeOffline:
 		return actionWait
+	case networkmonitor.ChangeNone:
+		return actionNone
+	default:
+		return actionRedial
 	}
-	return actionRedial
 }
 
-// canHandleWithoutRestart keeps the restart for an unchanged underlay (a flap
-// or a wake-up, where the restart is the only recovery today), for legacy
-// routing, whose /32 infra routes point at the old gateway, and for platforms
-// that pin the underlay at start.
+// canHandleWithoutRestart keeps the restart for a wake-up, out of scope and
+// still covered by the restart, for legacy routing, whose /32 infra routes
+// point at the old gateway, and for platforms that pin the underlay at start.
 func canHandleWithoutRestart(change networkmonitor.Change, hasNetEvents bool) bool {
-	if !hasNetEvents || change.Kind == networkmonitor.ChangeNone || change.Kind == networkmonitor.ChangeWake || redialDisabledByEnv() {
+	if !hasNetEvents || change.Kind == networkmonitor.ChangeWake || redialDisabledByEnv() {
 		return false
 	}
 	if !nbnet.AdvancedRouting() {

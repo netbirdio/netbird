@@ -23,7 +23,7 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 		hasNetEvents bool
 		want         bool
 	}{
-		{name: "unchanged underlay restarts", kind: networkmonitor.ChangeNone, hasNetEvents: true, want: false},
+		{name: "unchanged underlay skips the restart", kind: networkmonitor.ChangeNone, hasNetEvents: true, want: lightPath},
 		{name: "no netevents manager restarts", kind: networkmonitor.ChangeGateway, hasNetEvents: false, want: false},
 		{name: "address change, as with a new DHCP lease", kind: networkmonitor.ChangeAddress, hasNetEvents: true, want: lightPath},
 		{name: "gateway change", kind: networkmonitor.ChangeGateway, hasNetEvents: true, want: lightPath},
@@ -45,6 +45,8 @@ func TestDecideUnderlayAction(t *testing.T) {
 	}
 	assert.Equal(t, actionWait, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, true), "losing the network waits for it to come back")
 	assert.Equal(t, actionRedial, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeInterface}, true), "a moved default redials")
+	assert.Equal(t, actionNone, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeNone}, true), "an unchanged underlay does nothing")
+	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeWake}, true), "a wake-up keeps the restart")
 	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, false), "without netevents everything restarts")
 }
 
