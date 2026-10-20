@@ -57,12 +57,11 @@ func TestVLLMProvider(t *testing.T) {
 	// is enumerated so the router dispatches this model string to this provider.
 	dummyKey := "sk-vllm-e2e"
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             "vllm",
-		ProviderId:       "vllm",
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &dummyKey,
-		Enabled:          ptr(true),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
+		Name:        "vllm",
+		ProviderId:  "vllm",
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &dummyKey,
+		Enabled:     ptr(true),
 		Models: &[]api.AgentNetworkProviderModel{
 			{Id: harness.VLLMModel, InputPer1k: 0.001, OutputPer1k: 0.002},
 		},
@@ -106,11 +105,12 @@ func TestVLLMProvider(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
+	// Probe first: the GET resolves the endpoint (DNS error fails) and its first packet wakes the lazy proxy peer, so WaitProxyPeer sees it connected; any HTTP status counts.
+	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
+	require.NoError(t, err, "resolve endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
-	require.NoError(t, err, "resolve endpoint to proxy IP")
 
 	before, _ := srv.ListAccessLogs(ctx)
 	sessionID := "e2e-session-vllm"

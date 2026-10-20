@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 type ReverseProxy struct {
@@ -29,10 +30,10 @@ type ReverseProxy struct {
 	// forwardedProto overrides the X-Forwarded-Proto header value.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	forwardedProto string
-	// trustedProxies is a list of IP prefixes for trusted upstream proxies.
-	// When the direct connection comes from a trusted proxy, forwarding
-	// headers are preserved and appended to instead of being stripped.
-	trustedProxies []netip.Prefix
+	// trustedProxies is the set of trusted upstream proxies. When the direct
+	// connection comes from a trusted proxy, forwarding headers are preserved
+	// and appended to instead of being stripped.
+	trustedProxies *trustedproxy.List
 	mappingsMux    sync.RWMutex
 	mappings       map[string]Mapping
 	logger         *log.Logger
@@ -63,7 +64,7 @@ func WithMiddlewareManager(m *middleware.Manager) Option {
 // between requested URLs and targets.
 // The internal mappings can be modified using the AddMapping
 // and RemoveMapping functions.
-func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trustedProxies []netip.Prefix, logger *log.Logger, opts ...Option) *ReverseProxy {
+func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trustedProxies *trustedproxy.List, logger *log.Logger, opts ...Option) *ReverseProxy {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -81,7 +82,15 @@ func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trusted
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	result, exists := p.findTargetForRequest(r)
+	resolution, pinned := targetResolutionFromContext(r.Context())
+	result, exists := resolution.result, resolution.matched
+	if !pinned {
+		result, exists = p.findTargetForRequest(r)
+		if result.requirePinned {
+			p.serveProxyUnavailable(w, r)
+			return
+		}
+	}
 	if !exists {
 		p.serveRouteError(w, r, http.StatusNotFound, "Service Not Found",
 			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.")
@@ -118,12 +127,38 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rewriteMatchedPath = ""
 	}
 
-	chain := p.resolveChain(result)
+	chain, current := p.resolveChain(result)
+	if !current || (targetRequiresMiddleware(pt) && (chain == nil || chain.Empty())) {
+		p.serveProxyUnavailable(w, r)
+		return
+	}
 	if chain == nil || chain.Empty() {
 		p.serveDirect(w, r, ctx, result, rewriteMatchedPath)
 		return
 	}
 	p.serveWithChain(w, r, ctx, result, chain, rewriteMatchedPath, capturedData)
+}
+
+func (p *ReverseProxy) serveProxyUnavailable(w http.ResponseWriter, r *http.Request) {
+	if cd := CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(OriginProxyError)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	web.ServeErrorPage(w, r, http.StatusServiceUnavailable, "Service Unavailable",
+		"The requested service is being updated. Please try again shortly.", getRequestID(r),
+		web.ErrorStatus{Proxy: true, Destination: false})
+}
+
+func targetRequiresMiddleware(target *PathTarget) bool {
+	if target == nil {
+		return false
+	}
+	for _, spec := range target.Middlewares {
+		if spec.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // serveRouteError marks the request as un-routed on any captured-data
@@ -362,6 +397,9 @@ func (p *ReverseProxy) forwardUpstream(respWriter http.ResponseWriter, r *http.R
 	if result.rewriteRedirects {
 		rp.ModifyResponse = p.rewriteLocationFunc(effectiveURL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
+	if upstreamRewrite != nil && len(upstreamRewrite.DiscoveryModels) > 0 {
+		rp.ModifyResponse = modelDiscoveryFilter(upstreamRewrite.DiscoveryModels, rp.ModifyResponse) //nolint:bodyclose // the hook replaces the body and closes the original
+	}
 	rp.ServeHTTP(respWriter, r.WithContext(ctx))
 }
 
@@ -451,14 +489,15 @@ func applyUpstreamHeaders(r *http.Request, rewrite *middleware.UpstreamRewrite) 
 	}
 }
 
-// resolveChain returns the middleware chain registered for the
-// resolved target, or nil when middleware is disabled for the proxy
-// or the target.
-func (p *ReverseProxy) resolveChain(result targetResult) *middleware.Chain {
+// resolveChain returns a chain only from the target's routing revision.
+func (p *ReverseProxy) resolveChain(result targetResult) (*middleware.Chain, bool) {
 	if p.middlewareManager == nil {
-		return nil
+		return nil, result.middlewareRevision == 0
 	}
-	return p.middlewareManager.ChainFor(string(result.serviceID), result.matchedPath)
+	if result.middlewareRevision == 0 {
+		return p.middlewareManager.ChainFor(string(result.serviceID), result.matchedPath), true
+	}
+	return p.middlewareManager.ChainForRevision(string(result.serviceID), result.matchedPath, result.middlewareRevision)
 }
 
 // buildRequestInput gathers the per-request fields the middleware
@@ -527,7 +566,7 @@ func (p *ReverseProxy) isSelfTargetLoop(r *http.Request, target *url.URL) bool {
 	if !types.IsOverlayOrigin(r.Context()) {
 		return false
 	}
-	srcIP := extractHostIP(r.RemoteAddr)
+	srcIP := trustedproxy.ExtractHostIP(r.RemoteAddr)
 	if !srcIP.IsValid() {
 		return false
 	}
@@ -578,9 +617,9 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 
 		stampNetBirdIdentity(r)
 
-		clientIP := extractHostIP(r.In.RemoteAddr)
+		clientIP := trustedproxy.ExtractHostIP(r.In.RemoteAddr)
 
-		if isTrustedAddr(clientIP, p.trustedProxies) {
+		if p.trustedProxies.Contains(clientIP) {
 			p.setTrustedForwardingHeaders(r, clientIP)
 		} else {
 			p.setUntrustedForwardingHeaders(r, clientIP)
@@ -664,7 +703,7 @@ func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, cli
 	if realIP := r.In.Header.Get("X-Real-IP"); realIP != "" {
 		r.Out.Header.Set("X-Real-IP", realIP)
 	} else {
-		resolved := ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"), p.trustedProxies)
+		resolved := p.trustedProxies.ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"))
 		r.Out.Header.Set("X-Real-IP", resolved.String())
 	}
 
@@ -717,12 +756,13 @@ func stripSessionCookie(r *httputil.ProxyRequest) {
 	}
 }
 
-// stripSessionTokenQuery removes the OIDC session_token query parameter from
-// the outgoing URL to prevent credential leakage to backends.
+// stripSessionTokenQuery removes the OIDC session hand-off query parameters
+// from the outgoing URL to prevent credential leakage to backends.
 func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 	q := r.Out.URL.Query()
-	if q.Has("session_token") {
-		q.Del("session_token")
+	if q.Has(auth.SessionTokenQueryParam) || q.Has(auth.SessionCodeQueryParam) {
+		q.Del(auth.SessionTokenQueryParam)
+		q.Del(auth.SessionCodeQueryParam)
 		r.Out.URL.RawQuery = q.Encode()
 	}
 }
@@ -801,6 +841,12 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 		errors.Is(err, roundtrip.ErrClientStartFailed):
 		return "Proxy Not Connected",
 			"The proxy is not connected to the NetBird network. Please try again later or contact your administrator.",
+			http.StatusBadGateway,
+			web.ErrorStatus{Proxy: false, Destination: false}
+
+	case errors.Is(err, roundtrip.ErrDirectUpstreamBlocked):
+		return "Destination Not Allowed",
+			"This proxy does not connect to private or internal addresses. Please contact your administrator.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: false, Destination: false}
 

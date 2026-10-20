@@ -6,6 +6,14 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 )
 
+//go:generate go tool mockgen -source=./update_debouncer.go -destination=./update_debouncer_mock.go -package=grpc
+type Debouncer interface {
+	Stop()
+	TimerChannel() <-chan time.Time
+	ProcessUpdate(update *network_map.UpdateMessage) bool
+	GetPendingUpdates() []*network_map.UpdateMessage
+}
+
 // UpdateDebouncer implements a backpressure mechanism that:
 // - Sends the first update immediately
 // - Coalesces rapid subsequent network map updates (only latest matters)

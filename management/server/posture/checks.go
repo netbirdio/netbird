@@ -7,7 +7,6 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
-	log "github.com/sirupsen/logrus"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -20,6 +19,7 @@ const (
 	GeoLocationCheckName      = "GeoLocationCheck"
 	PeerNetworkRangeCheckName = "PeerNetworkRangeCheck"
 	ProcessCheckName          = "ProcessCheck"
+	CertificateCheckName      = "CertificateCheck"
 
 	CheckActionAllow string = "allow"
 	CheckActionDeny  string = "deny"
@@ -49,48 +49,10 @@ type Checks struct {
 	// AccountID is a reference to the Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
+	PublicID string `json:"-"`
+
 	// Checks is a set of objects that perform the actual checks
 	Checks ChecksDefinition `gorm:"serializer:json"`
-}
-
-// AffectsPosture reports whether the change in diff flips the verdict of any check. It
-// replays each check against the peer's old and new state and compares verdicts, so a
-// change that moves a field but stays the right side of a threshold (e.g. a kernel bump
-// still above the minimum) does not force a re-evaluation. See verdictChanged for how an
-// evaluation error counts.
-func AffectsPosture(ctx context.Context, diff *nbpeer.MetaDiff, checks []*Checks) bool {
-	if diff == nil {
-		return false
-	}
-
-	oldPeer := nbpeer.Peer{Meta: diff.OldMeta, Location: diff.OldLocation}
-	newPeer := nbpeer.Peer{Meta: diff.NewMeta, Location: diff.NewLocation}
-
-	for _, c := range checks {
-		for _, check := range c.GetChecks() {
-			if verdictChanged(ctx, check, oldPeer, newPeer) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// verdictChanged replays check against old and new state and reports whether the verdict
-// differs. Like callers, it treats an evaluation error as deny: two errors are the same
-// verdict (no change), an error on one side only is a flip.
-func verdictChanged(ctx context.Context, check Check, oldPeer, newPeer nbpeer.Peer) bool {
-	oldPass, oldErr := check.Check(ctx, oldPeer)
-	newPass, newErr := check.Check(ctx, newPeer)
-
-	oldVerdict := oldPass && (oldErr == nil)
-	newVerdict := newPass && (newErr == nil)
-	changed := oldVerdict != newVerdict
-
-	log.WithContext(ctx).Tracef("posture check %s replay: verdict %t -> %t (changed=%t), errs: %v -> %v",
-		check.Name(), oldVerdict, newVerdict, changed, oldErr, newErr)
-
-	return changed
 }
 
 // ChecksDefinition contains definition of actual check
@@ -100,6 +62,7 @@ type ChecksDefinition struct {
 	GeoLocationCheck      *GeoLocationCheck      `json:",omitempty"`
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:",omitempty"`
 	ProcessCheck          *ProcessCheck          `json:",omitempty"`
+	CertificateCheck      *CertificateCheck      `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -152,6 +115,12 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 		}
 		copy(cdCopy.ProcessCheck.Processes, processCheck.Processes)
 	}
+	if cd.CertificateCheck != nil {
+		cdCopy.CertificateCheck = &CertificateCheck{
+			CACertificates: make([]string, len(cd.CertificateCheck.CACertificates)),
+		}
+		copy(cdCopy.CertificateCheck.CACertificates, cd.CertificateCheck.CACertificates)
+	}
 	return cdCopy
 }
 
@@ -167,6 +136,7 @@ func (pc *Checks) Copy() *Checks {
 		Name:        pc.Name,
 		Description: pc.Description,
 		AccountID:   pc.AccountID,
+		PublicID:    pc.PublicID,
 		Checks:      pc.Checks.Copy(),
 	}
 	return checks
@@ -194,6 +164,9 @@ func (pc *Checks) GetChecks() []Check {
 	}
 	if pc.Checks.ProcessCheck != nil {
 		checks = append(checks, pc.Checks.ProcessCheck)
+	}
+	if pc.Checks.CertificateCheck != nil {
+		checks = append(checks, pc.Checks.CertificateCheck)
 	}
 	return checks
 }
@@ -250,6 +223,10 @@ func buildPostureCheck(postureChecksID string, name string, description string, 
 		postureChecks.Checks.ProcessCheck = toProcessCheck(processCheck)
 	}
 
+	if certificateCheck := checks.CertificateCheck; certificateCheck != nil {
+		postureChecks.Checks.CertificateCheck = &CertificateCheck{CACertificates: certificateCheck.CaCertificates}
+	}
+
 	return &postureChecks, nil
 }
 
@@ -282,6 +259,10 @@ func (pc *Checks) ToAPIResponse() *api.PostureCheck {
 
 	if pc.Checks.ProcessCheck != nil {
 		checks.ProcessCheck = toProcessCheckResponse(pc.Checks.ProcessCheck)
+	}
+
+	if pc.Checks.CertificateCheck != nil {
+		checks.CertificateCheck = &api.CertificateCheck{CaCertificates: pc.Checks.CertificateCheck.CACertificates}
 	}
 
 	return &api.PostureCheck{

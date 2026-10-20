@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -41,6 +42,8 @@ func TestSaveAndLoadServiceParams(t *testing.T) {
 	params := &serviceParams{
 		LogLevel:              "debug",
 		DaemonAddr:            "unix:///var/run/netbird.sock",
+		JSONSocket:            "tcp://127.0.0.1:8080",
+		EnableJSONSocket:      true,
 		ManagementURL:         "https://my.server.com",
 		ConfigPath:            "/etc/netbird/config.json",
 		LogFiles:              []string{"/var/log/netbird/client.log", "console"},
@@ -63,6 +66,8 @@ func TestSaveAndLoadServiceParams(t *testing.T) {
 
 	assert.Equal(t, params.LogLevel, loaded.LogLevel)
 	assert.Equal(t, params.DaemonAddr, loaded.DaemonAddr)
+	assert.Equal(t, params.JSONSocket, loaded.JSONSocket)
+	assert.Equal(t, params.EnableJSONSocket, loaded.EnableJSONSocket)
 	assert.Equal(t, params.ManagementURL, loaded.ManagementURL)
 	assert.Equal(t, params.ConfigPath, loaded.ConfigPath)
 	assert.Equal(t, params.LogFiles, loaded.LogFiles)
@@ -101,6 +106,8 @@ func TestLoadServiceParams_InvalidJSON(t *testing.T) {
 func TestCurrentServiceParams(t *testing.T) {
 	origLogLevel := logLevel
 	origDaemonAddr := daemonAddr
+	origJSONSocket := jsonSocket
+	origEnableJSONSocket := enableJSONSocket
 	origManagementURL := managementURL
 	origConfigPath := configPath
 	origLogFiles := logFiles
@@ -110,6 +117,8 @@ func TestCurrentServiceParams(t *testing.T) {
 	t.Cleanup(func() {
 		logLevel = origLogLevel
 		daemonAddr = origDaemonAddr
+		jsonSocket = origJSONSocket
+		enableJSONSocket = origEnableJSONSocket
 		managementURL = origManagementURL
 		configPath = origConfigPath
 		logFiles = origLogFiles
@@ -120,6 +129,8 @@ func TestCurrentServiceParams(t *testing.T) {
 
 	logLevel = "trace"
 	daemonAddr = "tcp://127.0.0.1:9999"
+	jsonSocket = "tcp://127.0.0.1:8080"
+	enableJSONSocket = true
 	managementURL = "https://mgmt.example.com"
 	configPath = "/tmp/test-config.json"
 	logFiles = []string{"/tmp/test.log"}
@@ -131,6 +142,8 @@ func TestCurrentServiceParams(t *testing.T) {
 
 	assert.Equal(t, "trace", params.LogLevel)
 	assert.Equal(t, "tcp://127.0.0.1:9999", params.DaemonAddr)
+	assert.Equal(t, "tcp://127.0.0.1:8080", params.JSONSocket)
+	assert.True(t, params.EnableJSONSocket)
 	assert.Equal(t, "https://mgmt.example.com", params.ManagementURL)
 	assert.Equal(t, "/tmp/test-config.json", params.ConfigPath)
 	assert.Equal(t, []string{"/tmp/test.log"}, params.LogFiles)
@@ -142,6 +155,8 @@ func TestCurrentServiceParams(t *testing.T) {
 func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	origLogLevel := logLevel
 	origDaemonAddr := daemonAddr
+	origJSONSocket := jsonSocket
+	origEnableJSONSocket := enableJSONSocket
 	origManagementURL := managementURL
 	origConfigPath := configPath
 	origLogFiles := logFiles
@@ -151,6 +166,8 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	t.Cleanup(func() {
 		logLevel = origLogLevel
 		daemonAddr = origDaemonAddr
+		jsonSocket = origJSONSocket
+		enableJSONSocket = origEnableJSONSocket
 		managementURL = origManagementURL
 		configPath = origConfigPath
 		logFiles = origLogFiles
@@ -162,6 +179,8 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	// Reset all flags to defaults.
 	logLevel = "info"
 	daemonAddr = "unix:///var/run/netbird.sock"
+	jsonSocket = defaultJSONSocket
+	enableJSONSocket = false
 	managementURL = ""
 	configPath = "/etc/netbird/config.json"
 	logFiles = []string{"/var/log/netbird/client.log"}
@@ -184,6 +203,8 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	saved := &serviceParams{
 		LogLevel:              "debug",
 		DaemonAddr:            "tcp://127.0.0.1:5555",
+		JSONSocket:            "tcp://127.0.0.1:8080",
+		EnableJSONSocket:      true,
 		ManagementURL:         "https://saved.example.com",
 		ConfigPath:            "/saved/config.json",
 		LogFiles:              []string{"/saved/client.log"},
@@ -201,6 +222,8 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 
 	// All other fields were not Changed, so they should use saved values.
 	assert.Equal(t, "tcp://127.0.0.1:5555", daemonAddr)
+	assert.Equal(t, "tcp://127.0.0.1:8080", jsonSocket)
+	assert.True(t, enableJSONSocket)
 	assert.Equal(t, "https://saved.example.com", managementURL)
 	assert.Equal(t, "/saved/config.json", configPath)
 	assert.Equal(t, []string{"/saved/client.log"}, logFiles)
@@ -212,14 +235,17 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 func TestApplyServiceParams_BooleanRevertToFalse(t *testing.T) {
 	origProfilesDisabled := profilesDisabled
 	origUpdateSettingsDisabled := updateSettingsDisabled
+	origEnableJSONSocket := enableJSONSocket
 	t.Cleanup(func() {
 		profilesDisabled = origProfilesDisabled
 		updateSettingsDisabled = origUpdateSettingsDisabled
+		enableJSONSocket = origEnableJSONSocket
 	})
 
 	// Simulate current state where booleans are true (e.g. set by previous install).
 	profilesDisabled = true
 	updateSettingsDisabled = true
+	enableJSONSocket = true
 
 	// Reset Changed state so flags appear unset.
 	serviceCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
@@ -238,6 +264,7 @@ func TestApplyServiceParams_BooleanRevertToFalse(t *testing.T) {
 
 	assert.False(t, profilesDisabled, "saved false should override current true")
 	assert.False(t, updateSettingsDisabled, "saved false should override current true")
+	assert.False(t, enableJSONSocket, "saved false should override current true")
 }
 
 func TestApplyServiceParams_ClearManagementURL(t *testing.T) {
@@ -325,6 +352,59 @@ func TestApplyServiceEnvParams_NotChanged(t *testing.T) {
 	result, err := parseServiceEnvVars(serviceEnvVars)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"FROM_SAVED": "val"}, result)
+}
+
+func TestParseServiceEnvVars_RejectsForbiddenNames(t *testing.T) {
+	for _, env := range []string{"PATH=C:\\somewhere", "LD_PRELOAD=/tmp/lib.so", "DYLD_FALLBACK_LIBRARY_PATH=/tmp"} {
+		_, err := parseServiceEnvVars([]string{"KEEP=me", env})
+		require.Errorf(t, err, "%s selects what the service resolves and must be refused", env)
+	}
+}
+
+func TestIsForbiddenServiceEnvVar(t *testing.T) {
+	// The loader families are matched by prefix, so a name nobody has heard of
+	// yet is refused too.
+	for _, name := range []string{
+		"PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
+		"LD_PRELOAD", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_FALLBACK_FRAMEWORK_PATH",
+	} {
+		assert.Truef(t, isForbiddenServiceEnvVar(name), "%s must be refused", name)
+	}
+
+	// The prefix must not swallow names that merely start with the same letters.
+	for _, name := range []string{"NB_LOG_LEVEL", "NB_WG_DEBUG", "HTTPS_PROXY", "LDAP_URL", "DYLDX"} {
+		assert.Falsef(t, isForbiddenServiceEnvVar(name), "%s has no reason to be refused", name)
+	}
+
+	// On Windows a variable is the same one however it is spelled; elsewhere
+	// Path and PATH are two variables and only the exact one is read.
+	if runtime.GOOS == "windows" {
+		assert.True(t, isForbiddenServiceEnvVar("Path"))
+		assert.True(t, isForbiddenServiceEnvVar("ld_preload"))
+	} else {
+		assert.False(t, isForbiddenServiceEnvVar("Path"))
+		assert.False(t, isForbiddenServiceEnvVar("ld_preload"))
+	}
+}
+
+func TestApplyServiceEnvParams_DropsForbiddenSavedNames(t *testing.T) {
+	origServiceEnvVars := serviceEnvVars
+	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
+
+	serviceEnvVars = nil
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+
+	saved := &serviceParams{
+		ServiceEnvVars: map[string]string{"PATH": "C:\\attacker", "NB_LOG_FORMAT": "json"},
+	}
+
+	applyServiceEnvParams(cmd, saved)
+
+	result, err := parseServiceEnvVars(serviceEnvVars)
+	require.NoError(t, err, "a saved PATH must be dropped rather than fail the install")
+	assert.Equal(t, map[string]string{"NB_LOG_FORMAT": "json"}, result)
 }
 
 func TestApplyServiceEnvParams_ExplicitEmptyClears(t *testing.T) {
@@ -530,6 +610,7 @@ func fieldToGlobalVar(field string) string {
 	m := map[string]string{
 		"LogLevel":              "logLevel",
 		"DaemonAddr":            "daemonAddr",
+		"JSONSocket":            "jsonSocket",
 		"ManagementURL":         "managementURL",
 		"ConfigPath":            "configPath",
 		"LogFiles":              "logFiles",
@@ -537,6 +618,7 @@ func fieldToGlobalVar(field string) string {
 		"DisableUpdateSettings": "updateSettingsDisabled",
 		"EnableCapture":         "captureEnabled",
 		"DisableNetworks":       "networksDisabled",
+		"EnableJSONSocket":      "enableJSONSocket",
 		"ServiceEnvVars":        "serviceEnvVars",
 	}
 	if v, ok := m[field]; ok {

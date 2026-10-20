@@ -1,0 +1,11 @@
+skip_untranslated_strings: true
+skip_untranslated_files: true
+import_eq_suggestions: true
+
+files:
+  - source: /client/ui/i18n/locales/en/common.json
+    translation: /client/ui/i18n/locales/%two_letters_code%/common.json
+    type: chrome
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-CN

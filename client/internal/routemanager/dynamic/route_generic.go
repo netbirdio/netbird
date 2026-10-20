@@ -3,11 +3,12 @@
 package dynamic
 
 import (
+	"context"
 	"net"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
-func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
-	return net.LookupIP(domain.PunycodeString())
+func (r *Route) getIPsFromResolver(ctx context.Context, domain domain.Domain) ([]net.IP, error) {
+	return lookupHostIPs(ctx, domain)
 }

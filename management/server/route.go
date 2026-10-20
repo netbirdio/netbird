@@ -175,6 +175,8 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
+		newRoute.PublicID = xid.New().String()
+
 		if err = transaction.SaveRoute(ctx, newRoute); err != nil {
 			return err
 		}
@@ -222,6 +224,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		}
 
 		routeToSave.AccountID = accountID
+		routeToSave.PublicID = oldRoute.PublicID
 
 		if err = transaction.SaveRoute(ctx, routeToSave); err != nil {
 			return err

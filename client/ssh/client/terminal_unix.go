@@ -12,6 +12,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
+
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 )
 
 func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) error {
@@ -82,37 +84,7 @@ func (c *Client) setupTerminal(session *ssh.Session, fd int) error {
 		return fmt.Errorf("get terminal size: %w", err)
 	}
 
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
-		// Ctrl+C
-		ssh.VINTR: 3,
-		// Ctrl+\
-		ssh.VQUIT: 28,
-		// Backspace
-		ssh.VERASE: 127,
-		// Ctrl+U
-		ssh.VKILL: 21,
-		// Ctrl+D
-		ssh.VEOF:  4,
-		ssh.VEOL:  0,
-		ssh.VEOL2: 0,
-		// Ctrl+Q
-		ssh.VSTART: 17,
-		// Ctrl+S
-		ssh.VSTOP: 19,
-		// Ctrl+Z
-		ssh.VSUSP: 26,
-		// Ctrl+O
-		ssh.VDISCARD: 15,
-		// Ctrl+R
-		ssh.VREPRINT: 18,
-		// Ctrl+W
-		ssh.VWERASE: 23,
-		// Ctrl+V
-		ssh.VLNEXT: 22,
-	}
+	modes := nbssh.DefaultTerminalModes
 
 	terminal := os.Getenv("TERM")
 	if terminal == "" {

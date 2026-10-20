@@ -130,8 +130,3 @@ func GetClientPrivate(iface privateClientIface, upstreamIP netip.Addr, dialTimeo
 	}
 	return client, nil
 }
-
-func getInterfaceIndex(interfaceName string) (int, error) {
-	iface, err := net.InterfaceByName(interfaceName)
-	return iface.Index, err
-}

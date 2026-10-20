@@ -25,21 +25,28 @@ type Listener struct {
 	listener *quic.Listener
 }
 
-func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
+func (l *Listener) Bind() error {
 	quicCfg := &quic.Config{
 		EnableDatagrams:   true,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
 	listener, err := quic.ListenAddr(l.Address, l.TLSConfig, quicCfg)
 	if err != nil {
-		return fmt.Errorf("failed to create QUIC listener: %v", err)
+		return err
 	}
 
 	l.listener = listener
 	log.Infof("QUIC server listening on address: %s", l.Address)
+	return nil
+}
+
+func (l *Listener) Serve(acceptFn func(conn relaylistener.Conn)) error {
+	if l.listener == nil {
+		return errors.New("listener is not bound")
+	}
 
 	for {
-		session, err := listener.Accept(context.Background())
+		session, err := l.listener.Accept(context.Background())
 		if err != nil {
 			if errors.Is(err, quic.ErrServerClosed) {
 				return nil
@@ -51,7 +58,10 @@ func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
 
 		log.Infof("QUIC client connected from: %s", session.RemoteAddr())
 		conn := NewConn(session)
-		acceptFn(conn)
+		// Run the accept handler (which performs the pre-auth handshake) in its
+		// own goroutine so a slow or stalled handshake cannot block accepting
+		// further connections.
+		go acceptFn(conn)
 	}
 }
 

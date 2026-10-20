@@ -18,9 +18,11 @@ import (
 	"context"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -49,6 +51,7 @@ type Snapshot struct {
 	policies       []*types.Policy
 	routes         []*route.Route
 	nsGroups       []*nbdns.NameServerGroup
+	zones          []*zones.Zone
 	dnsSettings    *types.DNSSettings
 	routers        []*routerTypes.NetworkRouter
 	resources      []*resourceTypes.NetworkResource
@@ -83,7 +86,7 @@ func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accoun
 	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.LinkGroups) > 0 || len(c.Resources) > 0
 	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
 	// the resource<->router bridge can fire for any of these
-	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
+	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject || len(c.UserGroupIDs) > 0 || c.AllowedUsersChanged
 
 	if needsRoutersResources {
 		if err := snap.loadPolicyRoutersResources(ctx, s, accountID); err != nil {
@@ -126,10 +129,13 @@ func (snap *Snapshot) loadRoutesAndProxy(ctx context.Context, s store.Store, acc
 	return snap.loadProxyServices(ctx, s, accountID)
 }
 
-// loadDNS loads the nameserver groups and account DNS settings.
+// loadDNS loads the nameserver groups, custom DNS zones and account DNS settings.
 func (snap *Snapshot) loadDNS(ctx context.Context, s store.Store, accountID string) error {
 	var err error
 	if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	if snap.zones, err = s.GetAccountZones(ctx, store.LockingStrengthNone, accountID); err != nil {
 		return err
 	}
 	snap.dnsSettings, err = s.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
@@ -219,6 +225,18 @@ type Change struct {
 	// (correct when the peer's own attributes changed, e.g. IP/status).
 	OutputPeerIDs []string
 
+	// UserGroupIDs are groups whose USER membership changed (a user's auto-groups),
+	// as opposed to their peer membership. Peers ship the group -> user mapping only
+	// for the groups an SSH rule authorizes, so these refresh the destinations of the
+	// SSH rules authorizing them — independently of any peer moving between groups.
+	UserGroupIDs []string
+
+	// AllowedUsersChanged marks a change to the set of users allowed to open SSH
+	// sessions — a user was created, blocked or unblocked. That set is account-wide,
+	// and peers receive it through the SSH rules that name no group or user of their
+	// own, so those rules' destinations refresh.
+	AllowedUsersChanged bool
+
 	// LinkGroups are groups used ONLY to match policies/routes/routers and walk to the
 	// OPPOSITE side — they are never expanded to their own members. Use this when a
 	// peer's group membership changed: pass the peer in ChangedPeerIDs and its
@@ -240,6 +258,8 @@ func (c Change) isEmpty() bool {
 		len(c.Resources) == 0 &&
 		len(c.Networks) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
+		len(c.UserGroupIDs) == 0 &&
+		!c.AllowedUsersChanged &&
 		len(c.DistributionGroupIDs) == 0 &&
 		len(c.RemovedPeersByGroup) == 0 &&
 		len(c.LinkGroups) == 0 &&
@@ -247,10 +267,10 @@ func (c Change) isEmpty() bool {
 }
 
 // Expand returns the deduplicated affected peer IDs from the preloaded Snapshot,
-// no store access. Run after the producing tx commits. Logs the full walk at
-// trace level for diagnosing a miscalculation.
+// no store access. Run after the producing tx commits. A nil Snapshot expands to
+// nothing. Logs the full walk at trace level for diagnosing a miscalculation.
 func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []string {
-	if c.isEmpty() {
+	if snap == nil || c.isEmpty() {
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
@@ -342,7 +362,7 @@ func (s policySide) opposite() policySide {
 //   - a changed router/resource/network sits on a NETWORK -> fold the SOURCE side of
 //     the policies whose destination reaches it (and the routers it implies).
 //
-// Routes, nameserver groups, DNS and embedded-proxy services distribute to their own
+// Routes, nameserver groups, DNS zones, DNS and embedded-proxy services distribute to their own
 // member peers, outside the policy graph, and are folded here too.
 func (r *resolver) walk() {
 	for _, policy := range r.bothSidesPolicies() {
@@ -354,10 +374,14 @@ func (r *resolver) walk() {
 		r.collectFromPolicies()
 		r.collectFromRoutes()
 		r.collectFromNameServers()
+		r.collectFromZones()
 		r.collectFromDNSSettings()
 		r.collectFromNetworkRouters()
 		r.collectFromProxyServices()
 	}
+
+	r.collectFromSSHAuthorizedGroups()
+	r.collectFromAllowedUsers()
 
 	r.collectFromChangedRoutes(r.change.Routes)
 	r.collectFromChangedRouters(r.change.Routers)
@@ -809,6 +833,78 @@ func (r *resolver) collectFromNameServers() {
 			r.foldOutputGroups(ns.Groups)
 		}
 	}
+}
+
+// collectFromZones folds the distribution groups of the custom DNS zones that
+// reference a linked group. Like nameserver groups, a zone has no opposite side, so
+// only a whole-group change folds its groups. Zones the network map does not ship
+// (disabled or without records) are skipped.
+func (r *resolver) collectFromZones() {
+	if len(r.linkGroups) == 0 {
+		return
+	}
+	for _, zone := range r.snap.zones {
+		if !zone.Enabled || len(zone.Records) == 0 {
+			continue
+		}
+		if anyInSet(zone.DistributionGroups, r.linkGroups) {
+			log.WithContext(r.ctx).Tracef("collectFromZones: zone %s references a linked group -> folding its groups %v (outputGroups only)", zone.ID, zone.DistributionGroups)
+			r.foldOutputGroups(zone.DistributionGroups)
+		}
+	}
+}
+
+// collectFromSSHAuthorizedGroups folds the destinations of the enabled SSH rules that
+// authorize a group whose user membership changed. Those destination peers carry the
+// group -> user mapping for the groups they authorize, so they refresh even when no
+// peer moved between groups.
+func (r *resolver) collectFromSSHAuthorizedGroups() {
+	if len(r.change.UserGroupIDs) == 0 {
+		return
+	}
+
+	changed := toSet(r.change.UserGroupIDs)
+	for _, policy := range r.policies() {
+		for _, rule := range policy.Rules {
+			if !rule.Enabled || rule.Protocol != types.PolicyRuleProtocolNetbirdSSH {
+				continue
+			}
+			if !anyInSet(maps.Keys(rule.AuthorizedGroups), changed) {
+				continue
+			}
+			log.WithContext(r.ctx).Tracef("collectFromSSHAuthorizedGroups: rule %s authorizes a changed user group -> folding its destinations", rule.ID)
+			r.foldPolicySideForRule(policy, rule, sideDestination)
+		}
+	}
+}
+
+// collectFromAllowedUsers folds the destinations of the rules that make a peer carry
+// the account's allowed-user set, for a change to who is in that set.
+func (r *resolver) collectFromAllowedUsers() {
+	if !r.change.AllowedUsersChanged {
+		return
+	}
+
+	for _, policy := range r.policies() {
+		for _, rule := range policy.Rules {
+			if !rule.Enabled || !ruleShipsAllowedUsers(rule) {
+				continue
+			}
+			log.WithContext(r.ctx).Tracef("collectFromAllowedUsers: rule %s ships the allowed-user set -> folding its destinations", rule.ID)
+			r.foldPolicySideForRule(policy, rule, sideDestination)
+		}
+	}
+}
+
+// ruleShipsAllowedUsers reports whether a rule makes its destination peers carry the
+// account's allowed-user set. It mirrors the network map's SSH requirements except for
+// the destination peer's own SSH flag, which the snapshot does not hold — so it folds a
+// superset and never misses a peer.
+func ruleShipsAllowedUsers(rule *types.PolicyRule) bool {
+	if rule.Protocol == types.PolicyRuleProtocolNetbirdSSH {
+		return len(rule.AuthorizedGroups) == 0 && rule.AuthorizedUser == ""
+	}
+	return types.PolicyRuleImpliesLegacySSH(rule)
 }
 
 func (r *resolver) collectFromDNSSettings() {

@@ -37,23 +37,32 @@
 // Updater Process (Setup):
 //
 //  1. Receives parameters from service via command-line arguments
-//  2. Runs installer with appropriate silent/quiet flags:
+//  2. Terminates the UI so the installer does not have to replace a locked image
+//     file, which would otherwise leave the install needing a reboot
+//  3. Runs installer with appropriate silent/quiet flags:
 //     - Windows EXE: installer.exe /S
-//     - Windows MSI: msiexec.exe /i installer.msi /quiet /qn /l*v msi.log
+//     - Windows MSI: msiexec.exe /i installer.msi /qn /norestart REBOOT=ReallySuppress /l*v msi.log
 //     - macOS PKG: installer -pkg installer.pkg -target /
 //     - macOS Homebrew: brew upgrade netbirdio/tap/netbird
-//  3. Installer terminates daemon and UI processes
-//  4. Installer replaces binaries with new version
-//  5. Updater waits for installer to complete
-//  6. Updater restarts daemon:
+//  4. Installer terminates the daemon
+//  5. Installer replaces binaries with new version
+//  6. Updater waits for installer to complete. On Windows, MSI exit codes 3010
+//     (ERROR_SUCCESS_REBOOT_REQUIRED) and 1641 (ERROR_SUCCESS_REBOOT_INITIATED)
+//     are a pending-reboot outcome, not a failure: the install succeeded, but
+//     some files are only replaced on the next restart (the reboot itself is
+//     suppressed via /norestart and REBOOT=ReallySuppress), and the flow
+//     continues as on success
+//  7. Updater restarts daemon:
 //     - Windows: netbird.exe service start
 //     - macOS/Linux: netbird service start
-//  7. Updater restarts UI:
-//     - Windows: Launches netbird-ui.exe as active console user using CreateProcessAsUser
+//  8. Updater restarts UI:
+//     - Windows: Launches netbird-ui.exe using CreateProcessAsUser in every
+//     session it was terminated in, falling back to the active console session
 //     - macOS: Uses launchctl asuser to launch NetBird.app for console user
 //     - Linux: Not implemented (UI typically auto-starts)
-//  8. Updater writes result.json with success/error status
-//  9. Updater process exits
+//  9. Updater writes result.json with success/error status (a pending reboot is
+//     recorded as success)
+//  10. Updater process exits
 //
 // # Result Communication
 //
@@ -99,6 +108,10 @@
 //   - Updater binary copy
 //   - Does NOT remove result.json (cleaned by ResultHandler after read)
 //   - Does NOT remove msi.log (kept for debugging)
+//
+// On Windows the updater copy is often still locked when the daemon it restarted
+// runs cleanup, so removing it is retried briefly and otherwise left in place for
+// the next update to overwrite rather than reported as a failure.
 //
 // # Dry-Run Mode
 //

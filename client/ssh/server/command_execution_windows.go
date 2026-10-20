@@ -243,7 +243,7 @@ func (s *Server) setUserEnvironmentVariables(envMap map[string]string, userProfi
 
 // prepareCommandEnv prepares environment variables for command execution on Windows
 func (s *Server) prepareCommandEnv(logger *log.Entry, localUser *user.User, session ssh.Session) []string {
-	username, domain := s.parseUsername(localUser.Username)
+	username, domain := parseUsername(localUser.Username)
 	userEnv, err := s.getUserEnvironment(logger, username, domain)
 	if err != nil {
 		log.Debugf("failed to get user environment for %s\\%s, using fallback: %v", domain, username, err)
@@ -383,7 +383,7 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _
 		return false
 	}
 
-	username, domain := s.parseUsername(localUser.Username)
+	username, domain := parseUsername(localUser.Username)
 	shell := getUserShell(localUser.Uid)
 
 	req := PtyExecutionRequest{

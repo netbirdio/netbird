@@ -103,6 +103,8 @@
                                 <!--
                                 <key>disableAutoConnect</key>
                                 <false/>
+                                <key>disableAutostart</key>
+                                <false/>
                                 <key>disableClientRoutes</key>
                                 <false/>
                                 <key>disableServerRoutes</key>
@@ -117,6 +119,19 @@
                                 <true/>
                                 <key>rosenpassPermissive</key>
                                 <false/>
+                                -->
+
+                                <!-- ===== Remote jobs (debug bundles) =====
+                                     allowRemoteJobs      : opt into management-requested
+                                                            remote jobs. Off by default.
+                                     debugBundleUploadURL : override the debug-bundle upload
+                                                            service (https URL with a host);
+                                                            precedence over the management value. -->
+                                <!--
+                                <key>allowRemoteJobs</key>
+                                <true/>
+                                <key>debugBundleUploadURL</key>
+                                <string>https://upload.example.com</string>
                                 -->
 
                                 <!-- ===== WireGuard UDP port (int) =====
@@ -143,6 +158,8 @@
                                 <key>disableProfiles</key>
                                 <true/>
                                 <key>disableNetworks</key>
+                                <true/>
+                                <key>disableAdvancedView</key>
                                 <true/>
                                 <key>disableMetricsCollection</key>
                                 <false/>

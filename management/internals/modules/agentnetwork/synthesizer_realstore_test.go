@@ -147,7 +147,7 @@ func TestReconcile_RealStore_PushesPrivateAfterStatusToggle(t *testing.T) {
 		store:           s,
 		accountManager:  noopAccountManager{},
 		proxyController: ctrl,
-		reconcileCache:  make(map[string]map[string]*proto.ProxyMapping),
+		reconcileCache:  make(map[string]map[string]syntheticMapping),
 	}
 
 	m.reconcile(ctx, testAccountID) // initial, provider enabled

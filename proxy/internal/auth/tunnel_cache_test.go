@@ -169,3 +169,32 @@ func TestTunnelCache_BoundedSizeEvictsOldest(t *testing.T) {
 	assert.NotNil(t, cache.get(keys[1]), "second-newest must remain cached")
 	assert.NotNil(t, cache.get(keys[2]), "newest must remain cached")
 }
+
+func TestTunnelCacheTTLFromEnv(t *testing.T) {
+	t.Run("unset uses default", func(t *testing.T) {
+		t.Setenv(envTunnelCacheTTL, "")
+		assert.Equal(t, tunnelCacheTTL, tunnelCacheTTLFromEnv())
+	})
+	t.Run("valid duration overrides", func(t *testing.T) {
+		t.Setenv(envTunnelCacheTTL, "45s")
+		assert.Equal(t, 45*time.Second, tunnelCacheTTLFromEnv())
+	})
+	t.Run("whitespace trimmed", func(t *testing.T) {
+		t.Setenv(envTunnelCacheTTL, "  2m ")
+		assert.Equal(t, 2*time.Minute, tunnelCacheTTLFromEnv())
+	})
+	t.Run("unparseable uses default", func(t *testing.T) {
+		t.Setenv(envTunnelCacheTTL, "nonsense")
+		assert.Equal(t, tunnelCacheTTL, tunnelCacheTTLFromEnv())
+	})
+	t.Run("non-positive uses default", func(t *testing.T) {
+		t.Setenv(envTunnelCacheTTL, "0s")
+		assert.Equal(t, tunnelCacheTTL, tunnelCacheTTLFromEnv())
+		t.Setenv(envTunnelCacheTTL, "-30s")
+		assert.Equal(t, tunnelCacheTTL, tunnelCacheTTLFromEnv())
+	})
+	t.Run("constructor honors override", func(t *testing.T) {
+		t.Setenv(envTunnelCacheTTL, "90s")
+		assert.Equal(t, 90*time.Second, newTunnelValidationCache().ttl)
+	})
+}

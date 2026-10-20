@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // TestAgentNetworkUsage_RealStore_RoundTrip drives CreateAgentNetworkUsage and
@@ -37,7 +38,7 @@ func TestAgentNetworkUsage_RealStore_RoundTrip(t *testing.T) {
 		InputTokens:        1200,
 		OutputTokens:       640,
 		TotalTokens:        1840,
-		CostUSD:            0.0231,
+		InputCostUSD:       0.0231,
 	}
 	usageGroups := []agentNetworkTypes.AgentNetworkUsageGroup{
 		{UsageID: usage.ID, GroupID: "grp-eng", AccountID: accountID},
@@ -71,7 +72,7 @@ func TestAgentNetworkUsage_RealStore_RoundTrip(t *testing.T) {
 		InputTokens:  1200,
 		OutputTokens: 640,
 		TotalTokens:  1840,
-		CostUSD:      0.0231,
+		InputCostUSD: 0.0231,
 	}
 	entryGroups := []agentNetworkTypes.AgentNetworkAccessLogGroup{
 		{LogID: entry.ID, GroupID: "grp-eng", AccountID: accountID},
@@ -127,7 +128,7 @@ func TestAgentNetworkUsageOverview_DailyAggregation(t *testing.T) {
 	mk := func(id string, ts time.Time, model string, in, out int64, cost float64) *agentNetworkTypes.AgentNetworkUsage {
 		return &agentNetworkTypes.AgentNetworkUsage{
 			ID: id, AccountID: accountID, Timestamp: ts, Model: model,
-			InputTokens: in, OutputTokens: out, TotalTokens: in + out, CostUSD: cost,
+			InputTokens: in, OutputTokens: out, TotalTokens: in + out, InputCostUSD: cost,
 		}
 	}
 	require.NoError(t, s.CreateAgentNetworkUsage(ctx, mk("u1", day1, "gpt-4o", 100, 50, 0.10), nil))
@@ -143,7 +144,7 @@ func TestAgentNetworkUsageOverview_DailyAggregation(t *testing.T) {
 	assert.Equal(t, "2026-05-05", buckets[0].PeriodStart, "oldest-first ordering")
 	assert.Equal(t, int64(300), buckets[0].InputTokens, "same-day input tokens summed")
 	assert.Equal(t, int64(130), buckets[0].OutputTokens)
-	assert.InDelta(t, 0.30, buckets[0].CostUSD, 1e-9, "same-day cost summed")
+	assert.InDelta(t, 0.30, buckets[0].TotalCostUSD(), 1e-9, "same-day cost summed")
 	assert.Equal(t, "2026-05-06", buckets[1].PeriodStart)
 	assert.Equal(t, int64(15), buckets[1].TotalTokens)
 
@@ -174,7 +175,7 @@ func TestAgentNetworkAccessLogSessions_RealStore(t *testing.T) {
 			ID: id, AccountID: accountID, ServiceID: "svc", Timestamp: ts,
 			UserID: user, StatusCode: 200, Provider: provider, Model: model,
 			SessionID: session, Decision: decision,
-			InputTokens: 100, OutputTokens: 50, TotalTokens: 150, CostUSD: cost,
+			InputTokens: 100, OutputTokens: 50, TotalTokens: 150, InputCostUSD: cost,
 		}
 	}
 
@@ -207,7 +208,7 @@ func TestAgentNetworkAccessLogSessions_RealStore(t *testing.T) {
 	s1 := sessions[2]
 	assert.Equal(t, 2, s1.RequestCount, "s1 has two requests")
 	assert.Equal(t, int64(300), s1.TotalTokens, "tokens summed across the session")
-	assert.InDelta(t, 0.30, s1.CostUSD, 1e-9, "cost summed across the session")
+	assert.InDelta(t, 0.30, s1.TotalCostUSD(), 1e-9, "cost summed across the session")
 	assert.Equal(t, "alice", s1.UserID)
 	assert.Equal(t, "allow", s1.Decision)
 	// SQLite hands times back in time.Local; normalise to UTC so the instant is
@@ -299,4 +300,38 @@ func TestDeleteOldAgentNetworkAccessLogs(t *testing.T) {
 	usage, err := s.GetAgentNetworkUsageRows(ctx, LockingStrengthNone, accountID, agentNetworkTypes.AgentNetworkAccessLogFilter{})
 	require.NoError(t, err)
 	require.Len(t, usage, 1, "usage record for the deleted log must survive")
+}
+
+// TestDeleteAgentNetworkConsumptionOfDeletedAccounts verifies that the sweep removes the
+// consumption counters of accounts that no longer exist and leaves live accounts' counters,
+// including those of a live account without a settings row.
+func TestDeleteAgentNetworkConsumptionOfDeletedAccounts(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, s Store) {
+		ctx := context.Background()
+		const (
+			liveAccountID    = "acc-anet-consumption-live"
+			deletedAccountID = "acc-anet-consumption-deleted"
+		)
+		require.NoError(t, s.SaveAccount(ctx, &types.Account{Id: liveAccountID}))
+
+		windowStart := time.Now().UTC().Truncate(time.Hour)
+		for _, accountID := range []string{liveAccountID, deletedAccountID} {
+			for _, dimID := range []string{"user-1", "user-2"} {
+				require.NoError(t, s.IncrementAgentNetworkConsumption(ctx, accountID,
+					agentNetworkTypes.DimensionUser, dimID, 3600, windowStart, 10, 5, 0.01))
+			}
+		}
+
+		deleted, err := s.DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), deleted, "both of the deleted account's counters should be removed")
+
+		rows, err := s.ListAgentNetworkConsumption(ctx, LockingStrengthNone, deletedAccountID)
+		require.NoError(t, err)
+		assert.Empty(t, rows, "the deleted account should have no consumption counters left")
+
+		rows, err = s.ListAgentNetworkConsumption(ctx, LockingStrengthNone, liveAccountID)
+		require.NoError(t, err)
+		assert.Len(t, rows, 2, "the live account's consumption counters should survive")
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os/user"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,8 +28,8 @@ func setupTestDependencies(currentUser *user.User, currentUserErr error, os stri
 	originalLookupUser := lookupUser
 	originalGetCurrentOS := getCurrentOS
 	originalGetEuid := getEuid
-
-	// Reset caches to ensure clean test state
+	originalGetProcessElevated := getProcessElevated
+	originalGetWindowsAccountPrivilegedOrUnknown := getWindowsAccountPrivilegedOrUnknown
 
 	// Set test values - inject platform dependencies
 	getCurrentUser = func() (*user.User, error) {
@@ -53,16 +54,31 @@ func setupTestDependencies(currentUser *user.User, currentUserErr error, os stri
 		return euid
 	}
 
-	// Mock privilege detection based on the test user
-	getIsProcessPrivileged = func() bool {
+	// Simulate the Windows token elevation check based on the fixture user:
+	// the built-in Administrator (RID 500) and SYSTEM run elevated.
+	getProcessElevated = func() bool {
 		if currentUser == nil {
 			return false
 		}
-		// Check both username and SID for Windows systems
-		if os == "windows" && isWindowsPrivilegedSID(currentUser.Uid) {
+		return currentUser.Uid == "S-1-5-18" || strings.HasSuffix(currentUser.Uid, "-500")
+	}
+
+	// Simulate the Windows account classifier for the fixture accounts.
+	// "root" does not exist on Windows; the real classifier fails closed on
+	// unresolvable accounts, so it counts as privileged here too.
+	getWindowsAccountPrivilegedOrUnknown = func(username string) bool {
+		bare := username
+		if idx := strings.LastIndex(bare, `\`); idx != -1 {
+			bare = bare[idx+1:]
+		}
+		if idx := strings.Index(bare, "@"); idx != -1 {
+			bare = bare[:idx]
+		}
+		switch strings.ToLower(bare) {
+		case "administrator", "system", "root":
 			return true
 		}
-		return isPrivilegedUsername(currentUser.Username)
+		return false
 	}
 
 	// Return cleanup function
@@ -71,10 +87,8 @@ func setupTestDependencies(currentUser *user.User, currentUserErr error, os stri
 		lookupUser = originalLookupUser
 		getCurrentOS = originalGetCurrentOS
 		getEuid = originalGetEuid
-
-		getIsProcessPrivileged = isCurrentProcessPrivileged
-
-		// Reset caches after test
+		getProcessElevated = originalGetProcessElevated
+		getWindowsAccountPrivilegedOrUnknown = originalGetWindowsAccountPrivilegedOrUnknown
 	}
 }
 
@@ -421,6 +435,9 @@ func TestUsedFallback_MeansNoPrivilegeDropping(t *testing.T) {
 }
 
 func TestPrivilegedUsernameDetection(t *testing.T) {
+	// Windows classification is syscall-backed (SID resolution, group
+	// membership) and is covered by privileges_windows_test.go; here only the
+	// Unix logic and the platform dispatch are exercised.
 	tests := []struct {
 		name       string
 		username   string
@@ -432,25 +449,9 @@ func TestPrivilegedUsernameDetection(t *testing.T) {
 		{"unix_regular_user", "alice", "linux", false},
 		{"unix_root_capital", "Root", "linux", false}, // Case-sensitive
 
-		// Windows tests
+		// Windows dispatch to the (mocked) account classifier
 		{"windows_administrator", "Administrator", "windows", true},
-		{"windows_system", "SYSTEM", "windows", true},
-		{"windows_admin", "admin", "windows", true},
-		{"windows_admin_lowercase", "administrator", "windows", true}, // Case-insensitive
-		{"windows_domain_admin", "DOMAIN\\Administrator", "windows", true},
-		{"windows_email_admin", "admin@domain.com", "windows", true},
 		{"windows_regular_user", "alice", "windows", false},
-		{"windows_domain_user", "DOMAIN\\alice", "windows", false},
-		{"windows_localsystem", "localsystem", "windows", true},
-		{"windows_networkservice", "networkservice", "windows", true},
-		{"windows_localservice", "localservice", "windows", true},
-
-		// Computer accounts (these depend on current user context in real implementation)
-		{"windows_computer_account", "WIN2K19-C2$", "windows", false},      // Computer account by itself not privileged
-		{"windows_domain_computer", "DOMAIN\\COMPUTER$", "windows", false}, // Domain computer account
-
-		// Cross-platform
-		{"root_on_windows", "root", "windows", true}, // Root should be privileged everywhere
 	}
 
 	for _, tt := range tests {
@@ -459,50 +460,8 @@ func TestPrivilegedUsernameDetection(t *testing.T) {
 			cleanup := setupTestDependencies(nil, nil, tt.platform, 1000, nil, nil)
 			defer cleanup()
 
-			result := isPrivilegedUsername(tt.username)
-			assert.Equal(t, tt.privileged, result)
-		})
-	}
-}
-
-func TestWindowsPrivilegedSIDDetection(t *testing.T) {
-	tests := []struct {
-		name        string
-		sid         string
-		privileged  bool
-		description string
-	}{
-		// Well-known system accounts
-		{"system_account", "S-1-5-18", true, "Local System (SYSTEM)"},
-		{"local_service", "S-1-5-19", true, "Local Service"},
-		{"network_service", "S-1-5-20", true, "Network Service"},
-		{"administrators_group", "S-1-5-32-544", true, "Administrators group"},
-		{"builtin_administrator", "S-1-5-500", true, "Built-in Administrator"},
-
-		// Domain accounts
-		{"domain_administrator", "S-1-5-21-1234567890-1234567890-1234567890-500", true, "Domain Administrator (RID 500)"},
-		{"domain_admins_group", "S-1-5-21-1234567890-1234567890-1234567890-512", true, "Domain Admins group"},
-		{"domain_controllers_group", "S-1-5-21-1234567890-1234567890-1234567890-516", true, "Domain Controllers group"},
-		{"enterprise_admins_group", "S-1-5-21-1234567890-1234567890-1234567890-519", true, "Enterprise Admins group"},
-
-		// Regular users
-		{"regular_user", "S-1-5-21-1234567890-1234567890-1234567890-1001", false, "Regular domain user"},
-		{"another_regular_user", "S-1-5-21-1234567890-1234567890-1234567890-1234", false, "Another regular user"},
-		{"local_user", "S-1-5-21-1234567890-1234567890-1234567890-1000", false, "Local regular user"},
-
-		// Groups that are not privileged
-		{"domain_users", "S-1-5-21-1234567890-1234567890-1234567890-513", false, "Domain Users group"},
-		{"power_users", "S-1-5-32-547", false, "Power Users group"},
-
-		// Invalid SIDs
-		{"malformed_sid", "S-1-5-invalid", false, "Malformed SID"},
-		{"empty_sid", "", false, "Empty SID"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isWindowsPrivilegedSID(tt.sid)
-			assert.Equal(t, tt.privileged, result, "Failed for %s: %s", tt.description, tt.sid)
+			result := isPrivilegedOrUnknown(tt.username)
+			assert.Equal(t, tt.privileged, result, "privilege classification for %s on %s", tt.username, tt.platform)
 		})
 	}
 }

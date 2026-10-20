@@ -1,0 +1,4 @@
+{
+  "description": "Direct peer-to-peer policy via Source/DestinationResource of type peer, no groups involved; peer-a and peer-b see each other, bystander peer-c sees nobody.",
+  "peers": ["peer-a", "peer-b", "peer-c"]
+}

@@ -4,29 +4,36 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
-	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
+
+// extendSessionFlag drives the `netbird login --extend` flow: refresh the
+// SSO session expiry on the management server without tearing down the
+// tunnel. Mutually exclusive with setup-key login (a setup-key cannot
+// refresh an SSO-tracked peer — see auth.errSetupKeyOnSSOExpiredPeer).
+var extendSessionFlag bool
 
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
+	loginCmd.PersistentFlags().BoolVar(&extendSessionFlag, "extend", false,
+		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection)")
 }
 
 var loginCmd = &cobra.Command{
@@ -44,7 +51,7 @@ var loginCmd = &cobra.Command{
 			// nolint
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
-		username, err := user.Current()
+		username, err := profilemanager.InvokingUser()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
 		}
@@ -61,6 +68,16 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
+		if extendSessionFlag {
+			if providedSetupKey != "" {
+				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
+			}
+			if err := doExtendSession(ctx, cmd, activeProf); err != nil {
+				return fmt.Errorf("extend session failed: %v", err)
+			}
+			return nil
+		}
+
 		// workaround to run without service
 		if util.FindFirstLogPath(logFiles) == "" {
 			if err := doForegroundLogin(ctx, cmd, providedSetupKey, activeProf); err != nil {
@@ -73,7 +90,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
-		cmd.Println("Logging successfully")
+		cmd.Println("Login successful")
 
 		return nil
 	},
@@ -101,7 +118,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
 		ManagementUrl:       managementURL,
-		IsUnixDesktopClient: isUnixRunningDesktop(),
+		IsUnixDesktopClient: util.HasGraphicalSession(),
 		Hostname:            hostName,
 		DnsLabels:           dnsLabelsReq,
 		ProfileName:         &handle,
@@ -126,10 +143,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	err = WithBackOff(func() error {
 		var backOffErr error
 		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
+		if terminalLoginError(backOffErr) {
 			loginErr = backOffErr
 			return nil
 		}
@@ -152,13 +166,73 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	return nil
 }
 
+// doExtendSession drives the daemon's RequestExtendAuthSession /
+// WaitExtendAuthSession pair. The user is sent through a regular SSO flow
+// (browser + verification URL) and the resulting JWT is forwarded to the
+// management server's ExtendAuthSession RPC. The tunnel stays up
+// throughout — no Down/Up, no network-map resync.
+func doExtendSession(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		//nolint
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	// the CLI runs in the user's session, the daemon does not: tell it what we can see
+	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: util.HasGraphicalSession()}
+	// Pre-fill the IdP login hint from the resolved profile so the user
+	// doesn't have to retype their email. Best-effort: we still proceed
+	// without a hint if the lookup fails.
+	pm := profilemanager.NewProfileManager()
+	if profState, perr := pm.GetProfileState(activeProf.ID); perr == nil && profState.Email != "" {
+		req.Hint = &profState.Email
+	}
+
+	startResp, err := client.RequestExtendAuthSession(ctx, req)
+	if err != nil {
+		return fmt.Errorf("start extend session: %v", err)
+	}
+
+	uri := startResp.GetVerificationURIComplete()
+	if uri == "" {
+		uri = startResp.GetVerificationURI()
+	}
+	openURL(cmd, uri, startResp.GetUserCode(), noBrowser, showQR)
+
+	waitResp, err := client.WaitExtendAuthSession(ctx, &proto.WaitExtendAuthSessionRequest{
+		DeviceCode: startResp.GetDeviceCode(),
+		UserCode:   startResp.GetUserCode(),
+	})
+	if err != nil {
+		return fmt.Errorf("wait for extend session: %v", err)
+	}
+
+	if ts := waitResp.GetSessionExpiresAt(); ts.IsValid() && !ts.AsTime().IsZero() {
+		deadline := ts.AsTime().Local()
+		cmd.Printf("Session extended. New expiry: %s\n", deadline.Format("2006-01-02 15:04:05 MST"))
+	} else {
+		// Management reported the peer is not eligible (e.g. login
+		// expiration disabled on the account). Surface that fact
+		// instead of pretending the call succeeded.
+		cmd.Println("Session extension call completed, but the management server did not return a new deadline (peer may not be SSO-tracked or login expiration is disabled).")
+	}
+	return nil
+}
+
 func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) (*profilemanager.Profile, error) {
 	// switch profile if provided
 
 	if profileName != "" {
-		if err := switchProfileOnDaemon(ctx, pm, profileName, username); err != nil {
+		prof, err := switchProfileOnDaemon(ctx, pm, profileName, username)
+		if err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
 		}
+		return prof, nil
 	}
 
 	activeProf, err := pm.GetActiveProfile()
@@ -172,20 +246,19 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	return activeProf, nil
 }
 
-func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) error {
+func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
-		return fmt.Errorf("switch profile on daemon: %v", err)
+		return nil, fmt.Errorf("switch profile on daemon: %v", err)
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return fmt.Errorf("switch profile: %v", err)
+		return nil, fmt.Errorf("switch profile: %v", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return nil, fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
@@ -193,17 +266,17 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 
 	status, err := client.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+		return nil, fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
 			log.Errorf("call service down method: %v", err)
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return &profilemanager.Profile{ID: resolvedID}, nil
 }
 
 // switchProfile asks the daemon to switch to the profile identified by
@@ -249,16 +322,47 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 
 	}
 
-	config, err := profilemanager.ReadConfig(configFilePath)
+	config, err := profilemanager.ReadConfigOrDefault(configFilePath)
 	if err != nil {
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
+	// Reading a config does not provision one: this login is about to dial
+	// management with the profile's identity, so mint the keys if the profile
+	// has none yet and put them on disk — a key that stayed in memory would
+	// come back different on the next run and register a second peer.
+	//
+	// Before the MDM overlay below, on purpose: the file must keep the
+	// profile's own values. The overlay is runtime-only and re-derived on
+	// every load, so persisting it would turn an enforced management URL or
+	// pre-shared key into one the user appears to own once the policy is
+	// withdrawn.
+	if generated, err := config.EnsureIdentity(); err != nil {
+		return fmt.Errorf("ensure profile identity: %v", err)
+	} else if generated {
+		if err := profilemanager.WriteOutConfig(configFilePath, config); err != nil {
+			return fmt.Errorf("write out config file %s: %v", configFilePath, err)
+		}
+	}
+
+	// CLI standalone login: profilemanager no longer auto-applies MDM,
+	// so layer in the OS-native policy here. Desktop builds construct
+	// a Loader with no fetcher — the build-tagged loadPlatform reads
+	// the registry/plist directly.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
+
+	// Mirror runInForegroundMode: recover residual state (DNS, firewall,
+	// ssh config, legacy routing) from a previous unclean shutdown and
+	// enable advanced routing before dialing management.
+	if err := server.RestoreResidualState(ctx, profilemanager.NewServiceManager(configFilePath).GetStatePath()); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
+	nbnet.Init()
 
 	err = foregroundLogin(ctx, cmd, config, setupKey, activeProf.ID)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
-	cmd.Println("Logging successfully")
+	cmd.Println("Login successful")
 	return nil
 }
 
@@ -321,11 +425,44 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		hint = profileState.Email
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), false, hint, false)
 	if err != nil {
 		return nil, err
 	}
 
+	tokenInfo, err := runInteractiveFlow(cmd, oAuthFlow)
+	if err != nil {
+		return nil, err
+	}
+
+	if tokenInfo.MatchesAccount(hint) {
+		return tokenInfo, nil
+	}
+
+	// The IdP answered from a session belonging to another account. Retrying is
+	// what makes this recoverable: on a peer already registered the server would
+	// reject the token, and on a fresh one it would silently register the peer
+	// under the wrong account and bind the profile to it.
+	cmd.Println("The login returned a different account than this profile uses. Asking to sign in again.")
+	retryFlow := auth.RetryFlowForAccount(oAuthFlow)
+	if retryFlow == nil {
+		return tokenInfo, nil
+	}
+
+	retryToken, err := runInteractiveFlow(cmd, retryFlow)
+	if err != nil {
+		return nil, err
+	}
+	if !retryToken.MatchesAccount(hint) {
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
+
+	return retryToken, nil
+}
+
+// runInteractiveFlow requests the authorization info, shows the URL to the user
+// and blocks until the token comes back.
+func runInteractiveFlow(cmd *cobra.Command, oAuthFlow auth.OAuthFlow) (*auth.TokenInfo, error) {
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
@@ -369,14 +506,6 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 		}
 	}
-}
-
-// isUnixRunningDesktop checks if a Linux OS is running desktop environment
-func isUnixRunningDesktop() bool {
-	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		return false
-	}
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
 func setEnvAndFlags(cmd *cobra.Command) error {

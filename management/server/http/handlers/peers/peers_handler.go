@@ -317,10 +317,11 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	nameFilter := r.URL.Query().Get("name")
 	ipFilter := r.URL.Query().Get("ip")
+	macFilter := r.URL.Query().Get("mac")
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter)
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter, macFilter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -446,7 +447,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(ctx, w, toAccessiblePeers(account.Peers, netMap, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
@@ -534,14 +535,21 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
+// toAccessiblePeers resolves the twin peers in netMap back to the full account
+// peers (by ID) so the API response keeps Status/Name/OS/GeoNameID, which the
+// slim netmap twins intentionally don't carry.
+func toAccessiblePeers(accountPeers map[string]*nbpeer.Peer, netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	for _, p := range netMap.Peers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+	appendByID := func(id string) {
+		if p, ok := accountPeers[id]; ok && p != nil {
+			accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+		}
 	}
-
+	for _, p := range netMap.Peers {
+		appendByID(p.ID)
+	}
 	for _, p := range netMap.OfflinePeers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+		appendByID(p.ID)
 	}
 
 	return accessiblePeers
@@ -564,6 +572,17 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
+func toNetworkAddresses(addrs []nbpeer.NetworkAddress) *[]api.NetworkAddress {
+	if len(addrs) == 0 {
+		return nil
+	}
+	out := make([]api.NetworkAddress, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, api.NetworkAddress{NetIp: a.NetIP.String(), Mac: a.Mac})
+	}
+	return &out
+}
+
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool, reason string) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
@@ -576,6 +595,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
 		Ipv6:                        peerIPv6String(peer),
+		NetworkAddresses:            toNetworkAddresses(peer.Meta.NetworkAddresses),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -610,6 +630,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
 		},
 	}
 
@@ -631,6 +652,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
 		Ipv6:                        peerIPv6String(peer),
+		NetworkAddresses:            toNetworkAddresses(peer.Meta.NetworkAddresses),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -665,6 +687,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
 		},
 	}
 }

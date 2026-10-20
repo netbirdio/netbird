@@ -1,0 +1,4 @@
+{
+  "description": "Domain network resource: the route carries the domain list and the 192.0.2.0/32 placeholder network with NetworkType 3 (dynamic), and peer-r's route firewall rules must be marked dynamic and repeat the domain. Two ports on the policy must produce one rule per port. A domain resource contributes no DNS custom zone of its own — resolution happens through the routing peer's forwarder.",
+  "peers": ["peer-a", "peer-r"]
+}

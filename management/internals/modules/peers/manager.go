@@ -1,6 +1,6 @@
 package peers
 
-//go:generate go run github.com/golang/mock/mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -28,8 +28,8 @@ import (
 type Manager interface {
 	GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error)
 	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
-	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
+	GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*peer.Peer, int, error)
 	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error
 	SetNetworkMapController(networkMapController network_map.Controller)
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
@@ -51,8 +51,7 @@ type managerImpl struct {
 	permissionsManager      permissions.Manager
 	integratedPeerValidator integrated_validator.IntegratedValidator
 	accountManager          account.Manager
-
-	networkMapController network_map.Controller
+	networkMapController    network_map.Controller
 }
 
 func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
@@ -87,25 +86,41 @@ func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID str
 	return m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
-func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-	}
-
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
-}
-
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
 	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 }
 
 func (m *managerImpl) GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error) {
 	return m.store.GetPeersByGroupIDs(ctx, accountID, groupsIDs)
+}
+
+func (m *managerImpl) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*peer.Peer, int, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	allowed, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		return nil, 0, status.NewPermissionValidationError(err)
+	}
+
+	if allowed {
+		return m.store.GetAccountPeersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
+	}
+
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	if user.IsRestrictable() && settings.RegularUsersViewBlocked {
+		return []*peer.Peer{}, 0, nil
+	}
+
+	peers, err := m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
+	return peers, len(peers), err
 }
 
 // GetPeerByTunnelIP delegates to the store's indexed lookup.
@@ -184,6 +199,8 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
+			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
+
 			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
 				eventsToStore = append(eventsToStore, func() {
 					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
@@ -224,30 +241,6 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		return nil
 	}
 
-	// Dedupe stale embedded peer records for the same (account, cluster).
-	// The proxy generates a fresh WireGuard keypair on every startup
-	// (proxy/internal/roundtrip/netbird.go), so without this sweep the
-	// prior embedded peer would linger forever — holding its CGNAT IP
-	// allocation, polluting other peers' rosters, and (most visibly)
-	// leaving the synth DNS pointing at the dead address. The
-	// (account, cluster) tuple identifies "the embedded peer for this
-	// proxy instance at this cluster"; any record matching that tuple
-	// with a different pubkey is by definition stale and must go.
-	staleIDs, err := m.findStaleEmbeddedProxyPeers(ctx, accountID, cluster, peerKey)
-	if err != nil {
-		return fmt.Errorf("scan for stale embedded proxy peers: %w", err)
-	}
-	if len(staleIDs) > 0 {
-		// userID="" + checkConnected=false: the deletion is initiated
-		// by management itself on behalf of the freshly-registering
-		// proxy, not by an end user; the stale peer may still be
-		// marked Connected from its prior session, but its session is
-		// dead by definition (its key no longer exists).
-		if err := m.DeletePeers(ctx, accountID, staleIDs, "", false); err != nil {
-			return fmt.Errorf("delete stale embedded proxy peers %v: %w", staleIDs, err)
-		}
-	}
-
 	name := fmt.Sprintf("proxy-%s", xid.New().String())
 	newPeer := &peer.Peer{
 		Ephemeral: true,
@@ -272,30 +265,4 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 	}
 
 	return nil
-}
-
-// findStaleEmbeddedProxyPeers returns the peer IDs of embedded proxy peer
-// records in accountID that target the same cluster but carry a different
-// WireGuard pubkey than the freshly-registering one. Used by CreateProxyPeer
-// to garbage-collect stale records left behind when the proxy restarts with a
-// regenerated keypair.
-func (m *managerImpl) findStaleEmbeddedProxyPeers(ctx context.Context, accountID, cluster, newKey string) ([]string, error) {
-	account, err := m.store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-	var stale []string
-	for _, p := range account.Peers {
-		if p == nil || !p.ProxyMeta.Embedded {
-			continue
-		}
-		if p.ProxyMeta.Cluster != cluster {
-			continue
-		}
-		if p.Key == newKey {
-			continue
-		}
-		stale = append(stale, p.ID)
-	}
-	return stale, nil
 }

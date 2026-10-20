@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 

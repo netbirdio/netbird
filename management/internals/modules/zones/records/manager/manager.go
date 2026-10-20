@@ -9,11 +9,11 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -65,6 +65,8 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 	}
 
 	var zone *zones.Zone
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	record = records.NewRecord(accountID, zoneID, record.Name, record.Type, record.Content, record.TTL)
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -82,6 +84,11 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to create dns record: %w", err)
 		}
 
+		change = affectedpeers.Change{DistributionGroupIDs: zone.DistributionGroups}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return fmt.Errorf("load affected peers: %w", err)
+		}
+
 		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
@@ -96,7 +103,7 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, meta)
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationCreate})
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return record, nil
 }
@@ -112,6 +119,8 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 
 	var zone *zones.Zone
 	var record *records.Record
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
@@ -141,6 +150,11 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to update dns record: %w", err)
 		}
 
+		change = affectedpeers.Change{DistributionGroupIDs: zone.DistributionGroups}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return fmt.Errorf("load affected peers: %w", err)
+		}
+
 		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
@@ -155,7 +169,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, meta)
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationUpdate})
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return record, nil
 }
@@ -171,6 +185,8 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 
 	var record *records.Record
 	var zone *zones.Zone
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
@@ -188,6 +204,11 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to delete dns record: %w", err)
 		}
 
+		change = affectedpeers.Change{DistributionGroupIDs: zone.DistributionGroups}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return fmt.Errorf("load affected peers: %w", err)
+		}
+
 		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
@@ -202,7 +223,7 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, meta)
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZoneRecord, Operation: types.UpdateOperationDelete})
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

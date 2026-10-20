@@ -1,0 +1,36 @@
+{
+  "Network": {"Serial": 6},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.40.0"}},
+    "peer-c": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]},
+    "grp-ops": {"Peers": ["peer-c"]}
+  },
+  "PostureChecks": {
+    "chk-ver": {"Checks": {"NBVersionCheck": {"MinVersion": "0.45.0"}}}
+  },
+  "PostureCheckXIDToPublicID": {"chk-ver": "chk-ver-pub"},
+  "Policies": [
+    {
+      "ID": "pol-gated",
+      "PublicID": "pol-gated-pub",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-ver"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Bidirectional": true,
+          "Ports": ["443"],
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-ops"]
+        }
+      ]
+    }
+  ]
+}

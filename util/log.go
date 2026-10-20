@@ -40,6 +40,45 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 	if err != nil {
 		return fmt.Errorf("failed parsing log-level %s: %w", logLevel, err)
 	}
+
+	logFmt, err := buildWriters(logger, logs...)
+	if err != nil {
+		return err
+	}
+
+	switch logFmt {
+	case "json":
+		formatter.SetJSONFormatter(logger)
+	case "syslog":
+		formatter.SetSyslogFormatter(logger)
+	default:
+		formatter.SetTextFormatter(logger)
+	}
+	logger.SetLevel(level)
+
+	setGRPCLibLogger(logger)
+
+	return nil
+}
+
+// SetLogOutputs re-points an already-initialized logger to the given targets
+// (console/syslog/file), with the same target semantics as InitLogger, but
+// without re-parsing the level or resetting the formatter. The desktop GUI uses
+// it to attach the rotated gui-client.log alongside the console when the daemon
+// enters debug, and drop back to console-only when it leaves.
+func SetLogOutputs(logger *log.Logger, logs ...string) error {
+	if _, err := buildWriters(logger, logs...); err != nil {
+		return err
+	}
+	setGRPCLibLogger(logger)
+	return nil
+}
+
+// buildWriters resolves the given log targets to writers and points the logger
+// at them (single writer or MultiWriter). It returns the log format implied by
+// the targets (syslog forces "syslog"; otherwise the NB_LOG_FORMAT env value).
+// Shared by InitLogger and SetLogOutputs.
+func buildWriters(logger *log.Logger, logs ...string) (string, error) {
 	var writers []io.Writer
 	logFmt := os.Getenv("NB_LOG_FORMAT")
 
@@ -61,7 +100,7 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		default:
 			writer, err := setupLogFile(logPath, isRotationDisabled(logger))
 			if err != nil {
-				return fmt.Errorf("failed setting up log file: %s, %w", logPath, err)
+				return "", fmt.Errorf("failed setting up log file: %s, %w", logPath, err)
 			}
 			writers = append(writers, writer)
 		}
@@ -73,19 +112,7 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		logger.SetOutput(writers[0])
 	}
 
-	switch logFmt {
-	case "json":
-		formatter.SetJSONFormatter(logger)
-	case "syslog":
-		formatter.SetSyslogFormatter(logger)
-	default:
-		formatter.SetTextFormatter(logger)
-	}
-	logger.SetLevel(level)
-
-	setGRPCLibLogger(logger)
-
-	return nil
+	return logFmt, nil
 }
 
 // FindFirstLogPath returns the first logs entry that could be a log path, that is neither empty, nor a special value

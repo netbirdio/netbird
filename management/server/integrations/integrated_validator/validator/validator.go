@@ -10,6 +10,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -35,7 +36,7 @@ func (v *IntegratedValidatorImpl) IsNotValidPeer(_ context.Context, _ string, _ 
 	return false, false, nil
 }
 
-func (v *IntegratedValidatorImpl) GetValidatedPeers(_ context.Context, _ string, _ []*types.Group, peers []*nbpeer.Peer, _ *types.ExtraSettings) (map[string]struct{}, error) {
+func (v *IntegratedValidatorImpl) GetValidatedPeers(_ context.Context, _ string, _ []*nmdata.Group, peers []*nmdata.Peer, _ *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, p := range peers {
 		validatedPeers[p.ID] = struct{}{}

@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/stun"
+	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -45,6 +46,9 @@ type Config struct {
 	LogLevel                 string
 	LogFile                  string
 	HealthcheckListenAddress string
+	// TrustedProxies is a comma-separated list of upstream proxy CIDRs/IPs whose
+	// X-Real-Ip/X-Real-Port headers are trusted. Empty means never trust these headers.
+	TrustedProxies string
 	// STUN server configuration
 	EnableSTUN   bool
 	STUNPorts    []int
@@ -116,6 +120,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.TrustedProxies, "trusted-proxies", "", "comma-separated list of upstream proxy CIDRs or IPs whose X-Real-Ip/X-Real-Port headers are trusted; leave empty to always use the direct connection address")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
@@ -155,8 +160,15 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("setup metrics: %v", err)
 	}
 
+	trustedProxies, err := trustedproxy.Parse(cobraConfig.TrustedProxies)
+	if err != nil {
+		log.Debugf("failed to parse trusted proxies: %s", err)
+		return fmt.Errorf("failed to parse trusted proxies: %s", err)
+	}
+
 	srvListenerCfg := server.ListenerConfig{
-		Address: cobraConfig.ListenAddress,
+		Address:        cobraConfig.ListenAddress,
+		TrustedProxies: trustedProxies,
 	}
 
 	tlsConfig, tlsSupport, err := handleTLSConfig(cobraConfig)
@@ -173,7 +185,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
+	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
 
 	cfg := server.Config{
 		Meter:          metricsServer.Meter,

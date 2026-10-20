@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"sync"
@@ -19,6 +20,26 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 )
+
+const (
+	// latencySampleInterval is how often the round trip time of the selected
+	// candidate pair is read. The ICE agent refreshes it on every consent
+	// binding request, so sampling is cheap and needs no extra traffic.
+	latencySampleInterval = 4 * time.Second
+
+	// latencyEWMAAlpha is the weight of a new sample in the exponentially
+	// weighted moving average. At latencySampleInterval this yields a time
+	// constant of roughly 27 seconds: a sustained change is reflected within
+	// tens of seconds, while the residual movement on a jittery path stays
+	// below the switch margin that route selection applies, so noise alone
+	// cannot move a route. Raising it widens that residual movement.
+	latencyEWMAAlpha = 0.15
+)
+
+// latencySmoothedNoiseFactor converts the spread of the raw samples into the
+// spread of the smoothed value: for an exponentially weighted moving average
+// with weight a, the variance of the output is a/(2-a) of the input variance.
+var latencySmoothedNoiseFactor = math.Sqrt(latencyEWMAAlpha / (2 - latencyEWMAAlpha))
 
 type ICEConnInfo struct {
 	RemoteConn                 net.Conn
@@ -64,6 +85,9 @@ type WorkerICE struct {
 
 	// portForwardAttempted tracks if we've already tried port forwarding this session
 	portForwardAttempted bool
+
+	// dialFunc, when non-nil, replaces agentDial in connect(). Only for tests.
+	dialFunc func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (net.Conn, error)
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
@@ -118,12 +142,9 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			}
 		}
 
-		sessionID, err := NewICESessionID()
-		if err != nil {
-			w.log.Errorf("failed to create new session ID: %s", err)
-		}
-		w.sessionID = sessionID
-		w.agent = nil
+		// Keep the ID already advertised to the remote. Answers do not get a
+		// reply, so changing it here makes the next offer restart both sides.
+		w.abandonNegotiation()
 	}
 
 	var preferredCandidateTypes []ice.CandidateType
@@ -137,7 +158,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("recreate ICE agent: %s / %s", w.sessionID, *remoteOfferAnswer.SessionID)
 	}
 	dialerCtx, dialerCancel := context.WithCancel(w.ctx)
-	agent, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
+	agent, sampleNow, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
 	if err != nil {
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
 		return
@@ -151,7 +172,9 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.remoteSessionID = ""
 	}
 
-	go w.connect(dialerCtx, agent, remoteOfferAnswer)
+	// Capture the cancel func at spawn time: connect reads it from the argument
+	// instead of the field, which a newer OnNewOffer may already have replaced.
+	go w.connect(dialerCtx, dialerCancel, agent, sampleNow, remoteOfferAnswer)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -200,41 +223,48 @@ func (w *WorkerICE) Close() {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
-	if w.agent == nil {
-		return
+	if w.agent != nil || w.agentConnecting {
+		w.renewSessionID()
 	}
-
-	w.agentDialerCancel()
-	if err := w.agent.Close(); err != nil {
-		w.log.Warnf("failed to close ICE agent: %s", err)
+	if w.agent != nil {
+		w.agentDialerCancel()
+		if err := w.agent.Close(); err != nil {
+			w.log.Warnf("failed to close ICE agent: %s", err)
+		}
 	}
-
-	w.agent = nil
+	// Unconditional: a dial goroutine racing this Close skips its own cleanup
+	// (closeAgent finds a nil agent), so the flags must be dropped here too or
+	// the reconnection guard reads the stale state as Connected forever.
+	w.abandonNegotiation()
 }
 
-func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
+// reCreateAgent creates a new ICE agent with its callbacks registered. The
+// returned channel wakes that agent's latency sampler when its selected
+// candidate pair changes.
+func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, chan struct{}, error) {
 	w.portForwardAttempted = false
 
 	agent, err := icemaker.NewAgent(w.ctx, w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
-		return nil, fmt.Errorf("create agent: %w", err)
+		return nil, nil, fmt.Errorf("create agent: %w", err)
 	}
 
 	if err := agent.OnCandidate(w.onICECandidate); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, dialerCancel)); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
-		w.onICESelectedCandidatePair(agent, c1, c2)
-	}); err != nil {
-		return nil, err
+	// one channel per agent, so the sampler of a replaced agent cannot take a
+	// wakeup meant for the new one
+	sampleNow := make(chan struct{}, 1)
+	if err := agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair(sampleNow)); err != nil {
+		return nil, nil, err
 	}
 
-	return agent, nil
+	return agent, sampleNow, nil
 }
 
 func (w *WorkerICE) SessionID() ICESessionID {
@@ -247,31 +277,52 @@ func (w *WorkerICE) SessionID() ICESessionID {
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
-func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, sampleNow <-chan struct{}, remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
 		w.log.Warnf("failed to gather candidates: %s", err)
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 
-	w.log.Debugf("turn agent dial")
-	remoteConn, err := w.turnAgentDial(ctx, agent, remoteOfferAnswer)
+	w.log.Debugf("agent dial")
+	dial := func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (net.Conn, error) {
+		return w.agentDial(ctx, agent, remoteOfferAnswer)
+	}
+	if w.dialFunc != nil {
+		dial = w.dialFunc
+	}
+	remoteConn, err := dial(ctx, agent, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 	w.log.Debugf("agent dial succeeded")
 
+	// A newer negotiation may have replaced our agent while agentDial was
+	// blocked. Drop the dead connection before running pair retrieval, port
+	// punching or candidate work against a closed agent. The commit-point
+	// check below still guards a replacement arriving after this point.
+	w.muxAgent.Lock()
+	stale := w.agent != agent
+	w.muxAgent.Unlock()
+	if stale {
+		if err := remoteConn.Close(); err != nil {
+			w.log.Warnf("failed to close stale ICE connection: %s", err)
+		}
+		w.log.Warnf("discarding connection from a stale ICE negotiation")
+		return
+	}
+
 	pair, err := agent.GetSelectedCandidatePair()
 	if err != nil {
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 	if pair == nil {
 		w.log.Warnf("selected candidate pair is nil, cannot proceed")
-		w.closeAgent(agent, w.agentDialerCancel)
+		w.closeAgent(agent, dialerCancel)
 		return
 	}
 
@@ -301,11 +352,30 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 
 	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
+	// Authoritative ownership guard: a negotiation that lost w.agent to a newer
+	// one between the post-dial check and the commit must not clear agentConnecting,
+	// record lastSuccess or report the connection, so the state commit has to be
+	// atomic with the check.
+	if w.agent != agent {
+		w.muxAgent.Unlock()
+		if err := remoteConn.Close(); err != nil {
+			w.log.Warnf("failed to close stale ICE connection: %s", err)
+		}
+		w.log.Warnf("discarding connection from a stale ICE negotiation")
+		return
+	}
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
 	w.muxAgent.Unlock()
 
+	// ctx is the agent's dialer context, so sampling stops when the agent is closed
+	go w.sampleLatency(ctx, agent, sampleNow)
+
 	// todo: the potential problem is a race between the onConnectionStateChange
+	// and the delivery below: after this unlock, a newer offer can replace
+	// w.agent before onICEConnectionIsReady runs, delivering this (now stale)
+	// connection. The newer negotiation overwrites it with its own delivery,
+	// so the window only ever downgrades an endpoint transiently.
 	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
@@ -321,18 +391,37 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	sessionChanged := w.remoteSessionChanged
 	w.remoteSessionChanged = false
 
+	// Only the owner of the current session may reset its state: a stale dial
+	// goroutine waking after a newer attempt must not clobber it.
 	if w.agent == agent {
-		// consider to remove from here and move to the OnNewOffer
-		sessionID, err := NewICESessionID()
-		if err != nil {
-			w.log.Errorf("failed to create new session ID: %s", err)
-		}
-		w.sessionID = sessionID
-		w.agent = nil
-		w.agentConnecting = false
-		w.remoteSessionID = ""
+		w.renewSessionID()
+		w.abandonNegotiation()
 	}
 	return sessionChanged
+}
+
+// renewSessionID starts a new local session, so the remote treats our next offer
+// or answer as a restart. Caller holds muxAgent.
+func (w *WorkerICE) renewSessionID() {
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		w.log.Errorf("failed to create new session ID: %s", err)
+		return
+	}
+	w.sessionID = sessionID
+}
+
+// abandonNegotiation drops all recorded ICE session state so the worker treats the
+// next offer as a fresh start instead of a duplicate of a dead negotiation. The
+// agent and agentConnecting flags must change together: leaving one stale wedges
+// the reconnection guard into reporting Connected forever. It neither cancels an
+// in-flight dial nor closes an agent — callers dispose of those themselves first,
+// so a stale goroutine can never cancel another session's dial through this path.
+// Caller must hold muxAgent.
+func (w *WorkerICE) abandonNegotiation() {
+	w.agent = nil
+	w.agentConnecting = false
+	w.remoteSessionID = ""
 }
 
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
@@ -386,6 +475,17 @@ func (w *WorkerICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
 
 	mapping := pfManager.GetMapping()
 	if mapping == nil {
+		return
+	}
+
+	// A forwarded candidate only makes sense for an IPv4 mapping, which
+	// translates a port on the gateway's address. An IPv6 pinhole translates
+	// nothing: it unblocks the address ICE already gathers as a host candidate,
+	// so there is no second address to advertise. Injecting one here would also
+	// paste an IPv6 address onto whichever server-reflexive candidate arrived
+	// first, which is usually IPv4.
+	if mapping.ExternalIP != nil && mapping.ExternalIP.To4() == nil {
+		w.log.Debugf("skipping port-forwarded candidate: %s mapping is IPv6-only", mapping.NATType)
 		return
 	}
 
@@ -460,20 +560,62 @@ func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mappi
 	return candidate, nil
 }
 
-func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
-	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
-		w.config.Key)
+func (w *WorkerICE) onICESelectedCandidatePair(sampleNow chan<- struct{}) func(c1, c2 ice.Candidate) {
+	return func(c1, c2 ice.Candidate) {
+		w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
+			w.config.Key)
 
+		// refresh the recorded latency right away: it still describes the previous
+		// path, and route selection may run before the next sampling tick
+		select {
+		case sampleNow <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// sampleLatency records the smoothed round trip time of the agent's selected
+// candidate pair until the agent is closed. Route selection compares the
+// recorded latencies of high availability peers, so it has to keep following
+// the path instead of freezing at the value observed when the pair was chosen.
+func (w *WorkerICE) sampleLatency(ctx context.Context, agent *icemaker.ThreadSafeAgent, sampleNow <-chan struct{}) {
+	var sampler latencySampler
+
+	ticker := time.NewTicker(latencySampleInterval)
+	defer ticker.Stop()
+
+	for {
+		w.updateLatency(ctx, agent, &sampler)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-sampleNow:
+		}
+	}
+}
+
+func (w *WorkerICE) updateLatency(ctx context.Context, agent *icemaker.ThreadSafeAgent, sampler *latencySampler) {
 	pairStat, ok := agent.GetSelectedCandidatePairStats()
 	if !ok {
-		w.log.Warnf("failed to get selected candidate pair stats")
+		w.log.Debugf("failed to get selected candidate pair stats")
 		return
 	}
 
-	duration := time.Duration(pairStat.CurrentRoundTripTime * float64(time.Second))
-	if err := w.statusRecorder.UpdateLatency(w.config.Key, duration); err != nil {
-		w.log.Debugf("failed to update latency for peer: %s", err)
+	sample := sampler.observe(pairStat)
+	if sample.Latency <= 0 {
 		return
+	}
+
+	// the agent may have been closed while sampling, and its connection's
+	// latency cleared: a late sample must not bring the stale value back
+	if ctx.Err() != nil {
+		return
+	}
+
+	if err := w.statusRecorder.UpdateLatency(w.config.Key, sample); err != nil {
+		w.log.Debugf("failed to update latency for peer: %s", err)
 	}
 }
 
@@ -517,8 +659,8 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
-			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
-			// notify the conn.onICEStateDisconnected changes to update the current used priority
+			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
+			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
 
 			sessionChanged := w.closeAgent(agent, dialerCancel)
 
@@ -532,11 +674,64 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 	}
 }
 
-func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+func (w *WorkerICE) agentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
 	if isController(w.config) {
 		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
 		return agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+	}
+}
+
+// latencySampler smooths the round trip time samples of a single ICE agent and
+// tracks how much they scatter, so consumers can tell a real difference between
+// two paths from the noise of a jittery one.
+type latencySampler struct {
+	smoothed  time.Duration
+	deviation time.Duration
+	localID   string
+	remoteID  string
+}
+
+// observe folds a candidate pair stat into the moving average and returns the
+// smoothed latency with the uncertainty of that estimate. A different candidate
+// pair starts over: the path changed, so the previous samples describe a route
+// that no longer carries the traffic.
+func (s *latencySampler) observe(stat ice.CandidatePairStats) LatencySample {
+	rtt := time.Duration(stat.CurrentRoundTripTime * float64(time.Second))
+	if rtt <= 0 {
+		return LatencySample{}
+	}
+
+	if s.smoothed <= 0 || s.localID != stat.LocalCandidateID || s.remoteID != stat.RemoteCandidateID {
+		s.localID = stat.LocalCandidateID
+		s.remoteID = stat.RemoteCandidateID
+		s.smoothed = rtt
+		// A fresh path is described by a single raw sample, which is exactly
+		// when the estimate deserves the least trust: a lucky outlier reported
+		// with no uncertainty could move a route on its own. Seed the deviation
+		// at half the observed value so the reported noise stays conservative
+		// until real samples accumulate, and keep a larger deviation carried
+		// over from the previous path, since the link's jitter usually outlives
+		// a candidate pair change.
+		if seed := rtt / 2; s.deviation < seed {
+			s.deviation = seed
+		}
+		return s.sample()
+	}
+
+	// mean absolute deviation of the samples around the average, the same
+	// estimator TCP keeps next to its smoothed round trip time
+	delta := absDuration(rtt - s.smoothed)
+	s.deviation = time.Duration(latencyEWMAAlpha*float64(delta) + (1-latencyEWMAAlpha)*float64(s.deviation))
+	s.smoothed = time.Duration(latencyEWMAAlpha*float64(rtt) + (1-latencyEWMAAlpha)*float64(s.smoothed))
+
+	return s.sample()
+}
+
+func (s *latencySampler) sample() LatencySample {
+	return LatencySample{
+		Latency: s.smoothed,
+		Noise:   time.Duration(latencySmoothedNoiseFactor * float64(s.deviation)),
 	}
 }
 

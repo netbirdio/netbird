@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -59,6 +58,12 @@ func setupRouterScenario(t *testing.T, directRouterPeer bool) *routerScenario {
 
 	manager, updateManager, err := createManager(t)
 	require.NoError(t, err)
+
+	return buildRouterScenario(t, manager, updateManager, directRouterPeer)
+}
+
+func buildRouterScenario(t *testing.T, manager *DefaultAccountManager, updateManager *update_channel.PeersUpdateManager, directRouterPeer bool) *routerScenario {
+	t.Helper()
 
 	ctx := context.Background()
 
@@ -162,6 +167,23 @@ func peerToResourcePolicyByGroup(sourceGroupID, resourceGroupID string) *types.P
 				Sources:      []string{sourceGroupID},
 				Destinations: []string{resourceGroupID},
 				Action:       types.PolicyTrafficActionAccept,
+			},
+		},
+	}
+}
+
+// peerToResourcePolicyByPeer builds a policy naming the source peer directly via
+// SourceResource rather than through a group.
+func peerToResourcePolicyByPeer(sourcePeerID, resourceGroupID string) *types.Policy {
+	return &types.Policy{
+		Enabled: true,
+		Name:    "peer-to-resource-by-peer",
+		Rules: []*types.PolicyRule{
+			{
+				Enabled:        true,
+				SourceResource: types.Resource{ID: sourcePeerID, Type: types.ResourceTypePeer},
+				Destinations:   []string{resourceGroupID},
+				Action:         types.PolicyTrafficActionAccept,
 			},
 		},
 	}
@@ -297,190 +319,189 @@ func TestAffectedPeers_PolicyToResource_UnrelatedPeerNotAffected(t *testing.T) {
 }
 
 func TestAffectedPeers_ResourceSideBridgesToRoutingPeer_DirectRouter(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, true)
+		ctx := context.Background()
 
-	// A pre-existing policy grants the source group access to the resource.
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
+		// A pre-existing policy grants the source group access to the resource.
+		_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+		require.NoError(t, err)
 
-	// Drive an update through the resource manager and assert the routing peer
-	// is among the affected set by observing the channel. This path walks
-	// policies whose destinations reference the resource's groups, folds in the
-	// source groups, and loads the network's routers, so it reaches both the
-	// source peer and the routing peer.
-	permissionsManager := permissions.NewManager(s.manager.Store)
-	groupsManager := groups.NewManager(s.manager.Store, permissionsManager, s.manager)
-	rm := resources.NewManager(s.manager.Store, permissionsManager, groupsManager, s.manager, s.manager.serviceManager)
+		// Drive an update through the resource manager and assert the routing peer
+		// is among the affected set by observing the channel. This path walks
+		// policies whose destinations reference the resource's groups, folds in the
+		// source groups, and loads the network's routers, so it reaches both the
+		// source peer and the routing peer.
+		permissionsManager := permissions.NewManager(s.manager.Store)
+		groupsManager := groups.NewManager(s.manager.Store, permissionsManager, s.manager)
+		rm := resources.NewManager(s.manager.Store, permissionsManager, groupsManager, s.manager, s.manager.serviceManager)
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			close(done)
+		}()
+
+		_, err = rm.UpdateResource(ctx, userID, &resourceTypes.NetworkResource{
+			ID:        s.resourceID,
+			AccountID: s.accountID,
+			NetworkID: s.networkID,
+			Name:      "rs-resource-host",
+			Address:   "10.20.30.0/24",
+			GroupIDs:  []string{s.resourceGroupID},
+			Enabled:   true,
+		})
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: resource update did not refresh source peer + routing peer")
+		}
 	})
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		close(done)
-	}()
-
-	_, err = rm.UpdateResource(ctx, userID, &resourceTypes.NetworkResource{
-		ID:        s.resourceID,
-		AccountID: s.accountID,
-		NetworkID: s.networkID,
-		Name:      "rs-resource-host",
-		Address:   "10.20.30.0/24",
-		GroupIDs:  []string{s.resourceGroupID},
-		Enabled:   true,
-	})
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: resource update did not refresh source peer + routing peer")
-	}
-}
-
-// settleAffectedUpdates waits for in-flight async updates to arrive, then drains
-// every given channel so subsequent assertions start from a clean slate.
-//
-// Setup (CreateNetwork/CreateResource/CreateRouter) fires async UpdateAffectedPeers
-// goroutines; draining first means the assertion only observes updates from the
-// action under test, not setup stragglers.
-func settleAffectedUpdates(chans ...<-chan *network_map.UpdateMessage) {
-	time.Sleep(300 * time.Millisecond)
-	for _, ch := range chans {
-		drainPeerUpdates(ch)
-	}
 }
 
 func TestAffectedPeers_E2E_CreatePolicy_RoutingPeer_DirectRouter(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, true)
+		ctx := context.Background()
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
-	unrelatedCh := s.updateManager.CreateChannel(ctx, s.unrelatedPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerPeerID)
-		s.updateManager.CloseChannel(ctx, s.unrelatedPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+		unrelatedCh := s.updateManager.CreateChannel(ctx, s.unrelatedPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerPeerID)
+			s.updateManager.CloseChannel(ctx, s.unrelatedPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerCh, unrelatedCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			peerShouldNotReceiveUpdate(t, unrelatedCh)
+			close(done)
+		}()
+
+		_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: creating peer->resource policy did not refresh the routing peer")
+		}
 	})
-
-	settleAffectedUpdates(srcCh, routerCh, unrelatedCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		peerShouldNotReceiveUpdate(t, unrelatedCh)
-		close(done)
-	}()
-
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: creating peer->resource policy did not refresh the routing peer")
-	}
 }
 
 func TestAffectedPeers_E2E_CreatePolicy_RoutingPeer_RouterPeerGroups(t *testing.T) {
-	s := setupRouterScenario(t, false)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, false)
+		ctx := context.Background()
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerGroupPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerGroupPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerGroupPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerGroupPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			close(done)
+		}()
+
+		_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: routing peer (PeerGroups) not refreshed on policy create")
+		}
 	})
-
-	settleAffectedUpdates(srcCh, routerCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		close(done)
-	}()
-
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: routing peer (PeerGroups) not refreshed on policy create")
-	}
 }
 
 func TestAffectedPeers_E2E_DestResource_RoutingPeer(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, true)
+		ctx := context.Background()
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			close(done)
+		}()
+
+		_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByResource(s.sourceGroupID, s.resourceID), true)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: routing peer not refreshed when policy targets DestinationResource")
+		}
 	})
-
-	settleAffectedUpdates(srcCh, routerCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		close(done)
-	}()
-
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByResource(s.sourceGroupID, s.resourceID), true)
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: routing peer not refreshed when policy targets DestinationResource")
-	}
 }
 
 func TestAffectedPeers_E2E_DeletePolicy_RoutingPeer(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, true)
+		ctx := context.Background()
 
-	policy, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
+		policy, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+		require.NoError(t, err)
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			close(done)
+		}()
+
+		require.NoError(t, s.manager.DeletePolicy(ctx, s.accountID, policy.ID, userID))
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: deleting peer->resource policy did not refresh the routing peer")
+		}
 	})
-
-	settleAffectedUpdates(srcCh, routerCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		close(done)
-	}()
-
-	require.NoError(t, s.manager.DeletePolicy(ctx, s.accountID, policy.ID, userID))
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: deleting peer->resource policy did not refresh the routing peer")
-	}
 }
 
 func (s *routerScenario) managers() (resources.Manager, routers.Manager, networks.Manager) {
@@ -549,113 +570,119 @@ func (s *routerScenario) addSecondTopology(t *testing.T, suffix string) secondTo
 }
 
 func TestAffectedPeers_E2E_UpdatePolicy_BothRoutingPeers(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	second := s.addSecondTopology(t, "b")
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, true)
+		second := s.addSecondTopology(t, "b")
+		ctx := context.Background()
 
-	policy, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
+		policy, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+		require.NoError(t, err)
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerACh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
-	routerBCh := s.updateManager.CreateChannel(ctx, second.routerPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerPeerID)
-		s.updateManager.CloseChannel(ctx, second.routerPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerACh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+		routerBCh := s.updateManager.CreateChannel(ctx, second.routerPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerPeerID)
+			s.updateManager.CloseChannel(ctx, second.routerPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerACh, routerBCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerACh)
+			peerShouldReceiveUpdate(t, routerBCh)
+			close(done)
+		}()
+
+		policy.Rules[0].Destinations = []string{second.resourceGroupID}
+		_, err = s.manager.SavePolicy(ctx, s.accountID, userID, policy, false)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: re-pointing the policy destination did not refresh both routing peers")
+		}
 	})
-
-	settleAffectedUpdates(srcCh, routerACh, routerBCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerACh)
-		peerShouldReceiveUpdate(t, routerBCh)
-		close(done)
-	}()
-
-	policy.Rules[0].Destinations = []string{second.resourceGroupID}
-	_, err = s.manager.SavePolicy(ctx, s.accountID, userID, policy, false)
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: re-pointing the policy destination did not refresh both routing peers")
-	}
 }
 
 func TestAffectedPeers_E2E_UpdatePolicy_AddSource(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, true)
+		ctx := context.Background()
 
-	const secondSourceGroupID = "rs-source-grp-2"
-	setupKey, err := s.manager.CreateSetupKey(ctx, s.accountID, "rs-key-2", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
-	require.NoError(t, err)
-	secondSourcePeer := addPeerToAccount(t, s.manager, s.accountID, setupKey.Key)
-	require.NoError(t, s.manager.CreateGroup(ctx, s.accountID, userID, &types.Group{
-		ID: secondSourceGroupID, Name: "rs-source-2", Peers: []string{secondSourcePeer.ID},
-	}))
+		const secondSourceGroupID = "rs-source-grp-2"
+		setupKey, err := s.manager.CreateSetupKey(ctx, s.accountID, "rs-key-2", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+		require.NoError(t, err)
+		secondSourcePeer := addPeerToAccount(t, s.manager, s.accountID, setupKey.Key)
+		require.NoError(t, s.manager.CreateGroup(ctx, s.accountID, userID, &types.Group{
+			ID: secondSourceGroupID, Name: "rs-source-2", Peers: []string{secondSourcePeer.ID},
+		}))
 
-	policy, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
+		policy, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+		require.NoError(t, err)
 
-	newSrcCh := s.updateManager.CreateChannel(ctx, secondSourcePeer.ID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, secondSourcePeer.ID)
-		s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		newSrcCh := s.updateManager.CreateChannel(ctx, secondSourcePeer.ID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, secondSourcePeer.ID)
+			s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		})
+
+		settleAffectedUpdates(newSrcCh, routerCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, newSrcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			close(done)
+		}()
+
+		policy.Rules[0].Sources = []string{s.sourceGroupID, secondSourceGroupID}
+		_, err = s.manager.SavePolicy(ctx, s.accountID, userID, policy, false)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: adding a source group did not refresh the new source peer + routing peer")
+		}
 	})
-
-	settleAffectedUpdates(newSrcCh, routerCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, newSrcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		close(done)
-	}()
-
-	policy.Rules[0].Sources = []string{s.sourceGroupID, secondSourceGroupID}
-	_, err = s.manager.SavePolicy(ctx, s.accountID, userID, policy, false)
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: adding a source group did not refresh the new source peer + routing peer")
-	}
 }
 
 func TestAffectedPeers_E2E_DestResource_RouterPeerGroups(t *testing.T) {
-	s := setupRouterScenario(t, false)
-	ctx := context.Background()
+	runPeerUpdateTest(t, func(t *testing.T) {
+		s := setupRouterScenario(t, false)
+		ctx := context.Background()
 
-	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
-	routerCh := s.updateManager.CreateChannel(ctx, s.routerGroupPeerID)
-	t.Cleanup(func() {
-		s.updateManager.CloseChannel(ctx, s.sourcePeerID)
-		s.updateManager.CloseChannel(ctx, s.routerGroupPeerID)
+		srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
+		routerCh := s.updateManager.CreateChannel(ctx, s.routerGroupPeerID)
+		t.Cleanup(func() {
+			s.updateManager.CloseChannel(ctx, s.sourcePeerID)
+			s.updateManager.CloseChannel(ctx, s.routerGroupPeerID)
+		})
+
+		settleAffectedUpdates(srcCh, routerCh)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, srcCh)
+			peerShouldReceiveUpdate(t, routerCh)
+			close(done)
+		}()
+
+		_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByResource(s.sourceGroupID, s.resourceID), true)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout: DestinationResource policy with PeerGroups router did not refresh the routing peer")
+		}
 	})
-
-	settleAffectedUpdates(srcCh, routerCh)
-
-	done := make(chan struct{})
-	go func() {
-		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh)
-		close(done)
-	}()
-
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByResource(s.sourceGroupID, s.resourceID), true)
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-	case <-time.After(peerUpdateTimeout):
-		t.Error("timeout: DestinationResource policy with PeerGroups router did not refresh the routing peer")
-	}
 }
 
 func TestAffectedPeers_AllRoutingPeers_Network(t *testing.T) {

@@ -18,8 +18,8 @@ type Service struct {
 }
 
 func New() (*Service, error) {
-	d, err := NewDetector()
-	if err != nil {
+	d, err := NewDetector() //nolint:staticcheck
+	if err != nil {         //nolint:staticcheck // always errors on platforms without a sleep detector
 		return nil, err
 	}
 

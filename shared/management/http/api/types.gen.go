@@ -77,6 +77,30 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkManagedProxyState.
+const (
+	AgentNetworkManagedProxyStateDisabled     AgentNetworkManagedProxyState = "disabled"
+	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
+	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
+	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
+func (e AgentNetworkManagedProxyState) Valid() bool {
+	switch e {
+	case AgentNetworkManagedProxyStateDisabled:
+		return true
+	case AgentNetworkManagedProxyStateFailed:
+		return true
+	case AgentNetworkManagedProxyStateProvisioning:
+		return true
+	case AgentNetworkManagedProxyStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -584,69 +608,6 @@ func (e IdentityProviderType) Valid() bool {
 	}
 }
 
-// Defines values for IngressPortAllocationPortMappingProtocol.
-const (
-	IngressPortAllocationPortMappingProtocolTcp    IngressPortAllocationPortMappingProtocol = "tcp"
-	IngressPortAllocationPortMappingProtocolTcpudp IngressPortAllocationPortMappingProtocol = "tcp/udp"
-	IngressPortAllocationPortMappingProtocolUdp    IngressPortAllocationPortMappingProtocol = "udp"
-)
-
-// Valid indicates whether the value is a known member of the IngressPortAllocationPortMappingProtocol enum.
-func (e IngressPortAllocationPortMappingProtocol) Valid() bool {
-	switch e {
-	case IngressPortAllocationPortMappingProtocolTcp:
-		return true
-	case IngressPortAllocationPortMappingProtocolTcpudp:
-		return true
-	case IngressPortAllocationPortMappingProtocolUdp:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for IngressPortAllocationRequestDirectPortProtocol.
-const (
-	IngressPortAllocationRequestDirectPortProtocolTcp    IngressPortAllocationRequestDirectPortProtocol = "tcp"
-	IngressPortAllocationRequestDirectPortProtocolTcpudp IngressPortAllocationRequestDirectPortProtocol = "tcp/udp"
-	IngressPortAllocationRequestDirectPortProtocolUdp    IngressPortAllocationRequestDirectPortProtocol = "udp"
-)
-
-// Valid indicates whether the value is a known member of the IngressPortAllocationRequestDirectPortProtocol enum.
-func (e IngressPortAllocationRequestDirectPortProtocol) Valid() bool {
-	switch e {
-	case IngressPortAllocationRequestDirectPortProtocolTcp:
-		return true
-	case IngressPortAllocationRequestDirectPortProtocolTcpudp:
-		return true
-	case IngressPortAllocationRequestDirectPortProtocolUdp:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for IngressPortAllocationRequestPortRangeProtocol.
-const (
-	IngressPortAllocationRequestPortRangeProtocolTcp    IngressPortAllocationRequestPortRangeProtocol = "tcp"
-	IngressPortAllocationRequestPortRangeProtocolTcpudp IngressPortAllocationRequestPortRangeProtocol = "tcp/udp"
-	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
-)
-
-// Valid indicates whether the value is a known member of the IngressPortAllocationRequestPortRangeProtocol enum.
-func (e IngressPortAllocationRequestPortRangeProtocol) Valid() bool {
-	switch e {
-	case IngressPortAllocationRequestPortRangeProtocolTcp:
-		return true
-	case IngressPortAllocationRequestPortRangeProtocolTcpudp:
-		return true
-	case IngressPortAllocationRequestPortRangeProtocolUdp:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for IntegrationResponsePlatform.
 const (
 	IntegrationResponsePlatformDatadog     IntegrationResponsePlatform = "datadog"
@@ -1070,6 +1031,27 @@ func (e ServiceRequestMode) Valid() bool {
 	case ServiceRequestModeTls:
 		return true
 	case ServiceRequestModeUdp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceTargetAccessAction.
+const (
+	ServiceTargetAccessActionBlock   ServiceTargetAccessAction = "block"
+	ServiceTargetAccessActionBypass  ServiceTargetAccessAction = "bypass"
+	ServiceTargetAccessActionInherit ServiceTargetAccessAction = "inherit"
+)
+
+// Valid indicates whether the value is a known member of the ServiceTargetAccessAction enum.
+func (e ServiceTargetAccessAction) Valid() bool {
+	switch e {
+	case ServiceTargetAccessActionBlock:
+		return true
+	case ServiceTargetAccessActionBypass:
+		return true
+	case ServiceTargetAccessActionInherit:
 		return true
 	default:
 		return false
@@ -1612,6 +1594,12 @@ type Account struct {
 	Settings   AccountSettings   `json:"settings"`
 }
 
+// AccountDashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+type AccountDashboardFeatures struct {
+	// AgentNetwork Controls the Agent Network menu for the account regardless of the deployment feature flag. When true the menu is shown, when false it is hidden, and when omitted the default behavior applies. Must be true when agent_network_only is enabled.
+	AgentNetwork *bool `json:"agent_network,omitempty"`
+}
+
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
 	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
@@ -1647,11 +1635,17 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AgentNetworkOnly Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
+	AgentNetworkOnly *bool `json:"agent_network_only,omitempty"`
+
 	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
 	AutoUpdateAlways *bool `json:"auto_update_always,omitempty"`
 
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
+
+	// DashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
+	DashboardFeatures *AccountDashboardFeatures `json:"dashboard_features,omitempty"`
 
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
@@ -1699,6 +1693,9 @@ type AccountSettings struct {
 	// PeerExposeGroups Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
 	PeerExposeGroups []string `json:"peer_expose_groups"`
 
+	// PeerHostnameCollisionRejected When enabled, registering or renaming a peer to a hostname already used by another peer in the account fails instead of receiving an IP-based suffix. Applies to ephemeral peers as well.
+	PeerHostnameCollisionRejected *bool `json:"peer_hostname_collision_rejected,omitempty"`
+
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
 
@@ -1720,6 +1717,21 @@ type AccountSettings struct {
 
 // AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
 type AgentNetworkAccessLog struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Estimated USD cost of the request.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1741,6 +1753,9 @@ type AgentNetworkAccessLog struct {
 	// Id Unique identifier for the access log entry.
 	Id string `json:"id"`
 
+	// InputCostUsd Cost of the non-cached input tokens. Base component of cost_usd.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Input (prompt) tokens consumed.
 	InputTokens int64 `json:"input_tokens"`
 
@@ -1749,6 +1764,9 @@ type AgentNetworkAccessLog struct {
 
 	// Model Requested LLM model.
 	Model *string `json:"model,omitempty"`
+
+	// OutputCostUsd Cost of the output tokens. Base component of cost_usd.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Output (completion) tokens produced.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1789,7 +1807,7 @@ type AgentNetworkAccessLog struct {
 	// Timestamp Timestamp when the request was made.
 	Timestamp time.Time `json:"timestamp"`
 
-	// TotalTokens Total tokens consumed.
+	// TotalTokens Total tokens consumed, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the authenticated caller, if applicable.
@@ -1798,6 +1816,21 @@ type AgentNetworkAccessLog struct {
 
 // AgentNetworkAccessLogSession A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
 type AgentNetworkAccessLogSession struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage across the session.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens across the session.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens across the session.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens across the session.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Total prompt-cache read tokens across the session.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD cost across the session.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1813,11 +1846,17 @@ type AgentNetworkAccessLogSession struct {
 	// GroupIds Union of the authorising group ids across the session's entries.
 	GroupIds *[]string `json:"group_ids,omitempty"`
 
+	// InputCostUsd Total cost of non-cached input tokens across the session.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens across the session.
 	InputTokens int64 `json:"input_tokens"`
 
 	// Models Distinct models seen in the session.
 	Models *[]string `json:"models,omitempty"`
+
+	// OutputCostUsd Total cost of output tokens across the session.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens across the session.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1834,7 +1873,7 @@ type AgentNetworkAccessLogSession struct {
 	// StartedAt Timestamp of the session's earliest request.
 	StartedAt time.Time `json:"started_at"`
 
-	// TotalTokens Total tokens across the session.
+	// TotalTokens Total tokens across the session, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the session's caller.
@@ -1875,6 +1914,36 @@ type AgentNetworkAccessLogsResponse struct {
 
 	// TotalRecords Total number of log records matching the filter.
 	TotalRecords int `json:"total_records"`
+}
+
+// AgentNetworkAgentConfig The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
+type AgentNetworkAgentConfig struct {
+	// Configured False only when the account has no Agent Network set up. A caller that no policy covers yet still reads as configured, with an empty providers list.
+	Configured bool `json:"configured"`
+
+	// Endpoint The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
+	Endpoint string `json:"endpoint"`
+
+	// Providers The providers at least one of the caller's policies authorizes, in creation order. Empty when no policy covers the caller.
+	Providers []AgentNetworkAgentConfigProvider `json:"providers"`
+}
+
+// AgentNetworkAgentConfigProvider One provider the caller may use, reduced to what a local tool needs for configuration.
+type AgentNetworkAgentConfigProvider struct {
+	// AllModelsAllowed True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+	AllModelsAllowed bool `json:"all_models_allowed"`
+
+	// ApiFlavor Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+	ApiFlavor string `json:"api_flavor"`
+
+	// CatalogId Catalog entry id naming the provider type.
+	CatalogId string `json:"catalog_id"`
+
+	// Models The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+	Models []string `json:"models"`
+
+	// Name Operator-assigned provider label.
+	Name string `json:"name"`
 }
 
 // AgentNetworkBudgetRule Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.
@@ -1963,6 +2032,15 @@ type AgentNetworkCatalogJSONMetadataInjection struct {
 
 // AgentNetworkCatalogModel defines model for AgentNetworkCatalogModel.
 type AgentNetworkCatalogModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
 	// ContextWindow Maximum context window in tokens.
 	ContextWindow int `json:"context_window"`
 
@@ -2016,6 +2094,9 @@ type AgentNetworkCatalogProvider struct {
 
 	// Name Display name for the provider.
 	Name string `json:"name"`
+
+	// PricingSurfaces Cost-meter pricing surfaces this provider's traffic is metered under ("openai", "anthropic", "bedrock"). Tells the dashboard which cache-rate fields apply to this provider's models: "openai" → cached_input_per_1k (cached prompt tokens are a subset of input); "anthropic"/"bedrock" → cache_read_per_1k + cache_creation_per_1k (additive buckets). Absent/empty for gateway and custom entries, whose upstream shape NetBird cannot know ahead of time — surface all cache fields for those.
+	PricingSurfaces *[]string `json:"pricing_surfaces,omitempty"`
 }
 
 // AgentNetworkCatalogProviderKind Presentation grouping for the provider Select on the dashboard.
@@ -2053,6 +2134,33 @@ type AgentNetworkConsumption struct {
 
 // AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
 type AgentNetworkConsumptionDimensionKind string
+
+// AgentNetworkDiscoveredModel defines model for AgentNetworkDiscoveredModel.
+type AgentNetworkDiscoveredModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
+	// Id Identifier to register on the provider record, in the form the vendor issues it. For Bedrock this is the region-prefixed inference-profile id, which is the only form AWS accepts at invoke time.
+	Id string `json:"id"`
+
+	// InputPer1k Default input token price per 1k tokens, in USD, from the same table the proxy bills with. Zero when pricing_known is false.
+	InputPer1k float64 `json:"input_per_1k"`
+
+	// Label Vendor-supplied display name, where the vendor supplies one.
+	Label *string `json:"label,omitempty"`
+
+	// OutputPer1k Default output token price per 1k tokens, in USD. Zero when pricing_known is false.
+	OutputPer1k float64 `json:"output_per_1k"`
+
+	// PricingKnown Whether NetBird's shipped pricing table can price this model. When false the rates below are all zero and the operator must set them, or requests to this model would record a cost of zero.
+	PricingKnown bool `json:"pricing_known"`
+}
 
 // AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
 type AgentNetworkGuardrail struct {
@@ -2099,6 +2207,54 @@ type AgentNetworkGuardrailRequest struct {
 
 	// Name Display name for the guardrail.
 	Name string `json:"name"`
+}
+
+// AgentNetworkManagedProxy A NetBird-managed Agent Network gateway deployment.
+type AgentNetworkManagedProxy struct {
+	// Endpoint The account's gateway hostname.
+	Endpoint string `json:"endpoint"`
+
+	// Id Managed proxy deployment ID.
+	Id string `json:"id"`
+
+	// Message Failure detail reported by the rollout. Only set when state is `failed`.
+	Message *string `json:"message,omitempty"`
+
+	// Region Region of the cluster hosting the deployment.
+	Region *string `json:"region,omitempty"`
+
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
+	State AgentNetworkManagedProxyState `json:"state"`
+}
+
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
+type AgentNetworkManagedProxyState string
+
+// AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
+type AgentNetworkManagedProxyConflict struct {
+	// Endpoint The Agent Network endpoint already assigned to the account.
+	Endpoint string `json:"endpoint"`
+}
+
+// AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
+type AgentNetworkModelDiscoveryRequest struct {
+	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
+	CatalogProviderId string `json:"catalog_provider_id"`
+
+	// ProviderId Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
+	ProviderId *string `json:"provider_id,omitempty"`
+
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
+	UpstreamUrl *string `json:"upstream_url,omitempty"`
+}
+
+// AgentNetworkModelDiscoveryResponse defines model for AgentNetworkModelDiscoveryResponse.
+type AgentNetworkModelDiscoveryResponse struct {
+	// Models Models the credential can reach, in the order the vendor returned them.
+	Models []AgentNetworkDiscoveredModel `json:"models"`
 }
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
@@ -2209,11 +2365,14 @@ type AgentNetworkProvider struct {
 	// Id Provider ID
 	Id string `json:"id"`
 
-	// IdentityHeaderGroups Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
-	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
+	// IdentityHeaderGroups Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
+	IdentityHeaderGroups string `json:"identity_header_groups"`
 
-	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
-	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
+	IdentityHeaderUserId string `json:"identity_header_user_id"`
+
+	// MetadataDisabled Whether identity metadata injection is disabled for this provider. When enabled (the default), the proxy stamps the caller's user and authorizing group onto upstream requests as provider-specific metadata (e.g. AWS Bedrock's X-Amzn-Bedrock-Request-Metadata header). Set true to suppress it.
+	MetadataDisabled bool `json:"metadata_disabled"`
 
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
 	Models []AgentNetworkProviderModel `json:"models"`
@@ -2236,6 +2395,15 @@ type AgentNetworkProvider struct {
 
 // AgentNetworkProviderModel A model exposed by the provider, with the operator's per-1k input/output prices in USD.
 type AgentNetworkProviderModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — cost per 1k cache-creation tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache writes bill at input_per_1k.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — cost per 1k cache-read tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache reads bill at input_per_1k.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — cost per 1k cached prompt tokens (a subset of input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means no discount (cached tokens bill at input_per_1k).
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
 	// Id Model identifier (e.g. "gpt-4o-mini").
 	Id string `json:"id"`
 
@@ -2251,20 +2419,20 @@ type AgentNetworkProviderRequest struct {
 	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
 	ApiKey *string `json:"api_key,omitempty"`
 
-	// BootstrapCluster Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
-	BootstrapCluster *string `json:"bootstrap_cluster,omitempty"`
-
 	// Enabled Whether the provider is enabled. Defaults to true on create.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values. Empty strings drop the corresponding key.
+	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). The request's map replaces the stored values; empty strings drop the corresponding key.
 	ExtraValues *map[string]string `json:"extra_values,omitempty"`
 
-	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same semantics as `identity_header_user_id`.
 	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
 
-	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. Empty or omitted disables stamping for this dimension.
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+
+	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected).
+	MetadataDisabled *bool `json:"metadata_disabled,omitempty"`
 
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
 	Models *[]AgentNetworkProviderModel `json:"models,omitempty"`
@@ -2275,23 +2443,23 @@ type AgentNetworkProviderRequest struct {
 	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
 	ProviderId string `json:"provider_id"`
 
-	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false.
 	SkipTlsVerification *bool `json:"skip_tls_verification,omitempty"`
 
 	// UpstreamUrl Full upstream URL (with scheme) that NetBird forwards traffic to.
 	UpstreamUrl string `json:"upstream_url"`
 }
 
-// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; endpoint and proxy_address are assigned at bootstrap (POST) and immutable thereafter. Before bootstrap the account reads as the default values with empty endpoint and proxy_address.
 type AgentNetworkSettings struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
 
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
-	Cluster string `json:"cluster"`
-
-	// CreatedAt Timestamp when the settings row was created.
+	// CreatedAt Timestamp when the settings row was created. Absent until the account is bootstrapped.
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Dedicated Whether the account's gateway is served by a proxy dedicated to it (endpoint equals proxy_address).
+	Dedicated bool `json:"dedicated"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -2299,23 +2467,44 @@ type AgentNetworkSettings struct {
 	// EnablePromptCollection Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
-	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+	// Endpoint Bare hostname agents call for this account. Empty until the account is bootstrapped.
 	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Equal to `endpoint` when a dedicated proxy serves the account; otherwise the endpoint's immediate parent (a shared cluster the endpoint hangs one label beneath). Empty until the account is bootstrapped.
+	ProxyAddress string `json:"proxy_address"`
 
 	// RedactPii Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
 	RedactPii bool `json:"redact_pii"`
 
-	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
-	Subdomain string `json:"subdomain"`
-
-	// UpdatedAt Timestamp when the settings row was last updated.
+	// UpdatedAt Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-// AgentNetworkSettingsRequest Mutable account-level Agent Network settings. Cluster and subdomain are immutable and not accepted here.
+// AgentNetworkSettingsCreateRequest Bootstraps the per-account Agent Network settings row, assigning the account's immutable endpoint. Exactly one of `proxy_address` and `endpoint` must be provided. `proxy_address` requests a labeled endpoint — the server allocates a label and the endpoint becomes `<label>.<proxy_address>`, served by whichever proxy declares that parent address. `endpoint` claims the given hostname itself as a self-addressed (dedicated) endpoint, served only by a proxy declaring exactly that address — the claim is legitimate before the proxy exists (address-first). Collection toggles may ride along; omitted toggles take their defaults.
+type AgentNetworkSettingsCreateRequest struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Defaults to 30.
+	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+
+	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic. Defaults to true.
+	EnableLogCollection *bool `json:"enable_log_collection,omitempty"`
+
+	// EnablePromptCollection Master switch for request/response prompt capture. Defaults to false.
+	EnablePromptCollection *bool `json:"enable_prompt_collection,omitempty"`
+
+	// Endpoint Hostname to claim as the account's self-addressed (dedicated) endpoint. Mutually exclusive with `proxy_address`. Rejected when another account already holds it.
+	Endpoint *string `json:"endpoint,omitempty"`
+
+	// ProxyAddress Cluster address to allocate a labeled endpoint beneath. Mutually exclusive with `endpoint`.
+	ProxyAddress *string `json:"proxy_address,omitempty"`
+
+	// RedactPii Whether captured prompts have PII redacted. Defaults to false.
+	RedactPii *bool `json:"redact_pii,omitempty"`
+}
+
+// AgentNetworkSettingsRequest Account-level Agent Network settings update. Every field is required, matching the PUT convention of the other endpoints. The endpoint and proxy address are assigned at bootstrap (POST) and are immutable — the request must carry them unchanged, and a request carrying different values is rejected. To change them, delete the settings (DELETE, guarded) and bootstrap again; re-creating allocates a new endpoint.
 type AgentNetworkSettingsRequest struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
-	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+	AccessLogRetentionDays int `json:"access_log_retention_days"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -2323,17 +2512,44 @@ type AgentNetworkSettingsRequest struct {
 	// EnablePromptCollection Master switch for request/response prompt capture.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
+	// Endpoint The account's gateway endpoint hostname. Immutable — must match the assigned value; a different value is rejected.
+	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Immutable — must match the assigned value; a different value is rejected.
+	ProxyAddress string `json:"proxy_address"`
+
 	// RedactPii Whether captured prompts have PII redacted.
 	RedactPii bool `json:"redact_pii"`
 }
 
 // AgentNetworkUsageBucket One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
 type AgentNetworkUsageBucket struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage in the bucket.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens in the bucket.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens in the bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens in the bucket.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Total prompt-cache read tokens in the bucket.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD spend in the bucket.
 	CostUsd float64 `json:"cost_usd"`
 
+	// InputCostUsd Total cost of non-cached input tokens in the bucket.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens in the bucket.
 	InputTokens int64 `json:"input_tokens"`
+
+	// OutputCostUsd Total cost of output tokens in the bucket.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens in the bucket.
 	OutputTokens int64 `json:"output_tokens"`
@@ -2341,17 +2557,8 @@ type AgentNetworkUsageBucket struct {
 	// PeriodStart Start of the bucket in YYYY-MM-DD (UTC) — the day, the week start (Monday), or the month start, depending on granularity.
 	PeriodStart string `json:"period_start"`
 
-	// TotalTokens Total tokens in the bucket.
+	// TotalTokens Total tokens in the bucket, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
-}
-
-// AvailablePorts defines model for AvailablePorts.
-type AvailablePorts struct {
-	// Tcp Number of available TCP  ports left on the ingress peer
-	Tcp int `json:"tcp"`
-
-	// Udp Number of available UDP ports left on the ingress peer
-	Udp int `json:"udp"`
 }
 
 // AzureIntegration defines model for AzureIntegration.
@@ -2401,6 +2608,9 @@ type BundleParameters struct {
 	// Anonymize Whether sensitive data should be anonymized in the bundle.
 	Anonymize bool `json:"anonymize"`
 
+	// AnonymizeLevel How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+	AnonymizeLevel *string `json:"anonymize_level,omitempty"`
+
 	// BundleFor Whether to generate a bundle for the given timeframe.
 	BundleFor bool `json:"bundle_for"`
 
@@ -2409,6 +2619,9 @@ type BundleParameters struct {
 
 	// LogFileCount Maximum number of log files to include in the bundle.
 	LogFileCount int `json:"log_file_count"`
+
+	// UploadUrl Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+	UploadUrl *string `json:"upload_url,omitempty"`
 }
 
 // BundleResult defines model for BundleResult.
@@ -2443,6 +2656,12 @@ type BypassResponse struct {
 	PeerId string `json:"peer_id"`
 }
 
+// CertificateCheck Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+type CertificateCheck struct {
+	// CaCertificates PEM encoded CA certificates the peer's certificate must chain to
+	CaCertificates []string `json:"ca_certificates"`
+}
+
 // CheckoutResponse defines model for CheckoutResponse.
 type CheckoutResponse struct {
 	// SessionId The unique identifier for the checkout session.
@@ -2454,6 +2673,9 @@ type CheckoutResponse struct {
 
 // Checks List of objects that perform the actual checks
 type Checks struct {
+	// CertificateCheck Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
+	CertificateCheck *CertificateCheck `json:"certificate_check,omitempty"`
+
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
 
@@ -2750,7 +2972,7 @@ type EDRFleetDMRequest struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 }
 
@@ -2783,7 +3005,7 @@ type EDRFleetDMResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
@@ -3003,7 +3225,7 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
-// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
 	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
 	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
@@ -3199,139 +3421,6 @@ type IdpIntegrationSyncLog struct {
 	// Timestamp Timestamp of when the log was created
 	Timestamp time.Time `json:"timestamp"`
 }
-
-// IngressPeer defines model for IngressPeer.
-type IngressPeer struct {
-	AvailablePorts AvailablePorts `json:"available_ports"`
-
-	// Connected Indicates if an ingress peer is connected to the management server
-	Connected bool `json:"connected"`
-
-	// Enabled Indicates if an ingress peer is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-
-	// Id ID of the ingress peer
-	Id string `json:"id"`
-
-	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
-	IngressIp string `json:"ingress_ip"`
-
-	// PeerId ID of the peer that is used as an ingress peer
-	PeerId string `json:"peer_id"`
-
-	// Region Region of the ingress peer
-	Region string `json:"region"`
-}
-
-// IngressPeerCreateRequest defines model for IngressPeerCreateRequest.
-type IngressPeerCreateRequest struct {
-	// Enabled Defines if an ingress peer is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-
-	// PeerId ID of the peer that is used as an ingress peer
-	PeerId string `json:"peer_id"`
-}
-
-// IngressPeerUpdateRequest defines model for IngressPeerUpdateRequest.
-type IngressPeerUpdateRequest struct {
-	// Enabled Defines if an ingress peer is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-}
-
-// IngressPortAllocation defines model for IngressPortAllocation.
-type IngressPortAllocation struct {
-	// Enabled Indicates if an ingress port allocation is enabled
-	Enabled bool `json:"enabled"`
-
-	// Id ID of the ingress port allocation
-	Id string `json:"id"`
-
-	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
-	IngressIp string `json:"ingress_ip"`
-
-	// IngressPeerId ID of the ingress peer that forwards the ports
-	IngressPeerId string `json:"ingress_peer_id"`
-
-	// Name Name of the ingress port allocation
-	Name string `json:"name"`
-
-	// PortRangeMappings List of port ranges that are allowed to be used by the ingress peer
-	PortRangeMappings []IngressPortAllocationPortMapping `json:"port_range_mappings"`
-
-	// Region Region of the ingress peer
-	Region string `json:"region"`
-}
-
-// IngressPortAllocationPortMapping defines model for IngressPortAllocationPortMapping.
-type IngressPortAllocationPortMapping struct {
-	// IngressEnd The ending port of the range of ingress ports mapped to the forwarded ports
-	IngressEnd int `json:"ingress_end"`
-
-	// IngressStart The starting port of the range of ingress ports mapped to the forwarded ports
-	IngressStart int `json:"ingress_start"`
-
-	// Protocol Protocol accepted by the ports
-	Protocol IngressPortAllocationPortMappingProtocol `json:"protocol"`
-
-	// TranslatedEnd The ending port of the translated range of forwarded ports
-	TranslatedEnd int `json:"translated_end"`
-
-	// TranslatedStart The starting port of the translated range of forwarded ports
-	TranslatedStart int `json:"translated_start"`
-}
-
-// IngressPortAllocationPortMappingProtocol Protocol accepted by the ports
-type IngressPortAllocationPortMappingProtocol string
-
-// IngressPortAllocationRequest defines model for IngressPortAllocationRequest.
-type IngressPortAllocationRequest struct {
-	DirectPort *IngressPortAllocationRequestDirectPort `json:"direct_port,omitempty"`
-
-	// Enabled Indicates if an ingress port allocation is enabled
-	Enabled bool `json:"enabled"`
-
-	// Name Name of the ingress port allocation
-	Name string `json:"name"`
-
-	// PortRanges List of port ranges that are forwarded by the ingress peer
-	PortRanges *[]IngressPortAllocationRequestPortRange `json:"port_ranges,omitempty"`
-}
-
-// IngressPortAllocationRequestDirectPort defines model for IngressPortAllocationRequestDirectPort.
-type IngressPortAllocationRequestDirectPort struct {
-	// Count The number of ports to be forwarded
-	Count int `json:"count"`
-
-	// Protocol The protocol accepted by the port
-	Protocol IngressPortAllocationRequestDirectPortProtocol `json:"protocol"`
-}
-
-// IngressPortAllocationRequestDirectPortProtocol The protocol accepted by the port
-type IngressPortAllocationRequestDirectPortProtocol string
-
-// IngressPortAllocationRequestPortRange defines model for IngressPortAllocationRequestPortRange.
-type IngressPortAllocationRequestPortRange struct {
-	// End The ending port of the range of forwarded ports
-	End int `json:"end"`
-
-	// Protocol The protocol accepted by the port range
-	Protocol IngressPortAllocationRequestPortRangeProtocol `json:"protocol"`
-
-	// Start The starting port of the range of forwarded ports
-	Start int `json:"start"`
-}
-
-// IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
-type IngressPortAllocationRequestPortRangeProtocol string
 
 // InstanceStatus Instance status information
 type InstanceStatus struct {
@@ -3568,6 +3657,15 @@ type Network struct {
 	RoutingPeersCount int `json:"routing_peers_count"`
 }
 
+// NetworkAddress defines model for NetworkAddress.
+type NetworkAddress struct {
+	// Mac MAC address of the interface
+	Mac string `json:"mac"`
+
+	// NetIp IP address with CIDR of the interface
+	NetIp string `json:"net_ip"`
+}
+
 // NetworkRequest defines model for NetworkRequest.
 type NetworkRequest struct {
 	// Description Network description
@@ -3709,9 +3807,18 @@ type NetworkTrafficEvent struct {
 	Events []NetworkTrafficSubEvent `json:"events"`
 
 	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
-	FlowId string               `json:"flow_id"`
-	Icmp   NetworkTrafficICMP   `json:"icmp"`
-	Policy NetworkTrafficPolicy `json:"policy"`
+	FlowId string             `json:"flow_id"`
+	Icmp   NetworkTrafficICMP `json:"icmp"`
+
+	// NumOfDrops Number of drop events.
+	NumOfDrops int `json:"num_of_drops"`
+
+	// NumOfEnds Number of end events.
+	NumOfEnds int `json:"num_of_ends"`
+
+	// NumOfStarts Number of start events.
+	NumOfStarts int                  `json:"num_of_starts"`
+	Policy      NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
@@ -3732,6 +3839,12 @@ type NetworkTrafficEvent struct {
 	// TxPackets Number of packets transmitted.
 	TxPackets int                `json:"tx_packets"`
 	User      NetworkTrafficUser `json:"user"`
+
+	// WindowEnd Timestamp of the end of the aggregation window.
+	WindowEnd time.Time `json:"window_end"`
+
+	// WindowStart Timestamp of the start of the aggregation window.
+	WindowStart time.Time `json:"window_start"`
 }
 
 // NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
@@ -4002,6 +4115,9 @@ type Peer struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
+
 	// Os Peer's operating system and version
 	Os string `json:"os"`
 
@@ -4096,6 +4212,9 @@ type PeerBatch struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
+
 	// Os Peer's operating system and version
 	Os string `json:"os"`
 
@@ -4137,6 +4256,9 @@ type PeerLocalFlags struct {
 
 	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+
+	// RemoteJobsAllowed Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+	RemoteJobsAllowed *bool `json:"remote_jobs_allowed,omitempty"`
 
 	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer
 	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
@@ -4327,10 +4449,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4367,10 +4489,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4410,10 +4532,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4821,7 +4943,7 @@ type RouteRequest struct {
 	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
-// RulePortRange Policy rule affected ports range
+// RulePortRange Policy rule affected ports range. A range with identical start and end values represents a single port.
 type RulePortRange struct {
 	// End The ending port of the range
 	End int `json:"end"`
@@ -5015,6 +5137,9 @@ type ServiceRequestMode string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {
+	// AccessAction Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+	AccessAction *ServiceTargetAccessAction `json:"access_action,omitempty"`
+
 	// Enabled Whether this target is enabled
 	Enabled bool `json:"enabled"`
 
@@ -5037,6 +5162,9 @@ type ServiceTarget struct {
 	// TargetType Target type
 	TargetType ServiceTargetTargetType `json:"target_type"`
 }
+
+// ServiceTargetAccessAction Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+type ServiceTargetAccessAction string
 
 // ServiceTargetProtocol Protocol to use when connecting to the backend
 type ServiceTargetProtocol string
@@ -5842,6 +5970,12 @@ type GetApiEventsNetworkTrafficParams struct {
 	// ReporterId Filter by reporter ID
 	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
 
+	// SourceId Filter by source endpoint ID
+	SourceId *string `form:"source_id,omitempty" json:"source_id,omitempty"`
+
+	// DestinationId Filter by destination endpoint ID
+	DestinationId *string `form:"destination_id,omitempty" json:"destination_id,omitempty"`
+
 	// Protocol Filter by protocol
 	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`
 
@@ -6009,12 +6143,9 @@ type GetApiPeersParams struct {
 
 	// Ip Filter peers by IP address
 	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
-}
 
-// GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
-type GetApiPeersPeerIdIngressPortsParams struct {
-	// Name Filters ingress port allocations by name
-	Name *string `form:"name,omitempty" json:"name,omitempty"`
+	// Mac Filter peers by MAC address of a network interface
+	Mac *string `form:"mac,omitempty" json:"mac,omitempty"`
 }
 
 // GetApiUsersParams defines parameters for GetApiUsers.
@@ -6031,6 +6162,9 @@ type PostApiAgentNetworkBudgetRulesJSONRequestBody = AgentNetworkBudgetRuleReque
 
 // PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody defines body for PutApiAgentNetworkBudgetRulesRuleId for application/json ContentType.
 type PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody = AgentNetworkBudgetRuleRequest
+
+// PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody defines body for PostApiAgentNetworkCatalogProvidersModels for application/json ContentType.
+type PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody = AgentNetworkModelDiscoveryRequest
 
 // PostApiAgentNetworkGuardrailsJSONRequestBody defines body for PostApiAgentNetworkGuardrails for application/json ContentType.
 type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
@@ -6049,6 +6183,9 @@ type PostApiAgentNetworkProvidersJSONRequestBody = AgentNetworkProviderRequest
 
 // PutApiAgentNetworkProvidersProviderIdJSONRequestBody defines body for PutApiAgentNetworkProvidersProviderId for application/json ContentType.
 type PutApiAgentNetworkProvidersProviderIdJSONRequestBody = AgentNetworkProviderRequest
+
+// PostApiAgentNetworkSettingsJSONRequestBody defines body for PostApiAgentNetworkSettings for application/json ContentType.
+type PostApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsCreateRequest
 
 // PutApiAgentNetworkSettingsJSONRequestBody defines body for PutApiAgentNetworkSettings for application/json ContentType.
 type PutApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsRequest
@@ -6091,12 +6228,6 @@ type PostApiIdentityProvidersJSONRequestBody = IdentityProviderRequest
 
 // PutApiIdentityProvidersIdpIdJSONRequestBody defines body for PutApiIdentityProvidersIdpId for application/json ContentType.
 type PutApiIdentityProvidersIdpIdJSONRequestBody = IdentityProviderRequest
-
-// PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
-type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
-
-// PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
-type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
 
 // CreateAzureIntegrationJSONRequestBody defines body for CreateAzureIntegration for application/json ContentType.
 type CreateAzureIntegrationJSONRequestBody = CreateAzureIntegrationRequest
@@ -6205,12 +6336,6 @@ type PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody = NetworkRouterReques
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest
-
-// PostApiPeersPeerIdIngressPortsJSONRequestBody defines body for PostApiPeersPeerIdIngressPorts for application/json ContentType.
-type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationRequest
-
-// PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
-type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
 
 // PostApiPeersPeerIdJobsJSONRequestBody defines body for PostApiPeersPeerIdJobs for application/json ContentType.
 type PostApiPeersPeerIdJobsJSONRequestBody = JobRequest

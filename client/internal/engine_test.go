@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -31,6 +32,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
@@ -63,7 +65,6 @@ type MockWGIface struct {
 	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
-	GetProxyPortFunc           func() uint16
 	GetNetFunc                 func() *netstack.Net
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
@@ -160,13 +161,6 @@ func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
 }
 
-func (m *MockWGIface) GetProxyPort() uint16 {
-	if m.GetProxyPortFunc != nil {
-		return m.GetProxyPortFunc()
-	}
-	return 0
-}
-
 func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
@@ -253,6 +247,223 @@ func TestEngine_SSHServerConsistency(t *testing.T) {
 	})
 }
 
+func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	infos := make(chan *system.Info, 1)
+	mgmClient := &mgmt.MockClient{
+		SyncFunc: func(ctx context.Context, getInfo func(context.Context) *system.Info, _ func(*mgmtProto.SyncResponse) error) error {
+			infos <- getInfo(ctx)
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun104",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+		Checks:         []*mgmtProto.Checks{{Files: []string{exe}}},
+	}, MobileDependency{})
+
+	engine.receiveManagementEvents()
+
+	select {
+	case info := <-infos:
+		require.Len(t, info.Files, 1)
+		assert.Equal(t, exe, info.Files[0].Path)
+		assert.True(t, info.Files[0].Exist)
+	case <-time.After(20 * time.Second):
+		t.Fatal("timeout waiting for the first sync info")
+	}
+	engine.shutdownWg.Wait()
+}
+
+func TestEngine_SyncInfoFuncReusesRefreshedInfoOnce(t *testing.T) {
+	engine := &Engine{config: &EngineConfig{}}
+
+	refreshed := &system.Info{Hostname: "from-refresh"}
+	getInfo := engine.syncInfoFunc(refreshed)
+
+	first := getInfo(context.Background())
+	assert.Same(t, refreshed, first, "the first connect should send the refreshed info instead of gathering again")
+
+	second := getInfo(context.Background())
+	assert.NotSame(t, refreshed, second, "the reconnect should gather a fresh info")
+	assert.NotEqual(t, "from-refresh", second.Hostname, "the fresh info should not carry the refreshed hostname")
+}
+
+func TestEngine_SyncInfoFuncGathersWhenRefreshFailed(t *testing.T) {
+	engine := &Engine{config: &EngineConfig{}}
+
+	info := engine.syncInfoFunc(nil)(context.Background())
+	require.NotNil(t, info, "a failed refresh should fall back to gathering the info")
+	assert.NotEmpty(t, info.Hostname, "the gathered info should carry the hostname")
+}
+
+func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	syncMetaCalls := 0
+	mgmClient := &mgmt.MockClient{
+		SyncMetaFunc: func(*system.Info) error {
+			syncMetaCalls++
+			if syncMetaCalls == 1 {
+				return errors.New("management unavailable")
+			}
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun105",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checks := []*mgmtProto.Checks{{Files: []string{exe}}}
+
+	require.Error(t, engine.updateChecksIfNew(checks))
+	require.NoError(t, engine.updateChecksIfNew(checks))
+	require.NoError(t, engine.updateChecksIfNew(checks))
+
+	assert.Equal(t, 2, syncMetaCalls)
+}
+
+// TestEngine_FailedUpdateReplacesOlderPendingChecks: checks A time out and stay pending,
+// then checks B fail to sync for another reason. B must replace A as pending, or the
+// watcher would later apply the superseded A.
+func TestEngine_FailedUpdateReplacesOlderPendingChecks(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun107",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33102,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{SyncMetaFunc: func(*system.Info) error { return errors.New("management unavailable") }},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checksA := []*mgmtProto.Checks{{Files: []string{"/checks/a"}}}
+	checksB := []*mgmtProto.Checks{{Files: []string{"/checks/b"}}}
+
+	engine.infoTimeout = time.Nanosecond
+	require.NoError(t, engine.updateChecksIfNew(checksA))
+	require.Equal(t, checksA, engine.pendingChecks, "precondition: the timed-out checks are pending")
+
+	// Let the abandoned gathering finish so B gets as far as the meta sync.
+	engine.infoTimeout = 0
+	require.Eventually(t, func() bool {
+		_, ok := engine.infoSource.Refresh(ctx, 10*time.Second, nil)
+		return ok
+	}, 10*time.Second, 10*time.Millisecond)
+
+	require.Error(t, engine.updateChecksIfNew(checksB), "the meta sync of B fails")
+	assert.Equal(t, checksB, engine.pendingChecks, "the newest checks replace the older pending ones")
+}
+
+// TestEngine_PendingChecksRetriedAfterInfoTimeout covers a check update whose system info
+// gathering times out: the update is kept pending rather than dropped, and the posture
+// watcher's retry sends it and applies the checks, without waiting for management to
+// send different checks.
+func TestEngine_PendingChecksRetriedAfterInfoTimeout(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	var synced []*system.Info
+	mgmClient := &mgmt.MockClient{
+		SyncMetaFunc: func(info *system.Info) error {
+			synced = append(synced, info)
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun106",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33101,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checks := []*mgmtProto.Checks{{Files: []string{exe}}}
+
+	// Gathering cannot finish within a nanosecond, so the sync times out.
+	engine.infoTimeout = time.Nanosecond
+	require.NoError(t, engine.updateChecksIfNew(checks), "a timed-out gathering is not an error")
+	assert.Empty(t, synced, "nothing is sent when gathering timed out")
+	assert.Nil(t, engine.checks, "timed-out checks are not applied")
+	require.True(t, engine.hasPendingChecks.Load(), "timed-out checks are kept pending")
+
+	// The timed-out gathering keeps running in the background, and no new one starts
+	// until it exits, so the retry may time out again before it goes through.
+	engine.infoTimeout = 0
+	var retryErr error
+	require.Eventually(t, func() bool {
+		retryErr = engine.retryPendingChecks()
+		return retryErr == nil || !errors.Is(retryErr, errSystemInfoTimeout)
+	}, 10*time.Second, 10*time.Millisecond, "the pending checks are sent once the earlier gathering exits")
+	require.NoError(t, retryErr)
+	require.Len(t, synced, 1, "the retry sends the meta sync")
+	assert.Len(t, synced[0].Files, 1, "the retry evaluates the pending checks")
+	assert.Equal(t, checks, engine.checks, "the retried checks are applied")
+	assert.False(t, engine.hasPendingChecks.Load(), "nothing is pending after the retry")
+
+	require.NoError(t, engine.retryPendingChecks())
+	require.NoError(t, engine.updateChecksIfNew(checks))
+	assert.Len(t, synced, 1, "applied checks are not sent again")
+}
+
 func TestEngine_UpdateNetworkMap(t *testing.T) {
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
@@ -279,7 +490,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}, MobileDependency{})
 
 	wgIface := &MockWGIface{
-		NameFunc: func() string { return "utun102" },
+		NameFunc:            func() string { return "utun102" },
+		IsUserspaceBindFunc: func() bool { return true },
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
@@ -622,10 +834,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				StatusRecorder: peer.NewRecorder("https://mgm"),
 			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist, nil)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
@@ -830,10 +1039,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), profilemanager.DefaultInterfaceBlacklist, nil)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
 				Address:      wgaddr.MustParseWGAddress(wgAddr),
@@ -1116,6 +1322,32 @@ func Test_CheckFilesEqual(t *testing.T) {
 						"testfile2",
 					},
 				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Same files with rotated certificate challenge nonce should return false",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files:                []string{"testfile1"},
+					CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-a"}},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files:                []string{"testfile1"},
+					CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{2}, CaCertificates: []string{"ca-a"}},
+				},
+			},
+			expectedBool: false,
+		},
+		{
+			name: "Same certificate challenge with CA certificates in different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-a", "ca-b"}}},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-b", "ca-a"}}},
 			},
 			expectedBool: true,
 		},
@@ -1432,4 +1664,22 @@ func TestOverlayAddrsFromAllowedIPs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEngine_SyncResponsePersistence(t *testing.T) {
+	e := &Engine{}
+
+	_, err := e.GetLatestSyncResponse()
+	require.Error(t, err, "persistence is disabled by default")
+
+	e.SetSyncResponsePersistence(true)
+	e.persistSyncResponse(&mgmtProto.SyncResponse{NetworkMap: &mgmtProto.NetworkMap{Serial: 7}})
+
+	got, err := e.GetLatestSyncResponse()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(7), got.GetNetworkMap().GetSerial())
+
+	e.SetSyncResponsePersistence(false)
+	_, err = e.GetLatestSyncResponse()
+	require.Error(t, err)
 }

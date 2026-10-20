@@ -2,13 +2,13 @@ package proxy
 
 import (
 	"context"
-	"net/netip"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 // Config bundles every knob the proxy reads at construction time. It mirrors
@@ -83,12 +83,15 @@ type Config struct {
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to
 	// backends. Valid values: "auto", "http", "https".
 	ForwardedProto string
-	// TrustedProxies is a list of IP prefixes for trusted upstream
-	// proxies that may set forwarding headers.
-	TrustedProxies []netip.Prefix
+	// TrustedProxies is the set of trusted upstream proxies that may set
+	// forwarding headers.
+	TrustedProxies *trustedproxy.List
 	// WireguardPort is the UDP port for the embedded NetBird tunnel.
 	// Zero asks the OS for a random port.
 	WireguardPort uint16
+	// NATExternalIPs are external IPs advertised as ICE candidates by the
+	// embedded tunnel. Requires a fixed WireguardPort forwarded on the NAT.
+	NATExternalIPs []string
 	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
 	ProxyProtocol bool
 	// PreSharedKey is the WireGuard pre-shared key used between the
@@ -160,6 +163,7 @@ func New(ctx context.Context, cfg Config) *Server {
 		ForwardedProto:           cfg.ForwardedProto,
 		TrustedProxies:           cfg.TrustedProxies,
 		WireguardPort:            cfg.WireguardPort,
+		NATExternalIPs:           cfg.NATExternalIPs,
 		ProxyProtocol:            cfg.ProxyProtocol,
 		PreSharedKey:             cfg.PreSharedKey,
 		Performance:              cfg.Performance,

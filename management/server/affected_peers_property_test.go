@@ -27,8 +27,6 @@ func allPeerMaps(t *testing.T, manager *DefaultAccountManager, accountID string)
 	account, err := manager.Store.GetAccount(ctx, accountID)
 	require.NoError(t, err)
 
-	account.InjectProxyPolicies(ctx)
-
 	validated := make(map[string]struct{}, len(account.Peers))
 	for id := range account.Peers {
 		validated[id] = struct{}{}

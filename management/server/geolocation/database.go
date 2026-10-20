@@ -3,6 +3,7 @@ package geolocation
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -21,6 +22,8 @@ const (
 	geoLiteCitySha256ZipURL = "https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip.sha256"
 	geoLiteCityMMDB         = "GeoLite2-City.mmdb"
 	geoLiteCityCSV          = "GeoLite2-City-Locations-en.csv"
+
+	geonamesCsvFields = 14
 )
 
 // loadGeolocationDatabases loads the MaxMind databases.
@@ -160,6 +163,10 @@ func loadGeonamesCsv(filepath string) ([]GeoNames, error) {
 		if index == 0 {
 			continue
 		}
+		if len(record) < geonamesCsvFields {
+			return nil, fmt.Errorf("geonames csv record %d has %d fields, want at least %d", index, len(record), geonamesCsvFields)
+		}
+
 		geoNameID, err := strconv.Atoi(record[0])
 		if err != nil {
 			return nil, err

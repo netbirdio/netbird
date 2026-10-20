@@ -127,10 +127,6 @@ type Client struct {
 	// see more: https://docs.netbird.io/api/resources/identity-providers
 	IdentityProviders *IdentityProvidersAPI
 
-	// Ingress NetBird Ingress Peers APIs
-	// see more: https://docs.netbird.io/api/resources/ingress-ports
-	Ingress *IngressAPI
-
 	// Instance NetBird Instance API
 	// see more: https://docs.netbird.io/api/resources/instance
 	Instance *InstanceAPI
@@ -147,6 +143,10 @@ type Client struct {
 	// ReverseProxyTokens account-scoped proxy access tokens used to register
 	// self-hosted (bring-your-own-proxy) `netbird proxy` instances.
 	ReverseProxyTokens *ReverseProxyTokensAPI
+
+	// AgentNetwork NetBird Agent Network (AI/LLM gateway) APIs: catalog,
+	// providers, policies, guardrails, budget rules and account settings.
+	AgentNetwork *AgentNetworkAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -203,12 +203,12 @@ func (c *Client) initialize() {
 	c.OktaScimIDP = &OktaScimIDPAPI{c}
 	c.EventStreaming = &EventStreamingAPI{c}
 	c.IdentityProviders = &IdentityProvidersAPI{c}
-	c.Ingress = &IngressAPI{c}
 	c.Instance = &InstanceAPI{c}
 	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
 	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
 	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
 	c.ReverseProxyTokens = &ReverseProxyTokensAPI{c}
+	c.AgentNetwork = &AgentNetworkAPI{c}
 }
 
 // NewRequest creates and executes new management API request

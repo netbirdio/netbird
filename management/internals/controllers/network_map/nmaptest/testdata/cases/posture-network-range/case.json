@@ -1,0 +1,4 @@
+{
+  "description": "Peer network range posture check in allow mode over 192.168.0.0/16. peer-office passes on its reported interface network, and peer-by-connip passes on the address it connected from, which the check folds in as a single-host prefix — so either source of address information can satisfy it. peer-remote is outside the range and peer-noaddr reports no address at all, which errors and therefore denies. Note this policy is tcp/22 without the peer's SSH flag, so no authorized users appear.",
+  "peers": ["peer-srv", "peer-office", "peer-by-connip", "peer-remote"]
+}

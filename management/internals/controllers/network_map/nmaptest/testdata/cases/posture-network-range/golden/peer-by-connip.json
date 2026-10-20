@@ -1,0 +1,64 @@
+{
+  "Serial": "33",
+  "peerConfig": {
+    "address": "100.64.0.3/10",
+    "sshConfig": {},
+    "fqdn": "peer-by-connip.netbird.test",
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "jEboa3bOv65XRbq8+8JuagiwWz+mM7Fc5MUfBQbOf6Y=",
+      "allowedIps": [
+        "100.64.0.10/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-srv.netbird.test",
+      "agentVersion": "0.60.0"
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-by-connip.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.3"
+          },
+          {
+            "Name": "peer-srv.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.10"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "22054"
+  },
+  "FirewallRules": [
+    {
+      "PeerIP": "100.64.0.10",
+      "Protocol": "TCP",
+      "Port": "22",
+      "PolicyID": "cG9sLXJhbmdl"
+    },
+    {
+      "PeerIP": "100.64.0.10",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "22",
+      "PolicyID": "cG9sLXJhbmdl"
+    }
+  ],
+  "routesFirewallRulesIsEmpty": true,
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}

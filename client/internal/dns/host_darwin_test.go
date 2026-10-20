@@ -328,6 +328,120 @@ func removeTestDNSKey(key string) error {
 	return err
 }
 
+func TestParseSystemDNSSettings(t *testing.T) {
+	tests := []struct {
+		name            string
+		output          string
+		expectedDomains []string
+		expectedServers []netip.Addr
+		expectedIP      netip.Addr
+	}{
+		{
+			name: "well_formed",
+			output: `<dictionary> {
+  DomainName : example.com
+  SearchDomains : <array> {
+    0 : example.com
+    1 : corp.example.com
+  }
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+    1 : fd00::53
+  }
+}
+`,
+			expectedDomains: []string{"example.com", "example.com", "corp.example.com"},
+			expectedServers: []netip.Addr{netip.MustParseAddr("192.168.1.1"), netip.MustParseAddr("fd00::53")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			// entries without a value after the separator used to panic with
+			// "index out of range [1] with length 1"
+			name: "malformed_array_entries_skipped",
+			output: `<dictionary> {
+  SearchDomains : <array> {
+    0 :
+    (null)
+
+    1 : corp.example.com
+  }
+  ServerAddresses : <array> {
+    0 :
+    1 : 192.168.1.1
+  }
+}
+`,
+			expectedDomains: []string{"corp.example.com"},
+			expectedServers: []netip.Addr{netip.MustParseAddr("192.168.1.1")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			name: "domain_name_without_value_skipped",
+			output: `<dictionary> {
+  DomainName :
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+  }
+}
+`,
+			expectedServers: []netip.Addr{netip.MustParseAddr("192.168.1.1")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			name: "ipv6_first_prefers_ipv4_server_ip",
+			output: `<dictionary> {
+  ServerAddresses : <array> {
+    0 : fd00::53
+    1 : 192.168.1.1
+  }
+}
+`,
+			expectedServers: []netip.Addr{netip.MustParseAddr("fd00::53"), netip.MustParseAddr("192.168.1.1")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			name: "invalid_and_unspecified_addresses_skipped",
+			output: `<dictionary> {
+  ServerAddresses : <array> {
+    0 : (null)
+    1 : 0.0.0.0
+    2 : 192.168.1.1
+  }
+}
+`,
+			expectedServers: []netip.Addr{netip.MustParseAddr("192.168.1.1")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			name: "v4_mapped_address_unmapped",
+			output: `<dictionary> {
+  ServerAddresses : <array> {
+    0 : ::ffff:192.168.1.1
+  }
+}
+`,
+			expectedServers: []netip.Addr{netip.MustParseAddr("192.168.1.1")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			name:   "empty_output",
+			output: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			settings, servers, err := parseSystemDNSSettings([]byte(tc.output))
+			require.NoError(t, err, "parsing should not fail")
+
+			assert.Equal(t, tc.expectedDomains, settings.Domains, "domains should match")
+			assert.Equal(t, tc.expectedServers, servers, "server addresses should match")
+			assert.Equal(t, tc.expectedIP, settings.ServerIP, "server IP should match")
+			assert.Equal(t, DefaultPort, settings.ServerPort, "server port should default to 53")
+		})
+	}
+}
+
 func TestGetOriginalNameservers(t *testing.T) {
 	configurator := &systemConfigurator{
 		createdKeys: make(map[string]struct{}),

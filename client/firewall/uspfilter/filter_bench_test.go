@@ -94,7 +94,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: false,
 			setupFunc: func(m *Manager) {
 				// Single rule allowing all traffic
-				_, err := m.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil, fw.ActionAccept, "")
+				_, err := m.AddFilterRule(nil, pfx(net.ParseIP("0.0.0.0")), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
 				require.NoError(b, err)
 			},
 			desc: "Baseline: Single 'allow all' rule without connection tracking",
@@ -114,15 +114,13 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Add explicit rules matching return traffic pattern
 				for i := 0; i < 1000; i++ { // Simulate realistic ruleset size
 					ip := generateRandomIPs(1)[0]
-					_, err := m.AddPeerFiltering(
+					_, err := m.AddFilterRule(
 						nil,
-						ip,
+						pfx(ip), fw.Network{},
 						fw.ProtocolTCP,
 						&fw.Port{Values: []uint16{uint16(1024 + i)}},
 						&fw.Port{Values: []uint16{80}},
-						fw.ActionAccept,
-						"",
-					)
+						fw.ActionAccept)
 					require.NoError(b, err)
 				}
 			},
@@ -133,15 +131,13 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: true,
 			setupFunc: func(m *Manager) {
 				// Add some basic rules but rely on state for established connections
-				_, err := m.AddPeerFiltering(
+				_, err := m.AddFilterRule(
 					nil,
-					net.ParseIP("0.0.0.0"),
+					pfx(net.ParseIP("0.0.0.0")), fw.Network{},
 					fw.ProtocolTCP,
 					nil,
 					nil,
-					fw.ActionDrop,
-					"",
-				)
+					fw.ActionDrop)
 				require.NoError(b, err)
 			},
 			desc: "Connection tracking with established connections",
@@ -168,9 +164,12 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				}
 
 				// Create manager and basic setup
-				manager, _ := Create(&IFaceMock{
-					SetFilterFunc: func(device.PacketFilter) error { return nil },
-				}, false, flowLogger, iface.DefaultMTU)
+				manager, err := Create(Config{
+					IFace: &IFaceMock{
+						SetFilterFunc: func(device.PacketFilter) error { return nil },
+					},
+					FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+				require.NoError(b, err)
 				defer b.Cleanup(func() {
 					require.NoError(b, manager.Close(nil))
 				})
@@ -208,9 +207,12 @@ func BenchmarkStateScaling(b *testing.B) {
 
 	for _, count := range connCounts {
 		b.Run(fmt.Sprintf("conns_%d", count), func(b *testing.B) {
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -251,9 +253,12 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -409,9 +414,12 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -536,9 +544,12 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			}
 
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -546,7 +557,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
-				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
+				_, err := manager.AddFilterRule(nil, pfx(net.ParseIP("0.0.0.0")), fw.Network{}, fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept)
 				require.NoError(b, err)
 			}
 
@@ -619,9 +630,12 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			}
 
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -629,7 +643,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
-				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
+				_, err := manager.AddFilterRule(nil, pfx(net.ParseIP("0.0.0.0")), fw.Network{}, fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept)
 				require.NoError(b, err)
 			}
 
@@ -730,16 +744,19 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			}
 
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
 
 			// Setup initial state based on scenario
 			if sc.rules {
-				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
+				_, err := manager.AddFilterRule(nil, pfx(net.ParseIP("0.0.0.0")), fw.Network{}, fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept)
 				require.NoError(b, err)
 			}
 
@@ -810,15 +827,18 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			}
 
-			manager, _ := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+			require.NoError(b, err)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
 
 			if sc.rules {
-				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
+				_, err := manager.AddFilterRule(nil, pfx(net.ParseIP("0.0.0.0")), fw.Network{}, fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept)
 				require.NoError(b, err)
 			}
 
@@ -931,7 +951,7 @@ func BenchmarkRouteACLs(b *testing.B) {
 
 	for _, r := range rules {
 		dst := fw.Network{Prefix: r.dest}
-		_, err := manager.AddRouteFiltering(nil, r.sources, dst, r.proto, nil, r.port, fw.ActionAccept)
+		_, err := manager.AddFilterRule(nil, r.sources, dst, r.proto, nil, r.port, fw.ActionAccept)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1014,9 +1034,11 @@ func BenchmarkMSSClamping(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
@@ -1079,9 +1101,11 @@ func BenchmarkMSSClampingOverhead(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
@@ -1134,9 +1158,11 @@ func BenchmarkMSSClampingMemory(b *testing.B) {
 
 	for _, sc := range scenarios {
 		b.Run(sc.name, func(b *testing.B) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			manager, err := Create(Config{
+				IFace: &IFaceMock{
+					SetFilterFunc: func(device.PacketFilter) error { return nil },
+				},
+				FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))

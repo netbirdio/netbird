@@ -17,7 +17,7 @@ import (
 // createSftpCommand creates a Windows SFTP command with user switching.
 // The caller must close the returned token handle after starting the process.
 func (s *Server) createSftpCommand(targetUser *user.User, sess ssh.Session) (*exec.Cmd, windows.Token, error) {
-	username, domain := s.parseUsername(targetUser.Username)
+	username, domain := parseUsername(targetUser.Username)
 
 	netbirdPath, err := os.Executable()
 	if err != nil {

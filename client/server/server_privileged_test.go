@@ -6,12 +6,13 @@ import (
 	"context"
 	"net"
 	"os/user"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
@@ -35,7 +36,6 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -59,9 +59,25 @@ var (
 	}
 )
 
-// TestConnectWithRetryRuns checks that the connectWithRetry function runs and runs the retries according to the times specified via environment variables
-// we will use a management server started via to simulate the server and capture the number of retries
-func TestConnectWithRetryRuns(t *testing.T) {
+// TestConnectStopsRetryOnPermissionDenied verifies connectWithRetryRuns stops after a single login
+// attempt on PermissionDenied, despite the fast retry config that would otherwise drive several.
+func TestConnectStopsRetryOnPermissionDenied(t *testing.T) {
+	// Redirect profile paths to a temp dir so the test does not need root.
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	profilemanager.ConfigDirOverride = tempDir
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = filepath.Join(tempDir, "active_profile.json")
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
 	// start the signal server
 	_, signalAddr, err := startSignal(t)
 	if err != nil {
@@ -113,8 +129,8 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(retryMultiplierVar, "1")
 
 	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
-	if counter < 3 {
-		t.Fatalf("expected counter > 2, got %d", counter)
+	if counter != 1 {
+		t.Fatalf("expected exactly 1 login attempt (PermissionDenied must stop the retry loop), got %d", counter)
 	}
 }
 
@@ -183,8 +199,8 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 
 	requestBuffer := server.NewAccountRequestBuffer(context.Background(), store)
 	peersUpdateManager := update_channel.NewPeersUpdateManager(metrics)
-	networkMapController := controller.NewController(context.Background(), store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersManager), config)
-	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
+	networkMapController := controller.NewController(context.Background(), store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(store, peersManager), config, nil)
+	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		return nil, "", err
 	}

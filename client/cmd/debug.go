@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/user"
 	"strings"
 	"time"
 
@@ -24,13 +23,17 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-const errCloseConnection = "Failed to close connection: %v"
+const (
+	errCloseConnection = "Failed to close connection: %v"
+	noUpDownFlag       = "no-updown"
+)
 
 var (
-	logFileCount        uint32
-	systemInfoFlag      bool
-	uploadBundleFlag    bool
-	uploadBundleURLFlag string
+	logFileCount             uint32
+	systemInfoFlag           bool
+	uploadBundleFlag         bool
+	uploadBundleURLFlag      string
+	uploadBundleInsecureFlag bool
 )
 
 var debugCmd = &cobra.Command{
@@ -113,7 +116,7 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("get active profile: %v", err)
 	}
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
 	}
@@ -155,6 +158,11 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 // request. Returns an error if the RPC fails or if the daemon reports
 // an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
+	}
+
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -167,17 +175,19 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 	request := &proto.DebugBundleRequest{
-		Anonymize:    anonymizeFlag,
-		SystemInfo:   systemInfoFlag,
-		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      anonymizeEnabled,
+		AnonymizeLevel: anonymizeLevel.String(),
+		SystemInfo:     systemInfoFlag,
+		LogFileCount:   logFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
+		request.UploadInsecure = uploadBundleInsecureFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return daemonCallError("bundle debug", err)
 	}
 	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
@@ -227,6 +237,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid duration format: %v", err)
 	}
 
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
+	}
+
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -245,13 +260,14 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 
 	stateWasDown := stat.Status != string(internal.StatusConnected) && stat.Status != string(internal.StatusConnecting)
+	noUpDown, _ := cmd.Flags().GetBool(noUpDownFlag)
 
 	initialLogLevel, err := client.GetLogLevel(cmd.Context(), &proto.GetLogLevelRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to get log level: %v", status.Convert(err).Message())
 	}
 
-	if stateWasDown {
+	if stateWasDown && !noUpDown {
 		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 			cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
 		} else {
@@ -272,34 +288,20 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 
 	needsRestoreUp := false
-	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-		cmd.PrintErrf("Failed to bring service down: %v\n", status.Convert(err).Message())
+	if noUpDown {
+		enableSyncResponsePersistence(cmd, client)
 	} else {
-		needsRestoreUp = !stateWasDown
-		cmd.Println("netbird down")
+		needsRestoreUp = restartDaemon(cmd, client, stateWasDown)
 	}
-
-	time.Sleep(1 * time.Second)
-
-	// Enable sync response persistence before bringing the service up
-	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
-		Enabled: true,
-	}); err != nil {
-		cmd.PrintErrf("Failed to enable sync response persistence: %v\n", status.Convert(err).Message())
-	}
-
-	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
-		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
-	} else {
-		needsRestoreUp = false
-		cmd.Println("netbird up")
-	}
-
-	time.Sleep(3 * time.Second)
 
 	cpuProfilingStarted := false
 	if _, err := client.StartCPUProfile(cmd.Context(), &proto.StartCPUProfileRequest{}); err != nil {
-		cmd.PrintErrf("Failed to start CPU profiling: %v\n", err)
+		if msg := status.Convert(err).Message(); strings.Contains(msg, "already in progress") {
+			cmd.PrintErrln("CPU profiling is already running (started with `netbird debug cpu start`). " +
+				"It is left running and is included in a bundle created after `netbird debug cpu stop`.")
+		} else {
+			cmd.PrintErrf("Failed to start CPU profiling: %v\n", msg)
+		}
 	} else {
 		cpuProfilingStarted = true
 		defer func() {
@@ -366,17 +368,19 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	cmd.Println("Creating debug bundle...")
 
 	request := &proto.DebugBundleRequest{
-		Anonymize:    anonymizeFlag,
-		SystemInfo:   systemInfoFlag,
-		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      anonymizeEnabled,
+		AnonymizeLevel: anonymizeLevel.String(),
+		SystemInfo:     systemInfoFlag,
+		LogFileCount:   logFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
+		request.UploadInsecure = uploadBundleInsecureFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return daemonCallError("bundle debug", err)
 	}
 
 	if needsRestoreUp {
@@ -387,7 +391,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if stateWasDown {
+	if stateWasDown && !noUpDown {
 		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 			cmd.PrintErrf("Failed to restore service down state: %v\n", status.Convert(err).Message())
 		} else {
@@ -442,6 +446,47 @@ func setSyncResponsePersistence(cmd *cobra.Command, args []string) error {
 
 	cmd.Printf("Sync response persistence set to: %s\n", persistence)
 	return nil
+}
+
+// enableSyncResponsePersistence asks the daemon to keep the latest sync
+// response so the bundle carries the network map. With a running daemon only
+// syncs received after the call are kept.
+func enableSyncResponsePersistence(cmd *cobra.Command, client proto.DaemonServiceClient) {
+	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
+		Enabled: true,
+	}); err != nil {
+		cmd.PrintErrf("Failed to enable sync response persistence: %v\n", status.Convert(err).Message())
+	}
+}
+
+// restartDaemon cycles the daemon down and up with sync response persistence
+// enabled so the bundle carries the network map. It reports whether the
+// daemon was left down although it was running before, so the caller can
+// bring it back up.
+func restartDaemon(cmd *cobra.Command, client proto.DaemonServiceClient, stateWasDown bool) bool {
+	needsRestoreUp := false
+	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
+		cmd.PrintErrf("Failed to bring service down: %v\n", status.Convert(err).Message())
+	} else {
+		needsRestoreUp = !stateWasDown
+		cmd.Println("netbird down")
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// Enable sync response persistence before bringing the service up
+	enableSyncResponsePersistence(cmd, client)
+
+	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
+		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
+	} else {
+		needsRestoreUp = false
+		cmd.Println("netbird up")
+	}
+
+	time.Sleep(3 * time.Second)
+
+	return needsRestoreUp
 }
 
 func waitForDurationOrCancel(ctx context.Context, duration time.Duration, cmd *cobra.Command) error {
@@ -524,10 +569,13 @@ func init() {
 	debugBundleCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	debugBundleCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	debugBundleCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 
 	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	forCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
+	forCmd.Flags().Bool(noUpDownFlag, false, "Keep the daemon running instead of bringing it down and up before collecting. The bundle only includes the network map if a sync arrives during the run")
 }

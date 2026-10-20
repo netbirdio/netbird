@@ -7,7 +7,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/shirou/gopsutil/v3/process"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // getRunningProcesses returns a list of running process paths. The context bounds the work:

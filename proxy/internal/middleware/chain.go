@@ -264,7 +264,7 @@ func applyMutations(ctx context.Context, d *Dispatcher, spec Spec, r *http.Reque
 	if m == nil {
 		return
 	}
-	add, remove, blocked := FilterHeaderMutations(m)
+	add, remove, blocked := filterHeaderMutations(m, spec.ID)
 	for _, h := range blocked {
 		d.metrics.IncHeaderMutationBlocked(ctx, spec.ID, h)
 	}

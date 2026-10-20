@@ -10,6 +10,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
+
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 )
 
 const (
@@ -80,28 +82,14 @@ func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) erro
 	w, h := c.getWindowsConsoleSize()
 
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
-		ssh.ICRNL:         1,
-		ssh.OPOST:         1,
-		ssh.ONLCR:         1,
-		ssh.ISIG:          1,
-		ssh.ICANON:        1,
-		ssh.VINTR:         3,   // Ctrl+C
-		ssh.VQUIT:         28,  // Ctrl+\
-		ssh.VERASE:        127, // Backspace
-		ssh.VKILL:         21,  // Ctrl+U
-		ssh.VEOF:          4,   // Ctrl+D
-		ssh.VEOL:          0,
-		ssh.VEOL2:         0,
-		ssh.VSTART:        17, // Ctrl+Q
-		ssh.VSTOP:         19, // Ctrl+S
-		ssh.VSUSP:         26, // Ctrl+Z
-		ssh.VDISCARD:      15, // Ctrl+O
-		ssh.VWERASE:       23, // Ctrl+W
-		ssh.VLNEXT:        22, // Ctrl+V
-		ssh.VREPRINT:      18, // Ctrl+R
+		ssh.ICRNL:  1,
+		ssh.OPOST:  1,
+		ssh.ONLCR:  1,
+		ssh.ISIG:   1,
+		ssh.ICANON: 1,
+	}
+	for mode, value := range nbssh.DefaultTerminalModes {
+		modes[mode] = value
 	}
 
 	if err := session.RequestPty("xterm-256color", h, w, modes); err != nil {

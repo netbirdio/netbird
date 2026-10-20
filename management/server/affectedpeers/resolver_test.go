@@ -1,6 +1,7 @@
 package affectedpeers
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,11 @@ func TestPolicyGroupsAndPeers_NonPeerResource(t *testing.T) {
 	assert.Empty(t, peers, "domain resource type should not produce direct peer IDs")
 }
 
+func TestExpand_NilSnapshot(t *testing.T) {
+	var snap *Snapshot
+	assert.Nil(t, snap.Expand(context.Background(), "acc", Change{ChangedGroupIDs: []string{"g"}}))
+}
+
 func TestChangeIsEmpty(t *testing.T) {
 	assert.True(t, Change{}.isEmpty())
 	assert.False(t, Change{ChangedGroupIDs: []string{"g"}}.isEmpty())
@@ -85,6 +91,8 @@ func TestChangeIsEmpty(t *testing.T) {
 	assert.False(t, Change{Resources: []*resourceTypes.NetworkResource{{ID: "r"}}}.isEmpty())
 	assert.False(t, Change{Networks: []*networkTypes.Network{{ID: "n"}}}.isEmpty())
 	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
+	assert.False(t, Change{UserGroupIDs: []string{"g"}}.isEmpty())
+	assert.False(t, Change{AllowedUsersChanged: true}.isEmpty())
 }
 
 func TestPolicyReferencesPostureChecks(t *testing.T) {

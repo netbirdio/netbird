@@ -82,6 +82,7 @@ type Server interface {
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteSources(selected, active func() route.HAMap)
 	SetFirewall(Firewall)
+	SetPeerActivator(local.PeerActivator)
 }
 
 type nsGroupsByDomain struct {
@@ -251,7 +252,7 @@ func NewDefaultServerPermanentUpstream(
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
-	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
+	ds.searchDomainNotifier = newNotifier(ds.searchDomains())
 	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
 	return ds
@@ -491,6 +492,13 @@ func (s *DefaultServer) SetFirewall(fw Firewall) {
 	}
 }
 
+// SetPeerActivator wires the DNS-time lazy-connection warm-up on the local
+// resolver. Injected after the connection manager exists (it does not at
+// DNS-server construction time). Pass nil to disable.
+func (s *DefaultServer) SetPeerActivator(a local.PeerActivator) {
+	s.localResolver.SetPeerActivator(a)
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.ctxCancel()
@@ -594,6 +602,12 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) SearchDomains() []string {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	return s.searchDomains()
+}
+
+func (s *DefaultServer) searchDomains() []string {
 	var searchDomains []string
 
 	for _, dConf := range s.currentConfig.Domains {
@@ -678,7 +692,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	}()
 
 	if s.searchDomainNotifier != nil {
-		s.searchDomainNotifier.onNewSearchDomains(s.SearchDomains())
+		s.searchDomainNotifier.onNewSearchDomains(s.searchDomains())
 	}
 
 	s.updateNSGroupStates(update.NameServerGroups)
@@ -1435,11 +1449,11 @@ type localPeerConnectivity struct {
 
 // IsConnectedByIP looks the IP up in the peerstore and surfaces both
 // the known and connected bits. Used by Resolver.filterDisconnectedPeerAnswers.
-func (l localPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
+func (l localPeerConnectivity) IsConnectedByIP(ip netip.Addr) (known, connected bool) {
 	if l.status == nil {
 		return false, false
 	}
-	state, ok := l.status.PeerStateByIP(ip)
+	state, ok := l.status.PeerStateByIP(ip.String())
 	if !ok {
 		return false, false
 	}

@@ -14,9 +14,10 @@ const (
 	CurrentProtocolVersion = 1
 
 	MsgTypeUnknown MsgType = 0
-	// Deprecated: Use MsgTypeAuth instead.
-	MsgTypeHello = 1
-	// Deprecated: Use MsgTypeAuthResponse instead.
+	// MsgTypeHello and MsgTypeHelloResponse are the removed legacy handshake
+	// message types. They are retained only to reserve wire values 1 and 2 so
+	// the values are never reused; the server rejects both.
+	MsgTypeHello         = 1
 	MsgTypeHelloResponse = 2
 	MsgTypeTransport     = 3
 	MsgTypeClose         = 4
@@ -41,10 +42,6 @@ const (
 	offsetMagicByte     = sizeOfProtoHeader
 	offsetAuthPeerID    = sizeOfProtoHeader + sizeOfMagicByte
 	headerTotalSizeAuth = sizeOfProtoHeader + headerSizeAuth
-
-	// hello message
-	headerSizeHello     = sizeOfMagicByte + peerIDSize
-	headerSizeHelloResp = 0
 
 	// transport
 	headerSizeTransport      = peerIDSize
@@ -113,7 +110,6 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 	msgType := MsgType(msg[1])
 	switch msgType {
 	case
-		MsgTypeHello,
 		MsgTypeAuth,
 		MsgTypeTransport,
 		MsgTypeClose,
@@ -135,7 +131,6 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 	msgType := MsgType(msg[1])
 	switch msgType {
 	case
-		MsgTypeHelloResponse,
 		MsgTypeAuthResponse,
 		MsgTypeTransport,
 		MsgTypeClose,
@@ -146,67 +141,6 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 	default:
 		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d", msgType)
 	}
-}
-
-// Deprecated: Use MarshalAuthMsg instead.
-// MarshalHelloMsg initial hello message
-// The Hello message is the first message sent by a client after establishing a connection with the Relay server. This
-// message is used to authenticate the client with the server. The authentication is done using an HMAC method.
-// The protocol does not limit to use HMAC, it can be any other method. If the authentication failed the server will
-// close the network connection without any response.
-func MarshalHelloMsg(peerID PeerID, additions []byte) ([]byte, error) {
-	msg := make([]byte, sizeOfProtoHeader+sizeOfMagicByte, sizeOfProtoHeader+headerSizeHello+len(additions))
-
-	msg[0] = byte(CurrentProtocolVersion)
-	msg[1] = byte(MsgTypeHello)
-
-	copy(msg[sizeOfProtoHeader:sizeOfProtoHeader+sizeOfMagicByte], magicHeader)
-
-	msg = append(msg, peerID[:]...)
-	msg = append(msg, additions...)
-
-	return msg, nil
-}
-
-// Deprecated: Use UnmarshalAuthMsg instead.
-// UnmarshalHelloMsg extracts peerID and the additional data from the hello message. The Additional data is used to
-// authenticate the client with the server.
-func UnmarshalHelloMsg(msg []byte) (*PeerID, []byte, error) {
-	if len(msg) < sizeOfProtoHeader+headerSizeHello {
-		return nil, nil, ErrInvalidMessageLength
-	}
-	if !bytes.Equal(msg[sizeOfProtoHeader:sizeOfProtoHeader+sizeOfMagicByte], magicHeader) {
-		return nil, nil, errors.New("invalid magic header")
-	}
-
-	peerID := PeerID(msg[sizeOfProtoHeader+sizeOfMagicByte : sizeOfProtoHeader+headerSizeHello])
-
-	return &peerID, msg[headerSizeHello:], nil
-}
-
-// Deprecated: Use MarshalAuthResponse instead.
-// MarshalHelloResponse creates a response message to the hello message.
-// In case of success connection the server response with a Hello Response message. This message contains the server's
-// instance URL. This URL will be used by choose the common Relay server in case if the peers are in different Relay
-// servers.
-func MarshalHelloResponse(additionalData []byte) ([]byte, error) {
-	msg := make([]byte, sizeOfProtoHeader, sizeOfProtoHeader+headerSizeHelloResp+len(additionalData))
-
-	msg[0] = byte(CurrentProtocolVersion)
-	msg[1] = byte(MsgTypeHelloResponse)
-
-	msg = append(msg, additionalData...)
-
-	return msg, nil
-}
-
-// Deprecated: Use UnmarshalAuthResponse instead.
-// UnmarshalHelloResponse extracts the additional data from the hello response message.
-func UnmarshalHelloResponse(msg []byte) ([]byte, error) {
-	if len(msg) < sizeOfProtoHeader+headerSizeHelloResp {
-		return nil, ErrInvalidMessageLength
-	}
-	return msg, nil
 }
 
 // MarshalAuthMsg initial authentication message

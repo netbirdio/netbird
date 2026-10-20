@@ -32,6 +32,22 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
+	// Validate before mutating: a non-append selection wipes the current selection
+	// first, so a request of only unavailable routes would deselect everything and
+	// put nothing back. An empty request means deselect all, so it still goes through.
+	var err *multierror.Error
+	available := make([]route.NetID, 0, len(routes))
+	for _, r := range routes {
+		if !slices.Contains(allRoutes, r) {
+			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", r))
+			continue
+		}
+		available = append(available, r)
+	}
+	if len(available) == 0 && err != nil {
+		return errors.FormatErrorOrNil(err)
+	}
+
 	if !appendRoute || rs.deselectAll {
 		if rs.deselectedRoutes == nil {
 			rs.deselectedRoutes = map[route.NetID]struct{}{}
@@ -46,14 +62,9 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		}
 	}
 
-	var err *multierror.Error
-	for _, route := range routes {
-		if !slices.Contains(allRoutes, route) {
-			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
-			continue
-		}
-		delete(rs.deselectedRoutes, route)
-		rs.selectedRoutes[route] = struct{}{}
+	for _, r := range available {
+		delete(rs.deselectedRoutes, r)
+		rs.selectedRoutes[r] = struct{}{}
 	}
 
 	rs.deselectAll = false
@@ -115,7 +126,38 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	clear(rs.selectedRoutes)
 }
 
-// IsDeselectAll reports whether the user has explicitly deselected all routes.
+// SetExclusiveExitNode atomically makes preferred the only selected exit node
+// among exitIDs: every other ID in exitIDs is deselected and preferred (when
+// non-empty) is selected, all under a single lock. Holding the lock across the
+// whole reconciliation prevents a concurrent DeselectAllRoutes from interleaving
+// between the deselect and select steps and being silently undone. A global
+// deselect-all is left untouched so the user's "all off" stays in effect;
+// non-exit routes are never referenced, so their selection is preserved.
+func (rs *RouteSelector) SetExclusiveExitNode(preferred route.NetID, exitIDs []route.NetID) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	if rs.deselectAll {
+		return
+	}
+
+	for _, id := range exitIDs {
+		if id == preferred {
+			continue
+		}
+		rs.deselectedRoutes[id] = struct{}{}
+		delete(rs.selectedRoutes, id)
+	}
+
+	if preferred != "" {
+		delete(rs.deselectedRoutes, preferred)
+		rs.selectedRoutes[preferred] = struct{}{}
+	}
+}
+
+// IsDeselectAll reports whether the global "deselect all" flag is set, i.e. the
+// user explicitly disabled every route. Callers enforcing per-route invariants
+// (e.g. single exit node) should leave the selection untouched when it is.
 func (rs *RouteSelector) IsDeselectAll() bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()

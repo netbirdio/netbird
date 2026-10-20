@@ -3,6 +3,8 @@ package dex
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +13,43 @@ import (
 	"testing"
 
 	"github.com/dexidp/dex/storage"
+	"github.com/dexidp/dex/storage/memory"
 	sqllib "github.com/dexidp/dex/storage/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type updateFailingStorage struct {
+	storage.Storage
+	failClientID string
+}
+
+func (s *updateFailingStorage) UpdateClient(ctx context.Context, id string, updater func(storage.Client) (storage.Client, error)) error {
+	if id == s.failClientID {
+		return errors.New("forced update failure")
+	}
+	return s.Storage.UpdateClient(ctx, id, updater)
+}
+
+func TestSetClientsMFAChainRollsBackUpdatedClients(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	require.NoError(t, st.CreateClient(ctx, storage.Client{ID: "client-1", MFAChain: []string{"old-1"}}))
+	require.NoError(t, st.CreateClient(ctx, storage.Client{ID: "client-2", MFAChain: []string{"old-2"}}))
+
+	err := SetClientsMFAChain(ctx, &updateFailingStorage{Storage: st, failClientID: "client-2"}, []string{"client-1", "client-2"}, []string{"new"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to update MFA chain on client client-2")
+
+	client1, err := st.GetClient(ctx, "client-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-1"}, client1.MFAChain)
+
+	client2, err := st.GetClient(ctx, "client-2")
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-2"}, client2.MFAChain)
+}
 
 func TestUserCreationFlow(t *testing.T) {
 	ctx := context.Background()
@@ -594,4 +629,91 @@ enablePasswordDB: true
 
 	assert.True(t, cfg.ContinueOnConnectorFailure,
 		"buildDexConfig must set ContinueOnConnectorFailure to true so management starts even if an external IdP is down")
+}
+
+func TestToServerConfig_WiresGrantTypes(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "dex-grants-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	stor := openTestStorage(t, tmpDir)
+	defer stor.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	grants := []string{"authorization_code", "refresh_token"}
+	cfg := &YAMLConfig{Issuer: "http://localhost:5599/oauth2", OAuth2: OAuth2{GrantTypes: grants}}
+	assert.Equal(t, grants, cfg.ToServerConfig(stor, logger).AllowedGrantTypes)
+
+	empty := &YAMLConfig{Issuer: "http://localhost:5599/oauth2"}
+	assert.Empty(t, empty.ToServerConfig(stor, logger).AllowedGrantTypes)
+}
+
+func newDeviceGuardProvider(t *testing.T, grantTypesYAML string) *Provider {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "dex-devguard-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+
+	yamlContent := `
+issuer: http://localhost:5599/oauth2
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5599
+enablePasswordDB: true
+` + grantTypesYAML
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644))
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	provider, err := NewProviderFromYAML(context.Background(), yamlConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = provider.Stop(context.Background()) })
+	return provider
+}
+
+func TestHandler_BlocksDeviceEndpointsWhenDeviceGrantDisabled(t *testing.T) {
+	provider := newDeviceGuardProvider(t, `
+oauth2:
+  grantTypes:
+    - authorization_code
+    - refresh_token
+`)
+
+	devicePaths := []string{
+		"/oauth2/device",
+		"/oauth2/device/code",
+		"/oauth2/device/token",
+		"/oauth2/device/auth/verify_code",
+		"/oauth2/device/callback",
+	}
+	for _, path := range devicePaths {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			req := httptest.NewRequest(method, path, nil)
+			rec := httptest.NewRecorder()
+			provider.Handler().ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "%s %s must be blocked", method, path)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_AllowsDeviceEndpointsWhenGrantsDefault(t *testing.T) {
+	provider := newDeviceGuardProvider(t, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/device/code", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	assert.NotEqual(t, http.StatusNotFound, rec.Code)
 }

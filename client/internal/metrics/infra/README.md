@@ -32,13 +32,24 @@ Clients do not talk to InfluxDB directly. An ingest server sits between clients 
 ```text
 Client ──POST──▶ Ingest Server (:8087) ──▶ InfluxDB (internal)
                   │
+                  ├─ Checks the X-Peer-ID header format
                   ├─ Validates line protocol
                   ├─ Allowlists measurements, fields, and tags
                   ├─ Rejects out-of-bound values
                   └─ Serves remote config at /config
 ```
 
-- **No secret/token-based client auth** — the ingest server holds the InfluxDB token server-side. Clients must send a hashed peer ID via `X-Peer-ID` header.
+- **Intentionally unauthenticated** — the endpoint receives obfuscated telemetry from
+  the peers of both cloud and self-hosted deployments. For a self-hosted peer there is
+  no shared trust anchor with this server, so there is nothing to authenticate against.
+- **`X-Peer-ID` is a correlation tag, not a credential** — it carries the obfuscated
+  peer identifier so samples from one peer can be grouped. The server only checks that
+  the header is well-formed (16 hex chars); a malformed value is rejected with
+  `400 Bad Request`, not `401`. Any well-formed value is accepted by design, and the
+  header must not be relied on for access control. The header itself is not forwarded
+  to InfluxDB — the stored `peer_id` tag comes from the request body and is constrained
+  only by the tag allowlist and the maximum tag value length.
+- **The InfluxDB token stays server-side** — clients never hold a write credential.
 - **InfluxDB is not exposed** — only accessible within the docker network
 - Source: `ingest/main.go`
 
@@ -56,13 +67,32 @@ Measurement: `netbird_peer_connection`
 
 Tags:
 - `deployment_type`: "cloud" | "selfhosted" | "unknown"
-- `connection_type`: "ice" | "relay"
+- `connection_type`: "ice_p2p" | "ice_turn" | "relay" (see below)
 - `attempt_type`: "initial" | "reconnection"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 - `arch`: CPU architecture (amd64, arm64, etc.)
+- `peer_id`: obfuscated peer identifier (truncated SHA-256 of the WireGuard public key)
+- `connection_pair_id`: deterministic identifier for the peer pair, identical on both sides
 
 **Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It excludes the potentially unbounded wait for the remote peer to come online.
+
+#### `connection_type` values
+
+Derived from the connection priority (`conntype.ConnPriority`) by `metricsConnType` in `client/internal/peer/conn.go`:
+
+| Value | Priority | Traffic is |
+|-------|----------|------------|
+| `ice_p2p` | `ICEP2P` | direct peer-to-peer |
+| `ice_turn` | `ICETurn` | relayed, through a TURN server |
+| `relay` | `Relay` | relayed, through a NetBird relay |
+| `unknown` | `None` or unrecognised | no active transport — **the sample is not pushed** |
+
+**Direct traffic is `ice_p2p` only.** `ice_turn` is relayed despite being negotiated by ICE, matching `Conn.isRelayed`.
+
+`None` means no transport is active: not established yet, or reset after a relay drop or a peer-state reset. Such a sample cannot be attributed to a transport, so `recordConnectionMetrics` drops it instead of pushing it — `unknown` therefore never appears in the bucket. Connection counts are counts of connections whose transport was known at sampling time.
+
+**Samples recorded before 0.77 used a single `ice` value** which covered `ICEP2P`, `ICETurn` *and* `None`, so historical `ice` samples overstate direct connections by an unknown amount and must not be compared with `ice_p2p`.
 
 ### Sync Duration
 
@@ -176,7 +206,7 @@ docker compose up -d
 ```
 
 This starts:
-- **Ingest server** on http://localhost:8087 — accepts client metrics (requires `X-Peer-ID` header, no secret/token auth)
+- **Ingest server** on http://localhost:8087 — accepts client metrics (unauthenticated by design; expects a well-formed `X-Peer-ID` correlation tag)
 - **InfluxDB** — internal only, not exposed to host
 - **Grafana** on http://localhost:3001
 

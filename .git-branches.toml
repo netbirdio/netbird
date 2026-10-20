@@ -3,7 +3,7 @@
 [branches]
 main = "main"
 perennials = []
-perennial-regex = ""
+perennial-regex = "^release-"
 
 [create]
 new-branch-type = "feature"

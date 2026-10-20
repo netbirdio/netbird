@@ -1,0 +1,7 @@
+{
+  "description": "Nameserver group and applied custom zones distributed to grp-dev; peer-a (with an extra DNS label) receives them, peer-c is outside that group and receives only the zone distributed to grp-ops. Zone flags travel per zone: both grp-dev zones are match-only (NonAuthoritative), only search-off.internal. disables the search domain, and the built-in peer zone stays authoritative.",
+  "peers": [
+    "peer-a",
+    "peer-c"
+  ]
+}

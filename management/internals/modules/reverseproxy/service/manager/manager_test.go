@@ -7,11 +7,10 @@ import (
 	"testing"
 	"time"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -28,10 +27,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-func testCacheStore(t *testing.T) cachestore.StoreInterface {
+func testCacheStore(t *testing.T) nbcache.Store {
 	t.Helper()
 	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
@@ -295,6 +295,7 @@ func TestPersistNewService(t *testing.T) {
 		assert.Equal(t, status.AlreadyExists, sErr.Type())
 	})
 }
+
 func TestPreserveExistingAuthSecrets(t *testing.T) {
 	mgr := &Manager{}
 
@@ -433,8 +434,8 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 	newProxyServer := func(t *testing.T) *nbgrpc.ProxyServiceServer {
 		t.Helper()
 		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), testCacheStore(t))
-		pkceStore := nbgrpc.NewPKCEVerifierStore(context.Background(), testCacheStore(t))
-		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
+		singleUseStore := nbgrpc.NewSingleUseStore(context.Background(), testCacheStore(t))
+		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, singleUseStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
 		return srv
 	}
 
@@ -655,6 +656,10 @@ func (d *testClusterDeriver) GetClusterDomains() []string {
 	return d.domains
 }
 
+func (d *testClusterDeriver) ValidateServiceDomain(context.Context, store.Store, string, string, string) error {
+	return nil
+}
+
 const (
 	testAccountID = "test-account"
 	testPeerID    = "test-peer-1"
@@ -722,8 +727,8 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	}
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, testCacheStore(t))
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, singleUseStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
@@ -1146,8 +1151,8 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	mockAcct := account.NewMockManager(ctrl)
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
-	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, testCacheStore(t))
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, singleUseStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
@@ -1476,4 +1481,43 @@ func TestReplaceHostByLookup_SkipsClusterTarget(t *testing.T) {
 
 	require.NoError(t, mgr.replaceHostByLookup(ctx, accountID, svc), "cluster target must not trigger peer/resource lookup")
 	assert.Equal(t, "127.0.0.1", svc.Targets[0].Host, "operator-supplied host must be preserved for cluster target")
+}
+
+func TestReloadAllServicesForAccount_ContinuesAfterFailedService(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	proxyController := proxy.NewMockController(ctrl)
+	accountID := "test-account"
+
+	broken := &rpservice.Service{
+		ID:           "svc-broken",
+		AccountID:    accountID,
+		ProxyCluster: "eu.proxy.netbird.io",
+		Targets:      []*rpservice.Target{{TargetId: "x", TargetType: "unknown"}},
+	}
+	healthy := &rpservice.Service{
+		ID:           "svc-healthy",
+		AccountID:    accountID,
+		ProxyCluster: "eu.proxy.netbird.io",
+		Targets:      []*rpservice.Target{{TargetId: "peer-1", TargetType: rpservice.TargetTypePeer, Host: "100.64.0.1", Protocol: "http", Port: 8080, Enabled: true}},
+	}
+
+	mockStore.EXPECT().GetAccountServices(ctx, store.LockingStrengthNone, accountID).Return([]*rpservice.Service{broken, healthy}, nil)
+	mockStore.EXPECT().GetPeerByID(ctx, store.LockingStrengthNone, accountID, "peer-1").
+		Return(&nbpeer.Peer{ID: "peer-1", IP: netip.MustParseAddr("100.70.0.9")}, nil)
+	proxyController.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{})
+	proxyController.EXPECT().SendServiceUpdateToCluster(ctx, accountID, gomock.Any(), "eu.proxy.netbird.io").
+		Do(func(_ context.Context, _ string, mapping *proto.ProxyMapping, _ string) {
+			assert.Equal(t, "svc-healthy", mapping.GetId())
+			require.Len(t, mapping.GetPath(), 1)
+			assert.Contains(t, mapping.GetPath()[0].GetTarget(), "100.70.0.9", "mapping must carry the peer's current IP")
+		})
+
+	mgr := &Manager{store: mockStore, proxyController: proxyController}
+
+	err := mgr.ReloadAllServicesForAccount(ctx, accountID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "svc-broken")
+	assert.NotContains(t, err.Error(), "svc-healthy")
 }

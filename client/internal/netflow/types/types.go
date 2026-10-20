@@ -2,6 +2,7 @@ package types
 
 import (
 	"net/netip"
+	"slices"
 	"strconv"
 	"time"
 
@@ -69,8 +70,10 @@ const (
 )
 
 type Event struct {
-	ID        uuid.UUID
-	Timestamp time.Time
+	ID          uuid.UUID
+	Timestamp   time.Time
+	WindowStart time.Time
+	WindowEnd   time.Time
 	EventFields
 }
 
@@ -92,6 +95,17 @@ type EventFields struct {
 	TxPackets        uint64
 	RxBytes          uint64
 	TxBytes          uint64
+	NumOfStarts      uint64
+	NumOfEnds        uint64
+	NumOfDrops       uint64
+}
+
+func (e *Event) Clone() *Event {
+	toret := *e
+	toret.RuleID = slices.Clone(e.RuleID)
+	toret.SourceResourceID = slices.Clone(e.SourceResourceID)
+	toret.DestResourceID = slices.Clone(e.DestResourceID)
+	return &toret
 }
 
 type FlowConfig struct {
@@ -114,13 +128,15 @@ type FlowManager interface {
 	GetLogger() FlowLogger
 }
 
+type FlowEventAggregator interface {
+	ResetAggregationWindow() FlowEventAggregator
+	GetAggregatedEvents() []*Event
+}
+
 type FlowLogger interface {
+	ResetAggregationWindow() FlowEventAggregator
 	// StoreEvent stores a flow event
 	StoreEvent(flowEvent EventFields)
-	// GetEvents returns all stored events
-	GetEvents() []*Event
-	// DeleteEvents deletes events from the store
-	DeleteEvents([]uuid.UUID)
 	// Close closes the logger
 	Close()
 	// Enable enables the flow logger receiver
@@ -138,6 +154,11 @@ type Store interface {
 	DeleteEvents([]uuid.UUID)
 	// Close closes the store
 	Close()
+}
+
+type AggregatingStore interface {
+	FlowEventAggregator
+	Store
 }
 
 // ConnTracker defines the interface for connection tracking functionality

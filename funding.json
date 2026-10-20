@@ -6,7 +6,7 @@
     "name": "NetBird GmbH",
     "email": "hello@netbird.io",
     "phone": "",
-    "description": "NetBird GmbH is a Berlin-based software company specializing in the development of open-source network security solutions. Network security is utterly complex and expensive, accessible only to companies with multi-million dollar IT budgets. In contrast, there are millions of companies left behind. Our mission is to create an advanced network and cybersecurity platform that is both easy-to-use and affordable for teams of all sizes and budgets. By leveraging the open-source strategy and technological advancements, NetBird aims to set the industry standard for connecting and securing IT infrastructure.",
+    "description": "NetBird GmbH is a Berlin-based software company specializing in the development of open source network security solutions. Network security is utterly complex and expensive, accessible only to companies with multi-million dollar IT budgets. In contrast, there are millions of companies left behind. Our mission is to create an advanced network and cybersecurity platform that is both easy-to-use and affordable for teams of all sizes and budgets. By leveraging the open source strategy and technological advancements, NetBird aims to set the industry standard for connecting and securing IT infrastructure.",
     "webpageUrl": {
       "url": "https://github.com/netbirdio"
     }
@@ -15,7 +15,7 @@
     {
       "guid": "netbird",
       "name": "NetBird",
-      "description": "NetBird is a configuration-free peer-to-peer private network and a centralized access control system combined in a single open-source platform. It makes it easy to create secure WireGuard-based private networks for your organization or home.",
+      "description": "NetBird is a configuration-free peer-to-peer private network and a centralized access control system combined in a single open source platform. It makes it easy to create secure WireGuard-based private networks for your organization or home.",
       "webpageUrl": {
         "url": "https://github.com/netbirdio/netbird"
       },
@@ -59,7 +59,7 @@
         "guid": "support-yearly",
         "status": "active",
         "name": "Support Open Source Development and Maintenance - Yearly",
-        "description": "This will help us partially cover the yearly cost of maintaining the open-source NetBird project.",
+        "description": "This will help us partially cover the yearly cost of maintaining the open source NetBird project.",
         "amount": 100000,
         "currency": "USD",
         "frequency": "yearly",
@@ -72,7 +72,7 @@
         "guid": "support-one-time-year",
         "status": "active",
         "name": "Support Open Source Development and Maintenance - One Year",
-        "description": "This will help us partially cover the yearly cost of maintaining the open-source NetBird project.",
+        "description": "This will help us partially cover the yearly cost of maintaining the open source NetBird project.",
         "amount": 100000,
         "currency": "USD",
         "frequency": "one-time",
@@ -85,7 +85,7 @@
         "guid": "support-one-time-monthly",
         "status": "active",
         "name": "Support Open Source Development and Maintenance - Monthly",
-        "description": "This will help us partially cover the monthly cost of maintaining the open-source NetBird project.",
+        "description": "This will help us partially cover the monthly cost of maintaining the open source NetBird project.",
         "amount": 10000,
         "currency": "USD",
         "frequency": "monthly",
@@ -98,7 +98,7 @@
         "guid": "support-monthly",
         "status": "active",
         "name": "Support Open Source Development and Maintenance - One Month",
-        "description": "This will help us partially cover the monthly cost of maintaining the open-source NetBird project.",
+        "description": "This will help us partially cover the monthly cost of maintaining the open source NetBird project.",
         "amount": 10000,
         "currency": "USD",
         "frequency": "monthly",

@@ -21,7 +21,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	sshcommon "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/mdm"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -53,6 +54,9 @@ type Client struct {
 	jwtToken   string
 	connect    *internal.ConnectClient
 	recorder   *peer.Status
+	// inMemoryState is set when no StatePath was given in netstack mode,
+	// where the client changes nothing on the host that needs restoring.
+	inMemoryState bool
 }
 
 // Options configures a new Client.
@@ -77,7 +81,8 @@ type Options struct {
 	NoUserspace bool
 	// ConfigPath is the path to the netbird config file. If empty, the config will be stored in memory and not persisted.
 	ConfigPath string
-	// StatePath is the path to the netbird state file
+	// StatePath is the path to the netbird state file. When empty in netstack
+	// mode, state is kept in memory; with NoUserspace the default path is used.
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
@@ -85,12 +90,24 @@ type Options struct {
 	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
+	// EnableRosenpass enables the Rosenpass post-quantum key exchange.
+	EnableRosenpass bool
+	// RosenpassPermissive lets a Rosenpass-enabled peer still connect to peers
+	// that do not run Rosenpass (falling back to the plain WireGuard PSK).
+	RosenpassPermissive bool
 	// BlockLANAccess blocks the embedded peer from reaching the host's
 	// LAN (RFC 1918, link-local, loopback) when it's used as a routing
 	// peer. Mirrors profilemanager.ConfigInput.BlockLANAccess. Useful
 	// when the embedded client must never act as a stepping stone into
 	// the host's local network (e.g. the proxy's overlay peer).
 	BlockLANAccess bool
+	// LazyConnectionEnabled is a tri-state local override for lazy connections,
+	// mirroring the NB_LAZY_CONN env var. Nil defers to the management feature
+	// flag; a set value overrides it in both directions. A short-lived client
+	// that reaches only a few known peers can set this to false, so its peers
+	// connect eagerly and the first request does not wait for the connection to
+	// be established.
+	LazyConnectionEnabled *bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
 	// MTU is the MTU for the tunnel interface.
@@ -101,6 +118,9 @@ type Options struct {
 	MTU *uint16
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
+	// NATExternalIPs maps external IPs to internal IPs or interfaces for ICE
+	// candidates, same format as the agent's --external-ip-map flag.
+	NATExternalIPs []string
 	// Performance configures the tunnel's buffer pool cap and batch size.
 	Performance Performance
 }
@@ -180,7 +200,6 @@ func New(opts Options) (*Client, error) {
 	}
 
 	if opts.StatePath != "" {
-		// TODO: Disable state if path not provided
 		if err := os.Setenv("NB_DNS_STATE_FILE", opts.StatePath); err != nil {
 			return nil, fmt.Errorf("setenv: %w", err)
 		}
@@ -203,9 +222,12 @@ func New(opts Options) (*Client, error) {
 		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
 		BlockLANAccess:      &opts.BlockLANAccess,
+		RosenpassEnabled:    &opts.EnableRosenpass,
+		RosenpassPermissive: &opts.RosenpassPermissive,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
+		NATExternalIPs:      opts.NATExternalIPs,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
@@ -215,9 +237,22 @@ func New(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
 	}
+	// Embedded path runs without the daemon Server: apply the active
+	// MDM policy explicitly so a forced ManagementURL / PSK / other
+	// managed key takes effect on this embedded engine instance.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
+	}
+
+	if opts.LazyConnectionEnabled != nil {
+		// Runtime-only override, read back through lazyconn.ParseState; a set value
+		// wins over the management feature flag in both directions.
+		config.LazyConnection = "off"
+		if *opts.LazyConnectionEnabled {
+			config.LazyConnection = "on"
+		}
 	}
 
 	if opts.Performance.PreallocatedBuffersPerPool != nil {
@@ -233,6 +268,9 @@ func New(opts Options) (*Client, error) {
 		jwtToken:   opts.JWTToken,
 		config:     config,
 		recorder:   peer.NewRecorder(config.ManagementURL.String()),
+		// Without a path the default would be the installed agent's state
+		// file, which this client must neither read nor overwrite.
+		inMemoryState: opts.StatePath == "" && !opts.NoUserspace,
 	}, nil
 }
 
@@ -264,7 +302,11 @@ func (c *Client) Start(startCtx context.Context) error {
 	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-	client := internal.NewConnectClient(ctx, c.config, c.recorder)
+	var connectOpts []internal.ConnectClientOption
+	if c.inMemoryState {
+		connectOpts = append(connectOpts, internal.WithInMemoryState())
+	}
+	client := internal.NewConnectClient(ctx, c.config, c.recorder, connectOpts...)
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
@@ -470,7 +512,7 @@ func (c *Client) Status() (peer.FullStatus, error) {
 	if connect != nil {
 		engine := connect.Engine()
 		if engine != nil {
-			_ = engine.RunHealthProbes(false)
+			_ = engine.RunHealthProbes(context.Background(), false)
 		}
 	}
 
@@ -521,12 +563,7 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 		return err
 	}
 
-	storedKey, found := engine.GetPeerSSHKey(peerAddress)
-	if !found {
-		return sshcommon.ErrPeerNotFound
-	}
-
-	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
+	return nbssh.PeerKeyLookup(engine.GetPeerSSHKey).VerifySSHHostKey(peerAddress, key)
 }
 
 // SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool

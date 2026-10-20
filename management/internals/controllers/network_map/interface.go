@@ -1,14 +1,14 @@
 package network_map
 
-//go:generate go run go.uber.org/mock/mockgen -package network_map -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package network_map -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
 
 import (
 	"context"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
@@ -23,7 +23,8 @@ type Controller interface {
 	BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error
 	UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error
 	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
-	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*posture.Checks, int64, error)
+	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*nmdata.PostureChecks, int64, error)
+	GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, []*nmdata.PostureChecks, int64, error)
 	GetDNSDomain(settings *types.Settings) string
 	StartWarmup(context.Context)
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
@@ -34,7 +35,10 @@ type Controller interface {
 	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
-	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
+	// OnPeerDisconnected tears down the stream state of the peer's session, identified by its
+	// updates channel. It returns false and leaves everything untouched when a newer session
+	// owns the peer. A nil session is the newest session and tears down any registered channel.
+	OnPeerDisconnected(ctx context.Context, accountID string, peerID string, session chan *UpdateMessage) bool
 
 	TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer)
 }

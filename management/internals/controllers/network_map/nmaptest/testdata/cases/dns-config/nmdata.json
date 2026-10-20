@@ -1,0 +1,74 @@
+{
+  "Network": {"Serial": 8},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "ExtraDNSLabels": ["www"], "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-c": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]},
+    "grp-ops": {"Peers": ["peer-c"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-mesh",
+      "PublicID": "pol-mesh-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "all",
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-dev"]
+        }
+      ]
+    }
+  ],
+  "NameServerGroups": [
+    {
+      "ID": "nsg-1",
+      "Name": "dns-primary",
+      "NameServers": [{"IP": "8.8.8.8", "Port": 53}],
+      "Groups": ["grp-dev"],
+      "Primary": true,
+      "Enabled": true
+    }
+  ],
+  "AppliedZoneCandidates": [
+    {
+      "DistributionGroups": ["grp-dev"],
+      "Zone": {
+        "Domain": "corp.internal.",
+        "NonAuthoritative": true,
+        "Records": [
+          {"Name": "db.corp.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.5"}
+        ]
+      }
+    },
+    {
+      "DistributionGroups": ["grp-dev"],
+      "Zone": {
+        "Domain": "search-off.internal.",
+        "NonAuthoritative": true,
+        "SearchDomainDisabled": true,
+        "Records": [
+          {"Name": "app.search-off.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.6"},
+          {"Name": "alias.search-off.internal.", "Type": 5, "Class": "IN", "TTL": 300, "RData": "app.search-off.internal."}
+        ]
+      }
+    },
+    {
+      "DistributionGroups": ["grp-ops"],
+      "Zone": {
+        "Domain": "ops-only.internal.",
+        "NonAuthoritative": true,
+        "Records": [
+          {"Name": "tool.ops-only.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.7"}
+        ]
+      }
+    }
+  ]
+}

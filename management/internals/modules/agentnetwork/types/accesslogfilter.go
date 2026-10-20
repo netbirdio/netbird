@@ -54,7 +54,7 @@ var accessLogSortFields = map[string]string{
 	"provider":     "provider",
 	"status_code":  "status_code",
 	"duration":     "duration",
-	"cost_usd":     "cost_usd",
+	"cost_usd":     CostUSDSQLExpr,
 	"total_tokens": "total_tokens",
 	"user_id":      "user_id",
 	"decision":     "decision",
@@ -70,7 +70,7 @@ var accessLogSortFields = map[string]string{
 var sessionSortExprs = map[string]string{ //nolint:gosec // G101 false positive: "total_tokens" sort key, not a credential
 	"timestamp":     "MAX(timestamp)",
 	"started_at":    "MIN(timestamp)",
-	"cost_usd":      "SUM(cost_usd)",
+	"cost_usd":      "SUM" + CostUSDSQLExpr,
 	"total_tokens":  "SUM(total_tokens)",
 	"duration":      "SUM(duration)",
 	"request_count": "COUNT(*)",

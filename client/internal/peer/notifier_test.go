@@ -2,33 +2,38 @@ package peer
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type mocListener struct {
-	lastState int
+	lastState ClientState
 	wg        sync.WaitGroup
 	peersWg   sync.WaitGroup
 	peers     int
 }
 
 func (l *mocListener) OnConnected() {
-	l.lastState = stateConnected
+	l.lastState = ClientStateConnected
 	l.wg.Done()
 }
 func (l *mocListener) OnDisconnected() {
-	l.lastState = stateDisconnected
+	l.lastState = ClientStateDisconnected
 	l.wg.Done()
 }
 func (l *mocListener) OnConnecting() {
-	l.lastState = stateConnecting
+	l.lastState = ClientStateConnecting
 	l.wg.Done()
 }
 func (l *mocListener) OnDisconnecting() {
-	l.lastState = stateDisconnecting
+	l.lastState = ClientStateDisconnecting
 	l.wg.Done()
 }
 
+func (l *mocListener) OnStateChanged(state ClientState) {
+
+}
 func (l *mocListener) OnAddressChanged(host, addr string) {
 
 }
@@ -57,15 +62,15 @@ func Test_notifier_serverState(t *testing.T) {
 
 	type scenario struct {
 		name        string
-		expected    int
+		expected    ClientState
 		mgmState    bool
 		signalState bool
 	}
 	scenarios := []scenario{
-		{"connected", stateConnected, true, true},
-		{"mgm down", stateConnecting, false, true},
-		{"signal down", stateConnecting, true, false},
-		{"disconnected", stateDisconnected, false, false},
+		{"connected", ClientStateConnected, true, true},
+		{"mgm down", ClientStateConnecting, false, true},
+		{"signal down", ClientStateConnecting, true, false},
+		{"disconnected", ClientStateDisconnected, false, false},
 	}
 
 	for _, tt := range scenarios {
@@ -85,7 +90,7 @@ func Test_notifier_SetListener(t *testing.T) {
 	listener.setPeersWaiter()
 
 	n := newNotifier()
-	n.lastNotification = stateConnecting
+	n.lastNotification = ClientStateConnecting
 	n.setListener(listener)
 	listener.wait()
 	listener.waitPeers()
@@ -99,7 +104,7 @@ func Test_notifier_RemoveListener(t *testing.T) {
 	listener.setWaiter()
 	listener.setPeersWaiter()
 	n := newNotifier()
-	n.lastNotification = stateConnecting
+	n.lastNotification = ClientStateConnecting
 	n.setListener(listener)
 	// setListener replays cached state on a goroutine; wait for both the state
 	// and peers callbacks to finish so we don't race on listener.peers.
@@ -110,5 +115,158 @@ func Test_notifier_RemoveListener(t *testing.T) {
 
 	if listener.peers != 0 {
 		t.Errorf("invalid state: %d", listener.peers)
+	}
+}
+
+type coalescingListener struct {
+	final       int
+	calls       atomic.Int32
+	inFlight    atomic.Int32
+	maxInFlight atomic.Int32
+	last        atomic.Int32
+	done        chan struct{}
+	entered     chan struct{}
+	release     chan struct{}
+	once        sync.Once
+}
+
+func (l *coalescingListener) OnStateChanged(ClientState)      {}
+func (l *coalescingListener) OnConnected()                    {}
+func (l *coalescingListener) OnDisconnected()                 {}
+func (l *coalescingListener) OnConnecting()                   {}
+func (l *coalescingListener) OnDisconnecting()                {}
+func (l *coalescingListener) OnAddressChanged(string, string) {}
+
+func (l *coalescingListener) OnPeersListChanged(size int) {
+	current := l.inFlight.Add(1)
+	for {
+		seen := l.maxInFlight.Load()
+		if current <= seen || l.maxInFlight.CompareAndSwap(seen, current) {
+			break
+		}
+	}
+	if l.calls.Add(1) == 1 && l.entered != nil {
+		close(l.entered)
+	}
+	if l.release != nil {
+		<-l.release
+	}
+	time.Sleep(time.Millisecond)
+	l.last.Store(int32(size))
+	l.inFlight.Add(-1)
+	if size == l.final {
+		l.once.Do(func() { close(l.done) })
+	}
+}
+
+func Test_notifier_PeerListChangedCoalesces(t *testing.T) {
+	const events = 1000
+	listener := &coalescingListener{final: events, done: make(chan struct{})}
+	n := newNotifier()
+	n.setListener(listener)
+
+	for i := 1; i <= events; i++ {
+		n.peerListChanged(i)
+	}
+
+	select {
+	case <-listener.done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("last peer count not delivered, last seen: %d", listener.last.Load())
+	}
+
+	if got := listener.maxInFlight.Load(); got != 1 {
+		t.Errorf("concurrent deliveries: %d, expected 1", got)
+	}
+	if got := listener.calls.Load(); got >= events {
+		t.Errorf("deliveries not coalesced: %d calls for %d events", got, events)
+	}
+}
+
+func Test_notifier_SetListenerStopsPreviousDeliverer(t *testing.T) {
+	old := &coalescingListener{final: -1}
+	replacement := &coalescingListener{final: 7, done: make(chan struct{})}
+	n := newNotifier()
+	n.setListener(old)
+	oldStop := n.peerListStop
+
+	n.peerListChanged(7)
+	n.setListener(replacement)
+
+	select {
+	case <-oldStop:
+	default:
+		t.Fatal("old deliverer not stopped on listener replacement")
+	}
+	waitFor(t, replacement.done, "replacement listener not notified")
+}
+
+func Test_notifier_RemoveListenerStopsDeliverer(t *testing.T) {
+	n := newNotifier()
+	n.setListener(&coalescingListener{final: -1})
+	stop := n.peerListStop
+
+	n.removeListener()
+
+	select {
+	case <-stop:
+	default:
+		t.Fatal("deliverer not stopped on listener removal")
+	}
+}
+
+func Test_notifier_DelivererExitsAfterInFlightCallback(t *testing.T) {
+	listener := &coalescingListener{
+		final:   -1,
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	n := newNotifier()
+	wake := make(chan struct{}, 1)
+	stop := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		n.deliverPeerListChanges(listener, wake, stop)
+		close(exited)
+	}()
+
+	wake <- struct{}{}
+	waitFor(t, listener.entered, "listener not called")
+
+	n.peerListChanged(7)
+	wake <- struct{}{}
+	close(stop)
+	close(listener.release)
+
+	waitFor(t, exited, "deliverer did not exit after stop")
+	if got := listener.calls.Load(); got != 1 {
+		t.Errorf("deliverer ran %d callbacks after stop, expected only the in-flight one", got)
+	}
+	if got := listener.last.Load(); got == 7 {
+		t.Errorf("deliverer delivered the peer count queued after stop")
+	}
+}
+
+func Test_notifier_DelivererPrefersStopOverPendingWake(t *testing.T) {
+	listener := &coalescingListener{final: -1}
+	n := newNotifier()
+	wake := make(chan struct{}, 1)
+	stop := make(chan struct{})
+
+	wake <- struct{}{}
+	close(stop)
+	n.deliverPeerListChanges(listener, wake, stop)
+
+	if got := listener.calls.Load(); got != 0 {
+		t.Errorf("deliverer ran %d callbacks with stop closed, expected 0", got)
+	}
+}
+
+func waitFor(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
 	}
 }

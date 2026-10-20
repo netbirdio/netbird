@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func TestPrivateService_NetworkMap_UserPeer_AndProxyPeer(t *testing.T) {
@@ -18,7 +18,6 @@ func TestPrivateService_NetworkMap_UserPeer_AndProxyPeer(t *testing.T) {
 	account.Peers["proxy-peer"].Meta.WtVersion = "0.50.0"
 
 	ctx := context.Background()
-	account.InjectProxyPolicies(ctx)
 
 	validated := map[string]struct{}{
 		"user-peer":  {},
@@ -49,7 +48,7 @@ func TestPrivateService_NetworkMap_UserPeer_AndProxyPeer(t *testing.T) {
 	})
 }
 
-func netmapPeerIDs(peers []*nbpeer.Peer) []string {
+func netmapPeerIDs(peers []*nmdata.Peer) []string {
 	ids := make([]string, 0, len(peers))
 	for _, p := range peers {
 		if p == nil {

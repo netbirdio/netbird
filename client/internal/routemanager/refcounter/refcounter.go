@@ -94,6 +94,26 @@ func (rm *Counter[Key, I, O]) Get(key Key) (Ref[O], bool) {
 	return ref, ok
 }
 
+// ReapplyMatching calls apply for every key whose stored Out satisfies pred, holding the
+// counter lock for the whole pass. Running apply under the lock keeps it atomic with respect
+// to Increment/Decrement: a prefix dropped to zero is removed from the map (and had its
+// RemoveFunc called) before this pass observes it, so a stale key can never be re-applied.
+// pred and apply are invoked under the lock, so they must not call back into the counter.
+func (rm *Counter[Key, I, O]) ReapplyMatching(pred func(out O) bool, apply func(key Key) error) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	var merr *multierror.Error
+	for key, ref := range rm.refCountMap {
+		if pred(ref.Out) {
+			if err := apply(key); err != nil {
+				merr = multierror.Append(merr, err)
+			}
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
+}
+
 // Increment increments the reference count for the given key.
 // If this is the first reference to the key, the AddFunc is called.
 func (rm *Counter[Key, I, O]) Increment(key Key, in I) (Ref[O], error) {

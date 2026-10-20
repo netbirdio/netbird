@@ -285,6 +285,14 @@ func (m *Manager) TracePacket(packetData []byte, direction fw.RuleDirection) *Pa
 	trace.SourceIP = srcIP
 	trace.DestinationIP = dstIP
 
+	// A fragment or otherwise truncated packet has no transport layer.
+	// The inbound datapath drops these via isValidPacket; the tracer must
+	// guard explicitly since every downstream stage reads d.decoded[1].
+	if len(d.decoded) < 2 {
+		trace.AddResult(StageReceived, "Packet has no transport layer (fragment or unsupported protocol)", false)
+		return trace
+	}
+
 	// Determine protocol and ports
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:

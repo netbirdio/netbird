@@ -84,6 +84,15 @@ func (m *Middleware) Invoke(ctx context.Context, in *middleware.Input) (*middlew
 		return allowNoAttribution(), nil
 	}
 
+	// Model-listing and other non-inference endpoints carry no model, and
+	// management's per-model allowlist fails closed on an empty one. The
+	// router has already authorised the route against the caller's groups
+	// and the request consumes no tokens, so gating it on a model that
+	// cannot exist would only break gateway model discovery.
+	if lookupKV(in.Metadata, middleware.KeyLLMNonInference) == "true" {
+		return allowNoAttribution(), nil
+	}
+
 	providerID := lookupKV(in.Metadata, middleware.KeyLLMResolvedProviderID)
 	if providerID == "" {
 		// llm_router didn't emit a resolved provider id — usually
@@ -117,7 +126,7 @@ func (m *Middleware) Invoke(ctx context.Context, in *middleware.Input) (*middlew
 	}
 
 	if resp.GetDecision() == "deny" {
-		return denyFromManagement(resp), nil
+		return denyFromManagement(resp, lookupKV(in.Metadata, middleware.KeyLLMProvider)), nil
 	}
 	return allowFromManagement(resp), nil
 }
@@ -161,7 +170,7 @@ func allowFromManagement(resp *proto.CheckLLMPolicyLimitsResponse) *middleware.O
 // envelope. The deny code surfaces verbatim through the framework's
 // fixed JSON template; arbitrary middleware bytes can't reach the
 // wire.
-func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse) *middleware.Output {
+func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse, surface string) *middleware.Output {
 	code := resp.GetDenyCode()
 	if code == "" {
 		code = "llm_policy.cap_exceeded"
@@ -175,12 +184,28 @@ func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse) *middleware.Ou
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
 			Code:    code,
-			Message: "LLM policy limit exceeded",
+			Message: denyMessageForCode(code),
+			Surface: surface,
 		},
 		Metadata: []middleware.KV{
 			{Key: middleware.KeyLLMPolicyDecision, Value: "deny"},
 			{Key: middleware.KeyLLMPolicyReason, Value: code},
 		},
+	}
+}
+
+// denyMessageForCode maps a management deny code to a public message.
+// Model-allowlist rejections get a model-specific message matching the
+// local guardrail; everything else keeps the generic quota wording. The
+// message stays generic so it never leaks internal quota detail.
+func denyMessageForCode(code string) string {
+	switch code {
+	case "llm_policy.model_blocked":
+		return "model is not in the policy allowlist"
+	case "llm_policy.model_unknown":
+		return "request model could not be determined for the policy allowlist"
+	default:
+		return "LLM policy limit exceeded"
 	}
 }
 

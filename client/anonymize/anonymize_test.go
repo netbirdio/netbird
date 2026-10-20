@@ -1,8 +1,11 @@
 package anonymize_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"net/netip"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +45,301 @@ func TestAnonymizeIP(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseLevel(t *testing.T) {
+	tests := []struct {
+		input  string
+		expect anonymize.Level
+	}{
+		{"", anonymize.LevelDefault},
+		{"default", anonymize.LevelDefault},
+		{"DEFAULT", anonymize.LevelDefault},
+		{"strict", anonymize.LevelStrict},
+		{"STRICT", anonymize.LevelStrict},
+		// Unknown values must never yield less anonymization than requested.
+		{"garbage", anonymize.LevelStrict},
+	}
+
+	for _, tc := range tests {
+		t.Run("input="+tc.input, func(t *testing.T) {
+			assert.Equal(t, tc.expect, anonymize.ParseLevel(tc.input), "parsed level should match")
+		})
+	}
+}
+
+func TestAnonymizeIP_DefaultLevelInternalRanges(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	tests := []struct {
+		name   string
+		ip     string
+		expect string
+	}{
+		{"RFC1918 10/8", "10.1.2.3", "10.1.2.3"},
+		{"RFC1918 172.16/12", "172.16.5.5", "172.16.5.5"},
+		{"RFC1918 192.168/16", "192.168.1.1", "192.168.1.1"},
+		{"CGNAT", "100.64.0.5", "100.64.0.5"},
+		{"IPv4 link-local", "169.254.1.1", "169.254.1.1"},
+		{"IPv6 link-local", "fe80::1", "fe80::1"},
+		// ULA is anonymized even at the default level: its random global ID
+		// uniquely fingerprints the network, unlike shared RFC 1918 space.
+		{"IPv6 ULA", "fd12:3456:789a::1", "2001:db8:ffff::"},
+		// 4-in-6 addresses classify like their unmapped IPv4 form.
+		{"4-in-6 RFC1918", "::ffff:192.168.1.1", "192.168.1.1"},
+		{"4-in-6 CGNAT", "::ffff:100.64.0.5", "100.64.0.5"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := anonymizer.AnonymizeIP(netip.MustParseAddr(tc.ip))
+			assert.Equal(t, tc.expect, result.String(), "default level should preserve internal ranges except ULA")
+		})
+	}
+}
+
+func TestAnonymizeIP_StrictLevel(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(anonymize.LevelStrict)
+
+	// Order matters: internal pool addresses are assigned sequentially.
+	tests := []struct {
+		name   string
+		ip     string
+		expect string
+	}{
+		{"RFC1918 192.168/16", "192.168.1.1", "198.18.0.0"},
+		{"Second RFC1918", "192.168.1.2", "198.18.0.1"},
+		{"Repeated RFC1918", "192.168.1.1", "198.18.0.0"},
+		{"RFC1918 10/8", "10.1.2.3", "198.18.0.2"},
+		{"RFC1918 172.16/12", "172.16.5.5", "198.18.0.3"},
+		{"CGNAT", "100.64.0.5", "198.18.0.4"},
+		{"IPv4 link-local", "169.254.1.1", "198.18.0.5"},
+		{"Public IPv4 uses public pool", "1.2.3.4", "198.51.100.0"},
+		{"IPv6 link-local", "fe80::1", "2001:db8:1::"},
+		{"IPv6 ULA", "fd12:3456:789a::1", "2001:db8:1::1"},
+		{"Public IPv6 uses public pool", "2607:f8b0:4005:805::200e", "2001:db8:ffff::"},
+		{"Loopback IPv4", "127.0.0.1", "127.0.0.1"},
+		{"Loopback IPv6", "::1", "::1"},
+		{"Unspecified", "0.0.0.0", "0.0.0.0"},
+		{"Multicast", "224.0.0.251", "224.0.0.251"},
+		{"Well known resolver", "8.8.8.8", "8.8.8.8"},
+		{"Well known split marker", "128.0.0.0", "128.0.0.0"},
+		{"In internal pool range", "198.18.0.3", "198.18.0.3"},
+		{"In public pool range", "198.51.100.0", "198.51.100.0"},
+		{"4-in-6 repeated RFC1918", "::ffff:192.168.1.1", "198.18.0.0"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := anonymizer.AnonymizeIP(netip.MustParseAddr(tc.ip))
+			assert.Equal(t, tc.expect, result.String(), "strict level should replace internal ranges from the internal pools")
+		})
+	}
+}
+
+func TestAnonymizeString_StrictInternalIPs(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(anonymize.LevelStrict)
+
+	input := "route 10.20.30.0/24 via 192.168.1.1 dev eth0 src 100.64.0.7"
+	firstPass := anonymizer.AnonymizeString(input)
+	secondPass := anonymizer.AnonymizeString(firstPass)
+
+	assert.NotContains(t, firstPass, "10.20.30.0", "private network address should be anonymized")
+	assert.NotContains(t, firstPass, "192.168.1.1", "private gateway should be anonymized")
+	assert.NotContains(t, firstPass, "100.64.0.7", "CGNAT address should be anonymized")
+	assert.Contains(t, firstPass, "/24", "prefix length should be preserved")
+	assert.Equal(t, firstPass, secondPass, "second pass should not further anonymize the string")
+}
+
+func TestAnonymizeMAC(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	first := anonymizer.AnonymizeMAC("aa:bb:cc:dd:ee:0f")
+	assert.Equal(t, "02:00:00:00:00:01", first, "first MAC should get the first placeholder")
+	assert.Equal(t, first, anonymizer.AnonymizeMAC("aa:bb:cc:dd:ee:0f"), "repeated MAC should map to the same placeholder")
+	assert.Equal(t, first, anonymizer.AnonymizeMAC("AA:BB:CC:DD:EE:0F"), "case should not affect the mapping")
+	assert.Equal(t, "02-00-00-00-00-01", anonymizer.AnonymizeMAC("AA-BB-CC-DD-EE-0F"), "dash form should keep its separator but share the mapping")
+
+	second := anonymizer.AnonymizeMAC("10:22:33:44:55:66")
+	assert.Equal(t, "02:00:00:00:00:02", second, "second distinct MAC should get the next placeholder")
+
+	tests := []struct {
+		name string
+		mac  string
+	}{
+		{"Broadcast", "ff:ff:ff:ff:ff:ff"},
+		{"IPv4 multicast", "01:00:5e:00:00:fb"},
+		{"IPv6 multicast", "33:33:00:00:00:01"},
+		{"All zero", "00:00:00:00:00:00"},
+		{"Assigned placeholder", "02:00:00:00:00:01"},
+		{"Invalid", "not-a-mac"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.mac, anonymizer.AnonymizeMAC(tc.mac), "should be preserved")
+		})
+	}
+}
+
+func TestAnonymizeString_MACAddresses(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{
+			name:   "nftables ether rule",
+			input:  "ether saddr aa:bb:cc:dd:ee:ff drop",
+			expect: "ether saddr 02:00:00:00:00:01 drop",
+		},
+		{
+			name:   "Windows dash form",
+			input:  "Physical Address : AA-BB-CC-DD-EE-FF",
+			expect: "Physical Address : 02-00-00-00-00-01",
+		},
+		{
+			name:   "IPv6 address tail is not treated as MAC",
+			input:  "addr fe80:0:11:22:33:44:55:66 scope link",
+			expect: "addr fe80:0:11:22:33:44:55:66 scope link",
+		},
+		{
+			name:   "broadcast MAC preserved",
+			input:  "dst ff:ff:ff:ff:ff:ff type ARP",
+			expect: "dst ff:ff:ff:ff:ff:ff type ARP",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := anonymizer.AnonymizeString(tc.input)
+			assert.Equal(t, tc.expect, result, "MAC addresses should be anonymized at every level")
+			assert.Equal(t, result, anonymizer.AnonymizeString(result), "second pass should not change the result")
+		})
+	}
+}
+
+func TestAnonymizeWGKey(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x42}, 32))
+
+	t.Run("default level preserves keys", func(t *testing.T) {
+		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		assert.Equal(t, key, anonymizer.AnonymizeWGKey(key), "default level should not touch WireGuard keys")
+	})
+
+	t.Run("strict level replaces keys", func(t *testing.T) {
+		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		anonymizer.SetLevel(anonymize.LevelStrict)
+
+		anon := anonymizer.AnonymizeWGKey(key)
+		assert.NotEqual(t, key, anon, "strict level should replace the key")
+		assert.Regexp(t, `^[A-Za-z0-9+/]{43}=$`, anon, "placeholder should keep the WireGuard key shape")
+		assert.Equal(t, anon, anonymizer.AnonymizeWGKey(key), "repeated key should map to the same placeholder")
+		assert.Equal(t, anon, anonymizer.AnonymizeWGKey(anon), "an assigned placeholder should pass through unchanged")
+
+		assert.Equal(t, "not-a-key", anonymizer.AnonymizeWGKey("not-a-key"), "non-key values should be preserved")
+	})
+}
+
+func TestAnonymizeString_WGKeys(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x42}, 32))
+	input := "peer " + key + " handshake completed"
+
+	t.Run("default level preserves keys", func(t *testing.T) {
+		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		assert.Equal(t, input, anonymizer.AnonymizeString(input), "default level should not touch WireGuard keys in strings")
+	})
+
+	t.Run("strict level replaces keys", func(t *testing.T) {
+		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		anonymizer.SetLevel(anonymize.LevelStrict)
+
+		firstPass := anonymizer.AnonymizeString(input)
+		assert.NotContains(t, firstPass, key, "the key should not survive strict anonymization")
+		assert.Equal(t, anonymizer.AnonymizeWGKey(key), extractKey(t, firstPass), "string replacement should be consistent with AnonymizeWGKey")
+		assert.Equal(t, firstPass, anonymizer.AnonymizeString(firstPass), "second pass should not change the result")
+	})
+}
+
+func extractKey(t *testing.T, logLine string) string {
+	t.Helper()
+	fields := strings.Fields(logLine)
+	require.Len(t, fields, 4, "log line should keep its structure")
+	return fields[1]
+}
+
+func TestAnonymizeDomain_StrictLevel(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(anonymize.LevelStrict)
+
+	t.Run("netbird peer name", func(t *testing.T) {
+		result := anonymizer.AnonymizeDomain("my-laptop.netbird.cloud")
+		assert.Regexp(t, `^peer-\d+\.netbird\.cloud$`, result, "peer name should be anonymized, suffix kept")
+		assert.NotContains(t, result, "my-laptop", "the peer name should not survive")
+		assert.Equal(t, result, anonymizer.AnonymizeDomain("my-laptop.netbird.cloud"), "repeated domain should map consistently")
+		assert.Equal(t, result, anonymizer.AnonymizeDomain(result), "an anonymized domain should pass through unchanged")
+	})
+
+	t.Run("bare netbird domain", func(t *testing.T) {
+		assert.Equal(t, "netbird.cloud", anonymizer.AnonymizeDomain("netbird.cloud"), "the bare protected suffix should be preserved")
+	})
+
+	t.Run("netbird infrastructure preserved", func(t *testing.T) {
+		assert.Equal(t, "api.netbird.io", anonymizer.AnonymizeDomain("api.netbird.io"),
+			"netbird.io hosts infrastructure, not peer names, and should stay readable")
+	})
+
+	t.Run("leading labels of other domains", func(t *testing.T) {
+		result := anonymizer.AnonymizeDomain("host1.corp.example.com")
+		assert.Regexp(t, `^host-\d+\.host-\d+\.anon-[a-zA-Z0-9]+\.domain$`, result, "every label should be anonymized")
+		for _, label := range []string{"host1", "corp", "example"} {
+			assert.NotContains(t, result, label, "no original label should survive")
+		}
+		assert.Equal(t, result, anonymizer.AnonymizeDomain("host1.corp.example.com"), "repeated domain should map consistently")
+	})
+
+	t.Run("same label maps consistently across domains", func(t *testing.T) {
+		first := anonymizer.AnonymizeDomain("shared.one.com")
+		second := anonymizer.AnonymizeDomain("shared.two.com")
+		assert.Equal(t, strings.Split(first, ".")[0], strings.Split(second, ".")[0], "the shared host label should get one placeholder")
+	})
+
+	t.Run("wildcard label preserved", func(t *testing.T) {
+		result := anonymizer.AnonymizeDomain("*.example.com")
+		assert.Regexp(t, `^\*\.anon-[a-zA-Z0-9]+\.domain$`, result, "the wildcard label should stay a wildcard")
+	})
+}
+
+func TestAnonymizeDomain_DefaultLevelKeepsPeerNames(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	assert.Equal(t, "my-laptop.netbird.cloud", anonymizer.AnonymizeDomain("my-laptop.netbird.cloud"),
+		"default level should preserve netbird FQDNs including the peer name")
+	assert.Regexp(t, `^sub\.anon-[a-zA-Z0-9]+\.domain$`, anonymizer.AnonymizeDomain("sub.example.com"),
+		"default level should keep subdomain labels")
+}
+
+func TestAnonymizeString_StrictPeerNames(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(anonymize.LevelStrict)
+
+	// Seed like the bundle generator does from the status: base first, then
+	// the full FQDN, so replacement must prefer the longer mapping.
+	anonBase := anonymizer.AnonymizeDomain("example.com")
+	anonPeer := anonymizer.AnonymizeDomain("peer1.netbird.cloud")
+	anonHost := anonymizer.AnonymizeDomain("host1.example.com")
+
+	logLine := "connected to peer1.netbird.cloud via host1.example.com endpoint"
+	firstPass := anonymizer.AnonymizeString(logLine)
+	assert.NotContains(t, firstPass, "peer1", "the peer name should not survive in logs")
+	assert.NotContains(t, firstPass, "host1", "the host label should not survive in logs")
+	assert.Contains(t, firstPass, anonPeer, "the seeded peer mapping should be applied")
+	assert.Contains(t, firstPass, anonHost, "the seeded host mapping should be applied, not just the base mapping")
+	assert.NotContains(t, firstPass, "host1."+anonBase, "the base mapping must not preempt the longer FQDN mapping")
+	assert.Equal(t, firstPass, anonymizer.AnonymizeString(firstPass), "second pass should not change the result")
 }
 
 func TestAnonymizeDNSLogLine(t *testing.T) {

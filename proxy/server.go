@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -67,6 +68,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
 
@@ -79,19 +81,19 @@ type portRouter struct {
 
 type Server struct {
 	ctx               context.Context
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
+	mgmtClient        proto.ProxyServiceClient
+	proxy             *proxy.ReverseProxy
+	netbird           *roundtrip.NetBird
+	acme              *acme.Manager
 	staticCertWatcher *certwatch.Watcher
-	auth          *auth.Middleware
-	http          *http.Server
-	https         *http.Server
-	debug         *http.Server
-	healthServer  *health.Server
-	healthChecker *health.Checker
-	meter         *proxymetrics.Metrics
-	accessLog     *accesslog.Logger
+	auth              *auth.Middleware
+	http              *http.Server
+	https             *http.Server
+	debug             *http.Server
+	healthServer      *health.Server
+	healthChecker     *health.Checker
+	meter             *proxymetrics.Metrics
+	accessLog         *accesslog.Logger
 	// middlewareManager drives per-target middleware dispatch. Always
 	// constructed during boot; an empty registry produces empty chains and
 	// the reverse-proxy stays on the no-capture fast path.
@@ -99,16 +101,16 @@ type Server struct {
 	// middlewareRegistry is the source of registered middleware factories.
 	// Concrete middlewares register themselves through init().
 	middlewareRegistry *middleware.Registry
-	mainRouter    *nbtcp.Router
-	mainPort      uint16
-	udpMu         sync.Mutex
-	udpRelays     map[types.ServiceID]*udprelay.Relay
-	udpRelayWg    sync.WaitGroup
-	portMu        sync.RWMutex
-	portRouters   map[uint16]*portRouter
-	svcPorts      map[types.ServiceID][]uint16
-	lastMappings  map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg  sync.WaitGroup
+	mainRouter         *nbtcp.Router
+	mainPort           uint16
+	udpMu              sync.Mutex
+	udpRelays          map[types.ServiceID]*udprelay.Relay
+	udpRelayWg         sync.WaitGroup
+	portMu             sync.RWMutex
+	portRouters        map[uint16]*portRouter
+	svcPorts           map[types.ServiceID][]uint16
+	lastMappings       map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg       sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -192,15 +194,18 @@ type Server struct {
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to backends.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	ForwardedProto string
-	// TrustedProxies is a list of IP prefixes for trusted upstream proxies.
-	// When set, forwarding headers from these sources are preserved and
-	// appended to instead of being stripped.
-	TrustedProxies []netip.Prefix
+	// TrustedProxies is the set of trusted upstream proxies. When set,
+	// forwarding headers from these sources are preserved and appended to
+	// instead of being stripped.
+	TrustedProxies *trustedproxy.List
 	// WireguardPort is the port for the NetBird tunnel interface. Use 0
 	// for a random OS-assigned port. A fixed port only works with
 	// single-account deployments; multiple accounts will fail to bind
 	// the same port.
 	WireguardPort uint16
+	// NATExternalIPs maps external IPs advertised as ICE candidates by every
+	// embedded client. Requires a fixed WireguardPort forwarded on the NAT.
+	NATExternalIPs []string
 	// Performance configures the tunnel pool/batch sizes for every
 	// embedded client this proxy spawns.
 	Performance embed.Performance
@@ -245,10 +250,6 @@ type Server struct {
 	// in processMappings before the receive loop reconnects to resync.
 	// Zero uses defaultMappingBatchWatchdog.
 	MappingBatchWatchdog time.Duration
-	// MiddlewareDataDir is the base directory the middleware system uses to
-	// resolve file-backed configuration (e.g. the cost_meter pricing table).
-	// Empty means any middleware that requires a file fails at configure time.
-	MiddlewareDataDir string
 	// MiddlewareCaptureBudgetBytes overrides the proxy-wide in-flight capture
 	// budget passed to middleware.NewManager. Zero or negative values fall
 	// back to defaultMiddlewareCaptureBudgetBytes (256 MiB).
@@ -364,6 +365,13 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
+	startupOK := false
+	defer func() {
+		if !startupOK {
+			s.cleanupFailedStart()
+		}
+	}()
+
 	// Management client must be initialised BEFORE the middleware manager —
 	// initMiddlewareManager passes s.mgmtClient into the builtin FactoryContext
 	// that the limit-check / limit-record middlewares pull from. Reversed
@@ -376,7 +384,9 @@ func (s *Server) Start(ctx context.Context) error {
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.runCancel = runCancel
 
-	s.initNetBirdClient()
+	if err := s.initNetBirdClient(); err != nil {
+		return err
+	}
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
@@ -396,18 +406,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.initGeoLookup(); err != nil {
 		return err
 	}
-
-	startupOK := false
-	defer func() {
-		if startupOK {
-			return
-		}
-		if s.geoRaw != nil {
-			if closeErr := s.geoRaw.Close(); closeErr != nil {
-				s.Logger.Debugf("close geolocation on startup failure: %v", closeErr)
-			}
-		}
-	}()
 
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
@@ -477,14 +475,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		go func() {
 			defer close(done)
 			s.gracefulShutdown()
-			if s.runCancel != nil {
-				s.runCancel()
-			}
-			if s.mgmtConn != nil {
-				if err := s.mgmtConn.Close(); err != nil {
-					s.Logger.Debugf("management connection close: %v", err)
-				}
-			}
+			s.releaseRunResources()
 		}()
 
 		select {
@@ -497,6 +488,27 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	return s.runErr
+}
+
+// cleanupFailedStart releases what a failed Start already brought up. It
+// skips the drain and pre-stop delay because nothing has served yet, and
+// consumes stopOnce so a later Stop stays a no-op.
+func (s *Server) cleanupFailedStart() {
+	s.stopOnce.Do(func() {
+		s.shutdownServices()
+		s.releaseRunResources()
+	})
+}
+
+func (s *Server) releaseRunResources() {
+	if s.runCancel != nil {
+		s.runCancel()
+	}
+	if s.mgmtConn != nil {
+		if err := s.mgmtConn.Close(); err != nil {
+			s.Logger.Debugf("management connection close: %v", err)
+		}
+	}
 }
 
 // waitAndStop blocks until ctx is cancelled or a background goroutine
@@ -570,12 +582,13 @@ func (s *Server) initManagementClient() error {
 // initNetBirdClient builds the multi-tenant embedded NetBird client used
 // for outbound RoundTripping and (when --private is on) per-account
 // inbound listeners.
-func (s *Server) initNetBirdClient() {
+func (s *Server) initNetBirdClient() error {
 	s.netbird = roundtrip.NewNetBird(s.ctx, s.ID, s.ProxyURL, roundtrip.ClientConfig{
-		MgmtAddr:     s.ManagementAddress,
-		WGPort:       s.WireguardPort,
-		PreSharedKey: s.PreSharedKey,
-		Performance:  s.Performance,
+		MgmtAddr:       s.ManagementAddress,
+		WGPort:         s.WireguardPort,
+		PreSharedKey:   s.PreSharedKey,
+		Performance:    s.Performance,
+		NATExternalIPs: s.NATExternalIPs,
 		// On --private the embedded client serves per-account inbound
 		// listeners and must apply management's ACL: keep BlockInbound off
 		// so the engine creates the ACL manager. On the standalone proxy
@@ -583,6 +596,10 @@ func (s *Server) initNetBirdClient() {
 		BlockInbound: !s.Private,
 	}, s.Logger, s, s.mgmtClient)
 	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
+	if err := s.meter.RegisterClientObserver(s.netbird.ClientCount); err != nil {
+		return fmt.Errorf("register client metrics: %w", err)
+	}
+	return nil
 }
 
 // initReverseProxy builds the meter-instrumented reverse proxy. MultiTransport
@@ -718,7 +735,7 @@ func (s *Server) wrapProxyProtocol(ln net.Listener) net.Listener {
 		Listener:          ln,
 		ReadHeaderTimeout: proxyProtoHeaderTimeout,
 	}
-	if len(s.TrustedProxies) > 0 {
+	if !s.TrustedProxies.Empty() {
 		ppListener.ConnPolicy = s.proxyProtocolPolicy
 	} else {
 		s.Logger.Warn("PROXY protocol enabled without trusted proxies; any source may send PROXY headers")
@@ -742,10 +759,8 @@ func (s *Server) proxyProtocolPolicy(opts proxyproto.ConnPolicyOptions) (proxypr
 	addr = addr.Unmap()
 
 	// called per accept
-	for _, prefix := range s.TrustedProxies {
-		if prefix.Contains(addr) {
-			return proxyproto.REQUIRE, nil
-		}
+	if s.TrustedProxies.Contains(addr) {
+		return proxyproto.REQUIRE, nil
 	}
 	return proxyproto.IGNORE, nil
 }
@@ -1288,6 +1303,10 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 }
 
 func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
+	// Canceling closes the stream on management; a bare return leaves it open.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	connectTime := time.Now()
 	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId:      s.ID,
@@ -1310,6 +1329,10 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 }
 
 func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
+	// Canceling closes the stream on management; a bare return leaves it open.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	connectTime := time.Now()
 	stream, err := client.SyncMappings(ctx)
 	if err != nil {
@@ -1633,6 +1656,22 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 // state and re-applies them from the new mapping.
 func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	if old := s.loadMapping(types.ServiceID(mapping.GetId())); old != nil {
+		if !types.ServiceMode(old.GetMode()).IsL4() &&
+			!types.ServiceMode(mapping.GetMode()).IsL4() &&
+			old.GetDomain() == mapping.GetDomain() &&
+			len(old.GetPath()) > 0 && len(mapping.GetPath()) > 0 {
+			if err := s.updateMapping(ctx, mapping); err != nil {
+				// Fail the whole service closed until a valid update arrives: the old
+				// policy could retain access this replacement intended to revoke.
+				// Keep the peer, but withdraw routes and the cached mapping for recovery.
+				s.cleanupMappingRoutes(old)
+				s.deleteMapping(types.ServiceID(mapping.GetId()))
+				return err
+			}
+			s.storeMapping(mapping)
+			s.hijackTracker.CloseByHost(mapping.GetDomain())
+			return nil
+		}
 		s.cleanupMappingRoutes(old)
 		if mode := types.ServiceMode(old.GetMode()); mode.IsL4() {
 			s.meter.L4ServiceRemoved(mode)
@@ -2049,13 +2088,16 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 }
 
 func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	// Very simple implementation here, we don't touch the existing peer
-	// connection or any existing TLS configuration, we simply overwrite
-	// the auth and proxy mappings.
-	// Note: this does require the management server to always send a
-	// full mapping rather than deltas during a modification.
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcID := types.ServiceID(mapping.GetId())
+	m, err := s.protoToMapping(ctx, mapping)
+	if err != nil {
+		return err
+	}
+	resolver, err := proxy.NewTargetResolver(m)
+	if err != nil {
+		return fmt.Errorf("prepare target routes: %w", err)
+	}
 
 	var schemes []auth.Scheme
 	if mapping.GetAuth().GetPassword() {
@@ -2067,22 +2109,54 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if mapping.GetAuth().GetOidc() {
 		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, svcID, accountID, s.ForwardedProto))
 	}
-	for _, ha := range mapping.GetAuth().GetHeaderAuths() {
-		schemes = append(schemes, auth.NewHeader(s.mgmtClient, svcID, accountID, ha.GetHeader()))
-	}
+	schemes = append(schemes, headerAuthSchemes(mapping.GetAuth().GetHeaderAuths())...)
 
 	ipRestrictions := s.parseRestrictions(mapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate()); err != nil {
+	config, err := auth.NewDomainConfig(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate(), mapping.GetAuth().GetAllowedGroupIds(), auth.WithTargetResolver(resolver))
+	if err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
-	m := s.protoToMapping(ctx, mapping)
-	s.proxy.AddMapping(m)
+	revision, err := s.rebuildMiddlewareChains(svcID, m)
+	if err != nil {
+		return err
+	}
+	m.MiddlewareRevision = revision
+	config.TargetResolver = resolver.WithMiddlewareRevision(revision)
+	// The auth snapshot owns its resolver, so an in-flight request cannot
+	// authorize an old target and then forward to a replacement target.
+	s.auth.AddDomainConfig(mapping.GetDomain(), config)
 	s.meter.AddMapping(m)
-	s.rebuildMiddlewareChains(svcID, m)
+	s.proxy.AddMapping(m)
 	return nil
+}
+
+// headerAuthSchemes builds one scheme per canonical header name, carrying every
+// hash configured for that name so any of them is accepted — the OR semantics
+// management applied while it still validated the credential itself. No entry is
+// ever dropped: a name that arrives blank, or without a hash, still yields a
+// scheme, because a mapping that lost its only scheme would fall through
+// Protect's no-schemes pass-through and serve the domain unauthenticated.
+func headerAuthSchemes(headerAuths []*proto.HeaderAuth) []auth.Scheme {
+	names := make([]string, 0, len(headerAuths))
+	hashes := make(map[string][]string, len(headerAuths))
+	for _, ha := range headerAuths {
+		name := http.CanonicalHeaderKey(ha.GetHeader())
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+		if hash := ha.GetHashedValue(); hash != "" {
+			hashes[name] = append(hashes[name], hash)
+		}
+	}
+
+	schemes := make([]auth.Scheme, 0, len(names))
+	for _, name := range names {
+		schemes = append(schemes, auth.NewHeader(name, hashes[name]))
+	}
+	return schemes
 }
 
 // initMiddlewareManager wires the middleware subsystem at boot. It configures
@@ -2094,7 +2168,7 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 		return fmt.Errorf("middleware manager requires metrics bundle")
 	}
 	otelMeter := s.meter.Meter()
-	mwbuiltin.Configure(ctx, s.MiddlewareDataDir, otelMeter, s.Logger, s.mgmtClient)
+	mwbuiltin.Configure(ctx, otelMeter, s.Logger, s.mgmtClient)
 
 	mwMetrics, err := middleware.NewMetrics(otelMeter)
 	if err != nil {
@@ -2118,16 +2192,17 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 	return nil
 }
 
-// rebuildMiddlewareChains converts m into per-path bindings and calls
-// Manager.Rebuild. Short-circuits when the middleware manager is unset.
-func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) {
+// rebuildMiddlewareChains installs the service's policies before its routing snapshot.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) (middleware.Revision, error) {
 	if s.middlewareManager == nil {
-		return
+		return 0, nil
 	}
 	bindings := buildMiddlewareBindings(svcID, m)
-	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
-		s.Logger.WithError(err).WithField("service_id", svcID).Error("failed to rebuild middleware chains")
+	revision, err := s.middlewareManager.RebuildSnapshot(string(svcID), bindings)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
 	}
+	return revision, nil
 }
 
 // isLiveService reports whether svcID is currently present in the live
@@ -2212,10 +2287,10 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 		if s.acme != nil {
 			s.acme.RemoveDomain(d)
 		}
-		s.auth.RemoveDomain(host)
 		if s.proxy.RemoveMapping(proxy.Mapping{Host: host}) {
 			s.meter.RemoveMapping(proxy.Mapping{Host: host})
 		}
+		s.auth.RemoveDomain(host)
 		// Close hijacked connections (WebSocket) for this domain.
 		if n := s.hijackTracker.CloseByHost(host); n > 0 {
 			s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
@@ -2288,23 +2363,33 @@ func (s *Server) deleteMapping(svcID types.ServiceID) *proto.ProxyMapping {
 	return m
 }
 
-func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) proxy.Mapping {
+func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) (proxy.Mapping, error) {
+	pathMappings := mapping.GetPath()
+	actions, strictPaths, err := parseTargetAccessActions(pathMappings)
+	if err != nil {
+		return proxy.Mapping{}, err
+	}
+
 	paths := make(map[string]*proxy.PathTarget)
-	for _, pathMapping := range mapping.GetPath() {
+	for i, pathMapping := range pathMappings {
+		path := pathMapping.GetPath()
+		if strictPaths && path == "" {
+			path = "/"
+		}
+		if strictPaths {
+			if _, exists := paths[path]; exists {
+				return proxy.Mapping{}, fmt.Errorf("duplicate target location %q", path)
+			}
+		}
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
-			s.Logger.WithFields(log.Fields{
-				"service_id": mapping.GetId(),
-				"account_id": mapping.GetAccountId(),
-				"domain":     mapping.GetDomain(),
-				"path":       pathMapping.GetPath(),
-				"target":     pathMapping.GetTarget(),
-			}).WithError(err).Error("failed to parse target URL for path, skipping")
-			s.notifyError(ctx, mapping, fmt.Errorf("invalid target URL %q for path %q: %w", pathMapping.GetTarget(), pathMapping.GetPath(), err))
-			continue
+			return proxy.Mapping{}, fmt.Errorf("parse target URL for location %q: %w", path, err)
+		}
+		if targetURL.Host == "" || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
+			return proxy.Mapping{}, fmt.Errorf("invalid HTTP target URL for location %q", path)
 		}
 
-		pt := &proxy.PathTarget{URL: targetURL}
+		pt := &proxy.PathTarget{URL: targetURL, AccessAction: actions[i]}
 		if opts := pathMapping.GetOptions(); opts != nil {
 			pt.SkipTLSVerify = opts.GetSkipTlsVerify()
 			pt.PathRewrite = protoToPathRewrite(opts.GetPathRewrite())
@@ -2321,7 +2406,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 			pt.DisableAccessLog = opts.GetDisableAccessLog()
 		}
 		pt.RequestTimeout = s.clampDialTimeout(pt.RequestTimeout)
-		paths[pathMapping.GetPath()] = pt
+		paths[path] = pt
 	}
 	m := proxy.Mapping{
 		ID:               types.ServiceID(mapping.GetId()),
@@ -2334,7 +2419,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 	for _, ha := range mapping.GetAuth().GetHeaderAuths() {
 		m.StripAuthHeaders = append(m.StripAuthHeaders, ha.GetHeader())
 	}
-	return m
+	return m, nil
 }
 
 func protoToPathRewrite(mode proto.PathRewriteMode) proxy.PathRewriteMode {

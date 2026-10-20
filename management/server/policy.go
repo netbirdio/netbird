@@ -67,10 +67,13 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 			action = activity.PolicyUpdated
 
+			policy.PublicID = existingPolicy.PublicID
+
 			if err = transaction.SavePolicy(ctx, policy); err != nil {
 				return err
 			}
 		} else {
+			policy.PublicID = xid.New().String()
 			if err = transaction.CreatePolicy(ctx, policy); err != nil {
 				return err
 			}

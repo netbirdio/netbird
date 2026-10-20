@@ -13,6 +13,7 @@ type NetworkRouter struct {
 	ID         string `gorm:"primaryKey"`
 	NetworkID  string `gorm:"index"`
 	AccountID  string `gorm:"index"`
+	PublicID   string `json:"-"`
 	Peer       string
 	PeerGroups []string `gorm:"serializer:json"`
 	Masquerade bool
@@ -81,6 +82,7 @@ func (n *NetworkRouter) Copy() *NetworkRouter {
 		ID:         n.ID,
 		NetworkID:  n.NetworkID,
 		AccountID:  n.AccountID,
+		PublicID:   n.PublicID,
 		Peer:       n.Peer,
 		PeerGroups: n.PeerGroups,
 		Masquerade: n.Masquerade,

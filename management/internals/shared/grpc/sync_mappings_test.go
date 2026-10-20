@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
@@ -408,4 +408,76 @@ func TestConnectionSendResponse_RoutesToLegacyStream(t *testing.T) {
 
 	require.Len(t, stream.messages, 1)
 	assert.Equal(t, "svc-2", stream.messages[0].Mapping[0].Id)
+}
+
+// blockingSyncStream is a ProxyService_SyncMappingsServer whose Recv blocks
+// until the test ends, like a proxy that stopped acking without closing the stream.
+type blockingSyncStream struct {
+	grpc.ServerStream
+	done chan struct{}
+}
+
+func (s *blockingSyncStream) Recv() (*proto.SyncMappingsRequest, error) {
+	<-s.done
+	return nil, context.Canceled
+}
+
+func (s *blockingSyncStream) Send(*proto.SyncMappingsResponse) error { return nil }
+
+func newBlockingSyncStream(t *testing.T) *blockingSyncStream {
+	t.Helper()
+	s := &blockingSyncStream{done: make(chan struct{})}
+	t.Cleanup(func() { close(s.done) })
+	return s
+}
+
+func TestWaitForAck_Ack(t *testing.T) {
+	stream := &syncRecordingStream{recvMsgs: []*proto.SyncMappingsRequest{ackMsg()}}
+
+	require.NoError(t, waitForAck(context.Background(), stream, time.Second))
+}
+
+func TestWaitForAck_UnexpectedMessage(t *testing.T) {
+	stream := &syncRecordingStream{recvMsgs: []*proto.SyncMappingsRequest{
+		{Msg: &proto.SyncMappingsRequest_Init{Init: &proto.SyncMappingsInit{}}},
+	}}
+
+	assert.ErrorContains(t, waitForAck(context.Background(), stream, time.Second), "expected ack")
+}
+
+func TestWaitForAck_TimesOutWhenProxyStopsAcking(t *testing.T) {
+	stream := newBlockingSyncStream(t)
+
+	start := time.Now()
+	err := waitForAck(context.Background(), stream, 50*time.Millisecond)
+
+	assert.ErrorContains(t, err, "no ack within")
+	assert.Less(t, time.Since(start), time.Second)
+}
+
+func TestWaitForAck_ReturnsWhenConnectionCanceled(t *testing.T) {
+	stream := newBlockingSyncStream(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.ErrorIs(t, waitForAck(ctx, stream, time.Minute), context.Canceled)
+}
+
+func TestSendSnapshotSync_GivesUpWhenProxyStopsAcking(t *testing.T) {
+	const cluster = "cluster.example.com"
+
+	ctrl := gomock.NewController(t)
+	mgr := rpservice.NewMockManager(ctrl)
+	mgr.EXPECT().GetGlobalServices(gomock.Any()).Return(makeServices(1, cluster), nil)
+
+	s := newSnapshotTestServer(t, 10)
+	s.serviceManager = mgr
+	s.snapshotAckTimeout = 50 * time.Millisecond
+
+	stream := newBlockingSyncStream(t)
+	conn := &proxyConnection{proxyID: "proxy-a", address: cluster, syncStream: stream}
+
+	err := s.sendSnapshotSync(context.Background(), conn, stream)
+
+	assert.ErrorContains(t, err, "no ack within")
 }

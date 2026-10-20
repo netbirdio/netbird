@@ -1,0 +1,4 @@
+{
+  "description": "netbird-ssh with neither AuthorizedGroups nor AuthorizedUser falls back to the account AllowedUserIDs under the wildcard machine user — and works with the peer's own SSHEnabled left off, unlike legacy SSH.",
+  "peers": ["peer-srv"]
+}
