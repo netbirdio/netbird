@@ -41,7 +41,7 @@ type mapStateManager struct {
 	// persist snapshots an update to disk for restore-on-restart. Called once per
 	// update received from management (in SetTarget), including ones later coalesced
 	// or skipped from apply, so the on-disk state mirrors what management last sent.
-	// The impl skips config-only updates (nil NetworkMap). May be nil.
+	// The impl skips config-only updates (no network map). May be nil.
 	persist func(*mgmProto.SyncResponse)
 
 	mu          sync.Mutex
@@ -75,7 +75,7 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	}
 	m.target = m.mergeTarget(m.target, update)
 	// Bump an internal generation counter, NOT the map serial: config-only updates
-	// (relay token rotation, STUN/TURN) arrive with NetworkMap == nil and carry no
+	// (relay token rotation, STUN/TURN) arrive without a network map and carry no
 	// serial, yet must still be applied. Every SetTarget is therefore a distinct
 	// target regardless of payload. Map-serial staleness is enforced separately
 	// inside apply (updateNetworkMap).
@@ -92,7 +92,7 @@ func (m *mapStateManager) SetTarget(update *mgmProto.SyncResponse) error {
 	// pass), and including ones that get coalesced/skipped from apply, so the on-disk
 	// state always reflects the latest map management sent. Done after waking the loop
 	// so convergence can start in parallel with the disk write. The persist impl skips
-	// config-only updates (nil NetworkMap).
+	// config-only updates (no network map).
 	if m.persist != nil {
 		m.persist(update)
 	}
@@ -126,14 +126,27 @@ func (m *mapStateManager) mergeTarget(prev, update *mgmProto.SyncResponse) *mgmP
 	// We mutate `update` in place: it is a fresh per-message allocation from the sync
 	// stream (see receiveUpdatesEvents — not reused), and persisting this squashed target
 	// is correct, since it is the current full (superset) desired state.
-	if update.GetNetworkMap() == nil && prev.GetNetworkMap() != nil {
+	if !syncCarriesNetworkMap(update) && syncCarriesNetworkMap(prev) {
 		update.NetworkMap = prev.GetNetworkMap()
+		update.NetworkMapEnvelope = prev.GetNetworkMapEnvelope()
+		update.Version = prev.GetVersion()
+		update.PeerConfig = prev.GetPeerConfig()
 		update.Checks = prev.Checks // checks travel with the map
 	}
 	if update.GetNetbirdConfig() == nil && prev.GetNetbirdConfig() != nil {
 		update.NetbirdConfig = prev.GetNetbirdConfig()
 	}
+	if update.GetSessionExpiresAt() == nil && prev.GetSessionExpiresAt() != nil {
+		update.SessionExpiresAt = prev.GetSessionExpiresAt()
+	}
 	return update
+}
+
+// syncCarriesNetworkMap reports whether the update carries a network map in
+// either wire shape: the legacy NetworkMap or the components envelope, which
+// leaves NetworkMap nil.
+func syncCarriesNetworkMap(update *mgmProto.SyncResponse) bool {
+	return update.GetNetworkMap() != nil || update.GetNetworkMapEnvelope() != nil
 }
 
 // run drives convergence until ctx is done. It is meant to run in its own goroutine.

@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -308,4 +310,42 @@ func TestMapStateManager_StopsBetweenPassesOnCancel(t *testing.T) {
 		t.Fatal("run kept applying passes after the context was cancelled")
 	}
 	require.EqualValues(t, 1, passes.Load(), "no pass should run after the cancelling one")
+}
+
+// A config-only update superseding a pending envelope sync must carry the
+// envelope forward together with the fields that travel with it, and a nil
+// session deadline means "no change" just like a nil map or config.
+func TestMapStateManager_MergeTargetPreservesPendingEnvelope(t *testing.T) {
+	m := newMapStateManager(nil, nil, nil)
+	m.targetGen, m.appliedGen = 5, 4
+
+	envelope := &mgmProto.NetworkMapEnvelope{}
+	peerConfig := &mgmProto.PeerConfig{Fqdn: "peer.netbird.cloud"}
+	checks := []*mgmProto.Checks{{Files: []string{"/etc/hosts"}}}
+	deadline := timestamppb.New(time.Unix(1_900_000_000, 0))
+	prev := &mgmProto.SyncResponse{
+		NetworkMapEnvelope: envelope,
+		Version:            int32(sharedgrpc.ComponentNetworkMap),
+		PeerConfig:         peerConfig,
+		Checks:             checks,
+		SessionExpiresAt:   deadline,
+	}
+	update := &mgmProto.SyncResponse{NetbirdConfig: &mgmProto.NetbirdConfig{}}
+
+	merged := m.mergeTarget(prev, update)
+	require.Same(t, update, merged, "merges in place, returns the update")
+	require.Same(t, envelope, merged.GetNetworkMapEnvelope(), "pending envelope preserved")
+	require.Equal(t, int32(sharedgrpc.ComponentNetworkMap), merged.GetVersion(), "wire version travels with the envelope")
+	require.Same(t, peerConfig, merged.GetPeerConfig(), "top-level peer config travels with the envelope")
+	require.Equal(t, checks, merged.GetChecks(), "checks travel with the map")
+	require.Same(t, deadline, merged.GetSessionExpiresAt(), "pending session deadline preserved")
+	require.NotNil(t, merged.GetNetbirdConfig(), "new config kept")
+
+	// a newer envelope wins over the pending one
+	m.targetGen, m.appliedGen = 6, 5
+	newer := &mgmProto.NetworkMapEnvelope{}
+	update = &mgmProto.SyncResponse{NetworkMapEnvelope: newer, Version: int32(sharedgrpc.ComponentNetworkMap)}
+	merged = m.mergeTarget(prev, update)
+	require.Same(t, newer, merged.GetNetworkMapEnvelope(), "new envelope kept")
+	require.Nil(t, merged.GetPeerConfig(), "the pending peer config is not grafted onto a newer map")
 }

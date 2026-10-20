@@ -1192,9 +1192,9 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 // engine close) mid-call and have this write resurrect a file that was just removed.
 func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
 	// Only persist updates that carry a network map. Config-only updates (e.g. relay
-	// token rotation, STUN/TURN) have a nil NetworkMap; persisting them would overwrite
-	// the last full map on disk and break restore-on-restart.
-	if update.GetNetworkMap() == nil {
+	// token rotation, STUN/TURN) carry none; persisting them would overwrite the last
+	// full map on disk and break restore-on-restart.
+	if !syncCarriesNetworkMap(update) {
 		return
 	}
 

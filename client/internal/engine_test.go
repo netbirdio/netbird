@@ -37,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
 	mgmt "github.com/netbirdio/netbird/shared/management/client"
+	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -1682,4 +1683,23 @@ func TestEngine_SyncResponsePersistence(t *testing.T) {
 	e.SetSyncResponsePersistence(false)
 	_, err = e.GetLatestSyncResponse()
 	require.Error(t, err)
+}
+
+// An envelope sync leaves NetworkMap nil and carries the map in
+// NetworkMapEnvelope. It must still be persisted, and a later config-only
+// update must not overwrite it.
+func TestEngine_SyncResponsePersistenceKeepsEnvelope(t *testing.T) {
+	e := &Engine{}
+	e.SetSyncResponsePersistence(true)
+
+	e.persistSyncResponse(&mgmtProto.SyncResponse{
+		NetworkMapEnvelope: &mgmtProto.NetworkMapEnvelope{},
+		Version:            int32(sharedgrpc.ComponentNetworkMap),
+	})
+	e.persistSyncResponse(&mgmtProto.SyncResponse{NetbirdConfig: &mgmtProto.NetbirdConfig{}})
+
+	got, err := e.GetLatestSyncResponse()
+	require.NoError(t, err)
+	assert.NotNil(t, got.GetNetworkMapEnvelope(), "the envelope sync should be the persisted one")
+	assert.Equal(t, int32(sharedgrpc.ComponentNetworkMap), got.GetVersion(), "the persisted sync should keep its wire version")
 }
