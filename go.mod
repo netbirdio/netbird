@@ -1,6 +1,6 @@
 module github.com/netbirdio/netbird
 
-go 1.26.0
+go 1.26.4
 
 // Pin the toolchain to a patch release >= go1.26.2
 // See https://go.dev/issue/77875.
@@ -111,6 +111,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.8
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
+	github.com/soypat/lneto v0.4.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.37.0
@@ -148,7 +149,10 @@ require (
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
 )
 
-require golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+require (
+	github.com/soypat/embedpb v0.0.0-20260812030151-767038853f17 // indirect
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+)
 
 require (
 	cloud.google.com/go/auth v0.20.0 // indirect
@@ -373,5 +377,6 @@ replace github.com/wailsapp/wails/v3 => github.com/netbirdio/wails/v3 v3.0.0-bet
 
 tool (
 	github.com/goreleaser/chglog/cmd/chglog
+	github.com/soypat/embedpb/cmd/embedpb
 	go.uber.org/mock/mockgen
 )

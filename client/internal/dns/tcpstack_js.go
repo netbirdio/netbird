@@ -6,7 +6,7 @@ import (
 	"net/netip"
 
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/tun"
+	"github.com/netbirdio/wireguard-go/tun"
 )
 
 // tcpDNSServer is a no-op stub for the js/wasm build. The real on-demand TCP DNS
