@@ -1,6 +1,11 @@
 package networkmonitor
 
-import "github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+import (
+	"net/netip"
+	"slices"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+)
 
 // ChangeKind classifies how the underlay default route moved.
 type ChangeKind int
@@ -9,6 +14,9 @@ const (
 	// ChangeNone means the default next hops are the same as before, as after
 	// a route flap.
 	ChangeNone ChangeKind = iota
+	// ChangeAddress means the default interface and gateway stayed, but the
+	// interface addresses changed, as with a new DHCP lease.
+	ChangeAddress
 	// ChangeGateway means the default route stayed on the same interface but
 	// its gateway changed, as when the same Wi-Fi adapter joins another network.
 	ChangeGateway
@@ -20,10 +28,14 @@ const (
 	ChangeWake
 )
 
-// NextHops holds the underlay default next hop of each address family.
+// NextHops is the underlay snapshot: the default next hop of each address
+// family and the addresses of the default interfaces.
 type NextHops struct {
 	V4 systemops.Nexthop
 	V6 systemops.Nexthop
+	// Addrs holds the unicast addresses of the default interfaces, sorted and
+	// without link-local ones.
+	Addrs []netip.Addr
 }
 
 // Change describes one debounced underlay change.
@@ -38,6 +50,8 @@ func (k ChangeKind) String() string {
 	switch k {
 	case ChangeNone:
 		return "none"
+	case ChangeAddress:
+		return "address"
 	case ChangeGateway:
 		return "gateway"
 	case ChangeInterface:
@@ -49,9 +63,14 @@ func (k ChangeKind) String() string {
 	}
 }
 
-// classify reports the strongest change across both address families.
+// classify reports the strongest change across both address families. An
+// address change counts only when the next hops did not move.
 func classify(before, after NextHops) ChangeKind {
-	return max(classifyFamily(before.V4, after.V4), classifyFamily(before.V6, after.V6))
+	kind := max(classifyFamily(before.V4, after.V4), classifyFamily(before.V6, after.V6))
+	if kind == ChangeNone && !slices.Equal(before.Addrs, after.Addrs) {
+		return ChangeAddress
+	}
+	return kind
 }
 
 func classifyFamily(before, after systemops.Nexthop) ChangeKind {

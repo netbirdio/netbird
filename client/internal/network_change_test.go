@@ -25,6 +25,7 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 	}{
 		{name: "unchanged underlay restarts", kind: networkmonitor.ChangeNone, hasNetEvents: true, want: false},
 		{name: "no netevents manager restarts", kind: networkmonitor.ChangeGateway, hasNetEvents: false, want: false},
+		{name: "address change, as with a new DHCP lease", kind: networkmonitor.ChangeAddress, hasNetEvents: true, want: lightPath},
 		{name: "gateway change", kind: networkmonitor.ChangeGateway, hasNetEvents: true, want: lightPath},
 		{name: "interface change, as with a cable plugged in", kind: networkmonitor.ChangeInterface, hasNetEvents: true, want: lightPath},
 		{name: "wake-up keeps the restart", kind: networkmonitor.ChangeWake, hasNetEvents: true, want: false},

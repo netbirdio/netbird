@@ -30,6 +30,22 @@ func TestClassify(t *testing.T) {
 			want:   ChangeNone,
 		},
 		{
+			name: "new DHCP lease: same interface and gateway, another address",
+			before: NextHops{V4: systemops.Nexthop{IP: home, Intf: wifi},
+				Addrs: []netip.Addr{netip.MustParseAddr("192.168.1.20")}},
+			after: NextHops{V4: systemops.Nexthop{IP: home, Intf: wifi},
+				Addrs: []netip.Addr{netip.MustParseAddr("192.168.1.42")}},
+			want: ChangeAddress,
+		},
+		{
+			name: "a moved next hop wins over an address change",
+			before: NextHops{V4: systemops.Nexthop{IP: home, Intf: wifi},
+				Addrs: []netip.Addr{netip.MustParseAddr("192.168.1.20")}},
+			after: NextHops{V4: systemops.Nexthop{IP: office, Intf: wifi},
+				Addrs: []netip.Addr{netip.MustParseAddr("10.0.0.5")}},
+			want: ChangeGateway,
+		},
+		{
 			name:   "same Wi-Fi adapter joins another network",
 			before: NextHops{V4: systemops.Nexthop{IP: home, Intf: wifi}},
 			after:  NextHops{V4: systemops.Nexthop{IP: office, Intf: wifi}},
@@ -72,4 +88,14 @@ func TestClassify(t *testing.T) {
 			assert.Equal(t, tt.want, classify(tt.before, tt.after), "change kind")
 		})
 	}
+}
+
+func TestDefaultInterfaceAddrs(t *testing.T) {
+	lo, err := net.InterfaceByName("lo")
+	if err != nil {
+		t.Skip("no loopback interface named lo on this host")
+	}
+	// Loopback addresses are not underlay addresses and must be dropped.
+	assert.Empty(t, defaultInterfaceAddrs(systemops.Nexthop{Intf: lo}), "loopback addresses are skipped")
+	assert.Empty(t, defaultInterfaceAddrs(systemops.Nexthop{}), "a family without a default contributes nothing")
 }

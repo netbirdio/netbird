@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -170,7 +171,40 @@ func readSnapshot() (NextHops, error) {
 	var snapshot NextHops
 	var err error
 	snapshot.V4, snapshot.V6, err = readNextHops()
+	snapshot.Addrs = defaultInterfaceAddrs(snapshot.V4, snapshot.V6)
 	return snapshot, err
+}
+
+// defaultInterfaceAddrs collects the unicast addresses of the interfaces the
+// default next hops leave through. Link-local addresses are skipped: they do
+// not carry NetBird's connections and IPv6 ones churn on their own.
+func defaultInterfaceAddrs(nexthops ...systemops.Nexthop) []netip.Addr {
+	var addrs []netip.Addr
+	seen := make(map[int]bool)
+	for _, nh := range nexthops {
+		if nh.Intf == nil || seen[nh.Intf.Index] {
+			continue
+		}
+		seen[nh.Intf.Index] = true
+		ifAddrs, err := nh.Intf.Addrs()
+		if err != nil {
+			log.Debugf("Network monitor: failed to read addresses of %s: %v", nh.Intf.Name, err)
+			continue
+		}
+		for _, a := range ifAddrs {
+			prefix, err := netip.ParsePrefix(a.String())
+			if err != nil {
+				continue
+			}
+			addr := prefix.Addr().Unmap()
+			if addr.IsLinkLocalUnicast() || addr.IsLoopback() {
+				continue
+			}
+			addrs = append(addrs, addr)
+		}
+	}
+	slices.SortFunc(addrs, func(a, b netip.Addr) int { return a.Compare(b) })
+	return slices.Compact(addrs)
 }
 
 // readNextHops returns the current underlay default next hops. It fails only
