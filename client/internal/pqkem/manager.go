@@ -374,7 +374,7 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 	// still-awaitingRekey side would reject — a permanent desync. Starting a fresh exchange
 	// re-bootstraps and both sides converge (the responder always adopts the latest). The
 	// controller-double-offer case the idempotency once guarded is already covered by
-	// ShouldSendBootstrapOffer (false while any exchange exists).
+	// ShouldSendBootstrapOffer (false while an exchange is in flight).
 	if ex := m.exchanges[remoteID]; ex != nil && ex.viaSignal && ex.state == stateAwaitingAnswer {
 		last := ex.lastSent
 		m.mu.Unlock()
@@ -395,11 +395,14 @@ func (m *Manager) SignalOffer(remoteID RemoteID) ([]byte, error) {
 }
 
 // ShouldSendBootstrapOffer reports whether we should emit a fresh KEM offer to kick a
-// bootstrap for this peer. True only if we are the initiator, the peer is not known
-// non-capable, and no exchange is already in flight. The host uses this when it (as the
-// controller) receives the responder's offer: it replies with a KEM offer exactly once
-// to start the exchange, and ignores further responder offers while one is in flight,
-// avoiding an offer-per-offer runaway.
+// bootstrap for this peer. True if we are the initiator, the peer is not known
+// non-capable, and no exchange of ours is in flight. The host uses this when it (as the
+// controller) receives the responder's offer, which never carries KEM material: it replies
+// with a KEM offer, and ignores further responder offers while that one is in flight,
+// avoiding an offer-per-offer runaway. A converged exchange does not count as in flight: a
+// responder offer then means the responder is renegotiating (a reconnect or a wake), and
+// our current PSK may be the reason, e.g. split by a rotation whose answers were lost. A
+// fresh bootstrap re-aligns both sides, so that reconnect cannot come back on a stale key.
 func (m *Manager) ShouldSendBootstrapOffer(remoteID RemoteID) bool {
 	if !m.IsInitiator(remoteID) {
 		return false
@@ -409,7 +412,8 @@ func (m *Manager) ShouldSendBootstrapOffer(remoteID RemoteID) bool {
 	if capable, ok := m.capable[remoteID]; ok && !capable {
 		return false
 	}
-	return m.exchanges[remoteID] == nil
+	ex := m.exchanges[remoteID]
+	return ex == nil || ex.state == stateAwaitingRekey
 }
 
 // SignalOnOffer processes a KEM offer the host extracted from an incoming offer and

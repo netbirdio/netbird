@@ -208,11 +208,10 @@ func (h *Handshaker) handleRemoteAnswer(remoteOfferAnswer OfferAnswer) {
 //
 // Returns true ONLY when it actually sent a re-offer and thus took ownership of the peer's
 // offer (the caller must not answer it). When there is nothing to re-offer — the peer is
-// non-capable, or an exchange is already in flight (e.g. every PQ peer past its bootstrap,
-// which is the steady state under lazy connections) — it returns false so the caller keeps
-// handling the offer normally (sendAnswer + notifyListeners). Returning true unconditionally
-// would drop the ICE credentials and relay info the responder's offer carries, stalling a
-// responder-initiated reconnect.
+// non-capable, or our own exchange is already in flight (a crossing offer) — it returns
+// false so the caller keeps handling the offer normally (sendAnswer + notifyListeners).
+// Returning true without sending would drop the ICE credentials and relay info the
+// responder's offer carries, stalling a responder-initiated reconnect.
 func (h *Handshaker) pqControllerReoffer() bool {
 	if h.config.PQ == nil || !isController(h.config) {
 		return false
