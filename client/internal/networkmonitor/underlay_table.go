@@ -1,3 +1,5 @@
+//go:build windows || (darwin && !ios)
+
 package networkmonitor
 
 import (
@@ -7,9 +9,9 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
-// underlayNextHop resolves the default next hop of the physical network,
-// skipping the NetBird interface, so an exit node does not hide the physical
-// default behind its split routes.
+// underlayNextHop resolves the default next hop of the physical network from
+// the routing table, skipping the NetBird interface, so an exit node does not
+// hide the physical default behind its split routes.
 func underlayNextHop(family netip.Addr) (systemops.Nexthop, error) {
 	if !nbnet.AdvancedRouting() {
 		return systemops.GetNextHop(family)
