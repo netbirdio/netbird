@@ -66,6 +66,7 @@ type Manager interface {
 	SetFirewall(firewall.Manager) error
 	SetDNSForwarderPort(port uint16)
 	ReconcilePeerAllowedIPs(peerKey string) error
+	RefreshUnderlay() error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -894,4 +895,12 @@ func minNetID(ids []route.NetID) route.NetID {
 		}
 	}
 	return best
+}
+
+// RefreshUnderlay points NetBird's own traffic at the current physical
+// default after the network changed under a running engine.
+func (m *DefaultManager) RefreshUnderlay() error {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	return m.sysOps.RefreshUnderlay(nbnet.AdvancedRouting())
 }

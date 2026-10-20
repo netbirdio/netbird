@@ -118,6 +118,16 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
 	return true, nil
 }
 
+// refreshUnderlay reinstalls the scoped default and the cached egress
+// interface for the current physical default. setupAdvancedRouting already
+// clears the old cache and scoped defaults before installing new ones.
+func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
+	if !advancedRouting {
+		return nil
+	}
+	return r.setupAdvancedRouting()
+}
+
 func (r *SysOps) cleanupAdvancedRouting() error {
 	nbnet.ClearBoundInterfaces()
 	return r.flushScopedDefaults()
