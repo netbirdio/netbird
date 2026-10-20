@@ -2499,7 +2499,8 @@ func (e *Engine) startNetworkMonitor() {
 				return
 			}
 
-			if e.handleUnderlayChange(change) {
+			if decideUnderlayAction(change, e.netMgr != nil) == actionRedial {
+				e.redialOnUnderlayChange(change)
 				watchCtx := watch.replace(e.ctx)
 				e.shutdownWg.Add(1)
 				go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))

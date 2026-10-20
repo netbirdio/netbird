@@ -36,6 +36,16 @@ const (
 // binding can be refreshed in place, a change there still needs a restart.
 const underlayPinnedAtStart = runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 
+// underlayAction is what the engine does about one network change.
+type underlayAction int
+
+const (
+	// actionRestart restarts the client, as every network change did before.
+	actionRestart underlayAction = iota
+	// actionRedial redials the control connections and keeps the engine up.
+	actionRedial
+)
+
 // recoveryWatch keeps a single safety net running: the latest network change
 // replaces the watch of the previous one, so only the latest redial decides
 // whether to fall back to a restart.
@@ -43,19 +53,20 @@ type recoveryWatch struct {
 	cancel context.CancelFunc
 }
 
-// handleUnderlayChange moves the control connections to the new underlay
-// without restarting the client. It returns false when only a restart can
-// recover from the change.
-func (e *Engine) handleUnderlayChange(change networkmonitor.Change) bool {
-	if !canHandleWithoutRestart(change, e.netMgr != nil) {
-		return false
-	}
-
+// redialOnUnderlayChange moves the control connections to the new underlay
+// without restarting the client.
+func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) {
 	log.Infof("Network monitor: underlay %s change, redialing control connections without restart", change.Kind)
 	log.Debugf("Network monitor: underlay next hops v4 %s -> %s, v6 %s -> %s",
 		change.Before.V4, change.After.V4, change.Before.V6, change.After.V6)
 	e.netMgr.NotifyNetworkChange()
-	return true
+}
+
+func decideUnderlayAction(change networkmonitor.Change, hasNetEvents bool) underlayAction {
+	if canHandleWithoutRestart(change, hasNetEvents) {
+		return actionRedial
+	}
+	return actionRestart
 }
 
 // canHandleWithoutRestart keeps the restart for an unchanged underlay (a flap
