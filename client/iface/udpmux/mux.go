@@ -1,6 +1,7 @@
 package udpmux
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"io"
@@ -36,6 +37,9 @@ type SingleSocketUDPMux struct {
 
 	// candidateConnMap maps local candidate IDs to their corresponding connection.
 	candidateConnMap map[string]*udpMuxedConn
+
+	transactions     map[stunTransactionID]*list.Element
+	transactionOrder list.List
 
 	addressMapMu sync.RWMutex
 	addressMap   map[string][]*udpMuxedConn
@@ -168,6 +172,7 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		connsIPv4:        make(map[string]*udpMuxedConn),
 		connsIPv6:        make(map[string]*udpMuxedConn),
 		candidateConnMap: make(map[string]*udpMuxedConn),
+		transactions:     make(map[stunTransactionID]*list.Element),
 		closedChan:       make(chan struct{}, 1),
 		unspecified:      isUnspecified(params.UDPConn.LocalAddr()),
 		pool: &sync.Pool{
@@ -178,6 +183,7 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		},
 	}
 
+	go mux.expireSTUNTransactions()
 	return mux
 }
 
@@ -287,11 +293,13 @@ func (m *SingleSocketUDPMux) RemoveConnByUfrag(ufrag string) {
 		delete(m.connsIPv4, ufrag)
 		removedConns = append(removedConns, c)
 		delete(m.candidateConnMap, c.GetCandidateID())
+		m.removeConnSTUNTransactions(c)
 	}
 	if c, ok := m.connsIPv6[ufrag]; ok {
 		delete(m.connsIPv6, ufrag)
 		removedConns = append(removedConns, c)
 		delete(m.candidateConnMap, c.GetCandidateID())
+		m.removeConnSTUNTransactions(c)
 	}
 	m.mu.Unlock()
 
@@ -332,19 +340,26 @@ func (m *SingleSocketUDPMux) Close() error {
 	var err error
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
-		defer m.mu.Unlock()
-
+		conns := make([]*udpMuxedConn, 0, len(m.connsIPv4)+len(m.connsIPv6))
 		for _, c := range m.connsIPv4 {
-			_ = c.Close()
+			conns = append(conns, c)
 		}
 		for _, c := range m.connsIPv6 {
-			_ = c.Close()
+			conns = append(conns, c)
 		}
 
 		m.connsIPv4 = make(map[string]*udpMuxedConn)
 		m.connsIPv6 = make(map[string]*udpMuxedConn)
+		clear(m.candidateConnMap)
+		clear(m.transactions)
+		m.transactionOrder.Init()
 
 		close(m.closedChan)
+		m.mu.Unlock()
+
+		for _, c := range conns {
+			_ = c.Close()
+		}
 
 		_ = m.params.UDPConn.Close()
 	})
@@ -391,9 +406,18 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 		return fmt.Errorf("underlying PacketConn did not return a UDPAddr")
 	}
 
-	// Try to route to specific candidate connection first
-	if conn := m.findCandidateConnection(msg); conn != nil {
-		return conn.writePacket(msg.Raw, remoteAddr)
+	switch msg.Type.Class {
+	case stun.ClassSuccessResponse, stun.ClassErrorResponse:
+		if conn := m.takeSTUNTransaction(msg.TransactionID); conn != nil {
+			return conn.writePacket(msg.Raw, remoteAddr)
+		}
+	case stun.ClassRequest, stun.ClassIndication:
+		if conn := m.findCandidateConnection(msg); conn != nil {
+			return conn.writePacket(msg.Raw, remoteAddr)
+		}
+		if conn, ok := m.findConnectionByUsername(msg, addr); ok {
+			return conn.writePacket(msg.Raw, remoteAddr)
+		}
 	}
 
 	// Fallback: route to all possible connections

@@ -88,7 +88,13 @@ func (c *udpMuxedConn) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		c.addAddress(addr)
 	}
 
-	return c.params.Mux.writeTo(buf, rAddr)
+	// Register before sending because a response can arrive before WriteTo returns.
+	transaction := c.params.Mux.trackSTUNRequest(c, buf)
+	n, err = c.params.Mux.writeTo(buf, rAddr)
+	if err != nil {
+		c.params.Mux.removeSTUNTransaction(transaction)
+	}
+	return n, err
 }
 
 func (c *udpMuxedConn) LocalAddr() net.Addr {
@@ -116,6 +122,9 @@ func (c *udpMuxedConn) Close() error {
 	c.closeOnce.Do(func() {
 		err = c.buf.Close()
 		close(c.closedChan)
+		c.params.Mux.mu.Lock()
+		c.params.Mux.removeConnSTUNTransactions(c)
+		c.params.Mux.mu.Unlock()
 	})
 	return err
 }
