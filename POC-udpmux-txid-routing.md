@@ -328,6 +328,17 @@ lock never held across I/O.
     pion trace confirmed it (see "Hard stop"), no code change was attempted:
     both fixes are outside the agreed design. Only this log was changed
     afterwards.
+21. **Third merge of the parallel run's commits.** While this report was
+    written the parallel run pushed nine more commits (`b01ed07` to
+    `145a4ab`, 14:32 to 15:32 UTC). Among them, `993c5e1` ("Give each mux
+    candidate its own read queue") and `f209580` ("Preserve candidate
+    ownership for duplicate STUN responses") change `mux.go`, `conn.go` and
+    `transactions.go` in the direction "Hard stop" names (per-candidate
+    delivery, dup-follow). They were not read in detail, run or validated
+    here, and per the user's instruction `7643575` is an `-s ours` merge:
+    the tree under `client/` stays byte-identical to `37dab7d`. Anyone
+    picking up step 1 of "Step 2" should evaluate those commits on their
+    own SHA with the scratch trials and the e2e selection described here.
 
 ## What the change does to candidate selection
 
@@ -888,7 +899,8 @@ them. The suites that exercise the mux and could run here pass.
   client image.
 - 15:00 to 15:50 UTC: `make test-unit` and the race suite rerun on the head and
   on baseline; e2e failures classified against baseline; log rewritten with
-  the audit fixes, repetitions and hard stop, and pushed.
+  the audit fixes, repetitions and hard stop. The push met nine new
+  parallel commits; `-s ours` merge `7643575` (decision 21), then pushed.
 
 ## Resuming: how the e2e data is collected
 
