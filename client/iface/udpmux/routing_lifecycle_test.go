@@ -59,6 +59,13 @@ func TestRouting_RemoveOldAgentWhileReplacementChecks(t *testing.T) {
 			old := agentPair{controlling: a.newAgent(t), controlled: b.newAgent(t)}
 			live := agentPair{controlling: newKeepaliveAgent(t, a), controlled: newKeepaliveAgent(t, b)}
 			connect(t, []agentPair{old, live})
+			oldUfrags := make([]string, 2)
+			for side, host := range []*muxHost{a, b} {
+				assertRouting(t, fmt.Sprintf("host %d before removal", side), host)
+				ufrag, _, err := []*ice.Agent{old.controlling, old.controlled}[side].GetLocalUserCredentials()
+				require.NoError(t, err)
+				oldUfrags[side] = ufrag
+			}
 			require.NoError(t, old.controlling.Close())
 			require.NoError(t, old.controlled.Close())
 
@@ -70,9 +77,46 @@ func TestRouting_RemoveOldAgentWhileReplacementChecks(t *testing.T) {
 				require.Eventually(t, func() bool {
 					return responsesForAgent(host.trace, ufrag) >= before+3
 				}, 3*time.Second, 10*time.Millisecond, "replacement must receive fresh check responses after old agent removal")
-				assertRouting(t, fmt.Sprintf("host %d", side), host)
+				assertReplacementRouting(t, host.trace, ufrag, oldUfrags[side])
 			}
 		})
+	}
+}
+
+func assertReplacementRouting(t *testing.T, trace *stunTrace, liveUfrag, removedUfrag string) {
+	t.Helper()
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	livePrefix := liveUfrag + "/"
+	for id, readers := range trace.requestReaders {
+		responders := trace.responseWriters[id]
+		switch trace.requestUfrags[id] {
+		case liveUfrag:
+			assert.Len(t, readers, 1, "live request %x must have one recipient", id[:4])
+			for _, reader := range readers {
+				assert.True(t, strings.HasPrefix(reader, livePrefix), "live request %x reached %s", id[:4], reader)
+			}
+			assert.LessOrEqual(t, len(responders), 1, "live request %x must be answered at most once", id[:4])
+			if len(readers) == 1 {
+				for _, responder := range responders {
+					assert.Equal(t, readers[0], responder, "live request %x must be answered by its recipient", id[:4])
+				}
+			}
+		case removedUfrag:
+			// The other old agent may still transmit while Close removes this
+			// ufrag. Its now-unknown requests intentionally use address fallback;
+			// surviving agents must reject them without answering.
+			for _, responder := range responders {
+				assert.False(t, strings.HasPrefix(responder, livePrefix), "replacement answered removed-agent request %x", id[:4])
+			}
+		}
+	}
+	for id, readers := range trace.responseReaders {
+		for _, writer := range trace.requestWriters[id] {
+			if strings.HasPrefix(writer, livePrefix) {
+				assert.Equal(t, []string{writer}, readers, "live response %x must reach only its requesting conn", id[:4])
+			}
+		}
 	}
 }
 
@@ -99,10 +143,15 @@ func responsesForAgent(trace *stunTrace, ufrag string) int {
 	trace.mu.Lock()
 	defer trace.mu.Unlock()
 	var count int
-	for _, readers := range trace.responseReaders {
+	for id, readers := range trace.responseReaders {
+		writers := trace.requestWriters[id]
+		if len(writers) == 0 || !strings.HasPrefix(writers[len(writers)-1], ufrag+"/") {
+			continue
+		}
 		for _, reader := range readers {
-			if strings.HasPrefix(reader, ufrag+"/") {
+			if reader == writers[len(writers)-1] {
 				count++
+				break
 			}
 		}
 	}

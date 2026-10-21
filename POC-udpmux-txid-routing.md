@@ -67,6 +67,17 @@ no production locking or lifecycle defect. Evidence and reproduction commands:
 Full checks and VM validation of this newer source are still pending; the
 already-dispatched `42b087a4` run does not contain these corrections.
 
+The full package race run also exposed a preexisting reconnect-test assertion
+error, reproduced twice in six runs on immutable `42b087a4`. While the old
+agents close, one can still send a request after the other's ufrag is removed.
+That now-unknown request must use the required address fallback; surviving
+agents reject it without answering. The test now checks all routing before
+closure and, afterward, checks exact ownership for surviving-agent checks plus
+no surviving-agent replies to stale usernames. Its freshness condition still
+requires at least three new responses, now counting distinct transactions
+actually sent by that surviving connection. No production fallback or test
+threshold changed. The final full `udpmux` race run passes in 11.957 s.
+
 ## Final-source VM validation in progress (2026-10-21)
 
 The user dispatched [run 39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938)
