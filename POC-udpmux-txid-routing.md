@@ -3,6 +3,32 @@
 Branch: `poc/udpmux-txid-routing` in `netbirdio/netbird` (no PR, no ticket).
 Progress log, written so the work can be resumed from it.
 
+## Checks for the candidate-ownership revision
+
+Executable source `49baccdab9b8e772889704037c71366efdbc6550` completes
+`go fmt ./...`, `make lint`, `make lint-all`, and the exact required race command
+successfully. Race package times: udpmux 11.894 s, bind 1.698 s, peer 8.696 s.
+Windows amd64, Darwin arm64, Android arm64 and js/wasm package cross-builds also
+pass; these are build checks, not platform runtime tests.
+
+The complete `make test-unit` command exits 2 with six previously demonstrated
+baseline/environment failure packages: `client/iface/device` (absent modules
+metadata), `client/internal` (absent TUN followed by fixture panic),
+`client/internal/dns` and `dns/mgmt` (public/OS DNS restrictions),
+`management/cmd` (denied external discovery followed by fixture panic), and
+`shared/relay/client` (the existing timeout-margin test). No new failing package
+is observed. With the proven local-only proxy exclusions applied from the
+start, full-suite management, signal and upload packages pass directly in
+127.288 s, 0.318 s and 1.927 s. No test exclusions or thresholds change.
+
+The checked source manifest remains unchanged throughout those commands.
+The following package-documentation correction changes only comments in
+`doc.go`, whose only noncomment content is `package udpmux`; its exact-source
+bridge is recorded separately before building the new netstack images.
+Full evidence: `/workspace/scratch/validation-reader-queues/` and
+`/workspace/scratch/portability-reader-queues/`. New-source netstack, official
+release interoperability and VM validation remain pending at this milestone.
+
 ## Multi-host regression found during final-source validation
 
 The source pinned by run `39617144938` is not yet an acceptable final result.
@@ -78,15 +104,17 @@ requires at least three new responses, now counting distinct transactions
 actually sent by that surviving connection. No production fallback or test
 threshold changed. The final full `udpmux` race run passes in 11.957 s.
 
-## Final-source VM validation in progress (2026-10-21)
+## VM validation of the lifecycle revision (2026-10-21)
 
 The user dispatched [run 39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938)
 at 14:28:50 UTC for requested source
 `42b087a4b5fb0dfcb111c46864d3340194a5a748`, whose Go files match `532e38be`.
 The run left the shared workflow queue at 15:06 UTC. Discovery job
 `119299897860` confirms the literal source SHA, source-built client/lab, and
-all 85 scenario names matching baseline (maximum parallelism 11). Builds are
-running. It followed the existing baseline and intermediate client-test
+all 85 scenario names matching baseline (maximum parallelism 11). All nine
+preparation/build jobs passed; the four OS client builds and source-built server
+are pinned to that SHA and Go 1.26.7 in manifest artifact `12356575669`. All
+85 scenario jobs exist, with the first cases running from 15:15 UTC. It followed the existing baseline and intermediate client-test
 repetitions; no run was cancelled or duplicated. The newer multi-host and
 duplicate-response fixes above require a separate immutable-source run.
 
@@ -230,7 +258,7 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
 | Baseline e2e run | [39588288742](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742), dispatched 2026-10-21 10:56 UTC, completed 12:06 UTC: **85/85 passed** |
 | POC head for e2e | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` (tree identical to `afdf67f`) |
 | POC e2e run | [39597620276](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276), dispatched 2026-10-21 12:11 UTC, same inputs; completed successfully, last updated 13:24:17 UTC: **85/85 passed** |
-| Revised implementation | `532e38be0da5855fe3b7f95f5612adf0783312c7` (lifecycle fixes and expanded regressions); requested run [39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938) pins report descendant `42b087a4`; queued, source confirmation pending |
+| Revised implementation | `532e38be0da5855fe3b7f95f5612adf0783312c7` (lifecycle fixes and expanded regressions); requested run [39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938) pins report descendant `42b087a4`; discovery confirms the source and exact 85-case selection, builds running |
 
 ### Repeated local ICE timing on the revised implementation
 
@@ -923,6 +951,87 @@ The exact 85-case baseline contains 182 source-built modern nodes, 16 reference 
 
 These artifacts do not provide transaction-level proof of one STUN response per request. They also do not establish repeated-run median time to P2P, a live post-run VM/ISO absence audit, or validation of the final lifecycle source. The older-peer and modern candidate-readiness episodes are evidence, not a reason to change the out-of-scope peer worker or to declare the mux responsible. Final-source validation must use its exact pushed SHA and retain these limitations until measured.
 
+### Three baseline and three intermediate-source client-test samples
+
+These are 120 modern-peer ICE observations across 20 client cases and six workflow runs. They cover baseline `1e63b68c4dc243a32fef823df1bc024c997a9c60` and intermediate POC `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc`. They validate neither lifecycle source `42b087a4b5fb0dfcb111c46864d3340194a5a748` nor newer production source `49baccd`. All use harness `a1abca530f93969ad81f11a9683dc6e89171a23c`. B1/P1 belong to the original 85-case suite; later runs select the 20 client cases, so concurrent load is not controlled.
+
+| Label | Workflow | Source | Selection |
+| --- | --- | --- | --- |
+| B1 | [39588288742](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742) | `1e63b68c4dc243a32fef823df1bc024c997a9c60` | full85 |
+| B2 | [39608330203](https://github.com/netbirdio/proxbird-tests/actions/runs/39608330203) | `1e63b68c4dc243a32fef823df1bc024c997a9c60` | client-tests20 |
+| B3 | [39608353253](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253) | `1e63b68c4dc243a32fef823df1bc024c997a9c60` | client-tests20 |
+| P1 | [39597620276](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276) | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` | full85 |
+| P2 | [39608305272](https://github.com/netbirdio/proxbird-tests/actions/runs/39608305272) | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` | client-tests20 |
+| P3 | [39608375543](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543) | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` | client-tests20 |
+
+Each new repeat B2/P2/B3/P3 has 20 passing case artifacts and 29 published artifacts total (20 cases and nine build/preparation artifacts). Each 20-case audit verified 520 evidence files, 60 complete nodes, 40 native bundles, 40 raw TRACE archives, 20 server runtime identities and 20 passing Robot reports, with zero audit errors. Each has five canonical VM-start warnings that pass readiness checks. Source selection is verified in discover logs, every result and the manifests. All four client builds and each source-built server match the stated SHA and Go 1.26.7; manifest ZIP digests and sizes match GitHub metadata.
+
+Manifest artifacts: B2 [12350413259](https://github.com/netbirdio/proxbird-tests/actions/runs/39608330203/artifacts/12350413259); P2 [12349652752](https://github.com/netbirdio/proxbird-tests/actions/runs/39608305272/artifacts/12349652752); B3 [12352432286](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352432286); P3 [12353519346](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12353519346).
+
+B2/P2/B3/P3 workflow completion is confirmed. B3 last job completed at 2026-10-21T14:41:36Z. P3 is completed/success with workflow updated timestamp 2026-10-21T15:08:00Z. Its separately fetched jobs list still lags at 27 successful and two in progress, so the workflow conclusion and complete case-artifact audit are the completion evidence; this report does not claim all 29 job records have reached their final state.
+
+Each value below is seconds from the first observed modern peer-1 ICE dial to first success, with attempt count in parentheses. It includes failed attempts and retry gaps, uses a single node clock, and excludes earlier setup/signalling and later application readiness. It is not application time to P2P. Legacy peer-2 lacks matching modern timing markers and is unmeasured. Candidate types are final modern-peer local/remote snapshots, which can follow a service restart; they need not equal the first successful pair. All raw first-dial/first-success member names and line numbers are retained in `six-run-series.json`.
+
+| Case | Baseline B1 / B2 / B3 seconds (attempts) | Intermediate P1 / P2 / P3 seconds (attempts) | Final candidate types B1; B2; B3 / P1; P2; P3 | B3 / P3 artifacts |
+| --- | --- | --- | --- | --- |
+| `client-freebsd-nat-allowed-ports` | 0.604 (1) / 0.603 (1) / 0.603 (1) | 0.625 (1) / 0.615 (1) / 0.646 (1) | host/prflx; host/prflx; host/srflx / host/prflx; srflx/prflx; srflx/prflx | B3 [12353081937](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353081937)<br>P3 [12353489668](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12353489668) |
+| `client-freebsd-nat-connect-legacy` | 0.604 (1) / 0.603 (1) / 0.604 (1) | 0.604 (1) / 0.604 (1) / 0.604 (1) | host/srflx; host/srflx; host/srflx / host/srflx; host/srflx; host/srflx | B3 [12353681256](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353681256)<br>P3 [12354473379](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354473379) |
+| `client-freebsd-nat-connect-relay` | 0.613 (1) / 0.604 (1) / 0.626 (1) | 0.603 (1) / 0.630 (1) / 0.616 (1) | srflx/srflx; host/srflx; host/srflx / host/srflx; host/srflx; srflx/srflx | B3 [12352309794](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352309794)<br>P3 [12354498507](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354498507) |
+| `client-freebsd-nat-dns` | 0.605 (1) / 0.610 (1) / 0.637 (1) | 0.605 (1) / 0.615 (1) / 0.604 (1) | host/srflx; srflx/srflx; host/srflx / host/srflx; host/srflx; host/srflx | B3 [12353666327](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353666327)<br>P3 [12355355467](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355355467) |
+| `client-freebsd-nat-exit-node` | 0.615 (1) / 0.604 (1) / 0.635 (1) | 0.605 (1) / 0.605 (1) / 0.603 (1) | host/srflx; host/srflx; host/srflx / srflx/srflx; host/srflx; host/srflx | B3 [12352782847](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352782847)<br>P3 [12355205732](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355205732) |
+| `client-linux-nat-allowed-ports` | 0.606 (1) / 0.604 (1) / 0.606 (1) | 0.606 (1) / 0.606 (1) / 0.604 (1) | host/prflx; host/prflx; host/prflx / host/prflx; host/prflx; host/prflx | B3 [12352244971](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352244971)<br>P3 [12354637250](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354637250) |
+| `client-linux-nat-connect-legacy` | 0.603 (1) / 0.605 (1) / 0.604 (1) | 0.605 (1) / 0.605 (1) / 0.605 (1) | srflx/srflx; host/srflx; srflx/srflx / host/srflx; host/srflx; host/srflx | B3 [12353501449](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353501449)<br>P3 [12355090677](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355090677) |
+| `client-linux-nat-connect-relay` | 0.605 (1) / 0.604 (1) / 0.605 (1) | 29.127 (3) / 0.606 (1) / 0.605 (1) | host/srflx; host/srflx; host/srflx / host/prflx; host/srflx; host/srflx | B3 [12352982407](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352982407)<br>P3 [12353454688](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12353454688) |
+| `client-linux-nat-dns` | 0.605 (1) / 0.605 (1) / 0.606 (1) | 0.605 (1) / 0.604 (1) / 0.605 (1) | host/srflx; host/srflx; host/srflx / host/srflx; host/srflx; host/srflx | B3 [12354370100](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12354370100)<br>P3 [12355645540](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355645540) |
+| `client-linux-nat-exit-node` | 0.606 (1) / 0.604 (1) / 0.606 (1) | 0.605 (1) / 0.604 (1) / 0.605 (1) | host/srflx; srflx/srflx; host/srflx / srflx/srflx; host/srflx; host/srflx | B3 [12352674677](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352674677)<br>P3 [12355540990](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355540990) |
+| `client-macos-nat-allowed-ports` | 0.606 (1) / 22.170 (2) / 0.603 (1) | 0.606 (1) / 0.604 (1) / 0.605 (1) | srflx/prflx; srflx/prflx; host/prflx / host/prflx; host/prflx; host/prflx | B3 [12352693160](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352693160)<br>P3 [12355755904](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355755904) |
+| `client-macos-nat-connect-legacy` | 0.605 (1) / 0.606 (1) / 0.603 (1) | 0.604 (1) / 0.603 (1) / 0.605 (1) | host/srflx; srflx/srflx; host/srflx / host/srflx; host/srflx; host/srflx | B3 [12353052860](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353052860)<br>P3 [12356080189](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12356080189) |
+| `client-macos-nat-connect-relay` | 0.604 (1) / 0.604 (1) / 0.604 (1) | 0.605 (1) / 0.606 (1) / 0.607 (1) | host/srflx; host/srflx; srflx/srflx / srflx/srflx; host/srflx; srflx/srflx | B3 [12354260567](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12354260567)<br>P3 [12354857537](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354857537) |
+| `client-macos-nat-dns` | 0.606 (1) / 0.607 (1) / 0.606 (1) | 0.603 (1) / 0.606 (1) / 0.604 (1) | srflx/srflx; host/srflx; srflx/srflx / host/srflx; srflx/srflx; host/srflx | B3 [12353032860](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353032860)<br>P3 [12354862462](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354862462) |
+| `client-macos-nat-exit-node` | 0.605 (1) / 0.604 (1) / 21.088 (2) | 0.605 (1) / 0.604 (1) / 0.604 (1) | srflx/srflx; host/srflx; srflx/srflx / host/srflx; host/srflx; srflx/srflx | B3 [12353302483](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353302483)<br>P3 [12355386189](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355386189) |
+| `client-windows-nat-allowed-ports` | 21.180 (2) / 0.604 (1) / 13.508 (2) | 0.605 (1) / 14.062 (2) / 22.456 (2) | host/srflx; host/srflx; host/srflx / srflx/srflx; host/srflx; host/srflx | B3 [12354216213](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12354216213)<br>P3 [12354957615](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354957615) |
+| `client-windows-nat-connect-legacy` | 13.882 (2) / 14.247 (2) / 13.184 (2) | 13.142 (2) / 28.697 (3) / 32.401 (3) | host/srflx; host/srflx; host/srflx / srflx/srflx; host/prflx; host/srflx | B3 [12353932286](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353932286)<br>P3 [12355816149](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355816149) |
+| `client-windows-nat-connect-relay` | 0.605 (1) / 0.608 (1) / 21.953 (2) | 0.604 (1) / 0.609 (1) / 16.250 (2) | host/srflx; host/srflx; host/srflx / srflx/srflx; srflx/srflx; host/srflx | B3 [12352924350](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12352924350)<br>P3 [12356320575](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12356320575) |
+| `client-windows-nat-dns` | 21.182 (2) / 20.673 (2) / 0.610 (1) | 29.053 (3) / 29.796 (3) / 0.607 (1) | -/- [Connecting/-]; -/- [Connecting/-]; host/srflx / host/srflx; host/srflx; host/srflx | B3 [12353767824](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353767824)<br>P3 [12354753579](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12354753579) |
+| `client-windows-nat-exit-node` | 0.609 (1) / 0.606 (1) / 0.604 (1) | 0.607 (1) / 23.251 (2) / 20.622 (2) | host/srflx; host/srflx; host/srflx / host/srflx; srflx/srflx; srflx/srflx | B3 [12353722600](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253/artifacts/12353722600)<br>P3 [12356335407](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12356335407) |
+
+The following medians use the three native first-dial-to-first-success samples above for each source and case. They are descriptive medians with n=3 per source, including failures and retry gaps, not medians of setup or Robot-step durations. Unknown legacy timing markers remain unmeasured. C means intended controlling; D means intended controlled. Every role is derived from native local-peerID and remote-peer key records, cross-checked against both archived status public keys; all 120 key pairs and native line references are retained in `six-run-role-evidence.json`. Actual STUN role attributes and subsequent conflicts are unlogged.
+
+Candidate-change counts compare matching B1/P1, B2/P2 and B3/P3 snapshots in both directions (six directed observations per phase). I/F means initial/final, and each count is a number of observations, not failed cases. Final snapshots can follow service restarts. The role sequences and candidate differences are confounds; these data do not isolate a source-revision cause.
+
+| Case | Baseline median s | Intermediate median s | Difference s | Intended roles B1/B2/B3 → P1/P2/P3 | Candidate-pair changes I/F | Local-type changes I/F |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| `client-freebsd-nat-allowed-ports` | 0.603 | 0.625 | +0.022 | D/D/D → C/C/C | 2/4 | 2/4 |
+| `client-freebsd-nat-connect-legacy` | 0.604 | 0.604 | +0.000 | D/D/D → D/D/D | 0/0 | 0/0 |
+| `client-freebsd-nat-connect-relay` | 0.613 | 0.616 | +0.003 | C/D/C → D/C/C | 3/3 | 3/3 |
+| `client-freebsd-nat-dns` | 0.610 | 0.605 | -0.005 | D/D/C → D/C/D | 2/2 | 2/2 |
+| `client-freebsd-nat-exit-node` | 0.615 | 0.605 | -0.010 | C/D/C → C/D/D | 2/2 | 2/2 |
+| `client-linux-nat-allowed-ports` | 0.606 | 0.606 | +0.000 | C/D/C → C/C/C | 1/0 | 1/0 |
+| `client-linux-nat-connect-legacy` | 0.604 | 0.605 | +0.001 | D/D/C → D/D/C | 2/2 | 2/2 |
+| `client-linux-nat-connect-relay` | 0.605 | 0.606 | +0.001 | D/D/C → D/D/C | 2/2 | 1/1 |
+| `client-linux-nat-dns` | 0.605 | 0.605 | +0.000 | C/C/C → D/D/D | 0/0 | 0/0 |
+| `client-linux-nat-exit-node` | 0.606 | 0.605 | -0.001 | C/D/D → C/D/C | 4/4 | 4/4 |
+| `client-macos-nat-allowed-ports` | 0.606 | 0.605 | -0.001 | D/C/D → D/D/D | 0/2 | 0/2 |
+| `client-macos-nat-connect-legacy` | 0.605 | 0.604 | -0.001 | D/C/D → D/D/C | 3/3 | 3/3 |
+| `client-macos-nat-connect-relay` | 0.604 | 0.606 | +0.002 | D/D/D → C/C/C | 1/1 | 1/1 |
+| `client-macos-nat-dns` | 0.606 | 0.604 | -0.002 | C/C/C → D/C/D | 3/3 | 3/3 |
+| `client-macos-nat-exit-node` | 0.605 | 0.604 | -0.001 | D/D/C → D/D/C | 1/1 | 1/1 |
+| `client-windows-nat-allowed-ports` | 13.508 | 14.062 | +0.554 | C/C/D → C/D/C | 3/2 | 1/2 |
+| `client-windows-nat-connect-legacy` | 13.882 | 28.697 | +14.815 | D/D/C → C/D/D | 3/3 | 2/2 |
+| `client-windows-nat-connect-relay` | 0.608 | 0.609 | +0.001 | C/D/C → C/C/D | 4/4 | 4/4 |
+| `client-windows-nat-dns` | 20.673 | 29.053 | +8.380 | C/C/D → D/D/C | 4/5 | 1/5 |
+| `client-windows-nat-exit-node` | 0.606 | 20.622 | +20.016 | D/D/D → C/C/C | 5/5 | 4/4 |
+
+The largest intermediate median increases are Windows exit-node 0.606→20.622 seconds (+20.016), connect-legacy 13.882→28.697 (+14.815), DNS 20.673→29.053 (+8.380), and allowed-ports 13.508→14.062 (+0.554). Linux connect-relay is 0.605→0.606 (+0.001), despite its single long P1 episode. Windows exit-node is fully confounded by intended role: baseline D/D/D versus intermediate C/C/C. Across all cases, 33 of the 60 paired B/P samples differ in intended role, affecting 16 of 20 cases. These differences require investigation; a green case result does not establish equal connection timing.
+
+All 20 B3/P3 initial path/status observations match. The final snapshots have one changed directed path/status: Windows DNS legacy peer-2→modern peer-1 is Connected/P2P host/prflx in B3 and Connected/Relayed with no ICE pair in P3. This follows a DNS service restart. The P3 native legacy trace subsequently reports ICE success/Connected and host/prflx at `./client.log:200–209` (15:01:48 UTC), then normal shutdown begins at line 217 in the same second. The snapshot is therefore not evidence of persistent relay fallback or a failed recovery. Modern final status is P2P. B3/P3 final candidate types differ in 13 directed observations, all including a local-type change; these are not 13 failed cases.
+
+The Linux connect-relay intermediate slowdown appears only in P1 (29.127 seconds / three attempts); P2/P3 are 0.606/0.605 seconds / one attempt and all three baseline samples are approximately 0.605 seconds. Windows DNS is two attempts in B1/B2, three in P1/P2, and one in B3/P3. Native logs confirm asymmetric second attempts in P1/P2; P3 has no such pre-success second attempt. Windows intended role is controlling in B1/B2/P3 and controlled in P1/P2/B3. B3 succeeds immediately in the controlled role, so role alone does not explain the episodes. B3/P3 also receive remote srflx before dialing, unlike the early dropped candidate documented in P2. Actual STUN packet roles and reader-delivery paths are unlogged.
+
+P3 Windows connect-legacy instead exhibits an asymmetric second negotiation with Linux 0.28.9: legacy reports Connected while Windows remains Checking, times out, then succeeds on its third attempt (32.401 seconds total). Windows is intended controlled. It already has local host/loopback/srflx candidates, both remote candidates and four mux address registrations. Exact native provenance is in `third/poc3-native-findings.md`, using artifact [12355816149](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543/artifacts/12355816149). This extends the observed behavior to the 0.28.9 mixed case but does not establish its mux cause.
+
+These three-sample series show timing variability and intermittent asymmetry on the intermediate source. The per-case medians do not establish a causal revision comparison, a controlled timing benchmark, current-release interoperability, or acceptance of source42b087a or newer source49baccd. The mixed reference binaries remain 0.28.9/0.30.1. Full raw logs stay in scratch evidence; portable workflow/artifact links and internal archive paths allow independent retrieval.
+
 ## Final report and remaining acceptance work
 
 The implementation remains entirely in NetBird's mux. Outgoing STUN requests
@@ -938,12 +1047,16 @@ change.
 
 Real fork agents with NAT connect in the one-, two- and twenty-pair tests,
 including both mixed pair-ID roles and the nomination-before-response ordering
-case. Observed responses reach their exact sending connection, and observed
-requests have at most one answer. These tests do not prove loss-free delivery
+case. The newer multi-host and duplicate-response tests additionally verify
+exact candidate ownership, including both response copies from an older
+broadcaster. Ordinary observed requests handled by the POC have at most one
+answer; the legacy duplication fixture deliberately emits two peer answers. These tests do not prove loss-free delivery
 of every check in every network. The repeated virtual-NAT comparison adds 96
-clean POC ownership samples. Lint, the required race suites and the source-built
-local netstack e2e pass on the revised implementation. The completed unit
-comparison has no new failing package, but the full command remains red.
+clean POC ownership samples for `532e38be`. Lint, the required race suites and
+source-built local netstack e2e pass for that revision. The newer implementation
+has passed focused race tests and is undergoing all required checks. The
+completed unit comparison has no new failing package, but the full command
+remains red.
 Both baseline and intermediate POC VM runs pass all 85 scenarios, and every
 initial P2P/relay status matches. Those artifacts cover Linux kernel mode and
 Windows/macOS/FreeBSD userspace mode on `37dab7d`, not the later lifecycle fixes.
@@ -952,16 +1065,17 @@ Candidate selection is observably different. In the repeated pair-ID NAT
 fixture, the POC's controlling side selects host/srflx while baseline selects
 srflx/srflx; the controlled side remains srflx/srflx. The local endpoint displayed
 therefore changes. Earlier sources shared candidate read queues; the revised
-implementation separates them and tests the physical/loopback case explicitly. Routing by a mapped
-address to preserve the old display was tested and rejected because it can
+implementation separates them and tests the physical/loopback case explicitly.
+Routing by a mapped address to preserve the old display was tested and rejected because it can
 prevent connection when nomination arrives before buffered responses. No such
 workaround or pion modification is part of this branch.
 
 The acceptance conditions are not all met:
 
-- Final-source run `39617144938` is queued. The intermediate `37dab7d` run
-  cannot validate the later `532e38be` lifecycle changes; await the new run's
-  verified source, completed scenarios and artifact audit.
+- Run `39617144938` is building verified source `42b087a4`, which includes
+  the `532e38be` lifecycle fixes. Its scenarios and artifact audit remain
+  pending. The newer candidate-queue/recent-owner implementation at `49baccda`
+  also requires its own immutable-source VM run after the current full checks.
 - One workflow per source and topology cannot prove no worse median time to
   P2P. Repeated local measurements are documented above; the intermediate lab
   traces include slower episodes as well as faster ones. The Windows DNS
