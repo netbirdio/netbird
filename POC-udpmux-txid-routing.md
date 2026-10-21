@@ -188,29 +188,28 @@ held across I/O.
    the mux routes anything; no mux routing can split that (pre-existing).
 8. `go fmt ./...` on `origin/main` reformats 26 files outside `udpmux`
    (pre-existing). They were reverted, not committed, to stay in scope.
-9. `make lint` (fixed `--timeout=2m`) timed out loading packages on this
-   4-CPU session while tests ran; the identical command with `--timeout=20m`
-   reports no issue in the diff. Its only two findings are `typecheck` errors in
-   `client/ui` (GTK/WebKit headers not installed here), unrelated to the change.
+9. Earlier lint runs lacked GTK/WebKit headers and one hit the two-minute
+   timeout. In the resumed disposable container with those headers installed,
+   the unmodified `make lint` and `make lint-all` commands both pass with zero
+   issues on the revised source.
 10. The session's network policy blocks `datatracker.ietf.org` and
     `www.rfc-editor.org`, so the RFC sections cited here (RFC 8489 sections 5,
     14 and 14.7; RFC 8445 sections 6.1.2.4 and 7.3.1.4) were not re-read against
     the published text. They are cited from knowledge and cross-checked only
     against pion/stun's own comments (comprehension ranges). Verify before
     relying on them in a design document.
-11. The policy also blocks `*.blob.core.windows.net`, where GitHub serves
-    Actions artifacts and raw job logs. Per-case reports (`result.json`,
-    `status-detail.txt`, debug bundles) therefore cannot be downloaded here.
-    Pass/fail and step durations come from the jobs API; controller timing
-    lines come from job logs fetched through the GitHub MCP server, which reads
-    them server-side.
+11. Direct artifact downloads were blocked by the network policy. The supported
+    GitHub artifact download interface does work: all baseline per-case reports,
+    native bundles and raw logs have now been downloaded and audited, followed
+    by the intermediate POC artifacts as they become available. The earlier
+    inability to inspect artifacts is superseded. Workflow dispatch still
+    requires access to `api.github.com`, which this environment denies.
 
 12. **Parallel run on the same branch.** While this run was validating, the
     branch received three commits from a parallel run of the same task
     (`553908d`, `b204c66`, `405edfe`, 10:54 to 11:02 UTC). That run measured the
     same srflx-to-host change on the controlling side, treated it as the
-    hard stop, and could not reach the GitHub API for e2e. The user said to
-    ignore it. Since force-pushing is ruled out, `37dab7d` is an `-s ours`
+    hard stop, and could not reach the GitHub API for e2e. `37dab7d` is an `-s ours`
     merge: those commits stay in history, none of their files are in the tree.
 13. **The srflx-to-host change is reported, not treated as a hard stop.** The
     task lists the reported local candidate type under behavior to record and
