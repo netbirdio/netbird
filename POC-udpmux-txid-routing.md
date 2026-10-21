@@ -11,7 +11,8 @@ successfully. Race package times: udpmux 11.894 s, bind 1.698 s, peer 8.696 s.
 Windows amd64, Darwin arm64, Android arm64 and js/wasm package cross-builds also
 pass; these are build checks, not platform runtime tests.
 
-The complete `make test-unit` command exits 2 with six previously demonstrated
+The complete `make test-unit` command finishes with 253 passing packages, 137
+without tests and six failures (exit 2). All six are previously demonstrated
 baseline/environment failure packages: `client/iface/device` (absent modules
 metadata), `client/internal` (absent TUN followed by fixture panic),
 `client/internal/dns` and `dns/mgmt` (public/OS DNS restrictions),
@@ -22,12 +23,60 @@ start, full-suite management, signal and upload packages pass directly in
 127.288 s, 0.318 s and 1.927 s. No test exclusions or thresholds change.
 
 The checked source manifest remains unchanged throughout those commands.
-The following package-documentation correction changes only comments in
-`doc.go`, whose only noncomment content is `package udpmux`; its exact-source
-bridge is recorded separately before building the new netstack images.
+Commit `24817004b0889477fee849999c6c6fad664f7415` changes only comments in
+`doc.go` and this report. All 2,669 Go/module files are verified identical except
+that comment-only file, whose only noncomment content in both revisions is
+`package udpmux`. The original manifests and the explicit source bridge are
+preserved; netstack images are built from exact `24817004`. Formatting and both
+lint targets also pass on that exact successor, with zero reported issues.
+
+Both complete `TestNBLinkReachesAgentNetwork` suites pass on exact `24817004`:
+source-built POC peers in 92.591 s and the official nblink v0.81.3 peer against
+the POC embedded peer in 94.212 s. Native logs confirm direct ICE active on both
+sides in both runs; HTTP success alone is not used to infer the path. Existing
+policy, TLS, browser, streaming and restart assertions all remain enabled.
+All 2,669 Go/module files still match the build manifest after completion, and
+the validation containers are removed before repeated timing begins.
 Full evidence: `/workspace/scratch/validation-reader-queues/` and
-`/workspace/scratch/portability-reader-queues/`. New-source netstack, official
-release interoperability and VM validation remain pending at this milestone.
+`/workspace/scratch/portability-reader-queues/`. VM validation of this newer
+source remains pending; the linked lifecycle-source run cannot establish it.
+
+### Repeated timing of the candidate-ownership revision
+
+Exact baseline `1e63b68c4dc243a32fef823df1bc024c997a9c60` and exact POC
+`24817004b0889477fee849999c6c6fad664f7415` are rebuilt with identical observers,
+Go 1.26.7 and GOMAXPROCS=2. There are 24 repetitions per source/configuration,
+192 samples total, alternating baseline/POC order. Timing starts at a shared
+Dial/Accept barrier and ends when all pairs connect; gathering and signalling
+are excluded. Each side shares one mux with one host and one STUN-derived srflx
+candidate per agent. Source, helper and binary hashes are verified again after
+sampling. The earlier lifecycle-source measurements remain separately below.
+
+| Pairs | Pair IDs | Baseline median ms (range) | POC median ms (range) | Median difference ms | Paired-difference median ms |
+| ---: | :---: | ---: | ---: | ---: | ---: |
+| 1 | present | 602.624 (602.026–623.628) | 602.337 (601.573–603.377) | -0.287 | -0.416 |
+| 1 | absent | 602.746 (601.479–603.638) | 602.469 (601.976–604.570) | -0.277 | -0.249 |
+| 20 | present | 605.267 (603.888–614.187) | 606.114 (603.910–610.526) | +0.847 | +0.595 |
+| 20 | absent | 620.850 (615.597–631.250) | 605.985 (604.463–608.638) | -14.866 | -15.030 |
+
+All 96 POC samples pass exact request/response ownership assertions with zero
+violations. The baseline observer records 11,675 misrouted-response transactions
+and 8,302 misrouted-request transactions; those are evidence of baseline routing,
+not assertions silently removed from the POC. With pair IDs, every baseline
+agent selects srflx/srflx; every POC controlling agent selects host/srflx, and
+every POC controlled agent selects srflx/srflx (24 agents per role in the
+one-pair group, 480 in the twenty-pair group). Without IDs, every POC agent
+selects host/srflx. Baseline one-pair controlling selections are 20 srflx/srflx
+and four host/srflx, with controlled selections five and 19 respectively;
+twenty-pair controlling selections are 329 and 151, and controlled selections
+90 and 390. These candidate-reporting differences remain explicit.
+
+The twenty-pair, pair-ID median is 0.847 ms higher (about 0.14%) with overlapping
+ranges. This does not establish a strict no-slowdown guarantee. The no-ID
+twenty-pair median improves by 14.866 ms. These are virtual-NAT measurements,
+not Windows, WAN, Proxbird or multi-host timing. Raw samples, ranges, observers,
+reproduction scripts and verified provenance are retained in
+`/workspace/scratch/mux-timing-reader-queues/`.
 
 ## Multi-host regression found during final-source validation
 
@@ -90,8 +139,9 @@ cleanup, and a failed resend after the original response. Two-pass review found
 no production locking or lifecycle defect. Evidence and reproduction commands:
 `/workspace/scratch/multihost/README.md`, `recent-owner-long/ownership.json`,
 `regression-recent-owner-race.log`, and `recent-lifecycle-race.log`.
-Full checks and VM validation of this newer source are still pending; the
-already-dispatched `42b087a4` run does not contain these corrections.
+The full local checks above are complete; VM validation of this newer source
+is still pending. The already-dispatched `42b087a4` run does not contain these
+corrections.
 
 The full package race run also exposed a preexisting reconnect-test assertion
 error, reproduced twice in six runs on immutable `42b087a4`. While the old
@@ -114,14 +164,26 @@ The run left the shared workflow queue at 15:06 UTC. Discovery job
 all 85 scenario names matching baseline (maximum parallelism 11). All nine
 preparation/build jobs passed; the four OS client builds and source-built server
 are pinned to that SHA and Go 1.26.7 in manifest artifact `12356575669`. All
-85 scenario jobs exist, with the first cases running from 15:15 UTC. It followed the existing baseline and intermediate client-test
+85 scenario jobs exist, with the first cases running from 15:15 UTC. It followed
+the existing baseline and intermediate client-test
 repetitions; no run was cancelled or duplicated. The newer multi-host and
 duplicate-response fixes above require a separate immutable-source run.
+
+The first failed case, `client-freebsd-nat-allowed-ports`, is a pre-ICE
+infrastructure failure ([artifact 12355883225](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938/artifacts/12355883225),
+job `119304353650`). Proxmox rejects the guest-agent command stopping the lab
+artifact server: HTTP 596/broken pipe, submission not accepted, no status
+polls, and about 234 seconds left in its budget. Both client diagnostics report
+`netbird: command not found` (exit 127); readiness, reconnect and traffic
+assertions are all NOT RUN. Candidate, mode and timing evidence are unavailable
+for this attempt. It is neither a mux pass nor a demonstrated mux failure.
+One targeted job retry is permitted after the workflow finishes; the failed
+attempt must remain visible alongside any retry. No retry has been launched.
 
 Another writer changed the remote branch after `42b087a4` was pushed. Merge
 `27531b60` and report commit `58046129` retain the earlier `37dab7d` source and
 remove the later fixes from the current remote tree. The final validation must
-therefore use immutable `42b087a4`, not resolve the moving branch name. The
+therefore pin the intended immutable source, not resolve the moving branch name. The
 existing commits and reports remain preserved. A normal merge now reconciles
 that history while retaining the reproduced lifecycle and candidate-ownership
 fixes. The source must pass its own checks and VM run before acceptance; no
@@ -1052,11 +1114,12 @@ exact candidate ownership, including both response copies from an older
 broadcaster. Ordinary observed requests handled by the POC have at most one
 answer; the legacy duplication fixture deliberately emits two peer answers. These tests do not prove loss-free delivery
 of every check in every network. The repeated virtual-NAT comparison adds 96
-clean POC ownership samples for `532e38be`. Lint, the required race suites and
-source-built local netstack e2e pass for that revision. The newer implementation
-has passed focused race tests and is undergoing all required checks. The
-completed unit comparison has no new failing package, but the full command
-remains red.
+clean POC ownership samples for each of `532e38be` and the newer `24817004`.
+Formatting, both lint targets, the required race suites, source-built netstack
+and official-release netstack interoperability pass for the newer implementation
+with the explicit comment-only source bridge documented above. Its complete
+unit command has 253 passing packages and six baseline-matched failures; the
+full command remains red.
 Both baseline and intermediate POC VM runs pass all 85 scenarios, and every
 initial P2P/relay status matches. Those artifacts cover Linux kernel mode and
 Windows/macOS/FreeBSD userspace mode on `37dab7d`, not the later lifecycle fixes.
@@ -1072,13 +1135,15 @@ workaround or pion modification is part of this branch.
 
 The acceptance conditions are not all met:
 
-- Run `39617144938` is building verified source `42b087a4`, which includes
-  the `532e38be` lifecycle fixes. Its scenarios and artifact audit remain
-  pending. The newer candidate-queue/recent-owner implementation at `49baccda`
-  also requires its own immutable-source VM run after the current full checks.
+- Run `39617144938` is testing verified source `42b087a4`, which includes
+  the `532e38be` lifecycle fixes. Its scenarios and artifact audit remain in
+  progress, with one classified setup failure requiring a targeted retry.
+  The newer candidate-queue/recent-owner implementation at `24817004`
+  requires its own immutable-source VM run; its local checks are complete.
 - One workflow per source and topology cannot prove no worse median time to
   P2P. Repeated local measurements are documented above; the intermediate lab
-  traces include slower episodes as well as faster ones. The Windows DNS
+  traces include slower episodes as well as faster ones. The latest twenty-pair
+  pair-ID local median is 0.847 ms higher, as explicitly recorded above. The Windows DNS
   asymmetric retry remains unexplained by the available packet-level evidence.
 - Actual current-release interoperability is proven only for official nblink
   v0.81.3 against the POC embedded peer on the local Docker network. The VM lab's
@@ -1107,14 +1172,15 @@ gh workflow run e2e.yml --repo netbirdio/proxbird-tests --ref main \
 ```
 
 Reuse baseline run 39588288742. Audit the final-source reports and native bundles,
-then repeat comparable timing cases on both sources rather than averaging
-unrelated topologies. Investigate any reproduced slowdown before declaring
-equivalence. Cover an actual current-release binary explicitly. No PR or ticket
-has been created.
+then compare repeated native timing for the newer source with the three existing
+baseline client-case samples rather than averaging unrelated topologies.
+Investigate any reproduced slowdown before declaring equivalence. The actual
+current-release netstack binary is covered, but full OS-client release coverage
+is still absent. No PR or ticket has been created.
 
 Step 2 is separate work: adapt the mux integration to upstream pion/ice v5,
-resolve candidate ownership and nomination when several candidates share a
-connection, and prove requests no longer need the pair-ID preference before
+preserve the per-candidate queue ownership now established in this mux, and
+prove requests no longer need the pair-ID preference before
 removing `candidateConnMap`, `0x8100` handling and the `cid` extension. The current
 tests should remain ownership regressions during that migration, augmented by
 multi-interface/dual-stack and mixed-release coverage. Dependency and wire
