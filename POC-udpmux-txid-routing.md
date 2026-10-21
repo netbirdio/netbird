@@ -166,6 +166,7 @@ normal user, and leaves the host's networking unchanged.
 | Revised POC `make test-unit` | exit 2; 250 passing packages, 9 failing, 137 without tests; no new failing package |
 | `TestNBLinkReachesAgentNetwork` against source-built baseline | pass, 104.031 s package time |
 | Same local netstack e2e against source-built `532e38be` | pass, 104.738 s package time; all 17 nested/leaf assertions pass |
+| Official `nblink` v0.81.3 against POC embedded peer | pass, 98.372 s package time; both native peer logs confirm direct ICE active; unchanged full netstack suite |
 | Final-source `udpmux` cross-builds | pass with Go 1.26.7 and `CGO_ENABLED=0`: Windows/amd64, Darwin/arm64, Android/arm64 and js/wasm |
 | Forbidden production scope changes | none: `go.mod`, `go.sum`, `universal.go`, and `worker_ice.go` are unchanged from baseline |
 
@@ -224,6 +225,33 @@ focused `*-localproxy.log` files. The full commands and environment are in
 `final-source-manifest-check.log` tie the checked Go files to `532e38be`.
 These local files are not GitHub workflow artifacts; the results needed to
 resume the branch are recorded in this document.
+
+### Current-release embedded-netstack interoperability
+
+The official [nblink v0.81.3 release](https://github.com/netbirdio/netbird/releases/tag/v0.81.3),
+published 2026-10-19, passes the unchanged `TestNBLinkReachesAgentNetwork`
+suite against the exact `532e38be` POC proxy peer (the same code as `42b087a4`).
+The release binary was downloaded, not rebuilt. Its archive SHA256 matches the
+published asset digest:
+`2162eeeb51b1c3a5f5936eeb8bb95059ab827e76990a223fd223e601beff4d95`.
+The extracted binary reports `nblink version 0.81.3` and has SHA256
+`39402a7d32ce8e8d4f6aec44a3f24b17f22dfbc880db7c2e15eb0093a1bd4e2c`.
+
+The two native peer logs cross-match their endpoints and identities. The release
+peer selected host/prflx and the POC peer host/host; both logged `set ICE to
+active connection` at 14:34:42 UTC. The fixture also offers relay, so direct ICE
+is established by the native connection evidence rather than inferred from
+HTTP success. The full existing traffic, policy denial, TLS rejection and
+identity/restart suite passes in 98.372 s (95.17 s top-level test).
+
+This proves actual current-release nblink versus POC embedded-netstack
+interoperability in the local Docker network. It does not establish external
+NAT behavior, full OS-client interoperability, both initiation roles, or timing
+equivalence. The release image retains the fixture's non-root runtime and TLS
+verification; all containers were cleaned up. No repository source or assertions
+changed. Release metadata, runtime provenance, native connectivity logs and
+reproduction are in `/workspace/scratch/release-interop/README.md` and its sibling
+files.
 
 ## What the routing does now (branch head)
 
@@ -567,7 +595,9 @@ Artifacts expire 14 days after the runs (2026-11-04).
   final snapshots, and native negotiation traces for the available runs.
 - **Current release peers**: no proxbird case pairs the candidate build with a
   current release binary; the scratch cross-version test uses baseline mux
-  behavior, which is narrower coverage than an actual release client.
+  behavior. Separately, official nblink v0.81.3 passes the local full netstack
+  suite against the POC peer, with direct ICE confirmed on both sides. Full
+  OS-client and external-NAT mixed-release coverage remains unproven.
 - **Netstack (`client/embed`)**: the local `TestNBLinkReachesAgentNetwork` suite
   passes with source-built binaries for both `1e63b68` and `532e38be`, including
   overlay HTTP traffic, reconnect identity, browser boundary checks and TLS
@@ -816,9 +846,10 @@ The acceptance conditions are not all met:
   P2P. Repeated local measurements are documented above; the intermediate lab
   traces include slower episodes as well as faster ones. The Windows DNS
   asymmetric retry remains unexplained by the available packet-level evidence.
-- Actual current-release binary interoperability is untested. The lab's older
-  references are 0.28.9 and 0.30.1; `reference: current` selects the source build,
-  not a release binary. Scratch baseline-mux tests are narrower coverage.
+- Actual current-release interoperability is proven only for official nblink
+  v0.81.3 against the POC embedded peer on the local Docker network. The VM lab's
+  older references are 0.28.9 and 0.30.1; `reference: current` selects the source
+  build, not a release binary. Full OS-client/NAT coverage remains unproven.
 - The complete unit command still fails on baseline/environment dependencies,
   with focused local-proxy corrections reported separately. Mobile runtime
   coverage and broader multi-interface/dual-stack candidate ownership remain
