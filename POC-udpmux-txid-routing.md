@@ -3,6 +3,23 @@
 Branch: `poc/udpmux-txid-routing` in `netbirdio/netbird` (no PR, no ticket).
 Progress log, written so the work can be resumed from it.
 
+## Final-source VM validation in progress (2026-10-21)
+
+The user dispatched [run 39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938)
+at 14:28:50 UTC for requested source
+`42b087a4b5fb0dfcb111c46864d3340194a5a748`, whose Go files match `532e38be`.
+At 14:30 UTC the run is queued with no jobs; its discovery/build logs have not
+yet confirmed the supplied source and 85-case selection. It waits behind the
+existing baseline and intermediate POC `client-tests` repetitions in the
+workflow's `proxbird-lab` concurrency queue. No run was cancelled or duplicated.
+
+Another writer changed the remote branch after `42b087a4` was pushed. Merge
+`27531b60` and report commit `58046129` retain the earlier `37dab7d` source and
+remove the later fixes from the current remote tree. The final validation must
+therefore use immutable `42b087a4`, not resolve the moving branch name. The
+existing commits and reports remain preserved; source reconciliation will
+follow the final-source evidence.
+
 ## Resumed work (2026-10-21)
 
 The mux-only POC continues. The candidate-type difference is reported below;
@@ -105,7 +122,7 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
 | Baseline e2e run | [39588288742](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742), dispatched 2026-10-21 10:56 UTC, completed 12:06 UTC: **85/85 passed** |
 | POC head for e2e | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` (tree identical to `afdf67f`) |
 | POC e2e run | [39597620276](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276), dispatched 2026-10-21 12:11 UTC, same inputs; completed successfully, last updated 13:24:17 UTC: **85/85 passed** |
-| Revised implementation | `532e38be0da5855fe3b7f95f5612adf0783312c7` (lifecycle fixes and expanded regressions); no Proxbird run dispatched for this revision yet |
+| Revised implementation | `532e38be0da5855fe3b7f95f5612adf0783312c7` (lifecycle fixes and expanded regressions); requested run [39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938) pins report descendant `42b087a4`; queued, source confirmation pending |
 
 ### Repeated local ICE timing on the revised implementation
 
@@ -792,8 +809,9 @@ workaround or pion modification is part of this branch.
 
 The acceptance conditions are not all met:
 
-- The final source requires its own 85-case Proxbird run. The intermediate
-  `37dab7d` run cannot validate the later `532e38be` lifecycle changes.
+- Final-source run `39617144938` is queued. The intermediate `37dab7d` run
+  cannot validate the later `532e38be` lifecycle changes; await the new run's
+  verified source, completed scenarios and artifact audit.
 - One workflow per source and topology cannot prove no worse median time to
   P2P. Repeated local measurements are documented above; the intermediate lab
   traces include slower episodes as well as faster ones. The Windows DNS
@@ -809,12 +827,13 @@ The acceptance conditions are not all met:
 The configured shell network policy rejects `api.github.com`. The supported
 GitHub interface can collect runs and artifacts but has no workflow-dispatch
 write. No workflow trigger, repository configuration, network policy or
-credential was changed to create another dispatch route. Once supported Actions
-dispatch access is available, first check for an existing run for the exact
-pushed commit, then use the existing workflow:
+credential was changed to create another dispatch route. The user subsequently
+launched run `39617144938` through the existing workflow. The exact command below
+is retained for provenance, not a request to launch a duplicate. It pins the
+source because another writer changed the branch after the original push:
 
 ```sh
-FINAL_POC_SHA=$(git rev-parse origin/poc/udpmux-txid-routing)
+FINAL_POC_SHA=42b087a4b5fb0dfcb111c46864d3340194a5a748
 gh workflow run e2e.yml --repo netbirdio/proxbird-tests --ref main \
   -f scenario=peer-pairs,client-tests,recovery,connectivity-repair,connectivity-underlay,routing-ha,routing-overlap \
   -f client_source=netbird-main \
