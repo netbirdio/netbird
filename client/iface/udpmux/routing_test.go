@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,24 +30,25 @@ const (
 	connectTimeout     = 30 * time.Second
 )
 
-type txID = [stun.TransactionIDSize]byte
-
 // stunTrace records, per transaction ID, which muxed conns wrote and read STUN
-// requests and responses on one mux.
+// requests and responses on one mux. Conns are named "<ufrag>/host" or
+// "<ufrag>/srflx".
 type stunTrace struct {
 	mu              sync.Mutex
-	requestWriters  map[txID][]string
-	requestReaders  map[txID][]string
-	responseWriters map[txID][]string
-	responseReaders map[txID][]string
+	requestWriters  map[transactionID][]string
+	requestReaders  map[transactionID][]string
+	requestUfrags   map[transactionID]string
+	responseWriters map[transactionID][]string
+	responseReaders map[transactionID][]string
 }
 
 func newSTUNTrace() *stunTrace {
 	return &stunTrace{
-		requestWriters:  make(map[txID][]string),
-		requestReaders:  make(map[txID][]string),
-		responseWriters: make(map[txID][]string),
-		responseReaders: make(map[txID][]string),
+		requestWriters:  make(map[transactionID][]string),
+		requestReaders:  make(map[transactionID][]string),
+		requestUfrags:   make(map[transactionID]string),
+		responseWriters: make(map[transactionID][]string),
+		responseReaders: make(map[transactionID][]string),
 	}
 }
 
@@ -65,6 +67,9 @@ func (s *stunTrace) observe(conn string, b []byte, written bool) {
 		s.requestWriters[msg.TransactionID] = append(s.requestWriters[msg.TransactionID], conn)
 	case msg.Type.Class == stun.ClassRequest:
 		s.requestReaders[msg.TransactionID] = append(s.requestReaders[msg.TransactionID], conn)
+		if username, err := msg.Get(stun.AttrUsername); err == nil {
+			s.requestUfrags[msg.TransactionID] = strings.Split(string(username), ":")[0]
+		}
 	case isResponse && written:
 		s.responseWriters[msg.TransactionID] = append(s.responseWriters[msg.TransactionID], conn)
 	case isResponse:
@@ -72,44 +77,41 @@ func (s *stunTrace) observe(conn string, b []byte, written bool) {
 	}
 }
 
-// responseMisdeliveries lists every response that was read by anything other
-// than exactly the one conn that wrote its request.
-func (s *stunTrace) responseMisdeliveries() []string {
+type traceReport struct {
+	requests, responses int
+	// misdeliveredResponses lists responses read by anything other than
+	// exactly the one conn that wrote the request.
+	misdeliveredResponses []string
+	// misdeliveredRequests lists requests read by more than one conn, by a
+	// conn of an agent other than the one their USERNAME names, or answered
+	// more than once.
+	misdeliveredRequests []string
+}
+
+// report evaluates the trace in one snapshot, while agents may still be sending.
+func (s *stunTrace) report() traceReport {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var out []string
+	r := traceReport{requests: len(s.requestReaders), responses: len(s.responseReaders)}
 	for id, readers := range s.responseReaders {
 		writers := s.requestWriters[id]
 		if len(writers) == 0 || len(readers) != 1 || readers[0] != writers[len(writers)-1] {
-			out = append(out, fmt.Sprintf("tx %x: request written by %v, response read by %v", id[:4], writers, readers))
+			r.misdeliveredResponses = append(r.misdeliveredResponses,
+				fmt.Sprintf("tx %x: request written by %v, response read by %v", id[:4], writers, readers))
 		}
 	}
-	sort.Strings(out)
-	return out
-}
-
-// requestDuplicates lists every request read by more than one conn or
-// answered more than once.
-func (s *stunTrace) requestDuplicates() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var out []string
 	for id, readers := range s.requestReaders {
 		responders := s.responseWriters[id]
-		if len(readers) != 1 || len(responders) > 1 {
-			out = append(out, fmt.Sprintf("tx %x: request read by %v, answered by %v", id[:4], readers, responders))
+		ufrag := s.requestUfrags[id]
+		if len(readers) != 1 || !strings.HasPrefix(readers[0], ufrag+"/") || len(responders) > 1 {
+			r.misdeliveredRequests = append(r.misdeliveredRequests,
+				fmt.Sprintf("tx %x: request for %s read by %v, answered by %v", id[:4], ufrag, readers, responders))
 		}
 	}
-	sort.Strings(out)
-	return out
-}
-
-func (s *stunTrace) counts() (requestsRead, responsesRead int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.requestReaders), len(s.responseReaders)
+	sort.Strings(r.misdeliveredResponses)
+	sort.Strings(r.misdeliveredRequests)
+	return r
 }
 
 // observedConn passes everything through to the muxed conn and records the
@@ -301,20 +303,29 @@ func newMuxHost(t *testing.T, lab *natLab, host natedHost, stripPairIDs bool) *m
 		conn = &pairIDStrippingConn{PacketConn: conn}
 	}
 
-	mux := NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: conn, Net: host.net, MTU: 1280})
+	mux := startMux(t, UniversalUDPMuxParams{UDPConn: conn, Net: host.net, MTU: 1280})
+	return &muxHost{lab: lab, net: host.net, mux: mux, trace: newSTUNTrace()}
+}
+
+// startMux creates a mux reading its socket as the kernel-mode device does.
+func startMux(t *testing.T, params UniversalUDPMuxParams) *UniversalUDPMuxDefault {
+	t.Helper()
+
+	mux := NewUniversalUDPMuxDefault(params)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		mux.ReadFromConn(ctx)
 	}()
+	// ReadFromConn keeps reading after errors until its context ends, so cancel
+	// before closing the socket.
 	t.Cleanup(func() {
 		cancel()
 		_ = mux.Close()
 		<-done
 	})
-
-	return &muxHost{lab: lab, net: host.net, mux: mux, trace: newSTUNTrace()}
+	return mux
 }
 
 func (h *muxHost) newAgent(t *testing.T) *ice.Agent {
@@ -434,20 +445,19 @@ func selectedTypes(t *testing.T, agent *ice.Agent) string {
 }
 
 // assertRouting checks the STUN deliveries a host observed: every response
-// reaches only the conn that sent the request, and every request is read once
-// and answered once.
+// reaches only the conn that sent the request, and every request is read once,
+// by its agent, and answered at most once.
 func assertRouting(t *testing.T, name string, h *muxHost) {
 	t.Helper()
 
-	requests, responses := h.trace.counts()
-	require.NotZero(t, requests, "%s must have received connectivity checks", name)
-	require.NotZero(t, responses, "%s must have received responses", name)
+	r := h.trace.report()
+	require.NotZero(t, r.requests, "%s must have received connectivity checks", name)
+	require.NotZero(t, r.responses, "%s must have received responses", name)
 
-	misdelivered := h.trace.responseMisdeliveries()
-	assert.Empty(t, misdelivered, "%s: %d of %d responses not delivered to exactly the requesting conn", name, len(misdelivered), responses)
-
-	duplicates := h.trace.requestDuplicates()
-	assert.Empty(t, duplicates, "%s: %d of %d requests delivered or answered more than once", name, len(duplicates), requests)
+	assert.Empty(t, r.misdeliveredResponses, "%s: %d of %d responses not delivered to exactly the requesting conn",
+		name, len(r.misdeliveredResponses), r.responses)
+	assert.Empty(t, r.misdeliveredRequests, "%s: %d of %d requests misdelivered or answered more than once",
+		name, len(r.misdeliveredRequests), r.requests)
 }
 
 // pairIDModes runs a scenario with peers that stamp the candidate pair ID, as
@@ -604,22 +614,46 @@ func TestUniversalUDPMux_RequestFollowsUsername(t *testing.T) {
 	assert.Equal(t, forA.TransactionID, readSTUN(t, connA).TransactionID, "connA receives the request for its ufrag")
 }
 
+// TestUniversalUDPMux_PairIDRouting checks the routing kept for peers that
+// stamp the candidate pair ID: it picks the srflx conn for a request although
+// USERNAME alone would pick the host conn, and it places a response whose
+// transaction ID the mux never recorded.
+func TestUniversalUDPMux_PairIDRouting(t *testing.T) {
+	mux, remote := newLoopbackMux(t)
+	host, err := mux.GetConn("ufragA", mux.LocalAddr(), "candidate:host")
+	require.NoError(t, err)
+	srflx, err := mux.GetConnForURL("ufragA", "stun:stun.example:3478", mux.LocalAddr(), "candidate:srflx")
+	require.NoError(t, err)
+
+	toSrflx := buildSTUN(t, stun.BindingRequest, stun.NewUsername("ufragA:remote"), pairID("remote:srflx"))
+	toHost := buildSTUN(t, stun.BindingRequest, stun.NewUsername("ufragA:remote"))
+	reply(t, remote, mux, toSrflx)
+	reply(t, remote, mux, toHost)
+	assert.Equal(t, toHost.TransactionID, readSTUN(t, host).TransactionID,
+		"the host conn must not receive a request whose pair ID names the srflx candidate")
+	assert.Equal(t, toSrflx.TransactionID, readSTUN(t, srflx).TransactionID,
+		"the pair ID decides before USERNAME")
+
+	unknown := buildSTUN(t, stun.BindingSuccess, pairID("remote:host"))
+	marker := buildSTUN(t, stun.BindingRequest, stun.NewUsername("ufragA:remote"), pairID("remote:srflx"))
+	reply(t, remote, mux, unknown)
+	reply(t, remote, mux, marker)
+	assert.Equal(t, marker.TransactionID, readSTUN(t, srflx).TransactionID,
+		"the srflx conn must not receive a response whose pair ID names the host candidate")
+	assert.Equal(t, unknown.TransactionID, readSTUN(t, host).TransactionID,
+		"a response with an unknown transaction ID is routed by its pair ID")
+}
+
+// pairID adds the candidate pair ID attribute as the fork stamps it:
+// "<sender candidate>:<target candidate>" without the "candidate:" prefix.
+func pairID(value string) stun.Setter {
+	return stun.RawAttribute{Type: ice.AttrCandidatePairID, Value: []byte(value)}
+}
+
 func newLoopbackMux(t *testing.T) (*UniversalUDPMuxDefault, *net.UDPConn) {
 	t.Helper()
 
-	mux := NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: listenUDP(t, net.IPv4(127, 0, 0, 1)), MTU: 1280})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		mux.ReadFromConn(ctx)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		_ = mux.Close()
-		<-done
-	})
-
+	mux := startMux(t, UniversalUDPMuxParams{UDPConn: listenUDP(t, net.IPv4(127, 0, 0, 1)), MTU: 1280})
 	return mux, listenUDP(t, net.IPv4(127, 0, 0, 1))
 }
 
