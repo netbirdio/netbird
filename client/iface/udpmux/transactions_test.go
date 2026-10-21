@@ -56,7 +56,8 @@ func TestTransactionTracker_ResendRefreshes(t *testing.T) {
 	tracker.record(transactionID{2}, first, start)
 	tracker.record(transactionID{2}, second, start)
 	assert.Same(t, second, tracker.take(transactionID{2}, start), "the latest sender receives the response")
-	assert.Nil(t, tracker.take(transactionID{2}, start), "a request is matched once")
+	assert.Zero(t, tracker.pending(), "the first response removes the pending request")
+	assert.Same(t, second, tracker.take(transactionID{2}, start), "a duplicate response keeps the same candidate owner")
 }
 
 func TestTransactionTracker_Bounded(t *testing.T) {

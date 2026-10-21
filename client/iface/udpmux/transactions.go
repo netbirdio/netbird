@@ -16,7 +16,8 @@ const (
 
 	// maxTransactions caps the outstanding requests the mux remembers. When it is
 	// reached the oldest outstanding request is forgotten and its response is
-	// routed like one with an unknown transaction ID.
+	// routed like one with an unknown transaction ID. Recently answered owners
+	// have a separate cap of the same size.
 	maxTransactions = 4096
 
 	stunHeaderSize = 20
@@ -25,8 +26,9 @@ const (
 type transactionID [stun.TransactionIDSize]byte
 
 type trackedTransaction struct {
-	conn *udpMuxedConn
-	seq  uint64
+	conn    *udpMuxedConn
+	seq     uint64
+	expires time.Time
 }
 
 type queuedTransaction struct {
@@ -45,14 +47,20 @@ type transactionTracker struct {
 	// sequence number no longer matching their entry, until they reach the head
 	// or the queue is compacted.
 	queue []queuedTransaction
-	seq   uint64
-	ttl   time.Duration
-	max   int
+	// Duplicate responses must keep their owner: fallback could let a different
+	// candidate consume the agent's pending check before the first copy is read.
+	// Recent records have their own cap so they cannot evict pending checks.
+	recent      map[transactionID]trackedTransaction
+	recentQueue []queuedTransaction
+	seq         uint64
+	ttl         time.Duration
+	max         int
 }
 
 func newTransactionTracker(ttl time.Duration, maxEntries int) *transactionTracker {
 	return &transactionTracker{
 		entries: make(map[transactionID]trackedTransaction),
+		recent:  make(map[transactionID]trackedTransaction),
 		ttl:     ttl,
 		max:     maxEntries,
 	}
@@ -97,9 +105,14 @@ func (t *transactionTracker) record(id transactionID, conn *udpMuxedConn, now ti
 	if !exists && len(t.entries) >= t.max {
 		t.evictOldest()
 	}
+	if !exists {
+		previous, exists = t.recent[id]
+		exists = exists && previous.expires.After(now)
+	}
+	delete(t.recent, id)
 
 	t.seq++
-	t.entries[id] = trackedTransaction{conn: conn, seq: t.seq}
+	t.entries[id] = trackedTransaction{conn: conn, seq: t.seq, expires: now.Add(t.ttl)}
 	t.queue = append(t.queue, queuedTransaction{id: id, seq: t.seq, expires: now.Add(t.ttl)})
 
 	// Answered requests leave their queue records behind; compacting at twice
@@ -113,19 +126,60 @@ func (t *transactionTracker) record(id transactionID, conn *udpMuxedConn, now ti
 	return t.seq
 }
 
-// take returns the conn that sent request id and forgets the request, or nil
-// when the request is unknown or expired.
+// take removes a pending request and retains its owner until the original
+// expiry. Duplicate responses keep that owner without extending its lifetime.
 func (t *transactionTracker) take(id transactionID, now time.Time) *udpMuxedConn {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.pruneExpired(now)
 	entry, ok := t.entries[id]
-	if !ok {
-		return nil
+	if ok {
+		delete(t.entries, id)
+		t.rememberResponse(id, entry)
+		return entry.conn
 	}
-	delete(t.entries, id)
-	return entry.conn
+	if entry, ok = t.recent[id]; ok && entry.expires.After(now) {
+		return entry.conn
+	}
+	delete(t.recent, id)
+	return nil
+}
+
+func (t *transactionTracker) rememberResponse(id transactionID, entry trackedTransaction) {
+	for len(t.recent) >= t.max {
+		head := t.recentQueue[0]
+		t.recentQueue = t.recentQueue[1:]
+		if current, ok := t.recent[head.id]; ok && current.seq == head.seq {
+			delete(t.recent, head.id)
+		}
+	}
+	t.recent[id] = entry
+	t.recentQueue = append(t.recentQueue, queuedTransaction{id: id, seq: entry.seq})
+	if len(t.recentQueue) > 2*t.max {
+		t.compactRecent()
+	}
+}
+
+// Response arrival order differs from request expiry order. Lookup checks the
+// original deadline directly; the idle worker sweeps this bounded map.
+func (t *transactionTracker) pruneRecent(now time.Time) {
+	for id, entry := range t.recent {
+		if !entry.expires.After(now) {
+			delete(t.recent, id)
+		}
+	}
+	t.compactRecent()
+}
+
+func (t *transactionTracker) compactRecent() {
+	live := make([]queuedTransaction, 0, len(t.recent))
+	for _, q := range t.recentQueue {
+		if entry, ok := t.recent[q.id]; ok && entry.seq == q.seq {
+			live = append(live, q)
+		}
+	}
+	t.recentQueue = live
 }
 
 // A failed write must not erase a later retransmission, even on the same conn.
@@ -143,9 +197,11 @@ func (t *transactionTracker) removeConn(conn *udpMuxedConn) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	for id, entry := range t.entries {
-		if entry.conn == conn {
-			delete(t.entries, id)
+	for _, entries := range []map[transactionID]trackedTransaction{t.entries, t.recent} {
+		for id, entry := range entries {
+			if entry.conn == conn {
+				delete(entries, id)
+			}
 		}
 	}
 }
@@ -157,6 +213,8 @@ func (t *transactionTracker) clear() {
 
 	t.entries = make(map[transactionID]trackedTransaction)
 	t.queue = nil
+	t.recent = make(map[transactionID]trackedTransaction)
+	t.recentQueue = nil
 }
 
 func (t *transactionTracker) pruneExpired(now time.Time) {
@@ -213,6 +271,7 @@ func (m *SingleSocketUDPMux) expireTransactions() {
 		case now := <-ticker.C:
 			m.transactions.mu.Lock()
 			m.transactions.pruneExpired(now)
+			m.transactions.pruneRecent(now)
 			m.transactions.mu.Unlock()
 		}
 	}

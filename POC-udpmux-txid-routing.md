@@ -41,22 +41,43 @@ pair failing while srflx succeeds without nomination. Evidence:
 `/workspace/scratch/multihost/duplicate-delay/final-00.log`. This is a local
 reproduction, not proof of the cause of the Windows VM retries.
 
-The next mux-only experiment will remove the pending entry on response but
-retain a bounded, expiring recently-answered owner for duplicate routing. This
+The mux-only correction removes the pending entry on response but
+retains a bounded, expiring recently-answered owner for duplicate routing. This
 explicitly adjusts the original immediate-forgetting design: ownership must
 survive long enough that a duplicate cannot enter broad fallback. Truly unknown
 transactions keep the existing fallback. No packet is suppressed based on an
-unauthenticated first response. This experiment is not yet validated or pushed.
+unauthenticated first response. Pending and recently answered maps each cap at
+4096 owners, with independent queues capped at 8192 records; answered traffic
+cannot evict outstanding checks. The recent owner retains the original deadline
+five seconds after the last request write. Duplicate reads do not refresh it.
+Lookup checks that deadline directly, and the five-second worker releases idle
+owners within ten seconds. Recent expiry uses a bounded map sweep because
+response arrival order need not match request expiry order. Connection removal
+and mux close release both kinds of owner under the existing mutex discipline.
+
+Both real-agent regression tests pass under `-race`; package lint has zero
+issues. The exact baseline peer with delayed host reads now connects in all
+three runs at 602–603 ms. Across 18 answered transactions, all 36 response reads
+(two copies each) reach their originating candidate. Focused tests also pass
+for expiry in reversed response order, independent bounds, generations, idle
+cleanup, and a failed resend after the original response. Two-pass review found
+no production locking or lifecycle defect. Evidence and reproduction commands:
+`/workspace/scratch/multihost/README.md`, `recent-owner-long/ownership.json`,
+`regression-recent-owner-race.log`, and `recent-lifecycle-race.log`.
+Full checks and VM validation of this newer source are still pending; the
+already-dispatched `42b087a4` run does not contain these corrections.
 
 ## Final-source VM validation in progress (2026-10-21)
 
 The user dispatched [run 39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938)
 at 14:28:50 UTC for requested source
 `42b087a4b5fb0dfcb111c46864d3340194a5a748`, whose Go files match `532e38be`.
-At 14:30 UTC the run is queued with no jobs; its discovery/build logs have not
-yet confirmed the supplied source and 85-case selection. It waits behind the
-existing baseline and intermediate POC `client-tests` repetitions in the
-workflow's `proxbird-lab` concurrency queue. No run was cancelled or duplicated.
+The run left the shared workflow queue at 15:06 UTC. Discovery job
+`119299897860` confirms the literal source SHA, source-built client/lab, and
+all 85 scenario names matching baseline (maximum parallelism 11). Builds are
+running. It followed the existing baseline and intermediate client-test
+repetitions; no run was cancelled or duplicated. The newer multi-host and
+duplicate-response fixes above require a separate immutable-source run.
 
 Another writer changed the remote branch after `42b087a4` was pushed. Merge
 `27531b60` and report commit `58046129` retain the earlier `37dab7d` source and
@@ -309,15 +330,19 @@ files.
 
 Tracker (`client/iface/udpmux/transactions.go`): header-only parse of outgoing
 requests (RFC 8489 section 5: class bits of the type, ID in bytes 8 to 20),
-recorded before the socket write. Records are removed on the response, when
-an initial write fails, on `RemoveConnByUfrag`, on mux `Close`, and after
-`transactionTTL` (5 s); a closed conn is never recorded. At most
+recorded before the socket write. A response removes its pending entry and
+retains a recently-answered owner until the original `transactionTTL` deadline
+(5 s after the last write). That owner routes duplicate copies without
+extending their lifetime. Initial write failure, connection removal and mux
+close remove the applicable state; a retired or closed conn is never recorded. At most
 `maxTransactions` (4096) outstanding requests are kept, the oldest outstanding
 one evicted first. A FIFO queue in insertion order (equal to expiry order, the
 TTL being constant) drives expiry and eviction; answered or resent records
 left in it are skipped and compacted away at twice the cap, so memory is
-bounded by the cap, not by the send rate. Its own mutex, a leaf lock never
-held across I/O.
+bounded by the cap, not by the send rate. Recently answered owners have a
+separate 4096-entry cap and a completion-order eviction queue capped at 8192.
+Their original expiry is checked on lookup and by the idle worker's bounded map
+sweep. Both maps share one mutex, never held across I/O.
 
 ## Decisions
 
@@ -434,20 +459,14 @@ becomes the interface address instead of the public mapping. Proxbird's NAT
 check accepts srflx or prflx on either side, so it still passes when the remote
 side is reflexive.
 
-Host connections have existing sharing limitations whose exposure expands
-when the POC selects host pairs behind NAT:
-
-- With several host candidates of one family (unspecified bind on a host
-  with several interface addresses, common with IPv6), all share the ufrag's
-  host conn and each runs its own read loop on it. Which candidate processes a
-  response is a race, so a selected host-local pair can see some of its
-  keepalive responses credited to a sibling pair, updating its RTT less often.
-  Baseline already had this for host-host paths (LAN, direct); the POC extends
-  host-local selection to NAT paths.
-- udp4 and udp6 srflx candidates share one conn (`GetConnForURL` keys by
-  `ufrag+url` on the v4 map), so the same race exists between them. The earlier
-  review experiment did not observe lower srflx-pair success than baseline;
-  it does not establish that result for every dual-stack configuration.
+The earlier implementations (`37dab7d` and `42b087a4`) shared a read queue
+between host candidates of one family and between srflx candidates using the
+same URL/socket family. That made exact connection ownership weaker than exact
+candidate ownership. The multi-host reproduction above demonstrates a complete
+nomination failure, beyond an RTT/reporting difference. The revised mux gives
+each candidate ID a separate queue, including URL-keyed candidates. Real-agent
+physical/loopback host coverage now passes; a full dual-stack NAT runtime
+comparison remains outside the collected evidence.
 
 ## Unit tests (`client/iface/udpmux`)
 
@@ -634,8 +653,9 @@ Artifacts expire 14 days after the runs (2026-11-04).
 
 ## Not covered / caveats
 
-- **Final source in Proxbird**: the intermediate run uses `37dab7d`; the
-  later lifecycle changes at `532e38be` still need their own run. Artifact
+- **Final source in Proxbird**: the intermediate run uses `37dab7d`; run
+  `39617144938` now builds the later lifecycle source `42b087a4` (`532e38be` Go
+  files). It does not include the newer candidate-queue/recent-owner fixes. Artifact
   inspection now includes the candidate types, initial assertion results,
   final snapshots, and native negotiation traces for the available runs.
 - **Current release peers**: no proxbird case pairs the candidate build with a
@@ -651,11 +671,11 @@ Artifacts expire 14 days after the runs (2026-11-04).
   production source or test assertions were altered. This is separate from
   Proxbird's kernel/userspace VM coverage.
 - **Mobile (iOS, Android)**: not exercised; Android builds.
-- **Pre-existing, unchanged**: several host candidates of one family share one
-  muxed conn; udp4 and udp6 srflx candidates share one conn; a recreated agent
-  reuses its predecessor's ufrag. The earlier shared-address removal defect
-  and delayed old-close removal of a replacement are fixed and tested in
-  `532e38be`.
+- **Reused credentials**: distinct simultaneous agents using the identical
+  ufrag remain ambiguous for USERNAME routing and explicit ufrag removal.
+  Ordinary reconnect coverage uses distinct credentials. Candidate queues,
+  shared-address removal, and pointer-specific close are fixed and tested;
+  full dual-stack and mobile runtime coverage remains incomplete.
 - **Full pair-ID removal** (variant R) was measured only at unit level; no
   e2e run of it exists.
 
@@ -889,8 +909,8 @@ Windows/macOS/FreeBSD userspace mode on `37dab7d`, not the later lifecycle fixes
 Candidate selection is observably different. In the repeated pair-ID NAT
 fixture, the POC's controlling side selects host/srflx while baseline selects
 srflx/srflx; the controlled side remains srflx/srflx. The local endpoint displayed
-therefore changes. Existing candidate sharing means exact mux-connection
-ownership is narrower than exact candidate ownership. Routing by a mapped
+therefore changes. Earlier sources shared candidate read queues; the revised
+implementation separates them and tests the physical/loopback case explicitly. Routing by a mapped
 address to preserve the old display was tested and rejected because it can
 prevent connection when nomination arrives before buffered responses. No such
 workaround or pion modification is part of this branch.
