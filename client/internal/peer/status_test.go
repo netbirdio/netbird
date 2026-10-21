@@ -616,3 +616,22 @@ func TestStatus_PQMarkClearedOnRemove(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, st.RosenpassEnabled, "a re-added peer must not inherit the removed peer's PQ mark")
 }
+
+// TestStatus_PQMarkWakesSubscribers checks that a PSK landing after the connection came up
+// reaches status subscribers, which otherwise keep showing the peer as not protected.
+func TestStatus_PQMarkWakesSubscribers(t *testing.T) {
+	const key = "eDQmZp9jhQGX7XdYpHGaFSpAouldr3Sbf7MZRcGTGGQ="
+	status := NewRecorder("https://mgm")
+	require.NoError(t, status.AddPeer(key, "peer.netbird.cloud", "100.64.0.2", ""))
+
+	id, changes := status.SubscribeToStateChanges()
+	defer status.UnsubscribeFromStateChanges(id)
+
+	require.NoError(t, status.MarkPeerQuantumResistant(key))
+
+	select {
+	case <-changes:
+	default:
+		assert.Fail(t, "marking a peer quantum resistant must notify status subscribers")
+	}
+}

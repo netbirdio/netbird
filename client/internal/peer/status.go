@@ -782,17 +782,18 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 // to show up in the status. The mark persists until the peer is removed.
 func (d *Status) MarkPeerQuantumResistant(peerPubKey string) error {
 	d.mux.Lock()
-	defer d.mux.Unlock()
-
 	peerState, ok := d.peers[peerPubKey]
 	if !ok {
+		d.mux.Unlock()
 		return errors.New("peer doesn't exist")
 	}
 
 	d.pqMarked[peerPubKey] = struct{}{}
 	peerState.RosenpassEnabled = true
 	d.peers[peerPubKey] = peerState
+	d.mux.Unlock()
 
+	d.notifyStateChange()
 	return nil
 }
 
