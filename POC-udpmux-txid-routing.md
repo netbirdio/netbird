@@ -3,6 +3,51 @@
 Branch: `poc/udpmux-txid-routing` in `netbirdio/netbird` (no PR, no ticket).
 Progress log, written so the work can be resumed from it.
 
+## Multi-host regression found during final-source validation
+
+The source pinned by run `39617144938` is not yet an acceptable final result.
+Further real-agent tests found that wildcard-bound sockets gather physical and
+loopback host candidates which share one mux connection. A legal reader order
+can deliver nomination to loopback and its check responses to the physical
+candidate. Baseline `1e63b68c` connects under the same order because its broadcast
+also delivers nomination to srflx; intermediate `37dab7d` and `42b087a4` leave
+the controlled agent Checking. A 12-second observation records the loopback
+pair with nine requests and zero responses. All 41 scheduled host packets were
+delivered once; this is not a packet-loss simulation.
+
+The mux-only correction gives each candidate its own queue within the existing
+ufrag/family group. USERNAME routing retains the first surviving host queue, so
+later gathering does not switch the nomination recipient. Candidate IDs remain
+local queue identities and request-routing compatibility hints; empty IDs use
+the requested local address. Socket `LocalAddr`, fork interfaces, wire format
+and overlay checks are unchanged. Closing one candidate removes only its queue;
+explicit ufrag removal removes all children of that exact key. Existing URL-key
+semantics remain: srflx children close with their candidates, not by prefix
+matching a host ufrag.
+
+The committed multi-host test fails on `42b087a4` with controlled connection
+timeout and wrong-candidate responses in both roles. With separate queues it
+passes under the race detector, as do the existing package tests. Evidence:
+`/workspace/scratch/multihost/regression-before-fix.log`,
+`regression-after-fix-race.log`, `prototype-race.log`, and
+`scheduled-long/final-00.log`.
+
+A second real-agent ordering still prevents connection after separating queues:
+the exact baseline peer broadcasts a request and produces two responses. The
+first consumes the transaction record; the second follows unknown-ID fallback.
+Delaying the host reader by 30 ms lets the srflx reader consume that duplicate
+first and take the agent's pending transaction. Native pair stats show the host
+pair failing while srflx succeeds without nomination. Evidence:
+`/workspace/scratch/multihost/duplicate-delay/final-00.log`. This is a local
+reproduction, not proof of the cause of the Windows VM retries.
+
+The next mux-only experiment will remove the pending entry on response but
+retain a bounded, expiring recently-answered owner for duplicate routing. This
+explicitly adjusts the original immediate-forgetting design: ownership must
+survive long enough that a duplicate cannot enter broad fallback. Truly unknown
+transactions keep the existing fallback. No packet is suppressed based on an
+unauthenticated first response. This experiment is not yet validated or pushed.
+
 ## Final-source VM validation in progress (2026-10-21)
 
 The user dispatched [run 39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938)

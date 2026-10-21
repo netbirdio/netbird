@@ -16,15 +16,16 @@ import (
 )
 
 type udpMuxedConnParams struct {
-	Mux         *SingleSocketUDPMux
-	AddrPool    *sync.Pool
-	Key         string
-	LocalAddr   net.Addr
-	Logger      logging.LeveledLogger
-	CandidateID string
+	Mux           *SingleSocketUDPMux
+	AddrPool      *sync.Pool
+	Key           string
+	LocalAddr     net.Addr
+	Logger        logging.LeveledLogger
+	CandidateID   string
+	CandidateAddr string
 }
 
-// udpMuxedConn represents a logical packet conn for a single remote as identified by ufrag
+// udpMuxedConn represents a logical packet conn for one local candidate.
 type udpMuxedConn struct {
 	params *udpMuxedConnParams
 	// remote addresses that we have sent to on this conn
