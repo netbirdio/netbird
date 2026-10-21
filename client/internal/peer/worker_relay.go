@@ -30,6 +30,10 @@ type WorkerRelay struct {
 	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
+
+	// remoteSessionID is the session ID of the remote's latest relay-only offer.
+	// Only OnNewOffer touches it, and the offer listener serializes those calls.
+	remoteSessionID ICESessionID
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
@@ -51,6 +55,11 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		return
 	}
 	w.relaySupportedOnRemotePeer.Store(true)
+
+	if w.remoteRestarted(remoteOfferAnswer) {
+		w.log.Infof("remote peer started a new session, dropping the relayed connection of its previous one")
+		w.dropRelayedConn()
+	}
 
 	// the relayManager will return with error in case if the connection has lost with relay server
 	currentRelayAddress, _, err := w.relayManager.RelayInstanceAddress()
@@ -87,6 +96,41 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
 	})
+}
+
+// remoteRestarted records the session ID of a relay-only offer and reports
+// whether it differs from the previous one, which means the remote peer created
+// a new connection. Offers with ICE credentials carry the ICE agent's session,
+// which rotates independently of a restart, and offers from peers that send no
+// session ID are ignored.
+func (w *WorkerRelay) remoteRestarted(remoteOfferAnswer *OfferAnswer) bool {
+	if remoteOfferAnswer.hasICECredentials() || remoteOfferAnswer.SessionID == nil {
+		return false
+	}
+
+	prev := w.remoteSessionID
+	w.remoteSessionID = *remoteOfferAnswer.SessionID
+	return prev != "" && prev != w.remoteSessionID
+}
+
+// dropRelayedConn tears down the relayed connection kept for the remote's
+// previous session. The teardown runs before the connection is closed so the
+// overlay session of the previous instance is flushed before a replacement is
+// configured; the close notification that follows is ignored as superseded.
+func (w *WorkerRelay) dropRelayedConn() {
+	w.relayLock.Lock()
+	relayedConn := w.relayedConn
+	w.relayedConn = nil
+	w.relayLock.Unlock()
+
+	if relayedConn == nil {
+		return
+	}
+
+	w.conn.onRelayDisconnected(relayedConn)
+	if err := relayedConn.Close(); err != nil {
+		w.log.Debugf("failed to close relayed connection of the previous remote session: %v", err)
+	}
 }
 
 func (w *WorkerRelay) RelayInstanceAddress() (string, netip.Addr, error) {
