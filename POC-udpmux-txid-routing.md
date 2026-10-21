@@ -155,18 +155,162 @@ remain separate limits; no assertion of complete lifecycle correctness is made.
 
 ### Command evidence
 
-Final broad-check outcomes are recorded below when their bounded attempts finish.
+All requested pre-push commands were attempted. Broad runs were bounded or
+interrupted after the behavior hard stop; an interrupted run is not a pass.
+Commands used Go 1.26.7, writable caches, `GOFLAGS=-p=2`, and `GOMAXPROCS=2`.
+
+| Check | Baseline | POC |
+| --- | --- | --- |
+| `go fmt ./...` | Pass; unrelated pre-existing formatting restored | Pass; 26 unrelated formatting-only diffs restored |
+| `make lint` | Initial cache permission error; cache-corrected attempt interrupted | Incomplete at 120-second bound |
+| `make test-unit` | Partial run interrupted after hard stop; pre-existing/environment failures | Incomplete at 120-second bound; UI embed and cmd temporary-directory failures observed |
+| Required race command | udpmux passes; bind packet loss and peer race fail | udpmux shared-address fallback test and bind packet loss fail; peer passes this attempt |
+| `go test -race ./client/iface/udpmux -run TestAgentRouting -count=1` | New regression tests intentionally fail baseline assertions | Pass, including final test-observer error-handling cleanup |
+| `make lint-all` | Not separately required on baseline | Completes with exit 2: two UI typecheck findings from missing Cgo system dependencies |
+| Scoped udpmux lint | Not an equivalence check | Pass, zero findings after test-observer nilerr cleanup |
+
+Required race command:
+
+```sh
+go test -race ./client/iface/udpmux/... ./client/iface/bind/... ./client/internal/peer/...
+```
+
+Failure classification:
+
+- Shared-address fallback removal: pre-existing; identical test fails on the
+  immutable baseline and POC. A surviving connection receives zero packets.
+- Bind `TestICEBind_HandlesConcurrentMixedTraffic`: pre-existing stress failure;
+  both versions delivered 256 IPv4 packets against the assertion minimum 400.
+  The test sends 500 concurrent UDP datagrams; no blind retry was used.
+- Peer `TestWGWatcher_EnableWgWatcher`: baseline data race between the test's
+  global write at `wg_watcher_test.go:93` and the preceding watcher's callback
+  reading `wg_watcher.go:113`. The POC attempt passes, which does not prove that
+  baseline race fixed itself or was fixed by this change.
+- Full unit prerequisites: ignored UI frontend `dist` is absent; host UI/pcap
+  development libraries are absent; the sandbox temporary directory is owned by
+  UID 65534, triggering existing command ownership checks; `/dev/net/tun` is
+  unavailable. Baseline additionally exposes internal/DNS/elevate environment
+  failures. These are not claimed as POC regressions. The exact full suite did
+  not finish, so unrelated unobserved failures remain possible.
+- Local connectivity e2e suites were inspected but not run before the hard stop.
+  Docker was available; preparing its test prerequisites was stopped. No daemon
+  was brought up on the host, and no host routing/firewall/DNS changes were made.
+- All validation processes have stopped. Touched-package lint is clean, but
+  repository-wide lint is not green: UI Cgo requires GLib, GTK4, WebKit6, and
+  libsoup development packages unavailable in this host.
+
 Local logs are retained in `/workspace/scratch/validation`,
 `/workspace/scratch/proxbird`, and `/workspace/scratch/agent-routing-*.log`.
 Focused socket results are in `/workspace/scratch/transaction-before.log` and
 `/workspace/scratch/transaction-after-verbose.log`. These paths are workspace
 artifacts, not files committed to the repository.
 
+### Branch and resumption
+
+- Initial log commit: `553908d9`; experiment/test milestone: `b204c667`.
+- The remote POC ref was observed at the exact baseline before publication; the
+  final update must be a normal fast-forward push, never a force push.
+- Checked workflow definitions: Go push workflows target `main`/`release-*`;
+  lint is PR-triggered. No PR was opened. API run-list verification remains
+  subject to the same `api.github.com` access restriction as Proxbird.
+- Before resuming e2e, configure supported access to `api.github.com`, resolve
+  the candidate-semantics hard stop, and verify the baseline and new source SHA.
+  Proxbird checkout used `a1abca530f93969ad81f11a9683dc6e89171a23c`.
+- Exact validated selection:
+  `peer-pairs,client-tests,recovery,connectivity-repair,connectivity-underlay,routing-ha,routing-overlap`.
+  Dispatch both commits with `client_source=netbird-main`,
+  `lab_source=source-build`, and `netbird_sha=<full SHA>`; retain queued lab runs.
+  Collect reports and debug bundles before classifying any failures.
+
 ## Baseline / POC comparison
 
-| Cases | Baseline result | POC result | P2P / relay | Connect time | Local / remote candidates |
+| Case | Baseline result | POC result | P2P/relay (baseline / POC) | Connect time (baseline / POC) | Local/remote candidate types (baseline / POC) |
 | --- | --- | --- | --- | --- | --- |
-| 85 selected Proxbird cases | Not dispatched: API access denied | Not dispatched | Not measured | Not measured | Not measured |
+| `client-freebsd-nat-allowed-ports` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-freebsd-nat-connect-legacy` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-freebsd-nat-connect-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-freebsd-nat-dns` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-freebsd-nat-exit-node` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-linux-nat-allowed-ports` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-linux-nat-connect-legacy` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-linux-nat-connect-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-linux-nat-dns` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-linux-nat-exit-node` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-macos-nat-allowed-ports` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-macos-nat-connect-legacy` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-macos-nat-connect-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-macos-nat-dns` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-macos-nat-exit-node` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-windows-nat-allowed-ports` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-windows-nat-connect-legacy` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-windows-nat-connect-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-windows-nat-dns` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `client-windows-nat-exit-node` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `connectivity-repair-freebsd-nat-path-repair` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `connectivity-repair-linux-nat-path-repair` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `connectivity-repair-macos-nat-path-repair` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `connectivity-repair-windows-nat-path-repair` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `connectivity-underlay-linux-nat-underlay-change` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `freebsd-freebsd-direct` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `freebsd-freebsd-nat` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `freebsd-freebsd-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `freebsd-freebsd-slow` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-macos-direct` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-macos-nat` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-macos-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-macos-slow` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-windows-direct` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-windows-nat` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-windows-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `macos-windows-slow` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-freebsd-nat-daemon-restart` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-freebsd-nat-path-failure` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-linux-nat-daemon-restart` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-linux-nat-path-failure` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-macos-nat-daemon-restart` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-macos-nat-path-failure` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-windows-nat-daemon-restart` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `recovery-windows-nat-path-failure` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-freebsd-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-freebsd-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-linux-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-linux-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-macos-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-macos-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-windows-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-freebsd-windows-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-freebsd-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-freebsd-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-linux-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-linux-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-macos-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-macos-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-windows-nat-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-ha-linux-windows-relay-router-ha` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-freebsd-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-freebsd-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-linux-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-linux-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-macos-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-macos-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-windows-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-freebsd-windows-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-freebsd-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-freebsd-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-linux-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-linux-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-macos-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-macos-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-windows-nat-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `routing-overlap-linux-windows-relay-overlap` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-macos-direct` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-macos-nat` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-macos-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-macos-slow` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-windows-direct` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-windows-nat` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-windows-relay` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
+| `windows-windows-slow` | Not run: API blocked | Not run | Unmeasured / unmeasured | Unmeasured / unmeasured | Unmeasured / unmeasured |
 
 ## Final report
 

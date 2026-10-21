@@ -139,7 +139,10 @@ func (c *agentRoutingConn) ReadFrom(buf []byte) (int, net.Addr, error) {
 		return n, addr, err
 	}
 	msg := &stun.Message{Raw: buf[:n]}
-	if msg.Decode() != nil || (msg.Type.Class != stun.ClassSuccessResponse && msg.Type.Class != stun.ClassErrorResponse) {
+	if err := msg.Decode(); err != nil {
+		return n, addr, fmt.Errorf("decode observed STUN: %w", err)
+	}
+	if msg.Type.Class != stun.ClassSuccessResponse && msg.Type.Class != stun.ClassErrorResponse {
 		return n, addr, nil
 	}
 	trace := c.mux.trace
