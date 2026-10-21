@@ -24,7 +24,7 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
 | Time to P2P no worse | **not met in one case (hard stop)**: a controlled agent whose host conn is shared by several candidates loses the nomination from a pre-0.57 peer in some attempts (7 of 240 in scratch trials, 0 of 240 on baseline) and needs one more ICE attempt; otherwise unchanged | "Hard stop", paired setup convergence (85 cases), ICE dial-to-success (212 observations), `client-tests` three runs per commit, 60/60 on each; median of per-case medians 3.66 s vs 3.71 s; Windows tail, see "E2E repetitions" |
 | No duplicate STUN responses | proven, unit level and against a real v0.30.1 agent | "Unit tests", "Cross-version checks"; not observable in e2e |
 | Mixed versions connect P2P | proven for 0.28.9 / 0.30.1 reference peers (e2e, every run) and for v0.57+ behavior (unit, scratch); against pre-0.57 peers an attempt can fail and be retried (hard stop) | "Cross-version checks", e2e `client-tests`, "Hard stop" |
-| Kernel, userspace, netstack keep working | kernel and userspace proven (e2e); netstack proven by the repo's nblink e2e: netstack to netstack P2P over ICE through the mux | "E2E comparison", "Netstack e2e" |
+| Kernel, userspace, netstack keep working | kernel and userspace proven (e2e, and `connectivity-lazy`, which asserts the interface mode: 4/4 per run, two runs per commit); netstack proven by the repo's nblink e2e; userspace and netstack also in a local NAT lab with real clients, 228 trials per build and 10 mixed, all P2P, no difference in time to P2P or failed attempts | "E2E comparison", "Netstack e2e", "Real clients" |
 | Candidate types recorded per peer, change called out | recorded (artifact audit by the parallel run, attributed); change called out | "What the change does to candidate selection" |
 | Unit tests 1 to 5, real pion agents and vnet NAT, 1 to 3 failing before | done | "Unit tests" |
 | Pre-push checks, `make lint-all`, repo `e2e/` | fmt clean; `make lint` passes in the pre-push hook; `make lint-all` 0 issues; `make test-unit` and the race suite fail only where baseline fails in the same environment; repo `e2e/`: the mux-relevant suites pass, the rest fail on infrastructure, identically on baseline | "Repository checks" |
@@ -51,10 +51,12 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
   family can lose the peer's only nomination, and the ICE attempt fails
   after 12 s while the peer reports success. Baseline's broadcast hid the
   race. Scratch trials with the real v0.30.1 agent: 7 of 240 attempts on the
-  POC, 0 of 240 on baseline, 0 of 200 on the POC with one host candidate. It
-  matches the e2e tail on Windows, where the code suggests every agent has a
-  127.0.0.1 host candidate. It cannot be removed within the mandated design
-  (see "Hard stop"), so no further code was written after finding it.
+  POC, 0 of 240 on baseline, 0 of 200 on the POC with one host candidate.
+  Real clients on a four-address Linux host show the same shape only on the
+  POC, 1 of 22 controlled trials against 0 of 24. It matches the e2e tail on
+  Windows, where the code suggests every agent has a 127.0.0.1 host
+  candidate. It cannot be removed within the mandated design (see "Hard
+  stop"), so no further code was written after finding it.
 - **A second, display-level difference is reported, not a stop.** The
   reported local candidate type of the selected pair changes (mostly srflx to
   host on the controlling side behind NAT). It follows from delivering
@@ -134,6 +136,12 @@ Fisher's exact test, 7/240 against 0/240: p ≈ 0.008 one-sided. As
 controlling agent, both muxes connected 40 of 40 on the two-address host.
 Against stamping peers (v0.57+) nothing changes: their requests carry the
 pair ID, which names our srflx candidate, alone on its conn, as on baseline.
+
+With real clients (a four-address Linux peer behind NAT against a 0.30.1
+peer, pion trace on; "Real clients"), the POC lost 1 nomination in 22
+controlled trials, in the same shape, and baseline 0 of 24. Too few to
+measure a rate (p ≈ 0.48), but the loss appears only on the POC, as the
+mechanism predicts.
 
 ### Who is exposed
 
@@ -879,6 +887,106 @@ The management connection is gRPC over TCP and never reaches the UDP mux, so
 none of the failures can come from this change, and baseline reproduces
 them. The suites that exercise the mux and could run here pass.
 
+## Real clients: kernel, userspace and netstack
+
+### Builds under test
+
+- `git diff 1e63b68 37dab7d` touches only `client/iface/udpmux` and this log,
+  and `1e63b68` is an ancestor of `37dab7d`. The tree under `client/` at
+  `37dab7d` is the one at the branch head.
+- Every proxbird run cited in this log was dispatched with
+  `client_source=netbird-main` and `lab_source=source-build`, so clients and
+  server are compiled from `netbird_sha` and no published binary is used. Each
+  run's `resolve-client` log was read for its `PINNED_SHA`.
+- The local lab images were checked by rebuilding: `git archive` of each
+  commit, built with the same Dockerfile (`CGO_ENABLED=0 go build ./client`),
+  gives binaries byte-identical to the ones in the lab images (sha256
+  `3fb73fe6…` for `37dab7d`, `abd958bc…` for `1e63b68`). The 0.30.1 peer is
+  built from tag `v0.30.1` (`b237917`).
+
+### Kernel and userspace in proxbird (`connectivity-lazy`)
+
+This sandbox's kernel has no WireGuard module (`ip link add wg0 type
+wireguard` in a container with `NET_ADMIN` fails with "Unknown device type"),
+so kernel mode cannot run locally. Besides the Linux cases of the 85-case
+selection, which run kernel mode, the lazy suite asserts the interface mode:
+`lazy-cold` requires both peers on the kernel interface and `lazy-idle` on
+userspace (`checkLazyPeerState`, `internal/lab/client_connection.go:96-101`
+in proxbird-tests; the fixture sets `NB_WG_KERNEL_DISABLED` for idle). Both
+peers are the candidate build. Each case activates a lazy connection, and the
+idle case lets it go idle and wakes it again.
+
+| Run | Commit | nat-lazy-cold | nat-lazy-idle | relay-lazy-cold | relay-lazy-idle |
+| --- | --- | --- | --- | --- | --- |
+| 39636145465 | `1e63b68` | pass | pass | pass | pass |
+| 39636166317 | `37dab7d` | pass | pass | pass | pass |
+| 39636186423 | `1e63b68` | pass | pass | pass | pass |
+| 39636206718 | `37dab7d` | pass | pass | pass | pass |
+
+### Local NAT lab (userspace, netstack)
+
+Scratch only, not committed. Two client containers, each on its own Docker
+`internal` LAN behind a router container with `MASQUERADE` on its WAN side,
+`FORWARD` to other private ranges dropped, and new inbound connections to the
+router dropped, so a peer is reachable only through the mapping its own
+traffic created. The server is the repo e2e harness's combined image
+(`netbird-combined:e2e`) on the WAN network, the same for both arms. Peers run
+with `NB_WG_KERNEL_DISABLED=true` (userspace; netstack rows add
+`NB_USE_NETSTACK_MODE=true`), `NB_LAZY_CONN=off` and `NB_RELAY_TRANSPORT=ws`.
+Each trial gets new routers, new peer addresses and a clean peer list. Time
+to P2P runs from the later `netbird up` return until both peers' `netbird
+status -d` report `P2P`, polled every 0.5 s, 90 s deadline (60 s traced).
+Baseline and POC trials are interleaved; trials 46 to 105 of `same`
+alternate which goes first.
+
+Four lab defects made both builds fail equally and were fixed before any
+counted trial: Docker's raw-table anti-spoofing dropped LAN frames
+addressed to WAN containers; idle lazy connections; unsolicited inbound
+claiming the conntrack tuple a peer's mapping needed (port remap); and
+Docker's own masquerade on bridged LAN frames plus stale host conntrack,
+which added a hidden third NAT. Smoke and diagnosis trials from that phase
+are excluded.
+
+| Scenario | Peer A | Peer B | Trials | Both P2P | Time to P2P, median / max (s) | Trials with a failed attempt |
+| --- | --- | --- | --- | --- | --- | --- |
+| `same` | build | build | 105 / 105 | 105 / 105 | 1.33 / 46.7, 1.33 / 45.9 | 17 / 23 |
+| `mix` | baseline, POC | POC, baseline | 5 + 5 | 10 | 1.37 / 46.4, 0.85 / 20.9 | 2, 1 |
+| `netstack` | build | build | 8 / 8 | 8 / 8 | 1.14 / 1.41, 1.36 / 20.2 | 0 / 1 |
+| `v0301` | build | 0.30.1 | 15 / 15 | 15 / 15 | 1.40 / 30.4, 1.15 / 21.2 | 2 / 1 |
+| `multi-v0301` | build, four IPv4 addresses | 0.30.1 | 60 / 60 | 60 / 60 | 1.37 / 22.1, 1.37 / 22.4 | 4 / 4 |
+| `trace-multi` | same, `PION_LOG_TRACE=ice` | 0.30.1 | 40 / 40 | 40 / 40 | 1.35 / 30.1, 1.36 / 23.0 | 3 / 4 |
+
+Pairs are baseline / POC. `same` 17 / 23: Fisher p = 0.38 two-sided.
+
+What the failed attempts are:
+
+- **`same`, `mix`, `netstack`:** every failure event, 19 of 19 on baseline
+  and 27 of 27 on the POC, follows a remote candidate that was dropped
+  because it arrived before the ICE agent existed ("ICE Agent is not
+  initialized yet", `worker_ice.go:186`). That is a signaling-order race in
+  NetBird, outside the mux. Both peers stamp the pair ID here, so the hard
+  stop's exposure does not apply.
+- **`trace-multi`, A controlled:** the POC lost one nomination in 22 trials
+  (1 of 23 nominations). The shape is the one in "Mechanism": host
+  `10.10.1.33` read the only USE-CANDIDATE request, the response to its
+  triggered check reached sibling `10.10.1.31` 1 ms later, and the attempt
+  failed 11 s after; the next one connected. Baseline lost none of 24: there
+  the broadcast copy reaches the srflx conn too. Baseline's two failed
+  controlled trials had no nomination reaching A at all.
+- **The rest** (`v0301`, `multi-v0301`, `trace-multi` with A controlling,
+  baseline's no-nomination trials): the 0.30.1 peer's logs came out empty,
+  so the cause is not known. They occur at similar rates on both builds.
+
+A first count put baseline at 2 lost nominations; both were the second
+broadcast copy of a nomination arriving after the first copy had already
+selected the pair, in trials that connected on the first attempt. The
+counter now ignores copies read after selection.
+
+Candidate types match "What the change does to candidate selection" with real
+clients. In `same`, the controlling side reports a host local candidate in 57
+of 57 POC trials and 1 of 50 baseline trials; the controlled side reports
+srflx in 47 of 48 and 54 of 55.
+
 ## Log
 
 - 2026-10-21 10:56 UTC: branch created from `origin/main` and pushed; baseline
@@ -912,6 +1020,17 @@ them. The suites that exercise the mux and could run here pass.
   on baseline; e2e failures classified against baseline; log rewritten with
   the audit fixes, repetitions and hard stop. The push met nine new
   parallel commits; `-s ours` merge `7643575` (decision 21), then pushed.
+- 14:40 to 16:10 UTC: local NAT lab built (client images, routers, 0.30.1
+  image); lab defects fixed in smoke trials.
+- 15:40 UTC: moved to `work/admiring-planck-1l2xh2` (decision 22).
+- 16:35 UTC: `connectivity-lazy` dispatched twice per commit (runs
+  39636145465, 39636166317, 39636186423, 39636206718), queued on the lab's
+  slot limit; all four passed 4/4, the last at 17:44 UTC.
+- 16:35 to 17:49 UTC: 466 lab trials (`same`, `mix`, `v0301`, `netstack`,
+  `multi-v0301`, then extra `same` and traced `trace-multi`).
+- 18:00 UTC: lab binaries rebuilt from both commits, byte-identical; baseline's
+  two counted lost nominations found to be post-selection copies, counter
+  fixed; "Real clients" written.
 
 ## Resuming: how the e2e data is collected
 
@@ -963,6 +1082,13 @@ artifact's `results/*/result.json` (`.peers[i].peers.details[]` with
   that list gathered candidates are blocked here.
 - **No fix for the hard stop** was tried, in particular not per-candidate
   conns (decision 20).
+- **Kernel mode locally**: this sandbox has no kernel WireGuard, so the local
+  NAT lab covers userspace and netstack only; kernel mode rests on proxbird
+  (the selection's Linux cases and `lazy-cold`).
+- **The local lab has one NAT type** (Linux `MASQUERADE`, no unsolicited
+  inbound) and one OS; the 0.30.1 peer's logs came out empty there, so the
+  failed attempts in which no nomination arrived are unexplained, on both
+  builds.
 
 ## Final report
 
@@ -1005,6 +1131,14 @@ signatures; the fork still stamps `0x8100` and the `cid` extension;
   profiles; recovery, path repair, underlay change, HA and overlapping routes
   with three peers), 0 of 298 initial path snapshots different, and
   `client-tests` passed 60/60 on each commit over three runs.
+- Real clients behind NAT, local lab (userspace and netstack): 228 trials
+  per build and 10 mixed, all P2P, same median time to P2P (1.33 s build
+  against build); 17 against 23 of those 105 trials needed a second ICE
+  attempt (p = 0.38), each after the pre-existing "agent not initialized"
+  candidate drop. Kernel mode
+  cannot run here; proxbird's `connectivity-lazy`, which asserts kernel
+  (`lazy-cold`) and userspace (`lazy-idle`), passed 4/4 in each of two runs
+  per commit. The lab binaries rebuild byte-identical from the two commits.
 - Netstack: the repo's `e2e/agentnetwork` nblink tests pass on the head; both
   embedded clients selected ICE pairs through the mux (`ice_p2p`).
   The rest of the repo `e2e/` tree fails only on infrastructure, identically
@@ -1042,10 +1176,11 @@ signatures; the fork still stamps `0x8100` and the `cid` extension;
   agent whose host conn is shared by two or more candidates of one family
   can lose the peer's only nomination, so that ICE attempt fails and the next
   one connects about 12 s later. Scratch trials with the real v0.30.1 agent:
-  7 of 240 attempts on the POC, 0 of 240 on baseline. In e2e it shows as
-  third ICE attempts on Windows against the reference peers: 4 of 15 Windows
-  samples above 28 s on the POC, 0 of 15 on baseline. Not removable within
-  the mandated design; see "Hard stop".
+  7 of 240 attempts on the POC, 0 of 240 on baseline. With real clients on
+  a four-address Linux host: 1 of 22 controlled trials on the POC, 0 of 24
+  on baseline. In e2e it shows as third ICE attempts on Windows against the
+  reference peers: 4 of 15 Windows samples above 28 s on the POC, 0 of 15 on
+  baseline. Not removable within the mandated design; see "Hard stop".
 
 ### What was not covered
 
@@ -1053,7 +1188,7 @@ See "Not covered / caveats". In short: candidate types and ICE timings only
 from the parallel run's artifact audit (artifacts blocked here), one sample
 per case for those; current-release peers only in scratch unit tests; mobile;
 an e2e run of full pair-ID removal; the Windows loopback candidate (inferred,
-not observed); any fix for the hard stop.
+not observed); kernel mode outside proxbird; any fix for the hard stop.
 
 ### Step 2: upstream pion/ice and dropping the fork
 
