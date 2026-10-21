@@ -145,6 +145,7 @@ normal user, and leaves the host's networking unchanged.
 | Revised POC `make test-unit` | exit 2; 250 passing packages, 9 failing, 137 without tests; no new failing package |
 | `TestNBLinkReachesAgentNetwork` against source-built baseline | pass, 104.031 s package time |
 | Same local netstack e2e against source-built `532e38be` | pass, 104.738 s package time; all 17 nested/leaf assertions pass |
+| Final-source `udpmux` cross-builds | pass with Go 1.26.7 and `CGO_ENABLED=0`: Windows/amd64, Darwin/arm64, Android/arm64 and js/wasm |
 | Forbidden production scope changes | none: `go.mod`, `go.sum`, `universal.go`, and `worker_ice.go` are unchanged from baseline |
 
 The e2e package durations above include setup and cleanup and are single-run
@@ -152,6 +153,11 @@ functional evidence, not repeated ICE timing medians. The source-built combined
 server, proxy and nblink binaries, their hashes, and their runtime images are
 recorded in the local validation evidence. This exercises embedded netstack
 traffic as well as reconnect, TLS verification and browser boundary checks.
+The cross-builds run `go build -p=2 ./client/iface/udpmux` for each target with
+`GOMAXPROCS=2`; they prove package compilation, not runtime behavior or native
+application linking. Logs and source identity are retained under
+`/workspace/scratch/portability-final/`. The earlier FreeBSD cross-build's cgo
+dependency limitation was not rerun; native FreeBSD coverage is in Proxbird.
 
 Infrastructure corrections were made only to disposable validation artifacts:
 normal `/tmp` ownership, the actual UI development libraries, Docker socket
@@ -541,6 +547,61 @@ Artifacts expire 14 days after the runs (2026-11-04).
   `532e38be`.
 - **Full pair-ID removal** (variant R) was measured only at unit level; no
   e2e run of it exists.
+
+## Proxbird evidence for the intermediate source
+
+### Investigated timing differences and stable evidence
+
+These are single-run observations comparing baseline `1e63b68c4dc243a32fef823df1bc024c997a9c60` (run `39588288742`) with intermediate POC `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` (run `39597620276`). They do not validate subsequent lifecycle fixes. Each duration uses one node's clock and includes failed attempts and retry gaps from its first observed ICE dial to first success. This is not application-observed time to P2P or a repeated-run median. All line references below are one-based within the named native log member.
+
+| Episode | Baseline | Intermediate POC | Evidence-supported interpretation |
+| --- | ---: | ---: | --- |
+| Linux modern → legacy 0.30.1, `client-linux-nat-connect-relay` | 0.605 s, one attempt | 29.127 s, three attempts | The legacy peer logs candidates arriving before agent initialization in both failed attempts. Third-attempt candidates follow initialization. |
+| Windows modern → legacy 0.30.1, `client-windows-nat-dns` | 21.182 s, two attempts | 29.053 s, three attempts | Both first attempts reject an early srflx candidate. The POC second attempt is asymmetric despite both peers accepting candidates: legacy connects; Windows times out. Cause remains unresolved. |
+| Original FreeBSD → Linux, `routing-ha-freebsd-linux-nat-router-ha` | 0.605 s, one attempt | 21.149 s, two attempts | Modern Linux discards both candidates before agent initialization. The same ordering problem appears on another baseline edge; the POC's effect on its frequency is unproven. |
+| Reciprocal original Linux → FreeBSD in the same HA episode | 0.603 s, one attempt | 21.147 s, two attempts | This is the reciprocal observation of the preceding episode, not an independent repeat. The later replacement negotiation takes 0.603 s in both runs. |
+
+#### Linux legacy-peer episode
+
+Artifacts: [baseline 12341850071](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742/artifacts/12341850071), [intermediate POC 12345292351](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276/artifacts/12345292351).
+
+Within the baseline artifact, use `results/c539cfea627cd94fe7ca9b96db282128/nodes/peer-{1,2}/client-logs.tar.gz`; within the POC artifact, use `results/5093183f8aa6d7c9ec273288b045ebe7/nodes/peer-{1,2}/client-logs.tar.gz`. The member is `./client.log`.
+
+The modern peer-1 baseline dial starts at line 276 and succeeds at 305 (0.605 s). POC attempts are lines 279–280 → 356–358 (12.031 s, failed/cancelled/Closed), 368–369 → 397–399 (12.031 s, failed/cancelled/Closed), and 449–450 → 462 (0.604 s, success). The two gaps are 2.632 and 1.829 seconds. Signal/management streams are ready before the measured interval (POC lines 131 and 143); relay establishment is logged during the first attempt (278, 283–289), with communication at 302.
+
+On legacy peer-2, the POC first host/srflx callbacks at lines 86/88 each produce an uninitialized-agent warning (87/89) before recreation (93). The second srflx callback at 160 produces the same warning (162) before recreation (165); host arrives after initialization (173). On attempt three, both callbacks follow initialization (217–218), and success appears at 243–250. Baseline callbacks both follow agent creation (89–104). These are concrete ordering differences, not proof of mux transaction misrouting or of their sole causal role. The scenario profile is NAT with expected P2P; the case name's `connect-relay` does not mean forced relay.
+
+#### Windows DNS episode
+
+Artifacts: [baseline 12341942075](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742/artifacts/12341942075), [intermediate POC 12346227132](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276/artifacts/12346227132).
+
+Baseline root: `results/8f1cd61908895d4d1bf2c564624e6905/`; POC root: `results/dda1ce3c600a97362ef7122866fdf8e2/`. Windows uses `nodes/peer-1/client-logs.zip`, member `client.log`; legacy Linux uses `nodes/peer-2/client-logs.tar.gz`, member `./client.log`. Windows timestamps carry `+02:00`; times stated here are normalized to UTC. Durations use Windows's own clock, not subtraction between hosts.
+
+Baseline Windows first dial/failure is lines 239–241 → 286–288; its srflx callback had been rejected before initialization at 215–216. The second dial at 310–318 succeeds at 319–324. POC also rejects an early srflx callback at 215–216 and fails its first dial at 318–320. Its second dial begins at 12:32:25.829 (330–332), gathers local host/srflx (333–335), accepts remote host/srflx at .831 (336–337), and logs four mux address registrations (338–341). Legacy accepts candidates (185–186, 193) and reports success at 12:32:26 (198–204). Windows remains Checking until failure at 12:32:37.854 (363–365). Both connect on attempt three: Windows success at 12:32:42.012 (392–396), legacy success at 267–289.
+
+The second failure cannot be explained solely by the logged candidate-before-initialization problem. Both sides accept candidates, and control/relay readiness already exists. There is no STUN transaction/removal trace to establish a packet-delivery cause. The separately reproduced old-close-watcher bug is a possible mechanism, but this artifact does not prove it occurred: the old agent was Closed at 12:32:24.985, and the watcher would have to remain delayed beyond new registrations at 25.831, about 846 milliseconds. Mux registration logs prove activity at that moment, not persistence afterward. A later lifecycle unit fix does not prove this episode resolved.
+
+The DNS test later restarts Windows. Baseline final diagnostics show Windows Connecting and legacy Relayed, whereas the POC final diagnostics show P2P. These post-test snapshots must remain distinct from successful initial P2P assertions. Initial Windows selected candidate types also differ: baseline host/srflx versus POC host/prflx.
+
+#### Modern routing-HA episode
+
+Artifacts: [baseline 12342674276](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742/artifacts/12342674276), [intermediate POC 12347820615](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276/artifacts/12347820615).
+
+Baseline root: `results/3763cb7c1306ff3dcc5dc2e7bf2a365c/`; POC root: `results/411eea42af760fbc3a6023ac7992e9a3/`. Use `nodes/peer-{1,2}/client-logs.tar.gz`, member `./client.log`. The scenario orders Linux as peer-1 and FreeBSD as peers 2 and 3. Startup lines 68 on peer-1 and 45 on peer-2 show the matching tested `ci-<SHA>` version; neither original peer is legacy.
+
+Baseline original FreeBSD dial/success is lines 234 → 279; reciprocal Linux is 298 → 334. POC original FreeBSD attempt one is 233 → 369–370 (12.123 s), followed by an 8.421-second gap and a 0.605-second success at 391 → 402. Linux's corresponding first attempt is 307 → 421–423 (12.029 s), followed by an 8.513-second gap and a 0.605-second success at 440 → 452.
+
+POC Linux receives remote host at line 291 and srflx at 296, each followed by an uninitialized-agent warning (292/297), before agent creation at 299. [OnRemoteCandidate at immutable POC source](https://github.com/netbirdio/netbird/blob/37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc/client/internal/peer/worker_ice.go#L181-L193) returns before `AddRemoteCandidate` on this nil-agent branch. Thus those particular callbacks are demonstrably discarded. FreeBSD accepts host/srflx after initialization (262/271) and registers mux addresses (263, 270, 272, 279). On the second attempt both sides accept candidates and connect.
+
+This is also an existing baseline ordering problem on another edge: Linux → peer-3 baseline receives srflx at 372, warns at 373, creates its agent at 376, fails at 421–423, then succeeds on retry at 455. Its interval is 20.555 s, with reciprocal 20.557 s. The baseline handler has the same nil-agent return. One execution cannot establish whether the POC changes the occurrence rate.
+
+Peer-2 is later restarted and replaced. The original identity is resolved from initial snapshot FQDN/host address and unique logged interface key/AllowedIPs registration, corroborated by reciprocal sessions; final peer-2 status contains the replacement key. On POC Linux, the original is removed at 1290/1297, replacement added at 1386, and replacement dial/success occurs at 1436 → 1481 (0.603 s), after the original delayed success at 452. This later sample must not be substituted for the reciprocal original negotiation.
+
+#### Coverage limits
+
+The exact 85-case baseline contains 182 source-built modern nodes, 16 reference nodes at 0.30.1, and four at 0.28.9. `reference: current` denotes the source-built client in these artifacts. No separate current-release binary was exercised, so current-release mixed-peer interoperability remains unproven. Kernel/userspace mode is observed through `usesKernelInterface`; embedded/netstack validation is separate from these VM scenarios.
+
+These artifacts do not provide transaction-level proof of one STUN response per request. They also do not establish repeated-run median time to P2P, a live post-run VM/ISO absence audit, or validation of the final lifecycle source. The older-peer and modern candidate-readiness episodes are evidence, not a reason to change the out-of-scope peer worker or to declare the mux responsible. Final-source validation must use its exact pushed SHA and retain these limitations until measured.
 
 ## Final report and remaining acceptance work
 
