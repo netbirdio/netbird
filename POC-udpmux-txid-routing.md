@@ -258,18 +258,22 @@ held across I/O.
    one, and pion removes the ufrag's conns on close. Only after a close timeout
    would two agents share one ufrag, and then they share one muxed conn before
    the mux routes anything; no mux routing can split that (pre-existing).
+   Separately, the old mux's asynchronous close watcher could outlive even a
+   normally completed agent close and remove its replacement. Synchronous,
+   pointer-checked cleanup fixes that tested lifecycle defect in `532e38be`.
 8. `go fmt ./...` on `origin/main` reformats 26 files outside `udpmux`
    (pre-existing). They were reverted, not committed, to stay in scope.
 9. Earlier lint runs lacked GTK/WebKit headers and one hit the two-minute
    timeout. In the resumed disposable container with those headers installed,
    the unmodified `make lint` and `make lint-all` commands both pass with zero
    issues on the revised source.
-10. The session's network policy blocks `datatracker.ietf.org` and
-    `www.rfc-editor.org`, so the RFC sections cited here (RFC 8489 sections 5,
-    14 and 14.7; RFC 8445 sections 6.1.2.4 and 7.3.1.4) were not re-read against
-    the published text. They are cited from knowledge and cross-checked only
-    against pion/stun's own comments (comprehension ranges). Verify before
-    relying on them in a design document.
+10. Direct RFC access was initially blocked. The resumed review verified the
+    published [RFC 8489 section 5](https://www.rfc-editor.org/rfc/rfc8489.html#section-5)
+    header/transaction rules, [section 14](https://www.rfc-editor.org/rfc/rfc8489.html#section-14)
+    comprehension-optional range and [section 14.7](https://www.rfc-editor.org/rfc/rfc8489.html#section-14.7)
+    FINGERPRINT ordering, plus [RFC 8445 section 7.2.5](https://www.rfc-editor.org/rfc/rfc8445.html#section-7.2.5)
+    response processing and mapped-address valid-pair construction. Other RFC
+    section references from the earlier notes were not independently verified.
 11. Direct artifact downloads were blocked by the network policy. The supported
     GitHub artifact download interface does work: all baseline per-case reports,
     native bundles and raw logs have now been downloaded and audited, followed
@@ -287,15 +291,18 @@ held across I/O.
     task lists the reported local candidate type under behavior to record and
     says to call a change such as "srflx shown as host" out explicitly with
     evidence. It is a direct consequence of the mandated response routing
-    (see "What the change does to candidate selection" below), and it changes
-    no packet on the wire. The e2e comparison decides whether anything else
-    differs.
-14. To let the pre-push hook's `make lint` typecheck `client/ui` as CI does,
-    the session installed the packages CI installs
+    (see "What the change does to candidate selection" below). The wire format
+    and fork stay unchanged, but selecting a different candidate can change
+    existing nomination attributes and timing. The e2e comparison must assess
+    those effects separately.
+14. In the earlier parallel environment, letting the pre-push hook's `make
+    lint` typecheck `client/ui` required the packages CI installs
     (`libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libgl1-mesa-dev
     xorg-dev libpcap-dev`) and created the ignored placeholder
     `client/ui/frontend/dist/.embed-placeholder`, as the lint workflow does.
-    `make lint` then passes in the hook. No hook was bypassed.
+    `make lint` then passed in that environment's hook. The resumed checkout
+    has no configured pre-push hook; the required lint commands were run
+    directly in the disposable validation container. No hook was bypassed.
 
 ## What the change does to candidate selection
 
@@ -316,16 +323,19 @@ candidate, and it is still routed by it, so the controlled side keeps reporting
 `srflx` for peers that stamp the attribute. With peers that do not stamp it the
 request goes to the host conn and the controlled side reports `host` too.
 
-Nothing on the wire changes: same socket, same 5-tuple, same WireGuard
-endpoint (taken from the remote candidate). NetBird uses the local candidate
-type only for display (`netbird status -d`, UI, mobile) and debug logs; relay
-detection, route selection and connection priority use the relay flag and the
-remote endpoint. The local endpoint shown becomes the interface address
-instead of the public mapping. proxbird's NAT check accepts srflx or prflx on
-either side, so it still passes when the remote side is reflexive.
+There is no wire-format or fork change. The tested NAT fixtures retain the
+same socket, external 5-tuple and remote WireGuard endpoint. Selecting a
+different candidate can change existing STUN PRIORITY and pair-ID values in
+nomination traffic; packet contents and timing are not claimed identical.
+NetBird uses the reported local candidate type for display (`netbird status
+-d`, UI, mobile) and debug logs; relay detection, route selection and connection
+priority use the relay flag and the remote endpoint. The local endpoint shown
+becomes the interface address instead of the public mapping. Proxbird's NAT
+check accepts srflx or prflx on either side, so it still passes when the remote
+side is reflexive.
 
-Two side effects follow from host conns being shared (pre-existing, not
-caused by the routing):
+Host connections have existing sharing limitations whose exposure expands
+when the POC selects host pairs behind NAT:
 
 - With several host candidates of one family (unspecified bind on a host
   with several interface addresses, common with IPv6), all share the ufrag's
@@ -335,8 +345,9 @@ caused by the routing):
   Baseline already had this for host-host paths (LAN, direct); the POC extends
   host-local selection to NAT paths.
 - udp4 and udp6 srflx candidates share one conn (`GetConnForURL` keys by
-  `ufrag+url` on the v4 map), so the same race exists between them; the review
-  showed srflx-pair success is never lower than on baseline.
+  `ufrag+url` on the v4 map), so the same race exists between them. The earlier
+  review experiment did not observe lower srflx-pair success than baseline;
+  it does not establish that result for every dual-stack configuration.
 
 ## Unit tests (`client/iface/udpmux`)
 
@@ -414,11 +425,11 @@ conventions, security. Acted on in `3539d30` and `c058965`:
 | A request delivered to exactly one conn of the wrong agent passed the trace (mutant rerouting 1 in 3 requests stayed green) | real, minor | trace checks the reader belongs to the USERNAME's agent |
 | Swapping pair ID and USERNAME order for requests changed the controlled side's selection with all tests green | real, minor | `TestUniversalUDPMux_PairIDRouting` |
 | Pair ID fallback for unknown-transaction-ID responses untested (mutant returning nil stayed green) | nit | same test |
-| Record could be added for a conn after `removeConn`/`Close` passed | nit | `record` checks `isClosed` under the tracker lock |
+| Record could be added for a conn after `removeConn`/`Close` passed | initially incomplete fix | The initial `isClosed` check did not cover nonclosing removal; `532e38be` adds the registered-pointer check under `m.mu` and regression tests. |
 | Failed write (overlay refusal) held a slot for the TTL | nit | `forget` on write error; `TestUniversalUDPMux_RefusedWriteIsNotTracked` |
 | `Close` clearing records untested; counts and listings snapshotted separately; `require` used for the condition under test; alias map key; duplicated mux start helper; `pending()` only used by tests | nits | fixed |
-| Dual-stack: udp4 and udp6 srflx candidates share one muxed conn (keyed `ufrag+url` on the v4 map), so a response routed to it is read by the wrong-family candidate about half the time | rejected as a regression (pre-existing, srflx pair success never lower than baseline, host pairs unaffected) | recorded under "Not covered / caveats" |
-| "At most one response per request" not "exactly one" | rejected (any realistic loss is caught by misdelivery or connect failure) | none |
+| Dual-stack: udp4 and udp6 srflx candidates share one muxed conn (keyed `ufrag+url` on the v4 map), so a response routed to it can be read by the wrong-family candidate | pre-existing; the earlier experiment observed no lower srflx-pair success, not a general guarantee | recorded under "Not covered / caveats" |
+| "At most one response per request" not "exactly one" | coverage limit | The trace proves exclusive ownership for observed response reads and at-most-one answer per observed request. ICE connection success does not prove that every request received an answer; some packet loss can coexist with successful ICE. |
 
 The seven mutants the reviewers and I built (order swap, no pair ID
 fallback, queue-based eviction, no `forget`, no `clear`, no closed check,
@@ -530,3 +541,83 @@ Artifacts expire 14 days after the runs (2026-11-04).
   `532e38be`.
 - **Full pair-ID removal** (variant R) was measured only at unit level; no
   e2e run of it exists.
+
+## Final report and remaining acceptance work
+
+The implementation remains entirely in NetBird's mux. Outgoing STUN requests
+register their header transaction ID before sending, and known success/error
+responses go only to that sending connection. Requests retain the existing
+pair-ID preference, then use the USERNAME host connection. Unknown responses
+retain the original fallback. The bounded tracker and connection lifecycle
+fixes cover expiry, removal, replacement, retransmission errors, concurrent
+address registration and shutdown. Production changes are confined to
+`client/iface/udpmux`; the two necessary test-only changes are documented above.
+There is no dependency, pion fork, wire-format, config, flag or security-control
+change.
+
+Real fork agents with NAT connect in the one-, two- and twenty-pair tests,
+including both mixed pair-ID roles and the nomination-before-response ordering
+case. Observed responses reach their exact sending connection, and observed
+requests have at most one answer. These tests do not prove loss-free delivery
+of every check in every network. The repeated virtual-NAT comparison adds 96
+clean POC ownership samples. Lint, the required race suites and the source-built
+local netstack e2e pass on the revised implementation. The completed unit
+comparison has no new failing package, but the full command remains red.
+
+Candidate selection is observably different. In the repeated pair-ID NAT
+fixture, the POC's controlling side selects host/srflx while baseline selects
+srflx/srflx; the controlled side remains srflx/srflx. The local endpoint displayed
+therefore changes. Existing candidate sharing means exact mux-connection
+ownership is narrower than exact candidate ownership. Routing by a mapped
+address to preserve the old display was tested and rejected because it can
+prevent connection when nomination arrives before buffered responses. No such
+workaround or pion modification is part of this branch.
+
+The acceptance conditions are not all met:
+
+- The final source requires its own 85-case Proxbird run. The intermediate
+  `37dab7d` run cannot validate the later `532e38be` lifecycle changes.
+- One workflow per source and topology cannot prove no worse median time to
+  P2P. Repeated local measurements are documented above; the intermediate lab
+  traces include slower episodes as well as faster ones. The Windows DNS
+  asymmetric retry remains unexplained by the available packet-level evidence.
+- Actual current-release binary interoperability is untested. The lab's older
+  references are 0.28.9 and 0.30.1; `reference: current` selects the source build,
+  not a release binary. Scratch baseline-mux tests are narrower coverage.
+- The complete unit command still fails on baseline/environment dependencies,
+  with focused local-proxy corrections reported separately. Mobile runtime
+  coverage and broader multi-interface/dual-stack candidate ownership remain
+  outside the evidence collected here.
+
+The configured shell network policy rejects `api.github.com`. The supported
+GitHub interface can collect runs and artifacts but has no workflow-dispatch
+write. No workflow trigger, repository configuration, network policy or
+credential was changed to create another dispatch route. Once supported Actions
+dispatch access is available, first check for an existing run for the exact
+pushed commit, then use the existing workflow:
+
+```sh
+FINAL_POC_SHA=$(git rev-parse origin/poc/udpmux-txid-routing)
+gh workflow run e2e.yml --repo netbirdio/proxbird-tests --ref main \
+  -f scenario=peer-pairs,client-tests,recovery,connectivity-repair,connectivity-underlay,routing-ha,routing-overlap \
+  -f client_source=netbird-main \
+  -f lab_source=source-build \
+  -f netbird_sha="$FINAL_POC_SHA"
+```
+
+Reuse baseline run 39588288742. Audit the final-source reports and native bundles,
+then repeat comparable timing cases on both sources rather than averaging
+unrelated topologies. Investigate any reproduced slowdown before declaring
+equivalence. Cover an actual current-release binary explicitly. No PR or ticket
+has been created.
+
+Step 2 is separate work: adapt the mux integration to upstream pion/ice v5,
+resolve candidate ownership and nomination when several candidates share a
+connection, and prove requests no longer need the pair-ID preference before
+removing `candidateConnMap`, `0x8100` handling and the `cid` extension. The current
+tests should remain ownership regressions during that migration, augmented by
+multi-interface/dual-stack and mixed-release coverage. Dependency and wire
+changes belong to that later task, after the unresolved acceptance evidence
+above is addressed; this POC does not authorize or implement them. Neither mux
+redirection nor an upstream upgrade alone has been shown to preserve baseline
+candidate types and nomination behavior.
