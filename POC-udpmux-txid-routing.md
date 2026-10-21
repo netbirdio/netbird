@@ -94,8 +94,39 @@ Another writer changed the remote branch after `42b087a4` was pushed. Merge
 `27531b60` and report commit `58046129` retain the earlier `37dab7d` source and
 remove the later fixes from the current remote tree. The final validation must
 therefore use immutable `42b087a4`, not resolve the moving branch name. The
-existing commits and reports remain preserved; source reconciliation will
-follow the final-source evidence.
+existing commits and reports remain preserved. A normal merge now reconciles
+that history while retaining the reproduced lifecycle and candidate-ownership
+fixes. The source must pass its own checks and VM run before acceptance; no
+force push or history rewrite is used. The concurrent report is preserved at
+[58046129](https://github.com/netbirdio/netbird/blob/580461295b3dd052648f8fb16e1b91599537af77/POC-udpmux-txid-routing.md).
+Its setup-convergence table covers the controller's broader assertion phase,
+not ICE negotiation medians: across 85 different cases its reported medians
+are 8.0 s baseline and 8.4 s intermediate POC, with median paired difference
+0.00 s. Native artifact timing and candidate evidence below supersede its
+earlier artifact-access limitations.
+
+### Repeated intermediate-source client tests
+
+All four additional 20-case artifact sets pass their case and integrity audits.
+They still test baseline `1e63b68c` and intermediate `37dab7d`, not the newer
+candidate-ownership fixes.
+
+| Sample | Source | Run |
+| --- | --- | --- |
+| P2 | `37dab7d` | [39608305272](https://github.com/netbirdio/proxbird-tests/actions/runs/39608305272) |
+| B2 | `1e63b68c` | [39608330203](https://github.com/netbirdio/proxbird-tests/actions/runs/39608330203) |
+| B3 | `1e63b68c` | [39608353253](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253) |
+| P3 | `37dab7d` | [39608375543](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543) |
+
+The Linux connect-relay delay does not recur in P2/P3 (0.606/0.605 s). Windows
+DNS repeats its asymmetric second negotiation in P2, but B3 connects in 0.610 s
+in the same intended controlled role and P3 connects in 0.607 s as controlling.
+Both latter runs select a loopback host locally. P3 instead shows an asymmetric
+second negotiation in Windows connect-legacy against v0.28.9: 32.401 s and
+three attempts versus B3's 13.184 s and two. These native observations do not
+establish which mux mechanism caused any VM retry. Evidence, intended-role
+provenance, and complete case tables are retained under
+`/workspace/scratch/proxbird-repeat-client-tests/`.
 
 ## Resumed work (2026-10-21)
 
