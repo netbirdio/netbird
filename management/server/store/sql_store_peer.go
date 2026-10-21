@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -374,7 +375,7 @@ func (s *SqlStore) GetAccountByPeerID(ctx context.Context, peerID string) (*type
 
 func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error) {
 	var peer nbpeer.Peer
-	result := s.db.Select("account_id").Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := s.db.Select("account_id").Take(&peer, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -393,7 +394,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.Model(&peer).Select("account_id").Where(GetKeyQueryCondition(s), peerKey).Take(&accountID)
+	result := s.db.Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).Take(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -482,7 +483,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	}
 
 	var peer nbpeer.Peer
-	result := tx.Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := tx.Take(&peer, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -494,7 +495,6 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	return &peer, nil
 }
 
-// GetAccountPeers retrieves peers for an account.
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
@@ -514,13 +514,168 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 	if macFilter != "" {
 		query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
 	}
-
 	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
 	return peers, nil
+}
+
+// GetAccountPeers retrieves peers for an account.
+func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error) {
+	// main query
+	var peers []*nbpeer.Peer
+	{
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		query := tx.Where("peers.account_id=?", accountID)
+		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
+		query = filters.AsConditions(query)
+		query = pagination.AsScope(query)
+		query = sorting.AsOrderBy(ctx, query)
+
+		if err := query.Distinct().Find(&peers).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
+		}
+	}
+
+	// total number of records
+	var peerCount int64
+	{
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		query := tx.Where("peers.account_id=?", accountID)
+		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
+		query = filters.AsConditions(query)
+
+		if err := query.Table("peers").Select("count(distinct(peers.id))").Count(&peerCount).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get total number of peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get total number of peers from store")
+		}
+	}
+
+	return peers, int(peerCount), nil
+}
+
+type PaginationState struct {
+	Page     int
+	PageSize int
+}
+
+func (p *PaginationState) AsScope(db *gorm.DB) *gorm.DB {
+	// empty pagination state
+	if p.PageSize == 0 {
+		return db
+	}
+	offset := max(p.Page-1, 0) * p.PageSize
+	return db.Offset(offset).Limit(p.PageSize)
+}
+
+type PeerFilters struct {
+	UserId           string
+	GroupIds         []string
+	Connected        *bool
+	ApprovalRequired *bool
+	Os               []string
+	IP               string
+	MAC              string
+	Hostname         string
+	Name             string
+	IsServer         *bool
+	PeersIds         []string
+}
+
+func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
+	if len(f.GroupIds) > 0 {
+		db = db.Joins("join group_peers on peers.id=group_peers.peer_id and peers.account_id=group_peers.account_id").Where("group_peers.group_id in (?)", f.GroupIds)
+	}
+	if f.UserId != "" {
+		db = db.Where("user_id=?", f.UserId)
+	}
+	if f.Connected != nil {
+		db = db.Where("peer_status_connected=?", *f.Connected)
+	}
+	if f.ApprovalRequired != nil {
+		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequired)
+	}
+	if len(f.Os) > 0 {
+		db = db.Where("meta_go_os in (?)", f.Os)
+	}
+	if f.IP != "" {
+		db = db.Where("ip like ? or lower(ipv6) like ?", fmt.Sprintf("%%%s%%", f.IP), fmt.Sprintf("%%%s%%", strings.ToLower(f.IP)))
+	}
+	if f.MAC != "" {
+		db = db.Where("lower(meta_network_addresses) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.MAC)))
+	}
+	if f.Hostname != "" {
+		db = db.Where("lower(meta_hostname) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Hostname)))
+	}
+	if f.Name != "" {
+		db = db.Where("lower(name) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Name)))
+	}
+	if f.IsServer != nil {
+		if *f.IsServer {
+			db = db.Where("(user_id='' or user_id is null)")
+		} else {
+			db = db.Where("user_id<>'' and user_id is not null")
+		}
+	}
+	if len(f.PeersIds) > 0 {
+		db = db.Where("id in (?)", f.PeersIds)
+	}
+
+	return db
+}
+
+type PeerSortByField int
+
+const (
+	PeerSortByName PeerSortByField = iota
+	PeerSortByLastSeen
+	PeerSortByVersion
+)
+
+type OrderBy int
+
+const (
+	AscOrderBy OrderBy = iota
+	DescOrderBy
+)
+
+type PeerSortingKey struct {
+	Field PeerSortByField
+	Order OrderBy
+}
+
+type PeerSorting struct {
+	Fields []PeerSortingKey
+}
+
+func (s *PeerSorting) AsOrderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
+	order := make([]clause.OrderByColumn, 0)
+
+	for _, key := range s.Fields {
+		switch key.Field {
+		case PeerSortByName:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByLastSeen:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByVersion:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "meta_wt_version"}, Desc: key.Order == DescOrderBy})
+		default:
+			log.WithContext(ctx).Warnf("invalid order by column '%v', skipping", key.Field)
+		}
+	}
+
+	// always order/break ties by id asc order
+	order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.id"}, Desc: false})
+	return db.Order(clause.OrderBy{Columns: order})
 }
 
 // GetUserPeers retrieves peers for a user.
@@ -759,7 +914,7 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 	var userID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("user_id").
-		Take(&userID, GetKeyQueryCondition(s), peerKey)
+		Take(&userID, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -780,7 +935,7 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 	var peerID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("id").
-		Where(GetKeyQueryCondition(s), key).
+		Where(keyQueryCondition, key).
 		Limit(1).
 		Scan(&peerID)
 	if result.Error != nil {
