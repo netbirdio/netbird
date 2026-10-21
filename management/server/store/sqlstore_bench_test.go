@@ -22,6 +22,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	nbdb "github.com/netbirdio/netbird/management/internals/shared/db"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -281,10 +282,11 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 		b.Fatalf("failed to migrate database: %v", err)
 	}
 
-	store := &SqlStore{
-		db:   db,
-		pool: pool,
+	conn, err := nbdb.NewConn(context.Background(), db, nbdb.PostgresStoreEngine, pool)
+	if err != nil {
+		b.Fatalf("failed to create connection: %v", err)
 	}
+	store := &SqlStore{conn: conn, db: conn.DB(nil)}
 
 	const (
 		accountID           = "benchmark-account-id"
@@ -527,7 +529,7 @@ func BenchmarkGetAccount(b *testing.B) {
 			}
 		}
 	})
-	store.pool.Close()
+	_ = store.Close(ctx)
 }
 
 func TestAccountEquivalence(t *testing.T) {

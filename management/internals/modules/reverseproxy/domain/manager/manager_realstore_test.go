@@ -99,7 +99,7 @@ func setupDomainTest(t *testing.T) *domainTestEnv {
 	proxyMgr, err := proxymanager.NewManager(testStore, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
 
-	_, err = proxyMgr.Connect(ctx, "proxy-1", "session-1", testCluster, "127.0.0.1", nil, nil)
+	_, err = proxyMgr.Connect(ctx, "proxy-1", "session-1", testCluster, "127.0.0.1", "", nil, nil)
 	require.NoError(t, err)
 
 	resolver := &stubResolver{cnames: make(map[string]string)}
@@ -229,7 +229,7 @@ func TestValidateDomain_UnlocksClusterDerivation(t *testing.T) {
 	require.Error(t, err)
 
 	env.resolver.set("validation.later.example.com", testCluster)
-	env.manager.ValidateDomain(ctx, accountA, accountAUser, created.ID)
+	require.NoError(t, env.manager.ValidateDomain(ctx, accountA, accountAUser, created.ID))
 
 	require.True(t, storedDomain(t, env.store, accountA, "later.example.com").Validated)
 
@@ -286,7 +286,7 @@ func TestValidateDomain_PermissionDeniedDoesNotValidate(t *testing.T) {
 	// a validated domain is the permission check.
 	env.resolver.set("validation.guarded.example.com", testCluster)
 
-	env.manager.ValidateDomain(ctx, accountA, accountAMember, created.ID)
+	assert.Error(t, env.manager.ValidateDomain(ctx, accountA, accountAMember, created.ID), "a caller without permission must be refused")
 
 	stored := storedDomain(t, env.store, accountA, "guarded.example.com")
 	require.NotNil(t, stored)

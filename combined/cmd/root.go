@@ -120,20 +120,15 @@ func execute(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv, servers.metricsServer)
+	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv, servers.signalSrv, servers.metricsServer)
 	wg.Wait()
 	return err
 }
 
 // initializeConfig loads and validates the configuration, then initializes logging.
 func applyServerStoreEnv(storeConfig StoreConfig) {
-	if dsn := storeConfig.DSN; dsn != "" {
-		switch strings.ToLower(storeConfig.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
+	if dsn := storeConfig.DSN; dsn != "" && strings.EqualFold(storeConfig.Engine, "postgres") {
+		os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
 	}
 	if file := storeConfig.File; file != "" {
 		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
@@ -399,7 +394,7 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 	}
 }
 
-func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, metricsServer *sharedMetrics.Metrics) error {
+func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, signalSrv *signalServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
@@ -423,6 +418,10 @@ func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthche
 		if err := mgmtSrv.Stop(); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to close management server: %w", err))
 		}
+	}
+
+	if signalSrv != nil {
+		signalSrv.Stop()
 	}
 
 	if metricsServer != nil {
@@ -754,7 +753,7 @@ func logAgentNetworkConfig(cfg *CombinedConfig) {
 
 // logEnvVars logs all NB_ environment variables that are currently set
 func logEnvVars() {
-	log.Info("=== Environment Variables ===")
+	log.Debug("=== Environment Variables ===")
 	found := false
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, "NB_") {
@@ -766,14 +765,14 @@ func logEnvVars() {
 			} else if strings.Contains(keyLower, "dsn") {
 				value = maskDSNPassword(value)
 			}
-			log.Infof("  %s=%s", key, value)
+			log.Debugf("  %s=%s", key, value)
 			found = true
 		}
 	}
 	if !found {
-		log.Info("  (none set)")
+		log.Debug("  (none set)")
 	}
-	log.Info("=== End Environment Variables ===")
+	log.Debug("=== End Environment Variables ===")
 }
 
 // maskDSNPassword masks the password in a DSN string.

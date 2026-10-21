@@ -305,6 +305,41 @@ func (c *Combined) SnapshotStoreDB(dstDir string) (string, error) {
 	return dst, nil
 }
 
+// Restart stops and starts the combined container, keeping its bind-mounted
+// data dir, and waits for the API again. The host port can change across a
+// restart, so BaseURL and the authenticated client are refreshed. Work that
+// management only does at startup (such as the agent-network cleanup's first
+// pass, or re-evaluating whether instance setup is required) runs again.
+func (c *Combined) Restart(ctx context.Context) error {
+	if err := c.container.Stop(ctx, nil); err != nil {
+		return fmt.Errorf("stop combined container: %w", err)
+	}
+	if err := c.container.Start(ctx); err != nil {
+		return fmt.Errorf("start combined container: %w", err)
+	}
+	host, err := c.container.Host(ctx)
+	if err != nil {
+		return fmt.Errorf("container host: %w", err)
+	}
+	mapped, err := c.container.MappedPort(ctx, nat.Port(combinedHTTPPort))
+	if err != nil {
+		return fmt.Errorf("mapped port: %w", err)
+	}
+	c.BaseURL = fmt.Sprintf("http://%s:%s", host, mapped.Port())
+	if c.PAT != "" {
+		c.api = rest.New(c.BaseURL, c.PAT)
+	}
+	return nil
+}
+
+// NetworkName returns the Docker network the deployment runs on. Peers reach
+// management, signal and relay at the combined server's alias on this network
+// only, so a suite running agents outside the harness, such as in a Kind
+// cluster, attaches them here.
+func (c *Combined) NetworkName() string {
+	return c.network.Name
+}
+
 // Logs returns the combined server container logs, for diagnostics.
 func (c *Combined) Logs(ctx context.Context) string {
 	return containerLogs(ctx, c.container)
