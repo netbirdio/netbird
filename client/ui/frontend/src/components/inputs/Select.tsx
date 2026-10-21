@@ -49,7 +49,7 @@ export function Select<T extends string>({
                         "inline-flex h-[40px] min-w-[160px] items-center gap-2 px-3",
                         "rounded-md border bg-white dark:bg-nb-gray-900",
                         "border-neutral-200 dark:border-nb-gray-700",
-                        "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
+                        "cursor-default text-xs font-semibold text-nb-gray-100 outline-hidden",
                         "hover:border-nb-gray-700 data-[state=open]:border-nb-gray-700 dark:hover:border-nb-gray-600 dark:data-[state=open]:border-nb-gray-600",
                         isFocusVisible &&
                             "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
@@ -64,7 +64,7 @@ export function Select<T extends string>({
                             className={"shrink-0 text-nb-gray-200"}
                         />
                     )}
-                    <span className={"flex-1 truncate text-left"}>{current?.label ?? "—"}</span>
+                    <span className={"flex-1 truncate text-start"}>{current?.label ?? "—"}</span>
                     <ChevronDown
                         size={12}
                         aria-hidden={"true"}
@@ -76,7 +76,7 @@ export function Select<T extends string>({
                 align={"start"}
                 sideOffset={6}
                 className={
-                    "w-[var(--radix-dropdown-menu-trigger-width)] border-nb-gray-850 bg-nb-gray-920"
+                    "w-(--radix-dropdown-menu-trigger-width) border-nb-gray-850 bg-nb-gray-920"
                 }
             >
                 <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as T)}>

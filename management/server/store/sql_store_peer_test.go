@@ -54,7 +54,7 @@ func TestSqlStore_SavePeer(t *testing.T) {
 
 		numOfFields, err := populateFields.PopulateAll(reflectedMetadata)
 		assert.NoError(t, err)
-		assert.Equal(t, 33, numOfFields)
+		assert.Equal(t, 34, numOfFields)
 
 		// save status of non-existing peer
 		peer := &nbpeer.Peer{
@@ -512,7 +512,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthNone, tt.accountID, tt.nameFilter, tt.ipFilter, "")
+			peers, _, err := store.GetAccountPeersPaginated(context.Background(), LockingStrengthNone, tt.accountID, PaginationState{}, PeerFilters{Hostname: tt.nameFilter, IP: tt.ipFilter}, PeerSorting{})
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -555,7 +555,7 @@ func TestSqlStore_GetAccountPeers_FilterByMac(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "", tt.macFilter)
+			peers, _, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, accountID, PaginationState{}, PeerFilters{MAC: tt.macFilter}, PeerSorting{})
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})

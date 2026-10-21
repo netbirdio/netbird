@@ -12,6 +12,7 @@ import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { useDirection } from "@/hooks/useDirection";
 
 // No flag icons: flags represent countries, not languages. https://www.flagsarenotlanguages.com/blog/
 
@@ -21,6 +22,7 @@ const labelFor = (lang: Language): string =>
         : lang.displayName;
 
 export function LanguagePicker() {
+    const dir = useDirection();
     const { t, i18n } = useTranslation();
     const [languages, setLanguages] = useState<Language[]>([]);
     const [open, setOpen] = useState(false);
@@ -100,7 +102,7 @@ export function LanguagePicker() {
                                 "inline-flex h-[40px] min-w-[240px] items-center gap-2 px-3",
                                 "rounded-md border bg-white dark:bg-nb-gray-900",
                                 "border-neutral-200 dark:border-nb-gray-700",
-                                "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
+                                "cursor-default text-xs font-semibold text-nb-gray-100 outline-hidden",
                                 "hover:border-nb-gray-700 data-[state=open]:border-nb-gray-700 dark:hover:border-nb-gray-600 dark:data-[state=open]:border-nb-gray-600",
                                 isFocusVisible &&
                                     "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
@@ -112,7 +114,7 @@ export function LanguagePicker() {
                                 aria-hidden={"true"}
                                 className={"shrink-0 text-nb-gray-200"}
                             />
-                            <span className={"flex-1 truncate text-left"}>
+                            <span className={"flex-1 truncate text-start"}>
                                 {current ? labelFor(current) : "—"}
                             </span>
                             <ChevronDown
@@ -128,7 +130,7 @@ export function LanguagePicker() {
                             align={"start"}
                             sideOffset={6}
                             className={cn(
-                                "w-[var(--radix-popover-trigger-width)]",
+                                "w-(--radix-popover-trigger-width)",
                                 "z-50 rounded-lg border border-nb-gray-850 bg-nb-gray-920 p-1 shadow-lg",
                                 "data-[side=bottom]:origin-top data-[side=top]:origin-bottom",
                                 "data-[state=open]:animate-in",
@@ -143,7 +145,7 @@ export function LanguagePicker() {
                                 loop
                                 className={cn(
                                     "flex flex-col",
-                                    "[&_[cmdk-input-wrapper]]:flex [&_[cmdk-input-wrapper]]:items-center",
+                                    "**:[[cmdk-input-wrapper]]:flex **:[[cmdk-input-wrapper]]:items-center",
                                 )}
                             >
                                 <div className={"px-1 pb-1"}>
@@ -162,13 +164,17 @@ export function LanguagePicker() {
                                             aria-label={t("settings.general.language.search")}
                                             className={cn(
                                                 "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-600 dark:placeholder:text-nb-gray-300",
-                                                "border-none outline-none",
+                                                "border-none outline-hidden",
                                             )}
                                         />
                                     </div>
                                 </div>
 
-                                <ScrollArea.Root type={"auto"} className={"-mx-1 overflow-hidden"}>
+                                <ScrollArea.Root
+                                    dir={dir}
+                                    type={"auto"}
+                                    className={"-mx-1 overflow-hidden"}
+                                >
                                     <ScrollArea.Viewport className={"max-h-64 px-1"}>
                                         <Command.List>
                                             <Command.Empty>
@@ -189,7 +195,7 @@ export function LanguagePicker() {
                                                         value={`${lang.displayName} ${lang.englishName} ${lang.code}`}
                                                         onSelect={() => void select(lang.code)}
                                                         className={cn(
-                                                            "my-0.5 flex cursor-default items-center gap-2 rounded-md px-2 py-2 outline-none",
+                                                            "my-0.5 flex cursor-default items-center gap-2 rounded-md px-2 py-2 outline-hidden",
                                                             "text-xs font-semibold text-nb-gray-200",
                                                             "data-[selected=true]:bg-nb-gray-850 data-[selected=true]:text-nb-gray-50",
                                                         )}
@@ -218,7 +224,7 @@ export function LanguagePicker() {
                                     <ScrollArea.Scrollbar
                                         orientation={"vertical"}
                                         className={cn(
-                                            "flex touch-none select-none transition-colors",
+                                            "flex touch-none transition-colors select-none",
                                             "w-1.5 bg-transparent py-1",
                                         )}
                                     >

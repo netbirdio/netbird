@@ -18,6 +18,7 @@ import (
 	account "github.com/netbirdio/netbird/management/server/account"
 	integrated_validator "github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	peer "github.com/netbirdio/netbird/management/server/peer"
+	store "github.com/netbirdio/netbird/management/server/store"
 	types "github.com/netbirdio/netbird/management/server/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -72,21 +73,6 @@ func (m *MockManager) DeletePeers(ctx context.Context, accountID string, peerIDs
 func (mr *MockManagerMockRecorder) DeletePeers(ctx, accountID, peerIDs, userID, checkConnected any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePeers", reflect.TypeOf((*MockManager)(nil).DeletePeers), ctx, accountID, peerIDs, userID, checkConnected)
-}
-
-// GetAllPeers mocks base method.
-func (m *MockManager) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllPeers", ctx, accountID, userID)
-	ret0, _ := ret[0].([]*peer.Peer)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAllPeers indicates an expected call of GetAllPeers.
-func (mr *MockManagerMockRecorder) GetAllPeers(ctx, accountID, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllPeers", reflect.TypeOf((*MockManager)(nil).GetAllPeers), ctx, accountID, userID)
 }
 
 // GetPeer mocks base method.
@@ -178,6 +164,22 @@ func (m *MockManager) GetPeersByGroupIDs(ctx context.Context, accountID string, 
 func (mr *MockManagerMockRecorder) GetPeersByGroupIDs(ctx, accountID, groupsIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersByGroupIDs", reflect.TypeOf((*MockManager)(nil).GetPeersByGroupIDs), ctx, accountID, groupsIDs)
+}
+
+// GetPeersPaginated mocks base method.
+func (m *MockManager) GetPeersPaginated(ctx context.Context, accountID, userID string, pagination store.PaginationState, filters store.PeerFilters, sorting store.PeerSorting) ([]*peer.Peer, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeersPaginated", ctx, accountID, userID, pagination, filters, sorting)
+	ret0, _ := ret[0].([]*peer.Peer)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetPeersPaginated indicates an expected call of GetPeersPaginated.
+func (mr *MockManagerMockRecorder) GetPeersPaginated(ctx, accountID, userID, pagination, filters, sorting any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersPaginated", reflect.TypeOf((*MockManager)(nil).GetPeersPaginated), ctx, accountID, userID, pagination, filters, sorting)
 }
 
 // SetAccountManager mocks base method.
