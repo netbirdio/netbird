@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/dexidp/dex/storage"
@@ -79,7 +80,7 @@ type EmbeddedIdPConfig struct {
 	DashboardPostLogoutRedirectURIs []string
 	// StaticConnectors are additional connectors to seed during initialization
 	StaticConnectors []dex.Connector
-	// GrantTypes restricts allowed OAuth2 grants; empty means all (Dex default). Omit the
+	// GrantTypes restricts allowed OAuth2 grants; empty means dex.DefaultGrantTypes. Omit the
 	// device_code grant to disable the device flow; keep authorization_code and refresh_token.
 	GrantTypes []string
 }
@@ -169,6 +170,13 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	redirectURIs = append(redirectURIs, cliRedirectURIs...)
 	redirectURIs = append(redirectURIs, dashboardRedirectURIs...)
 
+	// An empty grant list makes Dex enable every supported grant, so fall back to
+	// the minimal set instead. Operators can still opt in to more by setting it.
+	grantTypes := c.GrantTypes
+	if len(grantTypes) == 0 {
+		grantTypes = slices.Clone(dex.DefaultGrantTypes)
+	}
+
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
 		Storage: dex.Storage{
@@ -181,7 +189,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		},
 		OAuth2: dex.OAuth2{
 			SkipApprovalScreen: true,
-			GrantTypes:         c.GrantTypes,
+			GrantTypes:         grantTypes,
 		},
 		Frontend: dex.Frontend{
 			Issuer: "NetBird",

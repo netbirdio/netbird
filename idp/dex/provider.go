@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,11 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to ensure local connector: %w", err)
 	}
 
+	if err := ensureConnectorGrantTypes(ctx, stor); err != nil {
+		stor.Close()
+		return nil, fmt.Errorf("failed to ensure connector grant types: %w", err)
+	}
+
 	// Ensure issuer ends with /oauth2 for proper path mounting
 	issuer := strings.TrimSuffix(config.Issuer, "/")
 	if !strings.HasSuffix(issuer, "/oauth2") {
@@ -118,6 +124,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		Storage:                    stor,
 		SkipApprovalScreen:         true,
 		SupportedResponseTypes:     []string{"code"},
+		AllowedGrantTypes:          slices.Clone(DefaultGrantTypes),
 		ContinueOnConnectorFailure: true,
 		Logger:                     logger,
 		PrometheusRegistry:         prometheus.NewRegistry(),
@@ -240,7 +247,10 @@ func initializeStorage(ctx context.Context, stor storage.Storage, cfg *YAMLConfi
 	if err := ensureStaticClients(ctx, stor, cfg.StaticClients); err != nil {
 		return err
 	}
-	return ensureStaticConnectors(ctx, stor, cfg.StaticConnectors)
+	if err := ensureStaticConnectors(ctx, stor, cfg.StaticConnectors); err != nil {
+		return err
+	}
+	return ensureConnectorGrantTypes(ctx, stor)
 }
 
 // ensureStaticPasswords creates or updates static passwords in storage
