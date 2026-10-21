@@ -3,6 +3,71 @@
 Branch: `poc/udpmux-txid-routing` in `netbirdio/netbird` (no PR, no ticket).
 Progress log, written so the work can be resumed from it.
 
+## Resumed work (2026-10-21)
+
+The mux-only POC continues. The candidate-type difference is reported below;
+it does not justify changing pion/ice in this task. The experimental mapped-
+candidate/remote-affinity implementation was not adopted: a deterministic test
+that holds Binding responses until nomination arrives can prevent it from
+connecting. The request-sender transaction routing passes that ordering test.
+
+The checkout was fast-forwarded from `405edfec` to `f1048acf`, preserving the
+parallel implementation and its merge `37dab7d`. That merge deliberately retained
+the implementation described below. The running Proxbird run tests `37dab7d`;
+later lifecycle fixes need validation at their own source SHA.
+
+Additional regression tests reproduced these defects before the fixes:
+
+| Defect | Evidence and change |
+| --- | --- |
+| Removed connections can register transactions and addresses again | Real socket write after `RemoveConnByUfrag`; registration now verifies the current connection pointer under the same mux mutex as removal |
+| Closing an old connection removes a replacement with the same ufrag | An incoming USERNAME request to the replacement was lost; close cleanup now runs synchronously and removes only matching pointers |
+| Removing one connection erases a surviving connection's fallback address | Two real connections share one remote socket; removal now filters the removed pointers and retains other registrations |
+| Parallel first writes register one connection more than once | Concurrent writers followed by one unknown-ID response; address registration now deduplicates under the mutex |
+| Mux close retains candidate and address state | Close now clears all routing maps and waits for the transaction expiry worker, outside the mux mutex |
+| Idle transactions remain allocated beyond their TTL | A virtual-time test observes the map without sending more packets; a periodic expiry worker releases entries within two TTLs, while lookup rejects them at the TTL |
+| A delayed write error deletes a newer same-connection retransmission | Cleanup now checks the recorded generation as well as the connection pointer |
+| Invalid STUN length headers consume tracker entries | Header-only parsing now checks reserved bits, cookie, declared length and four-byte alignment, without decoding attributes |
+
+The focused lifecycle, tracker, and NAT-agent tests pass with the race detector.
+The added NAT cases cover both mixed pair-ID roles, nomination arriving before
+buffered responses (and assert that responses were actually held), and old-agent
+removal while a surviving agent receives at least three fresh check responses.
+Response assertions still require the exact sending connection.
+
+Two test-only changes outside `udpmux` are necessary for the required race suite:
+
+- `client/iface/bind/ice_bind_test.go`: the existing 500-packet burst saturated
+  default receive buffers (256 IPv4 and 357 IPv6 packets, below the unchanged
+  400-packet threshold). Giving the two test receivers 1 MiB buffers passes ten
+  consecutive race runs; no production buffering or host settings changed.
+- `client/internal/peer/wg_watcher_test.go`: tests now cancel and join watcher
+  goroutines before restoring global timing settings. Previously the next test
+  changed those settings while an old watcher still read them. Both packages
+  pass their full race suites after these test-only fixes.
+
+Two-pass shared-state review checked mutex order, connection identity, write-
+error cleanup, expiry, and shutdown. Mux registration/removal holds `m.mu`
+before the tracker or address-map locks; connection address locks are never
+held while acquiring `m.mu`. Shutdown releases `m.mu` before joining the expiry
+worker or closing connections. The inherited concurrent GetConn/Close window
+and external address-removal-hook/re-registration ordering are not claimed as
+fixed by these tests.
+
+Full repository checks are being repeated in a disposable Ubuntu container
+with the actual GTK/WebKit development libraries, Docker access, and normal
+`/tmp` ownership. Baseline `make lint-all` passes with zero issues. Results from
+the earlier restricted environment in the historical table below are not the
+final validation of the resumed tree.
+
+All 85 baseline Proxbird case artifacts were downloaded and audited: 2,575
+evidence file hashes, 287 complete node diagnostics, 202 native debug bundles
+and TRACE archives, and 85 server runtime identities. All cases passed at
+`1e63b68c4dc243a32fef823df1bc024c997a9c60`; the status candidate fields match
+the native bundle captures. Published case phase durations include work beyond
+ICE and must not be described as time-to-P2P medians. The final comparison will
+distinguish the intermediate `37dab7d` run from later lifecycle fixes.
+
 ## Goal
 
 Step 1 of removing the pion ICE fork (`github.com/netbirdio/ice/v4`): prove that
