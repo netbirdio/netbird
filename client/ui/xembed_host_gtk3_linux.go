@@ -28,7 +28,7 @@ type xembedHost struct {
 
 // run, signalStop and destroy satisfy the calls in tray_watcher_linux.go; all
 // are unreachable on gtk3 because newXembedHost never returns a non-nil host.
-func (*xembedHost) run() bool   { return false }
+func (*xembedHost) run()        {}
 func (*xembedHost) signalStop() {}
 func (*xembedHost) destroy()    {}
 

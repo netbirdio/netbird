@@ -69,20 +69,13 @@ type statusNotifierWatcher struct {
 // RegisterStatusNotifierItem is the D-Bus method called by tray clients.
 // sender is injected by godbus and is not part of the D-Bus signature.
 func (w *statusNotifierWatcher) RegisterStatusNotifierItem(sender dbus.Sender, service string) *dbus.Error {
-	id := itemID(sender, service)
-	if w.addItem(id) {
-		log.Debugf("StatusNotifierWatcher: registered item %q from %s", service, sender)
-
-		if err := w.conn.Emit(watcherPath, watcherIface+".StatusNotifierItemRegistered", id); err != nil {
-			log.Debugf("StatusNotifierWatcher: emitting StatusNotifierItemRegistered failed: %v", err)
-		}
-	}
+	log.Debugf("StatusNotifierWatcher: registered item %q from %s", service, sender)
 
 	// Attempted on every call, not only the first: a client re-registers when
 	// the watcher name changes owner, and that is the chance to host an item
 	// again after its previous host lost the tray.
 	busName, objPath := itemAddress(sender, service)
-	go w.tryStartXembedHost(id, busName, objPath)
+	go w.tryStartXembedHost(itemID(sender, service), busName, objPath)
 	return nil
 }
 
@@ -97,27 +90,27 @@ func itemID(sender dbus.Sender, service string) string {
 	return service
 }
 
-// addItem records the item and publishes the new list, reporting false when the
-// item was already registered.
-func (w *statusNotifierWatcher) addItem(service string) bool {
+// listItem publishes a docked item and announces it. An item is listed exactly
+// while it has a host, because the host is what notices the item leaving the
+// bus: one listed without a host would stay listed after its client exits.
+func (w *statusNotifierWatcher) listItem(id string) {
 	w.itemsMu.Lock()
-	defer w.itemsMu.Unlock()
-
-	for _, s := range w.items {
-		if s == service {
-			return false
-		}
+	if slices.Contains(w.items, id) {
+		w.itemsMu.Unlock()
+		return
 	}
-	w.items = append(w.items, service)
-
+	w.items = append(w.items, id)
 	// Published under the lock so concurrent registrations cannot leave the
 	// property holding an older snapshot than the slice.
-	w.props.SetMust(watcherIface, "RegisteredStatusNotifierItems", append([]string(nil), w.items...))
-	return true
+	w.props.SetMust(watcherIface, "RegisteredStatusNotifierItems", slices.Clone(w.items))
+	w.itemsMu.Unlock()
+
+	if err := w.conn.Emit(watcherPath, watcherIface+".StatusNotifierItemRegistered", id); err != nil {
+		log.Debugf("StatusNotifierWatcher: emitting StatusNotifierItemRegistered failed: %v", err)
+	}
 }
 
-// removeItem forgets an item whose owner left the bus and announces it, so the
-// published list stops naming an item nobody serves any more.
+// removeItem unlists an item whose host has ended and announces it.
 func (w *statusNotifierWatcher) removeItem(id string) {
 	w.itemsMu.Lock()
 	idx := slices.Index(w.items, id)
@@ -190,10 +183,12 @@ func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath d
 		return
 	}
 
+	// Listed before run starts, so a departure noticed at once cannot unlist
+	// the item ahead of the listing and leave it published.
+	w.listItem(id)
 	go func() {
-		itemGone := host.run()
-		w.removeHost(id, host, sessionConn)
-		if itemGone {
+		host.run()
+		if w.removeHost(id, host, sessionConn) {
 			w.removeItem(id)
 		}
 	}()
@@ -235,18 +230,20 @@ func (w *statusNotifierWatcher) addHost(id, busName string, host *xembedHost) bo
 	return true
 }
 
-// removeHost drops the host once its run loop has exited, which happens when
-// the tray manager goes away or a new owner displaces it. The run loop has
-// already released the X resources by then, so only the bus is left. Dropping
-// the entry lets the item be hosted again if it re-registers.
-func (w *statusNotifierWatcher) removeHost(id string, host *xembedHost, conn *dbus.Conn) {
+// removeHost drops the host once its run loop has exited: the item left the
+// bus, the tray manager went away, or a new owner displaced it. The run loop has
+// already released the X resources, so only the bus is left. It reports whether
+// the host was still the item's current one, which a displaced host is not.
+func (w *statusNotifierWatcher) removeHost(id string, host *xembedHost, conn *dbus.Conn) bool {
 	w.hostsMu.Lock()
-	if w.hosts[id] == host {
+	current := w.hosts[id] == host
+	if current {
 		delete(w.hosts, id)
 	}
 	w.hostsMu.Unlock()
 
 	closeBus(conn)
+	return current
 }
 
 // startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher only as a

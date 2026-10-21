@@ -227,10 +227,9 @@ func (h *xembedHost) drawIcon() {
 		(*C.uchar)(cData), C.int(w), C.int(ht))
 }
 
-// run is the event loop: polls X11 events and D-Bus NewIcon signals until
-// stopped. It reports whether it exited because the item left the bus, rather
-// than on a stop or the tray going away, so the watcher can unregister it.
-func (h *xembedHost) run() (itemGone bool) {
+// run is the event loop: polls X11 events and D-Bus NewIcon signals until it is
+// stopped, the tray goes away, or the item leaves the bus.
+func (h *xembedHost) run() {
 	defer h.destroy()
 
 	matchRule := "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon',sender='" + h.busName + "'"
@@ -252,7 +251,7 @@ func (h *xembedHost) run() (itemGone bool) {
 
 	// The item may have left between the icon fetch and the match above.
 	if !h.itemOnBus() {
-		return true
+		return
 	}
 
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -261,7 +260,7 @@ func (h *xembedHost) run() (itemGone bool) {
 	for {
 		select {
 		case <-h.ctx.Done():
-			return false
+			return
 
 		case sig := <-sigCh:
 			switch {
@@ -270,7 +269,7 @@ func (h *xembedHost) run() (itemGone bool) {
 				h.fetchAndDrawIcon()
 			case ownerLeft(sig, h.busName):
 				log.Debugf("xembed: %s left the bus, removing its icon", h.busName)
-				return true
+				return
 			}
 
 		case <-ticker.C:
@@ -292,7 +291,7 @@ func (h *xembedHost) run() (itemGone bool) {
 				}
 			case -1: // tray died
 				log.Info("xembed: tray manager destroyed, cleaning up")
-				return false
+				return
 			}
 		}
 	}
