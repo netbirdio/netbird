@@ -15,7 +15,8 @@ import (
 const accessProbeTimeout = time.Second
 
 // DeniesCaller reports whether the OS refuses this process access to the daemon
-// socket or pipe at addr. It dials once without gRPC.
+// socket or pipe at addr. It dials without gRPC, trying up to two candidate
+// pipe paths on Windows; loopback TCP is never probed.
 func DeniesCaller(ctx context.Context, addr string) bool {
 	ctx, cancel := context.WithTimeout(ctx, accessProbeTimeout)
 	defer cancel()
