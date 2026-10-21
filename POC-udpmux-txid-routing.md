@@ -18,7 +18,9 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
 | Pion fork in `go.mod` | `github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51` (upstream v4.0.10 plus the pair ID, `cid`, prflx-ID and `GetConn(candidateID)` changes) |
 | proxbird harness (`main`) | `a1abca530f93969ad81f11a9683dc6e89171a23c` |
 | e2e selection | `peer-pairs,client-tests,recovery,connectivity-repair,connectivity-underlay,routing-ha,routing-overlap` (85 executions) |
-| Baseline e2e run | [39588288742](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742), dispatched 2026-10-21 10:56 UTC |
+| Baseline e2e run | [39588288742](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742), dispatched 2026-10-21 10:56 UTC, completed 12:06 UTC: **85/85 passed** |
+| POC head for e2e | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` (tree identical to `afdf67f`) |
+| POC e2e run | [39597620276](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276), dispatched 2026-10-21 12:11 UTC, same inputs |
 
 ## What the routing does now (branch head)
 
@@ -98,6 +100,68 @@ held across I/O.
     lines come from job logs fetched through the GitHub MCP server, which reads
     them server-side.
 
+12. **Parallel run on the same branch.** While this run was validating, the
+    branch received three commits from a parallel run of the same task
+    (`553908d`, `b204c66`, `405edfe`, 10:54 to 11:02 UTC). That run measured the
+    same srflx-to-host change on the controlling side, treated it as the
+    hard stop, and could not reach the GitHub API for e2e. The user said to
+    ignore it. Since force-pushing is ruled out, `37dab7d` is an `-s ours`
+    merge: those commits stay in history, none of their files are in the tree.
+13. **The srflx-to-host change is reported, not treated as a hard stop.** The
+    task lists the reported local candidate type under behavior to record and
+    says to call a change such as "srflx shown as host" out explicitly with
+    evidence. It is a direct consequence of the mandated response routing
+    (see "What the change does to candidate selection" below), and it changes
+    no packet on the wire. The e2e comparison decides whether anything else
+    differs.
+14. To let the pre-push hook's `make lint` typecheck `client/ui` as CI does,
+    the session installed the packages CI installs
+    (`libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libgl1-mesa-dev
+    xorg-dev libpcap-dev`) and created the ignored placeholder
+    `client/ui/frontend/dist/.embed-placeholder`, as the lint workflow does.
+    `make lint` then passes in the hook. No hook was bypassed.
+
+## What the change does to candidate selection
+
+Behind NAT, an agent's host and srflx candidates send checks from the same
+socket, so both leave with the srflx mapping as source. The remote looks the
+sender up by address (fork `agent.go:961-977`), finds our srflx candidate, and
+stamps it as the pair ID target of its response (`candidatepair.go:127-135`).
+On baseline that response goes to the srflx conn even when the host conn sent
+the check; pion accepts it there (pending requests are agent-wide,
+`agent.go:1050-1062`) and marks `(srflx, R)` succeeded. `(host, R)` never
+succeeds, so the selected pair is srflx-local.
+
+With transaction-ID routing `(host, R)` succeeds as well. It has the higher
+priority, so the **controlling** agent nominates it and reports local `host`
+where baseline reported `srflx`. The **controlled** agent selects the pair its
+nominating request arrives on; that request's pair ID still names our srflx
+candidate, and it is still routed by it, so the controlled side keeps reporting
+`srflx` for peers that stamp the attribute. With peers that do not stamp it the
+request goes to the host conn and the controlled side reports `host` too.
+
+Nothing on the wire changes: same socket, same 5-tuple, same WireGuard
+endpoint (taken from the remote candidate). NetBird uses the local candidate
+type only for display (`netbird status -d`, UI, mobile) and debug logs; relay
+detection, route selection and connection priority use the relay flag and the
+remote endpoint. The local endpoint shown becomes the interface address
+instead of the public mapping. proxbird's NAT check accepts srflx or prflx on
+either side, so it still passes when the remote side is reflexive.
+
+Two side effects follow from host conns being shared (pre-existing, not
+caused by the routing):
+
+- With several host candidates of one family (unspecified bind on a host
+  with several interface addresses, common with IPv6), all share the ufrag's
+  host conn and each runs its own read loop on it. Which candidate processes a
+  response is a race, so a selected host-local pair can see some of its
+  keepalive responses credited to a sibling pair, updating its RTT less often.
+  Baseline already had this for host-host paths (LAN, direct); the POC extends
+  host-local selection to NAT paths.
+- udp4 and udp6 srflx candidates share one conn (`GetConnForURL` keys by
+  `ufrag+url` on the v4 map), so the same race exists between them; the review
+  showed srflx-pair success is never lower than on baseline.
+
 ## Unit tests (`client/iface/udpmux`)
 
 Real pion agents (the fork in `go.mod`) on NetBird's `UniversalUDPMuxDefault`,
@@ -158,7 +222,10 @@ Every routing test fails, for the reason expected; all agents still connect:
 | `golangci-lint run ./client/iface/udpmux/...` (whole package) | 0 issues |
 | `make test-unit` | same failure set as baseline `1e63b68` run in the same environment: 25 identical `FAIL` lines, none new, none in `udpmux`. All are environmental: testcontainers without Docker (`rootless Docker not found`), `client/ui` without GTK, DNS tests needing real resolvers, `sharedsock` raw sockets, `TestICEBind_OpenDoesNotDiscoverInterfaces` (`Open(0)` returns port 0 in this sandbox) |
 | `go test -race ./client/iface/udpmux/... ./client/iface/bind/... ./client/internal/peer/...` | `udpmux` ok. `bind`: the same `TestICEBind_OpenDoesNotDiscoverInterfaces` environmental failure as baseline. `peer`: a data race between `TestWGWatcher_CheckSuccessCallback`'s leftover goroutine and `TestWGWatcher_EnableWgWatcher` writing package-level `checkPeriod`; reproduces on baseline in 5 of 6 `-race` runs (POC tree 2 of 6), unrelated to the mux, queued as a separate task. `peer/guard`, `peer/ice` ok |
-| `go test -race -count=10 ./client/iface/udpmux/` | ok |
+| `go test -race -count=10 ./client/iface/udpmux/` | ok (also `-count=5` after the review fixes) |
+| After the review fixes (`3539d30`, `c058965`): `go test -tags devcert` over the 66 packages that import `udpmux` | failures only from the baseline set (`TestICEBind_OpenDoesNotDiscoverInterfaces`, `TestModuleStatus`, `TestUpstreamResolver_ServeDNS`, `client/ui` setup) |
+| Cross-builds of `udpmux`: `GOOS=windows/darwin/linux go vet`, `GOOS=js GOARCH=wasm`, `GOOS=android` build | ok. `GOOS=freebsd go vet` fails in `wgctrl` (`wgfreebsd.New` needs cgo), identically on baseline; FreeBSD clients are built natively by proxbird |
+| GitHub workflows on branch push | none triggered (netbird push workflows target `main`/`release-*` only) |
 
 ### Adversarial review (5 lenses, each finding verified by a skeptic)
 
