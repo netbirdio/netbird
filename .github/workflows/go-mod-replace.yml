@@ -1,0 +1,84 @@
+name: go.mod replace directives
+
+on:
+  pull_request:
+    paths:
+      - "go.mod"
+      - ".github/workflows/go-mod-replace.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "go.mod"
+
+permissions:
+  contents: read
+
+jobs:
+  replace-directives:
+    runs-on: ubuntu-latest
+    env:
+      # Replaces that are kept on purpose are reported as notices even when
+      # client/embed compiles them.
+      ALLOWED_REPLACES: github.com/cloudflare/circl
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Report replace directives
+        run: |
+          # Consumers of the embedded client do not inherit replace directives
+          # from this go.mod, so a replace only matters when client/embed compiles
+          # a package from the replaced module. This reports those as warnings and
+          # never fails the build.
+          found=$(awk '
+            /^replace[[:space:]]*\(/ { inblock = 1; next }
+            inblock && /^\)/        { inblock = 0; next }
+            inblock && NF && $1 !~ /^\/\// { print NR "\t" $0; next }
+            /^replace[[:space:]]+[^(]/     { sub(/^replace[[:space:]]+/, ""); print NR "\t" $0 }
+          ' go.mod)
+
+          if [ -z "${found}" ]; then
+            echo "No replace directives in go.mod."
+            exit 0
+          fi
+
+          compiled=$(for os in linux windows darwin freebsd; do
+            GOOS=${os} CGO_ENABLED=0 go list -e -deps \
+              -f '{{with .Module}}{{if .Replace}}{{.Path}}{{end}}{{end}}' ./client/embed 2>/dev/null || true
+          done | sort -u)
+
+          # An empty result means the listing failed, not that nothing is replaced.
+          unknown=""
+          if [ -z "${compiled}" ]; then
+            unknown=1
+            echo "::warning title=replace directives::Could not compute the client/embed dependency set, treating every replace as relevant"
+          fi
+
+          {
+            echo "### go.mod replace directives"
+            echo
+            echo "Replaces compiled into client/embed are not inherited by consumers of the embedded client."
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          while IFS="$(printf '\t')" read -r line directive; do
+            module=${directive%% *}
+            if [ -z "${unknown}" ] && ! printf '%s\n' "${compiled}" | grep -qxF "${module}"; then
+              level=notice; title="replace directive outside client/embed"
+            elif printf ' %s ' "${ALLOWED_REPLACES}" | grep -qF " ${module} "; then
+              level=notice; title="allowed replace directive"
+            else
+              level=warning; title="replace directive used by client/embed"
+            fi
+            echo "::${level} file=go.mod,line=${line},title=${title}::${directive}"
+            echo "- \`${directive}\` (${title})" >> "${GITHUB_STEP_SUMMARY}"
+          done <<EOF
+          ${found}
+          EOF
