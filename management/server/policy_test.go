@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -1422,4 +1425,56 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		})
 
 	})
+}
+
+func TestDefaultAccountManager_SavePolicyUnchangedSkipsWriteButStoresEvent(t *testing.T) {
+	t.Setenv("NB_EVENT_ACTIVITY_LOG_ENABLED", "true")
+
+	am, _, err := createManager(t)
+	require.NoError(t, err)
+
+	_, account, err := initTestGroupAccount(am)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	created, err := am.SavePolicy(ctx, account.Id, groupAdminUserID, &types.Policy{
+		Name:    "unchanged-policy",
+		Enabled: true,
+		Rules: []*types.PolicyRule{{
+			Name:          "rule",
+			Enabled:       true,
+			Sources:       []string{"grp-for-policies"},
+			Destinations:  []string{"grp-for-policies"},
+			Bidirectional: true,
+			Action:        types.PolicyTrafficActionAccept,
+			Protocol:      types.PolicyRuleProtocolALL,
+		}},
+	}, true)
+	require.NoError(t, err)
+
+	networkBefore, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+
+	same := created.Copy()
+	same.PublicID = ""
+	saved, err := am.SavePolicy(ctx, account.Id, groupAdminUserID, same, false)
+	require.NoError(t, err)
+	assert.Equal(t, created.PublicID, saved.PublicID, "unchanged update should return the stored public ID")
+
+	networkAfter, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	assert.Equal(t, networkBefore.Serial, networkAfter.Serial, "unchanged policy update should not bump the network serial")
+
+	assert.Eventually(t, func() bool {
+		events, err := am.eventStore.Get(ctx, account.Id, 0, 100, true)
+		if err != nil {
+			return false
+		}
+		for _, event := range events {
+			if event.Activity == activity.PolicyUpdated && event.TargetID == created.ID {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "unchanged policy update should still store a policy updated event")
 }

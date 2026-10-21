@@ -4,10 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"go.uber.org/mock/gomock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -445,4 +448,57 @@ func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
+}
+
+func Test_UpdateResourceUnchangedSkipsWriteButStoresEvent(t *testing.T) {
+	ctx := context.Background()
+	accountID := "testAccountId"
+	userID := "testAdminId"
+	newResource := func() *types.NetworkResource {
+		return &types.NetworkResource{
+			AccountID:   accountID,
+			NetworkID:   "testNetworkId",
+			Name:        "someNewName",
+			ID:          "testResourceId",
+			Description: "new-description",
+			Address:     "1.2.3.0/24",
+			Enabled:     true,
+		}
+	}
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	var events, propagations int
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		},
+		ExpandAndUpdateAffectedFunc: func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change) {
+			propagations++
+		},
+	}
+	ctrl := gomock.NewController(t)
+	serviceManager := reverseproxy.NewMockManager(ctrl)
+	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil).AnyTimes()
+	manager := NewManager(s, permissions.NewManager(s), groups.NewManagerMock(), &am, serviceManager)
+
+	_, err = manager.UpdateResource(ctx, userID, newResource())
+	require.NoError(t, err)
+	require.Equal(t, 1, events, "first update should store an event")
+	require.Equal(t, 1, propagations, "first update should propagate to peers")
+
+	serialBefore, err := s.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	updated, err := manager.UpdateResource(ctx, userID, newResource())
+	require.NoError(t, err)
+	assert.NotEmpty(t, updated.PublicID, "returned resource should carry the stored public ID")
+	assert.Equal(t, 2, events, "unchanged update should still store an activity event")
+	assert.Equal(t, 1, propagations, "unchanged update should not propagate to peers")
+
+	serialAfter, err := s.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+	assert.Equal(t, serialBefore.Serial, serialAfter.Serial, "unchanged update should not bump the network serial")
 }

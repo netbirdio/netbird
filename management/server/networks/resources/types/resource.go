@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"github.com/rs/xid"
 
@@ -107,6 +108,36 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		GroupIDs:    n.GroupIDs,
 		Enabled:     n.Enabled,
 	}
+}
+
+// Equal reports whether both resources hold the same persisted state, ignoring the
+// order of group IDs. Address is not stored; Type, Domain and Prefix derive from it.
+// PublicID is server-assigned and not compared.
+func (n *NetworkResource) Equal(other *NetworkResource) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	if n.ID != other.ID ||
+		n.NetworkID != other.NetworkID ||
+		n.AccountID != other.AccountID ||
+		n.Name != other.Name ||
+		n.Description != other.Description ||
+		n.Type != other.Type ||
+		n.Domain != other.Domain ||
+		n.Prefix != other.Prefix ||
+		n.Enabled != other.Enabled {
+		return false
+	}
+
+	if len(n.GroupIDs) != len(other.GroupIDs) {
+		return false
+	}
+	groups1 := slices.Clone(n.GroupIDs)
+	groups2 := slices.Clone(other.GroupIDs)
+	slices.Sort(groups1)
+	slices.Sort(groups2)
+	return slices.Equal(groups1, groups2)
 }
 
 func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {

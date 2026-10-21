@@ -224,6 +224,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
+	var unchanged bool
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
 		if err != nil {
@@ -256,6 +257,15 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 		for _, g := range oldGroups {
 			oldResource.GroupIDs = append(oldResource.GroupIDs, g.ID)
+		}
+
+		if resource.Equal(oldResource) {
+			log.WithContext(ctx).Tracef("network resource update skipped because equal to stored one - resource id %s", resource.ID)
+			unchanged = true
+			eventsToStore = append(eventsToStore, func() {
+				m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
+			})
+			return nil
 		}
 
 		err = transaction.SaveNetworkResource(ctx, resource)
@@ -291,6 +301,10 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 	for _, event := range eventsToStore {
 		event()
+	}
+
+	if unchanged {
+		return resource, nil
 	}
 
 	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them

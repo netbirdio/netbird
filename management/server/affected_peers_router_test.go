@@ -353,13 +353,14 @@ func TestAffectedPeers_ResourceSideBridgesToRoutingPeer_DirectRouter(t *testing.
 		}()
 
 		_, err = rm.UpdateResource(ctx, userID, &resourceTypes.NetworkResource{
-			ID:        s.resourceID,
-			AccountID: s.accountID,
-			NetworkID: s.networkID,
-			Name:      "rs-resource-host",
-			Address:   "10.20.30.0/24",
-			GroupIDs:  []string{s.resourceGroupID},
-			Enabled:   true,
+			ID:          s.resourceID,
+			AccountID:   s.accountID,
+			NetworkID:   s.networkID,
+			Name:        "rs-resource-host",
+			Description: "updated",
+			Address:     "10.20.30.0/24",
+			GroupIDs:    []string{s.resourceGroupID},
+			Enabled:     true,
 		})
 		require.NoError(t, err)
 

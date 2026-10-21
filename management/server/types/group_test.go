@@ -88,3 +88,41 @@ func TestRemovePeer(t *testing.T) {
 		assert.Equal(t, 2, len(group.Peers))
 	})
 }
+
+func TestGroupEqual(t *testing.T) {
+	base := &Group{
+		ID:        "g1",
+		AccountID: "acc",
+		Name:      "group",
+		Issued:    GroupIssuedAPI,
+		Peers:     []string{"p1", "p2"},
+		Resources: []Resource{{ID: "r1", Type: ResourceType("host")}, {ID: "r2", Type: ResourceType("domain")}},
+	}
+
+	reordered := base.Copy()
+	reordered.Peers = []string{"p2", "p1"}
+	reordered.Resources = []Resource{{ID: "r2", Type: ResourceType("domain")}, {ID: "r1", Type: ResourceType("host")}}
+	reordered.PublicID = "different"
+	assert.True(t, base.Equal(reordered), "order of peers/resources and public ID should not matter")
+
+	tests := map[string]func(g *Group){
+		"name":        func(g *Group) { g.Name = "other" },
+		"issued":      func(g *Group) { g.Issued = GroupIssuedJWT },
+		"peer added":  func(g *Group) { g.Peers = append(g.Peers, "p3") },
+		"peer swap":   func(g *Group) { g.Peers = []string{"p1", "p3"} },
+		"resource":    func(g *Group) { g.Resources = g.Resources[:1] },
+		"res type":    func(g *Group) { g.Resources[0].Type = ResourceType("subnet") },
+		"integration": func(g *Group) { g.IntegrationReference.ID = 7 },
+		"account":     func(g *Group) { g.AccountID = "other" },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			changed := base.Copy()
+			mutate(changed)
+			assert.False(t, base.Equal(changed), "groups differing by %s should not be equal", name)
+		})
+	}
+
+	assert.True(t, (*Group)(nil).Equal(nil), "two nil groups should be equal")
+	assert.False(t, base.Equal(nil), "group should not equal nil")
+}

@@ -1,6 +1,9 @@
 package types
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/netbirdio/netbird/shared/management/integration_reference"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -88,6 +91,42 @@ func (g *Group) Copy() *Group {
 	copy(group.GroupPeers, g.GroupPeers)
 	copy(group.Resources, g.Resources)
 	return group
+}
+
+// Equal reports whether both groups hold the same persisted state, ignoring the
+// order of peers and resources. PublicID is server-assigned and not compared.
+func (g *Group) Equal(other *Group) bool {
+	if g == nil || other == nil {
+		return g == other
+	}
+
+	if g.ID != other.ID ||
+		g.AccountID != other.AccountID ||
+		g.Name != other.Name ||
+		g.Issued != other.Issued ||
+		g.IntegrationReference != other.IntegrationReference {
+		return false
+	}
+
+	return stringSlicesEqualUnordered(g.Peers, other.Peers) &&
+		resourceSlicesEqualUnordered(g.Resources, other.Resources)
+}
+
+func resourceSlicesEqualUnordered(a, b []Resource) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	cmp := func(x, y Resource) int {
+		if c := strings.Compare(x.ID, y.ID); c != 0 {
+			return c
+		}
+		return strings.Compare(string(x.Type), string(y.Type))
+	}
+	sorted1 := slices.Clone(a)
+	sorted2 := slices.Clone(b)
+	slices.SortFunc(sorted1, cmp)
+	slices.SortFunc(sorted2, cmp)
+	return slices.Equal(sorted1, sorted2)
 }
 
 // HasPeers checks if the group has any peers.

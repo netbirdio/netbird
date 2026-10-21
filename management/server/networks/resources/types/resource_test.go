@@ -53,3 +53,49 @@ func TestGetResourceType(t *testing.T) {
 		})
 	}
 }
+
+func TestNetworkResourceEqual(t *testing.T) {
+	base := &NetworkResource{
+		ID:          "r1",
+		NetworkID:   "n1",
+		AccountID:   "acc",
+		Name:        "resource",
+		Description: "desc",
+		Type:        Subnet,
+		Address:     "10.0.0.0/24",
+		Prefix:      netip.MustParsePrefix("10.0.0.0/24"),
+		GroupIDs:    []string{"g1", "g2"},
+		Enabled:     true,
+	}
+
+	reordered := base.Copy()
+	reordered.GroupIDs = []string{"g2", "g1"}
+	reordered.Address = ""
+	reordered.PublicID = "different"
+	if !base.Equal(reordered) {
+		t.Fatal("group order, address and public ID should not matter")
+	}
+
+	tests := map[string]func(r *NetworkResource){
+		"name":        func(r *NetworkResource) { r.Name = "other" },
+		"description": func(r *NetworkResource) { r.Description = "other" },
+		"enabled":     func(r *NetworkResource) { r.Enabled = false },
+		"network":     func(r *NetworkResource) { r.NetworkID = "n2" },
+		"prefix":      func(r *NetworkResource) { r.Prefix = netip.MustParsePrefix("10.0.1.0/24") },
+		"domain": func(r *NetworkResource) {
+			r.Type, r.Domain, r.Prefix = Domain, "example.com", netip.Prefix{}
+		},
+		"group swap":  func(r *NetworkResource) { r.GroupIDs = []string{"g1", "g3"} },
+		"group added": func(r *NetworkResource) { r.GroupIDs = append(r.GroupIDs, "g3") },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			changed := base.Copy()
+			changed.GroupIDs = append([]string(nil), base.GroupIDs...)
+			mutate(changed)
+			if base.Equal(changed) {
+				t.Errorf("resources differing by %s should not be equal", name)
+			}
+		})
+	}
+}

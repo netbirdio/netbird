@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -870,7 +871,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupA",
-				Name:  "GroupA",
+				Name:  "GroupA renamed",
 				Peers: []string{peer1.ID, peer2.ID},
 			})
 			assert.NoError(t, err)
@@ -879,6 +880,30 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			case <-done:
 			case <-time.After(peerUpdateTimeout):
 				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Saving a linked group without changes should not update account peers
+		step(t, "saving unchanged linked group", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
+				ID:    "groupA",
+				Name:  "GroupA renamed",
+				Peers: []string{peer2.ID, peer1.ID},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 			}
 		})
 
@@ -941,7 +966,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupC",
-				Name:  "GroupC",
+				Name:  "GroupC renamed",
 				Peers: []string{peer1.ID, peer3.ID},
 			})
 			assert.NoError(t, err)
@@ -1518,4 +1543,44 @@ func TestGroupsBatchAccountPeersUpdate(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestDefaultAccountManager_UpdateGroupUnchangedSkipsWrite(t *testing.T) {
+	am, _, err := createManager(t)
+	require.NoError(t, err)
+
+	_, account, err := initTestGroupAccount(am)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	stored, err := am.Store.GetGroupByID(ctx, store.LockingStrengthNone, account.Id, "grp-for-policies")
+	require.NoError(t, err)
+
+	networkBefore, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+
+	same := &types.Group{
+		ID:                   stored.ID,
+		Name:                 stored.Name,
+		Issued:               stored.Issued,
+		Peers:                slices.Clone(stored.Peers),
+		Resources:            slices.Clone(stored.Resources),
+		IntegrationReference: stored.IntegrationReference,
+	}
+	require.NoError(t, am.UpdateGroup(ctx, account.Id, groupAdminUserID, same))
+	assert.Equal(t, stored.PublicID, same.PublicID, "unchanged update should return the stored public ID")
+
+	require.NoError(t, am.UpdateGroups(ctx, account.Id, groupAdminUserID, []*types.Group{same.Copy()}))
+
+	networkAfter, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	assert.Equal(t, networkBefore.Serial, networkAfter.Serial, "unchanged group update should not bump the network serial")
+
+	renamed := same.Copy()
+	renamed.Name = "Group for policies renamed"
+	require.NoError(t, am.UpdateGroup(ctx, account.Id, groupAdminUserID, renamed))
+
+	networkAfter, err = am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	assert.Greater(t, networkAfter.Serial, networkBefore.Serial, "changed group update should bump the network serial")
 }

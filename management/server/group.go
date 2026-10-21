@@ -137,6 +137,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
+	var unchanged bool
 	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -152,6 +153,13 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
+		}
+
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			newGroup.PublicID = oldGroup.PublicID
+			unchanged = true
+			return nil
 		}
 
 		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
@@ -191,6 +199,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
+	}
+
+	if unchanged {
+		return nil
 	}
 
 	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
@@ -359,6 +371,11 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		newGroup.PublicID = oldGroup.PublicID
 
 		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			return nil
+		}
 
 		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
