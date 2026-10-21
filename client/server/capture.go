@@ -111,18 +111,11 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 		return status.Errorf(codes.Internal, "create capture session: %v", err)
 	}
 
-	engine, err := s.claimCapture(sess)
+	engine, err := s.claimCapture(sess, func() { pw.Close() })
 	if err != nil {
 		sess.Stop()
 		pw.Close()
 		return err
-	}
-
-	if err := engine.SetCapture(sess); err != nil {
-		s.releaseCapture(sess)
-		sess.Stop()
-		pw.Close()
-		return status.Errorf(codes.Internal, "set capture: %v", err)
 	}
 
 	// Send an empty initial message to signal that the capture was accepted.
@@ -186,14 +179,15 @@ func streamToGRPC(r io.Reader, stream proto.DaemonService_StartCaptureServer) er
 // never called (e.g. CLI crash).
 func (s *Server) StartBundleCapture(_ context.Context, req *proto.StartBundleCaptureRequest) (*proto.StartBundleCaptureResponse, error) {
 	s.mutex.Lock()
+	// Registered before the unlock so it runs after it: the eviction teardown
+	// waits on the evicted session's writer and must not hold s.mutex.
+	stopEvicted := func() {}
+	defer func() { stopEvicted() }()
 	defer s.mutex.Unlock()
 
 	s.stopBundleCaptureLocked()
 	s.cleanupBundleCapture()
-
-	if s.activeCapture != nil {
-		return nil, status.Error(codes.FailedPrecondition, "another capture is already running")
-	}
+	stopEvicted = s.evictActiveCaptureLocked()
 
 	engine, err := s.getCaptureEngineLocked()
 	if err != nil {
@@ -304,29 +298,75 @@ func (s *Server) cleanupBundleCapture() {
 	s.bundleCapture = nil
 }
 
-// claimCapture reserves the engine's capture slot for sess. Returns
-// FailedPrecondition if another capture is already active.
-func (s *Server) claimCapture(sess *capture.Session) (*internal.Engine, error) {
+// claimCapture reserves the engine's capture slot for sess and installs sess on
+// the engine. If another capture is already running it is evicted: a previous
+// streaming session whose gRPC client died and never freed the slot stays stuck
+// otherwise, and a bundle capture is just informational state. The returned
+// engine already has sess installed; the caller must not install it again.
+func (s *Server) claimCapture(sess *capture.Session, cancel func()) (*internal.Engine, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	stopEvicted := s.evictActiveCaptureLocked()
+	engine, err := s.installCaptureLocked(sess, cancel)
+	s.mutex.Unlock()
 
-	if s.activeCapture != nil {
-		return nil, status.Error(codes.FailedPrecondition, "another capture is already running")
+	// Waits for the evicted session's writer, so it must run outside s.mutex.
+	stopEvicted()
+
+	if err != nil {
+		return nil, err
 	}
+	return engine, nil
+}
+
+// installCaptureLocked installs sess on the engine and records it as the slot's
+// owner, so no other claim can interleave between the two. On failure the slot
+// is left unowned. Caller must hold mutex.
+func (s *Server) installCaptureLocked(sess *capture.Session, cancel func()) (*internal.Engine, error) {
 	engine, err := s.getCaptureEngineLocked()
 	if err != nil {
 		return nil, err
 	}
+	if err := engine.SetCapture(sess); err != nil {
+		return nil, status.Errorf(codes.Internal, "set capture: %v", err)
+	}
 	s.activeCapture = sess
+	s.activeCaptureCancel = cancel
 	return engine, nil
 }
 
-// releaseCapture clears the active-capture owner if it still matches sess.
-func (s *Server) releaseCapture(sess *capture.Session) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.activeCapture == sess {
-		s.activeCapture = nil
+// evictActiveCaptureLocked releases the engine's capture slot from whatever
+// capture currently owns it so a fresh claim can succeed, and returns the rest
+// of that teardown as a function. The returned function is never nil, is safe
+// to call more than once, and blocks until the evicted session's writer
+// goroutine has exited, so the caller must run it only after releasing
+// s.mutex. Caller must hold mutex.
+func (s *Server) evictActiveCaptureLocked() func() {
+	if s.activeCapture == nil {
+		return func() {}
+	}
+	if s.bundleCapture != nil && s.bundleCapture.sess == s.activeCapture {
+		log.Infof("evicting running bundle capture to start a new capture")
+		s.stopBundleCaptureLocked()
+		return func() {}
+	}
+	log.Infof("evicting previous streaming capture to start a new one")
+	prev := s.activeCapture
+	cancel := s.activeCaptureCancel
+	if engine, err := s.getCaptureEngineLocked(); err == nil {
+		if err := engine.SetCapture(nil); err != nil {
+			log.Debugf("clear previous capture: %v", err)
+		}
+	}
+	s.activeCapture = nil
+	s.activeCaptureCancel = nil
+	return func() {
+		// Close the output pipe before waiting: Stop waits for the writer
+		// goroutine, which stays blocked in a write for as long as the reader
+		// side is open and not draining.
+		if cancel != nil {
+			cancel()
+		}
+		prev.Stop()
 	}
 }
 
@@ -341,6 +381,7 @@ func (s *Server) clearCaptureIfOwner(sess *capture.Session, engine *internal.Eng
 		log.Debugf("clear capture: %v", err)
 	}
 	s.activeCapture = nil
+	s.activeCaptureCancel = nil
 }
 
 func (s *Server) getCaptureEngineLocked() (*internal.Engine, error) {

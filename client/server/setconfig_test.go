@@ -63,6 +63,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	rosenpassPermissive := true
 	serverSSHAllowed := true
 	remoteJobsAllowed := true
+	serverVNCAllowed := true
+	disableVNCApproval := true
 	interfaceName := "utun100"
 	wireguardPort := int64(51820)
 	preSharedKey := "test-psk"
@@ -90,6 +92,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		RosenpassPermissive:  &rosenpassPermissive,
 		ServerSSHAllowed:     &serverSSHAllowed,
 		RemoteJobsAllowed:    &remoteJobsAllowed,
+		ServerVNCAllowed:     &serverVNCAllowed,
+		DisableVNCApproval:   &disableVNCApproval,
 		InterfaceName:        &interfaceName,
 		WireguardPort:        &wireguardPort,
 		OptionalPreSharedKey: &preSharedKey,
@@ -140,6 +144,10 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, serverSSHAllowed, *cfg.ServerSSHAllowed)
 	require.NotNil(t, cfg.RemoteJobsAllowed)
 	require.Equal(t, remoteJobsAllowed, *cfg.RemoteJobsAllowed)
+	require.NotNil(t, cfg.ServerVNCAllowed)
+	require.Equal(t, serverVNCAllowed, *cfg.ServerVNCAllowed)
+	require.NotNil(t, cfg.DisableVNCApproval)
+	require.Equal(t, disableVNCApproval, *cfg.DisableVNCApproval)
 	require.Equal(t, interfaceName, cfg.WgIface)
 	require.Equal(t, int(wireguardPort), cfg.WgPort)
 	require.Equal(t, preSharedKey, cfg.PreSharedKey)
@@ -195,6 +203,8 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"RosenpassPermissive":           true,
 		"ServerSSHAllowed":              true,
 		"RemoteJobsAllowed":             true,
+		"ServerVNCAllowed":              true,
+		"DisableVNCApproval":            true,
 		"InterfaceName":                 true,
 		"WireguardPort":                 true,
 		"OptionalPreSharedKey":          true,
@@ -257,6 +267,8 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"rosenpass-permissive":              "RosenpassPermissive",
 		"allow-server-ssh":                  "ServerSSHAllowed",
 		"allow-remote-jobs":                 "RemoteJobsAllowed",
+		"allow-server-vnc":                  "ServerVNCAllowed",
+		"disable-vnc-approval":              "DisableVNCApproval",
 		"interface-name":                    "InterfaceName",
 		"wireguard-port":                    "WireguardPort",
 		"preshared-key":                     "OptionalPreSharedKey",

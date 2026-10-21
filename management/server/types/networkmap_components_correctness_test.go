@@ -1412,3 +1412,44 @@ func TestPeerSSHEnabledFromPolicies_MatchesMap_Sweep(t *testing.T) {
 		assertSSHEquivalence(t, account, peerID, validatedPeers)
 	}
 }
+
+// The bidirectional shape is the one the three SSH deciders can disagree on:
+// Calculate walks ApplyResolvedRuleToState, the components sync path walks
+// ruleEnablesSSHForPeer, and the login/register path walks
+// PeerSSHEnabledFromPolicies. Every other case in this file sets
+// Bidirectional:false or omits it, so none of them exercise the source side.
+func TestPeerSSHEnabledFromPolicies_MatchesMap_BidirectionalNetbirdSSH(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+	// A member, so the rule authorizes somebody: with an empty group every map
+	// carries no users either way, and the source-side assertion below could
+	// not fail.
+	account.Users["user-dev"] = &types.User{Id: "user-dev", Role: types.UserRoleUser, AccountID: "test-account", AutoGroups: []string{"ssh-users"}}
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-bidi", Name: "SSH Access", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-bidi", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Bidirectional: true,
+			Sources:       []string{"group-0"}, Destinations: []string{"group-1"},
+			AuthorizedGroups: map[string][]string{"ssh-users": {"root"}},
+		}},
+	})
+
+	// peer-0 is source-only, peer-10 is destination-only.
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+
+	sourceOnly := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, sourceOnly)
+	assert.False(t, sourceOnly.EnableSSH,
+		"a bidirectional netbird-ssh rule must not enable SSH on its source-side peer")
+	assert.Empty(t, sourceOnly.AuthorizedUsers,
+		"a source-side peer must carry no authorized users")
+
+	destination := componentsNetworkMap(account, "peer-10", validatedPeers)
+	require.NotNil(t, destination)
+	assert.True(t, destination.EnableSSH, "the destination-side peer must have SSH enabled")
+	assert.NotEmpty(t, destination.AuthorizedUsers["root"],
+		"the destination-side peer must carry the group's user, or the source-side check proves nothing")
+}

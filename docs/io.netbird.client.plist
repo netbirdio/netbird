@@ -63,6 +63,12 @@
     <true/>
 
     <!--
+    <key>allowServerVNC</key>
+    <true/>
+
+    <key>disableVNCApproval</key>
+    <false/>
+
     <key>disableAutoConnect</key>
     <false/>
 

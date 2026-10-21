@@ -21,6 +21,8 @@ type NetworkMap struct {
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
 	AuthorizedUsers     map[string]map[string]struct{}
+	VNCAuthorizedUsers  map[string]map[string]struct{}
+	VNCSessionPubKeys   []VNCSessionPubKey
 	EnableSSH           bool
 	// ForceRoutingPeerDNSResolution forces the peer to run/use routing-peer DNS
 	// resolution regardless of the account-global setting, for reverse-proxy

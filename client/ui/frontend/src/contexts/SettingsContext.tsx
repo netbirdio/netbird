@@ -25,7 +25,12 @@ export type AutostartState = { supported: boolean; enabled: boolean };
 // GuardedField is a setting the daemon only accepts from root/administrator.
 // Turning one on goes through saveGuardedField, which asks the operating system
 // for the privileges rather than sending a request that would be refused.
-export type GuardedField = "serverSshAllowed" | "enableSshRoot" | "disableSshAuth";
+export type GuardedField =
+    | "serverSshAllowed"
+    | "enableSshRoot"
+    | "disableSshAuth"
+    | "serverVncAllowed"
+    | "disableVncApproval";
 
 type SettingsContextValue = {
     config: Config;

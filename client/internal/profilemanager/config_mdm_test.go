@@ -149,6 +149,32 @@ func TestApply_MDMBoolKeysOverrideOnDiskValue(t *testing.T) {
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyRosenpassEnabled))
 }
 
+func TestApply_MDMVNCKeys(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.json")
+
+	// Seed without MDM: VNC off, approval prompt on.
+	configWithMDM(t, ConfigInput{
+		ConfigPath:         tmp,
+		ServerVNCAllowed:   boolPtr(false),
+		DisableVNCApproval: boolPtr(false),
+	}, mdm.NewPolicy(nil))
+
+	// MDM enforces VNC on and disables the approval prompt.
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: tmp,
+	}, mdm.NewPolicy(map[string]any{
+		mdm.KeyAllowServerVNC:     true,
+		mdm.KeyDisableVNCApproval: true,
+	}))
+
+	require.NotNil(t, cfg.ServerVNCAllowed)
+	assert.True(t, *cfg.ServerVNCAllowed, "MDM override should flip on-disk false to true")
+	require.NotNil(t, cfg.DisableVNCApproval)
+	assert.True(t, *cfg.DisableVNCApproval)
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyAllowServerVNC))
+	assert.True(t, cfg.Policy().HasKey(mdm.KeyDisableVNCApproval))
+}
+
 func TestApply_MDMLocalMetrics(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "config.json")
 

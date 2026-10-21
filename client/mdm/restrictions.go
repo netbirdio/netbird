@@ -14,6 +14,8 @@ type Fields struct {
 	DisableClientRoutes      bool   `json:"disableClientRoutes"`
 	DisableServerRoutes      bool   `json:"disableServerRoutes"`
 	AllowServerSSH           *bool  `json:"allowServerSSH"`
+	AllowServerVNC           *bool  `json:"allowServerVNC"`
+	DisableVNCApproval       bool   `json:"disableVNCApproval"`
 	DisableAutoConnect       bool   `json:"disableAutoConnect"`
 	DisableAutostart         bool   `json:"disableAutostart"`
 	BlockInbound             bool   `json:"blockInbound"`
@@ -62,8 +64,12 @@ func BuildRestrictions(policy *Policy) Restrictions {
 	r.MDM.SplitTunnelMode = policy.HasKey(KeySplitTunnelMode)
 	r.MDM.SplitTunnelApps = policy.HasKey(KeySplitTunnelApps)
 	r.MDM.RemoteJobsAllowed = policy.HasKey(KeyRemoteJobsAllowed)
+	r.MDM.DisableVNCApproval = policy.HasKey(KeyDisableVNCApproval)
 	if v, ok := policy.GetBool(KeyAllowServerSSH); ok {
 		r.MDM.AllowServerSSH = &v
+	}
+	if v, ok := policy.GetBool(KeyAllowServerVNC); ok {
+		r.MDM.AllowServerVNC = &v
 	}
 	if v, ok := policy.GetBool(KeyDisableAdvancedView); ok {
 		r.MDM.DisableAdvancedView = &v

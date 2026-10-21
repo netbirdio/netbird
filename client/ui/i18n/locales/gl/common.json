@@ -1376,22 +1376,22 @@
     "error.elevation_failed": {
         "message": "O cambio non se puido aplicar con privilexios elevados. Execute isto no seu lugar:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "privilexios de administrador"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.hint": {
         "message": "Require {actor}. Execute isto no seu lugar:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "Pode desactivalo, pero para volvelo activar requírese {actor}:"
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "Pode activalo, pero para volvelo desactivar requírese {actor}:"
     },
-    "settings.ssh.privilege.authorizePending": {
+    "settings.privilege.authorizePending": {
         "message": "Agardando pola autorización…"
     }
 }

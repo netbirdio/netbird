@@ -66,6 +66,8 @@ type ConfigInput struct {
 	PreSharedKey                  *string
 	ServerSSHAllowed              *bool
 	RemoteJobsAllowed             *bool
+	ServerVNCAllowed              *bool
+	DisableVNCApproval            *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -123,6 +125,8 @@ type Config struct {
 	RosenpassPermissive           bool
 	ServerSSHAllowed              *bool
 	RemoteJobsAllowed             *bool
+	ServerVNCAllowed              *bool
+	DisableVNCApproval            *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -362,6 +366,8 @@ func (config *Config) resolveUnsetDefaults() (updated bool) {
 		// Remote jobs are an explicit opt-in: unlike SSH, a pre-existing config
 		// with no value defaults to disabled rather than being turned on.
 		&config.RemoteJobsAllowed,
+		&config.ServerVNCAllowed,
+		&config.DisableVNCApproval,
 	} {
 		if *field == nil {
 			*field = util.False()
@@ -615,6 +621,26 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("disabling SSH server")
 		}
 		config.ServerSSHAllowed = input.ServerSSHAllowed
+		updated = true
+	}
+
+	if input.ServerVNCAllowed != nil && *input.ServerVNCAllowed != *config.ServerVNCAllowed {
+		if *input.ServerVNCAllowed {
+			log.Infof("enabling VNC server")
+		} else {
+			log.Infof("disabling VNC server")
+		}
+		config.ServerVNCAllowed = input.ServerVNCAllowed
+		updated = true
+	}
+
+	if input.DisableVNCApproval != nil && *input.DisableVNCApproval != *config.DisableVNCApproval {
+		if *input.DisableVNCApproval {
+			log.Infof("disabling VNC connection approval prompt")
+		} else {
+			log.Infof("enabling VNC connection approval prompt")
+		}
+		config.DisableVNCApproval = input.DisableVNCApproval
 		updated = true
 	}
 
@@ -898,6 +924,8 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 
 	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
 	applyBool(mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
+	applyBool(mdm.KeyAllowServerVNC, func(v bool) { bv := v; config.ServerVNCAllowed = &bv })
+	applyBool(mdm.KeyDisableVNCApproval, func(v bool) { bv := v; config.DisableVNCApproval = &bv })
 	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
 	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
 	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
