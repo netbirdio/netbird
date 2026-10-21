@@ -23,8 +23,7 @@ func daemonConnectError(err error) error {
 	if errors.Is(err, errDaemonAccessDenied) {
 		return err
 	}
-	//nolint
-	return fmt.Errorf("failed to connect to daemon error: %v\n"+
+	return fmt.Errorf("failed to connect to daemon error: %w\n"+
 		"If the daemon is not running please run: "+
 		"\nnetbird service install \nnetbird service start\n", err)
 }
