@@ -3803,7 +3803,7 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 
 // peerUpdateTimeout bounds how long peerShouldReceiveUpdate and its outer
 // wrappers wait for an expected update message. Sized for slow CI runners
-// (MySQL, FreeBSD, loaded sqlite) where the channel publish can take
+// (FreeBSD, loaded sqlite) where the channel publish can take
 // seconds. Only runs down on failure; passing tests return immediately
 // when the channel delivers.
 const peerUpdateTimeout = 5 * time.Second
@@ -4498,6 +4498,27 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 		assert.Contains(t, err.Error(), "not within the account network range", "error should mention network range")
 	})
 
+	t.Run("update peer IP to reserved address should fail", func(t *testing.T) {
+		account, err := manager.Store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err, "unable to get account")
+
+		network := account.Network.Net
+		broadcast := make(net.IP, len(network.IP.To4()))
+		for i := range broadcast {
+			broadcast[i] = network.IP.To4()[i] | ^network.Mask[i]
+		}
+		broadcastIP, ok := netip.AddrFromSlice(broadcast)
+		require.True(t, ok, "unable to parse broadcast IP")
+		networkIP, ok := netip.AddrFromSlice(network.IP.To4())
+		require.True(t, ok, "unable to parse network IP")
+
+		for _, reserved := range []netip.Addr{networkIP, broadcastIP.Prev(), broadcastIP} {
+			err = manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, reserved)
+			require.Error(t, err, "should fail for reserved IP %s", reserved)
+			assert.Contains(t, err.Error(), "is reserved", "error should mention reserved IP")
+		}
+	})
+
 	t.Run("update peer IP with invalid peer ID should fail", func(t *testing.T) {
 		newAddr := netip.MustParseAddr("100.64.0.101")
 		err := manager.UpdatePeerIP(context.Background(), accountID, userID, "invalid-peer-id", newAddr)
@@ -5012,4 +5033,28 @@ func TestUpdateUserAuthWithSingleMode(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "query failed")
 	})
+}
+
+func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	ctx := context.Background()
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	account, err := manager.Store.GetAccount(ctx, accountID)
+	require.NoError(t, err, "unable to get account")
+	require.NoError(t, manager.Store.DeleteAccount(ctx, account), "unable to delete account")
+
+	jobs := map[string]func() (time.Duration, bool){
+		"login":      manager.peerLoginExpirationJob(ctx, accountID),
+		"inactivity": manager.peerInactivityExpirationJob(ctx, accountID),
+	}
+	for name, job := range jobs {
+		t.Run(name, func(t *testing.T) {
+			_, reschedule := job()
+			assert.False(t, reschedule, "job must not reschedule for a deleted account")
+		})
+	}
 }

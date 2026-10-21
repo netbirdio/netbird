@@ -1037,6 +1037,27 @@ func (e ServiceRequestMode) Valid() bool {
 	}
 }
 
+// Defines values for ServiceTargetAccessAction.
+const (
+	ServiceTargetAccessActionBlock   ServiceTargetAccessAction = "block"
+	ServiceTargetAccessActionBypass  ServiceTargetAccessAction = "bypass"
+	ServiceTargetAccessActionInherit ServiceTargetAccessAction = "inherit"
+)
+
+// Valid indicates whether the value is a known member of the ServiceTargetAccessAction enum.
+func (e ServiceTargetAccessAction) Valid() bool {
+	switch e {
+	case ServiceTargetAccessActionBlock:
+		return true
+	case ServiceTargetAccessActionBypass:
+		return true
+	case ServiceTargetAccessActionInherit:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceTargetProtocol.
 const (
 	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
@@ -1671,6 +1692,9 @@ type AccountSettings struct {
 
 	// PeerExposeGroups Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
 	PeerExposeGroups []string `json:"peer_expose_groups"`
+
+	// PeerHostnameCollisionRejected When enabled, registering or renaming a peer to a hostname already used by another peer in the account fails instead of receiving an IP-based suffix. Applies to ephemeral peers as well.
+	PeerHostnameCollisionRejected *bool `json:"peer_hostname_collision_rejected,omitempty"`
 
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
@@ -2894,6 +2918,9 @@ type EDRFalconRequest struct {
 	// Secret CrowdStrike API client secret
 	Secret string `json:"secret"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
 	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
 	ZtaScoreThreshold int `json:"zta_score_threshold"`
 }
@@ -2924,6 +2951,9 @@ type EDRFalconResponse struct {
 	// LastSyncedAt Timestamp of when the integration was last synced.
 	LastSyncedAt time.Time `json:"last_synced_at"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -2950,6 +2980,9 @@ type EDRFleetDMRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRFleetDMResponse Represents a FleetDM EDR integration configuration
@@ -2984,6 +3017,9 @@ type EDRFleetDMResponse struct {
 	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -3007,6 +3043,9 @@ type EDRHuntressRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRHuntressResponse Represents a Huntress EDR integration configuration
@@ -3038,6 +3077,9 @@ type EDRHuntressResponse struct {
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -3058,6 +3100,9 @@ type EDRIntuneRequest struct {
 
 	// Secret The Azure application client secret
 	Secret string `json:"secret"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 
 	// TenantId The Azure tenant id
 	TenantId string `json:"tenant_id"`
@@ -3092,6 +3137,9 @@ type EDRIntuneResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// TenantId The Azure tenant id
 	TenantId string `json:"tenant_id"`
 
@@ -3118,6 +3166,9 @@ type EDRSentinelOneRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRSentinelOneResponse Represents a SentinelOne EDR integration configuration
@@ -3151,6 +3202,9 @@ type EDRSentinelOneResponse struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
@@ -5113,6 +5167,9 @@ type ServiceRequestMode string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {
+	// AccessAction Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+	AccessAction *ServiceTargetAccessAction `json:"access_action,omitempty"`
+
 	// Enabled Whether this target is enabled
 	Enabled bool `json:"enabled"`
 
@@ -5135,6 +5192,9 @@ type ServiceTarget struct {
 	// TargetType Target type
 	TargetType ServiceTargetTargetType `json:"target_type"`
 }
+
+// ServiceTargetAccessAction Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+type ServiceTargetAccessAction string
 
 // ServiceTargetProtocol Protocol to use when connecting to the backend
 type ServiceTargetProtocol string

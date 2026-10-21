@@ -149,9 +149,19 @@ func prove(signer crypto.Signer, chain []*x509.Certificate, nonce, peerKey []byt
 }
 
 func chainFingerprint(chain []*x509.Certificate) [sha256.Size]byte {
-	buf := make([]byte, 0, len(chain)*sha256.Size)
+	ders := make([][]byte, 0, len(chain))
 	for _, cert := range chain {
-		certHash := sha256.Sum256(cert.Raw)
+		ders = append(ders, cert.Raw)
+	}
+	return chainDERFingerprint(ders)
+}
+
+// chainDERFingerprint identifies a chain of DER certificates by the hashes of all of them,
+// in order.
+func chainDERFingerprint(chain [][]byte) [sha256.Size]byte {
+	buf := make([]byte, 0, len(chain)*sha256.Size)
+	for _, der := range chain {
+		certHash := sha256.Sum256(der)
 		buf = append(buf, certHash[:]...)
 	}
 	return sha256.Sum256(buf)

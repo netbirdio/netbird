@@ -3,19 +3,26 @@ package peer
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 )
@@ -417,4 +424,40 @@ func TestMetricsConnType_RelayedMatchesIsRelayed(t *testing.T) {
 		assert.Equal(t, conn.isRelayed(), relayedTag,
 			"priority %s: isRelayed and the %q metric tag must agree", priority, tag)
 	}
+}
+
+type stubWGIface struct{}
+
+func (s *stubWGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+	return nil
+}
+func (s *stubWGIface) RemovePeer(peerKey string) error { return nil }
+func (s *stubWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return map[string]configurer.WGStats{}, nil
+}
+func (s *stubWGIface) GetProxy() wgproxy.Proxy                { return nil }
+func (s *stubWGIface) Address() wgaddr.Address                { return wgaddr.Address{} }
+func (s *stubWGIface) RemoveEndpointAddress(key string) error { return nil }
+
+func TestConn_Close_CallsOnDisconnected(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(true, &disconnected)
+	conn.endpointUpdater = NewEndpointUpdater(conn.Log, conn.config.WgConfig, false)
+	conn.config.WgConfig.WgInterface = &stubWGIface{}
+	conn.endpointUpdater.wgConfig.WgInterface = &stubWGIface{}
+	conn.workerRelay = &WorkerRelay{}
+	ctx, cancel := context.WithCancel(context.Background())
+	conn.ctx = ctx
+	conn.ctxCancel = cancel
+	conn.opened = true
+	conn.statusICE = worker.NewAtomicStatus()
+	conn.statusRelay = worker.NewAtomicStatus()
+	conn.statusRecorder = NewRecorder("https://mgm")
+
+	// The connection is closed while in a disconnected or connecting state
+	// (e.g. peer dropped, ICE failed, or management disconnect).
+	conn.Close(false)
+
+	assert.Equal(t, []string{conn.config.WgConfig.RemoteKey}, disconnected,
+		"Close must notify onDisconnected so Rosenpass cleans up its peer worker")
 }

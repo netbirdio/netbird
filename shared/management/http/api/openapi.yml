@@ -380,6 +380,10 @@ components:
           description: Enables or disables client metrics push for all peers in the account
           type: boolean
           example: false
+        peer_hostname_collision_rejected:
+          description: When enabled, registering or renaming a peer to a hostname already used by another peer in the account fails instead of receiving an IP-based suffix. Applies to ephemeral peers as well.
+          type: boolean
+          example: false
         agent_network_only:
           description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
           type: boolean
@@ -1817,6 +1821,7 @@ components:
         ca_certificates:
           description: PEM encoded CA certificates the peer's certificate must chain to
           type: array
+          minItems: 1
           items:
             type: string
           example: ["-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"]
@@ -3104,6 +3109,12 @@ components:
           type: string
           description: URL path prefix for this target (HTTP only)
           example: "/"
+        access_action:
+          type: string
+          description: Access action applied after this target's HTTP path prefix is selected. "inherit" uses the service authentication configuration, "bypass" skips service authentication, and "block" denies access. HTTP services only.
+          enum: [inherit, bypass, block]
+          default: inherit
+          example: "inherit"
         protocol:
           type: string
           description: Protocol to use when connecting to the backend
@@ -3950,6 +3961,11 @@ components:
           type: integer
           description: The devices last sync requirement interval in hours. Minimum value is 24 hours.
           minimum: 24
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+          minimum: 1
+          maximum: 1440
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -3968,6 +3984,7 @@ components:
         - tenant_id
         - groups
         - last_synced_interval
+        - sync_interval
         - enabled
       properties:
         id:
@@ -4014,6 +4031,9 @@ components:
         last_synced_interval:
           type: integer
           description: The devices last sync requirement interval in hours.
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4036,6 +4056,11 @@ components:
           type: integer
           description: The devices last sync requirement interval in hours. Minimum value is 24 hours.
           minimum: 24
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+          minimum: 1
+          maximum: 1440
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4062,6 +4087,7 @@ components:
         - groups
         - last_synced_interval
         - match_attributes
+        - sync_interval
         - enabled
       properties:
         id:
@@ -4104,6 +4130,9 @@ components:
           description: The devices last sync requirement interval in hours.
         match_attributes:
           $ref: '#/components/schemas/SentinelOneMatchAttributes'
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4163,6 +4192,11 @@ components:
           minimum: 0
           maximum: 100
           example: 75
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+          minimum: 1
+          maximum: 1440
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4186,6 +4220,7 @@ components:
         - cloud_id
         - groups
         - zta_score_threshold
+        - sync_interval
         - enabled
       properties:
         id:
@@ -4226,6 +4261,9 @@ components:
         zta_score_threshold:
           type: integer
           description: The minimum Zero Trust Assessment score required for agent approval (0-100)
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4249,6 +4287,11 @@ components:
           type: integer
           description: The devices last sync requirement interval in hours. Minimum value is 24 hours
           minimum: 24
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+          minimum: 1
+          maximum: 1440
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4274,6 +4317,7 @@ components:
         - groups
         - last_synced_interval
         - match_attributes
+        - sync_interval
         - enabled
       properties:
         id:
@@ -4311,6 +4355,9 @@ components:
         last_synced_interval:
           type: integer
           description: The devices last sync requirement interval in hours.
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4359,6 +4406,11 @@ components:
           type: integer
           description: The devices last sync requirement interval in hours. Minimum value is 24 hours
           minimum: 24
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+          minimum: 1
+          maximum: 1440
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4385,6 +4437,7 @@ components:
         - groups
         - last_synced_interval
         - match_attributes
+        - sync_interval
         - enabled
       properties:
         id:
@@ -4425,6 +4478,9 @@ components:
         last_synced_interval:
           type: integer
           description: The devices last sync requirement interval in hours.
+        sync_interval:
+          type: integer
+          description: How often devices are synced from the integration, in minutes.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -12884,7 +12940,7 @@ paths:
   /api/reverse-proxies/domains/{domainId}/validate:
     get:
       summary: Validate a custom domain
-      description: Trigger domain ownership validation for a custom domain
+      description: Validate domain ownership for a custom domain
       tags: [ Services ]
       security:
         - BearerAuth: [ ]
@@ -12897,8 +12953,8 @@ paths:
             type: string
           description: The custom domain ID
       responses:
-        '202':
-          description: Reverse proxy custom domain validation triggered
+        '204':
+          description: Reverse proxy custom domain validated
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -12907,6 +12963,9 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '412':
+          description: Precondition failed - the custom domain could not be validated
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/integrations/notifications/types:

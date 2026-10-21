@@ -553,9 +553,9 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		return nbpeer.PeerSystemMeta{}
 	}
 
-	osVersion := meta.GetOSVersion()
+	osVersion := cleanClientString(meta.GetOSVersion())
 	if osVersion == "" {
-		osVersion = meta.GetCore()
+		osVersion = cleanClientString(meta.GetCore())
 	}
 
 	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(meta.GetNetworkAddresses()))
@@ -567,36 +567,36 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		}
 		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
 			NetIP: netAddr,
-			Mac:   addr.GetMac(),
+			Mac:   cleanClientString(addr.GetMac()),
 		})
 	}
 
 	files := make([]nbpeer.File, 0, len(meta.GetFiles()))
 	for _, file := range meta.GetFiles() {
 		files = append(files, nbpeer.File{
-			Path:             file.GetPath(),
+			Path:             cleanClientString(file.GetPath()),
 			Exist:            file.GetExist(),
 			ProcessIsRunning: file.GetProcessIsRunning(),
 		})
 	}
 
 	return nbpeer.PeerSystemMeta{
-		Hostname:           meta.GetHostname(),
-		GoOS:               meta.GetGoOS(),
-		Kernel:             meta.GetKernel(),
-		Platform:           meta.GetPlatform(),
-		OS:                 meta.GetOS(),
+		Hostname:           cleanClientString(meta.GetHostname()),
+		GoOS:               cleanClientString(meta.GetGoOS()),
+		Kernel:             cleanClientString(meta.GetKernel()),
+		Platform:           cleanClientString(meta.GetPlatform()),
+		OS:                 cleanClientString(meta.GetOS()),
 		OSVersion:          osVersion,
-		WtVersion:          meta.GetNetbirdVersion(),
-		UIVersion:          meta.GetUiVersion(),
-		KernelVersion:      meta.GetKernelVersion(),
+		WtVersion:          cleanClientString(meta.GetNetbirdVersion()),
+		UIVersion:          cleanClientString(meta.GetUiVersion()),
+		KernelVersion:      cleanClientString(meta.GetKernelVersion()),
 		NetworkAddresses:   networkAddresses,
-		SystemSerialNumber: meta.GetSysSerialNumber(),
-		SystemProductName:  meta.GetSysProductName(),
-		SystemManufacturer: meta.GetSysManufacturer(),
+		SystemSerialNumber: cleanClientString(meta.GetSysSerialNumber()),
+		SystemProductName:  cleanClientString(meta.GetSysProductName()),
+		SystemManufacturer: cleanClientString(meta.GetSysManufacturer()),
 		Environment: nbpeer.Environment{
-			Cloud:    meta.GetEnvironment().GetCloud(),
-			Platform: meta.GetEnvironment().GetPlatform(),
+			Cloud:    cleanClientString(meta.GetEnvironment().GetCloud()),
+			Platform: cleanClientString(meta.GetEnvironment().GetPlatform()),
 		},
 		Flags: nbpeer.Flags{
 			RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
@@ -616,6 +616,11 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		Capabilities:       capabilitiesToInt32(meta.GetCapabilities()),
 		SyncMessageVersion: int(meta.GetSyncMessageVersion()),
 	}
+}
+
+// cleanClientString removes NUL bytes and invalid UTF-8 from a client-reported string, which Postgres rejects in text columns.
+func cleanClientString(s string) string {
+	return strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), "")
 }
 
 func capabilitiesToInt32(caps []proto.PeerCapability) []int32 {
@@ -711,7 +716,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 
 	peer, network, postureChecks, enableSSH, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
-		SSHKey:          string(sshKey),
+		SSHKey:          cleanClientString(string(sshKey)),
 		Meta:            peerMeta,
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),

@@ -18,8 +18,8 @@ import (
 
 // writeSelfSignedCert generates a self-signed TLS cert/key pair covering the
 // given DNS names and writes them as tls.crt / tls.key in dir. The proxy serves
-// this for the agent-network endpoint; the client curls with -k, so validity
-// chains don't matter — the proxy just needs a usable cert to present.
+// this for the agent-network endpoint; test clients either trust the generated
+// certificate explicitly or opt out of verification inside the test network.
 func writeSelfSignedCert(dir string, dnsNames []string) error {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

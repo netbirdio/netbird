@@ -194,7 +194,7 @@ export const Networks = () => {
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
                         className={cn(
-                            "flex touch-none select-none transition-colors",
+                            "flex touch-none transition-colors select-none",
                             "w-1.5 bg-transparent py-1",
                         )}
                     >
@@ -213,7 +213,7 @@ export const Networks = () => {
                         "border-t border-nb-gray-910",
                     )}
                 >
-                    <span className={"flex-1 text-xs font-medium tabular-nums text-nb-gray-300"}>
+                    <span className={"flex-1 text-xs font-medium text-nb-gray-300 tabular-nums"}>
                         {t("networks.bulk.selectionCount", {
                             selected: selectedInView,
                             total: filtered.length,
@@ -228,7 +228,7 @@ export const Networks = () => {
                             "inline-flex h-8 items-center rounded-md px-3",
                             "text-xs font-medium text-nb-gray-100",
                             "border border-nb-gray-900 bg-nb-gray-920 hover:border-nb-gray-850 hover:bg-nb-gray-910",
-                            "wails-no-draggable cursor-pointer outline-none transition-colors",
+                            "wails-no-draggable cursor-pointer outline-hidden transition-colors",
                             "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         )}
                     >
@@ -349,7 +349,7 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
     return (
         <div
             className={cn(
-                "group relative flex min-w-0 items-start gap-2.5 py-3 pe-9 ps-6",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 ps-6 pe-9",
                 "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
@@ -363,8 +363,8 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
                 onClick={() => onToggle(n.id, n.selected)}
                 onKeyDown={handleKey}
                 className={cn(
-                    "absolute inset-0 cursor-pointer outline-none",
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
+                    "absolute inset-0 cursor-pointer outline-hidden",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
                 )}
             />
             <ResourceIconBadge type={resourceTypeOf(n)} />
@@ -401,7 +401,7 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
         <div
             aria-hidden={"true"}
             className={cn(
-                "mt-[0.25rem] flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+                "mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
                 "border border-nb-gray-800 bg-white text-nb-gray-300 transition-colors group-hover:border-nb-gray-700",
                 "dark:border-nb-gray-900 dark:bg-nb-gray-920 dark:group-hover:border-nb-gray-900",
             )}
@@ -487,7 +487,7 @@ const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
     const { t } = useTranslation();
     return (
         <>
-            <div className={"px-1 pb-1 text-[10px] uppercase tracking-wide text-nb-gray-300"}>
+            <div className={"px-1 pb-1 text-[10px] tracking-wide text-nb-gray-300 uppercase"}>
                 {t("networks.ips.heading")}
             </div>
             <ul className={"flex flex-col"}>
@@ -496,7 +496,7 @@ const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
                         <CopyToClipboard message={ip} className={"px-1 py-0.5"}>
                             <span
                                 className={
-                                    "whitespace-nowrap font-mono text-[0.72rem] text-nb-gray-100"
+                                    "font-mono text-[0.72rem] whitespace-nowrap text-nb-gray-100"
                                 }
                             >
                                 {ip}
@@ -516,7 +516,7 @@ type ToggleProps = {
 
 const NetworkToggle = ({ checked, mixed }: ToggleProps) => {
     const checkedTranslate = checked
-        ? "translate-x-[1.125rem] rtl:-translate-x-[1.125rem]"
+        ? "translate-x-4.5 rtl:-translate-x-4.5"
         : "translate-x-0.5 rtl:-translate-x-0.5";
     return (
         <span
