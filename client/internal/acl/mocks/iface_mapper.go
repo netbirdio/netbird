@@ -7,8 +7,8 @@ package mocks
 import (
 	reflect "reflect"
 
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 	gomock "go.uber.org/mock/gomock"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

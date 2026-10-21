@@ -5,11 +5,11 @@ import (
 	"net/netip"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
+	"go.uber.org/mock/gomock"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"

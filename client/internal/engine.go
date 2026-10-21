@@ -19,10 +19,10 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/netbirdio/ice/v4"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/anonymize"

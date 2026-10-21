@@ -11,11 +11,11 @@ import (
 	"runtime"
 	"sync"
 
+	wgConn "github.com/netbirdio/wireguard-go/conn"
 	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv6"
-	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

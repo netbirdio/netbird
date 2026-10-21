@@ -18,8 +18,8 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 	log "github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall/firewalld"

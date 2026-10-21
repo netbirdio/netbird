@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/netbirdio/wireguard-go/conn"
+	"github.com/netbirdio/wireguard-go/device"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"

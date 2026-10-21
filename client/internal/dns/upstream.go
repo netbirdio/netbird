@@ -43,8 +43,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

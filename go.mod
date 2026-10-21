@@ -23,7 +23,6 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sys v0.47.0
-	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	golang.zx2c4.com/wireguard/windows v0.5.3
 	google.golang.org/grpc v1.80.0
@@ -146,6 +145,8 @@ require (
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
 )
+
+require golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
 
 require (
 	cloud.google.com/go/auth v0.20.0 // indirect
@@ -296,6 +297,7 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/netbirdio/ice/v4 v4.0.0-00010101000000-000000000000
+	github.com/netbirdio/wireguard-go v0.0.0-00010101000000-000000000000
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/openbao/openbao/api/v2 v2.5.1 // indirect
@@ -363,8 +365,6 @@ require (
 	rsc.io/qr v0.2.0 // indirect
 )
 
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261016113635-bd0cb75a3df0
-
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
 replace github.com/netbirdio/ice/v4 => ../../../ice
@@ -381,3 +381,5 @@ tool (
 	github.com/goreleaser/chglog/cmd/chglog
 	go.uber.org/mock/mockgen
 )
+
+replace github.com/netbirdio/wireguard-go => ../../../wireguard-go

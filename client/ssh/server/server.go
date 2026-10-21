@@ -17,10 +17,10 @@ import (
 
 	"github.com/gliderlabs/ssh"
 	gojwt "github.com/golang-jwt/jwt/v5"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/exp/maps"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"

@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"time"
 
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"

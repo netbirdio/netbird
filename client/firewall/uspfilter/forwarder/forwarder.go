@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 	log "github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

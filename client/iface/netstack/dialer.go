@@ -4,8 +4,8 @@ import (
 	"context"
 	"net"
 
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 type Dialer interface {

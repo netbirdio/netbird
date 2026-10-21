@@ -3,7 +3,7 @@ package device
 import (
 	"os"
 
-	"golang.zx2c4.com/wireguard/device"
+	"github.com/netbirdio/wireguard-go/device"
 )
 
 func wgLogLevel() int {

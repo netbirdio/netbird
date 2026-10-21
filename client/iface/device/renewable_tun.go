@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/netbirdio/wireguard-go/tun"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 // closeAwareDevice wraps a tun.Device along with a flag

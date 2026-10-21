@@ -7,7 +7,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/tun"
+	"github.com/netbirdio/wireguard-go/tun"
 )
 
 type responseWriter struct {

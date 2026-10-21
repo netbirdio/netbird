@@ -1,9 +1,9 @@
 package iface
 
 import (
-	wgdevice "golang.zx2c4.com/wireguard/device"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 
-	"golang.zx2c4.com/wireguard/tun/netstack"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

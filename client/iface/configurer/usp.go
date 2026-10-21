@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"time"
 
+	wgconn "github.com/netbirdio/wireguard-go/conn"
+	"github.com/netbirdio/wireguard-go/device"
 	log "github.com/sirupsen/logrus"
-	wgconn "golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"

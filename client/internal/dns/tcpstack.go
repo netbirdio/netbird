@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/netbirdio/wireguard-go/tun"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"

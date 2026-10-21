@@ -1,7 +1,7 @@
 package dns
 
 import (
-	"golang.zx2c4.com/wireguard/tun/netstack"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

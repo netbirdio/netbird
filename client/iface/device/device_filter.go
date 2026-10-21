@@ -7,8 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/netbirdio/wireguard-go/tun"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 // PacketFilter interface for firewall abilities

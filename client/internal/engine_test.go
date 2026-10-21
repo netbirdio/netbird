@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	wgdevice "github.com/netbirdio/wireguard-go/device"
+	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"

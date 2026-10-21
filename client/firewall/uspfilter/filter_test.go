@@ -11,10 +11,10 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"

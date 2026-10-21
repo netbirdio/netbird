@@ -1,7 +1,7 @@
 package firewall
 
 import (
-	wgdevice "golang.zx2c4.com/wireguard/device"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

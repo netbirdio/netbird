@@ -11,9 +11,9 @@ import (
 	"os"
 	"sync"
 
+	wgdevice "github.com/netbirdio/wireguard-go/device"
+	wgnetstack "github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/netstack"

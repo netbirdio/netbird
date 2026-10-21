@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
+	wgConn "github.com/netbirdio/wireguard-go/conn"
 	"github.com/pion/stun/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/ipv4"
-	wgConn "golang.zx2c4.com/wireguard/conn"
 )
 
 // magicCookieBytes is the STUN magic cookie as it appears on the wire. In a

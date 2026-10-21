@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	wgconn "github.com/netbirdio/wireguard-go/conn"
+	wgdevice "github.com/netbirdio/wireguard-go/device"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wgconn "golang.zx2c4.com/wireguard/conn"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
