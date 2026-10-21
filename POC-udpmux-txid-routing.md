@@ -232,7 +232,7 @@ A later remote update resolves the competing branch trees: commit
 `145a4ab8`, after retaining the other work on a separate branch. The checkout
 fast-forwards to that commit after verifying an empty tree diff against
 `145a4ab8`. This changes history only; all validated source files and the pinned
-new-source dispatch remain identical. The other report at `54d3393a` describes
+new-source dispatch command remain identical. The other report at `54d3393a` describes
 the same shared-reader nomination mechanism but treats queue separation and
 recent-owner retention as outside its selected design. This branch implements
 and tests those mux-only alternatives as documented above. Its independent
@@ -1382,6 +1382,58 @@ Native start/own-key anchors for role verification are P1 **68/84** in the two L
 
 [Run 39597620276](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276) at [37dab7d](https://github.com/netbirdio/netbird/commit/37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc) observed Linux relay 29.127 s/3, Windows DNS 29.053 s/3, and original FreeBSD/Linux HA 21.147/21.149 s over two attempts. Those observations and later source37 repeat episodes are not source42 measurements or latest145/248 validation. Source42's different outcomes do not isolate a causal fix; candidate ordering, intended-role differences where shown, unobserved role conflicts, and missing transaction delivery traces limit attribution. Detailed per-case notes and JSON evidence remain alongside this portable digest.
 
+## Proxbird targeted infrastructure retry (attempt 2)
+
+The targeted retry of `client-freebsd-nat-allowed-ports` passed at exact NetBird source `42b087a4b5fb0dfcb111c46864d3340194a5a748`. This is attempt 2 of workflow [39617144938](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938), retry job [119340372839](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938/job/119340372839), using harness `a1abca530f93969ad81f11a9683dc6e89171a23c`. Only this case was ingested for the retry.
+
+The workflow completed attempt 2 with conclusion **success**, updated `2026-10-21T16:27:59Z`; the retry job ran `16:23:01Z` to `16:27:58Z`. Its attempt-2 job collection contains 94 successful records. The other 93 retain their attempt-1 execution timestamps; they were not rerun. The 70-file frozen attempt-1 snapshot still matches every SHA-256 digest.
+
+The independently preserved retry [artifact 12360373186](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938/artifacts/12360373186) is named `e2e-client-freebsd-nat-allowed-ports-39617144938-2`, created at `2026-10-21T16:27:50Z`. Its ZIP is 301,524 bytes, SHA-256 `dc144c9581654196e5f98ed489f127495d47a8ab8523a80326556c8fd31c90de`; both match GitHub's artifact metadata. Every internal member passed ZIP integrity checks, and all 26 `nodes/files.json` entries matched their recorded sizes and SHA-256 digests.
+
+The standard artifact auditor exited 0: one fully audited case, three complete nodes, two valid native debug bundles, two TRACE log archives, one verified server runtime identity and one passing Robot case. It found zero errors, failed checks, partial cases or start-task warnings. Client and server source fields both match the exact source above and build run `39617144938`. The reference Linux binary is version `0.30.1` with SHA-256 `e915d8680efaf6ed5bd3adfae6d003436cc55c8d32f1872c0b17f6eec96a3160`.
+
+All seven result checks and all seven direct Robot keywords passed, including the traffic assertions:
+
+- The enabled policy accepted bidirectional TCP port 80.
+- After client reconnection and peer readiness, the FreeBSD `nc -z -w 5` probe to the peer's port 80 passed.
+- The subsequent blocked-ping assertion sent two packets and received zero; the recorded ping exit code was 2 and the expected reply count was zero.
+
+The initial and post-reconnect readiness snapshots both show FreeBSD connected over P2P with local/remote `srflx/srflx`. The final status and debug-bundle snapshots agree: FreeBSD is connected over P2P with `srflx/srflx`; the reference Linux peer is connected over P2P with `host/srflx`. These are separate captured snapshots, not timing measurements.
+
+All paths below are internal to artifact 12360373186, prefixed by `results/e3a220e296263f8f3df645a961e6cdf2/`:
+
+| Evidence | Internal path and one-based line anchors |
+| --- | --- |
+| Overall result and exact client/server commits | `result.json`: 3, 112–123 |
+| TCP policy and traffic probes | `result.json`: 307–333, 424–460 |
+| Reference client version/digest | `result.json`: 849 |
+| TCP probe and PASS | `robot/output.xml`: 217, 232 |
+| Ping blocked and PASS | `robot/output.xml`: 234, 254 |
+| Robot testcase PASS | `robot/output.xml`: 256 |
+| FreeBSD final status, path, candidates | `nodes/peer-1/status-detail.txt`: 6, 8, 9 |
+| Linux final status, path, candidates | `nodes/peer-2/status-detail.txt`: 5, 7, 8 |
+| Full recorded node inventory | `nodes/files.json` |
+| Native bundles and TRACE archives | `nodes/peer-1/debug-bundle.zip`, `nodes/peer-2/debug-bundle.zip`, `nodes/peer-1/client-logs.tar.gz`, `nodes/peer-2/client-logs.tar.gz` |
+
+Attempt 1's [failed artifact 12355883225](https://github.com/netbirdio/proxbird-tests/actions/runs/39617144938/artifacts/12355883225) remains preserved separately. Its Proxmox artifact-server stop failure occurred before client installation and ICE/traffic testing. This retry supplies the previously absent successful case evidence; it does not identify the underlying cause of that setup failure. Combining outcomes gives 84 successful attempt 1 cases plus this one successful retry, not an 85-case clean first attempt. This audit validates only source `42b087a4b5fb0dfcb111c46864d3340194a5a748`, not later production revisions, and makes no repeated-run or median timing claim.
+
+Local machine-readable audit: `retry-attempt2/allowed-ports-audit.json`; standard auditor output: `retry-attempt2/poc-evidence.json`. Attempt 1 outputs were not modified.
+
+Against baseline [run 39588288742 / artifact 12340654721](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742/artifacts/12340654721), all initial and final observations remain **Connected/P2P**. Candidate types differ as follows; values are local/remote types, and the final snapshots follow the planned reconnect:
+
+| Direction | Baseline initial | Retry initial | Baseline final | Retry final |
+| --- | --- | --- | --- | --- |
+| FreeBSD → legacy Linux | host/srflx | srflx/srflx | host/prflx | srflx/srflx |
+| Legacy Linux → FreeBSD | host/srflx | srflx/srflx | host/srflx | host/srflx |
+
+The modern FreeBSD native log measures the first ICE dial at `16:23:23.519Z` and success at `16:23:24.124Z`: **0.605 seconds, one attempt, no preceding failed dial**. These are `./client.log` lines 218 and 256 in `nodes/peer-1/client-logs.tar.gz` within the retry artifact. The single B1 baseline sample is **0.604 seconds, one attempt** (`./client.log` lines 217 and 260, internal result `results/cc1128377b8dac509027d2231a1c0f12/`). The difference is +0.001 seconds. Intended ICE role changes from baseline controlled to retry controlling, derived from each native own-key line 82 and the remote key at dial; actual role-conflict transitions are not observed. The separate three-baseline-sample median is 0.603 seconds; this retry remains one sample, not a median.
+
+The planned reconnect has a separate native dial interval of **0.604 seconds**, from `16:23:32.419Z` to `16:23:33.023Z` (`./client.log` lines 538 and 566). These native intervals exclude earlier setup/signalling and later application readiness. The legacy peer has incompatible modern dial markers and remains unmeasured. Neither the initial nor reconnect interval is an application-observed time-to-P2P measurement.
+
+The FreeBSD CLI and daemon identify `ci-42b087a4b5fb0dfcb111c46864d3340194a5a748` and userspace mode; the Linux CLI and daemon identify `0.30.1` and kernel-interface mode. The newer pushed `145a4ab86c27b8658c18308b33aa4c41109a52a5` (production code `24817004`) is outside this run. A supported repository run-collection read at `2026-10-21T16:29:00Z`, filtered by `.github/workflows/e2e.yml`, found no newer E2E dispatch: the newest two are the earlier cancelled run 39617181119 and this source42 run. No latest-source validation is inferred.
+
+Machine-readable final status, preservation checks, modes, candidate comparison and timing are in `retry-attempt2/retry-final-audit.json`, `baseline-comparison.json` and `ice-timing-evidence.json`. The original 85-row attempt-1 table remains 84 passes and one setup failure. The combined result is 85 cases covered by 84 first-attempt passes plus one successful infrastructure retry.
+
 ## Final report and remaining acceptance work
 
 The implementation remains entirely in NetBird's mux. Outgoing STUN requests
@@ -1414,8 +1466,10 @@ Windows/macOS/FreeBSD userspace mode on `37dab7d`, not the later lifecycle fixes
 The lifecycle-source run at `42b087a4` subsequently adds 84 passing scenarios and
 one pre-install setup failure in attempt 1, with unchanged observed initial
 paths and the timing/candidate differences recorded in its complete table.
-Its targeted retry is separate evidence. Neither VM source contains the newer
-candidate-queue and recently-answered-owner corrections.
+The one permitted targeted retry passes with verified artifacts, so all 85
+scenarios now have passing evidence across the two attempts. The original
+setup failure remains recorded separately. Neither VM source contains the
+newer candidate-queue and recently-answered-owner corrections.
 
 Candidate selection is observably different. In the repeated pair-ID NAT
 fixture, the POC's controlling side selects host/srflx while baseline selects
@@ -1428,10 +1482,10 @@ workaround or pion modification is part of this branch.
 
 The acceptance conditions are not all met:
 
-- Run `39617144938` is testing verified source `42b087a4`, which includes
-  the `532e38be` lifecycle fixes. Attempt 1 finished with 84 passing cases and
-  one classified setup failure; the targeted retry was accepted after evidence
-  preservation and remains separately recorded.
+- Run `39617144938` completed successfully at verified source `42b087a4`,
+  which includes the `532e38be` lifecycle fixes. Attempt 1 finished with 84
+  passing cases and one classified setup failure; the one targeted retry
+  passes with its own audited artifacts. Both attempts remain separately recorded.
   The newer candidate-queue/recent-owner implementation at `24817004`
   requires its own immutable-source VM run; its local checks are complete.
 - One workflow per source and topology cannot prove no worse median time to
@@ -1478,6 +1532,10 @@ baseline client-case samples rather than averaging unrelated topologies.
 Investigate any reproduced slowdown before declaring equivalence. The actual
 current-release netstack binary is covered, but full OS-client release coverage
 is still absent. No PR or ticket has been created.
+
+Those three dispatches cannot close the full OS-client current-release gap:
+the existing workflow has no v0.81.3 reference-peer selector. Its compatibility
+references remain 0.28.9/0.30.1, and `current` uses the source-built installer.
 
 Step 2 is separate work: adapt the mux integration to upstream pion/ice v5,
 preserve the per-candidate queue ownership now established in this mux, and
