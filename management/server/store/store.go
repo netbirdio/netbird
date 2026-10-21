@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -507,12 +508,12 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
+func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics, mode migrate.Mode) (Store, error) {
 	conn, err := OpenConn(ctx, kind, dataDir)
 	if err != nil {
 		return nil, err
 	}
-	return newStore(ctx, conn, metrics, skipMigration)
+	return newStore(ctx, conn, metrics, mode)
 }
 
 // OpenConn resolves the configured engine and opens the connection that the
@@ -724,7 +725,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
-	store, err := NewSqlStore(ctx, conn, nil, false)
+	store, err := NewSqlStore(ctx, conn, nil, migrate.ModeAuto)
 	if err != nil {
 		_ = conn.Close()
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
@@ -836,7 +837,7 @@ func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.En
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 			}
-			store, err = NewSqlStore(ctx, conn, nil, false)
+			store, err = NewSqlStore(ctx, conn, nil, migrate.ModeAuto)
 		}
 	}
 	if err != nil {
@@ -891,13 +892,13 @@ func newReusedPostgresStore(ctx context.Context, sqliteStore *SqlStore) (*SqlSto
 
 	var store *SqlStore
 	if sqliteStore != nil {
-		store, err = newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, true)
+		store, err = newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, migrate.ModeSkip)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
 		}
 	} else {
-		store, err = NewPostgresqlStoreForTests(ctx, dsn, nil, false)
+		store, err = NewPostgresqlStoreForTests(ctx, dsn, nil, migrate.ModeSkip)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
@@ -907,10 +908,10 @@ func newReusedPostgresStore(ctx context.Context, sqliteStore *SqlStore) (*SqlSto
 	return store, cleanup, nil
 }
 
-// schemaTemplates remembers, per engine and server, a database that went
-// through the full migration once in this process. Every later test database
-// is cloned from it, so a test pays for CREATE DATABASE and a schema copy
-// instead of the 40-table AutoMigrate plus every pre and post migration.
+// schemaTemplates remembers, per server, a database that went through the
+// full migration once in this process. Every later test database is cloned
+// from it, so a test pays for CREATE DATABASE and a schema copy instead of the
+// whole migration set.
 var (
 	schemaTemplatesMu sync.Mutex
 	schemaTemplates   = map[string]*schemaTemplate{}
@@ -944,7 +945,7 @@ func postgresSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB)
 		return "", fmt.Errorf("create postgres template database: %w", err)
 	}
 
-	tplStore, err := NewPostgresqlStoreForTests(ctx, replaceDBName(baseDSN, name), nil, false)
+	tplStore, err := NewPostgresqlStoreForTests(ctx, replaceDBName(baseDSN, name), nil, migrate.ModeAuto)
 	if err != nil {
 		dropDatabase(admin, name)
 		return "", fmt.Errorf("migrate postgres template database: %w", err)
@@ -1099,7 +1100,7 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 	log.WithContext(ctx).Infof("%d account will be migrated from file store %s to sqlite store %s",
 		fsStoreAccounts, fileStorePath, sqlStorePath)
 
-	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil, true)
+	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil, migrate.ModeSkip)
 	if err != nil {
 		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
 	}

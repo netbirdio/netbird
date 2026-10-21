@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
@@ -378,7 +379,7 @@ func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
 // the Go side and can be hidden behind the 5-minute transactionTimeout.
 func TestNewSqliteStore_BusyTimeoutApplied(t *testing.T) {
 	dir := t.TempDir()
-	store, err := NewSqliteStore(context.Background(), dir, nil, true)
+	store, err := NewSqliteStore(context.Background(), dir, nil, migrate.ModeSkip)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = store.Close(context.Background())
@@ -408,7 +409,7 @@ func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", tc.envFile)
 			dir := t.TempDir()
-			store, err := NewSqliteStore(context.Background(), dir, nil, true)
+			store, err := NewSqliteStore(context.Background(), dir, nil, migrate.ModeSkip)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = store.Close(context.Background())

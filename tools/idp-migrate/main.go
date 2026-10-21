@@ -27,6 +27,7 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/idp/migration"
@@ -199,7 +200,7 @@ func openStores(ctx context.Context, cfg *nbconfig.Config, dataDir string) (migr
 		engine = types.SqliteStoreEngine
 	}
 
-	mainStore, err := store.NewStore(ctx, engine, dataDir, nil, true)
+	mainStore, err := store.NewStore(ctx, engine, dataDir, nil, migrate.ModeSkip)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("open main store: %w", err)
 	}
@@ -222,7 +223,7 @@ func openStores(ctx context.Context, cfg *nbconfig.Config, dataDir string) (migr
 	cleanup := func() { _ = mainStore.Close(ctx) }
 
 	var migEventStore migration.EventStore
-	actStore, err := activitystore.NewSqlStore(ctx, dataDir, cfg.DataStoreEncryptionKey)
+	actStore, err := activitystore.NewSqlStore(ctx, dataDir, cfg.DataStoreEncryptionKey, migrate.ModeSkip)
 	if err != nil {
 		log.Warnf("could not open activity store (events.db may not exist): %v", err)
 	} else {

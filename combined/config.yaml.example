@@ -114,6 +114,7 @@ server:
     dsn: ""  # Connection string for postgres
     encryptionKey: ""
     # file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/store.db)
+    # migrationMode: "auto"  # auto applies pending schema migrations at startup, check refuses to start while any are pending, skip never looks
 
   # Activity events store configuration (optional, defaults to sqlite in dataDir)
   # activityStore:
