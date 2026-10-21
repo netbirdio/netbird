@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pion/ice/v4"
 	"github.com/pion/logging"
@@ -39,6 +40,9 @@ type SingleSocketUDPMux struct {
 
 	addressMapMu sync.RWMutex
 	addressMap   map[string][]*udpMuxedConn
+
+	// transactions maps outstanding STUN requests to the conn that sent them.
+	transactions *transactionTracker
 
 	// buffer pool to recycle buffers for net.UDPAddr encodes/decodes
 	pool *sync.Pool
@@ -168,6 +172,7 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		connsIPv4:        make(map[string]*udpMuxedConn),
 		connsIPv6:        make(map[string]*udpMuxedConn),
 		candidateConnMap: make(map[string]*udpMuxedConn),
+		transactions:     newTransactionTracker(transactionTTL, maxTransactions),
 		closedChan:       make(chan struct{}, 1),
 		unspecified:      isUnspecified(params.UDPConn.LocalAddr()),
 		pool: &sync.Pool{
@@ -300,6 +305,10 @@ func (m *SingleSocketUDPMux) RemoveConnByUfrag(ufrag string) {
 		return
 	}
 
+	for _, c := range removedConns {
+		m.transactions.removeConn(c)
+	}
+
 	var allAddresses []string
 	for _, c := range removedConns {
 		addresses := c.getAddresses()
@@ -343,6 +352,7 @@ func (m *SingleSocketUDPMux) Close() error {
 
 		m.connsIPv4 = make(map[string]*udpMuxedConn)
 		m.connsIPv6 = make(map[string]*udpMuxedConn)
+		m.transactions.clear()
 
 		close(m.closedChan)
 
@@ -353,6 +363,14 @@ func (m *SingleSocketUDPMux) Close() error {
 
 func (m *SingleSocketUDPMux) writeTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	return m.params.UDPConn.WriteTo(buf, rAddr)
+}
+
+// trackRequest remembers that conn sent buf if buf is a STUN request. It runs
+// before the write so a fast response cannot overtake the record.
+func (m *SingleSocketUDPMux) trackRequest(conn *udpMuxedConn, buf []byte) {
+	if id, ok := stunRequestTransactionID(buf); ok {
+		m.transactions.record(id, conn, time.Now())
+	}
 }
 
 func (m *SingleSocketUDPMux) registerConnForAddress(conn *udpMuxedConn, addr string) {
@@ -391,13 +409,26 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 		return fmt.Errorf("underlying PacketConn did not return a UDPAddr")
 	}
 
-	// Try to route to specific candidate connection first
-	if conn := m.findCandidateConnection(msg); conn != nil {
+	if conn := m.findSTUNRecipient(msg); conn != nil {
 		return conn.writePacket(msg.Raw, remoteAddr)
 	}
 
-	// Fallback: route to all possible connections
 	return m.forwardToAllConnections(msg, addr, remoteAddr)
+}
+
+// findSTUNRecipient returns the one conn a STUN message belongs to, or nil to
+// leave it to the address-based fallback. Responses follow the request's
+// transaction ID: host and srflx candidates share the socket, so the remote's
+// pair ID can name the wrong one.
+func (m *SingleSocketUDPMux) findSTUNRecipient(msg *stun.Message) *udpMuxedConn {
+	if msg.Type.Class == stun.ClassSuccessResponse || msg.Type.Class == stun.ClassErrorResponse {
+		// A conn can be removed between recording a request and its WriteTo
+		// returning, leaving a record that outlives it.
+		if conn := m.transactions.take(msg.TransactionID, time.Now()); conn != nil && !conn.isClosed() {
+			return conn
+		}
+	}
+	return m.findCandidateConnection(msg)
 }
 
 // findCandidateConnection attempts to find the specific connection for a STUN message

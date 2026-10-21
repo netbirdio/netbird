@@ -88,6 +88,7 @@ func (c *udpMuxedConn) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		c.addAddress(addr)
 	}
 
+	c.params.Mux.trackRequest(c, buf)
 	return c.params.Mux.writeTo(buf, rAddr)
 }
 

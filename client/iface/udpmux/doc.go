@@ -14,7 +14,7 @@
 // This package introduces SingleSocketUDPMux, which allows multiple ICE
 // candidate connections (muxed connections) to share a single UDP socket.
 // It handles demultiplexing of packets based on ICE ufrag values, STUN
-// attributes, and candidate IDs.
+// transaction IDs and attributes, and candidate IDs.
 //
 // # Usage
 //
@@ -29,24 +29,21 @@
 //
 // # STUN Message Routing Logic
 //
-//		When a STUN packet arrives, the mux decides which connection should
-//		receive it using this routing logic:
+// When a STUN packet arrives, the mux decides which connection should receive
+// it:
 //
-//		Primary Routing: Candidate Pair ID
-//		  - Extract the candidate pair ID from the STUN message using
-//		    ice.CandidatePairIDFromSTUN(msg)
-//	   - The target candidate is the locally generated candidate that
-//	     corresponds to the connection that should handle this STUN message
-//		  - If found, use the target candidate ID to lookup the specific
-//		    connection in candidateConnMap
-//		  - Route the message directly to that connection
-//
-//		Fallback Routing: Broadcasting
-//		  When candidate pair ID is not available or lookup fails:
-//		  - Collect connections from addressMap based on source address
-//		  - Find connection using username attribute (ufrag) from STUN message
-//		  - Remove duplicate connections from the list
-//		  - Send the STUN message to all collected connections
+//   - Responses (success and error) go to the connection that sent the
+//     request. Every STUN request a muxed connection writes is recorded by
+//     transaction ID, and the record is dropped on the response, when the
+//     connection is removed, or after transactionTTL; at most maxTransactions
+//     are kept. Host and server reflexive candidates share the socket, so the
+//     remote cannot tell which of them sent a check and the candidate pair ID
+//     it echoes can name the other one.
+//   - Requests, indications and responses with an unknown transaction ID go
+//     to the connection of the target candidate in the candidate pair ID
+//     (ice.CandidatePairIDFromSTUN) when the remote sets one.
+//   - Anything still unplaced is sent to every connection that has written to
+//     the source address, plus the connection matching the USERNAME ufrag.
 //
 // # Peer Reflexive Candidate Discovery
 //
