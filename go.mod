@@ -86,7 +86,7 @@ require (
 	github.com/netbirdio/dex/api/v2 v2.0.0-20261021115841-9f3e6d4c2ce3
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
 	github.com/netbirdio/ice/v4 v4.0.0-20261021152109-d0e5dfacb548
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20261006132740-6e6b0cb01f2e
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20261021190039-6c1585eb11de
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/netbirdio/wireguard-go v0.0.0-20261021152105-0de46b309cdb
 	github.com/oapi-codegen/runtime v1.1.2
