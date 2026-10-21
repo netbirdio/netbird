@@ -85,8 +85,10 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
+	github.com/netbirdio/ice/v4 v4.0.0-20261021135746-8a183c822b29
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20261006132740-6e6b0cb01f2e
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
+	github.com/netbirdio/wireguard-go v0.0.0-20261021113144-8c6fb8e40119
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/ory/dockertest/v4 v4.0.0
@@ -296,8 +298,6 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/netbirdio/ice/v4 v4.0.0-00010101000000-000000000000
-	github.com/netbirdio/wireguard-go v0.0.0-00010101000000-000000000000
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/openbao/openbao/api/v2 v2.5.1 // indirect
@@ -367,8 +367,6 @@ require (
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
-replace github.com/netbirdio/ice/v4 => ../../../ice
-
 replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260716205454-a163de3129e5
 
 replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260512110716-8d70ad8647c1
@@ -381,5 +379,3 @@ tool (
 	github.com/goreleaser/chglog/cmd/chglog
 	go.uber.org/mock/mockgen
 )
-
-replace github.com/netbirdio/wireguard-go => ../../../wireguard-go
