@@ -400,4 +400,57 @@ receives no duplicate answers from the POC side (0 duplicated requests).
   e2e dispatched (run 39588288742).
 - 11:08 UTC: routing tests written; baseline failures recorded above.
 - 11:20 to 11:45 UTC: commits `3d8b652` (tests), `d8e7f21` (responses),
-  `cb20fec` (requests). Review and full checks in progress.
+  `cb20fec` (requests).
+- 11:45 to 12:00 UTC: review workflow; fixes in `3539d30` (tests) and
+  `c058965` (tracker).
+- 12:06 UTC: baseline e2e completed, 85/85 passed.
+- 12:10 UTC: `-s ours` merge of the parallel run's commits (`37dab7d`), push,
+  POC e2e dispatched (run 39597620276); it built `37dab7d` with
+  `source-build` (confirmed in its `resolve-client` log, `PINNED_SHA`), as the
+  baseline built `1e63b68`.
+
+## Resuming: how the e2e data is collected
+
+The artifacts are blocked here (decision 11), so the comparison uses:
+
+1. `gh api repos/netbirdio/proxbird-tests/actions/runs/RUN/attempts/1/jobs?per_page=100`
+   for per-case status and conclusion.
+2. Each scenario job's log, fetched through the GitHub MCP server
+   (`get_job_logs`, `return_content`), keeping the controller lines
+   `timing end phase=...` and `Remote scenario ... finished with exit code N`.
+   One extraction was spot-checked against a direct fetch and matched
+   byte for byte.
+3. "Setup convergence" is the controller's first `assertions` phase: it starts
+   after both peers are installed and enrolled and ends when every peer pair
+   passes proxbird's status check (Connected, `P2P` or `Relayed` as the
+   profile requires, srflx or prflx on one side for nat/slow, versions
+   matching; `internal/lab/guest.go:165-199`). It polls with a 2 s pause, so its
+   resolution is a few seconds. It is the closest per-case measure of time to
+   connect available without the artifacts.
+
+With the artifacts reachable, the candidate types per peer come from each case
+artifact's `results/*/result.json` (`.peers[i].peers.details[]` with
+`connectionType` and `iceCandidateType.{local,remote}`) or
+`results/*/nodes/peer-N/status-detail.txt` (`ICE candidate (Local/Remote)`).
+Artifacts expire 14 days after the runs (2026-11-04).
+
+## Not covered / caveats
+
+- **Candidate types in e2e**: not collected (artifacts blocked). The unit
+  and cross-version tests above give the expected effect; the e2e runs prove
+  the asserted P2P/relay outcome but not which local type each peer reported.
+- **Current release peers**: no proxbird case pairs the candidate build with a
+  current release; covered only by the scratch cross-version test.
+- **Netstack (`client/embed`)**: no e2e case. It shares the ICEBind receive
+  path with userspace mode (`client/iface/bind/ice_bind.go` calls the same
+  `HandleSTUNMessage`), so only the routing code path is shared, not tested
+  end to end.
+- **Mobile (iOS, Android)**: not exercised; Android builds.
+- **Pre-existing, unchanged**: `RemoveConnByUfrag` deletes the whole
+  `addressMap[addr]` entry, including other conns on that address (#4154; the
+  parallel run's `TestSTUNRemovedConnectionPreservesAddressFallback` shows it
+  on baseline and POC alike); several host candidates of one family share one
+  muxed conn; udp4 and udp6 srflx candidates share one conn; a recreated agent
+  reuses its predecessor's ufrag.
+- **Full pair-ID removal** (variant R) was measured only at unit level; no
+  e2e run of it exists.
