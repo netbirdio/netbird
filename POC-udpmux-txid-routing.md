@@ -100,6 +100,31 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
 | Baseline e2e run | [39588288742](https://github.com/netbirdio/proxbird-tests/actions/runs/39588288742), dispatched 2026-10-21 10:56 UTC, completed 12:06 UTC: **85/85 passed** |
 | POC head for e2e | `37dab7d7124ea1de7a7e9bdfa5a3cd445f8413dc` (tree identical to `afdf67f`) |
 | POC e2e run | [39597620276](https://github.com/netbirdio/proxbird-tests/actions/runs/39597620276), dispatched 2026-10-21 12:11 UTC, same inputs |
+| Revised implementation | `532e38be0da5855fe3b7f95f5612adf0783312c7` (lifecycle fixes and expanded regressions); no Proxbird run dispatched for this revision yet |
+
+### Repeated local ICE timing on the revised implementation
+
+Twenty-four samples per source and configuration, 192 samples total. Sources
+alternate order each repetition. Both hosts gather and exchange all candidates
+before a start barrier; the timer ends when every Dial/Accept completes. Exact
+baseline `1e63b68` is compared with a snapshot whose mux source hashes match
+`532e38be`. This is virtual NAT with real fork agents, not OS-mode or Proxbird
+validation. All 96 POC samples pass the exact sender/receiver ownership checks.
+
+| Agent pairs | Pair ID | Baseline median (ms) | POC median (ms) | Change (ms) | Baseline / POC range (ms) |
+| --- | --- | ---: | ---: | ---: | --- |
+| 1 | present | 602.545 | 602.643 | +0.098 | 601.930–604.714 / 601.832–605.414 |
+| 1 | absent | 602.669 | 602.404 | -0.265 | 601.461–606.328 / 601.425–603.306 |
+| 20 | present | 608.733 | 607.946 | -0.787 | 605.145–636.171 / 604.597–616.653 |
+| 20 | absent | 621.794 | 608.266 | -13.528 | 615.435–645.919 / 605.871–610.914 |
+
+The one positive median delta is 0.016% with overlapping ranges; this does not
+prove a strict no-slowdown guarantee. With pair IDs, all baseline controlling
+and controlled local candidates are srflx; all POC controlling locals are host
+and controlled locals srflx (24 single-pair and 480 batched observations per
+role). Without IDs, baseline local types vary while the POC consistently uses
+host locally on both sides. Every remote candidate in these samples is srflx.
+There are no relay candidates in this timing fixture.
 
 ## What the routing does now (branch head)
 
@@ -151,9 +176,10 @@ held across I/O.
    buys nothing. The fork never resends a transaction ID (every check, keepalive
    and nomination builds a new message, `selection.go:174`, `:210`); the tracker
    still refreshes a record if a client ever does (tested).
-6. A record can outlive its conn if `RemoveConnByUfrag` runs between
-   `WriteTo`'s closed check and the record; delivery skips a closed conn and
-   falls back, so nothing is written to a dead buffer.
+6. The original closed-connection check did not prevent recording after
+   `RemoveConnByUfrag`, which does not itself close the connection. The resumed
+   implementation checks the registered pointer while holding `m.mu` through
+   tracker registration/removal, and rejects writes through retired conns.
 7. Test 2 (overlapping agents) uses distinct ufrags. NetBird reuses one ufrag
    for every agent it recreates for a peer (`worker_ice.go:112-117`, `:247`),
    but `OnNewOffer` closes the old agent (up to 3 s) before creating the new
@@ -292,7 +318,7 @@ Every routing test fails, for the reason expected; all agents still connect:
 - Commit `cb20fec` (requests by USERNAME): all pass.
 - `go test -race -count=10 ./client/iface/udpmux/`: pass, no race reports.
 
-### Repository checks
+### Earlier repository checks (before the resumed validation environment)
 
 | Check | Result |
 | --- | --- |
