@@ -1,6 +1,8 @@
 # POC: route ICE STUN in the UDP mux without the candidate-pair ID
 
-Branch: `poc/udpmux-txid-routing` in `netbirdio/netbird` (no PR, no ticket).
+Branch: `work/admiring-planck-1l2xh2` in `netbirdio/netbird` (no PR, no
+ticket). Until `75a31b4` the work was on `poc/udpmux-txid-routing`, shared
+with a parallel run; see decision 22.
 Progress log, written so the work can be resumed from it. The final report is
 the last section.
 
@@ -296,9 +298,8 @@ lock never held across I/O.
     stay in history, the tree under `client/` is byte-identical to `37dab7d`.
     That run's artifact audit of runs 39588288742 and 39597620276 is the only
     source of candidate types and ICE timings here; its code changes are
-    assessed in "Parallel run's defect claims". Whoever continues should stop
-    one of the two runs first; two writers on one branch cannot both be
-    validated.
+    assessed in "Parallel run's defect claims". The real fix was separate
+    branches, done at decision 22.
 16. **Dup-follow not adopted.** Against a peer that answers every request
     twice (pre-0.57 broadcast muxes), the first answer consumes the record and
     the second goes through the unchanged fallback, which re-creates the
@@ -339,6 +340,16 @@ lock never held across I/O.
     the tree under `client/` stays byte-identical to `37dab7d`. Anyone
     picking up step 1 of "Step 2" should evaluate those commits on their
     own SHA with the scratch trials and the e2e selection described here.
+22. **Separate branches.** Both runs were given `poc/udpmux-txid-routing` by
+    the same task text, and each kept pushing to it. Merging the other run's
+    commits with `-s ours` kept this run's tree but left the other run's work
+    reverted at the tip, so a plain pull on its side would have undone its
+    `udpmux` changes. This run moved to its own branch,
+    `work/admiring-planck-1l2xh2`, starting at `75a31b4` so every commit this
+    log cites stays reachable, and returned `poc/udpmux-txid-routing` to the
+    other run with `6f5ef8a`, a forward commit whose tree equals `145a4ab`,
+    that run's last push. No history was rewritten; this run no longer writes
+    to that branch.
 
 ## What the change does to candidate selection
 
