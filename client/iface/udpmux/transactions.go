@@ -15,8 +15,8 @@ const (
 	transactionTTL = 5 * time.Second
 
 	// maxTransactions caps the outstanding requests the mux remembers. When it is
-	// reached the oldest request is forgotten and its response takes the
-	// address-based fallback.
+	// reached the oldest outstanding request is forgotten and its response is
+	// routed like one with an unknown transaction ID.
 	maxTransactions = 4096
 
 	stunHeaderSize = 20
@@ -41,8 +41,9 @@ type transactionTracker struct {
 	mu      sync.Mutex
 	entries map[transactionID]trackedTransaction
 	// queue holds every record in insertion order, which is also expiry order.
-	// Records replaced by a resend or consumed by a response stay queued until
-	// they reach the head, where their sequence number no longer matches.
+	// Records replaced by a resend or consumed by a response stay queued, with a
+	// sequence number no longer matching their entry, until they reach the head
+	// or the queue is compacted.
 	queue []queuedTransaction
 	seq   uint64
 	ttl   time.Duration
@@ -81,14 +82,26 @@ func (t *transactionTracker) record(id transactionID, conn *udpMuxedConn, now ti
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// A write can race RemoveConnByUfrag or Close; recording it for a closed
+	// conn would leave a record the removal has already passed.
+	if conn.isClosed() {
+		return
+	}
+
 	t.pruneExpired(now)
-	if len(t.queue) >= t.max {
-		t.popHead()
+	if _, ok := t.entries[id]; !ok && len(t.entries) >= t.max {
+		t.evictOldest()
 	}
 
 	t.seq++
 	t.entries[id] = trackedTransaction{conn: conn, seq: t.seq}
 	t.queue = append(t.queue, queuedTransaction{id: id, seq: t.seq, expires: now.Add(t.ttl)})
+
+	// Answered requests leave their queue records behind; compacting at twice
+	// the cap keeps the queue bounded by the cap, not by the send rate.
+	if len(t.queue) > 2*t.max {
+		t.compact()
+	}
 }
 
 // take returns the conn that sent request id and forgets the request, or nil
@@ -104,6 +117,16 @@ func (t *transactionTracker) take(id transactionID, now time.Time) *udpMuxedConn
 	}
 	delete(t.entries, id)
 	return entry.conn
+}
+
+// forget drops request id if conn is still the one recorded for it.
+func (t *transactionTracker) forget(id transactionID, conn *udpMuxedConn) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if entry, ok := t.entries[id]; ok && entry.conn == conn {
+		delete(t.entries, id)
+	}
 }
 
 // removeConn forgets every request sent by conn.
@@ -127,22 +150,44 @@ func (t *transactionTracker) clear() {
 	t.queue = nil
 }
 
-func (t *transactionTracker) pending() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.entries)
-}
-
 func (t *transactionTracker) pruneExpired(now time.Time) {
 	for len(t.queue) > 0 && !t.queue[0].expires.After(now) {
 		t.popHead()
 	}
 }
 
-func (t *transactionTracker) popHead() {
+// evictOldest forgets the oldest outstanding request, skipping stale records.
+func (t *transactionTracker) evictOldest() {
+	for len(t.queue) > 0 {
+		if t.popHead() {
+			return
+		}
+	}
+}
+
+// popHead removes the oldest queue record and reports whether it was still
+// outstanding.
+func (t *transactionTracker) popHead() bool {
 	head := t.queue[0]
 	t.queue = t.queue[1:]
-	if entry, ok := t.entries[head.id]; ok && entry.seq == head.seq {
-		delete(t.entries, head.id)
+	if !t.isLive(head) {
+		return false
 	}
+	delete(t.entries, head.id)
+	return true
+}
+
+func (t *transactionTracker) compact() {
+	live := make([]queuedTransaction, 0, len(t.entries))
+	for _, q := range t.queue {
+		if t.isLive(q) {
+			live = append(live, q)
+		}
+	}
+	t.queue = live
+}
+
+func (t *transactionTracker) isLive(q queuedTransaction) bool {
+	entry, ok := t.entries[q.id]
+	return ok && entry.seq == q.seq
 }

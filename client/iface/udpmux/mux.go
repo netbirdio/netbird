@@ -367,10 +367,12 @@ func (m *SingleSocketUDPMux) writeTo(buf []byte, rAddr net.Addr) (n int, err err
 
 // trackRequest remembers that conn sent buf if buf is a STUN request. It runs
 // before the write so a fast response cannot overtake the record.
-func (m *SingleSocketUDPMux) trackRequest(conn *udpMuxedConn, buf []byte) {
-	if id, ok := stunRequestTransactionID(buf); ok {
+func (m *SingleSocketUDPMux) trackRequest(conn *udpMuxedConn, buf []byte) (transactionID, bool) {
+	id, ok := stunRequestTransactionID(buf)
+	if ok {
 		m.transactions.record(id, conn, time.Now())
 	}
+	return id, ok
 }
 
 func (m *SingleSocketUDPMux) registerConnForAddress(conn *udpMuxedConn, addr string) {
@@ -423,8 +425,7 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 func (m *SingleSocketUDPMux) findSTUNRecipient(msg *stun.Message, addr net.Addr) *udpMuxedConn {
 	switch msg.Type.Class {
 	case stun.ClassSuccessResponse, stun.ClassErrorResponse:
-		// A conn can be removed between recording a request and its WriteTo
-		// returning, leaving a record that outlives it.
+		// The conn may have closed while the mux has yet to forget its records.
 		if conn := m.transactions.take(msg.TransactionID, time.Now()); conn != nil && !conn.isClosed() {
 			return conn
 		}

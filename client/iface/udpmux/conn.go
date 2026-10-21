@@ -88,8 +88,13 @@ func (c *udpMuxedConn) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		c.addAddress(addr)
 	}
 
-	c.params.Mux.trackRequest(c, buf)
-	return c.params.Mux.writeTo(buf, rAddr)
+	id, tracked := c.params.Mux.trackRequest(c, buf)
+	n, err = c.params.Mux.writeTo(buf, rAddr)
+	if err != nil && tracked {
+		// A request that never left cannot be answered.
+		c.params.Mux.transactions.forget(id, c)
+	}
+	return n, err
 }
 
 func (c *udpMuxedConn) LocalAddr() net.Addr {

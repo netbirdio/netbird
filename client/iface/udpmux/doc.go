@@ -35,8 +35,9 @@
 //   - Responses (success and error) go to the connection that sent the
 //     request. Every STUN request a muxed connection writes is recorded by
 //     transaction ID, and the record is dropped on the response, when the
-//     connection is removed, or after transactionTTL; at most maxTransactions
-//     are kept. Host and server reflexive candidates share the socket, so the
+//     write fails, when the connection is removed or the mux closes, or after
+//     transactionTTL; at most maxTransactions outstanding requests are kept.
+//     Host and server reflexive candidates share the socket, so the
 //     remote cannot tell which of them sent a check and the candidate pair ID
 //     it echoes can name the other one.
 //   - Requests and indications go to the connection of the target candidate
