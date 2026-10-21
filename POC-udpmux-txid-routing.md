@@ -781,6 +781,19 @@ Baseline Windows first dial/failure is lines 239–241 → 286–288; its srflx 
 
 The second failure cannot be explained solely by the logged candidate-before-initialization problem. Both sides accept candidates, and control/relay readiness already exists. There is no STUN transaction/removal trace to establish a packet-delivery cause. The separately reproduced old-close-watcher bug is a possible mechanism, but this artifact does not prove it occurred: the old agent was Closed at 12:32:24.985, and the watcher would have to remain delayed beyond new registrations at 25.831, about 846 milliseconds. Mux registration logs prove activity at that moment, not persistence afterward. A later lifecycle unit fix does not prove this episode resolved.
 
+Subsequent `client-tests` repetitions reproduce the intermediate source's
+asymmetric second attempt: POC run `39608305272` takes 29.796 s and three attempts,
+while baseline run `39608330203` takes 20.673 s and two attempts. However, the
+intended ICE roles differ in all four observations: Windows is controlling in
+both baseline samples and controlled in both POC samples. This follows from
+the logged local/remote public keys and the unchanged `isController` string
+comparison. Actual role-conflict exchanges are not visible in these logs.
+The repeated symptom is real, but this is not a matched-role experiment and
+cannot isolate a source effect. Final-source comparisons must record roles.
+Repeat evidence and artifact links are retained in
+`/workspace/scratch/proxbird-repeat-client-tests/repeat-comparison-portable.md`
+and `windows-dns-repeat-investigation.md`.
+
 The DNS test later restarts Windows. Baseline final diagnostics show Windows Connecting and legacy Relayed, whereas the POC final diagnostics show P2P. These post-test snapshots must remain distinct from successful initial P2P assertions. Initial Windows selected candidate types also differ: baseline host/srflx versus POC host/prflx.
 
 #### Modern routing-HA episode
