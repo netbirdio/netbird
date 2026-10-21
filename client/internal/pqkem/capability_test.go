@@ -45,13 +45,17 @@ func TestManager_MarkNonCapableCancelsInFlight(t *testing.T) {
 	var cancelled atomic.Bool
 	d.mu.Lock()
 	ex := d.exchanges["aaaa"]
-	require.NotNil(t, ex, "precondition: the bootstrap exchange is in flight")
-	loopCancel := ex.cancel
-	ex.cancel = func() {
-		cancelled.Store(true)
-		loopCancel()
+	if ex != nil {
+		loopCancel := ex.cancel
+		ex.cancel = func() {
+			cancelled.Store(true)
+			loopCancel()
+		}
 	}
 	d.mu.Unlock()
+	// Asserted after unlocking: a failing require stops the test, and the deferred Stop
+	// would then block on the lock.
+	require.NotNil(t, ex, "precondition: the bootstrap exchange is in flight")
 
 	// Now we learn the peer is non-PQ: the exchange must be dropped.
 	d.MarkNonCapable("aaaa")
