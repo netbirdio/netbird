@@ -94,7 +94,6 @@ require (
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203
-	github.com/pion/ice/v4 v4.0.0-00010101000000-000000000000
 	github.com/pion/logging v0.2.4
 	github.com/pion/randutil v0.1.0
 	github.com/pion/stun/v2 v2.0.0
@@ -296,6 +295,7 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/netbirdio/ice/v4 v4.0.0-00010101000000-000000000000
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/openbao/openbao/api/v2 v2.5.1 // indirect
@@ -367,7 +367,7 @@ replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-2
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
-replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
+replace github.com/netbirdio/ice/v4 => ../../../ice
 
 replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260716205454-a163de3129e5
 
