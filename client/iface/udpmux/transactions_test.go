@@ -100,17 +100,25 @@ func TestTransactionTracker_AnsweredRequestsDoNotEvict(t *testing.T) {
 
 func TestTransactionTracker_Forget(t *testing.T) {
 	tracker := newTransactionTracker(transactionTTL, maxTransactions)
-	first, second := &udpMuxedConn{}, &udpMuxedConn{}
+	mux, _ := newLifecycleTestMux(t)
+	first := lifecycleTestConn(t, mux, "first", "candidate:first")
+	second := lifecycleTestConn(t, mux, "second", "candidate:second")
 	now := time.Now()
 
-	tracker.record(transactionID{1}, first, now)
-	tracker.forget(transactionID{1}, first)
+	firstSeq := tracker.record(transactionID{1}, first, now)
+	tracker.forget(transactionID{1}, first, firstSeq)
 	assert.Nil(t, tracker.take(transactionID{1}, now), "a forgotten request is not matched")
 
-	tracker.record(transactionID{2}, first, now)
+	firstSeq = tracker.record(transactionID{2}, first, now)
 	tracker.record(transactionID{2}, second, now)
-	tracker.forget(transactionID{2}, first)
+	tracker.forget(transactionID{2}, first, firstSeq)
 	assert.Same(t, second, tracker.take(transactionID{2}, now), "forget leaves a request resent by another conn")
+
+	firstSeq = tracker.record(transactionID{3}, first, now)
+	secondSeq := tracker.record(transactionID{3}, first, now)
+	require.NotEqual(t, firstSeq, secondSeq, "a resend must not reuse the first send's rollback token")
+	tracker.forget(transactionID{3}, first, firstSeq)
+	assert.Same(t, first, tracker.take(transactionID{3}, now), "an older send error must not forget a newer resend by the same conn")
 }
 
 func TestTransactionTracker_RemoveConn(t *testing.T) {

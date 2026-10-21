@@ -27,6 +27,7 @@ Additional regression tests reproduced these defects before the fixes:
 | Mux close retains candidate and address state | Close now clears all routing maps and waits for the transaction expiry worker, outside the mux mutex |
 | Idle transactions remain allocated beyond their TTL | A virtual-time test observes the map without sending more packets; a periodic expiry worker releases entries within two TTLs, while lookup rejects them at the TTL |
 | A delayed write error deletes a newer same-connection retransmission | Cleanup now checks the recorded generation as well as the connection pointer |
+| A failed resend deletes the earlier successful request's mapping | A real UDP test expired the write deadline for the resend, then received the original response; a same-connection refresh is no longer rolled back on error |
 | Invalid STUN length headers consume tracker entries | Header-only parsing now checks reserved bits, cookie, declared length and four-byte alignment, without decoding attributes |
 
 The focused lifecycle, tracker, and NAT-agent tests pass with the race detector.
@@ -34,6 +35,19 @@ The added NAT cases cover both mixed pair-ID roles, nomination arriving before
 buffered responses (and assert that responses were actually held), and old-agent
 removal while a surviving agent receives at least three fresh check responses.
 Response assertions still require the exact sending connection.
+
+The failed-resend policy is deliberately conservative: an existing same-conn
+registration is refreshed and has no rollback token. This retains an earlier
+outstanding request even when a resend fails. Overlapping attempts that all fail
+can retain an entry until five seconds after the last attempt (physical cleanup
+within ten seconds); further attempts can refresh it. The 4096-entry cap still
+applies. A failed first send, including overlay refusal, releases its entry.
+This avoids restoring an old sequence whose expiry-queue record may already
+have been discarded.
+
+After that final change, `go test -race -count=1 ./client/iface/udpmux/...`
+passes (10.120 s), including the real UDP resend-error regression. The second
+review pass found no remaining tracker/lifecycle issue in this change.
 
 Two test-only changes outside `udpmux` are necessary for the required race suite:
 
@@ -99,7 +113,7 @@ without the fork's `0x8100` candidate-pair ID attribute, while the fork, the
 Tracker (`client/iface/udpmux/transactions.go`): header-only parse of outgoing
 requests (RFC 8489 section 5: class bits of the type, ID in bytes 8 to 20),
 recorded before the socket write. Records are removed on the response, when
-the write fails, on `RemoveConnByUfrag`, on mux `Close`, and after
+an initial write fails, on `RemoveConnByUfrag`, on mux `Close`, and after
 `transactionTTL` (5 s); a closed conn is never recorded. At most
 `maxTransactions` (4096) outstanding requests are kept, the oldest outstanding
 one evicted first. A FIFO queue in insertion order (equal to expiry order, the

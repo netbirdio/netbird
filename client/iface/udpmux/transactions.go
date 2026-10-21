@@ -64,6 +64,10 @@ func stunRequestTransactionID(b []byte) (transactionID, bool) {
 	if len(b) < stunHeaderSize || b[0]&0xc0 != 0 || !stun.IsMessage(b) {
 		return transactionID{}, false
 	}
+	bodyLength := int(binary.BigEndian.Uint16(b[2:4]))
+	if bodyLength%4 != 0 || bodyLength > len(b)-stunHeaderSize {
+		return transactionID{}, false
+	}
 
 	var msgType stun.MessageType
 	msgType.ReadValue(binary.BigEndian.Uint16(b[0:2]))
@@ -76,20 +80,21 @@ func stunRequestTransactionID(b []byte) (transactionID, bool) {
 	return id, true
 }
 
-// record notes that conn sent the request id. Sending the same id again
-// refreshes the record and moves it to conn.
-func (t *transactionTracker) record(id transactionID, conn *udpMuxedConn, now time.Time) {
+// record returns a rollback token for a new registration. A retransmission on
+// the same conn returns zero: a send error cannot invalidate its earlier check.
+func (t *transactionTracker) record(id transactionID, conn *udpMuxedConn, now time.Time) uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	// A write can race RemoveConnByUfrag or Close; recording it for a closed
 	// conn would leave a record the removal has already passed.
 	if conn.isClosed() {
-		return
+		return 0
 	}
 
 	t.pruneExpired(now)
-	if _, ok := t.entries[id]; !ok && len(t.entries) >= t.max {
+	previous, exists := t.entries[id]
+	if !exists && len(t.entries) >= t.max {
 		t.evictOldest()
 	}
 
@@ -102,6 +107,10 @@ func (t *transactionTracker) record(id transactionID, conn *udpMuxedConn, now ti
 	if len(t.queue) > 2*t.max {
 		t.compact()
 	}
+	if exists && previous.conn == conn {
+		return 0
+	}
+	return t.seq
 }
 
 // take returns the conn that sent request id and forgets the request, or nil
@@ -119,12 +128,12 @@ func (t *transactionTracker) take(id transactionID, now time.Time) *udpMuxedConn
 	return entry.conn
 }
 
-// forget drops request id if conn is still the one recorded for it.
-func (t *transactionTracker) forget(id transactionID, conn *udpMuxedConn) {
+// A failed write must not erase a later retransmission, even on the same conn.
+func (t *transactionTracker) forget(id transactionID, conn *udpMuxedConn, seq uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if entry, ok := t.entries[id]; ok && entry.conn == conn {
+	if entry, ok := t.entries[id]; ok && entry.conn == conn && entry.seq == seq {
 		delete(t.entries, id)
 	}
 }
@@ -190,4 +199,21 @@ func (t *transactionTracker) compact() {
 func (t *transactionTracker) isLive(q queuedTransaction) bool {
 	entry, ok := t.entries[q.id]
 	return ok && entry.seq == q.seq
+}
+
+// Idle muxes must release expired entries without waiting for another packet.
+func (m *SingleSocketUDPMux) expireTransactions() {
+	defer close(m.transactionsDone)
+	ticker := time.NewTicker(transactionTTL)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.closedChan:
+			return
+		case now := <-ticker.C:
+			m.transactions.mu.Lock()
+			m.transactions.pruneExpired(now)
+			m.transactions.mu.Unlock()
+		}
+	}
 }

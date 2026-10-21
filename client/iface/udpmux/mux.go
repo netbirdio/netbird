@@ -42,7 +42,8 @@ type SingleSocketUDPMux struct {
 	addressMap   map[string][]*udpMuxedConn
 
 	// transactions maps outstanding STUN requests to the conn that sent them.
-	transactions *transactionTracker
+	transactions     *transactionTracker
+	transactionsDone chan struct{}
 
 	// buffer pool to recycle buffers for net.UDPAddr encodes/decodes
 	pool *sync.Pool
@@ -173,6 +174,7 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		connsIPv6:        make(map[string]*udpMuxedConn),
 		candidateConnMap: make(map[string]*udpMuxedConn),
 		transactions:     newTransactionTracker(transactionTTL, maxTransactions),
+		transactionsDone: make(chan struct{}),
 		closedChan:       make(chan struct{}, 1),
 		unspecified:      isUnspecified(params.UDPConn.LocalAddr()),
 		pool: &sync.Pool{
@@ -183,6 +185,7 @@ func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 		},
 	}
 
+	go mux.expireTransactions()
 	return mux
 }
 
@@ -266,10 +269,6 @@ func (m *SingleSocketUDPMux) GetConn(ufrag string, addr net.Addr, candidateID st
 	}
 
 	c := m.createMuxedConn(ufrag, candidateID)
-	go func() {
-		<-c.CloseChannel()
-		m.RemoveConnByUfrag(ufrag)
-	}()
 
 	m.candidateConnMap[candidateID] = c
 
@@ -284,24 +283,31 @@ func (m *SingleSocketUDPMux) GetConn(ufrag string, addr net.Addr, candidateID st
 
 // RemoveConnByUfrag stops and removes the muxed packet connection
 func (m *SingleSocketUDPMux) RemoveConnByUfrag(ufrag string) {
+	m.removeConnByUfrag(ufrag, nil)
+}
+
+// A closing conn must not remove a replacement that now uses the same ufrag.
+func (m *SingleSocketUDPMux) removeConnByUfrag(ufrag string, expected *udpMuxedConn) {
 	removedConns := make([]*udpMuxedConn, 0, 2)
 
-	// Keep lock section small to avoid deadlock with conn lock
 	m.mu.Lock()
-	if c, ok := m.connsIPv4[ufrag]; ok {
+	if c, ok := m.connsIPv4[ufrag]; ok && (expected == nil || expected == c) {
 		delete(m.connsIPv4, ufrag)
 		removedConns = append(removedConns, c)
-		delete(m.candidateConnMap, c.GetCandidateID())
+		if m.candidateConnMap[c.GetCandidateID()] == c {
+			delete(m.candidateConnMap, c.GetCandidateID())
+		}
 	}
-	if c, ok := m.connsIPv6[ufrag]; ok {
+	if c, ok := m.connsIPv6[ufrag]; ok && (expected == nil || expected == c) {
 		delete(m.connsIPv6, ufrag)
 		removedConns = append(removedConns, c)
-		delete(m.candidateConnMap, c.GetCandidateID())
+		if m.candidateConnMap[c.GetCandidateID()] == c {
+			delete(m.candidateConnMap, c.GetCandidateID())
+		}
 	}
-	m.mu.Unlock()
 
 	if len(removedConns) == 0 {
-		// No need to lock if no connection was found
+		m.mu.Unlock()
 		return
 	}
 
@@ -309,19 +315,23 @@ func (m *SingleSocketUDPMux) RemoveConnByUfrag(ufrag string) {
 		m.transactions.removeConn(c)
 	}
 
-	var allAddresses []string
-	for _, c := range removedConns {
-		addresses := c.getAddresses()
-		allAddresses = append(allAddresses, addresses...)
-	}
-
+	var removedAddresses []string
 	m.addressMapMu.Lock()
-	for _, addr := range allAddresses {
-		delete(m.addressMap, addr)
+	for _, c := range removedConns {
+		for _, addr := range c.getAddresses() {
+			conns := slices.DeleteFunc(m.addressMap[addr], func(conn *udpMuxedConn) bool { return conn == c })
+			if len(conns) > 0 {
+				m.addressMap[addr] = conns
+				continue
+			}
+			delete(m.addressMap, addr)
+			removedAddresses = append(removedAddresses, addr)
+		}
 	}
 	m.addressMapMu.Unlock()
+	m.mu.Unlock()
 
-	for _, addr := range allAddresses {
+	for _, addr := range removedAddresses {
 		m.notifyAddressRemoval(addr)
 	}
 }
@@ -341,20 +351,28 @@ func (m *SingleSocketUDPMux) Close() error {
 	var err error
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
-		defer m.mu.Unlock()
-
+		conns := make([]*udpMuxedConn, 0, len(m.connsIPv4)+len(m.connsIPv6))
 		for _, c := range m.connsIPv4 {
-			_ = c.Close()
+			conns = append(conns, c)
 		}
 		for _, c := range m.connsIPv6 {
-			_ = c.Close()
+			conns = append(conns, c)
 		}
 
-		m.connsIPv4 = make(map[string]*udpMuxedConn)
-		m.connsIPv6 = make(map[string]*udpMuxedConn)
+		clear(m.connsIPv4)
+		clear(m.connsIPv6)
+		clear(m.candidateConnMap)
+		m.addressMapMu.Lock()
+		clear(m.addressMap)
+		m.addressMapMu.Unlock()
 		m.transactions.clear()
 
 		close(m.closedChan)
+		m.mu.Unlock()
+		<-m.transactionsDone
+		for _, c := range conns {
+			_ = c.Close()
+		}
 
 		_ = m.params.UDPConn.Close()
 	})
@@ -367,29 +385,45 @@ func (m *SingleSocketUDPMux) writeTo(buf []byte, rAddr net.Addr) (n int, err err
 
 // trackRequest remembers that conn sent buf if buf is a STUN request. It runs
 // before the write so a fast response cannot overtake the record.
-func (m *SingleSocketUDPMux) trackRequest(conn *udpMuxedConn, buf []byte) (transactionID, bool) {
+func (m *SingleSocketUDPMux) trackRequest(conn *udpMuxedConn, buf []byte) (transactionID, uint64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.hasConn(conn) {
+		return transactionID{}, 0, io.ErrClosedPipe
+	}
 	id, ok := stunRequestTransactionID(buf)
 	if ok {
-		m.transactions.record(id, conn, time.Now())
+		return id, m.transactions.record(id, conn, time.Now()), nil
 	}
-	return id, ok
+	return id, 0, nil
 }
 
-func (m *SingleSocketUDPMux) registerConnForAddress(conn *udpMuxedConn, addr string) {
-	if m.IsClosed() {
-		return
+// hasConn is called with m.mu held to serialize writes with removal.
+func (m *SingleSocketUDPMux) hasConn(conn *udpMuxedConn) bool {
+	return !m.IsClosed() && !conn.isClosed() &&
+		(m.connsIPv4[conn.params.Key] == conn || m.connsIPv6[conn.params.Key] == conn)
+}
+
+func (m *SingleSocketUDPMux) registerConnForAddress(conn *udpMuxedConn, addr string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.hasConn(conn) {
+		return io.ErrClosedPipe
 	}
 
 	m.addressMapMu.Lock()
-	existing, ok := m.addressMap[addr]
-	if !ok {
-		existing = []*udpMuxedConn{}
+	defer m.addressMapMu.Unlock()
+	existing := m.addressMap[addr]
+	if slices.Contains(existing, conn) {
+		return nil
 	}
-	existing = append(existing, conn)
-	m.addressMap[addr] = existing
-	m.addressMapMu.Unlock()
+	m.addressMap[addr] = append(existing, conn)
+	conn.mu.Lock()
+	conn.addresses = append(conn.addresses, addr)
+	conn.mu.Unlock()
 
 	log.Debugf("ICE: registered %s for %s", addr, conn.params.Key)
+	return nil
 }
 
 func (m *SingleSocketUDPMux) createMuxedConn(key string, candidateID string) *udpMuxedConn {

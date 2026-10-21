@@ -85,14 +85,19 @@ func (c *udpMuxedConn) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	// each time we write to a new address, we'll register it with the mux
 	addr := rAddr.String()
 	if !c.containsAddress(addr) {
-		c.addAddress(addr)
+		if err := c.params.Mux.registerConnForAddress(c, addr); err != nil {
+			return 0, err
+		}
 	}
 
-	id, tracked := c.params.Mux.trackRequest(c, buf)
+	id, seq, err := c.params.Mux.trackRequest(c, buf)
+	if err != nil {
+		return 0, err
+	}
 	n, err = c.params.Mux.writeTo(buf, rAddr)
-	if err != nil && tracked {
+	if err != nil && seq != 0 {
 		// A request that never left cannot be answered.
-		c.params.Mux.transactions.forget(id, c)
+		c.params.Mux.transactions.forget(id, c, seq)
 	}
 	return n, err
 }
@@ -123,6 +128,9 @@ func (c *udpMuxedConn) Close() error {
 		err = c.buf.Close()
 		close(c.closedChan)
 	})
+	if c.params.Mux != nil {
+		c.params.Mux.removeConnByUfrag(c.params.Key, c)
+	}
 	return err
 }
 
@@ -145,15 +153,6 @@ func (c *udpMuxedConn) getAddresses() []string {
 	addresses := make([]string, len(c.addresses))
 	copy(addresses, c.addresses)
 	return addresses
-}
-
-func (c *udpMuxedConn) addAddress(addr string) {
-	c.mu.Lock()
-	c.addresses = append(c.addresses, addr)
-	c.mu.Unlock()
-
-	// map it on mux
-	c.params.Mux.registerConnForAddress(c, addr)
 }
 
 func (c *udpMuxedConn) containsAddress(addr string) bool {
