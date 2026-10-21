@@ -68,11 +68,12 @@ worker or closing connections. The inherited concurrent GetConn/Close window
 and external address-removal-hook/re-registration ordering are not claimed as
 fixed by these tests.
 
-Full repository checks are being repeated in a disposable Ubuntu container
-with the actual GTK/WebKit development libraries, Docker access, and normal
-`/tmp` ownership. Baseline `make lint-all` passes with zero issues. Results from
-the earlier restricted environment in the historical table below are not the
-final validation of the resumed tree.
+Full repository checks were repeated in a disposable Ubuntu container with
+the actual GTK/WebKit development libraries, Docker access, and normal `/tmp`
+ownership. Lint and the required race checks pass. The complete unit commands
+remain red on both revisions: ten failing packages on baseline, nine on the
+POC, with the baseline-only bind failure fixed. The completed comparison below
+supersedes the earlier restricted-environment results.
 
 All 85 baseline Proxbird case artifacts were downloaded and audited: 2,575
 evidence file hashes, 287 complete node diagnostics, 202 native debug bundles
@@ -125,6 +126,77 @@ and controlled locals srflx (24 single-pair and 480 batched observations per
 role). Without IDs, baseline local types vary while the POC consistently uses
 host locally on both sides. Every remote candidate in these samples is srflx.
 There are no relay candidates in this timing fixture.
+
+### Revised source checks
+
+These checks use Go 1.26.7 and source `532e38be`; later report-only commits and
+the merge of the parallel collection notes leave the tested Go file hashes
+unchanged. The disposable Ubuntu container has the repository's GTK/WebKit
+development libraries and a mounted Docker socket, runs the unit command as a
+normal user, and leaves the host's networking unchanged.
+
+| Check | Result |
+| --- | --- |
+| `go fmt ./...` | exit 0; the 26 unrelated baseline formatting changes were restored |
+| `make lint` | exit 0, zero issues with its normal two-minute timeout |
+| `make lint-all` | exit 0, zero issues; the empty `nolint` warning also appears on baseline |
+| `go test -race ./client/iface/udpmux/... ./client/iface/bind/... ./client/internal/peer/...` | exit 0 across all target packages; udpmux 10.025 s, bind 1.750 s |
+| Baseline `make test-unit` | exit 2; 249 passing packages, 10 failing, 137 without tests |
+| Revised POC `make test-unit` | exit 2; 250 passing packages, 9 failing, 137 without tests; no new failing package |
+| `TestNBLinkReachesAgentNetwork` against source-built baseline | pass, 104.031 s package time |
+| Same local netstack e2e against source-built `532e38be` | pass, 104.738 s package time; all 17 nested/leaf assertions pass |
+| Forbidden production scope changes | none: `go.mod`, `go.sum`, `universal.go`, and `worker_ice.go` are unchanged from baseline |
+
+The e2e package durations above include setup and cleanup and are single-run
+functional evidence, not repeated ICE timing medians. The source-built combined
+server, proxy and nblink binaries, their hashes, and their runtime images are
+recorded in the local validation evidence. This exercises embedded netstack
+traffic as well as reconnect, TLS verification and browser boundary checks.
+
+Infrastructure corrections were made only to disposable validation artifacts:
+normal `/tmp` ownership, the actual UI development libraries, Docker socket
+access, public test CA and executable binary file modes, and proxy exclusions
+limited to local fixture destinations. No source assertions were skipped,
+thresholds lowered, TLS checks disabled, or host routing/firewall changed.
+Superseded full-suite attempts without Docker socket access were cancelled and
+are not counted as complete runs. All owned validation containers and fixtures
+were removed afterward; the final Docker container inventory is empty.
+
+### Complete unit-suite comparison
+
+Both full commands ran to completion with the repository's `-tags devcert` and
+ten-minute package deadline. The source under test is exactly `1e63b68` versus
+`532e38be`. No exclusions or thresholds were changed. Focused reruns after an
+environment correction are shown separately; they do not make the full commands
+green.
+
+| Package / test | Baseline and POC evidence |
+| --- | --- |
+| `client/iface/bind`, `TestICEBind_HandlesConcurrentMixedTraffic` | Baseline receives 256 packets against the 400 threshold; POC passes after the test receiver-buffer fix described above. This is the only baseline-only failing package. |
+| `client/iface/device`, `TestModuleStatus` | Both cannot open `/proc/modules` in the validation container. |
+| `client/internal`, `TestEngine_UpdateNetworkMapWithRoutes` | Both lack `/dev/net/tun`; the unchanged nonfatal setup assertion then permits a nil-interface panic. |
+| `client/internal/dns`, `TestUpstreamResolver_ServeDNS` | Both cannot reach the public UDP resolvers at `8.8.8.8` / `8.8.4.4` for `one.one.one.one`. |
+| `client/internal/dns/mgmt`, empty/partial update tests | Both OS DNS queries fail, leaving empty caches; the unchanged test indexes an absent result and panics. |
+| `management/cmd`, `Test_LoadMgmtConfig` | Both Auth0 discovery requests receive explicit proxy `Forbidden`, followed by the unchanged nil-config panic. |
+| `management/server`, local gRPC tests | Both proxy their local `[::]:port` fixtures. The POC also encounters a transient disk-full condition while superseded runners coexist. After disk recovery and exact local proxy exclusions, the full package passes on both: 138.433 s baseline / 135.387 s POC. |
+| `shared/relay/client`, `TestServerPicker_UnavailableServers` | Both hit the unchanged five-second timeout with only one nanosecond of outer deadline margin while resolving dummy server names. |
+| `shared/signal/client`, `TestSignal` | Both reach the 600 s package deadline while proxying a local `[::]:port` fixture. Full package reruns with local proxy exclusions pass: 1.122 s / 1.308 s. |
+| `upload-server/server`, `Test_S3HandlerGetUploadURL` | Both time out polling the local Docker S3 fixture through the proxy. The owned fixture returns 403 via the proxy and 200 with an exact `172.17.0.1` exclusion. Full package reruns pass: 1.196 s / 1.353 s. |
+
+The corrected focused runs leave six baseline/environment package failures
+unresolved. The complete POC command still has nine failing packages and the
+all-unit-tests-pass acceptance condition remains unmet. No additional POC
+failing package remains unexplained by the baseline or observed environment
+faults. Host routing, external proxy policy and TLS verification were preserved.
+
+Durable workspace evidence is in `/workspace/scratch/validation-resumed/`:
+`SUMMARY.md`, `baseline-unit-socket.log`, `poc-final-unit.log`,
+`full-unit-results.json`, `unit-failures.json`, `unit-analysis.txt`, and the
+focused `*-localproxy.log` files. The full commands and environment are in
+`VALIDATION-ENVIRONMENT.txt`; `poc-final-checked-files.sha256` and
+`final-source-manifest-check.log` tie the checked Go files to `532e38be`.
+These local files are not GitHub workflow artifacts; the results needed to
+resume the branch are recorded in this document.
 
 ## What the routing does now (branch head)
 
@@ -409,14 +481,14 @@ receives no duplicate answers from the POC side (0 duplicated requests).
   `source-build` (confirmed in its `resolve-client` log, `PINNED_SHA`), as the
   baseline built `1e63b68`.
 
-## Resuming: how the e2e data is collected
+## Initial e2e collection method (superseded by artifact inspection)
 
-The artifacts are blocked here (decision 11), so the comparison uses:
+Before artifact access was established, the comparison used:
 
 1. `gh api repos/netbirdio/proxbird-tests/actions/runs/RUN/attempts/1/jobs?per_page=100`
    for per-case status and conclusion.
-2. Each scenario job's log, fetched through the GitHub MCP server
-   (`get_job_logs`, `return_content`), keeping the controller lines
+2. Each scenario job's log, fetched through the supported GitHub interface,
+   keeping the controller lines
    `timing end phase=...` and `Remote scenario ... finished with exit code N`.
    One extraction was spot-checked against a direct fetch and matched
    byte for byte.
@@ -428,7 +500,7 @@ The artifacts are blocked here (decision 11), so the comparison uses:
    resolution is a few seconds. It is the closest per-case measure of time to
    connect available without the artifacts.
 
-With the artifacts reachable, the candidate types per peer come from each case
+The artifacts are now reachable. Candidate types per peer come from each case
 artifact's `results/*/result.json` (`.peers[i].peers.details[]` with
 `connectionType` and `iceCandidateType.{local,remote}`) or
 `results/*/nodes/peer-N/status-detail.txt` (`ICE candidate (Local/Remote)`).
@@ -436,21 +508,25 @@ Artifacts expire 14 days after the runs (2026-11-04).
 
 ## Not covered / caveats
 
-- **Candidate types in e2e**: not collected (artifacts blocked). The unit
-  and cross-version tests above give the expected effect; the e2e runs prove
-  the asserted P2P/relay outcome but not which local type each peer reported.
+- **Final source in Proxbird**: the intermediate run uses `37dab7d`; the
+  later lifecycle changes at `532e38be` still need their own run. Artifact
+  inspection now includes the candidate types, initial assertion results,
+  final snapshots, and native negotiation traces for the available runs.
 - **Current release peers**: no proxbird case pairs the candidate build with a
-  current release; covered only by the scratch cross-version test.
-- **Netstack (`client/embed`)**: no e2e case. It shares the ICEBind receive
-  path with userspace mode (`client/iface/bind/ice_bind.go` calls the same
-  `HandleSTUNMessage`), so only the routing code path is shared, not tested
-  end to end.
+  current release binary; the scratch cross-version test uses baseline mux
+  behavior, which is narrower coverage than an actual release client.
+- **Netstack (`client/embed`)**: the local `TestNBLinkReachesAgentNetwork` suite
+  passes with source-built binaries for both `1e63b68` and `532e38be`, including
+  overlay HTTP traffic, reconnect identity, browser boundary checks and TLS
+  rejection. Runtime users and verification remain unchanged. Correct fixture
+  file modes and scoped local Docker proxy exclusions were required; no
+  production source or test assertions were altered. This is separate from
+  Proxbird's kernel/userspace VM coverage.
 - **Mobile (iOS, Android)**: not exercised; Android builds.
-- **Pre-existing, unchanged**: `RemoveConnByUfrag` deletes the whole
-  `addressMap[addr]` entry, including other conns on that address (#4154; the
-  parallel run's `TestSTUNRemovedConnectionPreservesAddressFallback` shows it
-  on baseline and POC alike); several host candidates of one family share one
+- **Pre-existing, unchanged**: several host candidates of one family share one
   muxed conn; udp4 and udp6 srflx candidates share one conn; a recreated agent
-  reuses its predecessor's ufrag.
+  reuses its predecessor's ufrag. The earlier shared-address removal defect
+  and delayed old-close removal of a replacement are fixed and tested in
+  `532e38be`.
 - **Full pair-ID removal** (variant R) was measured only at unit level; no
   e2e run of it exists.
