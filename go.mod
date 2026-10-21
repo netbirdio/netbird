@@ -47,8 +47,6 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/crowdsecurity/crowdsec v1.7.7
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
-	github.com/dexidp/dex v2.13.0+incompatible
-	github.com/dexidp/dex/api/v2 v2.4.0
 	github.com/docker/docker v28.0.1+incompatible
 	github.com/docker/go-connections v0.6.0
 	github.com/ebitengine/purego v0.9.1
@@ -84,6 +82,8 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
+	github.com/netbirdio/dex v0.244.1-0.20261021144402-2c6d119a79f1
+	github.com/netbirdio/dex/api/v2 v2.0.0-20261021115841-9f3e6d4c2ce3
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
 	github.com/netbirdio/ice/v4 v4.0.0-20261021135746-8a183c822b29
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20261006132740-6e6b0cb01f2e
@@ -366,10 +366,6 @@ require (
 )
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
-
-replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260716205454-a163de3129e5
-
-replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260512110716-8d70ad8647c1
 
 replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0
 

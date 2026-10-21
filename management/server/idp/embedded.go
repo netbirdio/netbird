@@ -11,8 +11,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/dexidp/dex/storage"
 	"github.com/google/uuid"
+	"github.com/netbirdio/dex/storage"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"

@@ -3,7 +3,7 @@
 package dex
 
 import (
-	sql "github.com/dexidp/dex/storage/sql"
+	sql "github.com/netbirdio/dex/storage/sql"
 )
 
 // newSQLite3 builds the dex SQLite3 config. CGO builds use the upstream
