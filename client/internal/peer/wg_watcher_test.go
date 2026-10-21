@@ -44,6 +44,11 @@ func (m *mockHandshakeStats) advance() {
 // handshake even when the watcher started with an existing handshake baseline,
 // the case where onHandshakeSuccessFn stays silent.
 func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
+	previousCheckPeriod, previousOvertime := checkPeriod, wgHandshakeOvertime
+	t.Cleanup(func() {
+		checkPeriod, wgHandshakeOvertime = previousCheckPeriod, previousOvertime
+	})
+
 	// checkPeriod bounds how stale a handshake may be before the watcher treats it
 	// as a suspended-machine timeout. The first check fires after wgHandshakeOvertime,
 	// so keep checkPeriod well above any scheduling jitter to avoid a false timeout
@@ -59,20 +64,28 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 	watcher := NewWGWatcher(mlog, stats, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	var wg sync.WaitGroup
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
 
 	watcher.PrepareInitialHandshake()
 
 	firstHandshake := make(chan struct{}, 1)
 	checkSuccess := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
-		firstHandshake <- struct{}{}
-	}, func() {
-		select {
-		case checkSuccess <- struct{}{}:
-		default:
-		}
-	})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
+			firstHandshake <- struct{}{}
+		}, func() {
+			select {
+			case checkSuccess <- struct{}{}:
+			default:
+			}
+		})
+	}()
 
 	stats.advance()
 
@@ -90,6 +103,11 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 }
 
 func TestWGWatcher_EnableWgWatcher(t *testing.T) {
+	previousCheckPeriod, previousOvertime := checkPeriod, wgHandshakeOvertime
+	t.Cleanup(func() {
+		checkPeriod, wgHandshakeOvertime = previousCheckPeriod, previousOvertime
+	})
+
 	checkPeriod = 5 * time.Second
 	wgHandshakeOvertime = 1 * time.Second
 
@@ -98,17 +116,25 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	var wg sync.WaitGroup
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
 
 	watcher.PrepareInitialHandshake()
 
 	onDisconnected := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {
-		mlog.Infof("onDisconnectedFn")
-		onDisconnected <- struct{}{}
-	}, func(when time.Time) {
-		mlog.Infof("onHandshakeSuccess: %v", when)
-	}, nil)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.EnableWgWatcher(ctx, time.Now(), func() {
+			mlog.Infof("onDisconnectedFn")
+			onDisconnected <- struct{}{}
+		}, func(when time.Time) {
+			mlog.Infof("onHandshakeSuccess: %v", when)
+		}, nil)
+	}()
 
 	// wait for initial reading
 	time.Sleep(2 * time.Second)
@@ -122,6 +148,11 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 }
 
 func TestWGWatcher_ReEnable(t *testing.T) {
+	previousCheckPeriod, previousOvertime := checkPeriod, wgHandshakeOvertime
+	t.Cleanup(func() {
+		checkPeriod, wgHandshakeOvertime = previousCheckPeriod, previousOvertime
+	})
+
 	checkPeriod = 5 * time.Second
 	wgHandshakeOvertime = 1 * time.Second
 
@@ -144,14 +175,21 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 
 	// Re-enable with a new context
 	ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
 
 	watcher.PrepareInitialHandshake()
 
 	onDisconnected := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {
-		onDisconnected <- struct{}{}
-	}, func(when time.Time) {}, nil)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.EnableWgWatcher(ctx, time.Now(), func() {
+			onDisconnected <- struct{}{}
+		}, func(when time.Time) {}, nil)
+	}()
 
 	time.Sleep(2 * time.Second)
 	mocWgIface.disconnect()

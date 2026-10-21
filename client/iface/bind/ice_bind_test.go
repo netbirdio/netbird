@@ -171,6 +171,10 @@ func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 
 	const packetsPerFamily = 500
 
+	// Give both peers room for the burst even if their readers are descheduled.
+	require.NoError(t, ipv4Peer.SetReadBuffer(1<<20))
+	require.NoError(t, ipv6Peer.SetReadBuffer(1<<20))
+
 	ipv4Received := make(chan string, packetsPerFamily)
 	ipv6Received := make(chan string, packetsPerFamily)
 
