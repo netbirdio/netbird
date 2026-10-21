@@ -305,6 +305,151 @@ receives no duplicate answers from the POC side (0 duplicated requests).
   `source-build` (confirmed in its `resolve-client` log, `PINNED_SHA`), as the
   baseline built `1e63b68`.
 
+## E2E comparison, full selection (baseline run 39588288742 vs POC run 39597620276)
+
+Both runs: proxbird harness `a1abca5`, `client_source=netbird-main`,
+`lab_source=source-build`, same 85-case selection, attempt 1, no retries.
+**Baseline 85/85 passed, POC 85/85 passed.** No case was re-run.
+
+"P2P/relay" is the path proxbird asserts for the case; a pass proves it held
+in that run. Setup convergence is defined under "Resuming" below. Candidate
+types could not be collected (decision 11).
+
+### Setup convergence by group (paired: same case, baseline vs POC)
+
+| Group/profile | cases | median baseline (s) | median POC (s) | median paired diff (s) | POC slower / faster |
+| --- | --- | --- | --- | --- | --- |
+| client/nat | 20 | 3.4 | 3.4 | +0.1 | 12 / 8 |
+| connectivity-repair/nat | 4 | 6.9 | 7.3 | +0.1 | 3 / 1 |
+| connectivity-underlay/nat | 1 | 6.1 | 6.2 | +0.0 | 1 / 0 |
+| peer-pairs/direct | 5 | 7.4 | 7.5 | +0.1 | 3 / 2 |
+| peer-pairs/nat | 5 | 7.3 | 7.0 | -0.3 | 1 / 4 |
+| peer-pairs/relay | 5 | 7.3 | 8.5 | +0.1 | 3 / 2 |
+| peer-pairs/slow | 5 | 8.7 | 8.7 | +0.2 | 4 / 1 |
+| recovery/nat | 8 | 7.3 | 6.8 | +0.0 | 4 / 4 |
+| routing-ha/nat | 8 | 10.8 | 10.8 | +0.0 | 4 / 4 |
+| routing-ha/relay | 8 | 11.5 | 10.6 | -0.5 | 0 / 8 |
+| routing-overlap/nat | 8 | 10.7 | 11.2 | +0.1 | 4 / 4 |
+| routing-overlap/relay | 8 | 11.3 | 11.7 | -0.0 | 4 / 4 |
+
+All paired cases (n=85): median baseline 8.0s, median POC 8.4s, median paired difference +0.00s, POC slower in 43, faster in 42
+
+
+Large single-case values (20 to 32 s) appear in both runs at about the same
+rate: baseline `recovery-macos-nat-path-failure` 30.4 s,
+`routing-ha-freebsd-linux-nat-router-ha` 31.7 s,
+`client-windows-nat-allowed-ports` 24.4 s, `client-windows-nat-dns` 22.4 s;
+POC `client-windows-nat-dns` 32.1 s, `client-linux-nat-connect-relay` 30.7 s,
+`routing-ha-freebsd-linux-nat-router-ha` 28.7 s. One sample per case cannot
+separate these from the change, and `connect-legacy` (0.28.9 reference) is
+about 2.5 s (one extra status poll) slower on FreeBSD, Linux and macOS in this
+run. The `client-tests` suite is therefore repeated twice more per commit
+(next section).
+
+### Per case
+
+| Case | Baseline | POC | P2P/relay (asserted, both runs) | Setup convergence baseline / POC (s) | Local/remote candidate types |
+| --- | --- | --- | --- | --- | --- |
+| `client-freebsd-nat-allowed-ports` | success | success | P2P | 3.2 / 1.3 | not collected (artifacts blocked) |
+| `client-freebsd-nat-connect-legacy` | success | success | P2P | 0.7 / 3.2 | not collected (artifacts blocked) |
+| `client-freebsd-nat-connect-relay` | success | success | P2P | 3.2 / 3.3 | not collected (artifacts blocked) |
+| `client-freebsd-nat-dns` | success | success | P2P | 3.2 / 3.4 | not collected (artifacts blocked) |
+| `client-freebsd-nat-exit-node` | success | success | P2P | 3.0 / 3.4 | not collected (artifacts blocked) |
+| `client-linux-nat-allowed-ports` | success | success | P2P | 3.6 / 4.1 | not collected (artifacts blocked) |
+| `client-linux-nat-connect-legacy` | success | success | P2P | 3.4 / 6.3 | not collected (artifacts blocked) |
+| `client-linux-nat-connect-relay` | success | success | P2P | 3.7 / 30.7 | not collected (artifacts blocked) |
+| `client-linux-nat-dns` | success | success | P2P | 3.4 / 3.4 | not collected (artifacts blocked) |
+| `client-linux-nat-exit-node` | success | success | P2P | 3.6 / 3.5 | not collected (artifacts blocked) |
+| `client-macos-nat-allowed-ports` | success | success | P2P | 4.7 / 3.5 | not collected (artifacts blocked) |
+| `client-macos-nat-connect-legacy` | success | success | P2P | 4.1 / 6.4 | not collected (artifacts blocked) |
+| `client-macos-nat-connect-relay` | success | success | P2P | 3.4 / 3.3 | not collected (artifacts blocked) |
+| `client-macos-nat-dns` | success | success | P2P | 3.2 / 3.4 | not collected (artifacts blocked) |
+| `client-macos-nat-exit-node` | success | success | P2P | 3.4 / 3.4 | not collected (artifacts blocked) |
+| `client-windows-nat-allowed-ports` | success | success | P2P | 24.4 / 3.2 | not collected (artifacts blocked) |
+| `client-windows-nat-connect-legacy` | success | success | P2P | 14.1 / 12.6 | not collected (artifacts blocked) |
+| `client-windows-nat-connect-relay` | success | success | P2P | 3.2 / 3.9 | not collected (artifacts blocked) |
+| `client-windows-nat-dns` | success | success | P2P | 22.4 / 32.1 | not collected (artifacts blocked) |
+| `client-windows-nat-exit-node` | success | success | P2P | 3.4 / 3.4 | not collected (artifacts blocked) |
+| `connectivity-repair-freebsd-nat-path-repair` | success | success | Relayed while blocked; P2P or Relayed after repair | 7.5 / 7.1 | not collected (artifacts blocked) |
+| `connectivity-repair-linux-nat-path-repair` | success | success | Relayed while blocked; P2P or Relayed after repair | 6.4 / 11.2 | not collected (artifacts blocked) |
+| `connectivity-repair-macos-nat-path-repair` | success | success | Relayed while blocked; P2P or Relayed after repair | 5.9 / 6.0 | not collected (artifacts blocked) |
+| `connectivity-repair-windows-nat-path-repair` | success | success | Relayed while blocked; P2P or Relayed after repair | 7.5 / 7.5 | not collected (artifacts blocked) |
+| `connectivity-underlay-linux-nat-underlay-change` | success | success | P2P before and after the move | 6.1 / 6.2 | not collected (artifacts blocked) |
+| `freebsd-freebsd-direct` | success | success | P2P | 7.3 / 7.1 | not collected (artifacts blocked) |
+| `freebsd-freebsd-nat` | success | success | P2P | 5.7 / 5.2 | not collected (artifacts blocked) |
+| `freebsd-freebsd-relay` | success | success | Relayed | 7.7 / 5.6 | not collected (artifacts blocked) |
+| `freebsd-freebsd-slow` | success | success | P2P | 8.5 / 6.0 | not collected (artifacts blocked) |
+| `macos-macos-direct` | success | success | P2P | 5.9 / 5.6 | not collected (artifacts blocked) |
+| `macos-macos-nat` | success | success | P2P | 5.9 / 5.6 | not collected (artifacts blocked) |
+| `macos-macos-relay` | success | success | Relayed | 5.8 / 8.5 | not collected (artifacts blocked) |
+| `macos-macos-slow` | success | success | P2P | 6.0 / 6.2 | not collected (artifacts blocked) |
+| `macos-windows-direct` | success | success | P2P | 7.4 / 7.5 | not collected (artifacts blocked) |
+| `macos-windows-nat` | success | success | P2P | 7.4 / 7.6 | not collected (artifacts blocked) |
+| `macos-windows-relay` | success | success | Relayed | 7.3 / 7.5 | not collected (artifacts blocked) |
+| `macos-windows-slow` | success | success | P2P | 8.7 / 8.7 | not collected (artifacts blocked) |
+| `recovery-freebsd-nat-daemon-restart` | success | success | P2P before and after restart | 7.7 / 7.6 | not collected (artifacts blocked) |
+| `recovery-freebsd-nat-path-failure` | success | success | P2P, then Relayed while blocked | 7.7 / 7.8 | not collected (artifacts blocked) |
+| `recovery-linux-nat-daemon-restart` | success | success | P2P before and after restart | 6.2 / 6.4 | not collected (artifacts blocked) |
+| `recovery-linux-nat-path-failure` | success | success | P2P, then Relayed while blocked | 6.1 / 6.2 | not collected (artifacts blocked) |
+| `recovery-macos-nat-daemon-restart` | success | success | P2P before and after restart | 6.2 / 5.9 | not collected (artifacts blocked) |
+| `recovery-macos-nat-path-failure` | success | success | P2P, then Relayed while blocked | 30.4 / 6.0 | not collected (artifacts blocked) |
+| `recovery-windows-nat-daemon-restart` | success | success | P2P before and after restart | 7.2 / 7.2 | not collected (artifacts blocked) |
+| `recovery-windows-nat-path-failure` | success | success | P2P, then Relayed while blocked | 7.3 / 7.4 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-freebsd-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 8.0 / 8.4 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-freebsd-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 17.0 / 13.4 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-linux-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 31.7 / 28.7 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-linux-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 16.6 / 9.0 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-macos-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 10.0 / 8.3 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-macos-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 8.5 / 8.4 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-windows-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 9.4 / 10.2 | not collected (artifacts blocked) |
+| `routing-ha-freebsd-windows-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 9.7 / 9.2 | not collected (artifacts blocked) |
+| `routing-ha-linux-freebsd-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 10.8 / 10.8 | not collected (artifacts blocked) |
+| `routing-ha-linux-freebsd-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 10.4 / 10.1 | not collected (artifacts blocked) |
+| `routing-ha-linux-linux-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 11.2 / 11.5 | not collected (artifacts blocked) |
+| `routing-ha-linux-linux-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 11.8 / 11.4 | not collected (artifacts blocked) |
+| `routing-ha-linux-macos-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 10.7 / 10.7 | not collected (artifacts blocked) |
+| `routing-ha-linux-macos-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 11.1 / 11.0 | not collected (artifacts blocked) |
+| `routing-ha-linux-windows-nat-router-ha` | success | success | client-routers P2P, router-router P2P | 12.1 / 12.1 | not collected (artifacts blocked) |
+| `routing-ha-linux-windows-relay-router-ha` | success | success | client-routers Relayed, router-router P2P | 12.7 / 11.4 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-freebsd-nat-overlap` | success | success | client-routers P2P, router-router P2P | 14.1 / 13.7 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-freebsd-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 12.0 / 15.8 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-linux-nat-overlap` | success | success | client-routers P2P, router-router P2P | 9.3 / 9.2 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-linux-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 25.4 / 25.3 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-macos-nat-overlap` | success | success | client-routers P2P, router-router P2P | 8.4 / 8.6 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-macos-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 8.8 / 8.5 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-windows-nat-overlap` | success | success | client-routers P2P, router-router P2P | 10.1 / 13.2 | not collected (artifacts blocked) |
+| `routing-overlap-freebsd-windows-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 9.4 / 9.3 | not collected (artifacts blocked) |
+| `routing-overlap-linux-freebsd-nat-overlap` | success | success | client-routers P2P, router-router P2P | 10.5 / 10.3 | not collected (artifacts blocked) |
+| `routing-overlap-linux-freebsd-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 10.5 / 10.3 | not collected (artifacts blocked) |
+| `routing-overlap-linux-linux-nat-overlap` | success | success | client-routers P2P, router-router P2P | 11.4 / 11.7 | not collected (artifacts blocked) |
+| `routing-overlap-linux-linux-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 11.7 / 12.1 | not collected (artifacts blocked) |
+| `routing-overlap-linux-macos-nat-overlap` | success | success | client-routers P2P, router-router P2P | 10.8 / 10.8 | not collected (artifacts blocked) |
+| `routing-overlap-linux-macos-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 11.1 / 14.5 | not collected (artifacts blocked) |
+| `routing-overlap-linux-windows-nat-overlap` | success | success | client-routers P2P, router-router P2P | 11.3 / 11.7 | not collected (artifacts blocked) |
+| `routing-overlap-linux-windows-relay-overlap` | success | success | client-routers Relayed, router-router P2P | 11.4 / 11.4 | not collected (artifacts blocked) |
+| `windows-macos-direct` | success | success | P2P | 8.0 / 8.3 | not collected (artifacts blocked) |
+| `windows-macos-nat` | success | success | P2P | 7.3 / 7.0 | not collected (artifacts blocked) |
+| `windows-macos-relay` | success | success | Relayed | 7.1 / 18.0 | not collected (artifacts blocked) |
+| `windows-macos-slow` | success | success | P2P | 8.7 / 9.2 | not collected (artifacts blocked) |
+| `windows-windows-direct` | success | success | P2P | 8.7 / 9.2 | not collected (artifacts blocked) |
+| `windows-windows-nat` | success | success | P2P | 9.5 / 8.9 | not collected (artifacts blocked) |
+| `windows-windows-relay` | success | success | Relayed | 9.0 / 8.8 | not collected (artifacts blocked) |
+| `windows-windows-slow` | success | success | P2P | 10.7 / 11.1 | not collected (artifacts blocked) |
+
+
+## E2E repetitions of `client-tests` (pending)
+
+Dispatched 2026-10-21 13:28 UTC in balanced order, same inputs, selection
+`client-tests` (20 cases: five behaviors on four OSes against the 0.28.9 and
+0.30.1 reference peers):
+
+| Order | Commit | Run |
+| --- | --- | --- |
+| P2 | POC `37dab7d` | [39608305272](https://github.com/netbirdio/proxbird-tests/actions/runs/39608305272) |
+| B2 | baseline `1e63b68` | [39608330203](https://github.com/netbirdio/proxbird-tests/actions/runs/39608330203) |
+| B3 | baseline `1e63b68` | [39608353253](https://github.com/netbirdio/proxbird-tests/actions/runs/39608353253) |
+| P3 | POC `37dab7d` | [39608375543](https://github.com/netbirdio/proxbird-tests/actions/runs/39608375543) |
+
 ## Resuming: how the e2e data is collected
 
 The artifacts are blocked here (decision 11), so the comparison uses:
