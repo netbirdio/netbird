@@ -742,7 +742,9 @@ func TestUser_InviteNewUser_ServiceUserAfterCreatorRemoved(t *testing.T) {
 
 	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	require.NoError(t, err)
-	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cs)
+	cacheManager := nbcache.NewAccountUserDataCache(am.loadAccount, cs)
+	t.Cleanup(func() { assert.NoError(t, cacheManager.Close()) })
+	am.cacheManager = cacheManager
 
 	idpUsers := []*idp.UserData{{ID: newOwnerID, Email: newOwnerMail, Name: "new owner"}}
 	var invitedBy string
