@@ -15,10 +15,11 @@ type event struct {
 type Listener struct {
 	ctx context.Context
 
-	eventChan                 chan *event
-	interestedPeersForOffline map[messages.PeerID]struct{}
-	interestedPeersForOnline  map[messages.PeerID]struct{}
-	mu                        sync.RWMutex
+	eventChan chan *event
+	// interestedPeers stays registered across reconnections of a peer until it is
+	// removed, so every registration of the peer produces an online event.
+	interestedPeers map[messages.PeerID]struct{}
+	mu              sync.RWMutex
 }
 
 func newListener(ctx context.Context) *Listener {
@@ -27,9 +28,8 @@ func newListener(ctx context.Context) *Listener {
 
 		// important to use a single channel for offline and online events because with it we can ensure all events
 		// will be processed in the order they were sent
-		eventChan:                 make(chan *event, 244), //244 is the message size limit in the relay protocol
-		interestedPeersForOffline: make(map[messages.PeerID]struct{}),
-		interestedPeersForOnline:  make(map[messages.PeerID]struct{}),
+		eventChan:       make(chan *event, 244), //244 is the message size limit in the relay protocol
+		interestedPeers: make(map[messages.PeerID]struct{}),
 	}
 
 	return l
@@ -40,8 +40,7 @@ func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) {
 	defer l.mu.Unlock()
 
 	for _, id := range peerIDs {
-		l.interestedPeersForOnline[id] = struct{}{}
-		l.interestedPeersForOffline[id] = struct{}{}
+		l.interestedPeers[id] = struct{}{}
 	}
 }
 
@@ -50,8 +49,7 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 	defer l.mu.Unlock()
 
 	for _, id := range peerIDs {
-		delete(l.interestedPeersForOffline, id)
-		delete(l.interestedPeersForOnline, id)
+		delete(l.interestedPeers, id)
 	}
 }
 
@@ -93,7 +91,7 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	if _, ok := l.interestedPeersForOffline[peerID]; ok {
+	if _, ok := l.interestedPeers[peerID]; ok {
 		select {
 		case l.eventChan <- &event{
 			peerID: peerID,
@@ -105,10 +103,10 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 }
 
 func (l *Listener) peerComeOnline(peerID messages.PeerID) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 
-	if _, ok := l.interestedPeersForOnline[peerID]; ok {
+	if _, ok := l.interestedPeers[peerID]; ok {
 		select {
 		case l.eventChan <- &event{
 			peerID: peerID,
@@ -116,7 +114,5 @@ func (l *Listener) peerComeOnline(peerID messages.PeerID) {
 		}:
 		case <-l.ctx.Done():
 		}
-
-		delete(l.interestedPeersForOnline, peerID)
 	}
 }
