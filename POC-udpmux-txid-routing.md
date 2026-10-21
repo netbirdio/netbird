@@ -114,6 +114,17 @@ held across I/O.
     (see "What the change does to candidate selection" below), and it changes
     no packet on the wire. The e2e comparison decides whether anything else
     differs.
+14a. The parallel run kept pushing to this branch: nine more commits
+    (`f6095c0` to `42b087a`, 12:44 to 13:28 UTC), built on `2b97cd1`. They
+    rewrite the tracker's `forget` contract, add a per-mux expiry goroutine,
+    change about 110 lines of `mux.go`, add lifecycle tests and edit
+    `client/internal/peer/wg_watcher_test.go` and
+    `client/iface/bind/ice_bind_test.go` (outside the task's scope). None of it
+    is in `37dab7d`, the commit both e2e comparisons built. Following the
+    user's instruction to ignore the parallel run, `27531b6` is again an
+    `-s ours` merge: the commits stay in history, the tree under `client/` is
+    byte-identical to `37dab7d`. Whoever continues should stop one of the two
+    runs first; two writers on one branch cannot both be validated.
 14. To let the pre-push hook's `make lint` typecheck `client/ui` as CI does,
     the session installed the packages CI installs
     (`libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libgl1-mesa-dev
