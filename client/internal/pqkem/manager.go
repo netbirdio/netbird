@@ -335,6 +335,7 @@ func (m *Manager) Stop() {
 	m.mu.Lock()
 	m.exchanges = make(map[RemoteID]*exchangeCtl)
 	m.psks = make(map[RemoteID]PSK)
+	m.prevPSKs = make(map[RemoteID]PSK)
 	m.mu.Unlock()
 }
 
