@@ -1422,6 +1422,6 @@
         "message": "L’amministratore ha limitato il servizio NetBird su questo dispositivo ad alcuni utenti o gruppi, e il tuo account non è tra questi. Contatta l’amministratore per ottenere l’accesso."
     },
     "error.daemon_access_denied": {
-        "message": "Il tuo account non è autorizzato a usare il servizio NetBird su questo dispositivo. Contatta l’amministratore per ottenere l’accesso."
+        "message": "Il Suo account non è autorizzato a usare il servizio NetBird su questo dispositivo. Contatti l'amministratore per ottenere l'accesso."
     }
 }
