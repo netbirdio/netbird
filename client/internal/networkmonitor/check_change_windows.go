@@ -21,6 +21,15 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 		}
 	}()
 
+	ifaceEvents, states, stop := watchInterfaces()
+	if stop != nil {
+		defer stop()
+	}
+	if states == nil {
+		// The interfaces moved while subscribing: report it now.
+		return nil
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -33,8 +42,52 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 			if routeChanged(route, nexthopv4, nexthopv6) {
 				return nil
 			}
+		case <-ifaceEvents:
+			current, err := readInterfaceStates()
+			if err != nil {
+				log.Debugf("Network monitor: %v", err)
+				continue
+			}
+			if index, changed := states.changed(current); changed {
+				log.Infof("Network monitor: interface %d went %s", index, upOrDown(current[index]))
+				return nil
+			}
+			states = current
 		}
 	}
+}
+
+// watchInterfaces subscribes to interface changes and returns the states to
+// compare them with. The states are read before and after subscribing, so a
+// change in between is not lost: it comes back as nil states. Without
+// interface events the channel is nil and only route events count.
+func watchInterfaces() (<-chan struct{}, interfaceStates, func()) {
+	before, err := readInterfaceStates()
+	if err != nil {
+		log.Warnf("Network monitor: interface changes not watched: %v", err)
+		return nil, interfaceStates{}, nil
+	}
+	events, stop, err := subscribeInterfaceChanges()
+	if err != nil {
+		log.Warnf("Network monitor: interface changes not watched: %v", err)
+		return nil, before, nil
+	}
+	after, err := readInterfaceStates()
+	if err != nil {
+		log.Debugf("Network monitor: %v", err)
+		return events, before, stop
+	}
+	if _, changed := before.changed(after); changed {
+		return events, nil, stop
+	}
+	return events, after, stop
+}
+
+func upOrDown(up bool) string {
+	if up {
+		return "up"
+	}
+	return "down"
 }
 
 func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Nexthop) bool {
