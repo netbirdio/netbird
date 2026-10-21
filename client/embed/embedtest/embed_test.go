@@ -1,4 +1,4 @@
-package embed
+package embedtest
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
@@ -43,7 +44,7 @@ func TestClientStartTimeoutRollback(t *testing.T) {
 	mgmAddr := startManagement(t, signalAddr)
 
 	wgPort := 0
-	client, err := New(Options{
+	client, err := embed.New(embed.Options{
 		DeviceName:    "embed-rollback-test",
 		SetupKey:      testSetupKey,
 		ManagementURL: "http://" + mgmAddr,
@@ -111,7 +112,7 @@ func startManagement(t *testing.T, signalAddr string) string {
 
 	s := grpc.NewServer()
 
-	testStore, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", cfg.Datadir)
+	testStore, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/store.sql", cfg.Datadir)
 	require.NoError(t, err)
 	t.Cleanup(cleanUp)
 
