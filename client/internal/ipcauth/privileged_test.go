@@ -130,13 +130,13 @@ func TestMayDelegate(t *testing.T) {
 		self Identity
 		want bool
 	}{
-		{name: "unprivileged unix user", self: Identity{UID: 1000}, want: true},
-		{name: "root", self: Identity{UID: 0}, want: false},
-		{name: "unprivileged windows user", self: Identity{SID: "S-1-5-21-1-2-3-1001"}, want: true},
-		{name: "elevated windows user", self: Identity{SID: "S-1-5-21-1-2-3-1001", Elevated: true}, want: false},
-		{name: "local system", self: Identity{SID: sidLocalSystem}, want: false},
-		{name: "local service", self: Identity{SID: sidLocalService}, want: false},
-		{name: "network service", self: Identity{SID: sidNetworkService}, want: false},
+		{name: "unprivileged unix user", self: Identity{known: true, UID: 1000}, want: true},
+		{name: "root", self: Identity{known: true, UID: 0}, want: false},
+		{name: "unprivileged windows user", self: Identity{known: true, SID: "S-1-5-21-1-2-3-1001"}, want: true},
+		{name: "elevated windows user", self: Identity{known: true, SID: "S-1-5-21-1-2-3-1001", Elevated: true}, want: false},
+		{name: "local system", self: Identity{known: true, SID: sidLocalSystem}, want: false},
+		{name: "local service", self: Identity{known: true, SID: sidLocalService}, want: false},
+		{name: "network service", self: Identity{known: true, SID: sidNetworkService}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

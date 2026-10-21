@@ -3070,7 +3070,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		if err != nil {
 			return nil, nil, false, err
 		}
-		switched, err := s.switchProfileIfNeeded(resolved, activeProf)
+		switched, err = s.switchProfileIfNeeded(resolved, activeProf)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("switch profile: %w", err)
 		}
