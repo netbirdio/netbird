@@ -3942,7 +3942,6 @@ components:
         - secret
         - groups
         - last_synced_interval
-        - sync_interval
       properties:
         client_id:
           type: string
@@ -4074,7 +4073,6 @@ components:
         - groups
         - last_synced_interval
         - match_attributes
-        - sync_interval
     EDRSentinelOneResponse:
       type: object
       description: Represents a SentinelOne EDR integration configuration
@@ -4209,7 +4207,6 @@ components:
         - cloud_id
         - groups
         - zta_score_threshold
-        - sync_interval
     EDRFalconResponse:
       type: object
       description: Represents a Falcon EDR integration
@@ -4307,7 +4304,6 @@ components:
         - groups
         - last_synced_interval
         - match_attributes
-        - sync_interval
     EDRHuntressResponse:
       type: object
       description: Represents a Huntress EDR integration configuration
@@ -4427,7 +4423,6 @@ components:
         - groups
         - last_synced_interval
         - match_attributes
-        - sync_interval
     EDRFleetDMResponse:
       type: object
       description: Represents a FleetDM EDR integration configuration

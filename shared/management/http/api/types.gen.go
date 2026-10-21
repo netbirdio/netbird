@@ -2919,7 +2919,7 @@ type EDRFalconRequest struct {
 	Secret string `json:"secret"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
-	SyncInterval int `json:"sync_interval"`
+	SyncInterval *int `json:"sync_interval,omitempty"`
 
 	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
 	ZtaScoreThreshold int `json:"zta_score_threshold"`
@@ -2982,7 +2982,7 @@ type EDRFleetDMRequest struct {
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
-	SyncInterval int `json:"sync_interval"`
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRFleetDMResponse Represents a FleetDM EDR integration configuration
@@ -3045,7 +3045,7 @@ type EDRHuntressRequest struct {
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
-	SyncInterval int `json:"sync_interval"`
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRHuntressResponse Represents a Huntress EDR integration configuration
@@ -3102,7 +3102,7 @@ type EDRIntuneRequest struct {
 	Secret string `json:"secret"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
-	SyncInterval int `json:"sync_interval"`
+	SyncInterval *int `json:"sync_interval,omitempty"`
 
 	// TenantId The Azure tenant id
 	TenantId string `json:"tenant_id"`
@@ -3168,7 +3168,7 @@ type EDRSentinelOneRequest struct {
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
-	SyncInterval int `json:"sync_interval"`
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRSentinelOneResponse Represents a SentinelOne EDR integration configuration
