@@ -9,12 +9,11 @@ import (
 	"runtime"
 	"time"
 
-	wgconn "github.com/netbirdio/wireguard-go/conn"
-	"github.com/netbirdio/wireguard-go/device"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/monotime"
 )
@@ -22,7 +21,7 @@ import (
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
 
 type WGUSPConfigurer struct {
-	device           *device.Device
+	device           *wgbackend.Device
 	deviceName       string
 	activityRecorder *bind.ActivityRecorder
 	statsCache       *statsCache
@@ -31,14 +30,14 @@ type WGUSPConfigurer struct {
 }
 
 // NewUSPConfigurer creates a userspace configurer and starts its UAPI listener.
-func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
+func NewUSPConfigurer(device *wgbackend.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
 	wgCfg := NewUSPConfigurerNoUAPI(device, deviceName, activityRecorder)
 	wgCfg.startUAPI()
 	return wgCfg
 }
 
 // NewUSPConfigurerNoUAPI creates a userspace configurer without a UAPI listener.
-func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
+func NewUSPConfigurerNoUAPI(device *wgbackend.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
 	wgCfg := &WGUSPConfigurer{
 		device:           device,
 		deviceName:       deviceName,
@@ -59,7 +58,7 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 		return fmt.Errorf("invalid listen port %d", port)
 	}
 
-	if err := c.device.SetPrivateKey(device.NoisePrivateKey(key)); err != nil {
+	if err := c.device.SetPrivateKey(wgbackend.NoisePrivateKey(key)); err != nil {
 		return fmt.Errorf("set private key: %w", err)
 	}
 	if err := c.device.SetListenPort(uint16(port)); err != nil {
@@ -80,8 +79,8 @@ func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updat
 		return err
 	}
 
-	presharedKey := device.NoisePresharedKey(psk)
-	return c.device.ConfigurePeer(device.NoisePublicKey(parsedPeerKey), device.PeerConfig{
+	presharedKey := wgbackend.NoisePresharedKey(psk)
+	return c.device.ConfigurePeer(wgbackend.NoisePublicKey(parsedPeerKey), wgbackend.PeerConfig{
 		PresharedKey: &presharedKey,
 		UpdateOnly:   updateOnly,
 	})
@@ -99,7 +98,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		return err
 	}
 
-	cfg := device.PeerConfig{
+	cfg := wgbackend.PeerConfig{
 		PersistentKeepalive: &keepAlive,
 		AllowedIPs:          prefixes,
 	}
@@ -116,11 +115,11 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 	}
 
 	if preSharedKey != nil {
-		psk := device.NoisePresharedKey(*preSharedKey)
+		psk := wgbackend.NoisePresharedKey(*preSharedKey)
 		cfg.PresharedKey = &psk
 	}
 
-	if err := c.device.ConfigurePeer(device.NoisePublicKey(peerKeyParsed), cfg); err != nil {
+	if err := c.device.ConfigurePeer(wgbackend.NoisePublicKey(peerKeyParsed), cfg); err != nil {
 		return fmt.Errorf("configure peer: %w", err)
 	}
 
@@ -138,7 +137,7 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 		return fmt.Errorf("parse peer key: %w", err)
 	}
 
-	peer := c.device.LookupPeer(device.NoisePublicKey(peerKeyParsed))
+	peer := c.device.LookupPeer(wgbackend.NoisePublicKey(peerKeyParsed))
 	if peer == nil {
 		return ErrPeerNotFound
 	}
@@ -147,7 +146,7 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	peer.ZeroAndFlushAll()
 
 	var noKeepAlive time.Duration
-	if err := c.device.ConfigurePeer(device.NoisePublicKey(peerKeyParsed), device.PeerConfig{
+	if err := c.device.ConfigurePeer(wgbackend.NoisePublicKey(peerKeyParsed), wgbackend.PeerConfig{
 		PersistentKeepalive: &noKeepAlive,
 		UpdateOnly:          true,
 	}); err != nil {
@@ -163,7 +162,7 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 		return err
 	}
 
-	c.device.RemovePeer(device.NoisePublicKey(peerKeyParsed))
+	c.device.RemovePeer(wgbackend.NoisePublicKey(peerKeyParsed))
 	c.activityRecorder.Remove(peerKey)
 	return nil
 }
@@ -178,7 +177,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 		return fmt.Errorf("invalid allowed IP %v", allowedIP)
 	}
 
-	peer := c.device.LookupPeer(device.NoisePublicKey(peerKeyParsed))
+	peer := c.device.LookupPeer(wgbackend.NoisePublicKey(peerKeyParsed))
 	if peer == nil {
 		return nil
 	}
@@ -198,7 +197,7 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix
 		return ErrAllowedIPNotFound
 	}
 
-	peer := c.device.LookupPeer(device.NoisePublicKey(peerKeyParsed))
+	peer := c.device.LookupPeer(wgbackend.NoisePublicKey(peerKeyParsed))
 	if peer == nil {
 		return ErrPeerNotFound
 	}
@@ -284,7 +283,7 @@ func (c *WGUSPConfigurer) fetchStats() (map[string]WGStats, error) {
 	return stats, nil
 }
 
-func peerStats(peer *device.Peer) Peer {
+func peerStats(peer *wgbackend.Peer) Peer {
 	stats := Peer{
 		PublicKey:     wgtypes.Key(peer.PublicKey()).String(),
 		AllowedIPs:    prefixesToIPNets(peer.AllowedIPs()),
@@ -299,7 +298,7 @@ func peerStats(peer *device.Peer) Peer {
 	return stats
 }
 
-func endpointAddrPort(endpoint wgconn.Endpoint) (netip.AddrPort, bool) {
+func endpointAddrPort(endpoint wgbackend.Endpoint) (netip.AddrPort, bool) {
 	if endpoint == nil {
 		return netip.AddrPort{}, false
 	}

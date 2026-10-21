@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	wgConn "github.com/netbirdio/wireguard-go/conn"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // startReceivers runs every receive function the way wireguard-go's device
@@ -14,7 +15,7 @@ import (
 // calling Bind.Close, closeBindLocked waits on exactly that WaitGroup while
 // holding device.net, so a receive function that never returns wedges the
 // device and every goroutine that needs the same lock.
-func startReceivers(fns []wgConn.ReceiveFunc) *sync.WaitGroup {
+func startReceivers(fns []wgbackend.ReceiveFunc) *sync.WaitGroup {
 	wg, _ := startReceiversEntered(fns)
 	return wg
 }
@@ -23,18 +24,18 @@ func startReceivers(fns []wgConn.ReceiveFunc) *sync.WaitGroup {
 // function has been called at least once. A receive function that has been
 // entered is either inside its blocking receive or about to be, which is a
 // stronger signal to synchronise on than a bare sleep.
-func startReceiversEntered(fns []wgConn.ReceiveFunc) (*sync.WaitGroup, <-chan struct{}) {
+func startReceiversEntered(fns []wgbackend.ReceiveFunc) (*sync.WaitGroup, <-chan struct{}) {
 	var wg sync.WaitGroup
 	var entered sync.WaitGroup
 	wg.Add(len(fns))
 	entered.Add(len(fns))
 
 	for i := range fns {
-		go func(fn wgConn.ReceiveFunc) {
+		go func(fn wgbackend.ReceiveFunc) {
 			defer wg.Done()
 			buffs := [][]byte{make([]byte, 1500)}
 			sizes := make([]int, 1)
-			eps := make([]wgConn.Endpoint, 1)
+			eps := make([]wgbackend.Endpoint, 1)
 			first := true
 			for {
 				if first {

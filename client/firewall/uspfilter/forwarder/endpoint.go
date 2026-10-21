@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	wgdevice "github.com/netbirdio/wireguard-go/device"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // PacketCapture captures raw packets for debugging. Implementations must be
@@ -23,7 +23,7 @@ type PacketCapture interface {
 type endpoint struct {
 	logger     *nblog.Logger
 	dispatcher stack.NetworkDispatcher
-	device     *wgdevice.Device
+	device     *wgbackend.Device
 	mtu        atomic.Uint32
 	capture    atomic.Pointer[PacketCapture]
 }

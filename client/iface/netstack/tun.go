@@ -5,9 +5,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/netbirdio/wireguard-go/tun"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 const EnvSkipProxy = "NB_NETSTACK_SKIP_PROXY"
@@ -19,7 +19,7 @@ type NetStackTun struct { //nolint:revive
 	listenAddress string
 
 	proxy  *Proxy
-	tundev tun.Device
+	tundev wgbackend.TUN
 }
 
 func NewNetStackTun(listenAddress string, addresses []netip.Addr, dnsAddress netip.Addr, mtu int) *NetStackTun {
@@ -31,8 +31,8 @@ func NewNetStackTun(listenAddress string, addresses []netip.Addr, dnsAddress net
 	}
 }
 
-func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
-	nsTunDev, tunNet, err := netstack.CreateNetTUN(
+func (t *NetStackTun) Create() (wgbackend.TUN, *wgbackend.NetstackNet, error) {
+	nsTunDev, tunNet, err := wgbackend.CreateNetTUN(
 		t.addresses,
 		[]netip.Addr{t.dnsAddress},
 		t.mtu)

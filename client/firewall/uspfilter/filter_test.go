@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	wgdevice "github.com/netbirdio/wireguard-go/device"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +21,7 @@ import (
 	nbiface "github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -34,7 +34,7 @@ type IFaceMock struct {
 	NameFunc        func() string
 	SetFilterFunc   func(device.PacketFilter) error
 	AddressFunc     func() wgaddr.Address
-	GetWGDeviceFunc func() *wgdevice.Device
+	GetWGDeviceFunc func() *wgbackend.Device
 	GetDeviceFunc   func() *device.FilteredDevice
 }
 
@@ -45,7 +45,7 @@ func (i *IFaceMock) Name() string {
 	return i.NameFunc()
 }
 
-func (i *IFaceMock) GetWGDevice() *wgdevice.Device {
+func (i *IFaceMock) GetWGDevice() *wgbackend.Device {
 	if i.GetWGDeviceFunc == nil {
 		return nil
 	}

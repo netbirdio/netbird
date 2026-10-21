@@ -3,10 +3,10 @@ package bind
 import (
 	"net"
 
-	wgConn "github.com/netbirdio/wireguard-go/conn"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
-type Endpoint = wgConn.StdNetEndpoint
+type Endpoint = wgbackend.StdNetEndpoint
 
 func EndpointToUDPAddr(e Endpoint) *net.UDPAddr {
 	return &net.UDPAddr{

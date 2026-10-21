@@ -43,11 +43,11 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -714,7 +714,7 @@ func toTCPClient(c *dns.Client) *dns.Client {
 
 // ExchangeWithNetstack performs a DNS exchange using netstack for dialing.
 // This is needed when netstack is enabled to reach peer IPs through the tunnel.
-func ExchangeWithNetstack(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upstream string) (*dns.Msg, error) {
+func ExchangeWithNetstack(ctx context.Context, nsNet *wgbackend.NetstackNet, r *dns.Msg, upstream string) (*dns.Msg, error) {
 	// If request came in over TCP, go straight to TCP upstream
 	if dnsProtocolFromContext(ctx) == protoTCP {
 		rm, err := netstackExchange(ctx, nsNet, r, upstream, protoTCP)
@@ -758,7 +758,7 @@ func ExchangeWithNetstack(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, 
 	return reply, nil
 }
 
-func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upstream, network string) (*dns.Msg, error) {
+func netstackExchange(ctx context.Context, nsNet *wgbackend.NetstackNet, r *dns.Msg, upstream, network string) (*dns.Msg, error) {
 	conn, err := nsNet.DialContext(ctx, network, upstream)
 	if err != nil {
 		return nil, fmt.Errorf("with %s: %w", network, err)

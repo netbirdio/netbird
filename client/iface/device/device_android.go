@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/netbirdio/wireguard-go/device"
-	"github.com/netbirdio/wireguard-go/tun"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -16,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
@@ -30,7 +28,7 @@ type WGTunDevice struct {
 	disableDNS bool
 
 	name           string
-	device         *device.Device
+	device         *wgbackend.Device
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
@@ -74,7 +72,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		return nil, err
 	}
 
-	unmonitoredTUN, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	unmonitoredTUN, name, err := wgbackend.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
 		log.Errorf("failed to create Android interface: %s", err)
@@ -87,7 +85,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 	t.filteredDevice = newDeviceFilter(t.renewableTun)
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
+	t.device = wgbackend.NewDevice(t.filteredDevice, t.iceBind, wgbackend.NewLogger(wgLogLevel(), "[netbird] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
@@ -121,7 +119,7 @@ func (t *WGTunDevice) RenewTun(fd int) error {
 		return fmt.Errorf("device not initialized")
 	}
 
-	unmonitoredTUN, _, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	unmonitoredTUN, _, err := wgbackend.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
 		log.Errorf("failed to renew Android interface: %s", err)
@@ -155,7 +153,7 @@ func (t *WGTunDevice) Close() error {
 	return nil
 }
 
-func (t *WGTunDevice) Device() *device.Device {
+func (t *WGTunDevice) Device() *wgbackend.Device {
 	return t.device
 }
 
@@ -175,7 +173,7 @@ func (t *WGTunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
-func (t *WGTunDevice) GetNet() *netstack.Net {
+func (t *WGTunDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 

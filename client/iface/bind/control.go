@@ -1,8 +1,7 @@
 package bind
 
 import (
-	wireguard "github.com/netbirdio/wireguard-go/conn"
-
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
@@ -10,6 +9,6 @@ import (
 func init() {
 	listener := nbnet.NewListener()
 	if listener.ListenConfig.Control != nil {
-		*wireguard.ControlFns = append(*wireguard.ControlFns, listener.ListenConfig.Control)
+		*wgbackend.ControlFns = append(*wgbackend.ControlFns, listener.ListenConfig.Control)
 	}
 }

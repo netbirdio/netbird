@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/netbirdio/wireguard-go/device"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/sharedsock"
 )
@@ -170,7 +169,7 @@ func (t *TunKernelDevice) DeviceName() string {
 }
 
 // Device returns the wireguard device, not applicable for kernel devices
-func (t *TunKernelDevice) Device() *device.Device {
+func (t *TunKernelDevice) Device() *wgbackend.Device {
 	return nil
 }
 
@@ -183,7 +182,7 @@ func (t *TunKernelDevice) assignAddr() error {
 	return t.link.assignAddr(&t.address)
 }
 
-func (t *TunKernelDevice) GetNet() *netstack.Net {
+func (t *TunKernelDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 

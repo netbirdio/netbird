@@ -13,11 +13,11 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/route"
@@ -90,7 +90,7 @@ func NewDNSForwarder(listenAddress netip.AddrPort, ttl uint32, firewall firewall
 }
 
 func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
-	var netstackNet *netstack.Net
+	var netstackNet *wgbackend.NetstackNet
 	if f.wgIface != nil {
 		netstackNet = f.wgIface.GetNet()
 	}
@@ -153,7 +153,7 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	return <-errCh
 }
 
-func (f *DNSForwarder) createUDPListener(netstackNet *netstack.Net) (net.PacketConn, error) {
+func (f *DNSForwarder) createUDPListener(netstackNet *wgbackend.NetstackNet) (net.PacketConn, error) {
 	if netstackNet != nil {
 		return netstackNet.ListenUDPAddrPort(f.listenAddress)
 	}
@@ -161,7 +161,7 @@ func (f *DNSForwarder) createUDPListener(netstackNet *netstack.Net) (net.PacketC
 	return net.ListenUDP("udp", net.UDPAddrFromAddrPort(f.listenAddress))
 }
 
-func (f *DNSForwarder) createTCPListener(netstackNet *netstack.Net) (net.Listener, error) {
+func (f *DNSForwarder) createTCPListener(netstackNet *wgbackend.NetstackNet) (net.Listener, error) {
 	if netstackNet != nil {
 		return netstackNet.ListenTCPAddrPort(f.listenAddress)
 	}

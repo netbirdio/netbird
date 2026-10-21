@@ -7,11 +7,11 @@ package mocks
 import (
 	reflect "reflect"
 
-	wgdevice "github.com/netbirdio/wireguard-go/device"
 	gomock "go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // MockIFaceMapper is a mock of IFaceMapper interface.
@@ -108,10 +108,10 @@ func (mr *MockIFaceMapperMockRecorder) GetDevice() *gomock.Call {
 }
 
 // GetWGDevice mocks base method.
-func (m *MockIFaceMapper) GetWGDevice() *wgdevice.Device {
+func (m *MockIFaceMapper) GetWGDevice() *wgbackend.Device {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetWGDevice")
-	ret0, _ := ret[0].(*wgdevice.Device)
+	ret0, _ := ret[0].(*wgbackend.Device)
 	return ret0
 }
 

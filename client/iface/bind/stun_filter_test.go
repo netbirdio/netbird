@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	wgConn "github.com/netbirdio/wireguard-go/conn"
 	"github.com/pion/stun/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/ipv4"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // magicCookieBytes is the STUN magic cookie as it appears on the wire. In a
@@ -165,7 +166,7 @@ func TestReceiveFn_ClearsSizeOfConsumedPacket(t *testing.T) {
 	// A leftover size from an earlier read, which is what makes the missing reset
 	// observable.
 	sizes := []int{148}
-	eps := make([]wgConn.Endpoint, 1)
+	eps := make([]wgbackend.Endpoint, 1)
 
 	n, err := recvFn(bufs, sizes, eps)
 	require.NoError(t, err)

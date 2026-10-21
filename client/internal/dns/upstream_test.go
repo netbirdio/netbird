@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 )
 
@@ -128,7 +128,7 @@ func (m *mockNetstackProvider) ToInterface() *net.Interface       { return nil }
 func (m *mockNetstackProvider) IsUserspaceBind() bool             { return false }
 func (m *mockNetstackProvider) GetFilter() device.PacketFilter    { return nil }
 func (m *mockNetstackProvider) GetDevice() *device.FilteredDevice { return nil }
-func (m *mockNetstackProvider) GetNet() *netstack.Net             { return nil }
+func (m *mockNetstackProvider) GetNet() *wgbackend.NetstackNet    { return nil }
 func (m *mockNetstackProvider) GetInterfaceGUIDString() (string, error) {
 	return "", nil
 }

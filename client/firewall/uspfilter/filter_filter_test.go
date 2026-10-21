@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	wgdevice "github.com/netbirdio/wireguard-go/device"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -791,10 +791,10 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 			}
 		},
 		GetDeviceFunc: func() *device.FilteredDevice {
-			return &device.FilteredDevice{Device: dev}
+			return &device.FilteredDevice{TUN: dev}
 		},
-		GetWGDeviceFunc: func() *wgdevice.Device {
-			return &wgdevice.Device{}
+		GetWGDeviceFunc: func() *wgbackend.Device {
+			return &wgbackend.Device{}
 		},
 	}
 

@@ -4,10 +4,9 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/netbirdio/wireguard-go/tun/netstack"
-
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type wgIfaceBase interface {
@@ -20,5 +19,5 @@ type wgIfaceBase interface {
 	IsUserspaceBind() bool
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
-	GetNet() *netstack.Net
+	GetNet() *wgbackend.NetstackNet
 }

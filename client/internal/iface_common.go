@@ -5,14 +5,13 @@ import (
 	"net/netip"
 	"time"
 
-	wgdevice "github.com/netbirdio/wireguard-go/device"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
 )
@@ -37,9 +36,9 @@ type wgIfaceBase interface {
 	SetFilter(filter device.PacketFilter) error
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
-	GetWGDevice() *wgdevice.Device
+	GetWGDevice() *wgbackend.Device
 	GetStats() (map[string]configurer.WGStats, error)
-	GetNet() *netstack.Net
+	GetNet() *wgbackend.NetstackNet
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
 	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error

@@ -1,10 +1,9 @@
 package firewall
 
 import (
-	wgdevice "github.com/netbirdio/wireguard-go/device"
-
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // EnvForceUserspaceFirewall forces the use of the userspace packet filter even when
@@ -20,5 +19,5 @@ type IFaceMapper interface {
 	IsUserspaceBind() bool
 	SetFilter(device.PacketFilter) error
 	GetDevice() *device.FilteredDevice
-	GetWGDevice() *wgdevice.Device
+	GetWGDevice() *wgbackend.Device
 }

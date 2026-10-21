@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/netbirdio/wireguard-go/device"
-	"github.com/netbirdio/wireguard-go/tun"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type TunDevice struct {
@@ -25,7 +23,7 @@ type TunDevice struct {
 	mtu     uint16
 	iceBind *bind.ICEBind
 
-	device         *device.Device
+	device         *wgbackend.Device
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
@@ -43,17 +41,17 @@ func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu
 }
 
 func (t *TunDevice) Create() (WGConfigurer, error) {
-	tunDevice, err := tun.CreateTUN(t.name, int(t.mtu))
+	tunDevice, err := wgbackend.CreateTUN(t.name, int(t.mtu))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.filteredDevice = newDeviceFilter(tunDevice)
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	t.device = device.NewDevice(
+	t.device = wgbackend.NewDevice(
 		t.filteredDevice,
 		t.iceBind,
-		device.NewLogger(wgLogLevel(), "[netbird] "),
+		wgbackend.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
 	err = t.assignAddr()
@@ -125,7 +123,7 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 }
 
 // Device returns the wireguard device
-func (t *TunDevice) Device() *device.Device {
+func (t *TunDevice) Device() *wgbackend.Device {
 	return t.device
 }
 
@@ -160,7 +158,7 @@ func (t *TunDevice) assignAddr() error {
 	return nil
 }
 
-func (t *TunDevice) GetNet() *netstack.Net {
+func (t *TunDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 

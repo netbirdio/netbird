@@ -8,12 +8,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
@@ -48,7 +48,7 @@ func (m *reconcileWGMock) ToInterface() *net.Interface                { return n
 func (m *reconcileWGMock) IsUserspaceBind() bool                      { return false }
 func (m *reconcileWGMock) GetFilter() device.PacketFilter             { return nil }
 func (m *reconcileWGMock) GetDevice() *device.FilteredDevice          { return nil }
-func (m *reconcileWGMock) GetNet() *netstack.Net                      { return nil }
+func (m *reconcileWGMock) GetNet() *wgbackend.NetstackNet             { return nil }
 
 // TestReconcilePeerAllowedIPs verifies the declarative reconcile re-applies every routed prefix
 // tracked for the peer (self-heal, independent of refcount level) and stays scoped to that peer.

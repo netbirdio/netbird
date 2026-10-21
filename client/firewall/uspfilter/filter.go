@@ -18,7 +18,6 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
-	wgdevice "github.com/netbirdio/wireguard-go/device"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -31,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -121,7 +121,7 @@ type Iface interface {
 	Name() string
 	Address() wgaddr.Address
 	SetFilter(device.PacketFilter) error
-	GetWGDevice() *wgdevice.Device
+	GetWGDevice() *wgbackend.Device
 }
 
 // InterfaceAllower opens the NetBird interface in the host firewall so it

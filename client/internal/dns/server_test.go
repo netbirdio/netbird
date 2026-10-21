@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -23,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
@@ -83,7 +83,7 @@ func (w *mocWGIface) GetStats(_ string) (configurer.WGStats, error) {
 	return configurer.WGStats{}, nil
 }
 
-func (w *mocWGIface) GetNet() *netstack.Net {
+func (w *mocWGIface) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 

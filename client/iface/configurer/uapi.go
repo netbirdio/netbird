@@ -5,16 +5,16 @@ package configurer
 import (
 	"net"
 
-	"github.com/netbirdio/wireguard-go/ipc"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 func openUAPI(deviceName string) (net.Listener, error) {
-	uapiSock, err := ipc.UAPIOpen(deviceName)
+	uapiSock, err := wgbackend.UAPIOpen(deviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	listener, err := ipc.UAPIListen(deviceName, uapiSock)
+	listener, err := wgbackend.UAPIListen(deviceName, uapiSock)
 	if err != nil {
 		_ = uapiSock.Close()
 		return nil, err

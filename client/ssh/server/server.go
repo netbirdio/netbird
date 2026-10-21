@@ -17,12 +17,12 @@ import (
 
 	"github.com/gliderlabs/ssh"
 	gojwt "github.com/golang-jwt/jwt/v5"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -167,7 +167,7 @@ type Server struct {
 	allowSFTP                 bool
 	jwtEnabled                bool
 
-	netstackNet *netstack.Net
+	netstackNet *wgbackend.NetstackNet
 
 	wgAddress wgaddr.Address
 
@@ -445,7 +445,7 @@ func (s *Server) buildSessionInfo(state *sessionState) SessionInfo {
 }
 
 // SetNetstackNet sets the netstack network for userspace networking
-func (s *Server) SetNetstackNet(net *netstack.Net) {
+func (s *Server) SetNetstackNet(net *wgbackend.NetstackNet) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.netstackNet = net

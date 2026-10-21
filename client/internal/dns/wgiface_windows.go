@@ -1,10 +1,9 @@
 package dns
 
 import (
-	"github.com/netbirdio/wireguard-go/tun/netstack"
-
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // WGIface defines subset methods of interface required for manager
@@ -14,6 +13,6 @@ type WGIface interface {
 	IsUserspaceBind() bool
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
-	GetNet() *netstack.Net
+	GetNet() *wgbackend.NetstackNet
 	GetInterfaceGUIDString() (string, error)
 }

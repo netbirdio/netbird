@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/netbirdio/wireguard-go/device"
-	"github.com/netbirdio/wireguard-go/tun"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -14,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type TunDevice struct {
@@ -25,7 +23,7 @@ type TunDevice struct {
 	iceBind *bind.ICEBind
 	tunFd   int
 
-	device         *device.Device
+	device         *wgbackend.Device
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
@@ -50,7 +48,7 @@ var ErrInvalidTunnelFD = fmt.Errorf("invalid tunnel file descriptor: fd is 0 (Sw
 func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Infof("create tun interface")
 
-	var tunDevice tun.Device
+	var tunDevice wgbackend.TUN
 	var err error
 
 	// Validate the tunnel file descriptor.
@@ -79,7 +77,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		_ = unix.Close(dupTunFd)
 		return nil, err
 	}
-	tunDevice, err = tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+	tunDevice, err = wgbackend.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
 	if err != nil {
 		log.Errorf("Unable to create new tun device from fd: %v", err)
 		_ = unix.Close(dupTunFd)
@@ -88,7 +86,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 
 	t.filteredDevice = newDeviceFilter(tunDevice)
 	log.Debug("Attaching to interface")
-	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
+	t.device = wgbackend.NewDevice(t.filteredDevice, t.iceBind, wgbackend.NewLogger(wgLogLevel(), "[netbird] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
@@ -118,7 +116,7 @@ func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunDevice) Device() *device.Device {
+func (t *TunDevice) Device() *wgbackend.Device {
 	return t.device
 }
 
@@ -163,7 +161,7 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
-func (t *TunDevice) GetNet() *netstack.Net {
+func (t *TunDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 

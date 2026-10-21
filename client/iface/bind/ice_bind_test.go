@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/wireguard-go/device"
-	"github.com/netbirdio/wireguard-go/tun/netstack"
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +18,7 @@ import (
 	"golang.org/x/net/ipv6"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 func TestICEBind_CreatesReceiverForBothIPv4AndIPv6(t *testing.T) {
@@ -370,16 +369,16 @@ func TestICEBind_OpenDoesNotDiscoverInterfaces(t *testing.T) {
 }
 
 func TestICEBind_DeviceUpDoesNotWaitOnInterfaceDiscovery(t *testing.T) {
-	tunDev, _, err := netstack.CreateNetTUN([]netip.Addr{netip.MustParseAddr("100.64.0.1")}, nil, 1280)
+	tunDev, _, err := wgbackend.CreateNetTUN([]netip.Addr{netip.MustParseAddr("100.64.0.1")}, nil, 1280)
 	require.NoError(t, err)
 
-	var dev *device.Device
+	var dev *wgbackend.Device
 	n := newCountingNet()
 	n.before = func() {
 		_ = dev.IpcGetOperation(io.Discard)
 	}
 	iceBind := NewICEBind(n, testAddress(), 1280)
-	dev = device.NewDevice(tunDev, iceBind, device.NewLogger(device.LogLevelSilent, ""))
+	dev = wgbackend.NewDevice(tunDev, iceBind, wgbackend.NewLogger(wgbackend.LogLevelSilent, ""))
 
 	upDone := make(chan error, 1)
 	go func() {

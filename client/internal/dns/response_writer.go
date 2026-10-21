@@ -7,14 +7,15 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-	"github.com/netbirdio/wireguard-go/tun"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type responseWriter struct {
 	local  net.Addr
 	remote net.Addr
 	packet gopacket.Packet
-	device tun.Device
+	device wgbackend.TUN
 }
 
 // LocalAddr returns the net.Addr of the server
