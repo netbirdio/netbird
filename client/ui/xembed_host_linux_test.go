@@ -5,6 +5,7 @@ package main
 import (
 	"testing"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +36,35 @@ func TestIconPixmapValidate(t *testing.T) {
 				return
 			}
 			assert.Error(t, err, "%dx%d with %d bytes must be rejected", tc.icon.W, tc.icon.H, len(tc.icon.Pix))
+		})
+	}
+}
+
+func TestOwnerLeft(t *testing.T) {
+	owner := func(name, oldOwner, newOwner string) *dbus.Signal {
+		return &dbus.Signal{Name: "org.freedesktop.DBus.NameOwnerChanged", Body: []interface{}{name, oldOwner, newOwner}}
+	}
+
+	tests := []struct {
+		name    string
+		watched string
+		sig     *dbus.Signal
+		left    bool
+	}{
+		{"unique name disconnects", ":1.26", owner(":1.26", ":1.26", ""), true},
+		{"well-known name released", "org.example.Item", owner("org.example.Item", ":1.26", ""), true},
+		// A restart can hand a well-known name straight to the new process; the
+		// item is still served, so its icon must stay.
+		{"well-known name handed over", "org.example.Item", owner("org.example.Item", ":1.26", ":1.40"), false},
+		{"name acquired", "org.example.Item", owner("org.example.Item", "", ":1.40"), false},
+		{"another name", ":1.26", owner(":1.27", ":1.27", ""), false},
+		{"another signal", ":1.26", &dbus.Signal{Name: "org.kde.StatusNotifierItem.NewIcon"}, false},
+		{"short body", ":1.26", &dbus.Signal{Name: "org.freedesktop.DBus.NameOwnerChanged", Body: []interface{}{":1.26"}}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.left, ownerLeft(tc.sig, tc.watched), "signal %v while watching %s", tc.sig.Body, tc.watched)
 		})
 	}
 }

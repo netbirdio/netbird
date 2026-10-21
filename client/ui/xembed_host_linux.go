@@ -227,8 +227,10 @@ func (h *xembedHost) drawIcon() {
 		(*C.uchar)(cData), C.int(w), C.int(ht))
 }
 
-// run is the event loop: polls X11 events and D-Bus NewIcon signals until stopped.
-func (h *xembedHost) run() {
+// run is the event loop: polls X11 events and D-Bus NewIcon signals until
+// stopped. It reports whether it exited because the item left the bus, rather
+// than on a stop or the tray going away, so the watcher can unregister it.
+func (h *xembedHost) run() (itemGone bool) {
 	defer h.destroy()
 
 	matchRule := "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon',sender='" + h.busName + "'"
@@ -236,9 +238,22 @@ func (h *xembedHost) run() {
 		log.Debugf("xembed: failed to add signal match: %v", err)
 	}
 
+	// Without this the host outlives its item: a client that exits leaves its
+	// icon docked, and starting it again docks a second one beside it.
+	ownerRule := "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus'," +
+		"member='NameOwnerChanged',arg0='" + h.busName + "'"
+	if err := h.conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, ownerRule).Err; err != nil {
+		log.Debugf("xembed: failed to add owner match: %v", err)
+	}
+
 	sigCh := make(chan *dbus.Signal, 16)
 	h.conn.Signal(sigCh)
 	defer h.conn.RemoveSignal(sigCh)
+
+	// The item may have left between the icon fetch and the match above.
+	if !h.itemOnBus() {
+		return true
+	}
 
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -246,14 +261,16 @@ func (h *xembedHost) run() {
 	for {
 		select {
 		case <-h.ctx.Done():
-			return
+			return false
 
 		case sig := <-sigCh:
-			if sig == nil {
-				continue
-			}
-			if sig.Name == "org.kde.StatusNotifierItem.NewIcon" {
+			switch {
+			case sig == nil:
+			case sig.Name == "org.kde.StatusNotifierItem.NewIcon":
 				h.fetchAndDrawIcon()
+			case ownerLeft(sig, h.busName):
+				log.Debugf("xembed: %s left the bus, removing its icon", h.busName)
+				return true
 			}
 
 		case <-ticker.C:
@@ -275,10 +292,34 @@ func (h *xembedHost) run() {
 				}
 			case -1: // tray died
 				log.Info("xembed: tray manager destroyed, cleaning up")
-				return
+				return false
 			}
 		}
 	}
+}
+
+// ownerLeft reports whether sig is a NameOwnerChanged saying name lost its last
+// owner. A change to a new owner, as when a well-known name is handed over, is
+// not a departure.
+func ownerLeft(sig *dbus.Signal, name string) bool {
+	if sig.Name != "org.freedesktop.DBus.NameOwnerChanged" || len(sig.Body) != 3 {
+		return false
+	}
+	changed, _ := sig.Body[0].(string)
+	newOwner, _ := sig.Body[2].(string)
+	return changed == name && newOwner == ""
+}
+
+// itemOnBus reports whether the item's bus name still has an owner. A failed
+// lookup counts as present, since dropping a live item's icon is the worse
+// mistake.
+func (h *xembedHost) itemOnBus() bool {
+	var has bool
+	if err := h.conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, h.busName).Store(&has); err != nil {
+		log.Debugf("xembed: NameHasOwner %s: %v", h.busName, err)
+		return true
+	}
+	return has
 }
 
 func (h *xembedHost) activate(x, y int32) {

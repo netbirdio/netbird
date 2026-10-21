@@ -9,6 +9,7 @@ package main
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +116,24 @@ func (w *statusNotifierWatcher) addItem(service string) bool {
 	return true
 }
 
+// removeItem forgets an item whose owner left the bus and announces it, so the
+// published list stops naming an item nobody serves any more.
+func (w *statusNotifierWatcher) removeItem(id string) {
+	w.itemsMu.Lock()
+	idx := slices.Index(w.items, id)
+	if idx < 0 {
+		w.itemsMu.Unlock()
+		return
+	}
+	w.items = slices.Delete(w.items, idx, idx+1)
+	w.props.SetMust(watcherIface, "RegisteredStatusNotifierItems", slices.Clone(w.items))
+	w.itemsMu.Unlock()
+
+	if err := w.conn.Emit(watcherPath, watcherIface+".StatusNotifierItemUnregistered", id); err != nil {
+		log.Debugf("StatusNotifierWatcher: emitting StatusNotifierItemUnregistered failed: %v", err)
+	}
+}
+
 // itemAddress resolves the RegisterStatusNotifierItem argument to the bus and
 // path the item is served on. libappindicator sends its object path, served by
 // the sender. Qt sends a bus name and registers from another connection than
@@ -172,8 +191,11 @@ func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath d
 	}
 
 	go func() {
-		host.run()
+		itemGone := host.run()
 		w.removeHost(id, host, sessionConn)
+		if itemGone {
+			w.removeItem(id)
+		}
 	}()
 	log.Infof("StatusNotifierWatcher: XEmbed tray icon created for %s", id)
 }
