@@ -166,7 +166,9 @@ func (c errorClassifier) classify(err error) *ClientError {
 }
 
 // isSocketDenial reports whether a lowercased Unavailable message carries an OS
-// access denial on the daemon socket or pipe. Matches English Windows text only.
+// access denial on the daemon socket or pipe. "connect: permission denied" is
+// the Unix socket EACCES text and "access is denied" the Windows
+// ERROR_ACCESS_DENIED text; both matched on English OS messages.
 func isSocketDenial(lower string) bool {
 	return strings.Contains(lower, "connect: permission denied") ||
 		strings.Contains(lower, "access is denied")
