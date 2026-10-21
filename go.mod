@@ -82,13 +82,13 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
-	github.com/netbirdio/dex v0.244.1-0.20261021144402-2c6d119a79f1
+	github.com/netbirdio/dex v0.244.1-0.20261021152327-0319b501f1a6
 	github.com/netbirdio/dex/api/v2 v2.0.0-20261021115841-9f3e6d4c2ce3
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
-	github.com/netbirdio/ice/v4 v4.0.0-20261021135746-8a183c822b29
+	github.com/netbirdio/ice/v4 v4.0.0-20261021152109-d0e5dfacb548
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20261006132740-6e6b0cb01f2e
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
-	github.com/netbirdio/wireguard-go v0.0.0-20261021113144-8c6fb8e40119
+	github.com/netbirdio/wireguard-go v0.0.0-20261021152105-0de46b309cdb
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/ory/dockertest/v4 v4.0.0
