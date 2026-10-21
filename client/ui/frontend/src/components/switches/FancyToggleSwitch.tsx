@@ -36,7 +36,7 @@ export default function FancyToggleSwitch({
 
     if (loading) {
         const shimmer =
-            "text-transparent select-none rounded bg-nb-gray-920 box-decoration-clone animate-pulse";
+            "text-transparent select-none rounded-sm bg-nb-gray-920 box-decoration-clone animate-pulse";
         return (
             <div
                 role={"status"}
@@ -72,7 +72,7 @@ export default function FancyToggleSwitch({
         <div
             {...(disabled ? { inert: "" } : {})}
             className={cn(
-                "relative z-[1] cursor-default transition-all duration-300",
+                "relative z-1 cursor-default transition-all duration-300",
                 "inline-block w-full text-start",
                 disabled && "pointer-events-none opacity-30",
                 className,

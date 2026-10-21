@@ -49,7 +49,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
         <Tabs.Trigger
             ref={ref}
             className={cn(
-                "group flex w-full cursor-default items-center gap-3 rounded-md border border-transparent px-2 py-2.5 text-start outline-none dark:border-0",
+                "group flex w-full cursor-default items-center gap-3 rounded-md border border-transparent px-2 py-2.5 text-start outline-hidden dark:border-0",
                 "transition-colors duration-150",
                 "data-[state=active]:border-nb-gray-800 data-[state=active]:bg-white dark:data-[state=active]:bg-nb-gray-930",
                 "data-[state=inactive]:hover:bg-nb-gray-850 dark:data-[state=inactive]:hover:bg-nb-gray-935",
@@ -65,20 +65,20 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 className={cn(
                     "ms-2 shrink-0 transition-colors duration-150",
                     "text-nb-gray-350 dark:text-nb-gray-400",
-                    "group-data-[state=active]:text-nb-gray-100",
+                    "group-data-[state=active]:text-nb-gray-100 dark:group-data-[state=active]:text-nb-gray-100",
                 )}
             />
             <span
                 className={cn(
                     "min-w-0 truncate text-sm font-medium transition-colors duration-150",
                     "text-nb-gray-350 dark:text-nb-gray-400",
-                    "group-data-[state=active]:font-semibold group-data-[state=active]:text-nb-gray-100 dark:group-data-[state=active]:font-medium",
+                    "group-data-[state=active]:font-semibold group-data-[state=active]:text-nb-gray-100 dark:group-data-[state=active]:font-medium dark:group-data-[state=active]:text-nb-gray-100",
                 )}
             >
                 {title}
             </span>
             {adornment && (
-                <div aria-hidden={"true"} className={"me-2 ms-auto shrink-0"}>
+                <div aria-hidden={"true"} className={"ms-auto me-2 shrink-0"}>
                     {adornment}
                 </div>
             )}
@@ -94,7 +94,7 @@ const Content = forwardRef<HTMLDivElement, Tabs.TabsContentProps>(function Verti
         <Tabs.Content
             ref={ref}
             tabIndex={-1}
-            className={cn("outline-none", className)}
+            className={cn("outline-hidden", className)}
             {...props}
         />
     );
