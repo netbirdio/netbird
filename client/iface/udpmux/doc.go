@@ -39,9 +39,12 @@
 //     are kept. Host and server reflexive candidates share the socket, so the
 //     remote cannot tell which of them sent a check and the candidate pair ID
 //     it echoes can name the other one.
-//   - Requests, indications and responses with an unknown transaction ID go
-//     to the connection of the target candidate in the candidate pair ID
-//     (ice.CandidatePairIDFromSTUN) when the remote sets one.
+//   - Requests and indications go to the connection of the target candidate
+//     in the candidate pair ID (ice.CandidatePairIDFromSTUN) when the remote
+//     sets one, and otherwise to the host connection of the agent named by the
+//     USERNAME ufrag.
+//   - A response with an unknown transaction ID is routed by its candidate
+//     pair ID.
 //   - Anything still unplaced is sent to every connection that has written to
 //     the source address, plus the connection matching the USERNAME ufrag.
 //

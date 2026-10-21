@@ -409,7 +409,7 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 		return fmt.Errorf("underlying PacketConn did not return a UDPAddr")
 	}
 
-	if conn := m.findSTUNRecipient(msg); conn != nil {
+	if conn := m.findSTUNRecipient(msg, addr); conn != nil {
 		return conn.writePacket(msg.Raw, remoteAddr)
 	}
 
@@ -420,15 +420,25 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 // leave it to the address-based fallback. Responses follow the request's
 // transaction ID: host and srflx candidates share the socket, so the remote's
 // pair ID can name the wrong one.
-func (m *SingleSocketUDPMux) findSTUNRecipient(msg *stun.Message) *udpMuxedConn {
-	if msg.Type.Class == stun.ClassSuccessResponse || msg.Type.Class == stun.ClassErrorResponse {
+func (m *SingleSocketUDPMux) findSTUNRecipient(msg *stun.Message, addr net.Addr) *udpMuxedConn {
+	switch msg.Type.Class {
+	case stun.ClassSuccessResponse, stun.ClassErrorResponse:
 		// A conn can be removed between recording a request and its WriteTo
 		// returning, leaving a record that outlives it.
 		if conn := m.transactions.take(msg.TransactionID, time.Now()); conn != nil && !conn.isClosed() {
 			return conn
 		}
+		return m.findCandidateConnection(msg)
+	case stun.ClassRequest, stun.ClassIndication:
+		if conn := m.findCandidateConnection(msg); conn != nil {
+			return conn
+		}
+		// The host conn alone: the agent answers every copy it reads, so a
+		// request also broadcast to its srflx conn is answered twice.
+		conn, _ := m.findConnectionByUsername(msg, addr)
+		return conn
 	}
-	return m.findCandidateConnection(msg)
+	return nil
 }
 
 // findCandidateConnection attempts to find the specific connection for a STUN message
