@@ -80,14 +80,15 @@ func (w *statusNotifierWatcher) RegisterStatusNotifierItem(sender dbus.Sender, s
 	// Attempted on every call, not only the first: a client re-registers when
 	// the watcher name changes owner, and that is the chance to host an item
 	// again after its previous host lost the tray.
-	go w.tryStartXembedHost(id, string(sender), itemObjectPath(service))
+	busName, objPath := itemAddress(sender, service)
+	go w.tryStartXembedHost(id, busName, objPath)
 	return nil
 }
 
 // itemID identifies a registered item. A client may register by bus name or by
-// object path, and clients that register by path mostly use the same well-known
-// one, so the path form is qualified with the sender's unique name to keep two
-// items from colliding.
+// object path, and the path form repeats across clients (Wails' own tray always
+// uses /StatusNotifierItem), so it is qualified with the sender's unique name to
+// keep two items from colliding.
 func itemID(sender dbus.Sender, service string) string {
 	if strings.HasPrefix(service, "/") {
 		return string(sender) + service
@@ -114,15 +115,21 @@ func (w *statusNotifierWatcher) addItem(service string) bool {
 	return true
 }
 
-// itemObjectPath resolves the RegisterStatusNotifierItem argument to the item's
-// object path. The SNI spec lets a client pass either its bus name or the
-// object path: libappindicator sends the bus name, Qt sends the path. A bus
-// name means the item sits at the well-known default path.
-func itemObjectPath(service string) dbus.ObjectPath {
-	if path := dbus.ObjectPath(service); strings.HasPrefix(service, "/") && path.IsValid() {
-		return path
+// itemAddress resolves the RegisterStatusNotifierItem argument to the bus and
+// path the item is served on. libappindicator sends its object path, served by
+// the sender. Qt sends a bus name and registers from another connection than
+// the one serving the item, so that name is addressed rather than the sender.
+func itemAddress(sender dbus.Sender, service string) (string, dbus.ObjectPath) {
+	if service == "" {
+		return string(sender), defaultItemPath
 	}
-	return defaultItemPath
+	if !strings.HasPrefix(service, "/") {
+		return service, defaultItemPath
+	}
+	if path := dbus.ObjectPath(service); path.IsValid() {
+		return string(sender), path
+	}
+	return string(sender), defaultItemPath
 }
 
 // RegisterStatusNotifierHost is required by the protocol but unused here.

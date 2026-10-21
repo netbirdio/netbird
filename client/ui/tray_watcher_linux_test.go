@@ -34,23 +34,30 @@ func TestDesktopWithOwnWatcher(t *testing.T) {
 	}
 }
 
-func TestItemObjectPath(t *testing.T) {
+func TestItemAddress(t *testing.T) {
 	tests := []struct {
-		name    string
-		service string
-		want    dbus.ObjectPath
+		name     string
+		sender   dbus.Sender
+		service  string
+		wantBus  string
+		wantPath dbus.ObjectPath
 	}{
-		{"qt sends the object path", "/StatusNotifierItem", "/StatusNotifierItem"},
-		{"ayatana path", "/org/ayatana/NotificationItem/app", "/org/ayatana/NotificationItem/app"},
-		{"libappindicator sends the bus name", ":1.84", defaultItemPath},
-		{"well-known bus name", "org.kde.StatusNotifierItem-1234-1", defaultItemPath},
-		{"malformed path", "//bad path", defaultItemPath},
-		{"empty", "", defaultItemPath},
+		{"libappindicator sends its object path", ":1.31", "/org/ayatana/NotificationItem/app", ":1.31", "/org/ayatana/NotificationItem/app"},
+		{"wails sends the default path", ":1.14", "/StatusNotifierItem", ":1.14", "/StatusNotifierItem"},
+		// Qt calls RegisterStatusNotifierItem from one connection and serves the
+		// item on another, so the item lives on the bus it names, not on the
+		// sender. Seen with CopyQ, which registered ":1.29" from ":1.23".
+		{"qt names another connection", ":1.23", ":1.29", ":1.29", defaultItemPath},
+		{"kstatusnotifieritem well-known name", ":1.22", "org.kde.StatusNotifierItem-1234-1", "org.kde.StatusNotifierItem-1234-1", defaultItemPath},
+		{"malformed path stays on the sender", ":1.84", "//bad path", ":1.84", defaultItemPath},
+		{"empty", ":1.84", "", ":1.84", defaultItemPath},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, itemObjectPath(tc.service), "service %q", tc.service)
+			bus, path := itemAddress(tc.sender, tc.service)
+			assert.Equal(t, tc.wantBus, bus, "bus for service %q", tc.service)
+			assert.Equal(t, tc.wantPath, path, "path for service %q", tc.service)
 		})
 	}
 }
@@ -74,8 +81,8 @@ func TestItemID(t *testing.T) {
 	}
 }
 
-// Two Qt-style clients both register the well-known path, and neither may be
-// mistaken for the other.
+// Two clients both register the well-known path, as every Wails tray does, and
+// neither may be mistaken for the other.
 func TestItemIDDistinguishesSendersOnTheSamePath(t *testing.T) {
 	const path = "/StatusNotifierItem"
 
