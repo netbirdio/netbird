@@ -122,7 +122,9 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	notifier := notifier.NewNotifier()
 	sysOps := systemops.New(config.WGInterface, notifier)
 
-	if runtime.GOOS == "windows" && config.WGInterface != nil {
+	// Windows binds sockets away from the VPN interface by name; the underlay
+	// lookups on Windows and macOS skip it by name too.
+	if (runtime.GOOS == "windows" || runtime.GOOS == "darwin") && config.WGInterface != nil {
 		nbnet.SetVPNInterfaceName(config.WGInterface.Name())
 	}
 
@@ -333,7 +335,7 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 			log.Info("Routing cleanup complete")
 		}
 
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 			nbnet.SetVPNInterfaceName("")
 		}
 	}
