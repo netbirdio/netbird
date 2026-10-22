@@ -203,8 +203,9 @@ func newChange(before NextHops) Change {
 	return Change{Kind: kindOf(before, after), Before: before, After: after}
 }
 
-// readSnapshot returns the current underlay snapshot. It fails only when
-// neither family has a default next hop.
+// readSnapshot returns the current underlay snapshot. Its error wraps
+// vars.ErrRouteNotFound when neither family has a default; any other error is
+// a failed lookup and says nothing about the network.
 func readSnapshot() (NextHops, error) {
 	var snapshot NextHops
 	var err error
@@ -245,8 +246,9 @@ func defaultInterfaceAddrs(nexthops ...systemops.Nexthop) []netip.Addr {
 	return slices.Compact(addrs)
 }
 
-// readNextHops returns the current underlay default next hops. It fails only
-// when neither family has one.
+// readNextHops returns the current underlay default next hops. It fails with
+// vars.ErrRouteNotFound when neither family has one, and with a plain error
+// when the lookup of either family fails.
 func readNextHops() (systemops.Nexthop, systemops.Nexthop, error) {
 	nexthop4, errv4 := underlayNextHopFn(netip.IPv4Unspecified())
 	nexthop6, errv6 := underlayNextHopFn(netip.IPv6Unspecified())
