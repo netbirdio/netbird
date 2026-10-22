@@ -968,7 +968,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				Groups:      []string{"groupC"},
 			}
 			_, err := manager.CreateRoute(
-				context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, newRoute.Peer,
+				context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, nil, newRoute.Peer,
 				newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
 				newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute, newRoute.SkipAutoApply,
 			)

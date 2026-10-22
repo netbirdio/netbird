@@ -93,9 +93,14 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var domains domain.List
+	var countries []string
 	var networkType route.NetworkType
 	var newPrefix netip.Prefix
-	if req.Domains != nil {
+	switch {
+	case req.Countries != nil:
+		countries = *req.Countries
+		networkType = route.CountryNetwork
+	case req.Domains != nil:
 		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
@@ -103,7 +108,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		domains = d
 		networkType = route.DomainNetwork
-	} else if req.Network != nil {
+	case req.Network != nil:
 		networkType, newPrefix, err = route.ParseNetwork(*req.Network)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
@@ -134,7 +139,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		skipAutoApply = false
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
+	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, countries, peerId, peerGroupIds,
 		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, skipAutoApply)
 
 	if err != nil {
@@ -152,20 +157,26 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
-	return h.validateRouteCommon(req.Network, req.Domains, req.Peer, req.PeerGroups, req.NetworkId)
+	return h.validateRouteCommon(req.Network, req.Domains, req.Countries, req.Peer, req.PeerGroups, req.NetworkId)
 }
 
 func (h *handler) validateRouteUpdate(req api.PutApiRoutesRouteIdJSONRequestBody) error {
-	return h.validateRouteCommon(req.Network, req.Domains, req.Peer, req.PeerGroups, req.NetworkId)
+	return h.validateRouteCommon(req.Network, req.Domains, req.Countries, req.Peer, req.PeerGroups, req.NetworkId)
 }
 
-func (h *handler) validateRouteCommon(network *string, domains *[]string, peer *string, peerGroups *[]string, networkId string) error {
-	if network != nil && domains != nil {
-		return status.Errorf(status.InvalidArgument, "only one of 'network' or 'domains' should be provided")
+func (h *handler) validateRouteCommon(network *string, domains *[]string, countries *[]string, peer *string, peerGroups *[]string, networkId string) error {
+	destinations := 0
+	for _, set := range []bool{network != nil, domains != nil, countries != nil} {
+		if set {
+			destinations++
+		}
+	}
+	if destinations > 1 {
+		return status.Errorf(status.InvalidArgument, "only one of 'network', 'domains' or 'countries' should be provided")
 	}
 
-	if network == nil && domains == nil {
-		return status.Errorf(status.InvalidArgument, "either 'network' or 'domains' should be provided")
+	if destinations == 0 {
+		return status.Errorf(status.InvalidArgument, "either 'network', 'domains' or 'countries' should be provided")
 	}
 
 	if peer == nil && peerGroups == nil {
@@ -243,7 +254,11 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		SkipAutoApply: skipAutoApply,
 	}
 
-	if req.Domains != nil {
+	switch {
+	case req.Countries != nil:
+		newRoute.Countries = *req.Countries
+		newRoute.NetworkType = route.CountryNetwork
+	case req.Domains != nil:
 		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
@@ -251,7 +266,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		newRoute.Domains = d
 		newRoute.NetworkType = route.DomainNetwork
-	} else if req.Network != nil {
+	case req.Network != nil:
 		newRoute.NetworkType, newRoute.Network, err = route.ParseNetwork(*req.Network)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
@@ -365,6 +380,9 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 
 	if len(serverRoute.PeerGroups) > 0 {
 		route.PeerGroups = &serverRoute.PeerGroups
+	}
+	if len(serverRoute.Countries) > 0 {
+		route.Countries = &serverRoute.Countries
 	}
 	if len(serverRoute.AccessControlGroups) > 0 {
 		route.AccessControlGroups = &serverRoute.AccessControlGroups
