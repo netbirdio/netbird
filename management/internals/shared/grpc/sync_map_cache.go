@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"math/rand/v2"
 	"runtime/debug"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-version"
@@ -32,6 +34,9 @@ const syncMapSchema = "1"
 // configOnlySyncVersion is the first client release that keeps its posture checks on
 // a SyncResponse without a network map; older clients clear them.
 const configOnlySyncVersion = "0.72.3"
+
+// maxResyncAttempts bounds the retries of the full push that follows a reuse.
+const maxResyncAttempts = 3
 
 var configOnlySyncConstraint = mustConstraint(">= " + configOnlySyncVersion)
 
@@ -107,6 +112,10 @@ func keyFingerprint(key wgtypes.Key) syncmapcache.KeyFingerprint {
 	return syncmapcache.KeyFingerprint(key.PublicKey().String())
 }
 
+func cachePeerKey(peerKey wgtypes.Key) syncmapcache.PeerKey {
+	return syncmapcache.PeerKey(peerKey.String())
+}
+
 // deliveredSerial returns the network serial a SyncResponse makes the client apply,
 // and false when it carries no network map.
 func deliveredSerial(resp *proto.SyncResponse) (uint64, bool) {
@@ -123,46 +132,52 @@ func deliveredSerial(resp *proto.SyncResponse) (uint64, bool) {
 	return 0, false
 }
 
-// SetSyncMapCache lets Sync skip computing the map of a peer that reconnects
-// without logging in and still holds the account's current map. Call it before the
-// server starts serving.
-func (s *Server) SetSyncMapCache(c *syncmapcache.Cache) {
-	s.syncMapCache = c
-	if c == nil {
-		return
-	}
-	s.mapResync = newMapResyncScheduler(c.ResyncWindow(), c.ShuttingDown, func(ctx context.Context, accountID string, peerIDs []string) {
-		reason := types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationRefresh}
-		if err := s.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason); err != nil {
-			log.WithContext(ctx).Warnf("failed to push network maps to %d peers that reused theirs: %v", len(peerIDs), err)
-		}
-	})
+// syncMapState is the sync map cache wiring of a server, replaced as a whole.
+type syncMapState struct {
+	cache  *syncmapcache.Cache
+	resync *mapResyncScheduler
 }
 
-// OnUpdateDropped invalidates the delivered map of a peer whose update was dropped
-// on its way to the peer's stream on this instance.
-func (s *Server) OnUpdateDropped(ctx context.Context, peerID string) {
-	if s.syncMapCache == nil {
+func (s *Server) mapCache() *syncmapcache.Cache {
+	if st := s.syncMap.Load(); st != nil {
+		return st.cache
+	}
+	return nil
+}
+
+// SetSyncMapCache lets Sync skip computing the map of a peer that reconnects to a
+// restarted server without logging in and still holds the account's current map.
+func (s *Server) SetSyncMapCache(c *syncmapcache.Cache) {
+	if c == nil {
+		s.syncMap.Store(nil)
 		return
 	}
-	peerKey, ok := s.streamPeerKeys.Load(peerID)
-	if !ok {
-		return
+	resync := newMapResyncScheduler(c.ResyncWindow(), c.ShuttingDown, func(ctx context.Context, accountID string, peerIDs []string) error {
+		return s.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
+	})
+	s.syncMap.Store(&syncMapState{cache: c, resync: resync})
+}
+
+// OnUpdateDropped records that an update to a peer's stream on this instance was
+// dropped, so the stream never vouches for the peer's map again.
+func (s *Server) OnUpdateDropped(_ context.Context, peerID string) {
+	if t, ok := s.streamTrackers.Load(peerID); ok {
+		t.(*deliveryTracker).dropped.Store(true)
 	}
-	s.syncMapCache.InvalidateAsync(ctx, peerKey.(string))
 }
 
 // invalidateMapOnLogin makes the engine that follows this Login compute its map. It
 // fails the Login when reuse is enabled and the invalidation cannot be recorded.
 func (s *Server) invalidateMapOnLogin(ctx context.Context, peerKey wgtypes.Key) error {
-	if s.syncMapCache == nil {
+	cache := s.mapCache()
+	if cache == nil {
 		return nil
 	}
-	err := s.syncMapCache.OnLogin(ctx, peerKey.String())
+	err := cache.OnLogin(ctx, cachePeerKey(peerKey))
 	if err == nil {
 		return nil
 	}
-	if s.syncMapCache.Enabled() {
+	if cache.Enabled() {
 		return err
 	}
 	log.WithContext(ctx).Warnf("failed to invalidate the delivered network map of peer %s: %v", peerKey, err)
@@ -179,10 +194,11 @@ type mapReuseLookup struct {
 // lookupMapReuse reads the peer's entry. A failed read leaves the stream out of the
 // cache, so it computes the map and records nothing.
 func (s *Server) lookupMapReuse(ctx context.Context, peerKey, streamKey wgtypes.Key, meta nbpeer.PeerSystemMeta) mapReuseLookup {
-	if !s.syncMapCache.Enabled() {
+	cache := s.mapCache()
+	if !cache.Enabled() {
 		return mapReuseLookup{}
 	}
-	seen, err := s.syncMapCache.Lookup(ctx, peerKey.String(), keyFingerprint(streamKey))
+	seen, err := cache.Lookup(ctx, cachePeerKey(peerKey), keyFingerprint(streamKey))
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to read the delivered network map of peer %s, computing it: %v", peerKey, err)
 		return mapReuseLookup{}
@@ -192,6 +208,17 @@ func (s *Server) lookupMapReuse(ctx context.Context, peerKey, streamKey wgtypes.
 		l.reuse = &types.MapReuse{Serial: serial}
 	}
 	return l
+}
+
+// dropMapEntry forgets what any stream delivered to the peer.
+func (s *Server) dropMapEntry(ctx context.Context, peerKey wgtypes.Key) {
+	cache := s.mapCache()
+	if !cache.Enabled() {
+		return
+	}
+	if err := cache.Invalidate(ctx, cachePeerKey(peerKey)); err != nil {
+		log.WithContext(ctx).Debugf("failed to invalidate the delivered network map of peer %s: %v", peerKey, err)
+	}
 }
 
 // initialDelivery describes the first SyncResponse of a stream.
@@ -215,72 +242,85 @@ type syncStream struct {
 	srv       syncSender
 }
 
-// recordInitialDelivery hands the peer's entry to this stream after its initial
-// sync and returns the tracker for the updates that follow, or nil when the
-// stream records nothing.
-func (s *Server) recordInitialDelivery(ctx context.Context, st syncStream, l mapReuseLookup, res *types.PeerSyncResult, d initialDelivery) *deliveryTracker {
-	if !s.syncMapCache.Enabled() || !l.read {
-		return nil
+// takeOverMapEntry hands the peer's entry to this stream after its initial sync and
+// returns the tracker for the updates that follow. When the stream cannot take the
+// entry over, it drops the entry: a released entry must not outlive a Sync that may
+// have changed what the peer holds.
+func (s *Server) takeOverMapEntry(ctx context.Context, st syncStream, l mapReuseLookup, res *types.PeerSyncResult, d initialDelivery) *deliveryTracker {
+	t := s.recordInitialDelivery(ctx, st, l, res, d)
+	if t == nil {
+		s.dropMapEntry(ctx, st.peerKey)
 	}
-	s.streamPeerKeys.Store(st.peerID, st.peerKey.String())
+	return t
+}
 
-	t := &deliveryTracker{
-		cache:      s.syncMapCache,
-		peerKey:    st.peerKey.String(),
-		session:    st.session,
-		streamKey:  st.serverKey.PublicKey(),
-		lastSerial: d.serial,
+// recordInitialDelivery claims the peer's entry for this stream. It returns nil when
+// the stream did not take the entry over.
+func (s *Server) recordInitialDelivery(ctx context.Context, st syncStream, l mapReuseLookup, res *types.PeerSyncResult, d initialDelivery) *deliveryTracker {
+	cache := s.mapCache()
+	if !cache.Enabled() || !l.read {
+		return nil
 	}
 
 	// A response under another key than the one that decrypted the request never
 	// reaches the client. An invalid peer got an empty map that must not outlive a
 	// validity change nothing announces.
-	if res.PeerNotValid || st.srv.Context().Err() != nil || d.key.PublicKey() != t.streamKey || (!res.MapReused && !d.hasMap) {
-		t.invalidate(ctx, "the initial sync cannot be reused")
+	if res.PeerNotValid || st.srv.Context().Err() != nil || d.key.PublicKey() != st.serverKey.PublicKey() || (!res.MapReused && !d.hasMap) {
 		return nil
 	}
 
-	fingerprint := keyFingerprint(st.serverKey)
+	t := &deliveryTracker{
+		cache:      cache,
+		peerKey:    cachePeerKey(st.peerKey),
+		session:    st.session,
+		streamKey:  st.serverKey.PublicKey(),
+		lastSerial: d.serial,
+		lastSent:   time.Now(),
+	}
+
 	var err error
 	if res.MapReused {
-		err = s.syncMapCache.ClaimReused(ctx, t.peerKey, l.seen, st.session, fingerprint)
-		if serial, ok := l.seen.Serial(); ok {
-			t.lastSerial = serial
-		}
+		err = cache.ClaimReused(ctx, t.peerKey, l.seen, st.session, keyFingerprint(st.serverKey))
+		t.lastSerial, _ = l.seen.Serial()
+		t.lastSent = time.Time{}
 	} else {
-		err = s.syncMapCache.ClaimDelivered(ctx, t.peerKey, l.seen, st.session, d.serial, fingerprint)
+		err = cache.ClaimDelivered(ctx, t.peerKey, l.seen, st.session, d.serial, keyFingerprint(st.serverKey))
 	}
 	if err != nil {
-		t.invalidate(ctx, fmt.Sprintf("record the initial sync: %v", err))
+		if !errors.Is(err, syncmapcache.ErrClaimLost) {
+			log.WithContext(ctx).Debugf("failed to record the initial sync of peer %s: %v", st.peerKey, err)
+		}
 		return nil
 	}
+
+	cache.StreamStarted()
+	s.streamTrackers.Store(st.peerID, t)
 	return t
 }
 
-// onSyncStreamEnded forgets what the stream delivered, unless the process is stopping:
-// then the peer reconnects to another instance holding exactly what it was sent.
-func (s *Server) onSyncStreamEnded(ctx context.Context, peer *nbpeer.Peer, streamStart time.Time) {
-	if s.syncMapCache == nil {
-		return
-	}
-	s.streamPeerKeys.Delete(peer.ID)
-	if !s.syncMapCache.Enabled() || s.syncMapCache.ShuttingDown() {
-		return
-	}
-	if err := s.syncMapCache.InvalidateSession(ctx, peer.Key, syncmapcache.Session(streamStart.UnixNano())); err != nil {
-		log.WithContext(ctx).Warnf("failed to invalidate the delivered network map of peer %s: %v", peer.Key, err)
+// onSyncStreamEnded stops routing dropped-update notices to the stream's tracker.
+func (s *Server) onSyncStreamEnded(peerID string, session syncmapcache.Session) {
+	if t, ok := s.streamTrackers.Load(peerID); ok && t.(*deliveryTracker).session == session {
+		s.streamTrackers.CompareAndDelete(peerID, t)
 	}
 }
 
-// deliveryTracker records the network maps one Sync stream delivered after its
-// initial sync. Only the stream's update loop uses it.
+// deliveryTracker records the network maps one Sync stream sent after its initial
+// sync, and releases the entry when the server ends the stream on shutdown. Only
+// the stream's update loop uses it, except for dropped, which the update manager
+// sets.
 type deliveryTracker struct {
 	cache      *syncmapcache.Cache
-	peerKey    string
+	peerKey    syncmapcache.PeerKey
 	session    syncmapcache.Session
 	streamKey  wgtypes.Key
 	lastSerial uint64
-	stopped    bool
+	// lastSent is when the stream last sent a map, zero when it sent none.
+	lastSent time.Time
+	// stopped is set once the stream may have left the peer behind; the entry is
+	// then never released.
+	stopped bool
+	dropped atomic.Bool
 }
 
 // delivered records a response the stream sent with the given management key.
@@ -288,36 +328,61 @@ func (t *deliveryTracker) delivered(ctx context.Context, resp *proto.SyncRespons
 	if t == nil || t.stopped {
 		return
 	}
-	if key.PublicKey() != t.streamKey {
-		t.invalidate(ctx, "the management key changed under the stream")
+	// The client decrypts with the key it fetched before opening the stream, and a
+	// send during shutdown may be dropped by the hard stop.
+	if t.dropped.Load() || t.cache.ShuttingDown() || key.PublicKey() != t.streamKey {
+		t.stopped = true
 		return
 	}
 	serial, ok := deliveredSerial(resp)
-	if !ok || serial == t.lastSerial {
+	if !ok {
 		return
 	}
-	if err := t.cache.Advance(ctx, t.peerKey, t.session, serial); err != nil {
-		log.WithContext(ctx).Debugf("failed to record the network map delivered to peer %s: %v", t.peerKey, err)
+	t.lastSent = time.Now()
+	if serial == t.lastSerial {
+		return
+	}
+	applied, err := t.cache.Advance(ctx, t.peerKey, t.session, serial)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to record the network map sent to peer %s: %v", t.peerKey, err)
+		return
+	}
+	if !applied {
+		t.stopped = true
 		return
 	}
 	t.lastSerial = serial
 }
 
 // undelivered records that the stream ends with updates it never sent.
-func (t *deliveryTracker) undelivered(ctx context.Context) {
-	if t == nil || t.stopped {
-		return
+func (t *deliveryTracker) undelivered() {
+	if t != nil {
+		t.stopped = true
 	}
-	t.invalidate(ctx, "the stream ended with undelivered updates")
 }
 
-func (t *deliveryTracker) invalidate(ctx context.Context, reason string) {
-	t.stopped = true
-	if err := t.cache.Invalidate(ctx, t.peerKey); err != nil {
-		log.WithContext(ctx).Warnf("failed to invalidate the delivered network map of peer %s (%s): %v", t.peerKey, reason, err)
+// release marks the entry reusable when the server is ending the stream on
+// shutdown and the stream left nothing behind.
+func (t *deliveryTracker) release(ctx context.Context) {
+	if t == nil || t.stopped || t.dropped.Load() || !t.cache.ShuttingDown() {
 		return
 	}
-	log.WithContext(ctx).Debugf("invalidated the delivered network map of peer %s: %s", t.peerKey, reason)
+	if err := t.cache.Release(ctx, t.peerKey, t.session, t.lastSent); err != nil {
+		log.WithContext(ctx).Debugf("failed to release the network map of peer %s: %v", t.peerKey, err)
+	}
+}
+
+// ended uncounts the stream once it can no longer release its entry.
+func (t *deliveryTracker) ended() {
+	if t != nil {
+		t.cache.StreamEnded()
+	}
+}
+
+// resyncBatch is the peers of one account waiting for their full push.
+type resyncBatch struct {
+	peers   map[string]struct{}
+	attempt int
 }
 
 // mapResyncScheduler pushes a full map to peers that reused theirs on Sync, after a
@@ -326,46 +391,71 @@ func (t *deliveryTracker) invalidate(ctx context.Context, reason string) {
 type mapResyncScheduler struct {
 	mu       sync.Mutex
 	window   time.Duration
-	pending  map[string]map[string]struct{}
+	pending  map[string]*resyncBatch
 	stopping func() bool
-	push     func(ctx context.Context, accountID string, peerIDs []string)
+	push     func(ctx context.Context, accountID string, peerIDs []string) error
+	delay    func(window time.Duration) time.Duration
 }
 
-func newMapResyncScheduler(window time.Duration, stopping func() bool, push func(ctx context.Context, accountID string, peerIDs []string)) *mapResyncScheduler {
+func newMapResyncScheduler(window time.Duration, stopping func() bool, push func(ctx context.Context, accountID string, peerIDs []string) error) *mapResyncScheduler {
 	return &mapResyncScheduler{
 		window:   window,
-		pending:  make(map[string]map[string]struct{}),
+		pending:  make(map[string]*resyncBatch),
 		stopping: stopping,
 		push:     push,
+		delay:    rand.N[time.Duration],
 	}
 }
 
 func (r *mapResyncScheduler) schedule(accountID, peerID string) {
-	if r == nil || r.window <= 0 {
+	if r == nil {
+		return
+	}
+	r.add(accountID, []string{peerID}, 0)
+}
+
+func (r *mapResyncScheduler) add(accountID string, peerIDs []string, attempt int) {
+	if r.window <= 0 {
 		return
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if peers, ok := r.pending[accountID]; ok {
-		peers[peerID] = struct{}{}
+	if batch, ok := r.pending[accountID]; ok {
+		for _, id := range peerIDs {
+			batch.peers[id] = struct{}{}
+		}
 		return
 	}
-	r.pending[accountID] = map[string]struct{}{peerID: {}}
 
-	delay := rand.N(r.window)
-	time.AfterFunc(delay, func() { r.fire(accountID) })
+	batch := &resyncBatch{peers: make(map[string]struct{}, len(peerIDs)), attempt: attempt}
+	for _, id := range peerIDs {
+		batch.peers[id] = struct{}{}
+	}
+	r.pending[accountID] = batch
+	time.AfterFunc(r.delay(r.window), func() { r.fire(accountID) })
 }
 
 func (r *mapResyncScheduler) fire(accountID string) {
 	r.mu.Lock()
-	peers := r.pending[accountID]
+	batch := r.pending[accountID]
 	delete(r.pending, accountID)
 	r.mu.Unlock()
 
-	if len(peers) == 0 || r.stopping() {
+	if batch == nil || len(batch.peers) == 0 || r.stopping() {
 		return
 	}
-	r.push(context.Background(), accountID, slices.Collect(maps.Keys(peers)))
+
+	peerIDs := slices.Collect(maps.Keys(batch.peers))
+	err := r.push(context.Background(), accountID, peerIDs)
+	if err == nil {
+		return
+	}
+	if batch.attempt+1 >= maxResyncAttempts {
+		log.Warnf("gave up pushing network maps to %d peers of account %s that reused theirs: %v", len(peerIDs), accountID, err)
+		return
+	}
+	log.Debugf("failed to push network maps to %d peers of account %s that reused theirs, retrying: %v", len(peerIDs), accountID, err)
+	r.add(accountID, peerIDs, batch.attempt+1)
 }

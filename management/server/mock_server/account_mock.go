@@ -246,7 +246,7 @@ func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID str
 	if am.SyncAndMarkPeerFunc != nil {
 		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP, syncTime, reuse)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method SyncAndMarkPeer is not implemented")
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {

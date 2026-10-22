@@ -221,12 +221,12 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	return response
 }
 
-// ToConfigOnlySyncResponse builds the initial SyncResponse of a peer that still holds
+// toConfigOnlySyncResponse builds the initial SyncResponse of a peer that still holds
 // the account's current network map. It carries the connection config with fresh
 // credentials and the session deadline, but no network map, peer config or posture
 // checks: clients from configOnlySyncVersion on keep all of those when a response
 // has no map.
-func ToConfigOnlySyncResponse(config *nbconfig.Config, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
+func toConfigOnlySyncResponse(config *nbconfig.Config, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	resp := &proto.SyncResponse{
 		NetbirdConfig: integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings),

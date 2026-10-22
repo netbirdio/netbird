@@ -91,11 +91,10 @@ type Server struct {
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
 
-	syncMapCache *syncmapcache.Cache
-	mapResync    *mapResyncScheduler
-	// streamPeerKeys maps the peer ID of each Sync stream on this instance to its
-	// WireGuard public key, to invalidate the peer's cache entry when an update drops.
-	streamPeerKeys sync.Map
+	syncMap atomic.Pointer[syncMapState]
+	// streamTrackers maps the peer ID of each Sync stream on this instance that
+	// records its deliveries to the stream's *deliveryTracker.
+	streamTrackers sync.Map
 }
 
 // NewServer creates a new Management server
@@ -319,6 +318,15 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
 	reuseLookup := s.lookupMapReuse(ctx, peerKey, serverKey, peerMeta)
+	// Until the stream takes the entry over, a failure must not leave behind an
+	// entry that predates what this Sync may have changed or sent.
+	entryDecided := false
+	defer func() {
+		if !entryDecided {
+			s.dropMapEntry(ctx, peerKey)
+		}
+	}()
+
 	res, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart, reuseLookup.reuse)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
@@ -354,15 +362,16 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	tracker := s.recordInitialDelivery(ctx, syncStream{
+	tracker := s.takeOverMapEntry(ctx, syncStream{
 		peerKey:   peerKey,
 		serverKey: serverKey,
 		peerID:    peer.ID,
 		session:   syncmapcache.Session(syncStart.UnixNano()),
 		srv:       srv,
 	}, reuseLookup, res, delivered)
-	if res.MapReused {
-		s.mapResync.schedule(accountID, peer.ID)
+	entryDecided = true
+	if st := s.syncMap.Load(); st != nil && res.MapReused {
+		st.resync.schedule(accountID, peer.ID)
 	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
@@ -380,7 +389,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
 		trackChallenge,
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
-		WithMetrics(s.appMetrics).WithDeliveryTracker(tracker).HandleUpdates(ctx)
+		WithMetrics(s.appMetrics).withDeliveryTracker(tracker).HandleUpdates(ctx)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -492,7 +501,7 @@ func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID st
 		log.WithContext(ctx).Debugf("skipped peer routines teardown for %s: a newer session owns the peer", peer.Key)
 		return
 	}
-	s.onSyncStreamEnded(ctx, peer, streamStartTime)
+	s.onSyncStreamEnded(peer.ID, syncmapcache.Session(streamStartTime.UnixNano()))
 	s.secretsManager.CancelRefresh(peer.ID)
 	s.accountManager.UntrackCertificateChallenges(accountID, peer.ID, streamStartTime)
 
@@ -972,14 +981,9 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64, onChallengeStamped func()) (initialDelivery, error) {
 	turnToken, relayToken := s.syncTokens()
 
-	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	settings, peerGroups, err := s.syncPeerContext(ctx, peer)
 	if err != nil {
-		return initialDelivery{}, status.Errorf(codes.Internal, "error handling request")
-	}
-
-	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
-	if err != nil {
-		return initialDelivery{}, status.Errorf(codes.Internal, "failed to get peer groups %s", err)
+		return initialDelivery{}, err
 	}
 
 	dnsName := s.networkMapController.GetDNSDomain(settings)
@@ -1038,22 +1042,34 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 func (s *Server) sendConfigOnlySync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, srv proto.ManagementService_SyncServer) (initialDelivery, error) {
 	turnToken, relayToken := s.syncTokens()
 
-	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	settings, peerGroups, err := s.syncPeerContext(ctx, peer)
 	if err != nil {
-		return initialDelivery{}, status.Errorf(codes.Internal, "error handling request")
+		return initialDelivery{}, err
 	}
 
-	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
-	if err != nil {
-		return initialDelivery{}, status.Errorf(codes.Internal, "failed to get peer groups %s", err)
-	}
-
-	resp := ToConfigOnlySyncResponse(s.config, types.TwinPeer(peer), turnToken, relayToken, types.TwinAccountSettings(settings), settings.Extra, peerGroups)
+	resp := toConfigOnlySyncResponse(s.config, types.TwinPeer(peer), turnToken, relayToken, types.TwinAccountSettings(settings), settings.Extra, peerGroups)
 	key, err := s.sendSyncResponse(ctx, peerKey, resp, srv)
 	if err != nil {
 		return initialDelivery{}, err
 	}
 	return initialDelivery{key: key}, nil
+}
+
+// syncPeerContext reads the account settings and the peer's groups an initial
+// SyncResponse is built from.
+func (s *Server) syncPeerContext(ctx context.Context, peer *nbpeer.Peer) (*types.Settings, []string, error) {
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get settings of account %s: %v", peer.AccountID, err)
+		return nil, nil, status.Errorf(codes.Internal, "error handling request")
+	}
+
+	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get groups of peer %s: %v", peer.ID, err)
+		return nil, nil, status.Errorf(codes.Internal, "error handling request")
+	}
+	return settings, peerGroups, nil
 }
 
 // syncTokens generates the TURN and relay credentials of an initial SyncResponse.

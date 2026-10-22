@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/syncmapcache"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -79,7 +81,7 @@ func TestToConfigOnlySyncResponse(t *testing.T) {
 	settings := &nmdata.AccountSettingsInfo{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour}
 	relayToken := &Token{Payload: "payload", Signature: "signature"}
 
-	resp := ToConfigOnlySyncResponse(cfg, peer, nil, relayToken, settings, nil, nil)
+	resp := toConfigOnlySyncResponse(cfg, peer, nil, relayToken, settings, nil, nil)
 
 	assert.Nil(t, resp.GetNetworkMap(), "a config-only response carries no map")
 	assert.Nil(t, resp.GetNetworkMapEnvelope(), "a config-only response carries no envelope")
@@ -94,57 +96,82 @@ func TestToConfigOnlySyncResponse(t *testing.T) {
 	assert.Equal(t, lastLogin.Add(time.Hour).Unix(), resp.GetSessionExpiresAt().GetSeconds(), "session deadline")
 }
 
+// recordedPushes collects the pushes of a resync scheduler under test.
+type recordedPushes struct {
+	mu    sync.Mutex
+	calls map[string][]string
+	fail  int
+}
+
+func (p *recordedPushes) push(_ context.Context, accountID string, peerIDs []string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.fail > 0 {
+		p.fail--
+		return errors.New("store unavailable")
+	}
+	if p.calls == nil {
+		p.calls = map[string][]string{}
+	}
+	sorted := slices.Clone(peerIDs)
+	slices.Sort(sorted)
+	p.calls[accountID] = sorted
+	return nil
+}
+
+func (p *recordedPushes) get() map[string][]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return maps.Clone(p.calls)
+}
+
+// newTestScheduler returns a scheduler whose timers never fire on their own, so a
+// test drives it through fire.
+func newTestScheduler(stopping bool, pushes *recordedPushes) *mapResyncScheduler {
+	r := newMapResyncScheduler(time.Hour, func() bool { return stopping }, pushes.push)
+	r.delay = func(time.Duration) time.Duration { return time.Hour }
+	return r
+}
+
 func TestMapResyncScheduler(t *testing.T) {
-	type pushed struct {
-		account string
-		peers   []string
-	}
-
-	newScheduler := func(window time.Duration, stopping bool) (*mapResyncScheduler, func() []pushed) {
-		var mu sync.Mutex
-		var calls []pushed
-		r := newMapResyncScheduler(window, func() bool { return stopping }, func(_ context.Context, accountID string, peerIDs []string) {
-			mu.Lock()
-			defer mu.Unlock()
-			slices.Sort(peerIDs)
-			calls = append(calls, pushed{account: accountID, peers: peerIDs})
-		})
-		return r, func() []pushed {
-			mu.Lock()
-			defer mu.Unlock()
-			return slices.Clone(calls)
-		}
-	}
-
 	t.Run("peers of an account are pushed in one batch", func(t *testing.T) {
-		r, calls := newScheduler(50*time.Millisecond, false)
+		pushes := &recordedPushes{}
+		r := newTestScheduler(false, pushes)
 		r.schedule("acc1", "p1")
 		r.schedule("acc1", "p2")
 		r.schedule("acc2", "p3")
+		r.fire("acc1")
+		r.fire("acc2")
+		assert.Equal(t, map[string][]string{"acc1": {"p1", "p2"}, "acc2": {"p3"}}, pushes.get(), "one push per account")
+	})
 
-		require.Eventually(t, func() bool { return len(calls()) == 2 }, 2*time.Second, 10*time.Millisecond, "one push per account")
-		got := calls()
-		slices.SortFunc(got, func(a, b pushed) int {
-			if a.account < b.account {
-				return -1
-			}
-			return 1
-		})
-		assert.Equal(t, []pushed{{account: "acc1", peers: []string{"p1", "p2"}}, {account: "acc2", peers: []string{"p3"}}}, got, "batched pushes")
+	t.Run("a failed push is retried a bounded number of times", func(t *testing.T) {
+		pushes := &recordedPushes{fail: 1}
+		r := newTestScheduler(false, pushes)
+		r.schedule("acc", "p")
+		r.fire("acc")
+		assert.Empty(t, pushes.get(), "the first push failed")
+		r.fire("acc")
+		assert.Equal(t, map[string][]string{"acc": {"p"}}, pushes.get(), "the retry must push the same peers")
+
+		pushes = &recordedPushes{fail: maxResyncAttempts}
+		r = newTestScheduler(false, pushes)
+		r.schedule("acc", "p")
+		for range maxResyncAttempts {
+			r.fire("acc")
+		}
+		r.mu.Lock()
+		pending := len(r.pending)
+		r.mu.Unlock()
+		assert.Zero(t, pending, "the push must give up after its attempts")
 	})
 
 	t.Run("nothing is pushed while stopping", func(t *testing.T) {
-		r, calls := newScheduler(10*time.Millisecond, true)
+		pushes := &recordedPushes{}
+		r := newTestScheduler(true, pushes)
 		r.schedule("acc", "p")
-		time.Sleep(100 * time.Millisecond)
-		assert.Empty(t, calls(), "a stopping server must not push")
-	})
-
-	t.Run("a zero window disables the push", func(t *testing.T) {
-		r, calls := newScheduler(0, false)
-		r.schedule("acc", "p")
-		time.Sleep(50 * time.Millisecond)
-		assert.Empty(t, calls(), "no push without a window")
+		r.fire("acc")
+		assert.Empty(t, pushes.get(), "a stopping server must not push")
 	})
 }
 
@@ -192,7 +219,7 @@ func (f *fakeStream) fail(err error) {
 	f.err = err
 }
 
-func newTrackerTestCache(t *testing.T) *syncmapcache.Cache {
+func newTrackerTestClient(t *testing.T) *redis.Client {
 	t.Helper()
 	ctx := context.Background()
 	container, err := testcontainersredis.Run(ctx, "redis:7")
@@ -208,42 +235,58 @@ func newTrackerTestCache(t *testing.T) *syncmapcache.Cache {
 	require.NoError(t, err)
 	client := redis.NewClient(opts)
 	t.Cleanup(func() { _ = client.Close() })
-	return syncmapcache.New(client, syncmapcache.Config{Enabled: true, Generation: "test", MaxAge: time.Hour})
+	return client
+}
+
+func newTrackerTestCache(client *redis.Client) *syncmapcache.Cache {
+	return syncmapcache.New(client, syncmapcache.Config{Enabled: true, Generation: "test", MaxAge: time.Hour, ReleaseGrace: 50 * time.Millisecond})
 }
 
 // trackedStream is a running update handler whose stream owns a fresh cache entry.
 type trackedStream struct {
+	client  *redis.Client
 	cache   *syncmapcache.Cache
-	peerKey string
+	peerKey syncmapcache.PeerKey
 	secrets *fakeSecrets
 	srv     *fakeStream
 	cancel  context.CancelFunc
 	updates chan *network_map.UpdateMessage
+	tracker *deliveryTracker
 	done    chan struct{}
 }
 
-func startTrackedStream(t *testing.T, cache *syncmapcache.Cache, debounce time.Duration) *trackedStream {
+func startTrackedStream(t *testing.T, client *redis.Client, debounce time.Duration) *trackedStream {
 	t.Helper()
 	ctx := context.Background()
+	cache := newTrackerTestCache(client)
 	peerKey := mustGenerateKey(t)
 	secrets := &fakeSecrets{key: mustGenerateKey(t)}
 	serverKey, _ := secrets.GetWGKey()
 
-	seen, err := cache.Lookup(ctx, peerKey.PublicKey().String(), keyFingerprint(serverKey))
+	seen, err := cache.Lookup(ctx, cachePeerKey(peerKey), keyFingerprint(serverKey))
 	require.NoError(t, err)
-	require.NoError(t, cache.ClaimDelivered(ctx, peerKey.PublicKey().String(), seen, 1, 5, keyFingerprint(serverKey)))
+	require.NoError(t, cache.ClaimDelivered(ctx, cachePeerKey(peerKey), seen, 1, 5, keyFingerprint(serverKey)))
 
 	srvCtx, cancel := context.WithCancel(ctx)
 	ts := &trackedStream{
+		client:  client,
 		cache:   cache,
-		peerKey: peerKey.PublicKey().String(),
+		peerKey: cachePeerKey(peerKey),
 		secrets: secrets,
 		srv:     &fakeStream{ctx: srvCtx},
 		cancel:  cancel,
 		updates: make(chan *network_map.UpdateMessage, 10),
 		done:    make(chan struct{}),
+		tracker: &deliveryTracker{
+			cache:      cache,
+			peerKey:    cachePeerKey(peerKey),
+			session:    1,
+			streamKey:  serverKey.PublicKey(),
+			lastSerial: 5,
+		},
 	}
-	pu := &PeerUpdateHandler{
+	cache.StreamStarted()
+	pu := (&PeerUpdateHandler{
 		peerKey:        peerKey,
 		updates:        ts.updates,
 		secretsManager: secrets,
@@ -251,14 +294,7 @@ func startTrackedStream(t *testing.T, cache *syncmapcache.Cache, debounce time.D
 		encrypter:      encryption.DefaultEncrypter{},
 		debouncer:      NewUpdateDebouncer(debounce),
 		cleanupFunc:    func() {},
-		tracker: &deliveryTracker{
-			cache:      cache,
-			peerKey:    ts.peerKey,
-			session:    1,
-			streamKey:  serverKey.PublicKey(),
-			lastSerial: 5,
-		},
-	}
+	}).withDeliveryTracker(ts.tracker)
 	go func() {
 		defer close(ts.done)
 		_ = pu.HandleUpdates(ctx)
@@ -270,10 +306,21 @@ func startTrackedStream(t *testing.T, cache *syncmapcache.Cache, debounce time.D
 	return ts
 }
 
-func (ts *trackedStream) entry(t *testing.T) (uint64, bool) {
+// restart ends the stream the way a management shutdown does and reports whether
+// the next instance may reuse the peer's map.
+func (ts *trackedStream) restart(t *testing.T) (uint64, bool) {
+	t.Helper()
+	time.Sleep(100 * time.Millisecond)
+	ts.cache.BeginShutdown()
+	ts.cancel()
+	<-ts.done
+	return ts.reusableOnNextInstance(t)
+}
+
+func (ts *trackedStream) reusableOnNextInstance(t *testing.T) (uint64, bool) {
 	t.Helper()
 	key, _ := ts.secrets.GetWGKey()
-	l, err := ts.cache.Lookup(context.Background(), ts.peerKey, keyFingerprint(key))
+	l, err := newTrackerTestCache(ts.client).Lookup(context.Background(), ts.peerKey, keyFingerprint(key))
 	require.NoError(t, err)
 	return l.Serial()
 }
@@ -285,54 +332,189 @@ func mapUpdate(serial uint64) *network_map.UpdateMessage {
 	}
 }
 
-func TestPeerUpdateHandlerRecordsDeliveries(t *testing.T) {
-	cache := newTrackerTestCache(t)
+// waitDrained waits until the handler took every queued update.
+func (ts *trackedStream) waitDrained(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(ts.updates) == 0 }, 5*time.Second, 10*time.Millisecond,
+		"the handler must take the queued updates")
+}
 
-	t.Run("a delivered map advances the entry", func(t *testing.T) {
-		ts := startTrackedStream(t, cache, time.Millisecond)
+func TestPeerUpdateHandlerRecordsDeliveries(t *testing.T) {
+	client := newTrackerTestClient(t)
+
+	t.Run("a stream ended by the shutdown releases what it sent", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Millisecond)
 		ts.updates <- mapUpdate(6)
-		assert.Eventually(t, func() bool {
-			serial, ok := ts.entry(t)
-			return ok && serial == 6
-		}, 5*time.Second, 10*time.Millisecond, "the entry must record the delivered serial")
+		ts.waitDrained(t)
+		serial, ok := ts.restart(t)
+		require.True(t, ok, "the next instance must reuse the map of a stream the shutdown ended")
+		assert.Equal(t, uint64(6), serial, "the released serial must be the last one sent")
+		waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		ts.cache.WaitStreams(waitCtx)
+		assert.NoError(t, waitCtx.Err(), "the ended stream must be uncounted")
 	})
 
-	t.Run("a rotated management key invalidates the entry", func(t *testing.T) {
-		ts := startTrackedStream(t, cache, time.Millisecond)
-		original, _ := ts.secrets.GetWGKey()
+	t.Run("a stream that ends while the server runs releases nothing", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Millisecond)
+		ts.cancel()
+		<-ts.done
+		_, ok := ts.reusableOnNextInstance(t)
+		assert.False(t, ok, "a stream the client ended may have missed changes while it reconnects")
+	})
+
+	t.Run("a rotated management key keeps the stream from vouching", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Millisecond)
 		ts.secrets.rotate(t)
 		ts.updates <- &network_map.UpdateMessage{Update: &proto.SyncResponse{NetbirdConfig: &proto.NetbirdConfig{}}, MessageType: network_map.MessageTypeControlConfig}
-		assert.Eventually(t, func() bool {
-			l, err := ts.cache.Lookup(context.Background(), ts.peerKey, keyFingerprint(original))
-			require.NoError(t, err)
-			_, ok := l.Serial()
-			return !ok
-		}, 5*time.Second, 10*time.Millisecond, "a message the client cannot decrypt must invalidate the entry")
+		ts.waitDrained(t)
+		_, ok := ts.restart(t)
+		assert.False(t, ok, "a message the client cannot decrypt must keep the entry from being released")
 	})
 
-	t.Run("a failed send invalidates the entry", func(t *testing.T) {
-		ts := startTrackedStream(t, cache, time.Millisecond)
+	t.Run("a dropped update keeps the stream from vouching", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Millisecond)
+		ts.tracker.dropped.Store(true)
+		_, ok := ts.restart(t)
+		assert.False(t, ok, "a stream that lost an update must not release its entry")
+	})
+
+	t.Run("a failed send keeps the stream from vouching", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Millisecond)
 		ts.srv.fail(errors.New("broken stream"))
 		ts.updates <- mapUpdate(6)
 		<-ts.done
-		_, ok := ts.entry(t)
-		assert.False(t, ok, "an update that never left must invalidate the entry")
+		ts.cache.BeginShutdown()
+		_, ok := ts.reusableOnNextInstance(t)
+		assert.False(t, ok, "an update that never left must keep the entry from being released")
 	})
 
-	t.Run("a stream that ends with debounced updates invalidates the entry", func(t *testing.T) {
-		ts := startTrackedStream(t, cache, time.Hour)
+	t.Run("a stream that ends with debounced updates keeps from vouching", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Hour)
 		ts.updates <- mapUpdate(6)
-		require.Eventually(t, func() bool {
-			serial, ok := ts.entry(t)
-			return ok && serial == 6
-		}, 5*time.Second, 10*time.Millisecond, "the first update is sent at once")
-
-		// The second update waits out the debounce interval, then the stream ends.
+		ts.waitDrained(t)
+		// The second update waits out the debounce interval when the server stops.
 		ts.updates <- mapUpdate(7)
-		require.Eventually(t, func() bool { return len(ts.updates) == 0 }, 5*time.Second, 10*time.Millisecond)
+		ts.waitDrained(t)
+		_, ok := ts.restart(t)
+		assert.False(t, ok, "an update the stream never sent must keep the entry from being released")
+	})
+
+	t.Run("a map sent right before the shutdown is not released", func(t *testing.T) {
+		ts := startTrackedStream(t, client, time.Millisecond)
+		ts.updates <- mapUpdate(6)
+		ts.waitDrained(t)
+		ts.cache.BeginShutdown()
 		ts.cancel()
 		<-ts.done
-		_, ok := ts.entry(t)
-		assert.False(t, ok, "an update the stream never sent must invalidate the entry")
+		_, ok := ts.reusableOnNextInstance(t)
+		assert.False(t, ok, "frames still being flushed when the server stops may never reach the client")
+	})
+}
+
+func TestOnUpdateDroppedMarksTheStream(t *testing.T) {
+	s := &Server{}
+	tracker := &deliveryTracker{session: 1}
+	s.streamTrackers.Store("peer", tracker)
+
+	s.OnUpdateDropped(context.Background(), "other")
+	assert.False(t, tracker.dropped.Load(), "a drop for another peer must not mark the stream")
+
+	s.OnUpdateDropped(context.Background(), "peer")
+	assert.True(t, tracker.dropped.Load(), "a drop must keep the stream from vouching for the map")
+
+	s.onSyncStreamEnded("peer", 2)
+	_, ok := s.streamTrackers.Load("peer")
+	assert.True(t, ok, "the end of another session must not unregister the stream")
+	s.onSyncStreamEnded("peer", 1)
+	_, ok = s.streamTrackers.Load("peer")
+	assert.False(t, ok, "the end of the stream must unregister it")
+}
+
+func TestTakeOverMapEntry(t *testing.T) {
+	client := newTrackerTestClient(t)
+	ctx := context.Background()
+	serverKey := mustGenerateKey(t)
+
+	// released prepares a peer whose previous stream released its entry at serial 7,
+	// as a restarted instance finds it.
+	released := func(t *testing.T) (wgtypes.Key, mapReuseLookup) {
+		t.Helper()
+		peerKey := mustGenerateKey(t)
+		old := newTrackerTestCache(client)
+		seen, err := old.Lookup(ctx, cachePeerKey(peerKey), keyFingerprint(serverKey))
+		require.NoError(t, err)
+		require.NoError(t, old.ClaimDelivered(ctx, cachePeerKey(peerKey), seen, 1, 7, keyFingerprint(serverKey)))
+		old.BeginShutdown()
+		require.NoError(t, old.Release(ctx, cachePeerKey(peerKey), 1, time.Time{}))
+
+		seen, err = newTrackerTestCache(client).Lookup(ctx, cachePeerKey(peerKey), keyFingerprint(serverKey))
+		require.NoError(t, err)
+		_, ok := seen.Serial()
+		require.True(t, ok, "the released entry must be reusable before the Sync")
+		return peerKey, mapReuseLookup{seen: seen, read: true, reuse: &types.MapReuse{Serial: 7}}
+	}
+
+	newServer := func() (*Server, *syncmapcache.Cache) {
+		s := &Server{}
+		c := newTrackerTestCache(client)
+		s.syncMap.Store(&syncMapState{cache: c})
+		return s, c
+	}
+
+	reusable := func(t *testing.T, c *syncmapcache.Cache, peerKey wgtypes.Key) bool {
+		t.Helper()
+		l, err := c.Lookup(ctx, cachePeerKey(peerKey), keyFingerprint(serverKey))
+		require.NoError(t, err)
+		_, ok := l.Serial()
+		return ok
+	}
+
+	alive := &fakeStream{ctx: ctx}
+	deadCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	dead := &fakeStream{ctx: deadCtx}
+	fullMap := initialDelivery{serial: 7, hasMap: true, key: serverKey}
+
+	cases := []struct {
+		name string
+		srv  syncSender
+		res  *types.PeerSyncResult
+		d    initialDelivery
+	}{
+		{name: "a peer failing validation", srv: alive, res: &types.PeerSyncResult{PeerNotValid: true}, d: fullMap},
+		{name: "a stream that died before the claim", srv: dead, res: &types.PeerSyncResult{}, d: fullMap},
+		{name: "a response under another management key", srv: alive, res: &types.PeerSyncResult{}, d: initialDelivery{serial: 7, hasMap: true, key: mustGenerateKey(t)}},
+		{name: "a full Sync that sent no map", srv: alive, res: &types.PeerSyncResult{}, d: initialDelivery{key: serverKey}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+" drops the released entry", func(t *testing.T) {
+			peerKey, l := released(t)
+			s, c := newServer()
+			st := syncStream{peerKey: peerKey, serverKey: serverKey, peerID: "peer", session: 2, srv: tc.srv}
+			assert.Nil(t, s.takeOverMapEntry(ctx, st, l, tc.res, tc.d), "the stream must not take the entry over")
+			assert.False(t, reusable(t, c, peerKey), "the entry must not outlive a Sync that did not take it over")
+		})
+	}
+
+	t.Run("a claim that lost to a login drops the entry", func(t *testing.T) {
+		peerKey, l := released(t)
+		s, c := newServer()
+		require.NoError(t, c.OnLogin(ctx, cachePeerKey(peerKey)))
+		st := syncStream{peerKey: peerKey, serverKey: serverKey, peerID: "peer", session: 2, srv: alive}
+		assert.Nil(t, s.takeOverMapEntry(ctx, st, l, &types.PeerSyncResult{MapReused: true}, initialDelivery{key: serverKey}),
+			"a stream that read the entry before a login must not take it over")
+		assert.False(t, reusable(t, c, peerKey), "the entry must stay invalid")
+	})
+
+	t.Run("a reuse takes the entry over", func(t *testing.T) {
+		peerKey, l := released(t)
+		s, c := newServer()
+		st := syncStream{peerKey: peerKey, serverKey: serverKey, peerID: "peer", session: 2, srv: alive}
+		tracker := s.takeOverMapEntry(ctx, st, l, &types.PeerSyncResult{MapReused: true}, initialDelivery{key: serverKey})
+		require.NotNil(t, tracker, "the stream must take the entry over")
+		assert.Equal(t, uint64(7), tracker.lastSerial, "the stream holds the reused serial")
+		assert.False(t, reusable(t, c, peerKey), "a taken-over entry is not reusable while its stream is open")
+		tracker.ended()
 	})
 }

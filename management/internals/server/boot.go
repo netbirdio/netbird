@@ -92,7 +92,6 @@ func (s *BaseServer) CacheStore() nbcache.Store {
 	})
 }
 
-// DBConn opens the database connection shared by the store and the domain repositories.
 // SyncMapCache returns the cache of network maps delivered to peers, or nil when no
 // Redis is configured: the in-memory store does not survive the restarts it is for.
 func (s *BaseServer) SyncMapCache() *syncmapcache.Cache {
@@ -109,6 +108,7 @@ func (s *BaseServer) SyncMapCache() *syncmapcache.Cache {
 	})
 }
 
+// DBConn opens the database connection shared by the store and the domain repositories.
 func (s *BaseServer) DBConn() *db.Conn {
 	return Create(s, func() *db.Conn {
 		conn, err := store.OpenConn(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir)

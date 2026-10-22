@@ -318,9 +318,12 @@ func (s *BaseServer) Stop() error {
 	if s.certListener != nil {
 		_ = s.certListener.Close()
 	}
-	// Before the streams end, so their peers keep what they were delivered.
+	// Before the streams end, so they release what they delivered for the next instance.
 	s.SyncMapCache().BeginShutdown()
 	s.GRPCServer().Stop()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Second)
+	s.SyncMapCache().WaitStreams(waitCtx)
+	waitCancel()
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil

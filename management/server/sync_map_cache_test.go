@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -99,33 +102,95 @@ func (p *syncMapTestPeer) recv(stream mgmtProto.ManagementService_SyncClient) *m
 	return resp
 }
 
-// waitForEntry polls the peer's cache entry until check accepts it.
-func waitForEntry(t *testing.T, c *syncmapcache.Cache, p *syncMapTestPeer, msg string, check func(serial uint64, reusable bool) bool) {
-	t.Helper()
-	assert.Eventually(t, func() bool {
-		l, err := c.Lookup(context.Background(), p.key.PublicKey().String(), syncmapcache.KeyFingerprint(p.serverKey.String()))
-		if err != nil {
-			return false
-		}
-		serial, ok := l.Serial()
-		return check(serial, ok)
-	}, 5*time.Second, 50*time.Millisecond, msg)
+// recordedEntry reads the stream that owns the peer's entry and the serial it
+// recorded, whether or not the entry is reusable yet. A failed read reads as empty,
+// so the callers' polling retries it.
+func recordedEntry(client *redis.Client, p *syncMapTestPeer) (session string, serial string) {
+	vals, err := client.HMGet(context.Background(), "nb:syncmap:"+p.key.PublicKey().String(), "sess", "serial").Result()
+	if err != nil {
+		return "", ""
+	}
+	session, _ = vals[0].(string)
+	serial, _ = vals[1].(string)
+	return session, serial
 }
 
-func TestSyncMapCache(t *testing.T) {
-	redisClient := startSyncMapCacheRedis(t)
-	cache := syncmapcache.New(redisClient, syncmapcache.Config{
+// syncAndClaim opens a Sync stream and waits until the stream took the peer's entry
+// over, so a following restart can release it.
+func (p *syncMapTestPeer) syncAndClaim(client *redis.Client) (*mgmtProto.SyncResponse, mgmtProto.ManagementService_SyncClient, context.CancelFunc) {
+	p.t.Helper()
+	before, _ := recordedEntry(client, p)
+	resp, stream, cancel := p.sync()
+	require.Eventually(p.t, func() bool {
+		session, _ := recordedEntry(client, p)
+		return session != "" && session != before
+	}, 5*time.Second, 20*time.Millisecond, "the stream must take the entry over")
+	return resp, stream, cancel
+}
+
+func waitForRecordedSerial(t *testing.T, client *redis.Client, p *syncMapTestPeer, serial uint64) {
+	t.Helper()
+	want := strconv.FormatUint(serial, 10)
+	require.Eventually(t, func() bool {
+		_, recorded := recordedEntry(client, p)
+		return recorded == want
+	}, 5*time.Second, 20*time.Millisecond, "the stream must record serial %d", serial)
+}
+
+func newTestSyncMapCache(client *redis.Client) *syncmapcache.Cache {
+	return syncmapcache.New(client, syncmapcache.Config{
 		Enabled:      true,
 		Generation:   "test",
 		MaxAge:       time.Hour,
 		ResyncWindow: 200 * time.Millisecond,
+		ReleaseGrace: 10 * time.Millisecond,
 	})
+}
 
+// syncMapRestarter simulates management restarts: it shuts the server's cache down,
+// lets the open stream end and release its entry, then hands the server a fresh
+// cache as the next instance would have.
+type syncMapRestarter struct {
+	t      *testing.T
+	client *redis.Client
+	server *nbgrpc.Server
+	cache  *syncmapcache.Cache
+	peer   *syncMapTestPeer
+}
+
+func (r *syncMapRestarter) restart(cancelStream context.CancelFunc) {
+	r.t.Helper()
+	time.Sleep(50 * time.Millisecond)
+	r.cache.BeginShutdown()
+	cancelStream()
+
+	next := newTestSyncMapCache(r.client)
+	require.Eventually(r.t, func() bool {
+		l, err := next.Lookup(context.Background(), syncmapcache.PeerKey(r.peer.key.PublicKey().String()), syncmapcache.KeyFingerprint(r.peer.serverKey.String()))
+		if err != nil {
+			return false
+		}
+		_, ok := l.Serial()
+		return ok
+	}, 5*time.Second, 20*time.Millisecond, "a stream ended by the shutdown must release its entry")
+
+	r.cache = next
+	r.server.SetSyncMapCache(next)
+}
+
+func TestSyncMapCache(t *testing.T) {
+	redisClient := startSyncMapCacheRedis(t)
+	cache := newTestSyncMapCache(redisClient)
+
+	var grpcServer *nbgrpc.Server
 	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
 		Stuns:   []*config.Host{{Proto: "udp", URI: "stun:stun.netbird.io:3468"}},
 		Signal:  &config.Host{Proto: "http", URI: "signal.netbird.io:10000"},
 		Datadir: t.TempDir(),
-	}, func(s *nbgrpc.Server) { s.SetSyncMapCache(cache) })
+	}, func(s *nbgrpc.Server) {
+		grpcServer = s
+		s.SetSyncMapCache(cache)
+	})
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 	t.Cleanup(mgmtServer.Stop)
@@ -154,6 +219,7 @@ func TestSyncMapCache(t *testing.T) {
 			NetbirdVersion: "0.80.0",
 		},
 	}
+	restarter := &syncMapRestarter{t: t, client: redisClient, server: grpcServer, cache: cache, peer: peer}
 	peer.login()
 
 	ctx := context.Background()
@@ -161,10 +227,10 @@ func TestSyncMapCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// A fresh engine after Login gets its full map.
-	resp, stream, cancel := peer.sync()
+	resp, stream, cancel := peer.syncAndClaim(redisClient)
 	require.NotNil(t, resp.GetNetworkMap(), "the first Sync after Login must carry the full map")
 	serial := resp.GetNetworkMap().GetSerial()
-	waitForEntry(t, cache, peer, "the delivered map must be recorded", func(s uint64, ok bool) bool { return ok && s == serial })
+	waitForRecordedSerial(t, redisClient, peer, serial)
 
 	// A change pushed while the stream is up advances the recorded serial.
 	require.NoError(t, am.Store.IncrementNetworkSerial(ctx, accountID))
@@ -173,76 +239,88 @@ func TestSyncMapCache(t *testing.T) {
 	require.NotNil(t, pushed.GetNetworkMap(), "the push must carry a map")
 	require.Equal(t, serial+1, pushed.GetNetworkMap().GetSerial(), "the push must carry the new serial")
 	serial++
-	waitForEntry(t, cache, peer, "the pushed map must advance the entry", func(s uint64, ok bool) bool { return ok && s == serial })
+	waitForRecordedSerial(t, redisClient, peer, serial)
 
-	// A client that reconnects before the server noticed its old stream died reuses
-	// its map, and gets a full one pushed within the resync window.
-	resp, reconnected, cancelReconnected := peer.sync()
-	assert.Nil(t, resp.GetNetworkMap(), "a reconnect holding the current map must not carry a map")
-	assert.Nil(t, resp.GetNetworkMapEnvelope(), "a reconnect holding the current map must not carry a map envelope")
+	// A client that reconnects while its old stream still looks open gets its full
+	// map: the old stream may be dead behind a proxy with pushes that never arrived.
+	resp, _, cancelReconnected := peer.sync()
+	require.NotNil(t, resp.GetNetworkMap(), "a reconnect while the old stream looks open must carry the full map")
+	cancel()
+	cancelReconnected()
+
+	// A stream that ends while the server keeps running (a client blip) releases
+	// nothing, so the reconnect computes the map again.
+	resp, _, cancel = peer.syncAndClaim(redisClient)
+	require.NotNil(t, resp.GetNetworkMap(), "a reconnect after a client blip must carry the full map")
+
+	// After a restart the peer reuses its map, and gets a full one pushed within the
+	// resync window.
+	restarter.restart(cancel)
+	resp, stream, cancel = peer.syncAndClaim(redisClient)
+	assert.Nil(t, resp.GetNetworkMap(), "a reconnect after a restart must not carry a map")
+	assert.Nil(t, resp.GetNetworkMapEnvelope(), "a reconnect after a restart must not carry a map envelope")
 	assert.Zero(t, resp.GetVersion(), "the response must be readable by every client as config-only")
 	assert.Nil(t, resp.GetPeerConfig(), "a peer config without auto-update settings would change the client's updater mode")
 	require.NotNil(t, resp.GetNetbirdConfig(), "the reconnect must still carry the connection config")
 	assert.NotEmpty(t, resp.GetNetbirdConfig().GetStuns(), "the connection config must be complete")
 
-	resynced := peer.recv(reconnected)
+	resynced := peer.recv(stream)
 	require.NotNil(t, resynced.GetNetworkMap(), "a peer that reused its map must get a full map pushed later")
 	assert.Equal(t, serial, resynced.GetNetworkMap().GetSerial(), "the resync must carry the current serial")
-	cancel()
-
-	// A stream that ends while the server keeps running (a client blip) leaves no
-	// reusable entry: the peer may miss changes while it reconnects.
-	cancelReconnected()
-	waitForEntry(t, cache, peer, "a stream ended by the client must invalidate the entry", func(_ uint64, ok bool) bool { return !ok })
-
-	resp, _, cancel = peer.sync()
-	require.NotNil(t, resp.GetNetworkMap(), "a reconnect after a client blip must carry the full map")
-	waitForEntry(t, cache, peer, "the delivered map must be recorded", func(s uint64, ok bool) bool { return ok && s == serial })
-
-	// From here the server is stopping: streams that end keep their entries, as on a
-	// management restart.
-	cache.BeginShutdown()
-	cancel()
-
-	resp, _, cancel = peer.sync()
-	assert.Nil(t, resp.GetNetworkMap(), "a reconnect after a restart must not carry a map")
-	require.NotNil(t, resp.GetNetbirdConfig(), "a reconnect after a restart must carry the connection config")
-	cancel()
 
 	// A change made while the peer was away is never skipped.
+	restarter.restart(cancel)
 	require.NoError(t, am.Store.IncrementNetworkSerial(ctx, accountID))
 	serial++
-	resp, _, cancel = peer.sync()
+	resp, _, cancel = peer.syncAndClaim(redisClient)
 	require.NotNil(t, resp.GetNetworkMap(), "a serial change while away must force the full map")
 	assert.Equal(t, serial, resp.GetNetworkMap().GetSerial(), "the full map must carry the current serial")
-	waitForEntry(t, cache, peer, "the delivered map must be recorded", func(s uint64, ok bool) bool { return ok && s == serial })
-	cancel()
 
 	// A peer whose own meta changed gets its map computed again.
+	restarter.restart(cancel)
 	peer.meta.Hostname = "renamed"
-	resp, _, cancel = peer.sync()
+	resp, _, cancel = peer.syncAndClaim(redisClient)
 	require.NotNil(t, resp.GetNetworkMap(), "a meta change must force the full map")
-	waitForEntry(t, cache, peer, "the delivered map must be recorded", func(_ uint64, ok bool) bool { return ok })
-	cancel()
 
 	// A new engine after Login always gets its full map.
+	restarter.restart(cancel)
 	peer.login()
-	resp, _, cancel = peer.sync()
+	resp, _, cancel = peer.syncAndClaim(redisClient)
 	require.NotNil(t, resp.GetNetworkMap(), "a Sync after Login must carry the full map")
-	waitForEntry(t, cache, peer, "the delivered map must be recorded", func(_ uint64, ok bool) bool { return ok })
-	cancel()
 
 	// Clients that clear their posture checks on a response without a map always
 	// get the full map.
 	peer.meta.NetbirdVersion = "0.72.2"
-	peer.login()
-	resp, _, cancel = peer.sync()
-	require.NotNil(t, resp.GetNetworkMap(), "the first Sync after Login must carry the full map")
-	waitForEntry(t, cache, peer, "the delivered map must be recorded", func(_ uint64, ok bool) bool { return ok })
-	cancel()
+	restarter.restart(cancel)
+	resp, _, cancel = peer.syncAndClaim(redisClient)
+	require.NotNil(t, resp.GetNetworkMap(), "the version change itself is a meta change")
+	restarter.restart(cancel)
 	resp, _, cancel = peer.sync()
 	require.NotNil(t, resp.GetNetworkMap(), "an old client must never get a response without a map")
 	cancel()
+}
+
+func TestSyncMapCacheLoginFailsClosed(t *testing.T) {
+	deadRedis := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 100 * time.Millisecond, MaxRetries: -1})
+	t.Cleanup(func() { _ = deadRedis.Close() })
+	cache := syncmapcache.New(deadRedis, syncmapcache.Config{Enabled: true, Generation: "test"})
+
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Datadir: t.TempDir(),
+	}, func(s *nbgrpc.Server) { s.SetSyncMapCache(cache) })
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+	t.Cleanup(mgmtServer.Stop)
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.Error(t, err, "a login whose invalidation cannot be recorded must fail")
+	assert.Equal(t, codes.Unavailable, status.Code(err), "the client must retry the login")
 }
 
 // invalidPeerValidator fails integrated validation for every peer.
@@ -252,6 +330,16 @@ type invalidPeerValidator struct {
 
 func (invalidPeerValidator) IsNotValidPeer(context.Context, string, *nbpeer.Peer, []string, *types.ExtraSettings) (bool, bool, error) {
 	return true, false, nil
+}
+
+// revalidatedPeerValidator reports every peer as valid after a fresh validation, as
+// when a peer just became compliant.
+type revalidatedPeerValidator struct {
+	MockIntegratedValidator
+}
+
+func (revalidatedPeerValidator) IsNotValidPeer(context.Context, string, *nbpeer.Peer, []string, *types.ExtraSettings) (bool, bool, error) {
+	return false, true, nil
 }
 
 func TestSyncAndMarkPeerMapReuse(t *testing.T) {
@@ -268,6 +356,29 @@ func TestSyncAndMarkPeerMapReuse(t *testing.T) {
 		assert.True(t, res.MapReused, "the map must be reused")
 		assert.Nil(t, res.NetworkMap, "a reused map is not computed")
 		assert.Equal(t, peer.ID, res.Peer.ID, "the synced peer must be returned")
+	})
+
+	t.Run("a reused map still marks the peer connected", func(t *testing.T) {
+		syncTime := time.Now().UTC()
+		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, syncTime, current)
+		require.NoError(t, err)
+		require.True(t, res.MapReused, "the map must be reused")
+
+		stored, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer.ID)
+		require.NoError(t, err)
+		assert.True(t, stored.Status.Connected, "the peer must be marked connected")
+		assert.Equal(t, syncTime.UnixNano(), stored.Status.SessionStartedAt, "the stream must own the peer's session")
+	})
+
+	t.Run("a validation status change computes the map", func(t *testing.T) {
+		original := manager.integratedPeerValidator
+		manager.integratedPeerValidator = revalidatedPeerValidator{}
+		t.Cleanup(func() { manager.integratedPeerValidator = original })
+
+		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), current)
+		require.NoError(t, err)
+		assert.False(t, res.MapReused, "a peer whose validation just changed must get its map")
+		assert.NotNil(t, res.NetworkMap, "the map must be computed")
 	})
 
 	t.Run("an older serial computes the map", func(t *testing.T) {
