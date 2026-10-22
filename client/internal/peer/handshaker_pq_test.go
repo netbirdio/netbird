@@ -19,23 +19,26 @@ type bootstrapPQ struct {
 	fakePQ
 	bootstrap bool
 	inFlight  bool
+	offer     []byte
 }
+
+func (b bootstrapPQ) OfferPayload(string) ([]byte, uint16) { return b.offer, 0 }
 
 func (b bootstrapPQ) ShouldSendBootstrapOffer(string) bool { return b.bootstrap }
 func (b bootstrapPQ) SignalOfferInFlight(string) bool      { return b.inFlight }
 
 // newControllerHandshaker builds a handshaker for the controller side of a peer pair and
-// records the type of every signalling message it sends.
-func newControllerHandshaker(t *testing.T, pq PQHandshaker) (*Handshaker, func() []sProto.Body_Type) {
+// records the body of every signalling message it sends.
+func newControllerHandshaker(t *testing.T, pq PQHandshaker) (*Handshaker, func() []*sProto.Body) {
 	t.Helper()
 	var mu sync.Mutex
-	var sent []sProto.Body_Type
+	var sent []*sProto.Body
 	client := &signal.MockClient{
 		ReadyFunc: func() bool { return true },
 		SendFunc: func(msg *sProto.Message) error {
 			mu.Lock()
 			defer mu.Unlock()
-			sent = append(sent, msg.GetBody().GetType())
+			sent = append(sent, msg.GetBody())
 			return nil
 		},
 	}
@@ -44,11 +47,19 @@ func newControllerHandshaker(t *testing.T, pq PQHandshaker) (*Handshaker, func()
 	config := ConnConfig{Key: "aaaa", LocalKey: "bbbb", PQ: pq} // LocalKey > Key: controller
 	relay := &WorkerRelay{relayManager: &relayClient.Manager{}}
 	h := NewHandshaker(log.WithField("test", t.Name()), config, NewSignaler(client, key), nil, relay, nil)
-	return h, func() []sProto.Body_Type {
+	return h, func() []*sProto.Body {
 		mu.Lock()
 		defer mu.Unlock()
-		return append([]sProto.Body_Type(nil), sent...)
+		return append([]*sProto.Body(nil), sent...)
 	}
+}
+
+func bodyTypes(bodies []*sProto.Body) []sProto.Body_Type {
+	types := make([]sProto.Body_Type, 0, len(bodies))
+	for _, b := range bodies {
+		types = append(types, b.GetType())
+	}
+	return types
 }
 
 // TestHandshaker_ControllerReoffersOnResponderOffer drives the responder-originated
@@ -60,7 +71,7 @@ func TestHandshaker_ControllerReoffersOnResponderOffer(t *testing.T) {
 
 	h.handleRemoteOffer(OfferAnswer{})
 
-	assert.Equal(t, []sProto.Body_Type{sProto.Body_OFFER}, sent(),
+	assert.Equal(t, []sProto.Body_Type{sProto.Body_OFFER}, bodyTypes(sent()),
 		"the controller must reply with its own offer, not an answer")
 }
 
@@ -69,14 +80,17 @@ func TestHandshaker_ControllerReoffersOnResponderOffer(t *testing.T) {
 // KEM-less answer could reach the responder before the KEM offer and let it bring WireGuard
 // up with no PSK. It sends its in-flight offer again instead, in case the first send failed.
 func TestHandshaker_ControllerResendsOfferInGlare(t *testing.T) {
-	h, sent := newControllerHandshaker(t, bootstrapPQ{inFlight: true})
+	inFlightOffer := []byte("in-flight KEM offer")
+	h, sent := newControllerHandshaker(t, bootstrapPQ{inFlight: true, offer: inFlightOffer})
 	notified := false
 	h.AddICEListener(func(*OfferAnswer) { notified = true }) // called synchronously
 
 	h.handleRemoteOffer(OfferAnswer{IceCredentials: IceCredentials{UFrag: "ufrag", Pwd: "pwd"}})
 
-	assert.Equal(t, []sProto.Body_Type{sProto.Body_OFFER}, sent(),
-		"in a glare the controller must resend its offer, not answer")
+	bodies := sent()
+	require.Len(t, bodies, 1, "in a glare the controller must send exactly one message")
+	assert.Equal(t, sProto.Body_OFFER, bodies[0].GetType(), "in a glare the controller must resend its offer, not answer")
+	assert.Equal(t, inFlightOffer, bodies[0].GetMlkemPayload(), "the resend must carry the in-flight KEM offer")
 	assert.False(t, notified, "in a glare the controller must not bring the connection up from the responder's offer")
 }
 
@@ -87,6 +101,6 @@ func TestHandshaker_ControllerAnswersNonCapablePeer(t *testing.T) {
 
 	h.handleRemoteOffer(OfferAnswer{})
 
-	assert.Equal(t, []sProto.Body_Type{sProto.Body_ANSWER}, sent(),
+	assert.Equal(t, []sProto.Body_Type{sProto.Body_ANSWER}, bodyTypes(sent()),
 		"without a KEM to run the controller must answer normally")
 }

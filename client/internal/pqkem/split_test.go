@@ -93,3 +93,30 @@ func TestManager_SignalOfferInFlight(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, dB.SignalOfferInFlight("aaaa"), "a data-path rotation is not a signalling offer")
 }
+
+// TestManager_ResentSignalOfferIsTheSameExchange backs the glare resend: while our
+// bootstrap offer awaits its answer, building the offer again must return the same bytes,
+// not start a second exchange, and the responder must answer the duplicate from its cache
+// so both sides still derive one PSK.
+func TestManager_ResentSignalOfferIsTheSameExchange(t *testing.T) {
+	dA, dB, wgA, wgB, _ := pair(t) // dB ("bbbb") initiator
+	defer dA.Stop()
+	defer dB.Stop()
+
+	first, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	resent, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	assert.Equal(t, first, resent, "a resend while in flight must carry the same offer")
+
+	answer, err := dA.SignalOnOffer("bbbb", first)
+	require.NoError(t, err)
+	duplicateAnswer, err := dA.SignalOnOffer("bbbb", resent)
+	require.NoError(t, err)
+	assert.Equal(t, answer, duplicateAnswer, "the responder must answer a duplicate offer from its cache")
+
+	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
+	require.NoError(t, dB.SignalOnAnswer("aaaa", duplicateAnswer))
+	assert.NotEqual(t, PSK{}, wgB.psk("aaaa"))
+	assert.Equal(t, wgB.psk("aaaa"), wgA.psk("bbbb"), "a resent offer must still converge on one PSK")
+}
