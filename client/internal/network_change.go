@@ -155,6 +155,11 @@ type recoveryWatch struct {
 // It returns false when the change could not be handled in place and only a
 // restart can recover.
 func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
+	// The engine may be stopping: there is nothing left to move, and its
+	// teardown must not race with the steps below.
+	if e.ctx.Err() != nil {
+		return true
+	}
 	log.Infof("Network monitor: underlay %s change, redialing control connections without restart", change.Kind)
 	log.Debugf("Network monitor: underlay next hops v4 %s -> %s, v6 %s -> %s",
 		change.Before.V4, change.After.V4, change.Before.V6, change.After.V6)
@@ -186,7 +191,9 @@ func (e *Engine) redialOnUnderlayChange(change networkmonitor.Change) bool {
 // it binds to the interface that now holds the default route. Kernel
 // WireGuard has no such socket to reopen.
 func (e *Engine) rebindWGSocket() error {
-	dev := e.wgInterface.GetWGDevice()
+	// The lock-free handle: going through wgInterface needs syncMsgMux, and
+	// the engine's teardown clears both.
+	dev := e.wgDevice.Load()
 	if dev == nil {
 		return nil
 	}
