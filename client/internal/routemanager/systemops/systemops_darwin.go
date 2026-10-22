@@ -41,8 +41,14 @@ const scopedRouteBudget = 5 * time.Second
 // the table. Any subsequent reconnect via nbnet.NewDialer picks up the
 // populated bound-iface cache and gets IP_BOUND_IF set cleanly.
 func (r *SysOps) setupAdvancedRouting() error {
-	_, err := r.setupAdvancedRoutingWith(GetNextHop)
-	return err
+	installed, err := r.setupAdvancedRoutingWith(GetNextHop)
+	if installed == 0 {
+		return err
+	}
+	if err != nil {
+		log.Warnf("advanced routing setup partially succeeded: %v", err)
+	}
+	return nil
 }
 
 // nexthopLookup resolves the default next hop for the family of an
@@ -51,7 +57,7 @@ type nexthopLookup func(unspec netip.Addr) (Nexthop, error)
 
 // setupAdvancedRoutingWith is setupAdvancedRouting with the default next hop
 // resolved by lookup. It returns how many address families got a scoped
-// default.
+// default, and the failures of the others.
 func (r *SysOps) setupAdvancedRoutingWith(lookup nexthopLookup) (int, error) {
 	// Drop any previously-cached egress interface before reinstalling. On a
 	// refresh, a family that no longer resolves would otherwise keep the stale
@@ -77,13 +83,7 @@ func (r *SysOps) setupAdvancedRoutingWith(lookup nexthopLookup) (int, error) {
 		}
 	}
 
-	if installed == 0 && merr != nil {
-		return 0, nberrors.FormatErrorOrNil(merr)
-	}
-	if merr != nil {
-		log.Warnf("advanced routing setup partially succeeded: %v", nberrors.FormatErrorOrNil(merr))
-	}
-	return installed, nil
+	return installed, nberrors.FormatErrorOrNil(merr)
 }
 
 // installScopedDefaultFor resolves the physical default nexthop for the given
@@ -144,7 +144,7 @@ func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
 	installed, err := r.setupAdvancedRoutingWith(func(unspec netip.Addr) (Nexthop, error) {
 		return GetUnderlayNextHop(unspec, nbnet.GetVPNInterfaceName())
 	})
-	if err != nil {
+	if installed == 0 && err != nil {
 		return err
 	}
 	// The refresh only runs on a change with a default in place. Finding none
