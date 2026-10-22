@@ -70,6 +70,9 @@ func (r *Route) removeRoutes(prefixes []netip.Prefix) error {
 }
 
 func (r *Route) AddAllowedIPs(peerKey string) error {
+	var conflicts int
+	var firstConflict netip.Prefix
+	var otherPeer string
 	for i, prefix := range r.prefixes {
 		ref, err := r.allowedIPsRefcounter.Increment(prefix, peerKey)
 		if err != nil {
@@ -79,13 +82,22 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 			return fmt.Errorf("add allowed IP %s: %w", prefix, err)
 		}
 		if ref.Count > 1 && ref.Out != peerKey {
-			log.Warnf("Prefix [%s] is already routed by peer [%s]. HA routing disabled",
-				prefix,
-				ref.Out,
-			)
+			if conflicts == 0 {
+				firstConflict, otherPeer = prefix, ref.Out
+			}
+			conflicts++
 		}
 	}
 	r.currentPeerKey = peerKey
+
+	// A country route has thousands of prefixes, so report its conflicts once.
+	switch {
+	case conflicts == 1:
+		log.Warnf("Prefix [%s] is already routed by peer [%s]. HA routing disabled", firstConflict, otherPeer)
+	case conflicts > 1:
+		log.Warnf("Prefix [%s] and %d more of [%s] are already routed by other peers, the first by [%s]. HA routing disabled",
+			firstConflict, conflicts-1, r, otherPeer)
+	}
 	return nil
 }
 

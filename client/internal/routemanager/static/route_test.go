@@ -21,9 +21,10 @@ import (
 // hostState stands in for the OS routing table and the interface's allowed IPs, which the
 // real refcounters program through their add and remove functions.
 type hostState struct {
-	routes     map[netip.Prefix]struct{}
-	allowedIPs map[netip.Prefix]string
-	failRoute  netip.Prefix
+	routes        map[netip.Prefix]struct{}
+	allowedIPs    map[netip.Prefix]string
+	failRoute     netip.Prefix
+	failAllowedIP netip.Prefix
 }
 
 func newHostState() *hostState {
@@ -51,6 +52,9 @@ func (h *hostState) params(r *route.Route) common.HandlerParams {
 		),
 		AllowedIPsRefCounter: refcounter.NewAllowedIPs(
 			func(prefix netip.Prefix, peerKey string) (string, error) {
+				if prefix == h.failAllowedIP {
+					return "", errors.New("allowed IP refused")
+				}
 				h.allowedIPs[prefix] = peerKey
 				return peerKey, nil
 			},
@@ -108,6 +112,16 @@ func TestRoute_AddRouteRollsBackOnFailure(t *testing.T) {
 
 	require.Error(t, r.AddRoute(context.Background()))
 	assert.Empty(t, host.routes, "a failed add must not leave earlier prefixes installed")
+}
+
+func TestRoute_AddAllowedIPsRollsBackOnFailure(t *testing.T) {
+	host := newHostState()
+	host.failAllowedIP = netip.MustParsePrefix("10.1.0.0/16")
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24"), host.failAllowedIP}
+	r := newRoute(host.params(&route.Route{Network: prefixes[0]}), prefixes)
+
+	require.Error(t, r.AddAllowedIPs("peerA"))
+	assert.Empty(t, host.allowedIPs, "a failed add must not leave earlier prefixes routed to the peer")
 }
 
 func TestCountryRoute(t *testing.T) {
