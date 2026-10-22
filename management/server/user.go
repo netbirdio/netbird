@@ -102,11 +102,11 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		createdBy, err := am.Store.GetAccountCreatedBy(ctx, store.LockingStrengthNone, accountID)
+		owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
-		inviterID = createdBy
+		inviterID = owner.Id
 	}
 
 	var idpUser *idp.UserData

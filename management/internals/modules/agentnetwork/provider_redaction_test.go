@@ -98,9 +98,8 @@ func TestGetProvider_RedactsForReadOnlyViewer(t *testing.T) {
 // keeps the account-wide view with full config.
 
 // newSelfScopeStore seeds the account and its users only, so each test
-// declares exactly the providers and policies it asserts on — the store
-// rejects re-saving a policy id on MySQL, so tests never overwrite each
-// other's rows.
+// declares exactly the providers and policies it asserts on, so tests never
+// overwrite each other's rows.
 func newSelfScopeStore(t *testing.T) (*managerImpl, store.Store) {
 	t.Helper()
 	mgr, s := newAgentConfigTestMgr(t)

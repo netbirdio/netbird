@@ -493,7 +493,6 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	req.Username = username
 
 	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
 	req.NatExternalIPs = natExternalIPs
 	req.CustomDNSAddress = customDNSAddressConverted
 	req.ExtraIFaceBlacklist = extraIFaceBlackList

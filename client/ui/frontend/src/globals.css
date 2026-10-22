@@ -1,22 +1,280 @@
-@font-face {
-    font-family: "Inter Variable";
-    font-style: normal;
-    font-weight: 100 900;
-    src: url("./assets/fonts/inter-variable.ttf") format("truetype");
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    --font-*: initial;
+    --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+    --color-nb-gray-50: rgb(var(--nb-gray-50));
+    --color-nb-gray-100: rgb(var(--nb-gray-100));
+    --color-nb-gray-200: rgb(var(--nb-gray-200));
+    --color-nb-gray-250: rgb(var(--nb-gray-250));
+    --color-nb-gray-300: rgb(var(--nb-gray-300));
+    --color-nb-gray-350: rgb(var(--nb-gray-350));
+    --color-nb-gray-400: rgb(var(--nb-gray-400));
+    --color-nb-gray-500: rgb(var(--nb-gray-500));
+    --color-nb-gray-600: rgb(var(--nb-gray-600));
+    --color-nb-gray-700: rgb(var(--nb-gray-700));
+    --color-nb-gray-800: rgb(var(--nb-gray-800));
+    --color-nb-gray-850: rgb(var(--nb-gray-850));
+    --color-nb-gray-900: rgb(var(--nb-gray-900));
+    --color-nb-gray-910: rgb(var(--nb-gray-910));
+    --color-nb-gray-920: rgb(var(--nb-gray-920));
+    --color-nb-gray-925: rgb(var(--nb-gray-925));
+    --color-nb-gray-930: rgb(var(--nb-gray-930));
+    --color-nb-gray-935: rgb(var(--nb-gray-935));
+    --color-nb-gray-940: rgb(var(--nb-gray-940));
+    --color-nb-gray-950: rgb(var(--nb-gray-950));
+    --color-nb-gray-960: rgb(var(--nb-gray-960));
+    --color-nb-gray: rgb(var(--nb-gray-DEFAULT));
+
+    --color-gray-50: #f9fafb;
+    --color-gray-100: #f3f4f6;
+    --color-gray-200: #e5e7eb;
+    --color-gray-300: #d1d5db;
+    --color-gray-400: #9ca3af;
+    --color-gray-500: #6b7280;
+    --color-gray-600: #4b5563;
+    --color-gray-700: #374151;
+    --color-gray-800: #1f2937;
+    --color-gray-900: #111827;
+
+    --color-red-50: #fdf2f2;
+    --color-red-100: #fde8e8;
+    --color-red-200: #fbd5d5;
+    --color-red-300: #f8b4b4;
+    --color-red-400: #f98080;
+    --color-red-500: #f05252;
+    --color-red-600: #e02424;
+    --color-red-700: #c81e1e;
+    --color-red-800: #9b1c1c;
+    --color-red-900: #771d1d;
+
+    --color-yellow-50: #fdfdea;
+    --color-yellow-100: #fdf6b2;
+    --color-yellow-200: #fce96a;
+    --color-yellow-300: #faca15;
+    --color-yellow-400: #e3a008;
+    --color-yellow-500: #c27803;
+    --color-yellow-600: #9f580a;
+    --color-yellow-700: #8e4b10;
+    --color-yellow-800: #723b13;
+    --color-yellow-900: #633112;
+
+    --color-green-50: #f3faf7;
+    --color-green-100: #def7ec;
+    --color-green-200: #bcf0da;
+    --color-green-300: #84e1bc;
+    --color-green-400: #31c48d;
+    --color-green-500: #0e9f6e;
+    --color-green-600: #057a55;
+    --color-green-700: #046c4e;
+    --color-green-800: #03543f;
+    --color-green-900: #014737;
+
+    --color-blue-50: #ebf5ff;
+    --color-blue-100: #e1effe;
+    --color-blue-200: #c3ddfd;
+    --color-blue-300: #a4cafe;
+    --color-blue-400: #76a9fa;
+    --color-blue-500: #3f83f8;
+    --color-blue-600: #1c64f2;
+    --color-blue-700: #1a56db;
+    --color-blue-800: #1e429f;
+    --color-blue-900: #233876;
+
+    --color-indigo-50: #f0f5ff;
+    --color-indigo-100: #e5edff;
+    --color-indigo-200: #cddbfe;
+    --color-indigo-300: #b4c6fc;
+    --color-indigo-400: #8da2fb;
+    --color-indigo-500: #6875f5;
+    --color-indigo-600: #5850ec;
+    --color-indigo-700: #5145cd;
+    --color-indigo-800: #42389d;
+    --color-indigo-900: #362f78;
+
+    --color-purple-50: #f6f5ff;
+    --color-purple-100: #edebfe;
+    --color-purple-200: #dcd7fe;
+    --color-purple-300: #cabffd;
+    --color-purple-400: #ac94fa;
+    --color-purple-500: #9061f9;
+    --color-purple-600: #7e3af2;
+    --color-purple-700: #6c2bd9;
+    --color-purple-800: #5521b5;
+    --color-purple-900: #4a1d96;
+
+    --color-pink-50: #fdf2f8;
+    --color-pink-100: #fce8f3;
+    --color-pink-200: #fad1e8;
+    --color-pink-300: #f8b4d9;
+    --color-pink-400: #f17eb8;
+    --color-pink-500: #e74694;
+    --color-pink-600: #d61f69;
+    --color-pink-700: #bf125d;
+    --color-pink-800: #99154b;
+    --color-pink-900: #751a3d;
+
+    --color-netbird-50: #fff6ed;
+    --color-netbird-100: #feecd6;
+    --color-netbird-150: #ffdfb8;
+    --color-netbird-200: #ffd4a6;
+    --color-netbird-300: #fab677;
+    --color-netbird-400: #f68330;
+    --color-netbird-500: #f46d1b;
+    --color-netbird-600: #e55311;
+    --color-netbird-700: #be3e10;
+    --color-netbird-800: #973215;
+    --color-netbird-900: #7a2b14;
+    --color-netbird-950: #421308;
+    --color-netbird: #f68330;
+
+    /* Tailwind 4 rebuilt its default palette in OKLCH, which shifts hues such as
+       sky-400 and orange-400 noticeably. These are the Tailwind 3 values for the
+       families the UI still uses from the default palette, so colors stay as they
+       were before the upgrade. */
+    --color-neutral-50: #fafafa;
+    --color-neutral-100: #f5f5f5;
+    --color-neutral-200: #e5e5e5;
+    --color-neutral-300: #d4d4d4;
+    --color-neutral-400: #a3a3a3;
+    --color-neutral-500: #737373;
+    --color-neutral-600: #525252;
+    --color-neutral-700: #404040;
+    --color-neutral-800: #262626;
+    --color-neutral-900: #171717;
+    --color-neutral-950: #0a0a0a;
+
+    --color-zinc-50: #fafafa;
+    --color-zinc-100: #f4f4f5;
+    --color-zinc-200: #e4e4e7;
+    --color-zinc-300: #d4d4d8;
+    --color-zinc-400: #a1a1aa;
+    --color-zinc-500: #71717a;
+    --color-zinc-600: #52525b;
+    --color-zinc-700: #3f3f46;
+    --color-zinc-800: #27272a;
+    --color-zinc-900: #18181b;
+    --color-zinc-950: #09090b;
+
+    --color-sky-50: #f0f9ff;
+    --color-sky-100: #e0f2fe;
+    --color-sky-200: #bae6fd;
+    --color-sky-300: #7dd3fc;
+    --color-sky-400: #38bdf8;
+    --color-sky-500: #0ea5e9;
+    --color-sky-600: #0284c7;
+    --color-sky-700: #0369a1;
+    --color-sky-800: #075985;
+    --color-sky-900: #0c4a6e;
+    --color-sky-950: #082f49;
+
+    --color-orange-50: #fff7ed;
+    --color-orange-100: #ffedd5;
+    --color-orange-200: #fed7aa;
+    --color-orange-300: #fdba74;
+    --color-orange-400: #fb923c;
+    --color-orange-500: #f97316;
+    --color-orange-600: #ea580c;
+    --color-orange-700: #c2410c;
+    --color-orange-800: #9a3412;
+    --color-orange-900: #7c2d12;
+    --color-orange-950: #431407;
+
+    --color-amber-50: #fffbeb;
+    --color-amber-100: #fef3c7;
+    --color-amber-200: #fde68a;
+    --color-amber-300: #fcd34d;
+    --color-amber-400: #fbbf24;
+    --color-amber-500: #f59e0b;
+    --color-amber-600: #d97706;
+    --color-amber-700: #b45309;
+    --color-amber-800: #92400e;
+    --color-amber-900: #78350f;
+    --color-amber-950: #451a03;
+
+    --background-image-conic-netbird: conic-gradient(
+        from 0deg,
+        #e55311 0%,
+        #f68330 10%,
+        #e55311 20%,
+        #e55311 100%
+    );
+
+    --animate-ping-slow: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+    --animate-pulse-slow: pulse-reverse 2s cubic-bezier(0.5, 0, 0.6, 1) infinite;
+    --animate-pulse-slower: pulse-reverse 3s cubic-bezier(0.5, 0, 0.6, 1) infinite;
+    --animate-spin-slow: spin-slow 2s linear infinite;
+
+    @keyframes pulse-reverse {
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.4;
+        }
+    }
+    @keyframes spin-slow {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+    @keyframes ping-slow {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+        75%,
+        100% {
+            transform: scale(2);
+            opacity: 0;
+        }
+    }
 }
 
-@font-face {
-    font-family: "JetBrains Mono Variable";
-    font-style: normal;
-    font-weight: 100 800;
-    src: url("./assets/fonts/jetbrains-mono-variable.ttf") format("truetype");
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentcolor);
+    }
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@layer base {
+    @font-face {
+        font-family: "Inter Variable";
+        font-style: normal;
+        font-weight: 100 900;
+        src: url("./assets/fonts/inter-variable.ttf") format("truetype");
+    }
 
-/* nb-gray channels (space-separated RGB) consumed by tailwind.config.ts.
+    @font-face {
+        font-family: "JetBrains Mono Variable";
+        font-style: normal;
+        font-weight: 100 800;
+        src: url("./assets/fonts/jetbrains-mono-variable.ttf") format("truetype");
+    }
+}
+
+/* nb-gray channels (space-separated RGB) consumed by the @theme block above.
    :root is the inverted light ramp — high stops are surfaces (near-white),
    low stops are text (near-black); .dark restores the original dark ramp.
    Surfaces stay darker than content cards to preserve their separation. */
