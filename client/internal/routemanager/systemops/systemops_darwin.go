@@ -144,7 +144,9 @@ func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
 	installed, err := r.setupAdvancedRoutingWith(func(unspec netip.Addr) (Nexthop, error) {
 		return GetUnderlayNextHop(unspec, nbnet.GetVPNInterfaceName())
 	})
-	if installed == 0 && err != nil {
+	// Unlike engine start, a family left unbound here keeps sockets on the
+	// old network or sends them into the tunnel: any failure restarts.
+	if err != nil {
 		return err
 	}
 	// The refresh only runs on a change with a default in place. Finding none
