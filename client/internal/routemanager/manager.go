@@ -81,6 +81,7 @@ type ManagerConfig struct {
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
 	DisableServerRoutes bool
+	CountryPrefixes     common.CountryPrefixesFunc
 }
 
 // DefaultManager is the default instance of a route manager
@@ -113,6 +114,7 @@ type DefaultManager struct {
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
 	dnsForwarderPort    atomic.Uint32
+	countryPrefixes     common.CountryPrefixesFunc
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -141,6 +143,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		disableClientRoutes: config.DisableClientRoutes,
 		disableServerRoutes: config.DisableServerRoutes,
 		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
+		countryPrefixes:     config.CountryPrefixes,
 	}
 	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
 
@@ -397,6 +400,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			Firewall:             m.firewall,
 			FakeIPManager:        m.fakeIPManager,
 			ForwarderPort:        &m.dnsForwarderPort,
+			CountryPrefixes:      m.countryPrefixes,
 		}
 		handler := client.HandlerFromRoute(params)
 		if err := handler.AddRoute(m.ctx); err != nil {
@@ -868,7 +872,7 @@ func (m *DefaultManager) clientRouteRange() []string {
 	var nets []string
 	for _, routes := range filtered {
 		for _, r := range routes {
-			if r.IsDynamic() {
+			if r.IsDynamic() || r.IsCountry() {
 				continue
 			}
 			nets = append(nets, r.NetString())
