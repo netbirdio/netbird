@@ -16,8 +16,9 @@ const beginReadOnlyQuery = "begin read only isolation level repeatable read"
 // LoadAccount reads the account's network-map rows over one connection in a
 // read-only repeatable-read transaction, pipelining the queries of each step
 // into a single round trip: one round trip without selectPeers, two with it,
-// the second reading the selected peers and the client versions of all peers.
-func (p *PgStore) LoadAccount(ctx context.Context, accountID string, selectPeers networkmapdb.PeerSelector) (*networkmapdb.AccountRows, error) {
+// the second reading the users, the selected peers and the client versions of
+// all peers.
+func (p *PgStore) LoadAccount(ctx context.Context, accountID string, targets []string, selectPeers networkmapdb.PeerSelector) (*networkmapdb.AccountRows, error) {
 	conn, err := p.Pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire connection: %w", err)
@@ -31,6 +32,7 @@ func (p *PgStore) LoadAccount(ctx context.Context, accountID string, selectPeers
 	queueAccountRows(batch, accountID, rows)
 
 	if selectPeers == nil {
+		queueUsers(batch, accountID, rows)
 		queuePeers(batch, rows, "peers", GetPeersQuery, accountID)
 		batch.Queue("commit")
 		if err := sendBatch(ctx, conn, batch); err != nil {
@@ -40,23 +42,29 @@ func (p *PgStore) LoadAccount(ctx context.Context, accountID string, selectPeers
 	}
 
 	queuePeers(batch, rows, "proxy peers", GetProxyPeersQuery, accountID)
+	if len(targets) > 0 {
+		queuePeers(batch, rows, "target peers", GetPeersByIDsQuery, accountID, targets)
+	}
 	if err := sendBatch(ctx, conn, batch); err != nil {
 		return nil, err
 	}
 
-	peerIDs, all, err := selectPeers(rows)
+	selection, err := selectPeers(rows)
 	if err != nil {
 		rollback(ctx, conn)
 		return nil, err
 	}
 
 	batch = &pgx.Batch{}
+	if !selection.SkipUsers {
+		queueUsers(batch, accountID, rows)
+	}
 	switch {
-	case all:
+	case selection.AllPeers:
 		rows.Peers = nil
 		queuePeers(batch, rows, "peers", GetPeersQuery, accountID)
 	default:
-		queuePeers(batch, rows, "peers by id", GetPeersByIDsQuery, accountID, peerIDs)
+		queuePeers(batch, rows, "peers by id", GetPeersByIDsQuery, accountID, rows.UnreadPeerIDs(selection.PeerIDs))
 		queueRows(batch, "peer versions", func(r pgx.Rows) (err error) {
 			rows.PeerVersions, err = collectPeerVersions(r)
 			return err
@@ -116,17 +124,6 @@ func queueAccountRows(batch *pgx.Batch, accountID string, rows *networkmapdb.Acc
 		return err
 	}, GetNetworksQuery, accountID)
 
-	var users []user
-	queueRows(batch, "allowed users", func(r pgx.Rows) (err error) {
-		users, err = collectUsers(r)
-		return err
-	}, GetAllowedUserIdsQuery, accountID)
-	queueRows(batch, "all group id", func(r pgx.Rows) error {
-		allGroupIds, err := collectAllGroupIds(r)
-		rows.AllowedUserIDs, rows.GroupIDToUserIDs = allowedUsers(users, allGroupIds)
-		return err
-	}, GetAllGroupIdQuery, accountID)
-
 	queueRows(batch, "dns settings", func(r pgx.Rows) (err error) {
 		rows.DNSSettings, err = collectDnsSettings(r)
 		return err
@@ -139,6 +136,20 @@ func queueAccountRows(batch *pgx.Batch, accountID string, rows *networkmapdb.Acc
 		rows.ProxyTargetedDomainResourceIDs, err = collectProxyTargetedDomainResourceIDs(r)
 		return err
 	}, GetProxyTargetedDomainResourcesQuery, accountID)
+}
+
+// queueUsers queues the reads of the users allowed to log in to peers.
+func queueUsers(batch *pgx.Batch, accountID string, rows *networkmapdb.AccountRows) {
+	var users []user
+	queueRows(batch, "allowed users", func(r pgx.Rows) (err error) {
+		users, err = collectUsers(r)
+		return err
+	}, GetAllowedUserIdsQuery, accountID)
+	queueRows(batch, "all group id", func(r pgx.Rows) error {
+		allGroupIds, err := collectAllGroupIds(r)
+		rows.AllowedUserIDs, rows.GroupIDToUserIDs = allowedUsers(users, allGroupIds)
+		return err
+	}, GetAllGroupIdQuery, accountID)
 }
 
 // queuePeers queues a peer query whose rows are appended to rows.Peers.

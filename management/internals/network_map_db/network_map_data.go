@@ -13,11 +13,11 @@ import (
 )
 
 // GetNetworkMapData loads the account's network-map data. A nil selectPeers
-// loads every peer. Otherwise only the embedded proxy peers and the peers
-// selectPeers picks are loaded: it receives the data without those peers,
-// inside the load's snapshot, and returns their IDs or all to load every peer.
+// loads everything. Otherwise only the target peers, the embedded proxy peers
+// and what selectPeers picks are loaded: it receives the data with only those
+// two kinds of peers and without users, inside the load's snapshot.
 // PeerVersions always covers every peer of the account.
-func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string, selectPeers func(nmd *networkmap.NetworkMapData) (peerIDs []string, all bool, err error)) (*networkmap.NetworkMapData, error) {
+func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string, targets []string, selectPeers func(nmd *networkmap.NetworkMapData) (PeerSelection, error)) (*networkmap.NetworkMapData, error) {
 	type extraSettingsResult struct {
 		settings *types.ExtraSettings
 		err      error
@@ -31,13 +31,13 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 	var nmd *networkmap.NetworkMapData
 	var storeSelector PeerSelector
 	if selectPeers != nil {
-		storeSelector = func(rows *AccountRows) ([]string, bool, error) {
+		storeSelector = func(rows *AccountRows) (PeerSelection, error) {
 			nmd = newNetworkMapData(rows)
 			return selectPeers(nmd)
 		}
 	}
 
-	rows, err := s.Store.LoadAccount(ctx, accountId, storeSelector)
+	rows, err := s.Store.LoadAccount(ctx, accountId, targets, storeSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -46,6 +46,8 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 		nmd = newNetworkMapData(rows)
 	} else {
 		nmd.Peers = toMap(rows.Peers, func(p nmdata.Peer) string { return p.ID })
+		nmd.AllowedUserIDs = rows.AllowedUserIDs
+		nmd.GroupIDToUserIDs = rows.GroupIDToUserIDs
 	}
 	nmd.PeerVersions = rows.PeerVersions
 	if nmd.PeerVersions == nil {
@@ -67,13 +69,13 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 
 // LoadAccountRows implements NetworkMapDBStore.LoadAccount one query at a time
 // over a transaction of store, for engines that cannot pipeline queries.
-func LoadAccountRows(ctx context.Context, store NetworkMapDBStore, accountID string, selectPeers PeerSelector) (*AccountRows, error) {
+func LoadAccountRows(ctx context.Context, store NetworkMapDBStore, accountID string, targets []string, selectPeers PeerSelector) (*AccountRows, error) {
 	tx, err := store.BeginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := readAccountRows(ctx, tx, accountID, selectPeers)
+	rows, err := readAccountRows(ctx, tx, accountID, targets, selectPeers)
 	if err != nil {
 		if rbErr := tx.RollbackTx(ctx); rbErr != nil {
 			log.WithContext(ctx).Warnf("failed to rollback network map read transaction: %v", rbErr)
@@ -87,7 +89,7 @@ func LoadAccountRows(ctx context.Context, store NetworkMapDBStore, accountID str
 	return rows, nil
 }
 
-func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID string, selectPeers PeerSelector) (*AccountRows, error) {
+func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID string, targets []string, selectPeers PeerSelector) (*AccountRows, error) {
 	rows := &AccountRows{}
 	var err error
 
@@ -124,9 +126,6 @@ func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID st
 	if rows.NetworkXIDToPublicID, err = tx.GetNetworkXIDToPublicIdMap(ctx, accountID); err != nil {
 		return nil, fmt.Errorf("get network xid to public id map: %w", err)
 	}
-	if rows.AllowedUserIDs, rows.GroupIDToUserIDs, err = tx.GetAllowedUsers(ctx, accountID); err != nil {
-		return nil, fmt.Errorf("get allowed users: %w", err)
-	}
 	if rows.DNSSettings, err = tx.GetDnsSettings(ctx, accountID); err != nil {
 		return nil, fmt.Errorf("get dns settings: %w", err)
 	}
@@ -138,6 +137,9 @@ func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID st
 	}
 
 	if selectPeers == nil {
+		if rows.AllowedUserIDs, rows.GroupIDToUserIDs, err = tx.GetAllowedUsers(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get allowed users: %w", err)
+		}
 		if rows.Peers, _, err = tx.GetPeers(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("get peers: %w", err)
 		}
@@ -147,18 +149,30 @@ func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID st
 	if rows.Peers, err = tx.GetProxyPeers(ctx, accountID); err != nil {
 		return nil, fmt.Errorf("get proxy peers: %w", err)
 	}
+	if len(targets) > 0 {
+		targetPeers, err := tx.GetPeersByIDs(ctx, accountID, targets)
+		if err != nil {
+			return nil, fmt.Errorf("get target peers: %w", err)
+		}
+		rows.Peers = append(rows.Peers, targetPeers...)
+	}
 
-	peerIDs, all, err := selectPeers(rows)
+	selection, err := selectPeers(rows)
 	if err != nil {
 		return nil, err
 	}
+	if !selection.SkipUsers {
+		if rows.AllowedUserIDs, rows.GroupIDToUserIDs, err = tx.GetAllowedUsers(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get allowed users: %w", err)
+		}
+	}
 	switch {
-	case all:
+	case selection.AllPeers:
 		if rows.Peers, _, err = tx.GetPeers(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("get peers: %w", err)
 		}
 	default:
-		selected, err := tx.GetPeersByIDs(ctx, accountID, peerIDs)
+		selected, err := tx.GetPeersByIDs(ctx, accountID, rows.UnreadPeerIDs(selection.PeerIDs))
 		if err != nil {
 			return nil, fmt.Errorf("get peers by id: %w", err)
 		}

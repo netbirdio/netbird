@@ -20,17 +20,28 @@ var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
 	// LoadAccount reads the rows of one account's network map in a single
-	// read-only snapshot. A nil selectPeers reads every peer row; otherwise
-	// the peer rows are read after selectPeers picked them.
-	LoadAccount(ctx context.Context, accountID string, selectPeers PeerSelector) (*AccountRows, error)
+	// read-only snapshot. A nil selectPeers reads everything. Otherwise only
+	// the target peers and the embedded proxy peers are read with the other
+	// collections, and the remaining peer rows and the users are read after
+	// selectPeers picked them.
+	LoadAccount(ctx context.Context, accountID string, targets []string, selectPeers PeerSelector) (*AccountRows, error)
 	Exec(ctx context.Context, query string, args ...any) error
 }
 
-// PeerSelector picks the peers a load reads in full. It receives every
-// collection of the account except the peer rows, of which only the embedded
-// proxy peers are there. It returns the IDs of the peers to read, or all to
-// read every peer. The embedded proxy peers are read either way.
-type PeerSelector func(rows *AccountRows) (peerIDs []string, all bool, err error)
+// PeerSelector picks what the second step of a load reads. It receives every
+// collection of the account except the users and the peer rows, of which only
+// the target and embedded proxy peers are there.
+type PeerSelector func(rows *AccountRows) (PeerSelection, error)
+
+// PeerSelection is what a PeerSelector picks. Peers already read are not read
+// again.
+type PeerSelection struct {
+	// PeerIDs are the peers to read, unless AllPeers reads every peer.
+	PeerIDs  []string
+	AllPeers bool
+	// SkipUsers leaves AllowedUserIDs and GroupIDToUserIDs unread.
+	SkipUsers bool
+}
 
 // AccountRows holds the collections one network-map load reads for an account.
 type AccountRows struct {
@@ -59,6 +70,21 @@ type AccountRows struct {
 	// account. Only a load that reads a subset of the peers reads them; a
 	// load of every peer leaves them nil.
 	PeerVersions []string
+}
+
+// UnreadPeerIDs returns the given peer IDs whose rows were not read yet.
+func (rows *AccountRows) UnreadPeerIDs(peerIDs []string) []string {
+	read := make(map[string]struct{}, len(rows.Peers))
+	for _, p := range rows.Peers {
+		read[p.ID] = struct{}{}
+	}
+	unread := make([]string, 0, len(peerIDs))
+	for _, id := range peerIDs {
+		if _, ok := read[id]; !ok {
+			unread = append(unread, id)
+		}
+	}
+	return unread
 }
 
 type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase

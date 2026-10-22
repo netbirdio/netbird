@@ -149,6 +149,6 @@ func CollectRowsForSqlite[T any](rows *sql.Rows) ([]T, error) {
 
 // LoadAccount reads the account's network-map rows one query at a time; SQLite
 // is local, so there is no round trip to save.
-func (s *SqliteStore) LoadAccount(ctx context.Context, accountID string, selectPeers networkmapdb.PeerSelector) (*networkmapdb.AccountRows, error) {
-	return networkmapdb.LoadAccountRows(ctx, s, accountID, selectPeers)
+func (s *SqliteStore) LoadAccount(ctx context.Context, accountID string, targets []string, selectPeers networkmapdb.PeerSelector) (*networkmapdb.AccountRows, error) {
+	return networkmapdb.LoadAccountRows(ctx, s, accountID, targets, selectPeers)
 }

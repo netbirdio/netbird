@@ -104,7 +104,7 @@ func BenchmarkGetNetworkMapData(b *testing.B) {
 		b.Run(accountID, func(b *testing.B) {
 			logAccountShape(b, ctx, statsConn, accountID)
 			benchDBLoad(b, ctx, statsConn, tracer, func() error {
-				_, err := nmStore.GetNetworkMapData(ctx, accountID, nil)
+				_, err := nmStore.GetNetworkMapData(ctx, accountID, nil, nil)
 				return err
 			})
 		})
@@ -171,7 +171,7 @@ func BenchmarkNetworkMapDataFullRound(b *testing.B) {
 		b.Run(accountID, func(b *testing.B) {
 			logAccountShape(b, ctx, statsConn, accountID)
 			benchDBLoad(b, ctx, statsConn, tracer, func() error {
-				nmData, err := nmStore.GetNetworkMapData(ctx, accountID, nil)
+				nmData, err := nmStore.GetNetworkMapData(ctx, accountID, nil, nil)
 				if err != nil {
 					return err
 				}
@@ -437,22 +437,29 @@ func benchPeerRound(b *testing.B, batch int) {
 // unless every peer is targeted, the account-wide derived values and the
 // components of every target.
 func computeForPeers(ctx context.Context, nmStore *networkmapdb.NetworkMapDBStoreImpl, accountID string, targets []string, all bool) error {
-	var selectPeers func(nmd *networkmap.NetworkMapData) ([]string, bool, error)
+	var selectPeers func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error)
 	if !all {
-		selectPeers = func(nmd *networkmap.NetworkMapData) ([]string, bool, error) {
+		selectPeers = func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
 			largest := 0
 			for _, g := range nmd.Groups {
 				largest = max(largest, len(g.Peers))
 			}
+			load := networkmapdb.PeerSelection{SkipUsers: !nmd.RequiresUsers(targets...)}
 			closure, ok := nmd.PeerClosure(targets, max(largest/2, 1))
 			if !ok {
-				return nil, true, nil
+				load.AllPeers = true
+				return load, nil
 			}
-			return maps.Keys(closure), false, nil
+			load.PeerIDs = maps.Keys(closure)
+			return load, nil
 		}
 	}
 
-	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, selectPeers)
+	var loadTargets []string
+	if !all {
+		loadTargets = targets
+	}
+	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, loadTargets, selectPeers)
 	if err != nil {
 		return err
 	}

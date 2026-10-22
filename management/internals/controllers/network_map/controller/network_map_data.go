@@ -8,6 +8,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -78,26 +79,30 @@ func (c *Controller) getNetworkMapData(ctx context.Context, accountID string, se
 // Unless every peer is selected, only the peers the selected peers' components
 // can hold are read, as worked out by PeerClosure on the data read without peer
 // rows. A closure covering half of the account's largest group or more reads
-// every peer instead.
+// every peer instead. The users are only read when a rule can ship them.
 func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string, selection peerSelection) (*accountNetworkMap, error) {
 	servicesCh := make(chan []*nmdata.Service, 1)
 	go func() { servicesCh <- c.proxyServicesFromRepo(ctx, accountID) }()
 	services := sync.OnceValue(func() []*nmdata.Service { return <-servicesCh })
 
-	var selectPeers func(nmd *networkmap.NetworkMapData) ([]string, bool, error)
+	var targets []string
+	var selectPeers func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error)
 	if !selection.all {
-		targets := maps.Keys(selection.peerIDs)
-		selectPeers = func(nmd *networkmap.NetworkMapData) ([]string, bool, error) {
+		targets = maps.Keys(selection.peerIDs)
+		selectPeers = func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
 			nmd.Services = services()
+			load := networkmapdb.PeerSelection{SkipUsers: !nmd.RequiresUsers(targets...)}
 			closure, ok := nmd.PeerClosure(targets, closureLimit(nmd))
 			if !ok {
-				return nil, true, nil
+				load.AllPeers = true
+				return load, nil
 			}
-			return maps.Keys(closure), false, nil
+			load.PeerIDs = maps.Keys(closure)
+			return load, nil
 		}
 	}
 
-	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID, selectPeers)
+	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID, targets, selectPeers)
 	if err != nil {
 		return nil, err
 	}

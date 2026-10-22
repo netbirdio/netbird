@@ -139,7 +139,7 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 	// which the proxy ACLs are synthesised; the store never reads them.
 	services := types.TwinServices(account.Services)
 
-	nmData, err := nmStore.GetNetworkMapData(ctx, account.Id, nil)
+	nmData, err := nmStore.GetNetworkMapData(ctx, account.Id, nil, nil)
 	require.NoError(t, err, "account %s: nmdata store load", account.Id)
 	nmData.Services = services
 	nmData.BuildPrivateServiceCandidates()
@@ -255,8 +255,8 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 		}
 	}
 
-	partial, err := nmStore.GetNetworkMapData(ctx, account.Id, func(nmd *networkmap.NetworkMapData) ([]string, bool, error) {
-		return nil, false, nil
+	partial, err := nmStore.GetNetworkMapData(ctx, account.Id, nil, func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
+		return networkmapdb.PeerSelection{}, nil
 	})
 	require.NoError(t, err, "account %s: version-only load", account.Id)
 	require.ElementsMatch(t, distinctVersions(nmData.Peers), partial.PeerVersions, "account %s: client versions of a partial load", account.Id)
@@ -267,10 +267,10 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 func partialLoadProto(ctx context.Context, t *testing.T, nmStore *networkmapdb.NetworkMapDBStoreImpl, accountID, peerID string, services []*nmdata.Service, validated map[string]struct{}, settings *types.Settings) *proto.NetworkMap {
 	t.Helper()
 
-	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, func(nmd *networkmap.NetworkMapData) ([]string, bool, error) {
+	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, []string{peerID}, func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
 		nmd.Services = services
 		closure, _ := nmd.PeerClosure([]string{peerID}, 0)
-		return maps.Keys(closure), false, nil
+		return networkmapdb.PeerSelection{PeerIDs: maps.Keys(closure), SkipUsers: !nmd.RequiresUsers(peerID)}, nil
 	})
 	require.NoError(t, err, "account %s peer %s: partial load", accountID, peerID)
 	nmData.BuildPrivateServiceCandidates()

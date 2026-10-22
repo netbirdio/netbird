@@ -1945,3 +1945,39 @@ func TestPeerClosure(t *testing.T) {
 		assert.Nil(t, closure)
 	})
 }
+
+func TestRequiresUsers(t *testing.T) {
+	sshServer := newPeer("peer-ssh", 1)
+	sshServer.SSHEnabled = true
+	plain := newPeer("peer-plain", 2)
+
+	rule := func(protocol string, ports ...string) *nmdata.PolicyRule {
+		r := newRule([]string{"g-src"}, []string{"g-dst"})
+		r.Protocol = protocol
+		r.Ports = ports
+		return r
+	}
+	data := func(rules ...*nmdata.PolicyRule) *networkmap.NetworkMapData {
+		nmd := newNMD(sshServer, plain)
+		nmd.Policies = []*nmdata.Policy{newPolicy("p-1", rules...)}
+		return nmd
+	}
+
+	t.Run("a netbird ssh rule needs users for any peer", func(t *testing.T) {
+		assert.True(t, data(rule(string(nbtypes.PolicyRuleProtocolNetbirdSSH))).RequiresUsers(plain.ID))
+	})
+
+	t.Run("a rule implying legacy ssh needs users only for an ssh server", func(t *testing.T) {
+		for _, r := range []*nmdata.PolicyRule{rule(string(nbtypes.PolicyRuleProtocolALL)), rule(string(nbtypes.PolicyRuleProtocolTCP), "22")} {
+			nmd := data(r)
+			assert.True(t, nmd.RequiresUsers(plain.ID, sshServer.ID))
+			assert.False(t, nmd.RequiresUsers(plain.ID))
+		}
+	})
+
+	t.Run("other and disabled rules need no users", func(t *testing.T) {
+		disabled := rule(string(nbtypes.PolicyRuleProtocolNetbirdSSH))
+		disabled.Enabled = false
+		assert.False(t, data(rule(string(nbtypes.PolicyRuleProtocolTCP), "443"), disabled).RequiresUsers(sshServer.ID))
+	})
+}

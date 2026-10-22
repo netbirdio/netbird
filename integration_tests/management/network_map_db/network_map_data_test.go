@@ -60,7 +60,7 @@ func TestGetNetworkMapData(t *testing.T) {
 
 	loadNetworkMapFixture(t, ctx)
 
-	nmap, err := storeImpl.GetNetworkMapData(ctx, "account-33", nil)
+	nmap, err := storeImpl.GetNetworkMapData(ctx, "account-33", nil, nil)
 	assert.NoError(t, err)
 
 	serializedNMap, err := json.MarshalIndent(nmap, "", "  ")
@@ -93,7 +93,7 @@ func TestLoadAccount(t *testing.T) {
 	ctx := context.TODO()
 	loadNetworkMapFixture(t, ctx)
 
-	full, err := store(t).LoadAccount(ctx, "account-33", nil)
+	full, err := store(t).LoadAccount(ctx, "account-33", nil, nil)
 	require.NoError(t, err)
 	require.Len(t, full.Peers, 3)
 	assert.Nil(t, full.PeerVersions, "a load of every peer reads no versions")
@@ -109,20 +109,37 @@ func TestLoadAccount(t *testing.T) {
 	}
 
 	t.Run("selector sees every collection but the peer rows", func(t *testing.T) {
-		_, err := store(t).LoadAccount(ctx, "account-33", func(rows *networkmapdb.AccountRows) ([]string, bool, error) {
+		_, err := store(t).LoadAccount(ctx, "account-33", nil, func(rows *networkmapdb.AccountRows) (networkmapdb.PeerSelection, error) {
 			assert.Equal(t, full.Groups, rows.Groups)
 			assert.Equal(t, full.Policies, rows.Policies)
 			assert.Equal(t, full.Routers, rows.Routers)
 			assert.ElementsMatch(t, proxyIDs, peerIDs(rows.Peers))
-			return nil, false, nil
+			assert.Nil(t, rows.AllowedUserIDs, "users are read after the selection")
+			return networkmapdb.PeerSelection{}, nil
 		})
 		require.NoError(t, err)
 	})
 
+	t.Run("target peers are read before the selection", func(t *testing.T) {
+		target := allIDs[0]
+		rows, err := store(t).LoadAccount(ctx, "account-33", []string{target}, func(rows *networkmapdb.AccountRows) (networkmapdb.PeerSelection, error) {
+			assert.Contains(t, peerIDs(rows.Peers), target)
+			return networkmapdb.PeerSelection{PeerIDs: []string{target}}, nil
+		})
+		require.NoError(t, err)
+		reads := 0
+		for _, id := range peerIDs(rows.Peers) {
+			if id == target {
+				reads++
+			}
+		}
+		assert.Equal(t, 1, reads, "a target is read once")
+	})
+
 	t.Run("selected peers are read with the client versions of all peers", func(t *testing.T) {
 		selected := allIDs[0]
-		rows, err := store(t).LoadAccount(ctx, "account-33", func(*networkmapdb.AccountRows) ([]string, bool, error) {
-			return []string{selected}, false, nil
+		rows, err := store(t).LoadAccount(ctx, "account-33", nil, func(*networkmapdb.AccountRows) (networkmapdb.PeerSelection, error) {
+			return networkmapdb.PeerSelection{PeerIDs: []string{selected}}, nil
 		})
 		require.NoError(t, err)
 
@@ -132,6 +149,8 @@ func TestLoadAccount(t *testing.T) {
 		}
 		assert.ElementsMatch(t, expected, peerIDs(rows.Peers))
 		assert.ElementsMatch(t, slices.Collect(maps.Keys(versions)), rows.PeerVersions)
+		assert.Equal(t, full.AllowedUserIDs, rows.AllowedUserIDs)
+		assert.Equal(t, full.GroupIDToUserIDs, rows.GroupIDToUserIDs)
 		for _, p := range full.Peers {
 			if p.ID == selected {
 				assert.Contains(t, rows.Peers, p)
@@ -140,21 +159,31 @@ func TestLoadAccount(t *testing.T) {
 	})
 
 	t.Run("all reads every peer", func(t *testing.T) {
-		rows, err := store(t).LoadAccount(ctx, "account-33", func(*networkmapdb.AccountRows) ([]string, bool, error) {
-			return nil, true, nil
+		rows, err := store(t).LoadAccount(ctx, "account-33", nil, func(*networkmapdb.AccountRows) (networkmapdb.PeerSelection, error) {
+			return networkmapdb.PeerSelection{AllPeers: true}, nil
 		})
 		require.NoError(t, err)
 		assert.ElementsMatch(t, allIDs, peerIDs(rows.Peers))
 	})
 
+	t.Run("skipping users leaves them unread", func(t *testing.T) {
+		rows, err := store(t).LoadAccount(ctx, "account-33", nil, func(*networkmapdb.AccountRows) (networkmapdb.PeerSelection, error) {
+			return networkmapdb.PeerSelection{AllPeers: true, SkipUsers: true}, nil
+		})
+		require.NoError(t, err)
+		assert.Nil(t, rows.AllowedUserIDs)
+		assert.Nil(t, rows.GroupIDToUserIDs)
+		assert.ElementsMatch(t, allIDs, peerIDs(rows.Peers))
+	})
+
 	t.Run("a failing selector aborts the load and leaves the store usable", func(t *testing.T) {
 		selectErr := errors.New("select failed")
-		_, err := store(t).LoadAccount(ctx, "account-33", func(*networkmapdb.AccountRows) ([]string, bool, error) {
-			return nil, false, selectErr
+		_, err := store(t).LoadAccount(ctx, "account-33", nil, func(*networkmapdb.AccountRows) (networkmapdb.PeerSelection, error) {
+			return networkmapdb.PeerSelection{}, selectErr
 		})
 		require.ErrorIs(t, err, selectErr)
 
-		rows, err := store(t).LoadAccount(ctx, "account-33", nil)
+		rows, err := store(t).LoadAccount(ctx, "account-33", nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, rows.Peers, 3)
 	})

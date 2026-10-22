@@ -13,6 +13,35 @@ type sshRequirements struct {
 	needAllowedUserIDs bool
 }
 
+// RequiresUsers reports whether the components of the given peers can ship
+// user identities, the only use of AllowedUserIDs and GroupIDToUserIDs: an
+// enabled NetBird SSH rule, or a rule implying legacy SSH while one of the
+// peers runs the SSH server. The peers must be in Peers.
+func (nmd *NetworkMapData) RequiresUsers(peerIDs ...string) bool {
+	sshServer := false
+	for _, peerID := range peerIDs {
+		if p := nmd.Peers[peerID]; p != nil && p.SSHEnabled {
+			sshServer = true
+			break
+		}
+	}
+
+	for _, policy := range nmd.Policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled {
+				continue
+			}
+			if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) || (sshServer && nmdata.PolicyRuleImpliesLegacySSH(rule)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetPeerNetworkMapComponents computes the peer's NetworkMapComponents from the
 // slim twin store. It starts from the peer's groups and follows the account
 // index to the policies, routes and network resources that reference the peer
