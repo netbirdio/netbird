@@ -19,6 +19,7 @@ import (
 	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
@@ -956,7 +957,7 @@ func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface,
 	candidates := parseCandidatesFromTable(table, dest, skipInterfaceIndex)
 
 	if len(candidates) == 0 {
-		return candidateRoute{}, nil, fmt.Errorf("no route to %s", dest)
+		return candidateRoute{}, nil, fmt.Errorf("no route to %s: %w", dest, vars.ErrRouteNotFound)
 	}
 
 	sortRouteCandidates(candidates)
@@ -982,7 +983,7 @@ func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface,
 		return candidate, iface, nil
 	}
 
-	return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s", dest)
+	return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s: %w", dest, vars.ErrRouteNotFound)
 }
 
 // formatRouteAge formats the route age in seconds to a human-readable string

@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 )
 
 const (
@@ -187,7 +188,13 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 // newChange compares the baseline with the current snapshot. A failed lookup
 // leaves After empty, which classifies as ChangeOffline.
 func newChange(before NextHops) Change {
-	after, _ := readSnapshotFn()
+	after, err := readSnapshotFn()
+	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
+		// A failed lookup says nothing about the network; offline would
+		// park the client until the next route event.
+		log.Warnf("Network monitor: failed to read the underlay, keeping the previous one: %v", err)
+		return Change{Kind: ChangeNone, Before: before, After: before}
+	}
 	return Change{Kind: kindOf(before, after), Before: before, After: after}
 }
 
@@ -240,7 +247,10 @@ func readNextHops() (systemops.Nexthop, systemops.Nexthop, error) {
 	nexthop6, errv6 := underlayNextHop(netip.IPv6Unspecified())
 
 	if errv4 != nil && errv6 != nil {
-		return nexthop4, nexthop6, errors.New("failed to get default next hops")
+		if errors.Is(errv4, vars.ErrRouteNotFound) && errors.Is(errv6, vars.ErrRouteNotFound) {
+			return nexthop4, nexthop6, fmt.Errorf("no default next hop: %w", vars.ErrRouteNotFound)
+		}
+		return nexthop4, nexthop6, fmt.Errorf("read default next hops: IPv4: %v, IPv6: %v", errv4, errv6)
 	}
 
 	if errv4 == nil {

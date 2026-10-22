@@ -3,11 +3,13 @@
 package networkmonitor
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
@@ -31,8 +33,11 @@ func underlayNextHop(family netip.Addr) (systemops.Nexthop, error) {
 	}
 
 	routes, err := netlink.RouteGetWithOptions(probe.AsSlice(), &netlink.RouteGetOptions{Mark: nbnet.ControlPlaneMark})
-	if err != nil || len(routes) == 0 {
+	if errors.Is(err, unix.ENETUNREACH) || err == nil && len(routes) == 0 {
 		return systemops.Nexthop{}, vars.ErrRouteNotFound
+	}
+	if err != nil {
+		return systemops.Nexthop{}, fmt.Errorf("route get with the control plane mark: %w", err)
 	}
 
 	intf, err := net.InterfaceByIndex(routes[0].LinkIndex)
