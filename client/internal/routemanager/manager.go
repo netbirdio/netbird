@@ -900,6 +900,11 @@ func minNetID(ids []route.NetID) route.NetID {
 // RefreshUnderlay points NetBird's own traffic at the current physical
 // default after the network changed under a running engine.
 func (m *DefaultManager) RefreshUnderlay() error {
+	// Setup and cleanup skip the binding in these modes: there is none to
+	// refresh, and a refresh here would install one nothing ever removes.
+	if nbnet.CustomRoutingDisabled() || m.disableClientRoutes {
+		return nil
+	}
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	return m.sysOps.RefreshUnderlay(nbnet.AdvancedRouting())
