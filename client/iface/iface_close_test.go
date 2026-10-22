@@ -8,13 +8,11 @@ import (
 	"testing"
 	"time"
 
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
-
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
@@ -40,8 +38,8 @@ func (f *fakeTunDevice) WgAddress() wgaddr.Address              { return wgaddr.
 func (f *fakeTunDevice) MTU() uint16                            { return DefaultMTU }
 func (f *fakeTunDevice) DeviceName() string                     { return "nb-close-test" }
 func (f *fakeTunDevice) FilteredDevice() *device.FilteredDevice { return nil }
-func (f *fakeTunDevice) Device() *wgdevice.Device               { return nil }
-func (f *fakeTunDevice) GetNet() *netstack.Net                  { return nil }
+func (f *fakeTunDevice) Device() *wgbackend.Device              { return nil }
+func (f *fakeTunDevice) GetNet() *wgbackend.NetstackNet         { return nil }
 func (f *fakeTunDevice) GetICEBind() device.EndpointManager     { return nil }
 
 func (f *fakeTunDevice) Close() error {

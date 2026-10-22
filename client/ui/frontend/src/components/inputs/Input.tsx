@@ -82,17 +82,17 @@ function buildInputClassName(
 ): string {
     return cn(
         inputVariants({ variant: opts.variant }),
-        "flex h-[40px] w-full select-text rounded-md bg-white px-3 py-2 text-sm",
+        "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm select-text",
         "file:border-0 file:bg-transparent file:text-sm file:font-medium",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+        "focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden",
         "disabled:cursor-not-allowed disabled:opacity-40",
-        opts.hasCustomPrefix && "!rounded-s-none !border-s-0",
-        opts.hasSuffix && "!pe-9",
-        opts.hasIcon && "!ps-10",
+        opts.hasCustomPrefix && "rounded-s-none! border-s-0!",
+        opts.hasSuffix && "pe-9!",
+        opts.hasIcon && "ps-10!",
         "border",
-        opts.readOnly && "!border-nb-gray-800 !bg-nb-gray-910 text-nb-gray-350",
+        opts.readOnly && "border-nb-gray-800! bg-nb-gray-910! text-nb-gray-350",
         opts.showStepper &&
-            "!rounded-e-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            "rounded-e-none! [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         opts.className,
     );
 }
@@ -108,7 +108,7 @@ function InputAffix({
             className={cn(
                 inputVariants({ prefixSuffixVariant: error ? "error" : "default" }),
                 "flex h-[40px] w-auto rounded-s-md bg-white px-3 py-2 text-sm",
-                "items-center whitespace-nowrap border",
+                "items-center border whitespace-nowrap",
                 disabled && "opacity-40",
                 className,
             )}
@@ -122,7 +122,7 @@ function InputIconSlot({ icon, disabled }: Readonly<{ icon: ReactNode; disabled?
     return (
         <div
             className={cn(
-                "absolute start-0 top-0 flex h-full items-center ps-3 text-xs leading-[0] dark:text-nb-gray-300",
+                "absolute inset-s-0 top-0 flex h-full items-center ps-3 text-xs leading-0 dark:text-nb-gray-300",
                 disabled && "opacity-40",
             )}
         >
@@ -138,7 +138,7 @@ function InputSuffixSlot({
     return (
         <div
             className={cn(
-                "pointer-events-none absolute end-0 top-0 flex h-full select-none items-center pe-3 text-xs leading-[0] dark:text-nb-gray-300",
+                "pointer-events-none absolute inset-e-0 top-0 flex h-full items-center pe-3 text-xs leading-0 select-none dark:text-nb-gray-300",
                 disabled && "opacity-30",
             )}
         >
@@ -349,7 +349,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
                 {icon && <InputIconSlot icon={icon} disabled={props.disabled} />}
 
-                <div className={"relative flex min-w-0 flex-grow"}>
+                <div className={"relative flex min-w-0 grow"}>
                     <input
                         id={inputId}
                         type={inputType}
