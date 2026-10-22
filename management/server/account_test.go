@@ -2278,7 +2278,7 @@ func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiratio
 	}
 }
 
-func TestDefaultAccountManager_PeerStatusChange_KeepsScheduledInactivityExpiration(t *testing.T) {
+func TestDefaultAccountManager_PeerConnect_KeepsScheduledInactivityExpiration(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
@@ -2305,30 +2305,28 @@ func TestDefaultAccountManager_PeerStatusChange_KeepsScheduledInactivityExpirati
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
-	// The account already has an inactivity job scheduled. A connect or a
-	// disconnect cannot move its next run earlier, so neither may cancel or
-	// re-arm it: doing so re-scans every peer of the account on each call.
-	var cancels, schedules atomic.Int32
+	// The account already has an inactivity job scheduled. A connecting peer
+	// cannot expire, so connect must leave that job alone instead of cancelling
+	// it and re-scanning every peer of the account. Cancel runs synchronously,
+	// so counting it observes the decision deterministically.
+	var cancels atomic.Int32
 	manager.peerInactivityExpiry = &MockScheduler{
 		IsSchedulerRunningFunc: func(ID string) bool { return ID == accountID },
 		CancelFunc:             func(ctx context.Context, IDs []string) { cancels.Add(1) },
 		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
-			schedules.Add(1)
 		},
 	}
 
 	streamStartTime := time.Now().UTC()
 	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
 	require.NoError(t, err, "unable to mark peer connected")
+	assert.Zero(t, cancels.Load(), "connect must not cancel a scheduled inactivity job")
 
+	// A disconnect still cancels and re-arms: the running job may be finishing
+	// its last run without having seen this peer as disconnected.
 	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
 	require.NoError(t, err, "unable to mark peer disconnected")
-
-	// Schedule runs in a goroutine; give a wrongly re-armed job time to land.
-	time.Sleep(200 * time.Millisecond)
-
-	assert.Zero(t, cancels.Load(), "scheduled inactivity job must not be cancelled on peer connect or disconnect")
-	assert.Zero(t, schedules.Load(), "scheduled inactivity job must not be re-armed on peer connect or disconnect")
+	assert.Equal(t, int32(1), cancels.Load(), "disconnect must cancel and re-arm the inactivity job")
 }
 
 func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {

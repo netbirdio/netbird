@@ -806,9 +806,10 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 	}
 }
 
-// schedulePeerInactivityExpiration arms the account's inactivity expiration job unless one
-// is already scheduled. A connecting peer cannot expire, and a disconnecting one expires
-// after every peer already disconnected, so neither can move the scheduled run earlier.
+// schedulePeerInactivityExpiration arms the account's inactivity expiration job for a
+// connecting peer unless one is already scheduled: a connected peer cannot expire, so it
+// never moves the scheduled run earlier. Disconnects must not skip a running job, which may
+// be finishing its last run without seeing the newly disconnected peer.
 func (am *DefaultAccountManager) schedulePeerInactivityExpiration(ctx context.Context, accountID string) {
 	if am.peerInactivityExpiry.IsSchedulerRunning(accountID) {
 		log.WithContext(ctx).Tracef("peer inactivity expiration job for account %s is already scheduled", accountID)

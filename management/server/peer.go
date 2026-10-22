@@ -210,7 +210,7 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		if err != nil {
 			log.WithContext(ctx).Warnf("failed getting account settings to schedule inactivity expiration for peer %s: %v", peer.ID, err)
 		} else if settings.PeerInactivityExpirationEnabled {
-			am.schedulePeerInactivityExpiration(ctx, accountID)
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 	}
 
