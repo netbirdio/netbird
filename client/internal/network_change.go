@@ -57,6 +57,23 @@ const (
 	actionNone
 )
 
+// networkAvailability reports the network state to the netevents manager on
+// desktop, where no OS callback does it: offline holds the reconnect loops
+// and shows the client as without network instead of connected.
+type networkAvailability struct {
+	mgr     *netevents.Manager
+	offline bool
+}
+
+// set reports a change of availability; repeats are dropped.
+func (a *networkAvailability) set(available bool) {
+	if a.mgr == nil || a.offline == !available {
+		return
+	}
+	a.offline = !available
+	a.mgr.SetNetworkAvailable(available)
+}
+
 // recoveryWatch keeps a single safety net running: the latest network change
 // replaces the watch of the previous one, so only the latest redial decides
 // whether to fall back to a restart.

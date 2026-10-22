@@ -2488,6 +2488,9 @@ func (e *Engine) startNetworkMonitor() {
 		defer e.shutdownWg.Done()
 		var watch recoveryWatch
 		defer watch.stop()
+		// The manager outlives this engine: never leave it offline.
+		availability := networkAvailability{mgr: e.netMgr}
+		defer availability.set(true)
 		// baseline is the last snapshot with a default route; it survives an
 		// offline spell so the change is measured against the network before it.
 		var baseline networkmonitor.NextHops
@@ -2502,7 +2505,9 @@ func (e *Engine) startNetworkMonitor() {
 				return
 			}
 
-			switch decideUnderlayAction(change, e.netMgr != nil) {
+			action := decideUnderlayAction(change, e.netMgr != nil)
+			availability.set(action != actionWait)
+			switch action {
 			case actionWait:
 				log.Infof("Network monitor: no default route left, waiting for the network to come back")
 				// Offline the control plane cannot come back: a running safety
