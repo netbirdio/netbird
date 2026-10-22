@@ -119,7 +119,7 @@ func TestCountryRoute(t *testing.T) {
 	assert.True(t, r.IsCountry(), "a country network type is a country route")
 	assert.False(t, r.IsDynamic(), "a country route is not a DNS route")
 	assert.Equal(t, "US, CA", r.NetString(), "NetString should list the countries, not the placeholder")
-	assert.Equal(t, HAUniqueID("us-exit|US, CA"), r.GetHAUniqueID())
+	assert.Equal(t, HAUniqueID("us-exit|US, CA"), r.GetHAUniqueID(), "the HA ID should group routes by network ID and countries")
 	assert.Equal(t, CountryNetwork, ToPrefixType(r.NetworkType.String()), "the type should survive its string form")
 
 	copied := r.Copy()
