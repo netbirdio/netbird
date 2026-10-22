@@ -18,7 +18,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -152,8 +151,8 @@ func routeDestination(r *route.Route) string {
 	}
 }
 
-// CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, countries []string, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
+// CreateRoute creates and saves a copy of routeToCreate with a new ID.
+func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID, userID string, routeToCreate *route.Route) (*route.Route, error) {
 	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -162,7 +161,11 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if len(domains) > 0 && prefix.IsValid() {
+	if routeToCreate == nil {
+		return nil, status.Errorf(status.InvalidArgument, "route provided is nil")
+	}
+
+	if len(routeToCreate.Domains) > 0 && routeToCreate.Network.IsValid() {
 		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
 	}
 
@@ -171,25 +174,9 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		newRoute = &route.Route{
-			ID:                  route.ID(xid.New().String()),
-			AccountID:           accountID,
-			Network:             prefix,
-			Domains:             domains,
-			Countries:           countries,
-			KeepRoute:           keepRoute,
-			NetID:               netID,
-			Description:         description,
-			Peer:                peerID,
-			PeerGroups:          peerGroupIDs,
-			NetworkType:         networkType,
-			Masquerade:          masquerade,
-			Metric:              metric,
-			Enabled:             enabled,
-			Groups:              groups,
-			AccessControlGroups: accessControlGroupIDs,
-			SkipAutoApply:       skipAutoApply,
-		}
+		newRoute = routeToCreate.Copy()
+		newRoute.ID = route.ID(xid.New().String())
+		newRoute.AccountID = accountID
 
 		if err = validateRoute(ctx, transaction, accountID, newRoute); err != nil {
 			return err

@@ -2044,11 +2044,22 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 				Groups:      []string{"groupB"},
 			}
 
-			_, err := manager.CreateRoute(
-				context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, nil, route.Peer,
-				route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-				route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
-			)
+			_, err := manager.CreateRoute(context.Background(), account.Id, userID, &nbroute.Route{
+				Network:             route.Network,
+				NetworkType:         route.NetworkType,
+				Domains:             route.Domains,
+				Peer:                route.Peer,
+				PeerGroups:          route.PeerGroups,
+				Description:         route.Description,
+				NetID:               route.NetID,
+				Masquerade:          route.Masquerade,
+				Metric:              route.Metric,
+				Groups:              route.Groups,
+				AccessControlGroups: []string{},
+				Enabled:             true,
+				KeepRoute:           route.KeepRoute,
+				SkipAutoApply:       route.SkipAutoApply,
+			})
 			require.NoError(t, err)
 
 			settleAffectedUpdates(updMsg)

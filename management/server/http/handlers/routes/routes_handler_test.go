@@ -78,36 +78,20 @@ func initRoutesTestData() *handler {
 					return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 				}
 			},
-			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, countries []string, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
-				if peerID == notFoundPeerID {
-					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+			CreateRouteFunc: func(_ context.Context, _, _ string, r *route.Route) (*route.Route, error) {
+				if r.Peer == notFoundPeerID {
+					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", r.Peer)
 				}
-				if len(peerGroups) > 0 && peerGroups[0] == notFoundGroupID {
-					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
+				if len(r.PeerGroups) > 0 && r.PeerGroups[0] == notFoundGroupID {
+					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", r.PeerGroups[0])
 				}
-				if peerID != "" {
-					if peerID == nonLinuxExistingPeerID {
-						return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-					}
+				if r.Peer == nonLinuxExistingPeerID {
+					return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
 				}
 
-				return &route.Route{
-					ID:                  existingRouteID,
-					NetID:               netID,
-					Peer:                peerID,
-					PeerGroups:          peerGroups,
-					Network:             prefix,
-					Domains:             domains,
-					Countries:           countries,
-					NetworkType:         networkType,
-					Description:         description,
-					Masquerade:          masquerade,
-					Enabled:             enabled,
-					Groups:              groups,
-					KeepRoute:           keepRoute,
-					AccessControlGroups: accessControlGroups,
-					SkipAutoApply:       skipAutoApply,
-				}, nil
+				created := r.Copy()
+				created.ID = existingRouteID
+				return created, nil
 			},
 			SaveRouteFunc: func(_ context.Context, _, _ string, r *route.Route) error {
 				if r.Peer == notFoundPeerID {

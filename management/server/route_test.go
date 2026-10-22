@@ -448,13 +448,48 @@ func TestCreateRoute(t *testing.T) {
 			if testCase.createInitRoute {
 				groupAll, errInit := account.GetGroupAll()
 				require.NoError(t, errInit)
-				_, errInit = am.CreateRoute(context.Background(), account.Id, existingNetwork, 1, nil, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, []string{}, true, userID, false, true)
+				_, errInit = am.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+					Network:             existingNetwork,
+					NetworkType:         1,
+					PeerGroups:          []string{routeGroup3, routeGroup4},
+					NetID:               existingRouteID,
+					Metric:              1000,
+					Groups:              []string{groupAll.ID},
+					AccessControlGroups: []string{},
+					Enabled:             true,
+					SkipAutoApply:       true,
+				})
 				require.NoError(t, errInit)
-				_, errInit = am.CreateRoute(context.Background(), account.Id, netip.Prefix{}, 3, existingDomains, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, []string{groupAll.ID}, true, userID, false, true)
+				_, errInit = am.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+					NetworkType:         3,
+					Domains:             existingDomains,
+					PeerGroups:          []string{routeGroup3, routeGroup4},
+					NetID:               existingRouteID,
+					Metric:              1000,
+					Groups:              []string{groupAll.ID},
+					AccessControlGroups: []string{groupAll.ID},
+					Enabled:             true,
+					SkipAutoApply:       true,
+				})
 				require.NoError(t, errInit)
 			}
 
-			outRoute, err := am.CreateRoute(context.Background(), account.Id, testCase.inputArgs.network, testCase.inputArgs.networkType, testCase.inputArgs.domains, nil, testCase.inputArgs.peerKey, testCase.inputArgs.peerGroupIDs, testCase.inputArgs.description, testCase.inputArgs.netID, testCase.inputArgs.masquerade, testCase.inputArgs.metric, testCase.inputArgs.groups, testCase.inputArgs.accessControlGroups, testCase.inputArgs.enabled, userID, testCase.inputArgs.keepRoute, testCase.inputArgs.skipAutoApply)
+			outRoute, err := am.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+				Network:             testCase.inputArgs.network,
+				NetworkType:         testCase.inputArgs.networkType,
+				Domains:             testCase.inputArgs.domains,
+				Peer:                testCase.inputArgs.peerKey,
+				PeerGroups:          testCase.inputArgs.peerGroupIDs,
+				Description:         testCase.inputArgs.description,
+				NetID:               testCase.inputArgs.netID,
+				Masquerade:          testCase.inputArgs.masquerade,
+				Metric:              testCase.inputArgs.metric,
+				Groups:              testCase.inputArgs.groups,
+				AccessControlGroups: testCase.inputArgs.accessControlGroups,
+				Enabled:             testCase.inputArgs.enabled,
+				KeepRoute:           testCase.inputArgs.keepRoute,
+				SkipAutoApply:       testCase.inputArgs.skipAutoApply,
+			})
 
 			testCase.errFunc(t, err)
 
@@ -1088,7 +1123,22 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	newRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, nil, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.AccessControlGroups, baseRoute.Enabled, userID, baseRoute.KeepRoute, baseRoute.SkipAutoApply)
+	newRoute, err := am.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+		Network:             baseRoute.Network,
+		NetworkType:         baseRoute.NetworkType,
+		Domains:             baseRoute.Domains,
+		Peer:                baseRoute.Peer,
+		PeerGroups:          baseRoute.PeerGroups,
+		Description:         baseRoute.Description,
+		NetID:               baseRoute.NetID,
+		Masquerade:          baseRoute.Masquerade,
+		Metric:              baseRoute.Metric,
+		Groups:              baseRoute.Groups,
+		AccessControlGroups: baseRoute.AccessControlGroups,
+		Enabled:             baseRoute.Enabled,
+		KeepRoute:           baseRoute.KeepRoute,
+		SkipAutoApply:       baseRoute.SkipAutoApply,
+	})
 	require.NoError(t, err)
 	require.Equal(t, newRoute.Enabled, true)
 
@@ -1180,7 +1230,21 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, nil, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.AccessControlGroups, false, userID, baseRoute.KeepRoute, baseRoute.SkipAutoApply)
+	createdRoute, err := am.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+		Network:             baseRoute.Network,
+		NetworkType:         baseRoute.NetworkType,
+		Domains:             baseRoute.Domains,
+		Peer:                peer1ID,
+		PeerGroups:          []string{},
+		Description:         baseRoute.Description,
+		NetID:               baseRoute.NetID,
+		Masquerade:          baseRoute.Masquerade,
+		Metric:              baseRoute.Metric,
+		Groups:              baseRoute.Groups,
+		AccessControlGroups: baseRoute.AccessControlGroups,
+		KeepRoute:           baseRoute.KeepRoute,
+		SkipAutoApply:       baseRoute.SkipAutoApply,
+	})
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(context.Background(), peer1ID)
@@ -1953,11 +2017,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
-			_, err := manager.CreateRoute(
-				context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, nil, route.Peer,
-				route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-				route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
-			)
+			_, err := manager.CreateRoute(context.Background(), account.Id, userID, &route)
 			require.NoError(t, err)
 
 			select {
@@ -1991,11 +2051,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
-			_, err := manager.CreateRoute(
-				context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, nil, route.Peer,
-				route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-				route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
-			)
+			_, err := manager.CreateRoute(context.Background(), account.Id, userID, &route)
 			require.NoError(t, err)
 
 			select {
@@ -2027,11 +2083,22 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
-			newRoute, err := manager.CreateRoute(
-				context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, nil, baseRoute.Peer,
-				baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric,
-				baseRoute.Groups, []string{}, true, userID, baseRoute.KeepRoute, !baseRoute.SkipAutoApply,
-			)
+			newRoute, err := manager.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+				Network:             baseRoute.Network,
+				NetworkType:         baseRoute.NetworkType,
+				Domains:             baseRoute.Domains,
+				Peer:                baseRoute.Peer,
+				PeerGroups:          baseRoute.PeerGroups,
+				Description:         baseRoute.Description,
+				NetID:               baseRoute.NetID,
+				Masquerade:          baseRoute.Masquerade,
+				Metric:              baseRoute.Metric,
+				Groups:              baseRoute.Groups,
+				AccessControlGroups: []string{},
+				Enabled:             true,
+				KeepRoute:           baseRoute.KeepRoute,
+				SkipAutoApply:       !baseRoute.SkipAutoApply,
+			})
 			require.NoError(t, err)
 			baseRoute = *newRoute
 
@@ -2093,11 +2160,22 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{routeGroup1},
 			}
-			_, err := manager.CreateRoute(
-				context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, nil, newRoute.Peer,
-				newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
-				newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute, !newRoute.SkipAutoApply,
-			)
+			_, err := manager.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+				Network:             newRoute.Network,
+				NetworkType:         newRoute.NetworkType,
+				Domains:             newRoute.Domains,
+				Peer:                newRoute.Peer,
+				PeerGroups:          newRoute.PeerGroups,
+				Description:         newRoute.Description,
+				NetID:               newRoute.NetID,
+				Masquerade:          newRoute.Masquerade,
+				Metric:              newRoute.Metric,
+				Groups:              newRoute.Groups,
+				AccessControlGroups: []string{},
+				Enabled:             true,
+				KeepRoute:           newRoute.KeepRoute,
+				SkipAutoApply:       !newRoute.SkipAutoApply,
+			})
 			require.NoError(t, err)
 
 			done := make(chan struct{})
@@ -2133,11 +2211,22 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{"groupC"},
 			}
-			_, err := manager.CreateRoute(
-				context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, nil, newRoute.Peer,
-				newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
-				newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute, !newRoute.SkipAutoApply,
-			)
+			_, err := manager.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+				Network:             newRoute.Network,
+				NetworkType:         newRoute.NetworkType,
+				Domains:             newRoute.Domains,
+				Peer:                newRoute.Peer,
+				PeerGroups:          newRoute.PeerGroups,
+				Description:         newRoute.Description,
+				NetID:               newRoute.NetID,
+				Masquerade:          newRoute.Masquerade,
+				Metric:              newRoute.Metric,
+				Groups:              newRoute.Groups,
+				AccessControlGroups: []string{},
+				Enabled:             true,
+				KeepRoute:           newRoute.KeepRoute,
+				SkipAutoApply:       !newRoute.SkipAutoApply,
+			})
 			require.NoError(t, err)
 
 			done := make(chan struct{})

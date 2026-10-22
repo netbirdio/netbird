@@ -221,23 +221,17 @@ func TestCollectGroupChange_RouteLinked(t *testing.T) {
 	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.0.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		"",
-		[]string{groupIDs[0]},
-		"test route",
-		"testnet",
-		false,
-		9999,
-		[]string{groupIDs[1]},
-		[]string{groupIDs[2]},
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:             netip.MustParsePrefix("10.0.0.0/24"),
+		NetworkType:         route.IPv4Network,
+		PeerGroups:          []string{groupIDs[0]},
+		Description:         "test route",
+		NetID:               "testnet",
+		Metric:              9999,
+		Groups:              []string{groupIDs[1]},
+		AccessControlGroups: []string{groupIDs[2]},
+		Enabled:             true,
+	})
 	require.NoError(t, err)
 
 	groups, _ := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
@@ -258,23 +252,16 @@ func TestCollectGroupChange_RouteWithDirectPeer(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.1.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		peerIDs[4],
-		nil,
-		"test route peer",
-		"testnet2",
-		false,
-		9999,
-		[]string{groupIDs[1]},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:     netip.MustParsePrefix("10.1.0.0/24"),
+		NetworkType: route.IPv4Network,
+		Peer:        peerIDs[4],
+		Description: "test route peer",
+		NetID:       "testnet2",
+		Metric:      9999,
+		Groups:      []string{groupIDs[1]},
+		Enabled:     true,
+	})
 	require.NoError(t, err)
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
@@ -399,23 +386,16 @@ func TestCollectGroupChange_MultipleEntities(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	_, err = manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.2.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		"",
-		[]string{groupIDs[2]},
-		"multi route",
-		"multinet",
-		false,
-		9999,
-		[]string{groupIDs[3]},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err = manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:     netip.MustParsePrefix("10.2.0.0/24"),
+		NetworkType: route.IPv4Network,
+		PeerGroups:  []string{groupIDs[2]},
+		Description: "multi route",
+		NetID:       "multinet",
+		Metric:      9999,
+		Groups:      []string{groupIDs[3]},
+		Enabled:     true,
+	})
 	require.NoError(t, err)
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
@@ -522,23 +502,16 @@ func TestResolveAffectedPeers_RoutePeerGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.3.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		"",
-		[]string{groupIDs[0]},
-		"test route",
-		"routenet",
-		false,
-		9999,
-		[]string{groupIDs[1]},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:     netip.MustParsePrefix("10.3.0.0/24"),
+		NetworkType: route.IPv4Network,
+		PeerGroups:  []string{groupIDs[0]},
+		Description: "test route",
+		NetID:       "routenet",
+		Metric:      9999,
+		Groups:      []string{groupIDs[1]},
+		Enabled:     true,
+	})
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
@@ -556,23 +529,16 @@ func TestResolveAffectedPeers_RouteWithDirectPeer(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.4.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		peerIDs[4],
-		nil,
-		"route with peer",
-		"routenet2",
-		false,
-		9999,
-		[]string{groupIDs[1]},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:     netip.MustParsePrefix("10.4.0.0/24"),
+		NetworkType: route.IPv4Network,
+		Peer:        peerIDs[4],
+		Description: "route with peer",
+		NetID:       "routenet2",
+		Metric:      9999,
+		Groups:      []string{groupIDs[1]},
+		Enabled:     true,
+	})
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
@@ -583,23 +549,17 @@ func TestResolveAffectedPeers_RouteWithAccessControlGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.7.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		"",
-		[]string{groupIDs[0]},
-		"acl route",
-		"aclnet",
-		false,
-		9999,
-		[]string{groupIDs[1]},
-		[]string{groupIDs[2]},
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:             netip.MustParsePrefix("10.7.0.0/24"),
+		NetworkType:         route.IPv4Network,
+		PeerGroups:          []string{groupIDs[0]},
+		Description:         "acl route",
+		NetID:               "aclnet",
+		Metric:              9999,
+		Groups:              []string{groupIDs[1]},
+		AccessControlGroups: []string{groupIDs[2]},
+		Enabled:             true,
+	})
 	require.NoError(t, err)
 
 	// peer2 is only in AccessControlGroups, still should be affected
@@ -765,23 +725,16 @@ func TestResolveAffectedPeers_SharedGroupAcrossPolicyAndRoute(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	_, err = manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.5.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		"",
-		[]string{groupIDs[2]},
-		"shared group route",
-		"sharednet",
-		false,
-		9999,
-		[]string{groupIDs[0]},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err = manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:     netip.MustParsePrefix("10.5.0.0/24"),
+		NetworkType: route.IPv4Network,
+		PeerGroups:  []string{groupIDs[2]},
+		Description: "shared group route",
+		NetID:       "sharednet",
+		Metric:      9999,
+		Groups:      []string{groupIDs[0]},
+		Enabled:     true,
+	})
 	require.NoError(t, err)
 
 	// group0 is shared: policy gives peer0+peer1, route gives peer0+peer2
@@ -924,23 +877,16 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	_, err = manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.6.0.0/24"),
-		route.IPv4Network,
-		nil, nil,
-		"",
-		[]string{groupIDs[2]},
-		"isolated route",
-		"isonet",
-		false,
-		9999,
-		[]string{groupIDs[3]},
-		nil,
-		true,
-		userID,
-		false,
-		false,
-	)
+	_, err = manager.CreateRoute(ctx, accountID, userID, &route.Route{
+		Network:     netip.MustParsePrefix("10.6.0.0/24"),
+		NetworkType: route.IPv4Network,
+		PeerGroups:  []string{groupIDs[2]},
+		Description: "isolated route",
+		NetID:       "isonet",
+		Metric:      9999,
+		Groups:      []string{groupIDs[3]},
+		Enabled:     true,
+	})
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
@@ -1149,23 +1095,16 @@ func TestAffectedPeers_RouteChange_UnrelatedPeerNoUpdate(t *testing.T) {
 				close(done)
 			}()
 
-			_, err := manager.CreateRoute(ctx, accountID,
-				netip.MustParsePrefix("10.10.0.0/24"),
-				route.IPv4Network,
-				nil, nil,
-				"",
-				[]string{"rt-grpA"},
-				"test route",
-				"routenoaffect",
-				false,
-				9999,
-				[]string{"rt-grpB"},
-				nil,
-				true,
-				userID,
-				false,
-				false,
-			)
+			_, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+				Network:     netip.MustParsePrefix("10.10.0.0/24"),
+				NetworkType: route.IPv4Network,
+				PeerGroups:  []string{"rt-grpA"},
+				Description: "test route",
+				NetID:       "routenoaffect",
+				Metric:      9999,
+				Groups:      []string{"rt-grpB"},
+				Enabled:     true,
+			})
 			assert.NoError(t, err)
 
 			select {
@@ -1484,23 +1423,16 @@ func TestAffectedPeers_IsolatedEntitiesOnlyAffectTheirPeers(t *testing.T) {
 		}, true)
 		require.NoError(t, err)
 
-		_, err = manager.CreateRoute(ctx, accountID,
-			netip.MustParsePrefix("10.20.0.0/24"),
-			route.IPv4Network,
-			nil, nil,
-			"",
-			[]string{"iso-grpC"},
-			"isolated route",
-			"isonet2",
-			false,
-			9999,
-			[]string{"iso-grpC"},
-			nil,
-			true,
-			userID,
-			false,
-			false,
-		)
+		_, err = manager.CreateRoute(ctx, accountID, userID, &route.Route{
+			Network:     netip.MustParsePrefix("10.20.0.0/24"),
+			NetworkType: route.IPv4Network,
+			PeerGroups:  []string{"iso-grpC"},
+			Description: "isolated route",
+			NetID:       "isonet2",
+			Metric:      9999,
+			Groups:      []string{"iso-grpC"},
+			Enabled:     true,
+		})
 		require.NoError(t, err)
 
 		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
@@ -1564,23 +1496,16 @@ func TestAffectedPeers_DeleteRoute_UnrelatedPeerNoUpdate(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		newRoute, err := manager.CreateRoute(ctx, accountID,
-			netip.MustParsePrefix("10.30.0.0/24"),
-			route.IPv4Network,
-			nil, nil,
-			"",
-			[]string{"del-rt-grpA"},
-			"deletable route",
-			"delnet",
-			false,
-			9999,
-			[]string{"del-rt-grpB"},
-			nil,
-			true,
-			userID,
-			false,
-			false,
-		)
+		newRoute, err := manager.CreateRoute(ctx, accountID, userID, &route.Route{
+			Network:     netip.MustParsePrefix("10.30.0.0/24"),
+			NetworkType: route.IPv4Network,
+			PeerGroups:  []string{"del-rt-grpA"},
+			Description: "deletable route",
+			NetID:       "delnet",
+			Metric:      9999,
+			Groups:      []string{"del-rt-grpB"},
+			Enabled:     true,
+		})
 		require.NoError(t, err)
 
 		updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)

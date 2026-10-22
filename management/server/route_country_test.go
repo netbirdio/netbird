@@ -34,8 +34,17 @@ func TestCreateCountryRoute(t *testing.T) {
 	require.NoError(t, err)
 
 	createRoute := func(prefix netip.Prefix, countries []string, peerGroup string) (*route.Route, error) {
-		return am.CreateRoute(context.Background(), account.Id, prefix, route.CountryNetwork, nil, countries, "", []string{peerGroup},
-			"", "us-exit", true, 9999, []string{routeGroup1}, nil, true, userID, false, false)
+		return am.CreateRoute(context.Background(), account.Id, userID, &route.Route{
+			Network:     prefix,
+			NetworkType: route.CountryNetwork,
+			Countries:   countries,
+			PeerGroups:  []string{peerGroup},
+			NetID:       "us-exit",
+			Masquerade:  true,
+			Metric:      9999,
+			Groups:      []string{routeGroup1},
+			Enabled:     true,
+		})
 	}
 	requireStatus := func(t *testing.T, err error, expected status.Type) {
 		t.Helper()

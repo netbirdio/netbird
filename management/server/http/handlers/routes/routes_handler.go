@@ -139,8 +139,23 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		skipAutoApply = false
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, countries, peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, skipAutoApply)
+	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, userID, &route.Route{
+		Network:             newPrefix,
+		NetworkType:         networkType,
+		Domains:             domains,
+		Countries:           countries,
+		Peer:                peerId,
+		PeerGroups:          peerGroupIds,
+		Description:         req.Description,
+		NetID:               route.NetID(req.NetworkId),
+		Masquerade:          req.Masquerade,
+		Metric:              req.Metric,
+		Groups:              req.Groups,
+		AccessControlGroups: accessControlGroupIds,
+		Enabled:             req.Enabled,
+		KeepRoute:           req.KeepRoute,
+		SkipAutoApply:       skipAutoApply,
+	})
 
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
