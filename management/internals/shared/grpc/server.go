@@ -224,7 +224,7 @@ func (s *Server) Job(srv proto.ManagementService_JobServer) error {
 		return status.Errorf(codes.Unauthenticated, "peer is not registered")
 	}
 
-	s.startResponseReceiver(ctx, srv)
+	s.startResponseReceiver(ctx, srv, accountID, peer.ID, peerKey)
 
 	updates := s.jobManager.CreateJobChannel(ctx, accountID, peer.ID)
 	log.WithContext(ctx).Debugf("Job: took %v", time.Since(reqStart))
@@ -368,7 +368,9 @@ func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementServic
 	return peerKey, nil
 }
 
-func (s *Server) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer) {
+// startResponseReceiver records the peer's answers. Answers are attributed to the peer
+// authenticated by the stream's handshake, never to a key carried in the answer.
+func (s *Server) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer, accountID, peerID string, peerKey wgtypes.Key) {
 	go func() {
 		for {
 			msg, err := srv.Recv()
@@ -381,12 +383,21 @@ func (s *Server) startResponseReceiver(ctx context.Context, srv proto.Management
 			}
 
 			jobResp := &proto.JobResponse{}
-			if _, err := s.parseRequest(ctx, msg, jobResp); err != nil {
+			senderKey, err := s.parseRequest(ctx, msg, jobResp)
+			if err != nil {
 				log.WithContext(ctx).Warnf("invalid job response: %v", err)
 				continue
 			}
+			if senderKey != peerKey {
+				log.WithContext(ctx).Warnf("dropping job response signed by a key other than the stream's peer")
+				continue
+			}
 
-			if err := s.jobManager.HandleResponse(ctx, jobResp, msg.WgPubKey); err != nil {
+			if err := s.jobManager.HandleResponse(ctx, accountID, peerID, jobResp); err != nil {
+				if errors.Is(err, job.ErrJobNotRunning) {
+					log.WithContext(ctx).Debugf("dropping job response: %v", err)
+					continue
+				}
 				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
 			}
 		}

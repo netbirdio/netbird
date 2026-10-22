@@ -56,6 +56,13 @@ type Job struct {
 	// FailedReason describes why the job failed (if failed)
 	FailedReason string
 
+	// DispatchedAt is set by the management node that claims the job and sends it to the
+	// peer. A pending job without it is still queued.
+	DispatchedAt *time.Time
+
+	// DeadlineAt is when a job that is still pending is failed.
+	DeadlineAt *time.Time `gorm:"index"`
+
 	Workload Workload `gorm:"embedded;embeddedPrefix:workload_"`
 }
 

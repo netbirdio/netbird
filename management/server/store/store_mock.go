@@ -159,6 +159,21 @@ func (mr *MockStoreMockRecorder) ApproveAccountPeers(ctx, accountID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveAccountPeers", reflect.TypeOf((*MockStore)(nil).ApproveAccountPeers), ctx, accountID)
 }
 
+// ClaimPeerJob mocks base method.
+func (m *MockStore) ClaimPeerJob(ctx context.Context, accountID, peerID, jobID string, dispatchedAt, deadlineAt time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimPeerJob", ctx, accountID, peerID, jobID, dispatchedAt, deadlineAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimPeerJob indicates an expected call of ClaimPeerJob.
+func (mr *MockStoreMockRecorder) ClaimPeerJob(ctx, accountID, peerID, jobID, dispatchedAt, deadlineAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPeerJob", reflect.TypeOf((*MockStore)(nil).ClaimPeerJob), ctx, accountID, peerID, jobID, dispatchedAt, deadlineAt)
+}
+
 // CleanupStaleProxies mocks base method.
 func (m *MockStore) CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error {
 	m.ctrl.T.Helper()
@@ -187,18 +202,19 @@ func (mr *MockStoreMockRecorder) Close(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockStore)(nil).Close), ctx)
 }
 
-// CompletePeerJob mocks base method.
-func (m *MockStore) CompletePeerJob(ctx context.Context, job *types3.Job) error {
+// CompleteDispatchedPeerJob mocks base method.
+func (m *MockStore) CompleteDispatchedPeerJob(ctx context.Context, accountID, peerID string, job *types3.Job) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CompletePeerJob", ctx, job)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "CompleteDispatchedPeerJob", ctx, accountID, peerID, job)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// CompletePeerJob indicates an expected call of CompletePeerJob.
-func (mr *MockStoreMockRecorder) CompletePeerJob(ctx, job any) *gomock.Call {
+// CompleteDispatchedPeerJob indicates an expected call of CompleteDispatchedPeerJob.
+func (mr *MockStoreMockRecorder) CompleteDispatchedPeerJob(ctx, accountID, peerID, job any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompletePeerJob", reflect.TypeOf((*MockStore)(nil).CompletePeerJob), ctx, job)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteDispatchedPeerJob", reflect.TypeOf((*MockStore)(nil).CompleteDispatchedPeerJob), ctx, accountID, peerID, job)
 }
 
 // CountAccountsByPrivateDomain mocks base method.
@@ -936,6 +952,35 @@ func (m *MockStore) ExecuteInTransaction(ctx context.Context, f func(Store) erro
 func (mr *MockStoreMockRecorder) ExecuteInTransaction(ctx, f any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteInTransaction", reflect.TypeOf((*MockStore)(nil).ExecuteInTransaction), ctx, f)
+}
+
+// FailDispatchedPeerJobs mocks base method.
+func (m *MockStore) FailDispatchedPeerJobs(ctx context.Context, accountID, peerID, reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailDispatchedPeerJobs", ctx, accountID, peerID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailDispatchedPeerJobs indicates an expected call of FailDispatchedPeerJobs.
+func (mr *MockStoreMockRecorder) FailDispatchedPeerJobs(ctx, accountID, peerID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailDispatchedPeerJobs", reflect.TypeOf((*MockStore)(nil).FailDispatchedPeerJobs), ctx, accountID, peerID, reason)
+}
+
+// FailExpiredPeerJobs mocks base method.
+func (m *MockStore) FailExpiredPeerJobs(ctx context.Context, now, legacyCreatedBefore time.Time, queuedReason, dispatchedReason string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailExpiredPeerJobs", ctx, now, legacyCreatedBefore, queuedReason, dispatchedReason)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FailExpiredPeerJobs indicates an expected call of FailExpiredPeerJobs.
+func (mr *MockStoreMockRecorder) FailExpiredPeerJobs(ctx, now, legacyCreatedBefore, queuedReason, dispatchedReason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailExpiredPeerJobs", reflect.TypeOf((*MockStore)(nil).FailExpiredPeerJobs), ctx, now, legacyCreatedBefore, queuedReason, dispatchedReason)
 }
 
 // GetAccount mocks base method.
@@ -2452,18 +2497,18 @@ func (mr *MockStoreMockRecorder) GetPeerIdByLabel(ctx, lockStrength, accountID, 
 }
 
 // GetPeerJobByID mocks base method.
-func (m *MockStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types3.Job, error) {
+func (m *MockStore) GetPeerJobByID(ctx context.Context, accountID, peerID, jobID string) (*types3.Job, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPeerJobByID", ctx, accountID, jobID)
+	ret := m.ctrl.Call(m, "GetPeerJobByID", ctx, accountID, peerID, jobID)
 	ret0, _ := ret[0].(*types3.Job)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetPeerJobByID indicates an expected call of GetPeerJobByID.
-func (mr *MockStoreMockRecorder) GetPeerJobByID(ctx, accountID, jobID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetPeerJobByID(ctx, accountID, peerID, jobID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerJobByID", reflect.TypeOf((*MockStore)(nil).GetPeerJobByID), ctx, accountID, jobID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerJobByID", reflect.TypeOf((*MockStore)(nil).GetPeerJobByID), ctx, accountID, peerID, jobID)
 }
 
 // GetPeerJobs mocks base method.
@@ -2704,6 +2749,21 @@ func (m *MockStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
 func (mr *MockStoreMockRecorder) GetProxyMetrics(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyMetrics", reflect.TypeOf((*MockStore)(nil).GetProxyMetrics), ctx)
+}
+
+// GetQueuedPeerJobs mocks base method.
+func (m *MockStore) GetQueuedPeerJobs(ctx context.Context, accountID, peerID string) ([]*types3.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetQueuedPeerJobs", ctx, accountID, peerID)
+	ret0, _ := ret[0].([]*types3.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetQueuedPeerJobs indicates an expected call of GetQueuedPeerJobs.
+func (mr *MockStoreMockRecorder) GetQueuedPeerJobs(ctx, accountID, peerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQueuedPeerJobs", reflect.TypeOf((*MockStore)(nil).GetQueuedPeerJobs), ctx, accountID, peerID)
 }
 
 // GetResourceGroups mocks base method.
@@ -3185,6 +3245,21 @@ func (mr *MockStoreMockRecorder) HasGatewayEndpointByOtherAccount(ctx, host, acc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasGatewayEndpointByOtherAccount", reflect.TypeOf((*MockStore)(nil).HasGatewayEndpointByOtherAccount), ctx, host, accountID)
 }
 
+// HasPendingPeerJob mocks base method.
+func (m *MockStore) HasPendingPeerJob(ctx context.Context, accountID, peerID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasPendingPeerJob", ctx, accountID, peerID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasPendingPeerJob indicates an expected call of HasPendingPeerJob.
+func (mr *MockStoreMockRecorder) HasPendingPeerJob(ctx, accountID, peerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasPendingPeerJob", reflect.TypeOf((*MockStore)(nil).HasPendingPeerJob), ctx, accountID, peerID)
+}
+
 // IncrementAgentNetworkConsumption mocks base method.
 func (m *MockStore) IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error {
 	m.ctrl.T.Helper()
@@ -3361,20 +3436,6 @@ func (mr *MockStoreMockRecorder) MarkAccountPrimary(ctx, accountID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkAccountPrimary", reflect.TypeOf((*MockStore)(nil).MarkAccountPrimary), ctx, accountID)
 }
 
-// MarkAllPendingJobsAsFailed mocks base method.
-func (m *MockStore) MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkAllPendingJobsAsFailed", ctx, accountID, peerID, reason)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkAllPendingJobsAsFailed indicates an expected call of MarkAllPendingJobsAsFailed.
-func (mr *MockStoreMockRecorder) MarkAllPendingJobsAsFailed(ctx, accountID, peerID, reason any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkAllPendingJobsAsFailed", reflect.TypeOf((*MockStore)(nil).MarkAllPendingJobsAsFailed), ctx, accountID, peerID, reason)
-}
-
 // MarkPATUsed mocks base method.
 func (m *MockStore) MarkPATUsed(ctx context.Context, patID string) error {
 	m.ctrl.T.Helper()
@@ -3417,20 +3478,6 @@ func (m *MockStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accou
 func (mr *MockStoreMockRecorder) MarkPeerDisconnectedIfSameSession(ctx, accountID, peerID, sessionStartedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnectedIfSameSession", reflect.TypeOf((*MockStore)(nil).MarkPeerDisconnectedIfSameSession), ctx, accountID, peerID, sessionStartedAt)
-}
-
-// MarkPendingJobsAsFailed mocks base method.
-func (m *MockStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPendingJobsAsFailed", ctx, accountID, peerID, jobID, reason)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkPendingJobsAsFailed indicates an expected call of MarkPendingJobsAsFailed.
-func (mr *MockStoreMockRecorder) MarkPendingJobsAsFailed(ctx, accountID, peerID, jobID, reason any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPendingJobsAsFailed", reflect.TypeOf((*MockStore)(nil).MarkPendingJobsAsFailed), ctx, accountID, peerID, jobID, reason)
 }
 
 // MarkProxyAccessTokenUsed mocks base method.

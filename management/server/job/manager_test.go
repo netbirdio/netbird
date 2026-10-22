@@ -2,77 +2,222 @@ package job
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-func TestCloseChannel_OwnSession(t *testing.T) {
-	ctx := context.Background()
-	mockStore := store.NewMockStore(gomock.NewController(t))
-	jm := NewJobManager(nil, mockStore, nil)
+const (
+	testAccount = "account-1"
+	testPeer    = "peer-1"
+)
 
-	session := NewChannel()
-	jm.jobChannels["peer-1"] = session
-	jm.pending["job-1"] = &Event{PeerID: "peer-1"}
-	jm.pending["job-2"] = &Event{PeerID: "peer-2"}
-
-	mockStore.EXPECT().MarkPendingJobsAsFailed(gomock.Any(), "account-1", "peer-1", "job-1", gomock.Any()).Return(nil)
-
-	jm.CloseChannel(ctx, "account-1", "peer-1", session)
-
-	assert.False(t, jm.IsPeerConnected("peer-1"))
-	_, err := session.Event(ctx)
-	assert.ErrorIs(t, err, ErrJobChannelClosed)
-	assert.NotContains(t, jm.pending, "job-1")
-	assert.Contains(t, jm.pending, "job-2", "jobs of other peers must be kept")
+func newTestStore(t *testing.T) store.Store {
+	t.Helper()
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+	return s
 }
 
-func TestCloseChannel_NewerSessionOwnsPeer(t *testing.T) {
+func queueJob(t *testing.T, s store.Store, id string) {
+	t.Helper()
+	params, err := json.Marshal(api.BundleParameters{LogFileCount: 1})
+	require.NoError(t, err)
+	deadline := time.Now().UTC().Add(QueuedTimeout)
+	require.NoError(t, s.CreatePeerJob(context.Background(), &types.Job{
+		ID:         id,
+		AccountID:  testAccount,
+		PeerID:     testPeer,
+		Status:     types.JobStatusPending,
+		CreatedAt:  time.Now().UTC(),
+		DeadlineAt: &deadline,
+		Workload:   types.Workload{Type: types.JobTypeBundle, Parameters: params},
+	}))
+}
+
+func jobStatus(t *testing.T, s store.Store, id string) *types.Job {
+	t.Helper()
+	job, err := s.GetPeerJobByID(context.Background(), testAccount, testPeer, id)
+	require.NoError(t, err)
+	return job
+}
+
+func receive(t *testing.T, ch *Channel) *Event {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	event, err := ch.Event(ctx)
+	require.NoError(t, err, "a job should have been sent on the stream")
+	return event
+}
+
+func assertNothingSent(t *testing.T, ch *Channel) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := ch.Event(ctx)
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "no job should have been sent")
+}
+
+func succeeded(id string) *proto.JobResponse {
+	return &proto.JobResponse{
+		ID:              []byte(id),
+		Status:          proto.JobStatus_succeeded,
+		WorkloadResults: &proto.JobResponse_Bundle{Bundle: &proto.BundleResult{UploadKey: "key"}},
+	}
+}
+
+// Two managers over one store stand in for two management nodes: the job is created
+// on a node without the peer's stream and is sent once the stream opens elsewhere.
+func TestJobQueuedOnOtherNode_SentWhenStreamOpens(t *testing.T) {
 	ctx := context.Background()
-	jm := NewJobManager(nil, store.NewMockStore(gomock.NewController(t)), nil)
+	s := newTestStore(t)
+	restNode := NewJobManager(nil, s, nil)
+	grpcNode := NewJobManager(nil, s, nil)
 
-	stale := NewChannel()
-	current := NewChannel()
-	jm.jobChannels["peer-1"] = current
-	jm.pending["job-1"] = &Event{PeerID: "peer-1"}
+	queueJob(t, s, "job-1")
+	restNode.JobQueued(ctx, testAccount, testPeer)
 
-	jm.CloseChannel(ctx, "account-1", "peer-1", stale)
+	ch := grpcNode.CreateJobChannel(ctx, testAccount, testPeer)
+	event := receive(t, ch)
+	assert.Equal(t, []byte("job-1"), event.Request.ID)
+	assert.NotNil(t, jobStatus(t, s, "job-1").DispatchedAt, "the sent job should be marked as dispatched")
 
-	require.True(t, jm.IsPeerConnected("peer-1"))
-	assert.Contains(t, jm.pending, "job-1", "jobs served by the newer stream must not be failed")
+	// The answer is accepted on any node.
+	require.NoError(t, restNode.HandleResponse(ctx, testAccount, testPeer, succeeded("job-1")))
+	assert.Equal(t, types.JobStatusSucceeded, jobStatus(t, s, "job-1").Status)
+}
 
-	event := &Event{PeerID: "peer-1"}
+func TestJobQueued_SentOnLocalStream(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	jm := NewJobManager(nil, s, nil)
+
+	ch := jm.CreateJobChannel(ctx, testAccount, testPeer)
+	assertNothingSent(t, ch)
+
+	queueJob(t, s, "job-1")
+	jm.JobQueued(ctx, testAccount, testPeer)
+
+	assert.Equal(t, []byte("job-1"), receive(t, ch).Request.ID)
+}
+
+// Both nodes see the job, but only the one that wins the claim sends it.
+func TestJobSentOnce(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	nodeA := NewJobManager(nil, s, nil)
+	nodeB := NewJobManager(nil, s, nil)
+
+	chA := nodeA.CreateJobChannel(ctx, testAccount, testPeer)
+	chB := nodeB.CreateJobChannel(ctx, testAccount, testPeer)
+
+	queueJob(t, s, "job-1")
+	nodeA.DeliverQueued(ctx, testAccount, testPeer)
+	nodeB.DeliverQueued(ctx, testAccount, testPeer)
+
+	receive(t, chA)
+	assertNothingSent(t, chB)
+}
+
+func TestReconnect_FailsSentJobAndSendsQueued(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	nodeA := NewJobManager(nil, s, nil)
+	nodeB := NewJobManager(nil, s, nil)
+
+	chA := nodeA.CreateJobChannel(ctx, testAccount, testPeer)
+	queueJob(t, s, "running")
+	nodeA.JobQueued(ctx, testAccount, testPeer)
+	receive(t, chA)
+
+	queueJob(t, s, "queued")
+
+	chB := nodeB.CreateJobChannel(ctx, testAccount, testPeer)
+
+	running := jobStatus(t, s, "running")
+	assert.Equal(t, types.JobStatusFailed, running.Status, "the job sent on the old stream should fail")
+	assert.Equal(t, reasonReconnected, running.FailedReason)
+	assert.Equal(t, []byte("queued"), receive(t, chB).Request.ID, "the queued job should go out on the new stream")
+}
+
+func TestHandleResponse_RejectsJobNotRunningOnPeer(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	jm := NewJobManager(nil, s, nil)
+
+	queueJob(t, s, "job-1")
+	err := jm.HandleResponse(ctx, testAccount, testPeer, succeeded("job-1"))
+	assert.ErrorIs(t, err, ErrJobNotRunning, "an answer to a job that was never sent must be rejected")
+
+	ch := jm.CreateJobChannel(ctx, testAccount, testPeer)
+	receive(t, ch)
+
+	err = jm.HandleResponse(ctx, testAccount, "other-peer", succeeded("job-1"))
+	assert.ErrorIs(t, err, ErrJobNotRunning, "another peer must not finish this job")
+	assert.Equal(t, types.JobStatusPending, jobStatus(t, s, "job-1").Status)
+}
+
+func TestCloseChannel_KeepsNewerSession(t *testing.T) {
+	ctx := context.Background()
+	jm := NewJobManager(nil, newTestStore(t), nil)
+
+	stale := jm.CreateJobChannel(ctx, testAccount, testPeer)
+	current := jm.CreateJobChannel(ctx, testAccount, testPeer)
+
+	_, err := stale.Event(ctx)
+	assert.ErrorIs(t, err, ErrJobChannelClosed, "the replaced channel should be closed")
+
+	jm.CloseChannel(ctx, testAccount, testPeer, stale)
+
+	event := &Event{PeerID: testPeer}
 	require.NoError(t, current.AddEvent(ctx, time.Second, event))
 	got, err := current.Event(ctx)
-	require.NoError(t, err, "newer session channel must stay open")
+	require.NoError(t, err, "the newer session channel must stay open")
 	assert.Equal(t, event, got)
 }
 
-func TestCreateJobChannel_ReplacesSessionAndDropsItsPendingJobs(t *testing.T) {
+type recordingNotifier struct {
+	calls []string
+}
+
+func (n *recordingNotifier) JobQueued(context.Context, string, string) {
+	n.calls = append(n.calls, "queued")
+}
+
+func (n *recordingNotifier) StreamOpened(context.Context, string, string) {
+	n.calls = append(n.calls, "opened")
+}
+
+func (n *recordingNotifier) StreamClosed(context.Context, string, string) {
+	n.calls = append(n.calls, "closed")
+}
+
+func TestNotifier_CalledOnQueueOpenAndClose(t *testing.T) {
 	ctx := context.Background()
-	mockStore := store.NewMockStore(gomock.NewController(t))
-	jm := NewJobManager(nil, mockStore, nil)
+	n := &recordingNotifier{}
+	jm := NewJobManager(nil, newTestStore(t), nil, WithNotifier(n))
 
-	stale := NewChannel()
-	jm.jobChannels["peer-1"] = stale
-	jm.pending["job-1"] = &Event{PeerID: "peer-1"}
-	jm.pending["job-2"] = &Event{PeerID: "peer-2"}
+	ch := jm.CreateJobChannel(ctx, testAccount, testPeer)
+	jm.JobQueued(ctx, testAccount, testPeer)
+	jm.CloseChannel(ctx, testAccount, testPeer, ch)
 
-	mockStore.EXPECT().MarkAllPendingJobsAsFailed(gomock.Any(), "account-1", "peer-1", gomock.Any()).Return(nil)
-	mockStore.EXPECT().MarkPendingJobsAsFailed(gomock.Any(), "account-1", "peer-1", "job-1", "Pending job cleanup: job stream replaced by a newer stream").Return(nil)
+	assert.Equal(t, []string{"opened", "queued", "closed"}, n.calls)
+}
 
-	current := jm.CreateJobChannel(ctx, "account-1", "peer-1")
-
-	require.NotSame(t, stale, current)
-	_, err := stale.Event(ctx)
-	assert.ErrorIs(t, err, ErrJobChannelClosed, "replaced channel must be closed")
-	assert.True(t, jm.IsPeerConnected("peer-1"))
-	assert.False(t, jm.IsPeerHasPendingJobs("peer-1"), "jobs of the replaced stream must be dropped")
-	assert.Contains(t, jm.pending, "job-2", "jobs of other peers must be kept")
+func TestSweeper_StopIsIdempotent(t *testing.T) {
+	jm := NewJobManager(nil, newTestStore(t), nil)
+	jm.StartSweeper()
+	jm.StartSweeper()
+	jm.Stop()
+	jm.Stop()
 }

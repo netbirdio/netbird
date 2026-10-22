@@ -281,11 +281,14 @@ type Store interface {
 	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
 	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
 	CreatePeerJob(ctx context.Context, job *types.Job) error
-	CompletePeerJob(ctx context.Context, job *types.Job) error
-	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	HasPendingPeerJob(ctx context.Context, accountID, peerID string) (bool, error)
+	GetQueuedPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	ClaimPeerJob(ctx context.Context, accountID, peerID, jobID string, dispatchedAt, deadlineAt time.Time) (bool, error)
+	CompleteDispatchedPeerJob(ctx context.Context, accountID, peerID string, job *types.Job) (bool, error)
+	FailDispatchedPeerJobs(ctx context.Context, accountID, peerID, reason string) error
+	FailExpiredPeerJobs(ctx context.Context, now, legacyCreatedBefore time.Time, queuedReason, dispatchedReason string) (int64, error)
+	GetPeerJobByID(ctx context.Context, accountID, peerID, jobID string) (*types.Job, error)
 	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
-	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
-	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 
 	CreateService(ctx context.Context, service *rpservice.Service) error

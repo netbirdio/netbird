@@ -38,7 +38,6 @@ func (jc *Channel) AddEvent(ctx context.Context, responseWait time.Duration, eve
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-		// todo: timeout is handled in the wrong place. If the peer does not respond with the job response, the server does not clean it up from the pending jobs and cannot apply a new job
 	case <-time.After(responseWait):
 		return fmt.Errorf("failed to add the event to the channel")
 	case jc.events <- event:

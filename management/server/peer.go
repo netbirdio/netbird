@@ -19,6 +19,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
+	nbjob "github.com/netbirdio/netbird/management/server/job"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -432,37 +433,36 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
 	}
 
-	if !am.jobManager.IsPeerConnected(peerID) {
+	if p.Status == nil || !p.Status.Connected {
 		return status.Errorf(status.BadRequest, "peer not connected")
 	}
 
-	// check if already has pending jobs
-	// todo: The job checks here are not protected. The user can run this function from multiple threads,
-	// and each thread can think there is no job yet. This means entries in the pending job map will be overwritten,
-	// and only one will be kept, but potentially another one will overwrite it in the queue.
-	if am.jobManager.IsPeerHasPendingJobs(peerID) {
-		return status.Errorf(status.BadRequest, "peer already has pending job")
-	}
-
-	jobStream, err := job.ToStreamJobRequest()
-	if err != nil {
+	if _, err := job.ToStreamJobRequest(); err != nil {
 		return status.Errorf(status.BadRequest, "invalid job request %v", err)
 	}
 
-	// try sending job first
-	if err := am.jobManager.SendJob(ctx, accountID, peerID, jobStream); err != nil {
-		return status.Errorf(status.Internal, "failed to send job: %v", err)
-	}
+	deadline := time.Now().UTC().Add(nbjob.QueuedTimeout)
+	job.DeadlineAt = &deadline
 
 	var peer *nbpeer.Peer
 	var eventsToStore func()
 
-	// persist job in DB only if send succeeded
+	// The peer row lock serializes creates for the peer, so two concurrent requests
+	// cannot both pass the pending-job check.
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
 		if err != nil {
 			return err
 		}
+
+		hasPending, err := transaction.HasPendingPeerJob(ctx, accountID, peerID)
+		if err != nil {
+			return err
+		}
+		if hasPending {
+			return status.Errorf(status.BadRequest, "peer already has pending job")
+		}
+
 		if err := transaction.CreatePeerJob(ctx, job); err != nil {
 			return err
 		}
@@ -481,6 +481,8 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 		return err
 	}
 	eventsToStore()
+
+	am.jobManager.JobQueued(ctx, accountID, peerID)
 	return nil
 }
 
@@ -529,7 +531,7 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 		return nil, status.NewPeerNotPartOfAccountError()
 	}
 
-	job, err := am.Store.GetPeerJobByID(ctx, accountID, jobID)
+	job, err := am.Store.GetPeerJobByID(ctx, accountID, peerID, jobID)
 	if err != nil {
 		return nil, err
 	}
