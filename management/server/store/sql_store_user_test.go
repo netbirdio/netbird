@@ -341,3 +341,47 @@ func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 8002, len(accountUsers))
 }
+
+func TestSqlStore_SaveUserLastLogin(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
+
+	before, err := store.GetUserByUserID(ctx, LockingStrengthNone, userID)
+	require.NoError(t, err)
+
+	lastLoginOf := func() time.Time {
+		user, err := store.GetUserByUserID(ctx, LockingStrengthNone, userID)
+		require.NoError(t, err)
+		return user.GetLastLogin().UTC()
+	}
+
+	first := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, userID, first))
+	assert.True(t, first.Equal(lastLoginOf()), "first login must be stored")
+
+	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, userID, first))
+	assert.True(t, first.Equal(lastLoginOf()), "repeating the same login must keep the stored value")
+
+	later := first.Add(30 * time.Second)
+	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, userID, later))
+	assert.True(t, later.Equal(lastLoginOf()), "a newer login must be written")
+
+	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, userID, first))
+	assert.True(t, later.Equal(lastLoginOf()), "an older login must not overwrite a newer one")
+
+	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, userID, time.Time{}))
+	assert.True(t, later.Equal(lastLoginOf()), "zero login must be ignored")
+
+	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, "unknown-user", later.Add(time.Hour)))
+
+	after, err := store.GetUserByUserID(ctx, LockingStrengthNone, userID)
+	require.NoError(t, err)
+	assert.Equal(t, before.Role, after.Role)
+	assert.Equal(t, before.AutoGroups, after.AutoGroups)
+	assert.Equal(t, before.Blocked, after.Blocked)
+}

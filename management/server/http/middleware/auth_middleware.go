@@ -21,6 +21,8 @@ import (
 	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
+const patLastUsedUpdateInterval = time.Minute
+
 type EnsureAccountFunc func(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
 type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) error
 
@@ -185,9 +187,10 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return fmt.Errorf("token expired")
 	}
 
-	err = m.authManager.MarkPATUsed(ctx, pat.ID)
-	if err != nil {
-		return err
+	if pat.LastUsed == nil || time.Since(*pat.LastUsed) >= patLastUsedUpdateInterval {
+		if err := m.authManager.MarkPATUsed(ctx, pat.ID); err != nil {
+			return err
+		}
 	}
 
 	userAuth := auth.UserAuth{
