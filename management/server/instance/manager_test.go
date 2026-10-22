@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dexidp/dex/storage"
+	"github.com/netbirdio/dex/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
