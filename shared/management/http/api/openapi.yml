@@ -1931,6 +1931,7 @@ components:
         countries:
           description: Countries whose IP prefixes, as resolved by the management geolocation database, are routed. Requires geolocation to be enabled and peers that support country routes. Max of 32 countries can be added per route configuration. Conflicts with network and domains
           type: array
+          minItems: 1
           maxItems: 32
           items:
             $ref: '#/components/schemas/CountryCode'
