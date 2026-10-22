@@ -141,10 +141,19 @@ func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
 	if !advancedRouting {
 		return nil
 	}
-	_, err := r.setupAdvancedRoutingWith(func(unspec netip.Addr) (Nexthop, error) {
+	installed, err := r.setupAdvancedRoutingWith(func(unspec netip.Addr) (Nexthop, error) {
 		return GetUnderlayNextHop(unspec, nbnet.GetVPNInterfaceName())
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	// The refresh only runs on a change with a default in place. Finding none
+	// leaves NetBird's sockets unbound, following 0/1 into the tunnel: fail, so
+	// the engine falls back to a restart.
+	if installed == 0 {
+		return errors.New("no physical default found to bind NetBird's traffic to")
+	}
+	return nil
 }
 
 func (r *SysOps) cleanupAdvancedRouting() error {
