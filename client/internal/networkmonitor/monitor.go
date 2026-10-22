@@ -29,6 +29,9 @@ var checkChangeFn = checkChange
 // readSnapshotFn reads the current underlay; tests replace it.
 var readSnapshotFn = readSnapshot
 
+// underlayNextHopFn looks up one family's underlay default; tests replace it.
+var underlayNextHopFn = underlayNextHop
+
 // errWokeUp is returned by a checkChange that detected a wake-up from sleep
 // rather than a route change, so Listen can report it as its own kind.
 var errWokeUp = errors.New("system woke up from sleep")
@@ -244,14 +247,16 @@ func defaultInterfaceAddrs(nexthops ...systemops.Nexthop) []netip.Addr {
 // readNextHops returns the current underlay default next hops. It fails only
 // when neither family has one.
 func readNextHops() (systemops.Nexthop, systemops.Nexthop, error) {
-	nexthop4, errv4 := underlayNextHop(netip.IPv4Unspecified())
-	nexthop6, errv6 := underlayNextHop(netip.IPv6Unspecified())
+	nexthop4, errv4 := underlayNextHopFn(netip.IPv4Unspecified())
+	nexthop6, errv6 := underlayNextHopFn(netip.IPv6Unspecified())
 
-	if errv4 != nil && errv6 != nil {
-		if errors.Is(errv4, vars.ErrRouteNotFound) && errors.Is(errv6, vars.ErrRouteNotFound) {
-			return nexthop4, nexthop6, fmt.Errorf("no default next hop: %w", vars.ErrRouteNotFound)
-		}
+	// A family whose lookup failed is unknown, not without a default:
+	// dropping it would read as the default moving.
+	if lookupFailed(errv4) || lookupFailed(errv6) {
 		return nexthop4, nexthop6, fmt.Errorf("read default next hops: IPv4: %v, IPv6: %v", errv4, errv6)
+	}
+	if errv4 != nil && errv6 != nil {
+		return nexthop4, nexthop6, fmt.Errorf("no default next hop: %w", vars.ErrRouteNotFound)
 	}
 
 	if errv4 == nil {
@@ -262,4 +267,9 @@ func readNextHops() (systemops.Nexthop, systemops.Nexthop, error) {
 	}
 
 	return nexthop4, nexthop6, nil
+}
+
+// lookupFailed reports an error other than a missing default.
+func lookupFailed(err error) bool {
+	return err != nil && !errors.Is(err, vars.ErrRouteNotFound)
 }
