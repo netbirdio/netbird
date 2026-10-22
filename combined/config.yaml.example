@@ -79,6 +79,8 @@ server:
   # Metrics and updates
   disableAnonymousMetrics: false
   disableGeoliteUpdate: false
+  # Interval between checks for newer GeoLite2 databases while updates are enabled
+  geoliteUpdateInterval: 24h
 
   # Embedded authentication/identity provider (Dex) configuration (always enabled)
   auth:

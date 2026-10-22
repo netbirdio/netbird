@@ -63,6 +63,7 @@ type BaseServer struct {
 	disableMetrics              bool
 	dnsDomain                   string
 	disableGeoliteUpdate        bool
+	geoliteUpdateInterval       time.Duration
 	userDeleteFromIDPEnabled    bool
 	mgmtSingleAccModeDomain     string
 	mgmtMetricsPort             int
@@ -103,6 +104,7 @@ type Config struct {
 	DisableLegacyManagementPort bool
 	DisableMetrics              bool
 	DisableGeoliteUpdate        bool
+	GeoliteUpdateInterval       time.Duration
 	UserDeleteFromIDPEnabled    bool
 	AutoResolveDomains          bool
 	TLSConfig                   *tls.Config
@@ -120,6 +122,7 @@ func NewServer(cfg *Config) *BaseServer {
 		mgmtSingleAccModeDomain:     cfg.MgmtSingleAccModeDomain,
 		disableMetrics:              cfg.DisableMetrics,
 		disableGeoliteUpdate:        cfg.DisableGeoliteUpdate,
+		geoliteUpdateInterval:       cfg.GeoliteUpdateInterval,
 		userDeleteFromIDPEnabled:    cfg.UserDeleteFromIDPEnabled,
 		mgmtPort:                    cfg.MgmtPort,
 		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
@@ -159,7 +162,11 @@ func (s *BaseServer) start(ctx context.Context) error {
 	}
 
 	s.PeersManager()
-	s.GeoLocationManager()
+	if geo := s.GeoLocationManager(); geo != nil {
+		if err := geo.WaitReady(srvCtx); err != nil {
+			return fmt.Errorf("wait for geolocation databases: %w", err)
+		}
+	}
 
 	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
