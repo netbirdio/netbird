@@ -227,34 +227,55 @@ func toSliceOfPtrs[T any](all []T) []*T {
 	return toret
 }
 
+// buildResourcePolicies maps every enabled network resource to the enabled
+// policies targeting it, directly or through one of its groups, in policy
+// order. Each policy resolves its targets through the indexes once.
 func buildResourcePolicies(networkResources []nmdata.NetworkResource,
 	policies []nmdata.Policy,
 	resourceToGroupIdx map[string]map[string]any,
 	policyToDestinationResourceIdx map[string]map[string]any,
 	policyToDestinationGroupIdx map[string]map[string]any) map[string][]*nmdata.Policy {
 
-	resourcePolicies := make(map[string][]*nmdata.Policy)
+	enabledResources := make(map[string]struct{}, len(networkResources))
 	for _, resource := range networkResources {
-		if !resource.Enabled {
+		if resource.Enabled {
+			enabledResources[resource.ID] = struct{}{}
+		}
+	}
+
+	groupToResources := make(map[string][]string)
+	for resourceID, groupIDs := range resourceToGroupIdx {
+		for groupID := range groupIDs {
+			groupToResources[groupID] = append(groupToResources[groupID], resourceID)
+		}
+	}
+
+	resourcePolicies := make(map[string][]*nmdata.Policy)
+	for i := range policies {
+		if !policies[i].Enabled {
 			continue
 		}
-		networkResourceGroups := resourceToGroupIdx[resource.ID]
-		for _, policy := range policies {
-			if !policy.Enabled {
+
+		targets := make(map[string]struct{})
+		for resourceID := range policyToDestinationResourceIdx[policies[i].ID] {
+			targets[resourceID] = struct{}{}
+		}
+		for groupID := range policyToDestinationGroupIdx[policies[i].ID] {
+			for _, resourceID := range groupToResources[groupID] {
+				targets[resourceID] = struct{}{}
+			}
+		}
+
+		var policy *nmdata.Policy
+		for resourceID := range targets {
+			if _, ok := enabledResources[resourceID]; !ok {
 				continue
 			}
-			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
-				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
-				continue
+			if policy == nil {
+				p := policies[i]
+				policy = &p
 			}
-			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
-				for networkResourceGroup := range networkResourceGroups {
-					if _, ok := groupIds[networkResourceGroup]; ok {
-						resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy)
-						break
-					}
-				}
-			}
+			resourcePolicies[resourceID] = append(resourcePolicies[resourceID], policy)
 		}
 	}
 
