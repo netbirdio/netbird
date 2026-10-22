@@ -2740,7 +2740,7 @@ func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
 	opts := s.profileOwnerOption()
-	opts = append(opts, internal.WithNetEvents(internal.NetEventsFor(config, s.netEvents)))
+	opts = append(opts, internal.WithNetEventsWhenUsed(s.netEvents))
 	client := internal.NewConnectClient(ctx, config, statusRecorder, opts...)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)

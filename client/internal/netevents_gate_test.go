@@ -19,6 +19,9 @@ import (
 func TestNetEventsFor(t *testing.T) {
 	mgr := netevents.NewManager(peer.NewRecorder(""))
 	on, off := true, false
+	// The routing mode is only known after Init, which Run calls before
+	// deciding; read it the same way here.
+	nbnet.Init()
 	used := nbnet.AdvancedRouting()
 
 	tests := []struct {
