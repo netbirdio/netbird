@@ -37,7 +37,31 @@ type HandlerParams struct {
 	CountryPrefixes      CountryPrefixesFunc
 }
 
-// ResolveCountries returns the prefixes of all the given countries.
+// CachedCountryPrefixes returns fetch with each country looked up once, so routes added in one
+// update fetch a country they share once, and a release func that drops the cached prefixes.
+// It is not safe for concurrent use.
+func CachedCountryPrefixes(fetch CountryPrefixesFunc) (CountryPrefixesFunc, func()) {
+	if fetch == nil {
+		return nil, func() {}
+	}
+
+	cache := make(map[string][]netip.Prefix)
+	cached := func(ctx context.Context, country string) ([]netip.Prefix, error) {
+		if prefixes, ok := cache[country]; ok {
+			return prefixes, nil
+		}
+		prefixes, err := fetch(ctx, country)
+		if err != nil {
+			return nil, err
+		}
+		cache[country] = prefixes
+		return prefixes, nil
+	}
+	return cached, func() { clear(cache) }
+}
+
+// ResolveCountries returns the prefixes of all the given countries in a new slice, so callers
+// may change it without touching the fetched prefixes.
 func ResolveCountries(ctx context.Context, fetch CountryPrefixesFunc, countries []string) ([]netip.Prefix, error) {
 	if fetch == nil {
 		return nil, errors.New("country prefixes are not available")
