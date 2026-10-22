@@ -13,6 +13,7 @@ import (
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 // TestNftablesManager_CountrySet loads a country-sized prefix list into the set that a
@@ -72,4 +73,46 @@ func TestNftablesManager_CountrySet(t *testing.T) {
 		}
 	}
 	assert.Equal(t, count, starts, "every prefix should be in the set")
+}
+
+// TestNftablesManager_UpdateSetIPv6Only fills a country set used only by an IPv6 rule, as for a
+// route whose sources are all IPv6. No IPv4 rule created the set in the IPv4 table, so the
+// update must not look for it there.
+func TestNftablesManager_UpdateSetIPv6Only(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	dualStack := &iFaceMock{
+		NameFunc: func() string { return "wg-test" },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("100.96.0.1"),
+				Network: netip.MustParsePrefix("100.96.0.0/16"),
+				IPv6:    netip.MustParseAddr("fd00::1"),
+				IPv6Net: netip.MustParsePrefix("fd00::/64"),
+			}
+		},
+	}
+	manager, err := Create(dualStack, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "failed to reset")
+	})
+
+	set := fw.NewCountrySet([]string{"US"})
+	_, err = manager.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("fd00::2/128")}, fw.Network{Set: set},
+		fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "add IPv6 route rule")
+
+	prefixes := []netip.Prefix{netip.MustParsePrefix("2001:4860::/32")}
+	require.NoError(t, manager.UpdateSet(set, prefixes), "an IPv6-only update must not need an IPv4 set")
+
+	conn := &nftables.Conn{}
+	nfSet, err := conn.GetSetByName(manager.family6.workTable, set.HashedName())
+	require.NoError(t, err, "the IPv6 set should exist")
+	elements, err := conn.GetSetElements(nfSet)
+	require.NoError(t, err)
+	assert.Len(t, elements, 2, "the prefix should be stored as one interval")
 }
