@@ -26,7 +26,7 @@ func TestNewChangeTellsOfflineFromLookupErrors(t *testing.T) {
 
 	readSnapshotFn = func() (NextHops, error) { return NextHops{}, errors.New("netlink: interrupted") }
 	change := newChange(home)
-	assert.Equal(t, ChangeNone, change.Kind, "a failed lookup is not offline")
+	assert.Equal(t, ChangeUnknown, change.Kind, "a failed lookup is neither offline nor nothing")
 	assert.Equal(t, home, change.After, "a failed lookup keeps the baseline")
 }
 

@@ -90,6 +90,13 @@ func (l *underlayLoop) run(ctx context.Context) {
 			return
 		}
 
+		// A failed lookup tells nothing: keep the baseline, the offline state
+		// and the reported availability as they are.
+		if change.Kind == networkmonitor.ChangeUnknown {
+			log.Infof("Network monitor: underlay unreadable after the event, keeping the current state")
+			continue
+		}
+
 		action := l.decide(change)
 		l.availability.set(action != actionWait)
 		returning := offline && action != actionWait

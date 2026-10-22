@@ -88,6 +88,44 @@ func TestUnderlayLoopLeavesTheManagerOnlineWhenStoppedOffline(t *testing.T) {
 	assert.True(t, mgr.IsOnline(), "the manager is back online once the loop ends")
 }
 
+// Offline, a failed lookup must not read as the network coming back: no
+// redial, the manager stays offline and the pre-loss baseline is kept.
+func TestUnderlayLoopKeepsOfflineOnAFailedLookup(t *testing.T) {
+	home := snapshot("192.168.1.1")
+	mgr := netevents.NewManager(peer.NewRecorder(""))
+	var onlineDuringRun []bool
+	r := &loopRun{}
+	script := []networkmonitor.Change{
+		{Kind: networkmonitor.ChangeOffline, Before: home},
+		{Kind: networkmonitor.ChangeUnknown, Before: home, After: home},
+	}
+	next := 0
+	loop := underlayLoop{
+		listen: func(_ context.Context, baseline networkmonitor.NextHops) (networkmonitor.Change, error) {
+			r.baselines = append(r.baselines, baseline)
+			onlineDuringRun = append(onlineDuringRun, mgr.IsOnline())
+			if next == len(script) {
+				return networkmonitor.Change{}, context.Canceled
+			}
+			next++
+			return script[next-1], nil
+		},
+		decide:       func(c networkmonitor.Change) underlayAction { return testActions[c.Kind] },
+		redial:       func(networkmonitor.Change) bool { r.redialed++; return true },
+		restart:      func() { r.restarted++ },
+		armWatch:     func() { r.armed++ },
+		stopWatch:    func() {},
+		availability: networkAvailability{mgr: mgr},
+	}
+	loop.run(context.Background())
+
+	assert.Equal(t, 0, r.redialed, "no redial on a failed lookup")
+	assert.Equal(t, 0, r.armed, "no safety net on a failed lookup")
+	require.Len(t, r.baselines, 3, "listen rounds")
+	assert.Equal(t, home, r.baselines[2], "the pre-loss baseline is kept")
+	assert.False(t, onlineDuringRun[2], "the manager stays offline after a failed lookup")
+}
+
 func TestUnderlayLoopSequences(t *testing.T) {
 	home, cafe := snapshot("192.168.1.1"), snapshot("10.0.0.1")
 

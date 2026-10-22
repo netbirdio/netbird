@@ -30,6 +30,9 @@ const (
 	// ChangeWake means the system woke up from sleep during the change,
 	// whatever the routes did. Wake-ups keep today's restart.
 	ChangeWake
+	// ChangeUnknown means the underlay could not be read after the event.
+	// It says nothing about the network, so nothing is changed on it.
+	ChangeUnknown
 )
 
 // NextHops is the underlay snapshot: the default next hop of each address
@@ -64,6 +67,8 @@ func (k ChangeKind) String() string {
 		return "offline"
 	case ChangeWake:
 		return "wake"
+	case ChangeUnknown:
+		return "unknown"
 	default:
 		return "unknown"
 	}

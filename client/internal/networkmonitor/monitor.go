@@ -189,15 +189,16 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 	}
 }
 
-// newChange compares the baseline with the current snapshot. A failed lookup
-// leaves After empty, which classifies as ChangeOffline.
+// newChange compares the baseline with the current snapshot. No default at
+// all classifies as ChangeOffline; a failed lookup is ChangeUnknown and keeps
+// the baseline as After.
 func newChange(before NextHops) Change {
 	after, err := readSnapshotFn()
 	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		// A failed lookup says nothing about the network; offline would
 		// park the client until the next route event.
 		log.Warnf("Network monitor: failed to read the underlay, keeping the previous one: %v", err)
-		return Change{Kind: ChangeNone, Before: before, After: before}
+		return Change{Kind: ChangeUnknown, Before: before, After: before}
 	}
 	return Change{Kind: kindOf(before, after), Before: before, After: after}
 }
