@@ -77,7 +77,8 @@ func buildCountryPrefixes(db *maxminddb.Reader) (map[string][]netip.Prefix, erro
 	}
 
 	for code, prefixes := range byCountry {
-		byCountry[code] = mergePrefixes(prefixes)
+		// The index lives as long as the database, so drop the capacity left over from merging.
+		byCountry[code] = slices.Clone(mergePrefixes(prefixes))
 	}
 	return byCountry, nil
 }
