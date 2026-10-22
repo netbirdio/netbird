@@ -27,7 +27,12 @@ func GetUnderlayNextHop(unspec netip.Addr, vpnIntf string) (Nexthop, error) {
 	if err != nil {
 		return Nexthop{}, fmt.Errorf("parse routing table: %w", err)
 	}
+	return underlayDefault(msgs, unspec, vpnIntf)
+}
 
+// underlayDefault picks the unscoped default of unspec's family that does not
+// leave through vpnIntf.
+func underlayDefault(msgs []route.Message, unspec netip.Addr, vpnIntf string) (Nexthop, error) {
 	for _, msg := range msgs {
 		rtMsg, ok := msg.(*route.RouteMessage)
 		if !ok || rtMsg.Flags&unix.RTF_UP == 0 || rtMsg.Flags&unix.RTF_IFSCOPE != 0 {
