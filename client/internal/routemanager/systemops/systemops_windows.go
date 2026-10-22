@@ -928,6 +928,14 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 // family of unspec. The VPN interface is skipped: with an exit node its split
 // 0/1 and 128/1 routes would otherwise win the lookup for the default.
 func GetUnderlayNextHop(unspec netip.Addr, vpnIntf string) (Nexthop, error) {
+	// bestRoute only warns when it cannot resolve the VPN interface, which
+	// suits the dialer, but here its split routes would win: unknown, not
+	// the tunnel.
+	if vpnIntf != "" {
+		if _, err := net.InterfaceByName(vpnIntf); err != nil {
+			return Nexthop{}, fmt.Errorf("resolve the NetBird interface %s: %w", vpnIntf, err)
+		}
+	}
 	candidate, iface, err := bestRoute(unspec, vpnIntf)
 	if err != nil {
 		return Nexthop{}, err
