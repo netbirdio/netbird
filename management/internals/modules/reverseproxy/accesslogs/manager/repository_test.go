@@ -123,3 +123,37 @@ func TestSqlRepository_ListByAccount_StatusFilter(t *testing.T) {
 	assert.Equal(t, []string{"info", "notfound"}, listIDs("failed"))
 	assert.Equal(t, []string{"ok"}, listIDs("success"))
 }
+
+func TestSqlRepository_ListByAccount_Search(t *testing.T) {
+	repo, _ := newTestRepository(t)
+	ctx := context.Background()
+	api := newEntry("api", "acc", "GET", time.Hour)
+	api.Host = "api.example.com"
+	api.Path = "/v1/peers"
+	web := newEntry("web", "acc", "GET", 2*time.Hour)
+	web.Host = "web.example.com"
+	web.Path = "/login"
+	foreign := newEntry("foreign", "other", "GET", time.Hour)
+	foreign.Host = "api.example.com"
+	for _, entry := range []*accesslogs.AccessLogEntry{api, web, foreign} {
+		require.NoError(t, repo.Create(ctx, entry))
+	}
+
+	search := func(term string) []string {
+		logs, total, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Search: &term})
+		require.NoError(t, err)
+		require.EqualValues(t, len(logs), total)
+		ids := make([]string, 0, len(logs))
+		for _, entry := range logs {
+			ids = append(ids, entry.ID)
+		}
+		return ids
+	}
+
+	assert.Equal(t, []string{"api"}, search("api.example"), "search should match the host")
+	assert.Equal(t, []string{"web"}, search("/login"), "search should match the path")
+	assert.Equal(t, []string{"api"}, search("example.com/v1"), "search should match host and path joined")
+	assert.Equal(t, []string{"web"}, search("we"), "search should match the log ID")
+	assert.Equal(t, []string{"api", "web"}, search("example.com"), "search should list every match newest first")
+	assert.Empty(t, search("nothing-matches"))
+}

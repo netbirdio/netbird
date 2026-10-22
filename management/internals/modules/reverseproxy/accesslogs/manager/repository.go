@@ -85,8 +85,8 @@ func applyFilters(query *gorm.DB, filter accesslogs.AccessLogFilter) *gorm.DB {
 	if filter.Search != nil {
 		searchPattern := "%" + *filter.Search + "%"
 		query = query.Where(
-			"id LIKE ? OR location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR CONCAT(host, path) LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
-			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+			"id LIKE ? OR location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR CONCAT(host, path) LIKE ?",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
 		)
 	}
 
