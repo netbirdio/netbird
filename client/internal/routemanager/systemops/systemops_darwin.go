@@ -41,6 +41,16 @@ const scopedRouteBudget = 5 * time.Second
 // the table. Any subsequent reconnect via nbnet.NewDialer picks up the
 // populated bound-iface cache and gets IP_BOUND_IF set cleanly.
 func (r *SysOps) setupAdvancedRouting() error {
+	return r.setupAdvancedRoutingWith(GetNextHop)
+}
+
+// nexthopLookup resolves the default next hop for the family of an
+// unspecified address.
+type nexthopLookup func(unspec netip.Addr) (Nexthop, error)
+
+// setupAdvancedRoutingWith is setupAdvancedRouting with the default next hop
+// resolved by lookup.
+func (r *SysOps) setupAdvancedRoutingWith(lookup nexthopLookup) error {
 	// Drop any previously-cached egress interface before reinstalling. On a
 	// refresh, a family that no longer resolves would otherwise keep the stale
 	// binding, causing new sockets to scope to an interface without a matching
@@ -55,7 +65,7 @@ func (r *SysOps) setupAdvancedRouting() error {
 	installed := 0
 
 	for _, unspec := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
-		ok, err := r.installScopedDefaultFor(unspec)
+		ok, err := r.installScopedDefaultFor(unspec, lookup)
 		if err != nil {
 			merr = multierror.Append(merr, err)
 			continue
@@ -77,8 +87,8 @@ func (r *SysOps) setupAdvancedRouting() error {
 // installScopedDefaultFor resolves the physical default nexthop for the given
 // address family, installs a scoped default via it, and caches the iface for
 // subsequent IP_BOUND_IF / IPV6_BOUND_IF socket binds.
-func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
-	nexthop, err := GetNextHop(unspec)
+func (r *SysOps) installScopedDefaultFor(unspec netip.Addr, lookup nexthopLookup) (bool, error) {
+	nexthop, err := lookup(unspec)
 	if err != nil {
 		if errors.Is(err, vars.ErrRouteNotFound) {
 			return false, nil
