@@ -207,17 +207,21 @@ func (h *Handshaker) handleRemoteAnswer(remoteOfferAnswer OfferAnswer) {
 // The re-offer reuses our stable ICE session id, so the peer dedups repeats.
 //
 // Returns true when the caller must not answer the peer's offer: either a re-offer went
-// out, or our own KEM offer is already in flight (an offer glare). In the glare the
-// peer's credentials reach us in its answer to our offer, and a KEM-less answer from us
-// could let the peer bring WireGuard up before it reads our offer, on no PSK at all.
-// Otherwise, as for a non-capable peer, it returns false and the caller answers normally:
-// dropping the offer then would lose the only copy of the peer's ICE and relay details.
+// out, or our own KEM offer is already in flight (an offer glare). In the glare we send
+// that same offer again instead of answering: a KEM-less answer could let the peer bring
+// WireGuard up before it reads our offer, on no PSK at all. Resending covers an earlier
+// send that failed after the exchange was installed, and the peer answers a duplicate
+// from its cache. Otherwise, as for a non-capable peer, it returns false and the caller
+// answers normally: the peer's offer is then the only copy of its ICE and relay details.
 func (h *Handshaker) pqControllerReoffer() bool {
 	if h.config.PQ == nil || !isController(h.config) {
 		return false
 	}
 	if h.config.PQ.SignalOfferInFlight(h.config.Key) {
-		h.log.Debugf("pqkem: controller received a responder offer while its own KEM offer is in flight, leaving it unanswered")
+		h.log.Debugf("pqkem: controller received a responder offer while its own KEM offer is in flight, resending that offer instead of answering")
+		if err := h.sendOffer(); err != nil {
+			h.log.Errorf("failed to resend KEM offer during an offer glare: %s", err)
+		}
 		return true
 	}
 	if !h.config.PQ.ShouldSendBootstrapOffer(h.config.Key) {

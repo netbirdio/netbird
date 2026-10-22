@@ -64,18 +64,19 @@ func TestHandshaker_ControllerReoffersOnResponderOffer(t *testing.T) {
 		"the controller must reply with its own offer, not an answer")
 }
 
-// TestHandshaker_ControllerIgnoresResponderOfferInGlare covers an offer glare: the
-// controller's KEM offer and the responder's KEM-less offer cross. The controller must leave
-// the responder's offer unanswered. A KEM-less answer could reach the responder before the
-// KEM offer and let it bring WireGuard up with no PSK.
-func TestHandshaker_ControllerIgnoresResponderOfferInGlare(t *testing.T) {
+// TestHandshaker_ControllerResendsOfferInGlare covers an offer glare: the controller's KEM
+// offer and the responder's KEM-less offer cross. The controller must not answer: a
+// KEM-less answer could reach the responder before the KEM offer and let it bring WireGuard
+// up with no PSK. It sends its in-flight offer again instead, in case the first send failed.
+func TestHandshaker_ControllerResendsOfferInGlare(t *testing.T) {
 	h, sent := newControllerHandshaker(t, bootstrapPQ{inFlight: true})
 	notified := false
 	h.AddICEListener(func(*OfferAnswer) { notified = true }) // called synchronously
 
 	h.handleRemoteOffer(OfferAnswer{IceCredentials: IceCredentials{UFrag: "ufrag", Pwd: "pwd"}})
 
-	assert.Empty(t, sent(), "in a glare the controller must send neither an answer nor a second offer")
+	assert.Equal(t, []sProto.Body_Type{sProto.Body_OFFER}, sent(),
+		"in a glare the controller must resend its offer, not answer")
 	assert.False(t, notified, "in a glare the controller must not bring the connection up from the responder's offer")
 }
 
