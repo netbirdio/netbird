@@ -61,8 +61,8 @@ var testActions = map[networkmonitor.ChangeKind]underlayAction{
 }
 
 // Offline then back on the same network: going offline swept the control
-// connections, so their return must be watched even though the snapshot did
-// not move.
+// connections and P2P paths may have died meanwhile, so the return is handled
+// as a redial even though the snapshot did not move.
 func TestUnderlayLoopWatchesTheReturnFromOffline(t *testing.T) {
 	home := snapshot("192.168.1.1")
 	mgr := netevents.NewManager(peer.NewRecorder(""))
@@ -73,6 +73,7 @@ func TestUnderlayLoopWatchesTheReturnFromOffline(t *testing.T) {
 
 	require.Len(t, r.baselines, 3, "listen rounds")
 	assert.Equal(t, home, r.baselines[1], "offline keeps the pre-loss snapshot as the baseline")
+	assert.Equal(t, 1, r.redialed, "peers on paths that died while offline are moved, as on any redial")
 	assert.Equal(t, 1, r.armed, "the safety net watches the return from offline")
 	assert.Equal(t, 0, r.restarted, "no restart")
 	assert.True(t, mgr.IsOnline(), "the manager is back online")

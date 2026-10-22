@@ -94,6 +94,11 @@ func (l *underlayLoop) run(ctx context.Context) {
 		l.availability.set(action != actionWait)
 		returning := offline && action != actionWait
 		offline = action == actionWait
+		// Going offline swept the control connections and P2P paths may have
+		// died meanwhile: coming back is a redial even on the same network.
+		if returning && action == actionNone {
+			action = actionRedial
+		}
 		switch action {
 		case actionWait:
 			log.Infof("Network monitor: no default route left, waiting for the network to come back")
@@ -104,11 +109,6 @@ func (l *underlayLoop) run(ctx context.Context) {
 			continue
 		case actionNone:
 			log.Infof("Network monitor: route event without any underlay change, nothing to do")
-			// Going offline swept the control connections: watch them come
-			// back even though the network is the one from before.
-			if returning {
-				l.armWatch()
-			}
 			baseline = change.After
 			continue
 		case actionRedial:
