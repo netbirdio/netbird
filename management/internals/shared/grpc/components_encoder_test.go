@@ -717,6 +717,7 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	// nil Components → minimal envelope, no crash. Matches the legacy
 	// behaviour for missing/unvalidated peers.
 	env := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+		Peer:       &nmdata.Peer{ID: "missing-peer", SSHKey: "missing-peer-key"},
 		Components: emptyNetworkMapComponents(),
 		DNSDomain:  "netbird.cloud",
 	})
@@ -731,6 +732,8 @@ func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	require.NotNil(t, full.Network, "client runs Calculate() over the envelope and dereferences Network unconditionally; a nil here would crash the receiver")
 	assert.Equal(t, "net-empty", full.Network.Identifier)
 	assert.Equal(t, uint64(9), full.Serial)
+	assert.Len(t, env.GetFull().Peers, 1)
+	assert.Equal(t, string(env.GetFull().Peers[0].SshPubKey), "missing-peer-key")
 }
 
 func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {

@@ -55,6 +55,7 @@ func ToComponentSyncResponse(
 	}
 
 	envelope := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+		Peer:             peer,
 		Components:       components,
 		PeerConfig:       peerConfig,
 		DNSDomain:        dnsName,

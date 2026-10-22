@@ -20,6 +20,7 @@ const wgKeyRawLen = 32
 // computed alongside the components in the network_map controller and reused
 // from the legacy proto path) and the dns_domain string.
 type ComponentsEnvelopeInput struct {
+	Peer             *nmdata.Peer // only used when encoding "empty" component maps
 	Components       *types.NetworkMapComponents
 	PeerConfig       *proto.PeerConfig
 	DNSDomain        string
@@ -59,8 +60,8 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 					Serial:     networkSerial(c.Network),
 					Network:    toAccountNetwork(c.Network),
 					PeerConfig: in.PeerConfig,
-					// components.Peers always contains the target peer
-					Peers:            []*proto.PeerCompact{toPeerCompact(c.Peers[c.PeerID])},
+					// components.Peers may not contain the target peer
+					Peers:            []*proto.PeerCompact{toPeerCompact(in.Peer)},
 					DnsDomain:        in.DNSDomain,
 					DnsForwarderPort: in.DNSForwarderPort,
 					UserIdClaim:      in.UserIDClaim,
