@@ -91,7 +91,8 @@ type Server struct {
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
 
-	geo geolocation.Geolocation
+	geo                    geolocation.Geolocation
+	countryPrefixesLimiter countryPrefixesLimiter
 }
 
 // NewServer creates a new Management server

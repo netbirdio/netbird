@@ -43,7 +43,9 @@ type DefaultManager struct {
 	previousConfigHash uint64
 	hasAppliedConfig   bool
 	countryPrefixes    common.CountryPrefixesFunc
-	mutex              sync.Mutex
+	// unfilledCountryRules are country route rules whose set could not be filled yet.
+	unfilledCountryRules map[id.RuleID]struct{}
+	mutex                sync.Mutex
 }
 
 // peerRuleGroup collapses a set of single-source FirewallRules sharing
@@ -78,9 +80,10 @@ type peerRuleKey struct {
 
 func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 	return &DefaultManager{
-		firewall:       fm,
-		peerRulesPairs: make(map[id.RuleID][]firewall.Rule),
-		routeRules:     make(map[id.RuleID]firewall.Rule),
+		firewall:             fm,
+		peerRulesPairs:       make(map[id.RuleID][]firewall.Rule),
+		routeRules:           make(map[id.RuleID]firewall.Rule),
+		unfilledCountryRules: make(map[id.RuleID]struct{}),
 	}
 }
 
@@ -375,16 +378,14 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dyn
 			continue
 		}
 
-		_, applied := d.routeRules[addedRule.ID()]
-		_, seen := newRouteRules[addedRule.ID()]
-		if len(rule.Countries) > 0 && !applied && !seen {
+		if d.needsCountryFill(rule, addedRule.ID(), newRouteRules) {
 			if err := d.fillCountrySet(rule, countryPrefixes); err != nil {
-				// Drop the rule so the next update creates and fills it again.
-				if delErr := d.firewall.DeleteFilterRule(addedRule); delErr != nil {
-					log.Warnf("failed to delete country route rule: %v", delErr)
-				}
+				// The rule stays tracked; with its set not filled it matches nothing until the
+				// next update fills it.
+				d.unfilledCountryRules[addedRule.ID()] = struct{}{}
 				merr = multierror.Append(merr, fmt.Errorf("fill country set: %w", err))
-				continue
+			} else {
+				delete(d.unfilledCountryRules, addedRule.ID())
 			}
 		}
 		newRouteRules[addedRule.ID()] = addedRule
@@ -403,7 +404,26 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dyn
 	}
 
 	d.routeRules = newRouteRules
+	for ruleID := range d.unfilledCountryRules {
+		if _, exists := newRouteRules[ruleID]; !exists {
+			delete(d.unfilledCountryRules, ruleID)
+		}
+	}
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// needsCountryFill reports whether a country rule's set still has to be filled: the rule is new
+// in the firewall, or an earlier fill failed. A rule repeated within one update is filled once.
+func (d *DefaultManager) needsCountryFill(rule *mgmProto.RouteFirewallRule, ruleID id.RuleID, thisUpdate map[id.RuleID]firewall.Rule) bool {
+	if len(rule.Countries) == 0 {
+		return false
+	}
+	if _, seen := thisUpdate[ruleID]; seen {
+		return false
+	}
+	_, applied := d.routeRules[ruleID]
+	_, unfilled := d.unfilledCountryRules[ruleID]
+	return !applied || unfilled
 }
 
 func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule, dynamicResolver bool) (firewall.Rule, error) {

@@ -104,7 +104,8 @@ type Route struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
 	PublicID  string `json:"-" gorm:"index"`
-	// Network, Domains and Countries (ISO 3166-1 alpha-2 codes) are mutually exclusive
+	// The destination is Network, Domains or Countries (ISO 3166-1 alpha-2 codes). Domain and
+	// country routes keep a placeholder in Network.
 	Network             netip.Prefix `gorm:"serializer:json"`
 	Domains             domain.List  `gorm:"serializer:json"`
 	Countries           []string     `gorm:"serializer:json"`
