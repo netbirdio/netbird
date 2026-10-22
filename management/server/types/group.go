@@ -40,7 +40,7 @@ type Group struct {
 type GroupPeer struct {
 	AccountID string `gorm:"index"`
 	GroupID   string `gorm:"primaryKey"`
-	PeerID    string `gorm:"primaryKey"`
+	PeerID    string `gorm:"primaryKey;index:idx_group_peers_peer_id,option:CONCURRENTLY"`
 }
 
 func (g *Group) LoadGroupPeers() {

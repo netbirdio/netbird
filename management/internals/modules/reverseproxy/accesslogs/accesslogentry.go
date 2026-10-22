@@ -22,9 +22,9 @@ const (
 
 type AccessLogEntry struct {
 	ID              string        `gorm:"primaryKey"`
-	AccountID       string        `gorm:"index"`
+	AccountID       string        `gorm:"index;index:idx_access_log_entries_account_timestamp,priority:1,option:CONCURRENTLY"`
 	ServiceID       string        `gorm:"index"`
-	Timestamp       time.Time     `gorm:"index"`
+	Timestamp       time.Time     `gorm:"index;index:idx_access_log_entries_account_timestamp,priority:2"`
 	GeoLocation     peer.Location `gorm:"embedded;embeddedPrefix:location_"`
 	SubdivisionCode string
 	Method          string        `gorm:"index"`
