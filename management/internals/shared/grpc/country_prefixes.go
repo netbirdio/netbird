@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -18,19 +19,25 @@ import (
 )
 
 const (
-	// A peer fetches each country of a route once when it installs the route, from both the
-	// route handler and the route ACL, and a route has at most 32 countries. A response can hold
-	// hundreds of thousands of prefixes, so a peer gets that many fetches at once and few more.
-	countryPrefixesBurst       = 64
-	countryPrefixesInterval    = 2 * time.Second
+	// Installing a route fetches each of its countries once from the route handler and once from
+	// the route ACL. A budget per country lets a peer install routes for any number of countries
+	// at once, while fetching one country, up to hundreds of thousands of prefixes, stays limited.
+	countryPrefixesBurst       = 4
+	countryPrefixesInterval    = 30 * time.Second
 	countryPrefixesIdleTimeout = 10 * time.Minute
 )
 
-// countryPrefixesLimiter limits how often each peer can fetch country prefixes. The zero value
-// is ready to use.
+// countryPrefixesKey identifies the budget of one peer for one country.
+type countryPrefixesKey struct {
+	peer    wgtypes.Key
+	country string
+}
+
+// countryPrefixesLimiter limits how often each peer can fetch the prefixes of each country. The
+// zero value is ready to use.
 type countryPrefixesLimiter struct {
 	mu          sync.Mutex
-	peers       map[string]*countryPrefixesBudget
+	budgets     map[countryPrefixesKey]*countryPrefixesBudget
 	nextCleanup time.Time
 }
 
@@ -39,26 +46,26 @@ type countryPrefixesBudget struct {
 	lastUsed time.Time
 }
 
-func (l *countryPrefixesLimiter) allow(peerKey string, now time.Time) bool {
+func (l *countryPrefixesLimiter) allow(key countryPrefixesKey, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	if !now.Before(l.nextCleanup) {
-		for key, budget := range l.peers {
+		for k, budget := range l.budgets {
 			if now.Sub(budget.lastUsed) >= countryPrefixesIdleTimeout {
-				delete(l.peers, key)
+				delete(l.budgets, k)
 			}
 		}
 		l.nextCleanup = now.Add(countryPrefixesIdleTimeout)
 	}
 
-	budget := l.peers[peerKey]
+	budget := l.budgets[key]
 	if budget == nil {
-		if l.peers == nil {
-			l.peers = make(map[string]*countryPrefixesBudget)
+		if l.budgets == nil {
+			l.budgets = make(map[countryPrefixesKey]*countryPrefixesBudget)
 		}
 		budget = &countryPrefixesBudget{limiter: rate.NewLimiter(rate.Every(countryPrefixesInterval), countryPrefixesBurst)}
-		l.peers[peerKey] = budget
+		l.budgets[key] = budget
 	}
 	budget.lastUsed = now
 	return budget.limiter.AllowN(now, 1)
@@ -85,14 +92,15 @@ func (s *Server) GetCountryPrefixes(ctx context.Context, req *proto.EncryptedMes
 		return nil, status.Errorf(codes.Internal, "lookup peer")
 	}
 
-	// Checked after the peer lookup, so only registered peers get a budget.
-	if !s.countryPrefixesLimiter.allow(peerKey.String(), time.Now()) {
-		return nil, status.Errorf(codes.ResourceExhausted, "too many country prefix requests")
-	}
-
 	country := strings.ToUpper(countryReq.GetCountry())
 	if !geolocation.IsCountryCode(country) {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid country code %q", countryReq.GetCountry())
+	}
+
+	// Checked after the peer lookup and the code check, so only registered peers get budgets,
+	// and only for valid codes.
+	if !s.countryPrefixesLimiter.allow(countryPrefixesKey{peer: peerKey, country: country}, time.Now()) {
+		return nil, status.Errorf(codes.ResourceExhausted, "too many prefix requests for country %s", country)
 	}
 
 	if s.geo == nil {
