@@ -67,3 +67,29 @@ func TestManager_NoRebootstrapWhileExchangeInFlight(t *testing.T) {
 	assert.False(t, dB.ShouldSendBootstrapOffer("aaaa"),
 		"no second exchange while the controller's own offer awaits its answer")
 }
+
+// TestManager_SignalOfferInFlight: only our own bootstrap offer over signalling, still
+// awaiting its answer, makes a crossing responder offer a glare. A converged exchange, a
+// data-path rotation, or the responder role must not.
+func TestManager_SignalOfferInFlight(t *testing.T) {
+	dA, dB, _, _, _ := pair(t) // dB ("bbbb") initiator
+	defer dA.Stop()
+	defer dB.Stop()
+
+	assert.False(t, dB.SignalOfferInFlight("aaaa"), "no exchange yet: nothing in flight")
+
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+	assert.True(t, dB.SignalOfferInFlight("aaaa"), "our bootstrap offer awaits its answer")
+	assert.False(t, dA.SignalOfferInFlight("bbbb"), "the responder never has a signalling offer in flight")
+
+	answer, err := dA.SignalOnOffer("bbbb", offer)
+	require.NoError(t, err)
+	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
+	assert.False(t, dB.SignalOfferInFlight("aaaa"), "a converged exchange is not in flight")
+
+	_, err = dB.startExchangeTest("aaaa", false, ExchangeID{})
+	require.NoError(t, err)
+	assert.False(t, dB.SignalOfferInFlight("aaaa"), "a data-path rotation is not a signalling offer")
+}

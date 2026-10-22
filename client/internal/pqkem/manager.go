@@ -417,6 +417,19 @@ func (m *Manager) ShouldSendBootstrapOffer(remoteID RemoteID) bool {
 	return ex == nil || ex.state == stateAwaitingRekey
 }
 
+// SignalOfferInFlight reports whether we are the initiator and our bootstrap offer over
+// signalling still awaits its answer. A data-path rotation in flight does not count: no
+// offer of ours is crossing the peer's on the signalling channel then.
+func (m *Manager) SignalOfferInFlight(remoteID RemoteID) bool {
+	if !m.IsInitiator(remoteID) {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ex := m.exchanges[remoteID]
+	return ex != nil && ex.viaSignal && ex.state == stateAwaitingAnswer
+}
+
 // SignalOnOffer processes a KEM offer the host extracted from an incoming offer and
 // returns the KEM answer for the host to embed in its outgoing answer. Every failure
 // still returns an error marker: an empty answer means "this peer does not run the KEM"

@@ -187,6 +187,12 @@ func (p pqHandshaker) ShouldSendBootstrapOffer(remoteKey string) bool {
 	return p.mgr.ShouldSendBootstrapOffer(pqkem.RemoteID(remoteKey))
 }
 
+// SignalOfferInFlight reports whether our KEM offer over signalling to the peer still
+// awaits its answer.
+func (p pqHandshaker) SignalOfferInFlight(remoteKey string) bool {
+	return p.mgr.SignalOfferInFlight(pqkem.RemoteID(remoteKey))
+}
+
 // AnswerPayload processes a received KEM offer (nil when absent) and returns the KEM
 // answer to attach to the outgoing signalling answer, plus the data-path port to announce
 // (0 when on DefaultPort). An empty offer is treated as a capability signal.

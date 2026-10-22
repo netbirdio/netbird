@@ -14,13 +14,15 @@ import (
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 )
 
-// bootstrapPQ is a fakePQ whose controller decision is set by the test.
+// bootstrapPQ is a fakePQ whose controller decisions are set by the test.
 type bootstrapPQ struct {
 	fakePQ
 	bootstrap bool
+	inFlight  bool
 }
 
 func (b bootstrapPQ) ShouldSendBootstrapOffer(string) bool { return b.bootstrap }
+func (b bootstrapPQ) SignalOfferInFlight(string) bool      { return b.inFlight }
 
 // newControllerHandshaker builds a handshaker for the controller side of a peer pair and
 // records the type of every signalling message it sends.
@@ -62,13 +64,28 @@ func TestHandshaker_ControllerReoffersOnResponderOffer(t *testing.T) {
 		"the controller must reply with its own offer, not an answer")
 }
 
-// TestHandshaker_ControllerAnswersWhileExchangeInFlight keeps the glare protection: with
-// the controller's own exchange in flight, the responder's offer gets a normal answer.
-func TestHandshaker_ControllerAnswersWhileExchangeInFlight(t *testing.T) {
-	h, sent := newControllerHandshaker(t, bootstrapPQ{bootstrap: false})
+// TestHandshaker_ControllerIgnoresResponderOfferInGlare covers an offer glare: the
+// controller's KEM offer and the responder's KEM-less offer cross. The controller must leave
+// the responder's offer unanswered. A KEM-less answer could reach the responder before the
+// KEM offer and let it bring WireGuard up with no PSK.
+func TestHandshaker_ControllerIgnoresResponderOfferInGlare(t *testing.T) {
+	h, sent := newControllerHandshaker(t, bootstrapPQ{inFlight: true})
+	notified := false
+	h.AddICEListener(func(*OfferAnswer) { notified = true }) // called synchronously
+
+	h.handleRemoteOffer(OfferAnswer{IceCredentials: IceCredentials{UFrag: "ufrag", Pwd: "pwd"}})
+
+	assert.Empty(t, sent(), "in a glare the controller must send neither an answer nor a second offer")
+	assert.False(t, notified, "in a glare the controller must not bring the connection up from the responder's offer")
+}
+
+// TestHandshaker_ControllerAnswersNonCapablePeer keeps the normal answer when there is no
+// KEM to run with the peer: its offer is then the only copy of its connection details.
+func TestHandshaker_ControllerAnswersNonCapablePeer(t *testing.T) {
+	h, sent := newControllerHandshaker(t, bootstrapPQ{})
 
 	h.handleRemoteOffer(OfferAnswer{})
 
 	assert.Equal(t, []sProto.Body_Type{sProto.Body_ANSWER}, sent(),
-		"with an exchange in flight the controller must answer normally")
+		"without a KEM to run the controller must answer normally")
 }

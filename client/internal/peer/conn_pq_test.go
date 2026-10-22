@@ -25,6 +25,7 @@ type fakePQ struct {
 
 func (f fakePQ) OfferPayload(string) ([]byte, uint16)          { return nil, 0 }
 func (f fakePQ) ShouldSendBootstrapOffer(string) bool          { return false }
+func (f fakePQ) SignalOfferInFlight(string) bool               { return false }
 func (f fakePQ) AnswerPayload(string, []byte) ([]byte, uint16) { return nil, 0 }
 func (f fakePQ) OnAnswer(string, []byte)                       {}
 func (f fakePQ) PSK(string) (wgtypes.Key, bool)                { return f.psk, f.ok }

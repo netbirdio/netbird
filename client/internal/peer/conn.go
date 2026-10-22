@@ -89,6 +89,9 @@ type PQHandshaker interface {
 	// received responder offer with our own KEM offer (true unless an exchange of ours is
 	// already in flight, so we kick the KEM once and ignore further offers meanwhile).
 	ShouldSendBootstrapOffer(remoteKey string) bool
+	// SignalOfferInFlight reports whether, as the controller, our KEM offer over
+	// signalling is still waiting for its answer, so a crossing responder offer is a glare.
+	SignalOfferInFlight(remoteKey string) bool
 	// AnswerPayload processes a received KEM offer (nil if absent) and returns the KEM
 	// answer to embed in the outgoing answer (nil if none) and the local PQ port.
 	AnswerPayload(remoteKey string, recvOffer []byte) (payload []byte, port uint16)
