@@ -2483,58 +2483,27 @@ func (e *Engine) startNetworkMonitor() {
 	}
 
 	e.networkMonitor = networkmonitor.New()
+	var watch recoveryWatch
+	loop := underlayLoop{
+		listen: e.networkMonitor.Listen,
+		decide: func(change networkmonitor.Change) underlayAction {
+			return decideUnderlayAction(change, e.netMgr != nil)
+		},
+		redial:  e.redialOnUnderlayChange,
+		restart: e.triggerClientRestart,
+		armWatch: func() {
+			watchCtx := watch.replace(e.ctx)
+			e.shutdownWg.Add(1)
+			go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
+		},
+		stopWatch:    watch.stop,
+		availability: networkAvailability{mgr: e.netMgr},
+	}
 	e.shutdownWg.Add(1)
-	go func(monitor *networkmonitor.NetworkMonitor) {
+	go func() {
 		defer e.shutdownWg.Done()
-		var watch recoveryWatch
-		defer watch.stop()
-		// The manager outlives this engine: never leave it offline.
-		availability := networkAvailability{mgr: e.netMgr}
-		defer availability.set(true)
-		// baseline is the last snapshot with a default route; it survives an
-		// offline spell so the change is measured against the network before it.
-		var baseline networkmonitor.NextHops
-		for {
-			change, err := monitor.Listen(e.ctx, baseline)
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					log.Infof("network monitor stopped")
-					return
-				}
-				log.Errorf("network monitor error: %v", err)
-				return
-			}
-
-			action := decideUnderlayAction(change, e.netMgr != nil)
-			availability.set(action != actionWait)
-			switch action {
-			case actionWait:
-				log.Infof("Network monitor: no default route left, waiting for the network to come back")
-				// Offline the control plane cannot come back: a running safety
-				// net would restart into the leak. The next redial arms a new one.
-				watch.stop()
-				baseline = change.Before
-				continue
-			case actionNone:
-				log.Infof("Network monitor: route event without any underlay change, nothing to do")
-				baseline = change.After
-				continue
-			case actionRedial:
-				if !e.redialOnUnderlayChange(change) {
-					break
-				}
-				watchCtx := watch.replace(e.ctx)
-				e.shutdownWg.Add(1)
-				go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
-				baseline = change.After
-				continue
-			}
-
-			log.Infof("Network monitor: detected network change (%s), triggering client restart", change.Kind)
-			e.triggerClientRestart()
-			return
-		}
-	}(e.networkMonitor)
+		loop.run(e.ctx)
+	}()
 }
 
 func (e *Engine) stopDNSServer() {

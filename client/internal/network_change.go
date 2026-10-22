@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"os"
@@ -56,6 +57,66 @@ const (
 	// to the safety net of the next redial.
 	actionNone
 )
+
+// underlayLoop turns the network monitor's changes into engine actions. Its
+// steps are injected so the sequence can be tested without an engine; all of
+// them run on the loop's goroutine.
+type underlayLoop struct {
+	listen       func(context.Context, networkmonitor.NextHops) (networkmonitor.Change, error)
+	decide       func(networkmonitor.Change) underlayAction
+	redial       func(networkmonitor.Change) bool
+	restart      func()
+	armWatch     func()
+	stopWatch    func()
+	availability networkAvailability
+}
+
+func (l *underlayLoop) run(ctx context.Context) {
+	defer l.stopWatch()
+	// The manager outlives this engine: never leave it offline.
+	defer l.availability.set(true)
+	// baseline is the last snapshot with a default route; it survives an
+	// offline spell so the change is measured against the network before it.
+	var baseline networkmonitor.NextHops
+	for {
+		change, err := l.listen(ctx, baseline)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Infof("network monitor stopped")
+				return
+			}
+			log.Errorf("network monitor error: %v", err)
+			return
+		}
+
+		action := l.decide(change)
+		l.availability.set(action != actionWait)
+		switch action {
+		case actionWait:
+			log.Infof("Network monitor: no default route left, waiting for the network to come back")
+			// Offline the control plane cannot come back: a running safety
+			// net would restart into the leak. The next redial arms a new one.
+			l.stopWatch()
+			baseline = change.Before
+			continue
+		case actionNone:
+			log.Infof("Network monitor: route event without any underlay change, nothing to do")
+			baseline = change.After
+			continue
+		case actionRedial:
+			if !l.redial(change) {
+				break
+			}
+			l.armWatch()
+			baseline = change.After
+			continue
+		}
+
+		log.Infof("Network monitor: detected network change (%s), triggering client restart", change.Kind)
+		l.restart()
+		return
+	}
+}
 
 // networkAvailability reports the network state to the netevents manager on
 // desktop, where no OS callback does it: offline holds the reconnect loops
