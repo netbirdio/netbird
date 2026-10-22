@@ -131,11 +131,17 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr, lookup nexthopLookup
 // refreshUnderlay reinstalls the scoped default and the cached egress
 // interface for the current physical default. setupAdvancedRouting already
 // clears the old cache and scoped defaults before installing new ones.
+//
+// Unlike engine start, a refresh runs with the NetBird routes in place: with
+// an exit node the plain lookup resolves 0/1 on the NetBird interface and
+// would bind NetBird's own traffic to the tunnel.
 func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
 	if !advancedRouting {
 		return nil
 	}
-	return r.setupAdvancedRouting()
+	return r.setupAdvancedRoutingWith(func(unspec netip.Addr) (Nexthop, error) {
+		return GetUnderlayNextHop(unspec, nbnet.GetVPNInterfaceName())
+	})
 }
 
 func (r *SysOps) cleanupAdvancedRouting() error {
