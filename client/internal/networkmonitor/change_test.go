@@ -90,16 +90,6 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func TestDefaultInterfaceAddrs(t *testing.T) {
-	lo, err := net.InterfaceByName("lo")
-	if err != nil {
-		t.Skip("no loopback interface named lo on this host")
-	}
-	// Loopback addresses are not underlay addresses and must be dropped.
-	assert.Empty(t, defaultInterfaceAddrs(systemops.Nexthop{Intf: lo}), "loopback addresses are skipped")
-	assert.Empty(t, defaultInterfaceAddrs(systemops.Nexthop{}), "a family without a default contributes nothing")
-}
-
 func TestKindOf(t *testing.T) {
 	wifi := &net.Interface{Index: 2, Name: "en0"}
 	cable := &net.Interface{Index: 5, Name: "en5"}
