@@ -115,6 +115,9 @@ func TestNetworkMonitor_WakeUp(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}
+	if current, err := readSnapshot(); err != nil || !current.HasDefault() {
+		t.Skip("this host has no default route to listen on")
+	}
 	nw := New()
 	defer nw.Stop()
 

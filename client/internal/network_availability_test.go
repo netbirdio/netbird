@@ -10,9 +10,8 @@ import (
 )
 
 // On desktop the engine is the only source of the network state: offline
-// must reach the manager, and it must come back online whenever the network
-// returns or the monitor stops, or the daemon-wide manager would keep every
-// later connection attempt waiting for a network that never gets reported.
+// must reach the manager, and the network coming back must too. The monitor
+// stopping while offline is covered by the loop tests.
 func TestNetworkAvailability(t *testing.T) {
 	mgr := netevents.NewManager(peer.NewRecorder(""))
 	a := networkAvailability{mgr: mgr}
@@ -22,10 +21,6 @@ func TestNetworkAvailability(t *testing.T) {
 
 	a.set(true)
 	assert.True(t, mgr.IsOnline(), "the network coming back reaches the manager")
-
-	a.set(false)
-	a.set(true) // what the monitor loop does on its way out
-	assert.True(t, mgr.IsOnline(), "the manager is left online when the monitor stops")
 }
 
 func TestNetworkAvailabilityWithoutManager(t *testing.T) {

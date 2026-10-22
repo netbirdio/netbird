@@ -31,6 +31,7 @@ func TestICEBind_MuxSurvivesRebind(t *testing.T) {
 	assert.Same(t, before, after, "the mux handed out before the rebind must stay the one in use")
 
 	listener := listenUDP(t, "udp4", "127.0.0.1:0")
+	t.Cleanup(func() { _ = listener.Close() })
 	_, err = before.GetSharedConn().WriteTo([]byte("probe"), listener.LocalAddr())
 	require.NoError(t, err, "the mux taken before the rebind must write on the new socket")
 

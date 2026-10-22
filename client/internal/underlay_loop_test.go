@@ -79,6 +79,15 @@ func TestUnderlayLoopWatchesTheReturnFromOffline(t *testing.T) {
 	assert.True(t, mgr.IsOnline(), "the manager is back online")
 }
 
+// The engine stops while offline: the daemon-wide manager must not be left
+// offline, or every later connection attempt would wait for a network that
+// never gets reported.
+func TestUnderlayLoopLeavesTheManagerOnlineWhenStoppedOffline(t *testing.T) {
+	mgr := netevents.NewManager(peer.NewRecorder(""))
+	runLoop(t, mgr, []networkmonitor.Change{{Kind: networkmonitor.ChangeOffline, Before: snapshot("192.168.1.1")}}, testActions)
+	assert.True(t, mgr.IsOnline(), "the manager is back online once the loop ends")
+}
+
 func TestUnderlayLoopSequences(t *testing.T) {
 	home, cafe := snapshot("192.168.1.1"), snapshot("10.0.0.1")
 

@@ -40,14 +40,16 @@ func TestCanHandleWithoutRestart(t *testing.T) {
 }
 
 func TestDecideUnderlayAction(t *testing.T) {
+	// The restart cases hold with any routing mode.
+	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeWake}, true), "a wake-up keeps the restart")
+	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, false), "without netevents everything restarts")
+
 	if !nbnet.AdvancedRouting() {
 		t.Skip("the redial path is not available with legacy routing")
 	}
 	assert.Equal(t, actionWait, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, true), "losing the network waits for it to come back")
 	assert.Equal(t, actionRedial, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeInterface}, true), "a moved default redials")
 	assert.Equal(t, actionNone, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeNone}, true), "an unchanged underlay does nothing")
-	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeWake}, true), "a wake-up keeps the restart")
-	assert.Equal(t, actionRestart, decideUnderlayAction(networkmonitor.Change{Kind: networkmonitor.ChangeOffline}, false), "without netevents everything restarts")
 }
 
 func TestCanHandleWithoutRestart_DisabledByEnv(t *testing.T) {

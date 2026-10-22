@@ -24,6 +24,7 @@ func TestP2PPathLost(t *testing.T) {
 		// stays connected: the direct path keeps working.
 		{name: "host candidate whose address is still on the host", candType: "host", endpoint: "10.132.0.3:51820", want: false},
 		{name: "host candidate on IPv6 still on the host", candType: "host", endpoint: "[2001:db8::7]:51820", want: false},
+		{name: "IPv4-mapped host candidate still on the host", candType: "host", endpoint: "[::ffff:10.132.0.3]:51820", want: false},
 		// Wi-Fi off or a new DHCP lease: the local end of the path is gone.
 		{name: "host candidate whose address is gone", candType: "host", endpoint: "192.168.1.20:51820", want: true},
 		// Behind NAT or TURN the path depends on the old network's mapping.
