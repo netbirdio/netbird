@@ -220,6 +220,9 @@ type Engine struct {
 	// pqkemManager runs the ML-KEM post-quantum PSK exchange (gated by NB_ENABLE_PQ_MLKEM).
 	// It owns the data-path transport and peer endpoint routing.
 	pqkemManager *pqkem.Manager
+	// pqPSKReapplier restores the latest PQ PSK after a conn configures WireGuard with a
+	// stale one. Set together with pqkemManager.
+	pqPSKReapplier *pqPSKReapplier
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -606,10 +609,11 @@ func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
 		log.Errorf("pqkem: transport bind failed, exchange disabled: %v", err)
 		return nil
 	}
+	applied := newAppliedGenerations()
 	cbHandler := pqCallbackHandler{
 		wg:      e.wgInterface,
 		status:  e.statusRecorder,
-		applied: newAppliedGenerations(),
+		applied: applied,
 		// On a persistent rekey failure, re-bootstrap the KEM over Signal: a fresh
 		// signalling offer starts a new exchange that overwrites the stalled PSK on both
 		// sides, recovering from a data-path desync.
@@ -626,6 +630,8 @@ func (e *Engine) startPQKEMManager(publicKey wgtypes.Key) error {
 		opts = append(opts, pqkem.WithPresharedSecret(e.config.PreSharedKey[:]))
 	}
 	e.pqkemManager = pqkem.NewManager(pqkem.LocalID(publicKey.String()), cbHandler, pqkem.NewLogger(), opts...)
+	// Shares the apply lock with the rotation push, so a reapply and a push are ordered.
+	e.pqPSKReapplier = &pqPSKReapplier{psks: e.pqkemManager, wg: e.wgInterface, applied: applied}
 	e.pqkemManager.Start(tr)
 	log.Infof("pqkem: enabled (udp port %d on overlay %s)", e.pqkemManager.LocalPort(), e.config.WgAddr.IP)
 	return nil
@@ -2095,7 +2101,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		NetMgr:    e.netMgr,
 	}
 	if e.pqkemManager != nil {
-		config.PQ = pqHandshaker{mgr: e.pqkemManager}
+		config.PQ = pqHandshaker{mgr: e.pqkemManager, reapplier: e.pqPSKReapplier}
 		config.PQStrict = pqkem.Strict()
 	}
 

@@ -28,6 +28,7 @@ func (f fakePQ) ShouldSendBootstrapOffer(string) bool          { return false }
 func (f fakePQ) AnswerPayload(string, []byte) ([]byte, uint16) { return nil, 0 }
 func (f fakePQ) OnAnswer(string, []byte)                       {}
 func (f fakePQ) PSK(string) (wgtypes.Key, bool)                { return f.psk, f.ok }
+func (f fakePQ) ReapplyPSK(string, *wgtypes.Key)               {}
 func (f fakePQ) SetRemoteAddr(string, netip.AddrPort)          {}
 func (f fakePQ) OnDataPathRekeyed(string, time.Duration)       {}
 func (f fakePQ) OnDataPathDown(string)                         {}

@@ -39,6 +39,43 @@ func (a *appliedGenerations) apply(peer string, gen uint64, set func() error) (b
 	return true, set()
 }
 
+// locked runs fn under the apply lock, so it is ordered with every PSK push.
+func (a *appliedGenerations) locked(fn func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	fn()
+}
+
+// pqPSKSource is the subset of the ML-KEM manager the reapply needs. *pqkem.Manager
+// satisfies it.
+type pqPSKSource interface {
+	PSK(remoteID pqkem.RemoteID) (pqkem.PSK, bool)
+}
+
+// pqPSKReapplier programs the latest PQ PSK again after a WireGuard configure that may
+// have used a stale one. The conn reads the PSK before configuring, and a rotation that
+// commits in between pushes its key first, which the configure then overwrites.
+type pqPSKReapplier struct {
+	psks    pqPSKSource
+	wg      pqPresharedKeySetter
+	applied *appliedGenerations
+}
+
+// reapply reads the latest PSK under the apply lock: a push already done is visible in
+// it, and a later push of a newer key runs after this one and wins.
+func (r *pqPSKReapplier) reapply(peer string, programmed *wgtypes.Key) {
+	r.applied.locked(func() {
+		psk, ok := r.psks.PSK(pqkem.RemoteID(peer))
+		if !ok || (programmed != nil && wgtypes.Key(psk) == *programmed) {
+			return
+		}
+		log.Debugf("pqkem: reprogramming the latest PSK for peer %s after a stale configure", peer)
+		if err := r.wg.SetPresharedKey(peer, wgtypes.Key(psk), true); err != nil {
+			log.Warnf("pqkem: reprogram PSK for peer %s: %v", peer, err)
+		}
+	})
+}
+
 // pqPresharedKeySetter is the subset of the WireGuard interface the ML-KEM callback
 // needs: programming a peer's preshared key. *iface.WGIface satisfies it.
 type pqPresharedKeySetter interface {
@@ -119,6 +156,8 @@ func (h pqCallbackHandler) OnRekeyFailed(remoteID pqkem.RemoteID) error {
 // wiring the host's signalling offers/answers to the KEM exchange.
 type pqHandshaker struct {
 	mgr *pqkem.Manager
+	// reapplier restores the latest PSK after a stale WireGuard configure. Nil disables it.
+	reapplier *pqPSKReapplier
 }
 
 // announcedPort is the PQ data-path port to advertise to peers. It is omitted (0) when
@@ -196,6 +235,14 @@ func (p pqHandshaker) PSK(remoteKey string) (wgtypes.Key, bool) {
 		return wgtypes.Key{}, false
 	}
 	return wgtypes.Key(psk), true
+}
+
+// ReapplyPSK programs the peer's latest PSK again when the conn configured WireGuard with
+// a different one.
+func (p pqHandshaker) ReapplyPSK(remoteKey string, programmed *wgtypes.Key) {
+	if p.reapplier != nil {
+		p.reapplier.reapply(remoteKey, programmed)
+	}
 }
 
 // SetRemoteAddr registers the peer's data-path endpoint learned from signalling. A

@@ -161,3 +161,94 @@ func TestPQCallbackHandler_AppliesGenerationsInOrder(t *testing.T) {
 	defer setter.mu.Unlock()
 	assert.Equal(t, wgtypes.Key(newer), setter.last, "WireGuard must keep the newest generation's PSK")
 }
+
+// fakePSKSource returns a fixed PSK for every peer.
+type fakePSKSource struct {
+	psk pqkem.PSK
+	ok  bool
+}
+
+func (f fakePSKSource) PSK(pqkem.RemoteID) (pqkem.PSK, bool) { return f.psk, f.ok }
+
+// recordingPSKSetter records the last key programmed.
+type recordingPSKSetter struct {
+	calls int
+	last  wgtypes.Key
+}
+
+func (r *recordingPSKSetter) SetPresharedKey(_ string, psk wgtypes.Key, _ bool) error {
+	r.calls++
+	r.last = psk
+	return nil
+}
+
+// TestPQPSKReapplier_RestoresRotatedKey reproduces a configure that read the PSK before a
+// rotation committed: WireGuard was configured with the old key while the manager already
+// holds the new one, and the push of the new key was overwritten. The reapply must
+// program the new key again.
+func TestPQPSKReapplier_RestoresRotatedKey(t *testing.T) {
+	stale, latest := wgtypes.Key{1}, pqkem.PSK{2}
+	setter := &recordingPSKSetter{}
+	r := &pqPSKReapplier{psks: fakePSKSource{psk: latest, ok: true}, wg: setter, applied: newAppliedGenerations()}
+
+	r.reapply(pqTestPeerKey, &stale)
+
+	assert.Equal(t, 1, setter.calls, "a stale configure must be followed by one reprogram")
+	assert.Equal(t, wgtypes.Key(latest), setter.last, "WireGuard must end on the latest PSK")
+}
+
+// TestPQPSKReapplier_StrictSentinelReplaced covers strict mode: the configure programmed
+// the sentinel because no PSK existed yet, and the first PSK landed right after.
+func TestPQPSKReapplier_StrictSentinelReplaced(t *testing.T) {
+	sentinel, first := wgtypes.Key{9}, pqkem.PSK{3}
+	setter := &recordingPSKSetter{}
+	r := &pqPSKReapplier{psks: fakePSKSource{psk: first, ok: true}, wg: setter, applied: newAppliedGenerations()}
+
+	r.reapply(pqTestPeerKey, &sentinel)
+
+	assert.Equal(t, wgtypes.Key(first), setter.last, "the sentinel must be replaced by the first PQ PSK")
+}
+
+// TestPQPSKReapplier_NoWriteWhenCurrent: the common case, where the configure already used
+// the latest PSK or none exists yet, must not touch WireGuard.
+func TestPQPSKReapplier_NoWriteWhenCurrent(t *testing.T) {
+	current := pqkem.PSK{4}
+	programmed := wgtypes.Key(current)
+
+	setter := &recordingPSKSetter{}
+	r := &pqPSKReapplier{psks: fakePSKSource{psk: current, ok: true}, wg: setter, applied: newAppliedGenerations()}
+	r.reapply(pqTestPeerKey, &programmed)
+	assert.Zero(t, setter.calls, "a configure with the latest PSK needs no reprogram")
+
+	r = &pqPSKReapplier{psks: fakePSKSource{}, wg: setter, applied: newAppliedGenerations()}
+	r.reapply(pqTestPeerKey, nil)
+	assert.Zero(t, setter.calls, "with no PSK derived yet there is nothing to reprogram")
+}
+
+// lockCheckingSource records whether the apply lock was held when the PSK was read.
+type lockCheckingSource struct {
+	applied    *appliedGenerations
+	lockedRead bool
+}
+
+func (l *lockCheckingSource) PSK(pqkem.RemoteID) (pqkem.PSK, bool) {
+	if l.applied.mu.TryLock() {
+		l.applied.mu.Unlock()
+	} else {
+		l.lockedRead = true
+	}
+	return pqkem.PSK{5}, true
+}
+
+// TestPQPSKReapplier_ReadsUnderApplyLock checks the reapply reads the PSK while holding the
+// lock the rotation push takes. Reading it outside would let a push land between the read
+// and the write, and the reapply would restore the key it was meant to replace.
+func TestPQPSKReapplier_ReadsUnderApplyLock(t *testing.T) {
+	applied := newAppliedGenerations()
+	src := &lockCheckingSource{applied: applied}
+	r := &pqPSKReapplier{psks: src, wg: &recordingPSKSetter{}, applied: applied}
+
+	r.reapply(pqTestPeerKey, &wgtypes.Key{1})
+
+	assert.True(t, src.lockedRead, "the PSK must be read under the apply lock")
+}

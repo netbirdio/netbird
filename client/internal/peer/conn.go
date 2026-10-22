@@ -97,6 +97,10 @@ type PQHandshaker interface {
 	// PSK returns the peer's latest derived post-quantum PSK to program at WG
 	// peer-config time (the pull path). ok is false until one has been derived.
 	PSK(remoteKey string) (wgtypes.Key, bool)
+	// ReapplyPSK runs after the conn configured WireGuard with programmed, a PSK it read
+	// beforehand. A rotation committed in between was overwritten by that stale value, so
+	// the latest PSK is programmed again when it differs.
+	ReapplyPSK(remoteKey string, programmed *wgtypes.Key)
 	// SetRemoteAddr registers the peer's data-path endpoint learned from signalling:
 	// its WG overlay IP with the announced pq UDP port (port 0 means the peer omitted
 	// it and is on the default port).
@@ -538,6 +542,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		return
 	}
 	wgConfigWorkaround()
+	conn.reapplyPQPSK(presharedKey)
 
 	if conn.wgProxyRelay != nil {
 		conn.Log.Debugf("redirect packets from relayed conn to WireGuard")
@@ -585,6 +590,8 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey, pqPSK)
 		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
+		} else {
+			conn.reapplyPQPSK(presharedKey)
 		}
 
 		conn.currentConnPriority = conntype.Relay
@@ -664,7 +671,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 	updateTime := time.Now()
 	conn.enableWgWatcherIfNeeded(updateTime)
-	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey, pqPSK)); err != nil {
+	presharedKey := conn.presharedKey(rci.rosenpassPubKey, pqPSK)
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), presharedKey); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
@@ -676,6 +684,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	wgConfigWorkaround()
+	conn.reapplyPQPSK(presharedKey)
 
 	conn.injectPendingFirstPacket(wgProxy, nil)
 
@@ -1146,6 +1155,16 @@ func (conn *Conn) pqPSK() (*wgtypes.Key, bool) {
 		return nil, false
 	}
 	return &psk, true
+}
+
+// reapplyPQPSK restores the latest PQ PSK after a WireGuard configure that used
+// programmed. It runs under conn.mu; the lock order conn.mu -> PSK apply -> manager holds,
+// since neither of the other two calls back into Conn while locked.
+func (conn *Conn) reapplyPQPSK(programmed *wgtypes.Key) {
+	if conn.config.PQ == nil {
+		return
+	}
+	conn.config.PQ.ReapplyPSK(conn.config.Key, programmed)
 }
 
 // IdlePresharedKey is the preshared key an idle (lazy) WireGuard peer is installed with.
