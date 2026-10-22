@@ -1975,6 +1975,25 @@ func TestRequiresUsers(t *testing.T) {
 		}
 	})
 
+	t.Run("a proxy service reaching an ssh port counts", func(t *testing.T) {
+		proxy := newPeer("peer-proxy", 3)
+		proxy.ProxyMeta = nmdata.ProxyMeta{Embedded: true, Cluster: "cluster-1"}
+		nmd := newNMD(sshServer, plain, proxy)
+		nmd.Services = []*nmdata.Service{{
+			ID:           "svc-1",
+			Enabled:      true,
+			ProxyCluster: "cluster-1",
+			Targets: []*nmdata.ServiceTarget{{
+				Enabled:    true,
+				Port:       22,
+				TargetID:   sshServer.ID,
+				TargetType: string(nbtypes.ResourceTypePeer),
+			}},
+		}}
+
+		assert.True(t, nmd.RequiresUsers(sshServer.ID))
+	})
+
 	t.Run("other and disabled rules need no users", func(t *testing.T) {
 		disabled := rule(string(nbtypes.PolicyRuleProtocolNetbirdSSH))
 		disabled.Enabled = false

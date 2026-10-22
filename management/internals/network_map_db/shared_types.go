@@ -36,8 +36,9 @@ type PeerSelector func(rows *AccountRows) (PeerSelection, error)
 // PeerSelection is what a PeerSelector picks. Peers already read are not read
 // again.
 type PeerSelection struct {
-	// PeerIDs are the peers to read, unless AllPeers reads every peer.
-	PeerIDs  []string
+	// PeerIDs are the peers to read.
+	PeerIDs []string
+	// AllPeers reads every peer instead of PeerIDs.
 	AllPeers bool
 	// SkipUsers leaves AllowedUserIDs and GroupIDToUserIDs unread.
 	SkipUsers bool

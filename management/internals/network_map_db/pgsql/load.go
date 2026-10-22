@@ -64,7 +64,9 @@ func (p *PgStore) LoadAccount(ctx context.Context, accountID string, targets []s
 		rows.Peers = nil
 		queuePeers(batch, rows, "peers", GetPeersQuery, accountID)
 	default:
-		queuePeers(batch, rows, "peers by id", GetPeersByIDsQuery, accountID, rows.UnreadPeerIDs(selection.PeerIDs))
+		if unread := rows.UnreadPeerIDs(selection.PeerIDs); len(unread) > 0 {
+			queuePeers(batch, rows, "peers by id", GetPeersByIDsQuery, accountID, unread)
+		}
 		queueRows(batch, "peer versions", func(r pgx.Rows) (err error) {
 			rows.PeerVersions, err = collectPeerVersions(r)
 			return err

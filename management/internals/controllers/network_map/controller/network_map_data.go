@@ -76,10 +76,8 @@ func (c *Controller) getNetworkMapData(ctx context.Context, accountID string, se
 // policies carry no posture checks, so precomputing after the injection yields
 // the same validation as precomputing before it.
 //
-// Unless every peer is selected, only the peers the selected peers' components
-// can hold are read, as worked out by PeerClosure on the data read without peer
-// rows. A closure covering half of the account's largest group or more reads
-// every peer instead. The users are only read when a rule can ship them.
+// Unless every peer is selected, the selected peers are the targets of a
+// partial load, which reads what SelectPeers picks for them.
 func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string, selection peerSelection) (*accountNetworkMap, error) {
 	servicesCh := make(chan []*nmdata.Service, 1)
 	go func() { servicesCh <- c.proxyServicesFromRepo(ctx, accountID) }()
@@ -91,14 +89,7 @@ func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string, 
 		targets = maps.Keys(selection.peerIDs)
 		selectPeers = func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
 			nmd.Services = services()
-			load := networkmapdb.PeerSelection{SkipUsers: !nmd.RequiresUsers(targets...)}
-			closure, ok := nmd.PeerClosure(targets, closureLimit(nmd))
-			if !ok {
-				load.AllPeers = true
-				return load, nil
-			}
-			load.PeerIDs = maps.Keys(closure)
-			return load, nil
+			return SelectPeers(nmd, targets), nil
 		}
 	}
 
@@ -121,15 +112,26 @@ func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string, 
 	}, nil
 }
 
-// closureLimit is the closure size from which reading every peer is cheaper
-// than reading the closure: half of the account's largest group, which is
-// "All" and so holds every peer.
-func closureLimit(nmd *networkmap.NetworkMapData) int {
+// SelectPeers picks what a partial network-map data load reads for the target
+// peers: their closure, or every peer once the closure reaches half of the
+// account's largest group, which is "All" and so holds every peer; and the
+// users only when a rule can ship them to the targets. nmd holds the targets
+// and its Services must be set.
+func SelectPeers(nmd *networkmap.NetworkMapData, targets []string) networkmapdb.PeerSelection {
+	selection := networkmapdb.PeerSelection{SkipUsers: !nmd.RequiresUsers(targets...)}
+
 	largest := 0
 	for _, g := range nmd.Groups {
 		if g != nil {
 			largest = max(largest, len(g.Peers))
 		}
 	}
-	return max(largest/2, 1)
+
+	closure, ok := nmd.PeerClosure(targets, max(largest/2, 1))
+	if !ok {
+		selection.AllPeers = true
+		return selection
+	}
+	selection.PeerIDs = maps.Keys(closure)
+	return selection
 }

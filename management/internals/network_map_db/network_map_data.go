@@ -13,10 +13,10 @@ import (
 )
 
 // GetNetworkMapData loads the account's network-map data. A nil selectPeers
-// loads everything. Otherwise only the target peers, the embedded proxy peers
-// and what selectPeers picks are loaded: it receives the data with only those
-// two kinds of peers and without users, inside the load's snapshot.
-// PeerVersions always covers every peer of the account.
+// loads everything and ignores targets. Otherwise only the target peers, the
+// embedded proxy peers and what selectPeers picks are loaded: it receives the
+// data with only those two kinds of peers and without users, inside the
+// load's snapshot. PeerVersions always covers every peer of the account.
 func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string, targets []string, selectPeers func(nmd *networkmap.NetworkMapData) (PeerSelection, error)) (*networkmap.NetworkMapData, error) {
 	type extraSettingsResult struct {
 		settings *types.ExtraSettings
@@ -172,11 +172,13 @@ func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID st
 			return nil, fmt.Errorf("get peers: %w", err)
 		}
 	default:
-		selected, err := tx.GetPeersByIDs(ctx, accountID, rows.UnreadPeerIDs(selection.PeerIDs))
-		if err != nil {
-			return nil, fmt.Errorf("get peers by id: %w", err)
+		if unread := rows.UnreadPeerIDs(selection.PeerIDs); len(unread) > 0 {
+			selected, err := tx.GetPeersByIDs(ctx, accountID, unread)
+			if err != nil {
+				return nil, fmt.Errorf("get peers by id: %w", err)
+			}
+			rows.Peers = append(rows.Peers, selected...)
 		}
-		rows.Peers = append(rows.Peers, selected...)
 		if rows.PeerVersions, err = tx.GetPeerVersions(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("get peer versions: %w", err)
 		}

@@ -41,7 +41,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -437,27 +436,13 @@ func benchPeerRound(b *testing.B, batch int) {
 // unless every peer is targeted, the account-wide derived values and the
 // components of every target.
 func computeForPeers(ctx context.Context, nmStore *networkmapdb.NetworkMapDBStoreImpl, accountID string, targets []string, all bool) error {
+	var loadTargets []string
 	var selectPeers func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error)
 	if !all {
-		selectPeers = func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
-			largest := 0
-			for _, g := range nmd.Groups {
-				largest = max(largest, len(g.Peers))
-			}
-			load := networkmapdb.PeerSelection{SkipUsers: !nmd.RequiresUsers(targets...)}
-			closure, ok := nmd.PeerClosure(targets, max(largest/2, 1))
-			if !ok {
-				load.AllPeers = true
-				return load, nil
-			}
-			load.PeerIDs = maps.Keys(closure)
-			return load, nil
-		}
-	}
-
-	var loadTargets []string
-	if !all {
 		loadTargets = targets
+		selectPeers = func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
+			return controller.SelectPeers(nmd, targets), nil
+		}
 	}
 	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, loadTargets, selectPeers)
 	if err != nil {

@@ -16,8 +16,11 @@ type sshRequirements struct {
 // RequiresUsers reports whether the components of the given peers can ship
 // user identities, the only use of AllowedUserIDs and GroupIDToUserIDs: an
 // enabled NetBird SSH rule, or a rule implying legacy SSH while one of the
-// peers runs the SSH server. The peers must be in Peers.
+// peers runs the SSH server. The peers must be in Peers and Services set, as
+// the injected proxy policies count too.
 func (nmd *NetworkMapData) RequiresUsers(peerIDs ...string) bool {
+	nmd.InjectProxyPolicies()
+
 	sshServer := false
 	for _, peerID := range peerIDs {
 		if p := nmd.Peers[peerID]; p != nil && p.SSHEnabled {

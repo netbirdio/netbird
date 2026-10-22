@@ -148,17 +148,46 @@ func TestMergePeerSelections(t *testing.T) {
 	})
 }
 
-func TestClosureLimit(t *testing.T) {
-	data := func(groupSizes ...int) *networkmap.NetworkMapData {
-		nmd := &networkmap.NetworkMapData{Groups: map[string]*nmdata.Group{}}
-		for i, size := range groupSizes {
-			id := fmt.Sprintf("group-%d", i)
-			nmd.Groups[id] = &nmdata.Group{ID: id, Peers: make([]string, size)}
+func TestSelectPeers(t *testing.T) {
+	data := func(rules ...*nmdata.PolicyRule) *networkmap.NetworkMapData {
+		nmd := &networkmap.NetworkMapData{
+			Peers:  map[string]*nmdata.Peer{},
+			Groups: map[string]*nmdata.Group{},
 		}
+		all := &nmdata.Group{ID: "group-all", Name: "All"}
+		for i := range 10 {
+			id := fmt.Sprintf("peer-%d", i)
+			nmd.Peers[id] = &nmdata.Peer{ID: id}
+			all.Peers = append(all.Peers, id)
+		}
+		nmd.Groups[all.ID] = all
+		nmd.Groups["group-a"] = &nmdata.Group{ID: "group-a", Peers: []string{"peer-1", "peer-2"}}
+		nmd.Groups["group-b"] = &nmdata.Group{ID: "group-b", Peers: []string{"peer-3"}}
+		nmd.Policies = []*nmdata.Policy{{ID: "policy", Enabled: true, Rules: rules}}
 		return nmd
 	}
+	rule := func(protocol string, sources, destinations string) *nmdata.PolicyRule {
+		return &nmdata.PolicyRule{Enabled: true, Protocol: protocol, Ports: []string{"443"}, Sources: []string{sources}, Destinations: []string{destinations}}
+	}
 
-	assert.Equal(t, 50, closureLimit(data(100, 30, 7)), "half of the largest group")
-	assert.Equal(t, 1, closureLimit(data(1)), "never below one")
-	assert.Equal(t, 1, closureLimit(data()), "an account without groups")
+	t.Run("a closure below half the account is read alone, without users", func(t *testing.T) {
+		selection := SelectPeers(data(rule("tcp", "group-a", "group-b")), []string{"peer-1"})
+
+		assert.False(t, selection.AllPeers)
+		assert.ElementsMatch(t, []string{"peer-1", "peer-3"}, selection.PeerIDs)
+		assert.True(t, selection.SkipUsers)
+	})
+
+	t.Run("a closure reaching half the account reads every peer", func(t *testing.T) {
+		selection := SelectPeers(data(rule("tcp", "group-all", "group-all")), []string{"peer-1"})
+
+		assert.True(t, selection.AllPeers)
+		assert.Empty(t, selection.PeerIDs)
+	})
+
+	t.Run("a netbird ssh rule reads the users", func(t *testing.T) {
+		selection := SelectPeers(data(rule(string(types.PolicyRuleProtocolNetbirdSSH), "group-a", "group-b")), []string{"peer-1"})
+
+		assert.False(t, selection.SkipUsers)
+	})
 }
