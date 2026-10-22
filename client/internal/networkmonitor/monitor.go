@@ -91,7 +91,8 @@ func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change
 	checkV4, checkV6 := baseline.V4, baseline.V6
 	waitingForNetwork := false
 	if given {
-		if current, _ := readSnapshotFn(); !current.HasDefault() {
+		// Only a confirmed missing default is offline; a failed lookup is not.
+		if current, err := readSnapshotFn(); !current.HasDefault() && errors.Is(err, vars.ErrRouteNotFound) {
 			waitingForNetwork = true
 			checkV4, checkV6 = offlineCheckNextHops(baseline.V4, baseline.V6)
 		}
