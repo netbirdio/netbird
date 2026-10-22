@@ -31,7 +31,7 @@ type PersonalAccessToken struct {
 	// User is a reference to Account that this object belongs
 	UserID         string `gorm:"index"`
 	Name           string
-	HashedToken    string `gorm:"index"`
+	HashedToken    string `gorm:"index:idx_personal_access_tokens_hashed_token"`
 	ExpirationDate *time.Time
 	// scope could be added in future
 	CreatedBy string
