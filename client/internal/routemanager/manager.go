@@ -386,6 +386,9 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		delete(m.activeRoutes, id)
 	}
 
+	countryPrefixes, releaseCountryPrefixes := common.CachedCountryPrefixes(m.countryPrefixes)
+	defer releaseCountryPrefixes()
+
 	for id, route := range toAdd {
 		params := common.HandlerParams{
 			Route:                route,
@@ -400,7 +403,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			Firewall:             m.firewall,
 			FakeIPManager:        m.fakeIPManager,
 			ForwarderPort:        &m.dnsForwarderPort,
-			CountryPrefixes:      m.countryPrefixes,
+			CountryPrefixes:      countryPrefixes,
 		}
 		handler := client.HandlerFromRoute(params)
 		if err := handler.AddRoute(m.ctx); err != nil {
