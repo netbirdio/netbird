@@ -11,9 +11,12 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netevents"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 )
@@ -256,4 +259,17 @@ func redialDisabledByEnv() bool {
 		return false
 	}
 	return disabled
+}
+
+// NetEventsFor returns events when the desktop network change handling will
+// use them: the network monitor runs, routing is advanced and the redial is
+// not disabled. Otherwise it returns nil, so the relay, management and Signal
+// clients keep the reconnect behavior they have without OS network events,
+// and NB_DISABLE_NETWORK_CHANGE_REDIAL restores the old client as a whole.
+func NetEventsFor(config *profilemanager.Config, events *netevents.Manager) *netevents.Manager {
+	monitor := config.NetworkMonitor != nil && *config.NetworkMonitor && !nbnetstack.IsEnabled()
+	if !monitor || !nbnet.AdvancedRouting() || redialDisabledByEnv() {
+		return nil
+	}
+	return events
 }
