@@ -459,6 +459,17 @@ func accountServices(services []*nmdata.Service) []*service.Service {
 			}
 			targets = append(targets, target)
 		}
+		portMappings := make([]*service.PortMapping, 0, len(svc.PortMappings))
+		for _, mapping := range svc.PortMappings {
+			if mapping == nil {
+				continue
+			}
+			portMappings = append(portMappings, &service.PortMapping{
+				Protocol:        mapping.Protocol,
+				TargetPortStart: mapping.TargetPortStart,
+				TargetPortEnd:   mapping.TargetPortEnd,
+			})
+		}
 		out = append(out, &service.Service{
 			ID:           svc.ID,
 			Enabled:      svc.Enabled,
@@ -467,6 +478,7 @@ func accountServices(services []*nmdata.Service) []*service.Service {
 			ProxyCluster: svc.ProxyCluster,
 			AccessGroups: svc.AccessGroups,
 			Targets:      targets,
+			PortMappings: portMappings,
 		})
 	}
 	return out

@@ -13,6 +13,14 @@ type Service struct {
 	ProxyCluster string
 	AccessGroups []string
 	Targets      []*ServiceTarget
+	PortMappings []*PortMapping
+}
+
+// PortMapping is the slim twin of reverse-proxy service.PortMapping.
+type PortMapping struct {
+	Protocol        string
+	TargetPortStart uint16
+	TargetPortEnd   uint16
 }
 
 // ServiceTarget is the slim twin of service.Target.

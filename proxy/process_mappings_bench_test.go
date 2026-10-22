@@ -96,7 +96,7 @@ func benchServerWithLatency(b *testing.B, createPeerDelay, statusDelay time.Dura
 		lastMappings:     make(map[types.ServiceID]*proto.ProxyMapping),
 		portRouters:      make(map[uint16]*portRouter),
 		svcPorts:         make(map[types.ServiceID][]uint16),
-		udpRelays:        make(map[types.ServiceID]*udprelay.Relay),
+		udpRelays:        make(map[udpRelayKey]*udprelay.Relay),
 	}
 }
 
