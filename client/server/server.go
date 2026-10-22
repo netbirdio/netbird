@@ -595,9 +595,6 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 	if msg.ManagementUrl != "" {
 		config.ManagementURL = msg.ManagementUrl
 	}
-	if msg.AdminURL != "" {
-		config.AdminURL = msg.AdminURL
-	}
 	if msg.InterfaceName != nil {
 		config.InterfaceName = msg.InterfaceName
 	}
@@ -2413,7 +2410,6 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	// overlay (Loader lives outside profilemanager).
 	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	managementURL := cfg.ManagementURL
-	adminURL := cfg.AdminURL
 
 	var preSharedKey = cfg.PreSharedKey
 	if preSharedKey != "" {
@@ -2469,7 +2465,6 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	return &proto.GetConfigResponse{
 		ManagementUrl:                 managementURL.String(),
 		PreSharedKey:                  preSharedKey,
-		AdminURL:                      adminURL.String(),
 		InterfaceName:                 cfg.WgIface,
 		WireguardPort:                 int64(cfg.WgPort),
 		Mtu:                           int64(cfg.MTU),

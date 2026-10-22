@@ -18,7 +18,7 @@ import (
 
 func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*types.Account, error) {
 	var key types.SetupKey
-	result := s.db.Select("account_id").Take(&key, GetKeyQueryCondition(s), setupKey)
+	result := s.db.Select("account_id").Take(&key, keyQueryCondition, setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewSetupKeyNotFoundError(setupKey)
@@ -99,7 +99,7 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 
 func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) (string, error) {
 	var accountID string
-	result := s.db.Model(&types.SetupKey{}).Select("account_id").Where(GetKeyQueryCondition(s), setupKey).Take(&accountID)
+	result := s.db.Model(&types.SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).Take(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.NewSetupKeyNotFoundError(setupKey)
@@ -123,7 +123,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	var setupKey types.SetupKey
 	result := tx.
-		Take(&setupKey, GetKeyQueryCondition(s), key)
+		Take(&setupKey, keyQueryCondition, key)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {

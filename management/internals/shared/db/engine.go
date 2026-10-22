@@ -6,5 +6,4 @@ type Engine string
 const (
 	SqliteStoreEngine   Engine = "sqlite"
 	PostgresStoreEngine Engine = "postgres"
-	MysqlStoreEngine    Engine = "mysql"
 )

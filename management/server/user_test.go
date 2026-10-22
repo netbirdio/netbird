@@ -706,6 +706,69 @@ func TestUser_InviteNewUser(t *testing.T) {
 	assert.Errorf(t, err, "Invite user with owner role should throw error")
 }
 
+func TestUser_InviteNewUser_ServiceUserAfterCreatorRemoved(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	const (
+		creatorID    = "creatorID"
+		newOwnerID   = "newOwnerID"
+		newOwnerMail = "new-owner@test.com"
+	)
+
+	account := newAccountWithId(context.Background(), mockAccountID, creatorID, "", "", "", false)
+	delete(account.Users, creatorID)
+	account.Users[newOwnerID] = &types.User{
+		Id:        newOwnerID,
+		AccountID: mockAccountID,
+		Role:      types.UserRoleOwner,
+	}
+	account.Users[mockServiceUserID] = &types.User{
+		Id:              mockServiceUserID,
+		AccountID:       mockAccountID,
+		Role:            types.UserRoleAdmin,
+		IsServiceUser:   true,
+		ServiceUserName: mockServiceUserName,
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissions.NewManager(s),
+	}
+
+	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
+	require.NoError(t, err)
+	cacheManager := nbcache.NewAccountUserDataCache(am.loadAccount, cs)
+	t.Cleanup(func() { assert.NoError(t, cacheManager.Close()) })
+	am.cacheManager = cacheManager
+
+	idpUsers := []*idp.UserData{{ID: newOwnerID, Email: newOwnerMail, Name: "new owner"}}
+	var invitedBy string
+	am.idpManager = &idp.MockIDP{
+		CreateUserFunc: func(_ context.Context, email, name, _, invitedByEmail string) (*idp.UserData, error) {
+			invitedBy = invitedByEmail
+			newUser := &idp.UserData{ID: "invitedID", Email: email, Name: name}
+			idpUsers = append(idpUsers, newUser)
+			return newUser, nil
+		},
+		GetAccountFunc: func(_ context.Context, _ string) ([]*idp.UserData, error) {
+			return idpUsers, nil
+		},
+	}
+
+	_, err = am.inviteNewUser(context.Background(), mockAccountID, mockServiceUserID, &types.UserInfo{
+		Name:  "invited",
+		Email: "invited@test.com",
+		Role:  mockRole,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, newOwnerMail, invitedBy, "service user invites should be sent on behalf of the current owner")
+}
+
 func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	tests := []struct {
 		name             string

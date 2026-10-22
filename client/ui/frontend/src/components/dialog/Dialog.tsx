@@ -65,8 +65,8 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                     <DialogPrimitive.Content
                         ref={ref}
                         className={cn(
-                            "relative z-[52] mx-auto w-full outline-none ring-0",
-                            "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
+                            "relative z-52 mx-auto w-full ring-0 outline-hidden",
+                            "focus:ring-0 focus:outline-hidden focus-visible:ring-0 focus-visible:outline-hidden",
                             "rounded-lg border border-nb-gray-800 bg-nb-gray-940 py-7 shadow-2xl dark:border-nb-gray-900 dark:bg-nb-gray",
                             "data-[state=open]:animate-in data-[state=open]:fade-in-0",
                             "data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-left-1",
@@ -95,9 +95,9 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                         {showClose && (
                             <DialogPrimitive.Close
                                 className={cn(
-                                    "absolute end-3 top-3 z-10 rounded-md p-3 transition-colors",
+                                    "absolute inset-e-3 top-3 z-10 rounded-md p-3 transition-colors",
                                     "text-nb-gray-300 hover:text-nb-gray-100",
-                                    "focus:outline-none disabled:pointer-events-none",
+                                    "focus:outline-hidden disabled:pointer-events-none",
                                 )}
                                 aria-label={t("common.close")}
                             >
@@ -119,7 +119,7 @@ export const Title = forwardRef<
         <DialogPrimitive.Title
             ref={ref}
             className={cn(
-                "text-md font-semibold leading-none tracking-tight text-nb-gray-50",
+                "text-md leading-none font-semibold tracking-tight text-nb-gray-50",
                 className,
             )}
             {...props}
@@ -149,7 +149,7 @@ export const Footer = ({ className, separator = true, ...props }: FooterProps) =
         <div
             className={cn(
                 "flex flex-col-reverse gap-3 sm:flex-row sm:justify-end",
-                "[&>*]:w-full sm:[&>*]:w-auto",
+                "*:w-full sm:*:w-auto",
                 "px-8 pt-6",
                 className,
             )}

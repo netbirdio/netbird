@@ -94,8 +94,8 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         listRef.current?.focus();
                     }}
                     className={cn(
-                        "wails-no-draggable z-50 min-w-64 select-none overflow-hidden rounded-lg border border-nb-gray-800 bg-nb-gray-950 p-1 text-nb-gray-200 shadow-lg dark:border-nb-gray-900 dark:bg-nb-gray-935",
-                        "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                        "wails-no-draggable z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-800 bg-nb-gray-950 p-1 text-nb-gray-200 shadow-lg select-none dark:border-nb-gray-900 dark:bg-nb-gray-935",
+                        "data-[state=closed]:animate-out data-[state=open]:animate-in",
                         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
                         "data-[side=bottom]:origin-top data-[side=top]:origin-bottom",
@@ -108,12 +108,16 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         loop
                         shouldFilter={false}
                         onKeyDown={(e) => e.stopPropagation()}
-                        className={"outline-none focus:outline-none focus-visible:outline-none"}
+                        className={
+                            "outline-hidden focus:outline-hidden focus-visible:outline-hidden"
+                        }
                     >
                         <Command.List
                             ref={listRef}
                             aria-label={t("header.profile.switch")}
-                            className={"outline-none focus:outline-none focus-visible:outline-none"}
+                            className={
+                                "outline-hidden focus:outline-hidden focus-visible:outline-hidden"
+                            }
                         >
                             {sortedProfiles.length > 0 && (
                                 <>
@@ -135,7 +139,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                         <ScrollArea.Scrollbar
                                             orientation={"vertical"}
                                             className={cn(
-                                                "flex touch-none select-none transition-colors",
+                                                "flex touch-none transition-colors select-none",
                                                 "w-1.5 bg-transparent",
                                             )}
                                         >
@@ -157,7 +161,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                     disabled={!onManageProfiles}
                                     className={cn(
                                         "flex items-center gap-2 px-2 py-1.5",
-                                        "cursor-default rounded-md text-sm outline-none",
+                                        "cursor-default rounded-md text-sm outline-hidden",
                                         "data-[selected=true]:bg-nb-gray-900",
                                         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
                                     )}
@@ -185,13 +189,13 @@ const ProfileTriggerSkeleton = () => (
         role={"status"}
         aria-busy={"true"}
         aria-live={"polite"}
-        className={"wails-no-draggable flex h-10 select-none items-center gap-2 rounded-lg px-3"}
+        className={"wails-no-draggable flex h-10 items-center gap-2 rounded-lg px-3 select-none"}
     >
         <div
             aria-hidden={"true"}
             className={"size-4 shrink-0 animate-pulse rounded-full bg-nb-gray-900"}
         />
-        <div aria-hidden={"true"} className={"h-4 w-24 animate-pulse rounded bg-nb-gray-900"} />
+        <div aria-hidden={"true"} className={"h-4 w-24 animate-pulse rounded-sm bg-nb-gray-900"} />
     </div>
 );
 
@@ -213,7 +217,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 aria-label={t("header.profile.switch")}
                 aria-haspopup={"listbox"}
                 className={cn(
-                    "wails-no-draggable flex h-10 cursor-default select-none items-center gap-2 rounded-lg px-3 outline-none",
+                    "wails-no-draggable flex h-10 cursor-default items-center gap-2 rounded-lg px-3 outline-hidden select-none",
                     "text-nb-gray-200 hover:bg-nb-gray-800 dark:hover:bg-nb-gray-900",
                     "data-[state=open]:bg-nb-gray-800 dark:data-[state=open]:bg-nb-gray-900",
                     "disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent",
@@ -256,7 +260,7 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
             onSelect={() => onSelect(profile.id)}
             className={cn(
                 "flex w-auto gap-2 px-2 py-2 pe-3 last:mb-1",
-                "cursor-default rounded-md text-sm outline-none",
+                "cursor-default rounded-md text-sm outline-hidden",
                 "data-[selected=true]:bg-nb-gray-900",
                 showEmail ? "items-start" : "items-center",
             )}
