@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -2275,6 +2276,59 @@ func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiratio
 	case <-time.After(time.Second):
 		t.Fatal("expected inactivity expiration to be rescheduled when an eligible peer disconnects")
 	}
+}
+
+func TestDefaultAccountManager_PeerStatusChange_KeepsScheduledInactivityExpiration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: true,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	// The account already has an inactivity job scheduled. A connect or a
+	// disconnect cannot move its next run earlier, so neither may cancel or
+	// re-arm it: doing so re-scans every peer of the account on each call.
+	var cancels, schedules atomic.Int32
+	manager.peerInactivityExpiry = &MockScheduler{
+		IsSchedulerRunningFunc: func(ID string) bool { return ID == accountID },
+		CancelFunc:             func(ctx context.Context, IDs []string) { cancels.Add(1) },
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			schedules.Add(1)
+		},
+	}
+
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	// Schedule runs in a goroutine; give a wrongly re-armed job time to land.
+	time.Sleep(200 * time.Millisecond)
+
+	assert.Zero(t, cancels.Load(), "scheduled inactivity job must not be cancelled on peer connect or disconnect")
+	assert.Zero(t, schedules.Load(), "scheduled inactivity job must not be re-armed on peer connect or disconnect")
 }
 
 func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {
