@@ -700,7 +700,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
-		e.acl = acl.NewDefaultManager(e.firewall)
+		aclManager := acl.NewDefaultManager(e.firewall)
+		aclManager.SetCountryPrefixes(e.mgmClient.GetCountryPrefixes)
+		e.acl = aclManager
 	}
 
 	if err := e.dnsServer.Initialize(); err != nil {

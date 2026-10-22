@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -1089,7 +1090,21 @@ func peerCapabilities(info system.Info) []proto.PeerCapability {
 	if !info.DisableIPv6 {
 		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
 	}
+	if countryRoutesSupported() {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityCountryRoutes)
+	}
 	return caps
+}
+
+// countryRoutesSupported reports whether this platform installs country routes. A large
+// country is hundreds of thousands of prefixes, more than the mobile VPN APIs accept.
+func countryRoutesSupported() bool {
+	switch runtime.GOOS {
+	case "linux", "darwin", "windows", "freebsd":
+		return true
+	default:
+		return false
+	}
 }
 
 func syncMessageVersion(info system.Info) int32 {

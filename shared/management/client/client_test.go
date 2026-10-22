@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -770,4 +771,16 @@ func TestClient_GetCountryPrefixes(t *testing.T) {
 		_, err := client.GetCountryPrefixes(ctx, "US")
 		assert.Equal(t, codes.Unavailable, status.Code(err), "unexpected error: %v", err)
 	})
+}
+
+func TestPeerCapabilities_CountryRoutes(t *testing.T) {
+	caps := peerCapabilities(system.Info{})
+	switch runtime.GOOS {
+	case "linux", "darwin", "windows", "freebsd":
+		assert.Contains(t, caps, mgmtProto.PeerCapability_PeerCapabilityCountryRoutes,
+			"desktop clients install country routes")
+	default:
+		assert.NotContains(t, caps, mgmtProto.PeerCapability_PeerCapabilityCountryRoutes,
+			"other platforms cannot take country prefix lists")
+	}
 }
