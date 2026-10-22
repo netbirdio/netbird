@@ -194,6 +194,10 @@ func (h *handler) validateRouteCommon(network *string, domains *[]string, countr
 		return status.Errorf(status.InvalidArgument, "either 'network', 'domains' or 'countries' should be provided")
 	}
 
+	if countries != nil && len(*countries) == 0 {
+		return status.Errorf(status.InvalidArgument, "'countries' should not be empty")
+	}
+
 	if peer == nil && peerGroups == nil {
 		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peer_groups' should be provided")
 	}

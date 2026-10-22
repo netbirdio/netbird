@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
@@ -182,7 +183,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err = am.checkRouteCountries(newRoute.Countries); err != nil {
+		if err = am.checkRouteCountries(ctx, newRoute.Countries); err != nil {
 			return err
 		}
 
@@ -229,7 +230,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 			return err
 		}
 
-		if err = am.checkRouteCountries(routeToSave.Countries); err != nil {
+		if err = am.checkRouteCountries(ctx, routeToSave.Countries); err != nil {
 			return err
 		}
 
@@ -397,7 +398,7 @@ func validateCountryRoute(r *route.Route) error {
 }
 
 // checkRouteCountries checks that the geolocation service runs and knows every country of a route.
-func (am *DefaultAccountManager) checkRouteCountries(countries []string) error {
+func (am *DefaultAccountManager) checkRouteCountries(ctx context.Context, countries []string) error {
 	if len(countries) == 0 {
 		return nil
 	}
@@ -408,6 +409,7 @@ func (am *DefaultAccountManager) checkRouteCountries(countries []string) error {
 
 	known, err := am.geo.GetAllCountries()
 	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get the known countries: %v", err)
 		return status.Errorf(status.Internal, "failed to get the known countries")
 	}
 
