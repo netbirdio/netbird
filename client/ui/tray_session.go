@@ -10,8 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
-	nbstatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/services"
 )
 
@@ -190,25 +188,6 @@ func (t *Tray) registerSessionWarningCategory() {
 			go t.dismissSessionWarning()
 		}
 	})
-}
-
-// buildSessionWarningBody composes the localised notification body from the daemon's metadata.
-// The daemon has no locale, so it ships an RFC3339 deadline the tray turns into a user-language sentence.
-// Falls back to a generic string when metadata is missing or unparsable.
-func (t *Tray) buildSessionWarningBody(meta map[string]string) string {
-	if meta == nil {
-		return t.loc.T("notify.sessionWarning.bodyGeneric")
-	}
-	raw := meta[authsession.MetaExpiresAt]
-	if raw == "" {
-		return t.loc.T("notify.sessionWarning.bodyGeneric")
-	}
-	deadline, err := authsession.ParseExpiresAt(raw)
-	if err != nil {
-		return t.loc.T("notify.sessionWarning.bodyGeneric")
-	}
-	remaining := nbstatus.FormatRemainingDuration(time.Until(deadline))
-	return t.loc.T("notify.sessionWarning.body", "remaining", remaining)
 }
 
 // notifySessionWarning sends the interactive expiry notification, falling back to plain notify when the

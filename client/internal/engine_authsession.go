@@ -57,7 +57,8 @@ func (e *Engine) ApplySessionDeadline(ts *timestamppb.Timestamp) {
 			cProto.SystemEvent_ERROR,
 			cProto.SystemEvent_AUTHENTICATION,
 			"session deadline rejected",
-			"",
+			cProto.NewUserMessage(cProto.UserMsgSessionDeadlineReject).
+				WithTitle(cProto.TitleSessionDeadlineReject),
 			map[string]string{sessionwatch.MetaSessionDeadlineRejected: err.Error()},
 		)
 	}
