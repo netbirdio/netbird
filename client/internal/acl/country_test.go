@@ -77,12 +77,15 @@ func TestCountryRouteRuleRetriesFailedFetch(t *testing.T) {
 
 	rules := countryRouteRules()[:1]
 	require.Error(t, acl.applyRouteACLs(rules, true))
-	assert.Equal(t, 0, fw.distinctRules(), "a rule whose set cannot be filled must not be kept")
-	assert.Empty(t, fw.setUpdates)
+	assert.Equal(t, 1, fw.distinctRules(), "the rule stays tracked so it is never orphaned")
+	assert.Empty(t, fw.setUpdates, "its set is not filled, so it matches nothing")
 
 	fail = false
 	require.NoError(t, acl.applyRouteACLs(rules, true))
-	assert.Equal(t, 1, fw.distinctRules(), "the next update should create the rule again")
-	require.Len(t, fw.setUpdates, 1, "and fill its set")
+	assert.Equal(t, 1, fw.distinctRules(), "the next update keeps the same rule")
+	require.Len(t, fw.setUpdates, 1, "and fills its set")
 	assert.Equal(t, []netip.Prefix{countryUSv4}, fw.setUpdates[0].prefixes)
+
+	require.NoError(t, acl.applyRouteACLs(rules, true))
+	assert.Len(t, fw.setUpdates, 1, "a filled set is not loaded again")
 }
