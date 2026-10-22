@@ -175,6 +175,15 @@ func (m *UniversalUDPMuxDefault) UpdateConn(conn net.PacketConn) {
 	if wrapped, ok := m.params.UDPConn.(*UDPConn); ok {
 		wrapped.setPacketConn(conn)
 	}
+
+	// Server-reflexive mappings were learned through the previous socket, on
+	// the network it was on: drop them and release whoever waits on them.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for server, mapped := range m.xorMappedMap {
+		mapped.closeWaiters()
+		delete(m.xorMappedMap, server)
+	}
 }
 
 // GetSharedConn returns the shared udp conn
