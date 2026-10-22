@@ -46,6 +46,7 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		Protocol:     string(rule.Protocol),
 		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
+		Countries:    route.Countries,
 	}
 
 	if len(rule.Ports) == 0 {
@@ -56,7 +57,7 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 
 	// Generate v6 counterpart for dynamic routes and 0.0.0.0/0 exit node routes.
 	isDefaultV4 := !isV6Route && route.Network.Bits() == 0
-	if includeIPv6 && (route.IsDynamic() || isDefaultV4) && len(v6Sources) > 0 {
+	if includeIPv6 && (route.IsDynamic() || route.IsCountry() || isDefaultV4) && len(v6Sources) > 0 {
 		v6Rule := baseRule
 		v6Rule.SourceRanges = v6Sources
 		if isDefaultV4 {
