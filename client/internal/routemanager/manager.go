@@ -94,6 +94,7 @@ type DefaultManager struct {
 	routeSelector        *routeselector.RouteSelector
 	serverRouter         *server.Router
 	sysOps               *systemops.SysOps
+	stopped              bool // guarded by mux
 	statusRecorder       *peer.Status
 	relayMgr             *relayClient.Manager
 	wgInterface          iface.WGIface
@@ -320,6 +321,10 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 			log.Errorf("Error flushing allowed IPs ref counter: %v", err)
 		}
 	}
+
+	m.mux.Lock()
+	m.stopped = true
+	m.mux.Unlock()
 
 	if !nbnet.CustomRoutingDisabled() && !m.disableClientRoutes {
 		if err := m.sysOps.CleanupRouting(stateManager, nbnet.AdvancedRouting()); err != nil {
@@ -907,5 +912,10 @@ func (m *DefaultManager) RefreshUnderlay() error {
 	}
 	m.mux.Lock()
 	defer m.mux.Unlock()
+	// A refresh landing after Stop would bind NetBird's traffic again after
+	// the cleanup removed the binding, and nothing would remove it.
+	if m.stopped {
+		return nil
+	}
 	return m.sysOps.RefreshUnderlay(nbnet.AdvancedRouting())
 }
