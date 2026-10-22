@@ -377,7 +377,10 @@ func TestSqlStore_SaveUserLastLogin(t *testing.T) {
 	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, userID, time.Time{}))
 	assert.True(t, later.Equal(lastLoginOf()), "zero login must be ignored")
 
-	require.NoError(t, store.SaveUserLastLogin(ctx, accountID, "unknown-user", later.Add(time.Hour)))
+	err = store.SaveUserLastLogin(ctx, accountID, "unknown-user", later.Add(time.Hour))
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "unknown user must return a status error")
+	assert.Equal(t, status.NotFound, sErr.Type())
 
 	after, err := store.GetUserByUserID(ctx, LockingStrengthNone, userID)
 	require.NoError(t, err)

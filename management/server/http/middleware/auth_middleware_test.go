@@ -788,7 +788,7 @@ func TestAuthMiddleware_MarkPATUsedThrottled(t *testing.T) {
 	}{
 		{name: "never used", lastUsed: nil, expectMark: true},
 		{name: "used just now", lastUsed: util.ToPtr(time.Now().UTC()), expectMark: false},
-		{name: "used before the update interval", lastUsed: util.ToPtr(time.Now().UTC().Add(-2 * patLastUsedUpdateInterval)), expectMark: true},
+		{name: "used before the update interval", lastUsed: util.ToPtr(time.Now().UTC().Add(-2 * types.PATLastUsedUpdateInterval)), expectMark: true},
 	}
 
 	for _, tc := range tt {

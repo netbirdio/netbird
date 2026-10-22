@@ -254,6 +254,7 @@ func (s *SqlStore) GetAccountIDByUserID(ctx context.Context, lockStrength Lockin
 
 // SaveUserLastLogin stores the last login time for a user in DB. It only writes when the stored value is unset or
 // older than lastLogin, so repeating the same login doesn't rewrite the row and an older login never overwrites a newer one.
+// It returns a NotFound error when the user doesn't exist.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
 	if lastLogin.IsZero() {
 		return nil
@@ -266,6 +267,17 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save user last login: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save user last login")
+	}
+
+	if result.RowsAffected == 0 {
+		var count int64
+		if err := s.db.Model(&types.User{}).Where(accountAndIDQueryCondition, accountID, userID).Count(&count).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to check user existence: %s", err)
+			return status.NewGetUserFromStoreError()
+		}
+		if count == 0 {
+			return status.NewUserNotFoundError(userID)
+		}
 	}
 
 	return nil

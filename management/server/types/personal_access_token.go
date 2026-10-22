@@ -23,6 +23,8 @@ const (
 	PATChecksumLength = 6
 	// PATLength total number of characters used for the token
 	PATLength = 40
+	// PATLastUsedUpdateInterval is the minimum age of a token's LastUsed before it is written again
+	PATLastUsedUpdateInterval = time.Minute
 )
 
 // PersonalAccessToken holds all information about a PAT including a hashed version of it for verification
