@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dexidp/dex/storage"
-	"github.com/dexidp/dex/storage/memory"
+	"github.com/netbirdio/dex/storage"
+	"github.com/netbirdio/dex/storage/memory"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
