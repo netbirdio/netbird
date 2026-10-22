@@ -962,10 +962,12 @@ func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface,
 
 	sortRouteCandidates(candidates)
 
+	var lookupErr error
 	for _, candidate := range candidates {
 		iface, err := net.InterfaceByIndex(int(candidate.interfaceIndex))
 		if err != nil {
 			log.Warnf("failed to get interface by index %d: %v", candidate.interfaceIndex, err)
+			lookupErr = err
 			continue
 		}
 
@@ -983,6 +985,11 @@ func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface,
 		return candidate, iface, nil
 	}
 
+	// A candidate whose interface could not be read may still be usable: that
+	// is a failed lookup, not a missing default.
+	if lookupErr != nil {
+		return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s: %w", dest, lookupErr)
+	}
 	return candidateRoute{}, nil, fmt.Errorf("no usable interface found for %s: %w", dest, vars.ErrRouteNotFound)
 }
 
