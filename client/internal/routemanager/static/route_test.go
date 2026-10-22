@@ -193,3 +193,46 @@ func TestCountryRoute(t *testing.T) {
 		})
 	}
 }
+
+// TestCountryRoute_SharedLookup adds two routes that both name US through one cached lookup, as
+// the route manager does within an update: US is fetched once, and the v4-only route dropping
+// the v6 prefixes must not change the prefixes the other route installs.
+func TestCountryRoute_SharedLookup(t *testing.T) {
+	usV4 := netip.MustParsePrefix("8.8.8.0/24")
+	usV6 := netip.MustParsePrefix("2001:4860::/32")
+	fetches := map[string]int{}
+	fetch := func(_ context.Context, country string) ([]netip.Prefix, error) {
+		fetches[country]++
+		return []netip.Prefix{usV4, usV6}, nil
+	}
+	cached, release := common.CachedCountryPrefixes(fetch)
+	defer release()
+
+	v4Only := wgaddr.MustParseWGAddress("100.64.0.1/16")
+	dualStack := v4Only
+	dualStack.IPv6 = netip.MustParseAddr("fd00::1")
+	dualStack.IPv6Net = netip.MustParsePrefix("fd00::/64")
+
+	newHost := func(address wgaddr.Address, netID route.NetID) (*hostState, *CountryRoute) {
+		host := newHostState()
+		params := host.params(&route.Route{
+			NetID:       netID,
+			Network:     netip.MustParsePrefix("192.0.2.0/32"),
+			NetworkType: route.CountryNetwork,
+			Countries:   []string{"US"},
+		})
+		params.WgInterface = &testWGIface{addr: address}
+		params.CountryPrefixes = cached
+		return host, NewCountryRoute(params)
+	}
+	v4Host, v4Route := newHost(v4Only, "us-exit-a")
+	dualHost, dualRoute := newHost(dualStack, "us-exit-b")
+
+	require.NoError(t, v4Route.AddRoute(context.Background()))
+	require.NoError(t, dualRoute.AddRoute(context.Background()))
+
+	assert.Equal(t, map[string]int{"US": 1}, fetches, "a country shared by routes should be fetched once")
+	assert.Equal(t, map[netip.Prefix]struct{}{usV4: {}}, v4Host.routes, "the v4-only route should install the v4 prefix only")
+	assert.Equal(t, map[netip.Prefix]struct{}{usV4: {}, usV6: {}}, dualHost.routes,
+		"the dual stack route should install both prefixes despite the other route's filtering")
+}
