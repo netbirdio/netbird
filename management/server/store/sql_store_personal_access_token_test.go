@@ -151,7 +151,10 @@ func TestSqlStore_MarkPATUsed(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, pat.LastUsed.UTC().After(stale), "LastUsed older than the update interval must be rewritten")
 
-	require.NoError(t, store.MarkPATUsed(context.Background(), "unknown-pat"))
+	err = store.MarkPATUsed(context.Background(), "unknown-pat")
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "unknown pat must return a status error")
+	assert.Equal(t, status.NotFound, sErr.Type())
 }
 
 func TestSqlStore_SavePAT(t *testing.T) {

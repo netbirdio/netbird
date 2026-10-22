@@ -130,8 +130,8 @@ func (s *SqlStore) GetUserPATs(ctx context.Context, lockStrength LockingStrength
 }
 
 // MarkPATUsed marks a personal access token as used. The write is skipped when LastUsed is newer than
-// types.PATLastUsedUpdateInterval, which also turns concurrent calls for the same token into no-ops. An unknown patID
-// is not an error.
+// types.PATLastUsedUpdateInterval, which also turns concurrent calls for the same token into no-ops. It returns a
+// NotFound error when the token doesn't exist.
 func (s *SqlStore) MarkPATUsed(ctx context.Context, patID string) error {
 	now := time.Now().UTC()
 	result := s.db.Model(&types.PersonalAccessToken{}).
@@ -141,6 +141,17 @@ func (s *SqlStore) MarkPATUsed(ctx context.Context, patID string) error {
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to mark pat as used: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to mark pat as used")
+	}
+
+	if result.RowsAffected == 0 {
+		var count int64
+		if err := s.db.Model(&types.PersonalAccessToken{}).Where(idQueryCondition, patID).Count(&count).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to check pat existence: %s", err)
+			return status.Errorf(status.Internal, "failed to mark pat as used")
+		}
+		if count == 0 {
+			return status.NewPATNotFoundError(patID)
+		}
 	}
 
 	return nil
