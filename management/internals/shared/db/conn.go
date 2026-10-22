@@ -24,8 +24,8 @@ type TxMetrics interface {
 	CountTransactionDuration(duration time.Duration)
 }
 
-// Conn is the database connection shared by all repositories: one gorm handle,
-// the pgx pool of a Postgres deployment and the engine they talk to.
+// Conn is a database connection the repositories run on: one gorm handle, the
+// pgx pool of a Postgres deployment and the engine they talk to.
 type Conn struct {
 	db        *gorm.DB
 	pool      *pgxpool.Pool
@@ -34,13 +34,33 @@ type Conn struct {
 	metrics   TxMetrics
 }
 
+// Option tunes a Conn as it is opened.
+type Option func(*connOptions)
+
+type connOptions struct {
+	maxOpenConns int
+}
+
+// WithMaxOpenConns sizes the connection pool of this Conn alone, taking
+// precedence over NB_SQL_MAX_OPEN_CONNS. SQLite always uses one connection.
+func WithMaxOpenConns(n int) Option {
+	return func(o *connOptions) {
+		o.maxOpenConns = n
+	}
+}
+
 // NewConn takes ownership of an open gorm handle and pool once it returns
 // without error, applying the connection limits and transaction timeout
-// configured through the environment.
-func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool) (*Conn, error) {
+// configured through the environment and opts.
+func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool, opts ...Option) (*Conn, error) {
 	sqlDB, err := gormDB.DB()
 	if err != nil {
 		return nil, err
+	}
+
+	var options connOptions
+	for _, opt := range opts {
+		opt(&options)
 	}
 
 	txTimeout := defaultTransactionTimeout
@@ -56,6 +76,9 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 	connsConfigured := err == nil
 	if connsConfigured {
 		conns = configuredConns
+	}
+	if options.maxOpenConns > 0 {
+		conns = options.maxOpenConns
 	}
 	if engine == SqliteStoreEngine {
 		if connsConfigured {
