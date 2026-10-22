@@ -78,6 +78,7 @@ func (l *underlayLoop) run(ctx context.Context) {
 	// baseline is the last snapshot with a default route; it survives an
 	// offline spell so the change is measured against the network before it.
 	var baseline networkmonitor.NextHops
+	offline := false
 	for {
 		change, err := l.listen(ctx, baseline)
 		if err != nil {
@@ -91,6 +92,8 @@ func (l *underlayLoop) run(ctx context.Context) {
 
 		action := l.decide(change)
 		l.availability.set(action != actionWait)
+		returning := offline && action != actionWait
+		offline = action == actionWait
 		switch action {
 		case actionWait:
 			log.Infof("Network monitor: no default route left, waiting for the network to come back")
@@ -101,6 +104,11 @@ func (l *underlayLoop) run(ctx context.Context) {
 			continue
 		case actionNone:
 			log.Infof("Network monitor: route event without any underlay change, nothing to do")
+			// Going offline swept the control connections: watch them come
+			// back even though the network is the one from before.
+			if returning {
+				l.armWatch()
+			}
 			baseline = change.After
 			continue
 		case actionRedial:
