@@ -37,7 +37,7 @@ func TestDefaultInterfaceAddrsKeepsRoutableAddresses(t *testing.T) {
 			continue
 		}
 		for _, a := range addrs {
-			if p, err := netip.ParsePrefix(a.String()); err == nil && p.Addr().IsGlobalUnicast() || err == nil && p.Addr().IsPrivate() {
+			if p, err := netip.ParsePrefix(a.String()); err == nil && p.Addr().IsGlobalUnicast() {
 				routable = append(routable, p.Addr().Unmap())
 			}
 		}
