@@ -955,7 +955,12 @@ func bestRoute(dest netip.Addr, vpnIntf string) (candidateRoute, *net.Interface,
 			log.Warnf("failed to get VPN interface %s: %v", vpnIntf, err)
 		}
 	}
+	return bestRouteSkipping(dest, skipInterfaceIndex)
+}
 
+// bestRouteSkipping is bestRoute with the VPN interface already resolved to
+// its index; 0 skips nothing.
+func bestRouteSkipping(dest netip.Addr, skipInterfaceIndex int) (candidateRoute, *net.Interface, error) {
 	table, err := getWindowsRoutingTable()
 	if err != nil {
 		return candidateRoute{}, nil, fmt.Errorf("get routing table: %w", err)
