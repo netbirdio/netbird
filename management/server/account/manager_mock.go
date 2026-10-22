@@ -1413,14 +1413,13 @@ func (mr *MockManagerMockRecorder) RejectUser(ctx, accountID, initiatorUserID, t
 }
 
 // ResumePeerSync mocks base method.
-func (m *MockManager) ResumePeerSync(ctx context.Context, accountID, peerPubKey string, syncTime time.Time) (*peer.Peer, *types.Settings, bool, error) {
+func (m *MockManager) ResumePeerSync(ctx context.Context, accountID, peerPubKey string, syncTime time.Time) (*peer.Peer, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ResumePeerSync", ctx, accountID, peerPubKey, syncTime)
 	ret0, _ := ret[0].(*peer.Peer)
-	ret1, _ := ret[1].(*types.Settings)
-	ret2, _ := ret[2].(bool)
-	ret3, _ := ret[3].(error)
-	return ret0, ret1, ret2, ret3
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // ResumePeerSync indicates an expected call of ResumePeerSync.

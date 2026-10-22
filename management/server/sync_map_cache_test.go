@@ -319,11 +319,10 @@ func TestResumePeerSync(t *testing.T) {
 
 	t.Run("marks the peer connected without computing a map", func(t *testing.T) {
 		syncTime := time.Now().UTC()
-		resumed, settings, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, syncTime)
+		resumed, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, syncTime)
 		require.NoError(t, err)
 		require.True(t, ok, "the peer must resume")
 		assert.Equal(t, peer.ID, resumed.ID, "the resumed peer must be returned")
-		assert.NotNil(t, settings, "the account settings must be returned for the session deadline")
 
 		stored, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer.ID)
 		require.NoError(t, err)
@@ -334,7 +333,7 @@ func TestResumePeerSync(t *testing.T) {
 	t.Run("rejects an unknown peer", func(t *testing.T) {
 		key, err := wgtypes.GeneratePrivateKey()
 		require.NoError(t, err)
-		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, key.PublicKey().String(), time.Now().UTC())
+		_, ok, err := manager.ResumePeerSync(ctx, account.Id, key.PublicKey().String(), time.Now().UTC())
 		assert.Error(t, err, "an unknown peer must be rejected")
 		assert.False(t, ok, "an unknown peer must not resume")
 	})
@@ -351,7 +350,7 @@ func TestResumePeerSync(t *testing.T) {
 			require.NoError(t, manager.Store.SavePeer(ctx, account.Id, owned))
 		})
 
-		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
+		_, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
 		require.Error(t, err, "a peer of a blocked user must be rejected")
 		assert.Contains(t, err.Error(), "blocked", "the rejection must name the blocked owner")
 		assert.False(t, ok, "a peer of a blocked user must not resume")
@@ -363,7 +362,7 @@ func TestResumePeerSync(t *testing.T) {
 			require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer.ID, nbpeer.PeerStatus{LastSeen: time.Now().UTC()}))
 		})
 
-		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
+		_, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
 		require.Error(t, err, "an expired peer must be rejected")
 		assert.Contains(t, err.Error(), "expired", "the rejection must send the peer back to login")
 		assert.False(t, ok, "an expired peer must not resume")
@@ -376,7 +375,7 @@ func TestResumePeerSync(t *testing.T) {
 		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, embedded))
 		before := embedded.Status.SessionStartedAt
 
-		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
+		_, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
 		require.NoError(t, err)
 		assert.False(t, ok, "an embedded proxy peer must take the full sync")
 

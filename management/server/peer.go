@@ -1061,31 +1061,34 @@ func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
 // ResumePeerSync accepts a Sync from a peer that still holds its network map: it runs
 // the login checks of SyncPeer and marks the peer connected without computing a map. It
 // reports false, before changing anything, for a peer that needs the full SyncPeer.
-func (am *DefaultAccountManager) ResumePeerSync(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, *types.Settings, bool, error) {
+func (am *DefaultAccountManager) ResumePeerSync(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, bool, error) {
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, false, err
 	}
 
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
 	if err != nil {
-		return nil, nil, false, status.NewPeerNotRegisteredError()
+		return nil, false, status.NewPeerNotRegisteredError()
 	}
 
 	if err := checkPeerMaySync(ctx, am.Store, peer, settings); err != nil {
-		return nil, nil, false, err
+		return nil, false, err
 	}
 
 	// Connecting an embedded proxy peer fans out map updates computed from its own map.
 	if peer.ProxyMeta.Embedded {
-		return nil, nil, false, nil
+		return nil, false, nil
 	}
 
-	if err := am.markPeerConnected(ctx, accountID, peer, syncTime.UnixNano(), nil); err != nil {
+	start := time.Now()
+	err = am.markPeerConnected(ctx, accountID, peer, syncTime.UnixNano(), nil)
+	am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusConnect, time.Since(start))
+	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	return peer, settings, true, nil
+	return peer, true, nil
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible

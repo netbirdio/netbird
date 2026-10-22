@@ -43,7 +43,7 @@ type MockAccountManager struct {
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
-	ResumePeerSyncFunc                    func(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, *types.Settings, bool, error)
+	ResumePeerSyncFunc                    func(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, bool, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
@@ -251,11 +251,11 @@ func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID str
 }
 
 // ResumePeerSync mock implementation of ResumePeerSync from server.AccountManager interface
-func (am *MockAccountManager) ResumePeerSync(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, *types.Settings, bool, error) {
+func (am *MockAccountManager) ResumePeerSync(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, bool, error) {
 	if am.ResumePeerSyncFunc != nil {
 		return am.ResumePeerSyncFunc(ctx, accountID, peerPubKey, syncTime)
 	}
-	return nil, nil, false, nil
+	return nil, false, nil
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {

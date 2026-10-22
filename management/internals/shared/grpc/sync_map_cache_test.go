@@ -9,10 +9,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/encryption"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func newTestSyncMapCache(t *testing.T, enabled string) (*SyncMapCache, nbcache.Store) {
@@ -215,4 +226,59 @@ func TestMapResyncSchedulerRetries(t *testing.T) {
 func TestNilMapResyncScheduler(t *testing.T) {
 	var r *mapResyncScheduler
 	assert.NotPanics(t, func() { r.schedule("acc", "peer") }, "a server without the cache must ignore resumes")
+}
+
+// capturingSyncServer records what a Sync handler sends.
+type capturingSyncServer struct {
+	grpc.ServerStream
+	sent []*proto.EncryptedMessage
+}
+
+func (s *capturingSyncServer) Send(msg *proto.EncryptedMessage) error {
+	s.sent = append(s.sent, msg)
+	return nil
+}
+
+func TestSendConfigOnlySyncUsesMergedSettings(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	accountManager := account.NewMockManager(ctrl)
+	settingsManager := settings.NewMockManager(ctrl)
+	secretsManager := NewMockSecretsManager(ctrl)
+	storeMock := store.NewMockStore(ctrl)
+
+	serverKey, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	peerKey, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	lastLogin := time.Now().UTC().Add(-time.Minute)
+	peer := &nbpeer.Peer{ID: "peer-1", AccountID: "account-1", UserID: "user-1", LoginExpirationEnabled: true, LastLogin: &lastLogin}
+
+	// Only the settings manager merges in the extra settings, such as traffic flow, that
+	// the connection config is extended with; the strict store mock fails the test if the
+	// response is built from the store's settings instead.
+	merged := &types.Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour, Extra: &types.ExtraSettings{FlowEnabled: true}}
+	settingsManager.EXPECT().GetSettings(gomock.Any(), "account-1", activity.SystemInitiator).Return(merged, nil)
+	accountManager.EXPECT().GetStore().Return(storeMock)
+	storeMock.EXPECT().GetPeerGroupIDs(gomock.Any(), store.LockingStrengthNone, "account-1", "peer-1").Return([]string{"group-1"}, nil)
+	secretsManager.EXPECT().GetWGKey().Return(serverKey, nil)
+
+	s := &Server{
+		accountManager:  accountManager,
+		settingsManager: settingsManager,
+		secretsManager:  secretsManager,
+		config:          &nbconfig.Config{Stuns: []*nbconfig.Host{{Proto: "udp", URI: "stun:stun.example.com:3478"}}},
+	}
+	srv := &capturingSyncServer{}
+	require.NoError(t, s.sendConfigOnlySync(context.Background(), peerKey.PublicKey(), peer, srv))
+	require.Len(t, srv.sent, 1, "one message must be sent")
+
+	resp := &proto.SyncResponse{}
+	require.NoError(t, encryption.DecryptMessage(serverKey.PublicKey(), peerKey, srv.sent[0].Body, resp))
+	assert.Nil(t, resp.GetNetworkMap(), "a config-only response carries no map")
+	assert.Nil(t, resp.GetPeerConfig(), "a config-only response carries no peer config")
+	assert.Nil(t, resp.GetChecks(), "a config-only response carries no posture checks")
+	require.NotNil(t, resp.GetNetbirdConfig(), "the connection config must be sent")
+	assert.Len(t, resp.GetNetbirdConfig().GetStuns(), 1, "the connection config must come from the server config")
+	assert.Equal(t, lastLogin.Add(time.Hour).Unix(), resp.GetSessionExpiresAt().GetSeconds(), "the session deadline must follow the merged settings")
 }

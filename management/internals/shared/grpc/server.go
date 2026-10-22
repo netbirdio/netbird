@@ -957,13 +957,13 @@ func (s *Server) forgetSentMap(ctx context.Context, peerKey wgtypes.Key) error {
 // whether the peer resumed without a map.
 func (s *Server) sendFirstSyncResponse(ctx context.Context, accountID string, peerKey wgtypes.Key, peerMeta nbpeer.PeerSystemMeta, realIP net.IP, syncStart time.Time, srv proto.ManagementService_SyncServer) (*nbpeer.Peer, bool, error) {
 	if s.syncMapCache.canSkipMap(ctx, peerKey.String(), peerMeta.WtVersion) {
-		peer, settings, resumed, err := s.accountManager.ResumePeerSync(ctx, accountID, peerKey.String(), syncStart)
+		peer, resumed, err := s.accountManager.ResumePeerSync(ctx, accountID, peerKey.String(), syncStart)
 		if err != nil {
 			log.WithContext(ctx).Debugf("error while resuming sync of peer %s: %v", peerKey.String(), err)
 			return nil, false, mapError(ctx, err)
 		}
 		if resumed {
-			if err := s.sendConfigOnlySync(ctx, peerKey, peer, settings, srv); err != nil {
+			if err := s.sendConfigOnlySync(ctx, peerKey, peer, srv); err != nil {
 				s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
 				return nil, false, err
 			}
@@ -989,9 +989,17 @@ func (s *Server) sendFirstSyncResponse(ctx context.Context, accountID string, pe
 }
 
 // sendConfigOnlySync sends a peer that still holds its network map the connection
-// config with fresh credentials and its session deadline.
-func (s *Server) sendConfigOnlySync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, settings *types.Settings, srv proto.ManagementService_SyncServer) error {
+// config with fresh credentials and its session deadline. The settings come from the
+// settings manager, as on the full path: only it carries the extra settings, such as
+// traffic flow, that the connection config is extended with.
+func (s *Server) sendConfigOnlySync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, srv proto.ManagementService_SyncServer) error {
 	turnToken, relayToken := s.syncTokens()
+
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get settings of account %s: %v", peer.AccountID, err)
+		return status.Errorf(codes.Internal, "error handling request")
+	}
 
 	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
 	if err != nil {

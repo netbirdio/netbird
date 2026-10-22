@@ -23,7 +23,8 @@ import (
 
 const (
 	// EnvSyncMapCacheEnabled lets a peer that reconnects with Sync, without logging in
-	// first, skip the network map computation and keep the map it already holds.
+	// first, skip the network map computation and keep the map it already holds. Enable
+	// it only once every instance runs a release that clears the entry on Login.
 	EnvSyncMapCacheEnabled = "NB_SYNC_MAP_CACHE_ENABLED"
 	// EnvSyncMapCacheResyncWindow is how long a peer that resumed without a map waits,
 	// at most, for a full one.
