@@ -2505,6 +2505,9 @@ func (e *Engine) startNetworkMonitor() {
 			switch decideUnderlayAction(change, e.netMgr != nil) {
 			case actionWait:
 				log.Infof("Network monitor: no default route left, waiting for the network to come back")
+				// Offline the control plane cannot come back: a running safety
+				// net would restart into the leak. The next redial arms a new one.
+				watch.stop()
 				baseline = change.Before
 				continue
 			case actionNone:
