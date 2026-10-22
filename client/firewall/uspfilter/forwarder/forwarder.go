@@ -12,7 +12,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -26,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
@@ -43,7 +43,7 @@ const (
 
 // IFace provides the WireGuard device and overlay addresses the forwarder needs.
 type IFace interface {
-	GetWGDevice() *wgdevice.Device
+	GetWGDevice() *wgbackend.Device
 	Address() wgaddr.Address
 }
 

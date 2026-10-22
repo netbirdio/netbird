@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
@@ -23,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
@@ -83,7 +83,7 @@ func (w *mocWGIface) GetStats(_ string) (configurer.WGStats, error) {
 	return configurer.WGStats{}, nil
 }
 
-func (w *mocWGIface) GetNet() *netstack.Net {
+func (w *mocWGIface) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 
