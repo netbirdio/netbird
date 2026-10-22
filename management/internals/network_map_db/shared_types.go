@@ -19,13 +19,55 @@ var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
+	// LoadAccount reads the rows of one account's network map in a single
+	// read-only snapshot. A nil selectPeers reads every peer row; otherwise
+	// the peer rows are read after selectPeers picked them.
+	LoadAccount(ctx context.Context, accountID string, selectPeers PeerSelector) (*AccountRows, error)
 	Exec(ctx context.Context, query string, args ...any) error
+}
+
+// PeerSelector picks the peers a load reads in full. It receives every
+// collection of the account except the peer rows, of which only the embedded
+// proxy peers are there. It returns the IDs of the peers to read, or all to
+// read every peer. The embedded proxy peers are read either way.
+type PeerSelector func(rows *AccountRows) (peerIDs []string, all bool, err error)
+
+// AccountRows holds the collections one network-map load reads for an account.
+type AccountRows struct {
+	Settings                       nmdata.AccountSettingsInfo
+	ZoneCandidates                 []networkmap.AppliedZoneCandidate
+	Groups                         []nmdata.Group
+	ResourceToGroupIdx             map[string]map[string]any
+	NameServerGroups               []nmdata.NameServerGroup
+	NetworkResources               []nmdata.NetworkResource
+	Routers                        map[string]map[string]*nmdata.NetworkRouter
+	Network                        nmdata.Network
+	Peers                          []nmdata.Peer
+	Policies                       []nmdata.Policy
+	PolicyToDestinationResourceIdx map[string]map[string]any
+	PolicyToDestinationGroupIdx    map[string]map[string]any
+	PostureChecks                  []nmdata.PostureChecks
+	PostureCheckXIDToPublicID      map[string]string
+	Routes                         []nmdata.Route
+	NetworkXIDToPublicID           map[string]string
+	AllowedUserIDs                 map[string]struct{}
+	GroupIDToUserIDs               map[string][]string
+	DNSSettings                    nmdata.DNSSettings
+	Domains                        []Domain
+	ProxyTargetedDomainResourceIDs map[string]struct{}
+	// PeerVersions are the distinct client versions of all peers of the
+	// account. Only a load that reads a subset of the peers reads them; a
+	// load of every peer leaves them nil.
+	PeerVersions []string
 }
 
 type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase
 	GetGroups(ctx context.Context, accountId string) ([]nmdata.Group, map[string]map[string]any, error)
 	GetDomains(ctx context.Context, accountId string) ([]Domain, error)
 	GetPeers(ctx context.Context, accountId string) ([]nmdata.Peer, map[string][]*nmdata.Peer, error)
+	GetPeersByIDs(ctx context.Context, accountId string, peerIDs []string) ([]nmdata.Peer, error)
+	GetProxyPeers(ctx context.Context, accountId string) ([]nmdata.Peer, error)
+	GetPeerVersions(ctx context.Context, accountId string) ([]string, error)
 	GetPolicies(ctx context.Context, accountId string) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error)
 	GetRoutes(ctx context.Context, accountId string) ([]nmdata.Route, error)
 	GetNameServerGroups(ctx context.Context, accountId string) ([]nmdata.NameServerGroup, error)

@@ -2,6 +2,7 @@ package networkmap
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/types"
@@ -13,11 +14,13 @@ type sshRequirements struct {
 }
 
 // GetPeerNetworkMapComponents computes the peer's NetworkMapComponents from the
-// slim twin store. It mirrors the former Account.GetPeerNetworkMapComponents
-// exactly, operating on nmdata twins throughout — no Account reference and no
-// twin↔real conversion, since the produced components hold twins.
-func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMapComponents {
-	nmd.InjectProxyPolicies()
+// slim twin store. It starts from the peer's groups and follows the account
+// index to the policies, routes and network resources that reference the peer
+// or its groups, expanding only the side of a rule facing away from the peer;
+// objects that reference neither are never visited. The produced components
+// hold twins.
+func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersZone *PeersZone) *types.NetworkMapComponents {
+	nmd.componentsIndex()
 
 	forceRoutingPeerDNS := nmd.forcesRoutingPeerDNSResolution(peerID)
 
@@ -40,12 +43,14 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		})
 	}
 
+	c := nmd.newPeerCalc(peerID, false)
+
 	components := &types.NetworkMapComponents{
 		PeerID:                        peerID,
 		Network:                       nmd.Network,
 		AccountSettings:               nmd.AccountSettings,
 		DNSSettings:                   nmd.DNSSettings,
-		CustomZoneDomain:              peersCustomZone.Domain,
+		CustomZoneDomain:              peersZone.Domain(),
 		NameServerGroups:              make([]*nmdata.NameServerGroup, 0),
 		ResourcePoliciesMap:           make(map[string][]*nmdata.Policy),
 		RoutersMap:                    make(map[string]map[string]*nmdata.NetworkRouter),
@@ -55,9 +60,13 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		NetworkXIDToPublicID:          nmd.NetworkXIDToPublicID,
 		PostureCheckXIDToPublicID:     nmd.PostureCheckXIDToPublicID,
 		ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
+		Peers:                         c.peers,
+		Groups:                        c.groups,
 	}
 
-	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := nmd.getPeersGroupsPoliciesRoutes(peerID, peer.SSHEnabled, &components.PostureFailedPeers)
+	components.Routes = c.collectRoutes()
+	var sshReqs sshRequirements
+	components.Policies, sshReqs = c.collectPolicies(peer.SSHEnabled)
 
 	if len(sshReqs.neededGroupIDs) > 0 {
 		components.GroupIDToUserIDs = filterGroupIDToUserIDs(nmd.GroupIDToUserIDs, sshReqs.neededGroupIDs)
@@ -66,20 +75,15 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		components.AllowedUserIDs = nmd.getAllowedUserIDs()
 	}
 
-	components.Peers = relevantPeers
-	components.Groups = relevantGroups
-	components.Policies = relevantPolicies
-	components.Routes = relevantRoutes
-	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, relevantPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
+	components.AllDNSRecords = peersZone.recordsOf(c.peers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 
-	peerGroups := nmd.GetPeerGroups(peerID)
-	components.AccountZones = nmd.appliedZones(peerGroups)
-	components.AccountZones = append(components.AccountZones, nmd.privateServiceZones(peerGroups)...)
+	components.AccountZones = nmd.appliedZones(c.peerGroups)
+	components.AccountZones = append(components.AccountZones, nmd.privateServiceZones(c.peerGroups)...)
 
 	for _, nsGroup := range nmd.NameServerGroups {
 		if nsGroup != nil && nsGroup.Enabled {
 			for _, gID := range nsGroup.Groups {
-				if _, found := relevantGroups[gID]; found {
+				if _, found := c.groups[gID]; found {
 					components.NameServerGroups = append(components.NameServerGroups, nsGroup)
 					break
 				}
@@ -87,188 +91,184 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
-	for _, resource := range nmd.NetworkResources {
-		if resource == nil || !resource.Enabled {
-			continue
-		}
+	c.collectNetworkResources(components)
 
-		policies, exists := nmd.ResourcePolicies[resource.ID]
-		if !exists {
-			continue
-		}
-
-		addSourcePeers := false
-
-		networkRoutingPeers, routerExists := nmd.Routers[resource.NetworkID]
-		if routerExists {
-			if _, ok := networkRoutingPeers[peerID]; ok {
-				addSourcePeers = true
-			}
-		}
-
-		for _, policy := range policies {
-			if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
-				continue
-			}
-			if addSourcePeers {
-				var peers []string
-				if policy.Rules[0].SourceResource.Type == string(types.ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
-					peers = []string{policy.Rules[0].SourceResource.ID}
-				} else {
-					peers = nmd.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
-				}
-				for _, pID := range nmd.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, &components.PostureFailedPeers) {
-					if _, exists := components.Peers[pID]; !exists {
-						components.Peers[pID] = nmd.Peers[pID]
-					}
-				}
-			} else {
-				peerInSources := false
-				if policy.Rules[0].SourceResource.Type == string(types.ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
-					peerInSources = policy.Rules[0].SourceResource.ID == peerID
-				} else {
-					for _, groupID := range policy.SourceGroups() {
-						if group := nmd.Groups[groupID]; group != nil && slices.Contains(group.Peers, peerID) {
-							peerInSources = true
-							break
-						}
-					}
-				}
-				if !peerInSources {
-					continue
-				}
-				isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(policy.SourcePostureChecks, peerID)
-				if !isValid && len(pname) > 0 {
-					if _, ok := components.PostureFailedPeers[pname]; !ok {
-						components.PostureFailedPeers[pname] = make(map[string]struct{})
-					}
-					components.PostureFailedPeers[pname][peer.ID] = struct{}{}
-					continue
-				}
-				addSourcePeers = true
-			}
-
-			for _, rule := range policy.Rules {
-				if rule == nil || !rule.Enabled {
-					continue
-				}
-				for _, srcGroupID := range rule.Sources {
-					if g := nmd.Groups[srcGroupID]; g != nil {
-						if _, exists := components.Groups[srcGroupID]; !exists {
-							components.Groups[srcGroupID] = g
-						}
-					}
-				}
-				for _, dstGroupID := range rule.Destinations {
-					if g := nmd.Groups[dstGroupID]; g != nil {
-						if _, exists := components.Groups[dstGroupID]; !exists {
-							components.Groups[dstGroupID] = g
-						}
-					}
-				}
-			}
-			components.ResourcePoliciesMap[resource.ID] = policies
-		}
-
-		if addSourcePeers {
-			components.RoutersMap[resource.NetworkID] = networkRoutingPeers
-			for peerIDKey := range networkRoutingPeers {
-				p := nmd.Peers[peerIDKey]
-				if p == nil {
-					continue
-				}
-				// An unapproved peer must not carry traffic, so it is kept out of
-				// RouterPeers as well: the envelope encoder indexes that map into
-				// the wire peer table, from which the client restores every entry.
-				if _, validated := nmd.ValidatedPeers[peerIDKey]; !validated {
-					continue
-				}
-				if _, exists := components.RouterPeers[peerIDKey]; !exists {
-					components.RouterPeers[peerIDKey] = p
-				}
-				if _, exists := components.Peers[peerIDKey]; !exists {
-					components.Peers[peerIDKey] = p
-				}
-			}
-			components.NetworkResources = append(components.NetworkResources, resource)
-		}
+	nmd.filterGroupPeers(components.Groups, components.Peers)
+	if len(components.PostureFailedPeers) > 0 || len(nmd.policyPostureFailures()) > 0 {
+		referencedChecks := referencedPostureChecks(components.Policies, components.ResourcePoliciesMap)
+		nmd.addPolicyPostureFailures(components, referencedChecks)
+		filterPostureFailedPeers(components.PostureFailedPeers, referencedChecks, components.Peers)
 	}
-
-	filterGroupPeers(&components.Groups, components.Peers)
-	filterPostureFailedPeers(&components.PostureFailedPeers, components.Policies, components.ResourcePoliciesMap, components.Peers)
 
 	return components
 }
 
-func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
-	peerID string,
-	peerSSHEnabled bool,
-	postureFailedPeers *map[string]map[string]struct{},
-) (map[string]*nmdata.Peer, map[string]*nmdata.Group, []*nmdata.Policy, []*nmdata.Route, sshRequirements) {
-	relevantPeerIDs := make(map[string]*nmdata.Peer, len(nmd.Peers)/4)
-	relevantGroupIDs := make(map[string]*nmdata.Group, len(nmd.Groups)/4)
-	relevantPolicies := make([]*nmdata.Policy, 0, len(nmd.Policies))
-	relevantRoutes := make([]*nmdata.Route, 0, len(nmd.Routes))
-	sshReqs := sshRequirements{neededGroupIDs: make(map[string]struct{})}
+// PeerClosure returns every peer the components of the given peers can hold,
+// worked out from group memberships and references alone: the calculation runs
+// with every referenced peer counted as existing, validated and passing its
+// posture checks, which can only widen its result. Peer rows are not read, so
+// the closure can be computed before they are loaded. It stops and reports
+// false once the closure reaches limit peers; a limit of 0 means no limit.
+func (nmd *NetworkMapData) PeerClosure(peerIDs []string, limit int) (map[string]struct{}, bool) {
+	closure := make(map[string]struct{}, len(peerIDs))
+	for _, peerID := range peerIDs {
+		c := nmd.newPeerCalc(peerID, true)
+		c.collectRoutes()
+		c.collectPolicies(false)
+		c.collectNetworkResources(&types.NetworkMapComponents{
+			Peers:               c.peers,
+			Groups:              c.groups,
+			ResourcePoliciesMap: make(map[string][]*nmdata.Policy),
+			RoutersMap:          make(map[string]map[string]*nmdata.NetworkRouter),
+			RouterPeers:         make(map[string]*nmdata.Peer),
+			PostureFailedPeers:  make(map[string]map[string]struct{}),
+		})
 
-	relevantPeerIDs[peerID] = nmd.Peers[peerID]
+		for id := range c.peers {
+			closure[id] = struct{}{}
+		}
+		if limit > 0 && len(closure) >= limit {
+			return nil, false
+		}
+	}
+	return closure, true
+}
 
-	peerGroupSet := nmd.GetPeerGroups(peerID)
-	for groupID := range peerGroupSet {
-		relevantGroupIDs[groupID] = nmd.Groups[groupID]
+// PeerSourcePostureChecks returns the posture checks of every enabled policy
+// with an enabled rule naming the peer, directly or through one of its groups,
+// as a source.
+func (nmd *NetworkMapData) PeerSourcePostureChecks(peerID string) []*nmdata.PostureChecks {
+	if len(nmd.PostureChecks) == 0 {
+		return nil
 	}
 
-	routeAccessControlGroups := make(map[string]struct{})
-	for _, r := range nmd.Routes {
-		if r == nil {
+	idx := nmd.componentsIndex()
+	peerGroups := nmd.GetPeerGroups(peerID)
+
+	checks := make(map[string]*nmdata.PostureChecks)
+	for _, i := range lookup(idx.policiesByPeer, idx.policiesByGroup, peerID, peerGroups) {
+		policy := nmd.Policies[i]
+		if len(policy.SourcePostureChecks) == 0 || !policyHasSourcePeer(policy, peerID, peerGroups) {
 			continue
 		}
-		relevant := r.Peer == peerID
-		if !relevant {
-			for _, groupID := range r.PeerGroups {
-				if _, ok := peerGroupSet[groupID]; ok {
-					relevant = true
-					break
-				}
+		for _, checkID := range policy.SourcePostureChecks {
+			if postureChecks := nmd.PostureChecks[checkID]; postureChecks != nil {
+				checks[checkID] = postureChecks
 			}
 		}
-		if !relevant && r.Enabled {
-			for _, groupID := range r.Groups {
-				if _, ok := peerGroupSet[groupID]; ok {
-					relevant = true
-					break
-				}
-			}
+	}
+
+	result := make([]*nmdata.PostureChecks, 0, len(checks))
+	for _, postureChecks := range checks {
+		result = append(result, postureChecks)
+	}
+	return result
+}
+
+func policyHasSourcePeer(policy *nmdata.Policy, peerID string, peerGroups map[string]struct{}) bool {
+	for _, rule := range policy.Rules {
+		if rule == nil || !rule.Enabled {
+			continue
 		}
+		if rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID == peerID {
+			return true
+		}
+		if anyInSet(rule.Sources, peerGroups) {
+			return true
+		}
+	}
+	return false
+}
+
+// peerCalc holds one peer's components calculation. A permissive calculation
+// counts every referenced peer as existing, validated and passing its posture
+// checks, which yields the widest set of peers the calculation can reach
+// without reading any peer row.
+type peerCalc struct {
+	nmd        *NetworkMapData
+	idx        *componentsIndex
+	peerID     string
+	peerGroups map[string]struct{}
+	permissive bool
+
+	peers  map[string]*nmdata.Peer
+	groups map[string]*nmdata.Group
+
+	routeAccessControlGroups map[string]struct{}
+	expandedSides            map[string]struct{}
+	expandedResourcePolicies map[string]struct{}
+}
+
+func (nmd *NetworkMapData) newPeerCalc(peerID string, permissive bool) *peerCalc {
+	c := &peerCalc{
+		nmd:                      nmd,
+		idx:                      nmd.componentsIndex(),
+		peerID:                   peerID,
+		peerGroups:               nmd.GetPeerGroups(peerID),
+		permissive:               permissive,
+		peers:                    map[string]*nmdata.Peer{peerID: nmd.Peers[peerID]},
+		groups:                   make(map[string]*nmdata.Group),
+		routeAccessControlGroups: make(map[string]struct{}),
+		expandedSides:            make(map[string]struct{}),
+		expandedResourcePolicies: make(map[string]struct{}),
+	}
+	for groupID := range c.peerGroups {
+		c.groups[groupID] = nmd.Groups[groupID]
+	}
+	return c
+}
+
+// admit reports whether a peer reached through a policy, route or router
+// enters the components: it must exist, be validated and pass the posture
+// checks. Failed checks are not recorded here; see addPolicyPostureFailures.
+func (c *peerCalc) admit(peerID string, postureChecksIDs []string) bool {
+	if c.permissive {
+		return true
+	}
+	if c.nmd.Peers[peerID] == nil {
+		return false
+	}
+	if _, ok := c.nmd.ValidatedPeers[peerID]; !ok {
+		return false
+	}
+	valid, _ := c.nmd.validatePostureChecksOnPeerGetFailed(postureChecksIDs, peerID)
+	return valid
+}
+
+func (c *peerCalc) addGroups(groupIDs []string) {
+	for _, groupID := range groupIDs {
+		if g := c.nmd.Groups[groupID]; g != nil {
+			c.groups[groupID] = g
+		}
+	}
+}
+
+// collectRoutes adds the routes the peer serves or receives, their groups and
+// their routing peers, and remembers their access control groups for
+// collectPolicies.
+func (c *peerCalc) collectRoutes() []*nmdata.Route {
+	nmd := c.nmd
+	candidates := lookup(c.idx.routesByPeer, c.idx.routesByGroup, c.peerID, c.peerGroups)
+	routes := make([]*nmdata.Route, 0, len(candidates))
+
+	for _, i := range candidates {
+		r := nmd.Routes[i]
+		relevant := r.Peer == c.peerID || anyInSet(r.PeerGroups, c.peerGroups) || (r.Enabled && anyInSet(r.Groups, c.peerGroups))
 		if !relevant {
 			continue
 		}
 
-		for _, groupID := range r.PeerGroups {
-			if g := nmd.Groups[groupID]; g != nil {
-				relevantGroupIDs[groupID] = g
-			}
-		}
-		for _, groupID := range r.Groups {
-			if g := nmd.Groups[groupID]; g != nil {
-				relevantGroupIDs[groupID] = g
-			}
-		}
+		c.addGroups(r.PeerGroups)
+		c.addGroups(r.Groups)
 		if r.Enabled {
+			c.addGroups(r.AccessControlGroups)
 			for _, groupID := range r.AccessControlGroups {
-				if g := nmd.Groups[groupID]; g != nil {
-					relevantGroupIDs[groupID] = g
-				}
-				routeAccessControlGroups[groupID] = struct{}{}
+				c.routeAccessControlGroups[groupID] = struct{}{}
 			}
 		}
 
-		if r.Peer != "" {
-			if _, ok := nmd.ValidatedPeers[r.Peer]; ok {
-				if p := nmd.Peers[r.Peer]; p != nil {
-					relevantPeerIDs[r.Peer] = p
-				}
-			}
+		if r.Peer != "" && c.admit(r.Peer, nil) {
+			c.peers[r.Peer] = nmd.Peers[r.Peer]
 		}
 		for _, groupID := range r.PeerGroups {
 			g := nmd.Groups[groupID]
@@ -276,87 +276,64 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 				continue
 			}
 			for _, pid := range g.Peers {
-				if _, exists := relevantPeerIDs[pid]; exists {
+				if _, exists := c.peers[pid]; exists {
 					continue
 				}
-				if _, ok := nmd.ValidatedPeers[pid]; !ok {
-					continue
-				}
-				if p := nmd.Peers[pid]; p != nil {
-					relevantPeerIDs[pid] = p
+				if c.admit(pid, nil) {
+					c.peers[pid] = nmd.Peers[pid]
 				}
 			}
 		}
-		relevantRoutes = append(relevantRoutes, r)
+		routes = append(routes, r)
 	}
 
-	for _, policy := range nmd.Policies {
-		if policy == nil || !policy.Enabled {
-			continue
-		}
+	return routes
+}
 
+// collectPolicies adds the policies with a rule that has the peer on one side,
+// or that grants access to the access control groups of its routes. Of a rule
+// holding the peer only the opposite side is expanded into peers.
+func (c *peerCalc) collectPolicies(peerSSHEnabled bool) ([]*nmdata.Policy, sshRequirements) {
+	nmd := c.nmd
+	sshReqs := sshRequirements{neededGroupIDs: make(map[string]struct{})}
+
+	candidates := lookup(c.idx.policiesByPeer, c.idx.policiesByGroup, c.peerID, c.peerGroups)
+	if len(c.routeAccessControlGroups) > 0 {
+		for groupID := range c.routeAccessControlGroups {
+			candidates = append(candidates, c.idx.policiesByGroup[groupID]...)
+		}
+		candidates = sortedUnique(candidates)
+	}
+
+	policies := make([]*nmdata.Policy, 0, len(candidates))
+	for _, i := range candidates {
+		policy := nmd.Policies[i]
 		policyRelevant := false
+
 		for _, rule := range policy.Rules {
 			if rule == nil || !rule.Enabled {
 				continue
 			}
 
-			if len(routeAccessControlGroups) > 0 {
-				for _, destGroupID := range rule.Destinations {
-					if _, needed := routeAccessControlGroups[destGroupID]; needed {
-						policyRelevant = true
-						for _, srcGroupID := range rule.Sources {
-							if g := nmd.Groups[srcGroupID]; g != nil {
-								relevantGroupIDs[srcGroupID] = g
-							}
-						}
-						for _, dstGroupID := range rule.Destinations {
-							if g := nmd.Groups[dstGroupID]; g != nil {
-								relevantGroupIDs[dstGroupID] = g
-							}
-						}
-						break
-					}
-				}
+			if len(c.routeAccessControlGroups) > 0 && anyInSet(rule.Destinations, c.routeAccessControlGroups) {
+				policyRelevant = true
+				c.addGroups(rule.Sources)
+				c.addGroups(rule.Destinations)
 			}
 
-			var sourcePeers, destinationPeers []string
-			var peerInSources, peerInDestinations bool
-
-			if rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = nmd.getPeerFromResource(rule.SourceResource, peerID, policy.SourcePostureChecks, postureFailedPeers)
-			} else {
-				sourcePeers, peerInSources = nmd.getPeersFromGroups(rule.Sources, peerID, policy.SourcePostureChecks, postureFailedPeers)
-			}
-
-			if rule.DestinationResource.Type == string(types.ResourceTypePeer) && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = nmd.getPeerFromResource(rule.DestinationResource, peerID, nil, postureFailedPeers)
-			} else {
-				destinationPeers, peerInDestinations = nmd.getPeersFromGroups(rule.Destinations, peerID, nil, postureFailedPeers)
-			}
+			peerInSources := c.sideHoldsPeer(rule.Sources, rule.SourceResource) && c.admit(c.peerID, policy.SourcePostureChecks)
+			peerInDestinations := c.sideHoldsPeer(rule.Destinations, rule.DestinationResource)
 
 			if peerInSources {
 				policyRelevant = true
-				for _, pid := range destinationPeers {
-					relevantPeerIDs[pid] = nmd.Peers[pid]
-				}
-				for _, dstGroupID := range rule.Destinations {
-					if g := nmd.Groups[dstGroupID]; g != nil {
-						relevantGroupIDs[dstGroupID] = g
-					}
-				}
+				c.addSidePeers(rule.Destinations, rule.DestinationResource, nil)
+				c.addGroups(rule.Destinations)
 			}
 
 			if peerInDestinations {
 				policyRelevant = true
-				for _, pid := range sourcePeers {
-					relevantPeerIDs[pid] = nmd.Peers[pid]
-				}
-				for _, srcGroupID := range rule.Sources {
-					if g := nmd.Groups[srcGroupID]; g != nil {
-						relevantGroupIDs[srcGroupID] = g
-					}
-				}
+				c.addSidePeers(rule.Sources, rule.SourceResource, policy.SourcePostureChecks)
+				c.addGroups(rule.Sources)
 
 				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
 					switch {
@@ -373,12 +350,283 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 				}
 			}
 		}
+
 		if policyRelevant {
-			relevantPolicies = append(relevantPolicies, policy)
+			policies = append(policies, policy)
 		}
 	}
 
-	return relevantPeerIDs, relevantGroupIDs, relevantPolicies, relevantRoutes, sshReqs
+	return policies, sshReqs
+}
+
+// sideHoldsPeer reports whether a rule side contains the peer. A side naming a
+// peer resource holds only that peer. Otherwise the first group named "All",
+// or the only group of the side, decides alone, as getPeersFromGroups expands
+// it; else any of the groups does.
+func (c *peerCalc) sideHoldsPeer(groupIDs []string, resource nmdata.Resource) bool {
+	if isPeerResource(resource) {
+		return resource.ID == c.peerID
+	}
+	if g := c.decidingGroup(groupIDs); g != nil {
+		_, ok := c.peerGroups[g.ID]
+		return ok
+	}
+	return anyInSet(groupIDs, c.peerGroups)
+}
+
+// addSidePeers adds the admitted peers of a rule side, expanded the way
+// sideHoldsPeer reads it. A group is expanded at most once per posture check
+// list.
+func (c *peerCalc) addSidePeers(groupIDs []string, resource nmdata.Resource, postureChecksIDs []string) {
+	if isPeerResource(resource) {
+		c.addPolicyPeer(resource.ID, postureChecksIDs)
+		return
+	}
+	if g := c.decidingGroup(groupIDs); g != nil {
+		c.addGroupPeers(g, postureChecksIDs)
+		return
+	}
+	for _, groupID := range groupIDs {
+		if g := c.nmd.Groups[groupID]; g != nil {
+			c.addGroupPeers(g, postureChecksIDs)
+		}
+	}
+}
+
+// decidingGroup returns the group that alone makes up a rule side: the first
+// existing group that is "All" or the side's only group.
+func (c *peerCalc) decidingGroup(groupIDs []string) *nmdata.Group {
+	for _, groupID := range groupIDs {
+		g := c.nmd.Groups[groupID]
+		if g == nil {
+			continue
+		}
+		if g.IsGroupAll() || len(groupIDs) == 1 {
+			return g
+		}
+	}
+	return nil
+}
+
+func (c *peerCalc) addGroupPeers(g *nmdata.Group, postureChecksIDs []string) {
+	key := g.ID
+	if len(postureChecksIDs) > 0 {
+		key += "\x00" + strings.Join(postureChecksIDs, "\x00")
+	}
+	if _, done := c.expandedSides[key]; done {
+		return
+	}
+	c.expandedSides[key] = struct{}{}
+
+	for _, pid := range g.Peers {
+		c.addPolicyPeer(pid, postureChecksIDs)
+	}
+}
+
+func (c *peerCalc) addPolicyPeer(peerID string, postureChecksIDs []string) {
+	if peerID == c.peerID {
+		return
+	}
+	if _, exists := c.peers[peerID]; exists {
+		return
+	}
+	if c.admit(peerID, postureChecksIDs) {
+		c.peers[peerID] = c.nmd.Peers[peerID]
+	}
+}
+
+// collectNetworkResources adds the network resources the peer routes or may
+// access, with their policies, routers and the peers on the other end.
+func (c *peerCalc) collectNetworkResources(components *types.NetworkMapComponents) {
+	nmd := c.nmd
+
+	candidates := lookup(c.idx.resourcesByPeer, c.idx.resourcesByGroup, c.peerID, c.peerGroups)
+	for _, networkID := range c.idx.networksByRouter[c.peerID] {
+		candidates = append(candidates, c.idx.resourcesByNetwork[networkID]...)
+	}
+	candidates = sortedUnique(candidates)
+
+	for _, i := range candidates {
+		resource := nmd.NetworkResources[i]
+
+		policies, exists := nmd.ResourcePolicies[resource.ID]
+		if !exists {
+			continue
+		}
+
+		addSourcePeers := false
+
+		networkRoutingPeers, routerExists := nmd.Routers[resource.NetworkID]
+		if routerExists {
+			if _, ok := networkRoutingPeers[c.peerID]; ok {
+				addSourcePeers = true
+			}
+		}
+
+		for _, policy := range policies {
+			if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
+				continue
+			}
+			if addSourcePeers {
+				c.addResourcePolicySources(policy, components)
+			} else {
+				var peerInSources bool
+				if isPeerResource(policy.Rules[0].SourceResource) {
+					peerInSources = policy.Rules[0].SourceResource.ID == c.peerID
+				} else {
+					peerInSources = anyInSet(policy.SourceGroups(), c.peerGroups)
+				}
+				if !peerInSources {
+					continue
+				}
+				if !c.permissive {
+					isValid, pname := nmd.validatePostureChecksOnPeerGetFailed(policy.SourcePostureChecks, c.peerID)
+					if !isValid && len(pname) > 0 {
+						if _, ok := components.PostureFailedPeers[pname]; !ok {
+							components.PostureFailedPeers[pname] = make(map[string]struct{})
+						}
+						components.PostureFailedPeers[pname][c.peerID] = struct{}{}
+						continue
+					}
+				}
+				addSourcePeers = true
+			}
+
+			for _, rule := range policy.Rules {
+				if rule == nil || !rule.Enabled {
+					continue
+				}
+				c.addGroups(rule.Sources)
+				c.addGroups(rule.Destinations)
+			}
+			components.ResourcePoliciesMap[resource.ID] = policies
+		}
+
+		if addSourcePeers {
+			components.RoutersMap[resource.NetworkID] = networkRoutingPeers
+			for peerIDKey := range networkRoutingPeers {
+				// An unapproved peer must not carry traffic, so it is kept out of
+				// RouterPeers as well: the envelope encoder indexes that map into
+				// the wire peer table, from which the client restores every entry.
+				if !c.admit(peerIDKey, nil) {
+					continue
+				}
+				p := nmd.Peers[peerIDKey]
+				if _, exists := components.RouterPeers[peerIDKey]; !exists {
+					components.RouterPeers[peerIDKey] = p
+				}
+				if _, exists := components.Peers[peerIDKey]; !exists {
+					components.Peers[peerIDKey] = p
+				}
+			}
+			components.NetworkResources = append(components.NetworkResources, resource)
+		}
+	}
+}
+
+// addResourcePolicySources adds the admitted source peers of a resource policy
+// the peer routes, recording failed posture checks. A policy shared by several
+// resources is expanded once.
+func (c *peerCalc) addResourcePolicySources(policy *nmdata.Policy, components *types.NetworkMapComponents) {
+	if policy.ID != "" {
+		if _, done := c.expandedResourcePolicies[policy.ID]; done {
+			return
+		}
+		c.expandedResourcePolicies[policy.ID] = struct{}{}
+	}
+
+	var peers []string
+	if isPeerResource(policy.Rules[0].SourceResource) {
+		peers = []string{policy.Rules[0].SourceResource.ID}
+	} else {
+		peers = c.nmd.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
+	}
+
+	if !c.permissive {
+		peers = c.nmd.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, &components.PostureFailedPeers)
+	}
+	for _, pID := range peers {
+		if _, exists := components.Peers[pID]; !exists {
+			components.Peers[pID] = c.nmd.Peers[pID]
+		}
+	}
+}
+
+// policyPostureFailures returns, per posture check, the peers that fail it as
+// the first failing check of an enabled policy whose enabled rule has them as
+// a source. Every peer's components start from this same record, so it is
+// built once, with the same admission the rule sides use.
+func (nmd *NetworkMapData) policyPostureFailures() map[string]map[string]struct{} {
+	nmd.postureFailuresOnce.Do(func() {
+		failures := make(map[string]map[string]struct{})
+		evaluated := make(map[string]struct{})
+		for _, policy := range nmd.Policies {
+			if policy == nil || !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
+				continue
+			}
+			checksKey := strings.Join(policy.SourcePostureChecks, "\x00")
+			for _, rule := range policy.Rules {
+				if rule == nil || !rule.Enabled {
+					continue
+				}
+				if isPeerResource(rule.SourceResource) {
+					nmd.getPeerFromResource(rule.SourceResource, "", policy.SourcePostureChecks, &failures)
+					continue
+				}
+				key := strings.Join(rule.Sources, "\x00") + "\x01" + checksKey
+				if _, done := evaluated[key]; done {
+					continue
+				}
+				evaluated[key] = struct{}{}
+				nmd.getPeersFromGroups(rule.Sources, "", policy.SourcePostureChecks, &failures)
+			}
+		}
+		nmd.postureFailures = failures
+	})
+	return nmd.postureFailures
+}
+
+// addPolicyPostureFailures adds the policy posture failures of the component
+// peers for the referenced posture checks, iterating whichever side is smaller.
+func (nmd *NetworkMapData) addPolicyPostureFailures(components *types.NetworkMapComponents, referencedChecks map[string]struct{}) {
+	if len(referencedChecks) == 0 {
+		return
+	}
+
+	failures := nmd.policyPostureFailures()
+	for checkID := range referencedChecks {
+		failed := failures[checkID]
+		if len(failed) == 0 {
+			continue
+		}
+
+		var matched []string
+		if len(failed) <= len(components.Peers) {
+			for peerID := range failed {
+				if _, ok := components.Peers[peerID]; ok {
+					matched = append(matched, peerID)
+				}
+			}
+		} else {
+			for peerID := range components.Peers {
+				if _, ok := failed[peerID]; ok {
+					matched = append(matched, peerID)
+				}
+			}
+		}
+		if len(matched) == 0 {
+			continue
+		}
+
+		set := components.PostureFailedPeers[checkID]
+		if set == nil {
+			set = make(map[string]struct{}, len(matched))
+			components.PostureFailedPeers[checkID] = set
+		}
+		for _, peerID := range matched {
+			set[peerID] = struct{}{}
+		}
+	}
 }
 
 func (nmd *NetworkMapData) getPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string,
@@ -596,15 +844,16 @@ func (nmd *NetworkMapData) forcesRoutingPeerDNSResolution(peerID string) bool {
 		return false
 	}
 
-	for _, resource := range nmd.NetworkResources {
-		if resource == nil || !resource.Enabled || resource.Type != string(types.ResourceTypeDomain) {
-			continue
-		}
-		if _, ok := nmd.ProxyTargetedDomainResourceIDs[resource.ID]; !ok {
-			continue
-		}
-		if _, isRouter := nmd.Routers[resource.NetworkID][peerID]; isRouter {
-			return true
+	idx := nmd.componentsIndex()
+	for _, networkID := range idx.networksByRouter[peerID] {
+		for _, i := range idx.resourcesByNetwork[networkID] {
+			resource := nmd.NetworkResources[i]
+			if resource.Type != string(types.ResourceTypeDomain) {
+				continue
+			}
+			if _, ok := nmd.ProxyTargetedDomainResourceIDs[resource.ID]; ok {
+				return true
+			}
 		}
 	}
 
@@ -637,6 +886,52 @@ func (nmd *NetworkMapData) GetPeerGroups(peerID string) map[string]struct{} {
 		return set
 	}
 	return map[string]struct{}{}
+}
+
+// groupMembersAmong returns the peers that are members of the group, in the
+// group's member order.
+func (nmd *NetworkMapData) groupMembersAmong(groupID string, peers map[string]*nmdata.Peer) []string {
+	type member struct {
+		position int
+		id       string
+	}
+
+	positions := nmd.memberPositions()[groupID]
+	members := make([]member, 0, len(peers))
+	for pid := range peers {
+		if position, ok := positions[pid]; ok {
+			members = append(members, member{position: position, id: pid})
+		}
+	}
+	slices.SortFunc(members, func(a, b member) int { return a.position - b.position })
+
+	ids := make([]string, len(members))
+	for i, m := range members {
+		ids[i] = m.id
+	}
+	return ids
+}
+
+// memberPositions returns, per group, the position of each member in the
+// group's peer list. It is built once per NetworkMapData and shared.
+func (nmd *NetworkMapData) memberPositions() map[string]map[string]int {
+	nmd.memberPositionsOnce.Do(func() {
+		positions := make(map[string]map[string]int, len(nmd.Groups))
+		for groupID, group := range nmd.Groups {
+			if group == nil {
+				continue
+			}
+			members := make(map[string]int, len(group.Peers))
+			for i, pid := range group.Peers {
+				if _, seen := members[pid]; !seen {
+					members[pid] = i
+				}
+			}
+			positions[groupID] = members
+		}
+		nmd.memberPositionsIdx = positions
+	})
+	return nmd.memberPositionsIdx
 }
 
 func (nmd *NetworkMapData) getUniquePeerIDsFromGroupsIDs(groups []string) []string {
@@ -722,45 +1017,57 @@ func peerInDistributionGroups(peerGroups map[string]struct{}, groups []string) b
 	return false
 }
 
-func filterGroupPeers(groups *map[string]*nmdata.Group, peers map[string]*nmdata.Peer) {
-	for groupID, groupInfo := range *groups {
-		filteredPeers := make([]string, 0, len(groupInfo.Peers))
-		for _, pid := range groupInfo.Peers {
-			if _, exists := peers[pid]; exists {
-				filteredPeers = append(filteredPeers, pid)
+// filterGroupPeers trims every group to the component peers, keeping the
+// group's member order. A group many times larger than the component peers is
+// rebuilt from them through the member positions instead of being scanned.
+func (nmd *NetworkMapData) filterGroupPeers(groups map[string]*nmdata.Group, peers map[string]*nmdata.Peer) {
+	for groupID, group := range groups {
+		var filteredPeers []string
+		if len(peers)*4 < len(group.Peers) {
+			filteredPeers = nmd.groupMembersAmong(groupID, peers)
+		} else {
+			filteredPeers = make([]string, 0, len(group.Peers))
+			for _, pid := range group.Peers {
+				if _, exists := peers[pid]; exists {
+					filteredPeers = append(filteredPeers, pid)
+				}
 			}
 		}
 
-		if len(filteredPeers) != len(groupInfo.Peers) {
-			ng := groupInfo.Copy()
+		if len(filteredPeers) != len(group.Peers) {
+			ng := group.Copy()
 			ng.Peers = filteredPeers
-			(*groups)[groupID] = ng
+			groups[groupID] = ng
 		}
 	}
 }
 
-func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}, policies []*nmdata.Policy, resourcePoliciesMap map[string][]*nmdata.Policy, peers map[string]*nmdata.Peer) {
-	if len(*postureFailedPeers) == 0 {
-		return
-	}
-
-	referencedPostureChecks := make(map[string]struct{})
+// referencedPostureChecks returns the posture checks the component policies
+// and resource policies reference.
+func referencedPostureChecks(policies []*nmdata.Policy, resourcePoliciesMap map[string][]*nmdata.Policy) map[string]struct{} {
+	referenced := make(map[string]struct{})
 	for _, policy := range policies {
 		for _, checkID := range policy.SourcePostureChecks {
-			referencedPostureChecks[checkID] = struct{}{}
+			referenced[checkID] = struct{}{}
 		}
 	}
 	for _, resPolicies := range resourcePoliciesMap {
 		for _, policy := range resPolicies {
+			if policy == nil {
+				continue
+			}
 			for _, checkID := range policy.SourcePostureChecks {
-				referencedPostureChecks[checkID] = struct{}{}
+				referenced[checkID] = struct{}{}
 			}
 		}
 	}
+	return referenced
+}
 
-	for checkID, failedPeers := range *postureFailedPeers {
-		if _, referenced := referencedPostureChecks[checkID]; !referenced {
-			delete(*postureFailedPeers, checkID)
+func filterPostureFailedPeers(postureFailedPeers map[string]map[string]struct{}, referencedChecks map[string]struct{}, peers map[string]*nmdata.Peer) {
+	for checkID, failedPeers := range postureFailedPeers {
+		if _, referenced := referencedChecks[checkID]; !referenced {
+			delete(postureFailedPeers, checkID)
 			continue
 		}
 		for peerID := range failedPeers {
@@ -769,35 +1076,9 @@ func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}
 			}
 		}
 		if len(failedPeers) == 0 {
-			delete(*postureFailedPeers, checkID)
+			delete(postureFailedPeers, checkID)
 		}
 	}
-}
-
-func filterDNSRecordsByPeers(records []nmdata.SimpleRecord, peers map[string]*nmdata.Peer, includeIPv6 bool) []nmdata.SimpleRecord {
-	if len(records) == 0 || len(peers) == 0 {
-		return nil
-	}
-
-	peerIPs := make(map[string]struct{}, len(peers)*2)
-	for _, peer := range peers {
-		if peer == nil {
-			continue
-		}
-		peerIPs[peer.IP.String()] = struct{}{}
-		if includeIPv6 && peer.IPv6.IsValid() {
-			peerIPs[peer.IPv6.String()] = struct{}{}
-		}
-	}
-
-	filteredRecords := make([]nmdata.SimpleRecord, 0, len(records))
-	for _, record := range records {
-		if _, exists := peerIPs[record.RData]; exists {
-			filteredRecords = append(filteredRecords, record)
-		}
-	}
-
-	return filteredRecords
 }
 
 func filterGroupIDToUserIDs(fullMap map[string][]string, neededGroupIDs map[string]struct{}) map[string][]string {

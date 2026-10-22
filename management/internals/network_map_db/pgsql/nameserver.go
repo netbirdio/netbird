@@ -21,7 +21,10 @@ func (pgc *PgStoreConn) GetNameServerGroups(ctx context.Context, accountId strin
 	if err != nil {
 		return nil, err
 	}
+	return collectNameServerGroups(rows)
+}
 
+func collectNameServerGroups(rows pgx.Rows) ([]nmdata.NameServerGroup, error) {
 	nsgroups, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.NameserverGroup])
 	if err != nil {
 		return nil, err

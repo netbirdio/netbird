@@ -104,3 +104,30 @@ func TestBufferHonorsCallerContext(t *testing.T) {
 	_, err := buffer.Get(ctx, "account")
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
+
+func TestMergingBufferFetchesMergedRequest(t *testing.T) {
+	var fetches atomic.Int32
+	requests := make(chan []string, 1)
+	buffer := NewMerging(context.Background(), "test", 50*time.Millisecond,
+		func(batched, request []string) []string { return append(batched, request...) },
+		func(ctx context.Context, key string, request []string) (int, error) {
+			fetches.Add(1)
+			requests <- request
+			return len(request), nil
+		})
+
+	var wg sync.WaitGroup
+	for _, id := range []string{"a", "b", "c"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, err := buffer.Get(context.Background(), "account", []string{id})
+			assert.NoError(t, err)
+			assert.Equal(t, 3, value)
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), fetches.Load())
+	assert.ElementsMatch(t, []string{"a", "b", "c"}, <-requests)
+}

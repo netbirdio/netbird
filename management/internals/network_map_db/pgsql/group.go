@@ -31,7 +31,10 @@ func (pgc *PgStoreConn) GetGroups(ctx context.Context, accountId string) ([]nmda
 	if err != nil {
 		return nil, nil, err
 	}
+	return collectGroups(rows)
+}
 
+func collectGroups(rows pgx.Rows) ([]nmdata.Group, map[string]map[string]any, error) {
 	groups, err := pgx.CollectRows(rows, pgx.RowToStructByName[group])
 	toret := make([]nmdata.Group, 0, len(groups))
 	resourceToGroupIdx := make(map[string]map[string]any)

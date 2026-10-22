@@ -24,7 +24,10 @@ func (pgc *PgStoreConn) GetPolicies(ctx context.Context, accountId string) ([]nm
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	return collectPolicies(rows)
+}
 
+func collectPolicies(rows pgx.Rows) ([]nmdata.Policy, map[string]map[string]any, map[string]map[string]any, error) {
 	policies, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Policy])
 	if err != nil {
 		return nil, nil, nil, err

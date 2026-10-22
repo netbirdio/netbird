@@ -2,12 +2,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -129,4 +132,33 @@ func TestGetValidatedPeerWithComponents_DeletedPeer(t *testing.T) {
 	assert.Nil(t, posturechecks)
 	assert.Equal(t, int64(0), dnsforwardPort)
 	assert.NotNil(t, err)
+}
+
+func TestMergePeerSelections(t *testing.T) {
+	t.Run("ids are unioned", func(t *testing.T) {
+		merged := mergePeerSelections(selectedPeers("peer-1", "peer-2"), selectedPeers("peer-2", "peer-3"))
+
+		assert.False(t, merged.all)
+		assert.Equal(t, map[string]struct{}{"peer-1": {}, "peer-2": {}, "peer-3": {}}, merged.peerIDs)
+	})
+
+	t.Run("all wins on either side", func(t *testing.T) {
+		assert.True(t, mergePeerSelections(allPeers(), selectedPeers("peer-1")).all)
+		assert.True(t, mergePeerSelections(selectedPeers("peer-1"), allPeers()).all)
+	})
+}
+
+func TestClosureLimit(t *testing.T) {
+	data := func(groupSizes ...int) *networkmap.NetworkMapData {
+		nmd := &networkmap.NetworkMapData{Groups: map[string]*nmdata.Group{}}
+		for i, size := range groupSizes {
+			id := fmt.Sprintf("group-%d", i)
+			nmd.Groups[id] = &nmdata.Group{ID: id, Peers: make([]string, size)}
+		}
+		return nmd
+	}
+
+	assert.Equal(t, 50, closureLimit(data(100, 30, 7)), "half of the largest group")
+	assert.Equal(t, 1, closureLimit(data(1)), "never below one")
+	assert.Equal(t, 1, closureLimit(data()), "an account without groups")
 }

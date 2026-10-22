@@ -85,7 +85,7 @@ func addVersionCheck(nmd *networkmap.NetworkMapData, id, minVersion string) {
 }
 
 func compute(nmd *networkmap.NetworkMapData, peerID string) *nbtypes.NetworkMapComponents {
-	return nmd.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{})
+	return nmd.GetPeerNetworkMapComponents(peerID, nil)
 }
 
 func peerIDSet(peers map[string]*nmdata.Peer) []string {
@@ -226,7 +226,7 @@ func TestGetPeerNetworkMapComponents_CoreFieldsPassThrough(t *testing.T) {
 	nmd.NetworkXIDToPublicID = map[string]string{"net-xid": "net-pub"}
 	nmd.PostureCheckXIDToPublicID = map[string]string{"pc-xid": "pc-pub"}
 
-	c := nmd.GetPeerNetworkMapComponents(targetID, nmdata.CustomZone{Domain: "acme.netbird.cloud."})
+	c := nmd.GetPeerNetworkMapComponents(targetID, networkmap.NewPeersZone(nmdata.CustomZone{Domain: "acme.netbird.cloud."}))
 
 	require.False(t, c.IsEmpty())
 	assert.Equal(t, targetID, c.PeerID)
@@ -1033,7 +1033,7 @@ func TestGetPeerNetworkMapComponents_DNSRecordFiltering(t *testing.T) {
 	t.Run("records limited to relevant peers, IPv6 dropped without capability", func(t *testing.T) {
 		nmd, zone := build(false)
 
-		c := nmd.GetPeerNetworkMapComponents(targetID, zone)
+		c := nmd.GetPeerNetworkMapComponents(targetID, networkmap.NewPeersZone(zone))
 
 		assert.Equal(t, "acme.netbird.cloud.", c.CustomZoneDomain)
 		assert.Equal(t, []nmdata.SimpleRecord{
@@ -1045,7 +1045,7 @@ func TestGetPeerNetworkMapComponents_DNSRecordFiltering(t *testing.T) {
 	t.Run("IPv6 records of relevant peers kept for capable target", func(t *testing.T) {
 		nmd, zone := build(true)
 
-		c := nmd.GetPeerNetworkMapComponents(targetID, zone)
+		c := nmd.GetPeerNetworkMapComponents(targetID, networkmap.NewPeersZone(zone))
 
 		assert.Equal(t, []nmdata.SimpleRecord{
 			record(targetID, "100.64.0.1"),
@@ -1057,7 +1057,7 @@ func TestGetPeerNetworkMapComponents_DNSRecordFiltering(t *testing.T) {
 	t.Run("no records yields nil", func(t *testing.T) {
 		nmd, _ := build(false)
 
-		c := nmd.GetPeerNetworkMapComponents(targetID, nmdata.CustomZone{Domain: "acme.netbird.cloud."})
+		c := nmd.GetPeerNetworkMapComponents(targetID, networkmap.NewPeersZone(nmdata.CustomZone{Domain: "acme.netbird.cloud."}))
 
 		assert.Nil(t, c.AllDNSRecords)
 	})
@@ -1490,9 +1490,9 @@ func TestGetPeerNetworkMapComponents_StoreImmutableAndDeterministic(t *testing.T
 		groupSnapshots[id] = append([]string(nil), g.Peers...)
 	}
 
-	first := nmd.GetPeerNetworkMapComponents(targetID, zone)
-	_ = nmd.GetPeerNetworkMapComponents("peer-src", zone)
-	second := nmd.GetPeerNetworkMapComponents(targetID, zone)
+	first := nmd.GetPeerNetworkMapComponents(targetID, networkmap.NewPeersZone(zone))
+	_ = nmd.GetPeerNetworkMapComponents("peer-src", networkmap.NewPeersZone(zone))
+	second := nmd.GetPeerNetworkMapComponents(targetID, networkmap.NewPeersZone(zone))
 
 	for id, g := range nmd.Groups {
 		assert.Equal(t, groupSnapshots[id], g.Peers, "group %s mutated in the store", id)
@@ -1661,4 +1661,287 @@ func TestNetworkMapData_GetPeerGroups(t *testing.T) {
 
 	assert.Equal(t, map[string]struct{}{"g-1": {}, "g-2": {}}, nmd.GetPeerGroups(targetID))
 	assert.Empty(t, nmd.GetPeerGroups("missing"))
+}
+
+type benchShape struct {
+	name      string
+	peers     int
+	groups    int
+	policies  int
+	resources int
+	allToAll  bool
+	posture   bool
+}
+
+var benchShapes = []benchShape{
+	{name: "flat_1000peers", peers: 1000, allToAll: true},
+	{name: "flat_5000peers", peers: 5000, allToAll: true},
+	{name: "flat_5000peers_posture", peers: 5000, allToAll: true, posture: true},
+	{name: "segmented_1500peers_400groups_250policies_400resources", peers: 1500, groups: 400, policies: 250, resources: 400, posture: true},
+	{name: "segmented_5000peers_1000groups_2000policies_1000resources", peers: 5000, groups: 1000, policies: 2000, resources: 1000, posture: true},
+	{name: "segmented_20000peers_4000groups_8000policies_2000resources", peers: 20000, groups: 4000, policies: 8000, resources: 2000, posture: true},
+}
+
+// benchNMD builds a synthetic account: every peer is in All and in one of the
+// segment groups, segment policies connect neighbouring groups, network
+// resources are routed by one peer of their group and reachable from the next
+// group, and every tenth peer fails the posture check.
+func benchNMD(s benchShape) *networkmap.NetworkMapData {
+	nmd := newNMD()
+	nmd.Routers = make(map[string]map[string]*nmdata.NetworkRouter)
+	nmd.ResourcePolicies = make(map[string][]*nmdata.Policy)
+
+	allIDs := make([]string, 0, s.peers)
+	for i := range s.peers {
+		id := fmt.Sprintf("peer-%d", i)
+		p := &nmdata.Peer{
+			ID:       id,
+			Key:      "key-" + id,
+			IP:       netip.AddrFrom4([4]byte{100, byte(64 + i>>16), byte(i >> 8), byte(i)}),
+			DNSLabel: id,
+			Meta:     nmdata.PeerSystemMeta{WtVersion: passingVersion},
+		}
+		if s.posture && i%10 == 0 {
+			p.Meta.WtVersion = failingVersion
+		}
+		nmd.Peers[id] = p
+		nmd.ValidatedPeers[id] = struct{}{}
+		allIDs = append(allIDs, id)
+	}
+	addGroup(nmd, "group-all", allIDs...).Name = "All"
+
+	var checks []string
+	if s.posture {
+		addVersionCheck(nmd, "pc-version", postureMinVersion)
+		checks = []string{"pc-version"}
+	}
+
+	if s.allToAll {
+		p := newPolicy("policy-all", newRule([]string{"group-all"}, []string{"group-all"}))
+		p.SourcePostureChecks = checks
+		nmd.Policies = append(nmd.Policies, p)
+	}
+
+	if s.groups > 0 {
+		members := make([][]string, s.groups)
+		for i, id := range allIDs {
+			members[i%s.groups] = append(members[i%s.groups], id)
+		}
+		for g := range s.groups {
+			addGroup(nmd, fmt.Sprintf("group-%d", g), members[g]...)
+		}
+	}
+
+	for i := range s.policies {
+		src := fmt.Sprintf("group-%d", i%s.groups)
+		dst := fmt.Sprintf("group-%d", (i+1)%s.groups)
+		p := newPolicy(fmt.Sprintf("policy-%d", i), newRule([]string{src}, []string{dst}))
+		if i%4 == 0 {
+			p.SourcePostureChecks = checks
+		}
+		nmd.Policies = append(nmd.Policies, p)
+	}
+
+	for i := range s.resources {
+		resourceID := fmt.Sprintf("resource-%d", i)
+		networkID := fmt.Sprintf("network-%d", i)
+		nmd.NetworkResources = append(nmd.NetworkResources, &nmdata.NetworkResource{
+			ID:        resourceID,
+			NetworkID: networkID,
+			Type:      string(nbtypes.ResourceTypeHost),
+			Prefix:    netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(i >> 8), byte(i), 1}), 32),
+			Enabled:   true,
+		})
+		router := nmd.Groups[fmt.Sprintf("group-%d", i%s.groups)].Peers[0]
+		nmd.Routers[networkID] = map[string]*nmdata.NetworkRouter{router: {Enabled: true, Metric: 9999}}
+
+		rule := newRule([]string{fmt.Sprintf("group-%d", (i+1)%s.groups)}, nil)
+		rule.DestinationResource = nmdata.Resource{ID: resourceID, Type: string(nbtypes.ResourceTypeHost)}
+		p := newPolicy(fmt.Sprintf("policy-resource-%d", i), rule)
+		nmd.Policies = append(nmd.Policies, p)
+		nmd.ResourcePolicies[resourceID] = []*nmdata.Policy{p}
+	}
+
+	nmd.PrecomputePostureValidation()
+	return nmd
+}
+
+// BenchmarkGetPeerNetworkMapComponents_SinglePeer measures one peer's
+// components on a shared, already loaded account, the Sync/Login hot path.
+func BenchmarkGetPeerNetworkMapComponents_SinglePeer(b *testing.B) {
+	for _, s := range benchShapes {
+		b.Run(s.name, func(b *testing.B) {
+			nmd := benchNMD(s)
+			zone := networkmap.NewPeersZone(networkmap.PeersCustomZone(context.Background(), "account", "netbird.test", nmd.Peers, nil))
+			_ = nmd.GetPeerNetworkMapComponents("peer-1", zone)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := range b.N {
+				_ = nmd.GetPeerNetworkMapComponents(fmt.Sprintf("peer-%d", i%s.peers), zone)
+			}
+		})
+	}
+}
+
+// BenchmarkGetPeerNetworkMapComponents_AllPeers measures the components of
+// every peer of a freshly loaded account, the account-wide update path.
+func BenchmarkGetPeerNetworkMapComponents_AllPeers(b *testing.B) {
+	for _, s := range benchShapes {
+		if s.peers > 5000 {
+			continue
+		}
+		b.Run(s.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				b.StopTimer()
+				nmd := benchNMD(s)
+				b.StartTimer()
+				zone := networkmap.NewPeersZone(networkmap.PeersCustomZone(context.Background(), "account", "netbird.test", nmd.Peers, nil))
+				for id := range nmd.Peers {
+					_ = nmd.GetPeerNetworkMapComponents(id, zone)
+				}
+			}
+		})
+	}
+}
+
+func postureSelectionData(policies ...*nmdata.Policy) *networkmap.NetworkMapData {
+	return &networkmap.NetworkMapData{
+		Groups:   map[string]*nmdata.Group{"g-src": {ID: "g-src", Peers: []string{"peer-group"}}},
+		Policies: policies,
+		PostureChecks: map[string]*nmdata.PostureChecks{
+			"pc1": {ID: "pc1", Checks: nmdata.ChecksDefinition{NBVersionCheck: &nmdata.NBVersionCheck{MinVersion: "0.30.0"}}},
+		},
+	}
+}
+
+func gatedPolicy(id string, rule *nmdata.PolicyRule, checkIDs ...string) *nmdata.Policy {
+	return &nmdata.Policy{ID: id, Enabled: true, SourcePostureChecks: checkIDs, Rules: []*nmdata.PolicyRule{rule}}
+}
+
+func checkIDs(checks []*nmdata.PostureChecks) []string {
+	ids := make([]string, 0, len(checks))
+	for _, c := range checks {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+func TestPeerSourcePostureChecks(t *testing.T) {
+	groupRule := &nmdata.PolicyRule{ID: "r-group", Enabled: true, Sources: []string{"g-src"}, Destinations: []string{"g-dst"}}
+	directRule := &nmdata.PolicyRule{ID: "r-direct", Enabled: true, SourceResource: nmdata.Resource{ID: "peer-direct", Type: string(nbtypes.ResourceTypePeer)}, Destinations: []string{"g-dst"}}
+
+	t.Run("source group member and direct source peer both get the checks", func(t *testing.T) {
+		nmData := postureSelectionData(gatedPolicy("p1", groupRule, "pc1"), gatedPolicy("p2", directRule, "pc1"))
+
+		assert.Equal(t, []string{"pc1"}, checkIDs(nmData.PeerSourcePostureChecks("peer-group")))
+		assert.Equal(t, []string{"pc1"}, checkIDs(nmData.PeerSourcePostureChecks("peer-direct")))
+		assert.Empty(t, nmData.PeerSourcePostureChecks("peer-elsewhere"))
+	})
+
+	t.Run("source resource of a non-peer type never matches a peer", func(t *testing.T) {
+		hostRule := &nmdata.PolicyRule{ID: "r-host", Enabled: true, SourceResource: nmdata.Resource{ID: "peer-direct", Type: string(nbtypes.ResourceTypeHost)}, Destinations: []string{"g-dst"}}
+		nmData := postureSelectionData(gatedPolicy("p1", hostRule, "pc1"))
+
+		assert.Empty(t, nmData.PeerSourcePostureChecks("peer-direct"))
+	})
+
+	t.Run("same check through two policies is returned once", func(t *testing.T) {
+		nmData := postureSelectionData(gatedPolicy("p1", groupRule, "pc1"), gatedPolicy("p2", groupRule, "pc1"))
+
+		assert.Equal(t, []string{"pc1"}, checkIDs(nmData.PeerSourcePostureChecks("peer-group")))
+	})
+
+	t.Run("disabled policy, disabled rule and dangling check are ignored", func(t *testing.T) {
+		disabledPolicy := gatedPolicy("p-off", groupRule, "pc1")
+		disabledPolicy.Enabled = false
+		disabledRule := &nmdata.PolicyRule{ID: "r-off", Enabled: false, Sources: []string{"g-src"}}
+		nmData := postureSelectionData(disabledPolicy, gatedPolicy("p-rule-off", disabledRule, "pc1"), gatedPolicy("p-dangling", groupRule, "pc-missing"))
+
+		assert.Empty(t, nmData.PeerSourcePostureChecks("peer-group"))
+	})
+}
+
+// requireClosureCovers asserts that the closure of every peer holds every peer
+// its components hold.
+func requireClosureCovers(t *testing.T, nmd *networkmap.NetworkMapData, peerIDs ...string) {
+	t.Helper()
+	for _, peerID := range peerIDs {
+		closure, ok := nmd.PeerClosure([]string{peerID}, 0)
+		require.True(t, ok, "closure without limit must complete")
+		for id := range compute(nmd, peerID).Peers {
+			assert.Contains(t, closure, id, "closure of %s misses %s", peerID, id)
+		}
+	}
+}
+
+func TestPeerClosure(t *testing.T) {
+	t.Run("covers the components of every peer of synthetic accounts", func(t *testing.T) {
+		for _, s := range []benchShape{
+			{name: "flat", peers: 50, allToAll: true, posture: true},
+			{name: "segmented", peers: 120, groups: 30, policies: 40, resources: 25, posture: true},
+		} {
+			t.Run(s.name, func(t *testing.T) {
+				nmd := benchNMD(s)
+				requireClosureCovers(t, nmd, peerIDSet(nmd.Peers)...)
+			})
+		}
+	})
+
+	t.Run("ignores validation and posture checks", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		unvalidated := newPeer("peer-unvalidated", 3)
+		nmd := newNMD(target, failing, unvalidated)
+		delete(nmd.ValidatedPeers, unvalidated.ID)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", failing.ID, unvalidated.ID)
+		addGroup(nmd, "g-dst", targetID)
+		p := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
+		p.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = []*nmdata.Policy{p}
+
+		closure, ok := nmd.PeerClosure([]string{targetID}, 0)
+
+		require.True(t, ok)
+		assert.Equal(t, map[string]struct{}{targetID: {}, failing.ID: {}, unvalidated.ID: {}}, closure)
+	})
+
+	t.Run("covers the peer groups of a disabled route", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		sibling := newPeer("peer-sibling", 2)
+		nmd := newNMD(target, sibling)
+		addGroup(nmd, "g-ha", targetID, sibling.ID)
+		nmd.Routes = []*nmdata.Route{{ID: "r-1", Enabled: false, PeerGroups: []string{"g-ha"}}}
+
+		requireClosureCovers(t, nmd, targetID, sibling.ID)
+		closure, _ := nmd.PeerClosure([]string{targetID}, 0)
+		assert.Contains(t, closure, sibling.ID)
+	})
+
+	t.Run("covers the sources of a resource policy whose only rule is disabled", func(t *testing.T) {
+		router := newPeer(targetID, 1)
+		client := newPeer("peer-client", 2)
+		nmd := newNMD(router, client)
+		addGroup(nmd, "g-clients", client.ID)
+		rule := newRule([]string{"g-clients"}, nil)
+		rule.Enabled = false
+		nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+		nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {newPolicy("rp-1", rule)}}
+		nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {targetID: {Metric: 100}}}
+
+		require.Contains(t, compute(nmd, targetID).Peers, client.ID)
+		requireClosureCovers(t, nmd, targetID, client.ID)
+	})
+
+	t.Run("stops at the limit", func(t *testing.T) {
+		nmd := benchNMD(benchShape{peers: 20, allToAll: true})
+
+		closure, ok := nmd.PeerClosure([]string{"peer-1"}, 10)
+
+		assert.False(t, ok)
+		assert.Nil(t, closure)
+	})
 }

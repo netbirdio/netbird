@@ -28,7 +28,10 @@ func (pgc *PgStoreConn) GetPrivateServices(ctx context.Context, accountId string
 	if err != nil {
 		return nil, err
 	}
+	return collectPrivateServices(rows)
+}
 
+func collectPrivateServices(rows pgx.Rows) ([]networkmapdb.Service, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Service])
 }
 
@@ -37,7 +40,10 @@ func (pgc *PgStoreConn) GetProxyTargetedDomainResourceIDs(ctx context.Context, a
 	if err != nil {
 		return nil, err
 	}
+	return collectProxyTargetedDomainResourceIDs(rows)
+}
 
+func collectProxyTargetedDomainResourceIDs(rows pgx.Rows) (map[string]struct{}, error) {
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return nil, err

@@ -23,7 +23,10 @@ func (pgc *PgStoreConn) GetRoutes(ctx context.Context, accountId string) ([]nmda
 	if err != nil {
 		return nil, err
 	}
+	return collectRoutes(rows)
+}
 
+func collectRoutes(rows pgx.Rows) ([]nmdata.Route, error) {
 	routes, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Route])
 	if err != nil {
 		return nil, err

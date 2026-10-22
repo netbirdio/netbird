@@ -30,7 +30,10 @@ func (pgc *PgStoreConn) GetNetworkRouters(ctx context.Context, accountId string)
 	if err != nil {
 		return nil, err
 	}
+	return collectNetworkRouters(rows)
+}
 
+func collectNetworkRouters(rows pgx.Rows) (map[string]map[string]*nmdata.NetworkRouter, error) {
 	routers, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkrouter])
 	if err != nil {
 		return nil, err

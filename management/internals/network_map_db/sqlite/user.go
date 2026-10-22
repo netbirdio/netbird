@@ -34,7 +34,7 @@ func (sc *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string
 	if err != nil {
 		return nil, nil, err
 	}
-	allGroupIds, err := collectAllGroupIds(rows)
+	allGroupIds, err := collectStrings(rows)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,7 +61,7 @@ func (sc *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string
 	return userIdIdx, groupIdToUserIds, nil
 }
 
-func collectAllGroupIds(rows *sql.Rows) ([]string, error) {
+func collectStrings(rows *sql.Rows) ([]string, error) {
 	defer rows.Close()
 	var toret []string
 
