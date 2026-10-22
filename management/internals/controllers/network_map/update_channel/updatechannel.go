@@ -3,7 +3,6 @@ package update_channel
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,17 +20,6 @@ type PeersUpdateManager struct {
 	channelsMux *sync.RWMutex
 	// metrics provides method to collect application metrics
 	metrics telemetry.AppMetrics
-	// onDrop is told about every update dropped because the peer's channel was full.
-	onDrop atomic.Pointer[DropHandler]
-}
-
-// DropHandler is called with the peer whose update was dropped. It runs under the
-// manager's lock and must not block.
-type DropHandler func(ctx context.Context, peerID string)
-
-// SetDropHandler registers the handler told about dropped updates.
-func (p *PeersUpdateManager) SetDropHandler(h DropHandler) {
-	p.onDrop.Store(&h)
 }
 
 var _ network_map.PeersUpdateManager = (*PeersUpdateManager)(nil)
@@ -67,9 +55,6 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 		default:
 			dropped = true
 			log.WithContext(ctx).Warnf("channel for peer %s is %d full or closed", peerID, len(channel))
-			if h := p.onDrop.Load(); h != nil {
-				(*h)(ctx, peerID)
-			}
 		}
 	} else {
 		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)

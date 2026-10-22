@@ -103,6 +103,10 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
+	return am.markPeerConnected(ctx, accountID, peer, sessionStartedAt, nmap)
+}
+
+func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, accountID string, peer *nbpeer.Peer, sessionStartedAt int64, nmap *types.NetworkMap) error {
 	updated, err := am.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
@@ -1054,19 +1058,38 @@ func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
 	return fmt.Sprintf("%s-%d-%d", dnsName, b[2], b[3]), nil
 }
 
-// SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
-func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
-	res, err := am.syncPeer(ctx, sync, accountID, nil)
+// ResumePeerSync accepts a Sync from a peer that still holds its network map: it runs
+// the login checks of SyncPeer and marks the peer connected without computing a map. It
+// reports false, before changing anything, for a peer that needs the full SyncPeer.
+func (am *DefaultAccountManager) ResumePeerSync(ctx context.Context, accountID string, peerPubKey string, syncTime time.Time) (*nbpeer.Peer, *types.Settings, bool, error) {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, false, err
 	}
-	return res.Peer, res.NetworkMap, res.PostureChecks, res.DNSForwarderPort, nil
+
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		return nil, nil, false, status.NewPeerNotRegisteredError()
+	}
+
+	if err := checkPeerMaySync(ctx, am.Store, peer, settings); err != nil {
+		return nil, nil, false, err
+	}
+
+	// Connecting an embedded proxy peer fans out map updates computed from its own map.
+	if peer.ProxyMeta.Embedded {
+		return nil, nil, false, nil
+	}
+
+	if err := am.markPeerConnected(ctx, accountID, peer, syncTime.UnixNano(), nil); err != nil {
+		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+	}
+
+	return peer, settings, true, nil
 }
 
-// syncPeer runs every check and update of a Sync before computing the peer's map.
-// With reuse set, it skips the computation when nothing about the peer changed and
-// the account's network serial still equals reuse.Serial.
-func (am *DefaultAccountManager) syncPeer(ctx context.Context, sync types.PeerSync, accountID string, reuse *types.MapReuse) (*types.PeerSyncResult, error) {
+// SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
+func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	var peer *nbpeer.Peer
 	var ipv6CapabilityChanged bool
 	var metaDiff nbpeer.MetaDiff
@@ -1074,7 +1097,7 @@ func (am *DefaultAccountManager) syncPeer(ctx context.Context, sync types.PeerSy
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, 0, err
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1083,19 +1106,8 @@ func (am *DefaultAccountManager) syncPeer(ctx context.Context, sync types.PeerSy
 			return status.NewPeerNotRegisteredError()
 		}
 
-		if peer.UserID != "" {
-			user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
-			if err != nil {
-				return err
-			}
-
-			if err = checkIfPeerOwnerIsBlocked(peer, user); err != nil {
-				return err
-			}
-		}
-
-		if peerLoginExpired(ctx, peer, settings) {
-			return status.NewPeerLoginExpiredError()
+		if err := checkPeerMaySync(ctx, transaction, peer, settings); err != nil {
+			return err
 		}
 
 		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
@@ -1112,27 +1124,22 @@ func (am *DefaultAccountManager) syncPeer(ctx context.Context, sync types.PeerSy
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, 0, err
 	}
 
 	peerGroupIDs, err := getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, 0, err
 	}
 
 	peerNotValid, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
 	if err != nil {
-		return nil, err
-	}
-
-	peerChanged := metaDiff.Updated() || ipv6CapabilityChanged || peerNotValid || isStatusChanged
-	if !peerChanged && !sync.UpdateAccountPeers && am.accountSerialEquals(ctx, accountID, reuse) {
-		return &types.PeerSyncResult{Peer: peer, MapReused: true}, nil
+		return nil, nil, nil, 0, err
 	}
 
 	nmap, resPostureChecks, dnsFwdPort, err := am.networkMapController.GetValidatedPeerWithMap(ctx, peerNotValid, accountID, peer.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, 0, err
 	}
 
 	metaDiffAffectsPosture := metaDiffAffectsPosture(&metaDiff, resPostureChecks)
@@ -1140,31 +1147,11 @@ func (am *DefaultAccountManager) syncPeer(ctx context.Context, sync types.PeerSy
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
-			return nil, fmt.Errorf("notify network map controller of peer update: %w", err)
+			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
 
-	return &types.PeerSyncResult{
-		Peer:             peer,
-		NetworkMap:       nmap,
-		PostureChecks:    resPostureChecks,
-		DNSForwarderPort: dnsFwdPort,
-		PeerNotValid:     peerNotValid,
-	}, nil
-}
-
-// accountSerialEquals reports whether the account's network serial still equals the
-// one a reconnecting peer holds. A failed read counts as a change.
-func (am *DefaultAccountManager) accountSerialEquals(ctx context.Context, accountID string, reuse *types.MapReuse) bool {
-	if reuse == nil {
-		return false
-	}
-	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to read the network serial of account %s, computing the map: %v", accountID, err)
-		return false
-	}
-	return network.CurrentSerial() == reuse.Serial
+	return peer, nmap, resPostureChecks, dnsFwdPort, nil
 }
 
 // metaDiffAffectsPosture reports whether the meta change flips the verdict of any of
@@ -1559,6 +1546,25 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 	}
 
 	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.networkMapController.GetDNSDomain(settings)))
+	return nil
+}
+
+// checkPeerMaySync rejects a Sync from a peer whose owner is blocked or whose login expired.
+func checkPeerMaySync(ctx context.Context, s store.Store, peer *nbpeer.Peer, settings *types.Settings) error {
+	if peer.UserID != "" {
+		user, err := s.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
+		if err != nil {
+			return err
+		}
+
+		if err = checkIfPeerOwnerIsBlocked(peer, user); err != nil {
+			return err
+		}
+	}
+
+	if peerLoginExpired(ctx, peer, settings) {
+		return status.NewPeerLoginExpiredError()
+	}
 	return nil
 }
 

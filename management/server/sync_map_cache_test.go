@@ -2,12 +2,13 @@ package server
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
@@ -18,14 +19,15 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
-	"github.com/netbirdio/netbird/management/internals/shared/syncmapcache"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/store"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
-func startSyncMapCacheRedis(t *testing.T) *redis.Client {
+// newRedisCacheStore returns the shared cache store backed by a fresh Redis container.
+func newRedisCacheStore(t *testing.T) nbcache.Store {
 	t.Helper()
 
 	ctx := context.Background()
@@ -39,12 +41,28 @@ func startSyncMapCacheRedis(t *testing.T) *redis.Client {
 
 	url, err := container.ConnectionString(ctx)
 	require.NoError(t, err)
-	opts, err := redis.ParseURL(url)
-	require.NoError(t, err)
+	t.Setenv(nbcache.RedisStoreEnvVar, url)
 
-	client := redis.NewClient(opts)
-	t.Cleanup(func() { _ = client.Close() })
-	return client
+	cacheStore, err := nbcache.NewStore(ctx, time.Hour, time.Minute, 10)
+	require.NoError(t, err, "redis cache store must connect")
+	return cacheStore
+}
+
+func newMemoryCacheStore(t *testing.T) nbcache.Store {
+	t.Helper()
+	t.Setenv(nbcache.RedisStoreEnvVar, "")
+	cacheStore, err := nbcache.NewStore(context.Background(), time.Hour, time.Minute, 10)
+	require.NoError(t, err)
+	return cacheStore
+}
+
+// failingDeleteStore fails every delete, as a cache store whose backend is down.
+type failingDeleteStore struct {
+	nbcache.Store
+}
+
+func (failingDeleteStore) Delete(context.Context, any) error {
+	return errors.New("cache unavailable")
 }
 
 // syncMapTestPeer is a client of the management service that keeps the same system
@@ -57,27 +75,73 @@ type syncMapTestPeer struct {
 	meta      *mgmtProto.PeerSystemMeta
 }
 
-func (p *syncMapTestPeer) login() {
+func newSyncMapTestPeer(t *testing.T, addr string) *syncMapTestPeer {
+	t.Helper()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	return &syncMapTestPeer{
+		t:         t,
+		client:    client,
+		serverKey: *serverKey,
+		key:       key,
+		meta: &mgmtProto.PeerSystemMeta{
+			Hostname:       "sync-map-cache",
+			GoOS:           runtime.GOOS,
+			OS:             runtime.GOOS,
+			Core:           "core",
+			Platform:       "platform",
+			Kernel:         "kernel",
+			NetbirdVersion: "0.80.0",
+		},
+	}
+}
+
+func (p *syncMapTestPeer) pubKey() string {
+	return p.key.PublicKey().String()
+}
+
+func (p *syncMapTestPeer) login() error {
 	p.t.Helper()
 	msg, err := encryption.EncryptMessage(p.serverKey, p.key, &mgmtProto.LoginRequest{SetupKey: TestValidSetupKey, Meta: p.meta})
 	require.NoError(p.t, err)
-	_, err = p.client.Login(context.Background(), &mgmtProto.EncryptedMessage{WgPubKey: p.key.PublicKey().String(), Body: msg})
-	require.NoError(p.t, err, "login must succeed")
+	_, err = p.client.Login(context.Background(), &mgmtProto.EncryptedMessage{WgPubKey: p.pubKey(), Body: msg})
+	return err
 }
 
-// sync opens a Sync stream and returns the initial response and the stream.
-func (p *syncMapTestPeer) sync() (*mgmtProto.SyncResponse, mgmtProto.ManagementService_SyncClient, context.CancelFunc) {
+// sync opens a Sync stream and returns its first message, or the error that ended it.
+func (p *syncMapTestPeer) sync() (*mgmtProto.SyncResponse, mgmtProto.ManagementService_SyncClient, error) {
 	p.t.Helper()
 	msg, err := encryption.EncryptMessage(p.serverKey, p.key, &mgmtProto.SyncRequest{Meta: p.meta})
 	require.NoError(p.t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := p.client.Sync(ctx, &mgmtProto.EncryptedMessage{WgPubKey: p.key.PublicKey().String(), Body: msg})
+	p.t.Cleanup(cancel)
+	stream, err := p.client.Sync(ctx, &mgmtProto.EncryptedMessage{WgPubKey: p.pubKey(), Body: msg})
 	require.NoError(p.t, err)
-	return p.recv(stream), stream, cancel
+
+	resp, err := p.recv(stream)
+	return resp, stream, err
 }
 
-func (p *syncMapTestPeer) recv(stream mgmtProto.ManagementService_SyncClient) *mgmtProto.SyncResponse {
+// syncAndClose opens a Sync stream, returns its first message and closes the stream,
+// as a client whose connection drops does.
+func (p *syncMapTestPeer) syncAndClose() *mgmtProto.SyncResponse {
+	p.t.Helper()
+	resp, stream, err := p.sync()
+	require.NoError(p.t, err, "sync must succeed")
+	require.NoError(p.t, stream.CloseSend())
+	return resp
+}
+
+func (p *syncMapTestPeer) recv(stream mgmtProto.ManagementService_SyncClient) (*mgmtProto.SyncResponse, error) {
 	p.t.Helper()
 	type received struct {
 		msg *mgmtProto.EncryptedMessage
@@ -96,329 +160,228 @@ func (p *syncMapTestPeer) recv(stream mgmtProto.ManagementService_SyncClient) *m
 	case <-time.After(10 * time.Second):
 		require.FailNow(p.t, "timed out waiting for a sync message")
 	}
-	require.NoError(p.t, r.err)
+	if r.err != nil {
+		return nil, r.err
+	}
 	resp := &mgmtProto.SyncResponse{}
 	require.NoError(p.t, encryption.DecryptMessage(p.serverKey, p.key, r.msg.Body, resp))
-	return resp
+	return resp, nil
 }
 
-// recordedEntry reads the stream that owns the peer's entry and the serial it
-// recorded, whether or not the entry is reusable yet. A failed read reads as empty,
-// so the callers' polling retries it.
-func recordedEntry(client *redis.Client, p *syncMapTestPeer) (session string, serial string) {
-	vals, err := client.HMGet(context.Background(), "nb:syncmap:"+p.key.PublicKey().String(), "sess", "serial").Result()
+func syncMapEntry(cacheStore nbcache.Store, peerKey string) (string, bool) {
+	value, err := cacheStore.Get(context.Background(), "nb:syncmap:"+peerKey)
 	if err != nil {
-		return "", ""
+		return "", false
 	}
-	session, _ = vals[0].(string)
-	serial, _ = vals[1].(string)
-	return session, serial
+	s, ok := value.(string)
+	return s, ok
 }
 
-// syncAndClaim opens a Sync stream and waits until the stream took the peer's entry
-// over, so a following restart can release it.
-func (p *syncMapTestPeer) syncAndClaim(client *redis.Client) (*mgmtProto.SyncResponse, mgmtProto.ManagementService_SyncClient, context.CancelFunc) {
-	p.t.Helper()
-	before, _ := recordedEntry(client, p)
-	resp, stream, cancel := p.sync()
-	require.Eventually(p.t, func() bool {
-		session, _ := recordedEntry(client, p)
-		return session != "" && session != before
-	}, 5*time.Second, 20*time.Millisecond, "the stream must take the entry over")
-	return resp, stream, cancel
-}
-
-func waitForRecordedSerial(t *testing.T, client *redis.Client, p *syncMapTestPeer, serial uint64) {
+func waitForSyncMapEntry(t *testing.T, cacheStore nbcache.Store, peerKey, want string) {
 	t.Helper()
-	want := strconv.FormatUint(serial, 10)
 	require.Eventually(t, func() bool {
-		_, recorded := recordedEntry(client, p)
-		return recorded == want
-	}, 5*time.Second, 20*time.Millisecond, "the stream must record serial %d", serial)
+		got, ok := syncMapEntry(cacheStore, peerKey)
+		return ok && got == want
+	}, 5*time.Second, 20*time.Millisecond, "the full map sent must be recorded with serial %s", want)
 }
 
-func newTestSyncMapCache(client *redis.Client) *syncmapcache.Cache {
-	return syncmapcache.New(client, syncmapcache.Config{
-		Enabled:      true,
-		Generation:   "test",
-		MaxAge:       time.Hour,
-		ResyncWindow: 200 * time.Millisecond,
-		ReleaseGrace: 10 * time.Millisecond,
-	})
-}
-
-// syncMapRestarter simulates management restarts: it shuts the server's cache down,
-// lets the open stream end and release its entry, then hands the server a fresh
-// cache as the next instance would have.
-type syncMapRestarter struct {
-	t      *testing.T
-	client *redis.Client
-	server *nbgrpc.Server
-	cache  *syncmapcache.Cache
-	peer   *syncMapTestPeer
-}
-
-func (r *syncMapRestarter) restart(cancelStream context.CancelFunc) {
-	r.t.Helper()
-	time.Sleep(50 * time.Millisecond)
-	r.cache.BeginShutdown()
-	cancelStream()
-
-	next := newTestSyncMapCache(r.client)
-	require.Eventually(r.t, func() bool {
-		l, err := next.Lookup(context.Background(), syncmapcache.PeerKey(r.peer.key.PublicKey().String()), syncmapcache.KeyFingerprint(r.peer.serverKey.String()))
-		if err != nil {
-			return false
-		}
-		_, ok := l.Serial()
-		return ok
-	}, 5*time.Second, 20*time.Millisecond, "a stream ended by the shutdown must release its entry")
-
-	r.cache = next
-	r.server.SetSyncMapCache(next)
-}
-
-func TestSyncMapCache(t *testing.T) {
-	redisClient := startSyncMapCacheRedis(t)
-	cache := newTestSyncMapCache(redisClient)
-
-	var grpcServer *nbgrpc.Server
+func startSyncMapCacheManagement(t *testing.T, cacheStore nbcache.Store) (*DefaultAccountManager, string) {
+	t.Helper()
+	syncMapCache := nbgrpc.NewSyncMapCache(cacheStore)
 	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
 		Stuns:   []*config.Host{{Proto: "udp", URI: "stun:stun.netbird.io:3468"}},
 		Signal:  &config.Host{Proto: "http", URI: "signal.netbird.io:10000"},
 		Datadir: t.TempDir(),
-	}, func(s *nbgrpc.Server) {
-		grpcServer = s
-		s.SetSyncMapCache(cache)
-	})
+	}, func(s *nbgrpc.Server) { s.SetSyncMapCache(syncMapCache) })
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 	t.Cleanup(mgmtServer.Stop)
+	return am, addr
+}
 
-	client, conn, err := createRawClient(addr)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-
-	serverKey, err := getServerKey(client)
-	require.NoError(t, err)
-	key, err := wgtypes.GeneratePrivateKey()
-	require.NoError(t, err)
-
-	peer := &syncMapTestPeer{
-		t:         t,
-		client:    client,
-		serverKey: *serverKey,
-		key:       key,
-		meta: &mgmtProto.PeerSystemMeta{
-			Hostname:       "sync-map-cache",
-			GoOS:           runtime.GOOS,
-			OS:             runtime.GOOS,
-			Core:           "core",
-			Platform:       "platform",
-			Kernel:         "kernel",
-			NetbirdVersion: "0.80.0",
-		},
-	}
-	restarter := &syncMapRestarter{t: t, client: redisClient, server: grpcServer, cache: cache, peer: peer}
-	peer.login()
-
+func TestSyncMapCache(t *testing.T) {
+	t.Setenv(nbgrpc.EnvSyncMapCacheEnabled, "true")
+	t.Setenv(nbgrpc.EnvSyncMapCacheResyncWindow, "300ms")
+	cacheStore := newRedisCacheStore(t)
+	am, addr := startSyncMapCacheManagement(t, cacheStore)
 	ctx := context.Background()
-	accountID, err := am.GetAccountIDForPeerKey(ctx, key.PublicKey().String())
+
+	peer := newSyncMapTestPeer(t, addr)
+	require.NoError(t, peer.login(), "login must succeed")
+	accountID, err := am.GetAccountIDForPeerKey(ctx, peer.pubKey())
 	require.NoError(t, err)
 
-	// A fresh engine after Login gets its full map.
-	resp, stream, cancel := peer.syncAndClaim(redisClient)
+	// A fresh engine after Login gets its full map, and the server records it.
+	resp := peer.syncAndClose()
 	require.NotNil(t, resp.GetNetworkMap(), "the first Sync after Login must carry the full map")
 	serial := resp.GetNetworkMap().GetSerial()
-	waitForRecordedSerial(t, redisClient, peer, serial)
+	waitForSyncMapEntry(t, cacheStore, peer.pubKey(), strconv.FormatUint(serial, 10))
 
-	// A change pushed while the stream is up advances the recorded serial.
-	require.NoError(t, am.Store.IncrementNetworkSerial(ctx, accountID))
-	am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationUpdate})
-	pushed := peer.recv(stream)
-	require.NotNil(t, pushed.GetNetworkMap(), "the push must carry a map")
-	require.Equal(t, serial+1, pushed.GetNetworkMap().GetSerial(), "the push must carry the new serial")
-	serial++
-	waitForRecordedSerial(t, redisClient, peer, serial)
-
-	// A client that reconnects while its old stream still looks open gets its full
-	// map: the old stream may be dead behind a proxy with pushes that never arrived.
-	resp, _, cancelReconnected := peer.sync()
-	require.NotNil(t, resp.GetNetworkMap(), "a reconnect while the old stream looks open must carry the full map")
-	cancel()
-	cancelReconnected()
-
-	// A stream that ends while the server keeps running (a client blip) releases
-	// nothing, so the reconnect computes the map again.
-	resp, _, cancel = peer.syncAndClaim(redisClient)
-	require.NotNil(t, resp.GetNetworkMap(), "a reconnect after a client blip must carry the full map")
-
-	// After a restart the peer reuses its map, and gets a full one pushed within the
-	// resync window.
-	restarter.restart(cancel)
-	resp, stream, cancel = peer.syncAndClaim(redisClient)
-	assert.Nil(t, resp.GetNetworkMap(), "a reconnect after a restart must not carry a map")
-	assert.Nil(t, resp.GetNetworkMapEnvelope(), "a reconnect after a restart must not carry a map envelope")
-	assert.Zero(t, resp.GetVersion(), "the response must be readable by every client as config-only")
-	assert.Nil(t, resp.GetPeerConfig(), "a peer config without auto-update settings would change the client's updater mode")
-	require.NotNil(t, resp.GetNetbirdConfig(), "the reconnect must still carry the connection config")
+	// The same engine reconnecting without Login keeps its map: it only gets the
+	// connection config with fresh credentials.
+	syncStart := time.Now().UTC()
+	resp, stream, err := peer.sync()
+	require.NoError(t, err, "a reconnect must succeed")
+	assert.Nil(t, resp.GetNetworkMap(), "a reconnect must not carry a map")
+	assert.Nil(t, resp.GetNetworkMapEnvelope(), "a reconnect must not carry a map envelope")
+	assert.Nil(t, resp.GetPeerConfig(), "a reconnect must not carry a peer config")
+	assert.Nil(t, resp.GetChecks(), "a reconnect must not carry posture checks")
+	require.NotNil(t, resp.GetNetbirdConfig(), "a reconnect must carry the connection config")
 	assert.NotEmpty(t, resp.GetNetbirdConfig().GetStuns(), "the connection config must be complete")
+	assert.NotNil(t, resp.GetNetbirdConfig().GetSignal(), "the connection config must be complete")
 
-	resynced := peer.recv(stream)
-	require.NotNil(t, resynced.GetNetworkMap(), "a peer that reused its map must get a full map pushed later")
+	stored, err := am.Store.GetPeerByPeerPubKey(ctx, nbstore.LockingStrengthNone, peer.pubKey())
+	require.NoError(t, err)
+	assert.True(t, stored.Status.Connected, "a reconnect must mark the peer connected")
+	assert.GreaterOrEqual(t, stored.Status.SessionStartedAt, syncStart.UnixNano(), "the reconnect must own the peer's session")
+
+	// The peer gets a full map pushed by the end of the resync window, in case it missed
+	// a change while disconnected.
+	resynced, err := peer.recv(stream)
+	require.NoError(t, err)
+	require.NotNil(t, resynced.GetNetworkMap(), "a peer that resumed must get a full map within the resync window")
 	assert.Equal(t, serial, resynced.GetNetworkMap().GetSerial(), "the resync must carry the current serial")
 
-	// A change made while the peer was away is never skipped.
-	restarter.restart(cancel)
+	// The resumed stream still receives the pushes that follow.
 	require.NoError(t, am.Store.IncrementNetworkSerial(ctx, accountID))
-	serial++
-	resp, _, cancel = peer.syncAndClaim(redisClient)
-	require.NotNil(t, resp.GetNetworkMap(), "a serial change while away must force the full map")
-	assert.Equal(t, serial, resp.GetNetworkMap().GetSerial(), "the full map must carry the current serial")
+	am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationUpdate})
+	pushed, err := peer.recv(stream)
+	require.NoError(t, err)
+	require.NotNil(t, pushed.GetNetworkMap(), "a push must carry the map")
+	assert.Equal(t, serial+1, pushed.GetNetworkMap().GetSerial(), "the push must carry the new serial")
+	require.NoError(t, stream.CloseSend())
 
-	// A peer whose own meta changed gets its map computed again.
-	restarter.restart(cancel)
-	peer.meta.Hostname = "renamed"
-	resp, _, cancel = peer.syncAndClaim(redisClient)
-	require.NotNil(t, resp.GetNetworkMap(), "a meta change must force the full map")
+	// Login clears the entry, so the new engine gets its full map.
+	require.NoError(t, peer.login(), "login must succeed")
+	_, found := syncMapEntry(cacheStore, peer.pubKey())
+	assert.False(t, found, "login must clear the peer's entry before it returns")
+	resp = peer.syncAndClose()
+	require.NotNil(t, resp.GetNetworkMap(), "the first Sync after Login must carry the full map")
+	waitForSyncMapEntry(t, cacheStore, peer.pubKey(), strconv.FormatUint(serial+1, 10))
 
-	// A new engine after Login always gets its full map.
-	restarter.restart(cancel)
-	peer.login()
-	resp, _, cancel = peer.syncAndClaim(redisClient)
-	require.NotNil(t, resp.GetNetworkMap(), "a Sync after Login must carry the full map")
+	// A peer whose login expired is sent back to Login even when it holds a map.
+	stored, err = am.Store.GetPeerByPeerPubKey(ctx, nbstore.LockingStrengthNone, peer.pubKey())
+	require.NoError(t, err)
+	require.NoError(t, am.Store.SavePeerStatus(ctx, accountID, stored.ID, nbpeer.PeerStatus{LoginExpired: true, LastSeen: time.Now().UTC()}))
+	_, _, err = peer.sync()
+	require.Error(t, err, "an expired peer must not resume")
+	assert.Equal(t, codes.PermissionDenied, status.Code(err), "the client must log in again")
+	require.NoError(t, am.Store.SavePeerStatus(ctx, accountID, stored.ID, nbpeer.PeerStatus{LastSeen: time.Now().UTC()}))
 
-	// Clients that clear their posture checks on a response without a map always
-	// get the full map.
+	// Clients that clear their posture checks on a response without a map always get
+	// the full map.
 	peer.meta.NetbirdVersion = "0.72.2"
-	restarter.restart(cancel)
-	resp, _, cancel = peer.syncAndClaim(redisClient)
-	require.NotNil(t, resp.GetNetworkMap(), "the version change itself is a meta change")
-	restarter.restart(cancel)
-	resp, _, cancel = peer.sync()
-	require.NotNil(t, resp.GetNetworkMap(), "an old client must never get a response without a map")
-	cancel()
+	for range 2 {
+		resp = peer.syncAndClose()
+		require.NotNil(t, resp.GetNetworkMap(), "an old client must never get a response without a map")
+	}
+}
+
+func TestSyncMapCacheDisabled(t *testing.T) {
+	cacheStore := newMemoryCacheStore(t)
+	_, addr := startSyncMapCacheManagement(t, cacheStore)
+
+	peer := newSyncMapTestPeer(t, addr)
+	require.NoError(t, peer.login(), "login must succeed")
+	for range 2 {
+		resp := peer.syncAndClose()
+		require.NotNil(t, resp.GetNetworkMap(), "every Sync must carry the full map while the cache is off")
+	}
+	_, found := syncMapEntry(cacheStore, peer.pubKey())
+	assert.False(t, found, "nothing is recorded while the cache is off")
+
+	// An instance with the cache off still clears the entry another instance wrote.
+	require.NoError(t, cacheStore.Set(context.Background(), "nb:syncmap:"+peer.pubKey(), "1", store.WithExpiration(time.Hour)))
+	require.NoError(t, peer.login(), "login must succeed")
+	_, found = syncMapEntry(cacheStore, peer.pubKey())
+	assert.False(t, found, "login must clear the entry even while the cache is off")
 }
 
 func TestSyncMapCacheLoginFailsClosed(t *testing.T) {
-	deadRedis := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 100 * time.Millisecond, MaxRetries: -1})
-	t.Cleanup(func() { _ = deadRedis.Close() })
-	cache := syncmapcache.New(deadRedis, syncmapcache.Config{Enabled: true, Generation: "test"})
+	t.Run("enabled", func(t *testing.T) {
+		t.Setenv(nbgrpc.EnvSyncMapCacheEnabled, "true")
+		_, addr := startSyncMapCacheManagement(t, failingDeleteStore{newMemoryCacheStore(t)})
 
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
-		Datadir: t.TempDir(),
-	}, func(s *nbgrpc.Server) { s.SetSyncMapCache(cache) })
-	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	t.Cleanup(mgmtServer.Stop)
-
-	client, conn, err := createRawClient(addr)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-
-	key, err := wgtypes.GeneratePrivateKey()
-	require.NoError(t, err)
-	_, err = loginPeerWithValidSetupKey(key, client)
-	require.Error(t, err, "a login whose invalidation cannot be recorded must fail")
-	assert.Equal(t, codes.Unavailable, status.Code(err), "the client must retry the login")
-}
-
-// invalidPeerValidator fails integrated validation for every peer.
-type invalidPeerValidator struct {
-	MockIntegratedValidator
-}
-
-func (invalidPeerValidator) IsNotValidPeer(context.Context, string, *nbpeer.Peer, []string, *types.ExtraSettings) (bool, bool, error) {
-	return true, false, nil
-}
-
-// revalidatedPeerValidator reports every peer as valid after a fresh validation, as
-// when a peer just became compliant.
-type revalidatedPeerValidator struct {
-	MockIntegratedValidator
-}
-
-func (revalidatedPeerValidator) IsNotValidPeer(context.Context, string, *nbpeer.Peer, []string, *types.ExtraSettings) (bool, bool, error) {
-	return false, true, nil
-}
-
-func TestSyncAndMarkPeerMapReuse(t *testing.T) {
-	ctx := context.Background()
-	manager, _, account, _, peer, _ := setupNetworkMapTest(t)
-
-	network, err := manager.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
-	require.NoError(t, err)
-	current := &types.MapReuse{Serial: network.CurrentSerial()}
-
-	t.Run("an unchanged peer holding the current serial skips the computation", func(t *testing.T) {
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), current)
-		require.NoError(t, err)
-		assert.True(t, res.MapReused, "the map must be reused")
-		assert.Nil(t, res.NetworkMap, "a reused map is not computed")
-		assert.Equal(t, peer.ID, res.Peer.ID, "the synced peer must be returned")
+		err := newSyncMapTestPeer(t, addr).login()
+		require.Error(t, err, "a login whose entry cannot be cleared must fail")
+		assert.Equal(t, codes.Unavailable, status.Code(err), "the client must retry the login")
 	})
 
-	t.Run("a reused map still marks the peer connected", func(t *testing.T) {
-		syncTime := time.Now().UTC()
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, syncTime, current)
-		require.NoError(t, err)
-		require.True(t, res.MapReused, "the map must be reused")
+	t.Run("disabled", func(t *testing.T) {
+		_, addr := startSyncMapCacheManagement(t, failingDeleteStore{newMemoryCacheStore(t)})
+		assert.NoError(t, newSyncMapTestPeer(t, addr).login(), "the cache must not fail logins while it is off")
+	})
+}
 
-		stored, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer.ID)
+func TestResumePeerSync(t *testing.T) {
+	ctx := context.Background()
+	manager, _, account, peer, _, _ := setupNetworkMapTest(t)
+
+	t.Run("marks the peer connected without computing a map", func(t *testing.T) {
+		syncTime := time.Now().UTC()
+		resumed, settings, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, syncTime)
+		require.NoError(t, err)
+		require.True(t, ok, "the peer must resume")
+		assert.Equal(t, peer.ID, resumed.ID, "the resumed peer must be returned")
+		assert.NotNil(t, settings, "the account settings must be returned for the session deadline")
+
+		stored, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer.ID)
 		require.NoError(t, err)
 		assert.True(t, stored.Status.Connected, "the peer must be marked connected")
 		assert.Equal(t, syncTime.UnixNano(), stored.Status.SessionStartedAt, "the stream must own the peer's session")
 	})
 
-	t.Run("a validation status change computes the map", func(t *testing.T) {
-		original := manager.integratedPeerValidator
-		manager.integratedPeerValidator = revalidatedPeerValidator{}
-		t.Cleanup(func() { manager.integratedPeerValidator = original })
-
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), current)
+	t.Run("rejects an unknown peer", func(t *testing.T) {
+		key, err := wgtypes.GeneratePrivateKey()
 		require.NoError(t, err)
-		assert.False(t, res.MapReused, "a peer whose validation just changed must get its map")
-		assert.NotNil(t, res.NetworkMap, "the map must be computed")
+		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, key.PublicKey().String(), time.Now().UTC())
+		assert.Error(t, err, "an unknown peer must be rejected")
+		assert.False(t, ok, "an unknown peer must not resume")
 	})
 
-	t.Run("an older serial computes the map", func(t *testing.T) {
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), &types.MapReuse{Serial: current.Serial - 1})
+	t.Run("rejects a peer whose owner is blocked", func(t *testing.T) {
+		blocked := &types.User{Id: "blocked-user", AccountID: account.Id, Role: types.UserRoleUser, Blocked: true}
+		require.NoError(t, manager.Store.SaveUser(ctx, blocked))
+		owned, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer.ID)
 		require.NoError(t, err)
-		assert.False(t, res.MapReused, "a peer behind the account serial must get its map")
-		assert.NotNil(t, res.NetworkMap, "the map must be computed")
+		owned.UserID = blocked.Id
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, owned))
+		t.Cleanup(func() {
+			owned.UserID = ""
+			require.NoError(t, manager.Store.SavePeer(ctx, account.Id, owned))
+		})
+
+		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
+		require.Error(t, err, "a peer of a blocked user must be rejected")
+		assert.Contains(t, err.Error(), "blocked", "the rejection must name the blocked owner")
+		assert.False(t, ok, "a peer of a blocked user must not resume")
 	})
 
-	t.Run("no reuse candidate computes the map", func(t *testing.T) {
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), nil)
-		require.NoError(t, err)
-		assert.False(t, res.MapReused, "a peer without a delivered map must get its map")
-		assert.NotNil(t, res.NetworkMap, "the map must be computed")
-	})
-
-	t.Run("a meta change computes the map", func(t *testing.T) {
-		meta := peer.Meta
-		meta.Hostname = "changed-" + meta.Hostname
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, meta, nil, time.Now().UTC(), current)
-		require.NoError(t, err)
-		assert.False(t, res.MapReused, "a peer whose meta changed must get its map")
-		assert.NotNil(t, res.NetworkMap, "the map must be computed")
-		peer.Meta = meta
-	})
-
-	t.Run("a peer failing validation computes its empty map", func(t *testing.T) {
-		original := manager.integratedPeerValidator
-		manager.integratedPeerValidator = invalidPeerValidator{}
-		t.Cleanup(func() { manager.integratedPeerValidator = original })
-
-		res, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), current)
-		require.NoError(t, err)
-		assert.False(t, res.MapReused, "an invalid peer must not keep its previous map")
-		assert.True(t, res.PeerNotValid, "the result must report the invalid peer so its entry is dropped")
-	})
-
-	t.Run("an expired peer is rejected before any reuse", func(t *testing.T) {
+	t.Run("rejects a peer marked login expired", func(t *testing.T) {
 		require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer.ID, nbpeer.PeerStatus{LoginExpired: true, LastSeen: time.Now().UTC()}))
-		_, err := manager.SyncAndMarkPeer(ctx, account.Id, peer.Key, peer.Meta, nil, time.Now().UTC(), current)
-		assert.Error(t, err, "an expired peer must be sent back to login even when its map could be reused")
+		t.Cleanup(func() {
+			require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer.ID, nbpeer.PeerStatus{LastSeen: time.Now().UTC()}))
+		})
+
+		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
+		require.Error(t, err, "an expired peer must be rejected")
+		assert.Contains(t, err.Error(), "expired", "the rejection must send the peer back to login")
+		assert.False(t, ok, "an expired peer must not resume")
+	})
+
+	t.Run("leaves embedded proxy peers to the full sync", func(t *testing.T) {
+		embedded, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer.ID)
+		require.NoError(t, err)
+		embedded.ProxyMeta.Embedded = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, embedded))
+		before := embedded.Status.SessionStartedAt
+
+		_, _, ok, err := manager.ResumePeerSync(ctx, account.Id, peer.Key, time.Now().UTC())
+		require.NoError(t, err)
+		assert.False(t, ok, "an embedded proxy peer must take the full sync")
+
+		stored, err := manager.Store.GetPeerByID(ctx, nbstore.LockingStrengthNone, account.Id, peer.ID)
+		require.NoError(t, err)
+		assert.Equal(t, before, stored.Status.SessionStartedAt, "a peer left to the full sync must not be marked connected yet")
 	})
 }

@@ -2,41 +2,47 @@ package grpc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"maps"
-	"math/rand/v2"
-	"runtime/debug"
+	"os"
 	"slices"
+	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/eko/gocache/lib/v4/store"
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	gproto "google.golang.org/protobuf/proto"
 
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/internals/shared/syncmapcache"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	nbversion "github.com/netbirdio/netbird/version"
 )
 
-// syncMapSchema changes whenever the map computation or its wire encoding changes in
-// a way the build version would not reveal, e.g. between two development builds.
-const syncMapSchema = "1"
+const (
+	// EnvSyncMapCacheEnabled lets a peer that reconnects with Sync, without logging in
+	// first, skip the network map computation and keep the map it already holds.
+	EnvSyncMapCacheEnabled = "NB_SYNC_MAP_CACHE_ENABLED"
+	// EnvSyncMapCacheResyncWindow is how long a peer that resumed without a map waits,
+	// at most, for a full one.
+	EnvSyncMapCacheResyncWindow = "NB_SYNC_MAP_CACHE_RESYNC_WINDOW"
+)
 
-// configOnlySyncVersion is the first client release that keeps its posture checks on
-// a SyncResponse without a network map; older clients clear them.
-const configOnlySyncVersion = "0.72.3"
+const (
+	syncMapCacheKeyPrefix = "nb:syncmap:"
+	// syncMapCacheTTL bounds how long a peer can keep reconnecting without a full map.
+	syncMapCacheTTL = 24 * time.Hour
+	// configOnlySyncVersion is the first client release that keeps its posture checks
+	// on a SyncResponse without a network map; older clients clear them.
+	configOnlySyncVersion = "0.72.3"
 
-// maxResyncAttempts bounds the retries of the full push that follows a reuse.
-const maxResyncAttempts = 3
+	defaultResyncWindow = 10 * time.Minute
+	maxResyncWindow     = time.Hour
+	// maxResyncAttempts bounds the pushes tried for one batch before giving up.
+	maxResyncAttempts = 3
+)
 
 var configOnlySyncConstraint = mustConstraint(">= " + configOnlySyncVersion)
 
@@ -48,51 +54,80 @@ func mustConstraint(c string) version.Constraints {
 	return constraint
 }
 
-// SyncMapGeneration identifies the build and the server configuration that shape
-// network maps. A peer may reuse a map only within the generation that delivered it,
-// so a deploy or a configuration change reaches every peer on its next Sync.
-func SyncMapGeneration(config *nbconfig.Config, dnsDomain string) string {
-	h := sha256.New()
-	write := func(parts ...string) {
-		for _, p := range parts {
-			h.Write([]byte(p))
-			h.Write([]byte{0})
-		}
-	}
-
-	write(syncMapSchema, nbversion.NetbirdVersion(), buildRevision(), dnsDomain)
-	if config != nil {
-		if v := config.HighestSupportedSyncMessageVersion; v != nil {
-			write(fmt.Sprint(*v))
-		}
-		for _, accountID := range slices.Sorted(maps.Keys(config.PerAccountHighestSupportedSyncMessageVersion)) {
-			write(accountID, fmt.Sprint(config.PerAccountHighestSupportedSyncMessageVersion[accountID]))
-		}
-		if config.HttpConfig != nil {
-			write(config.HttpConfig.AuthUserIDClaim)
-		}
-		if jwt := buildJWTConfig(config.HttpConfig, config.DeviceAuthorizationFlow); jwt != nil {
-			b, err := gproto.MarshalOptions{Deterministic: true}.Marshal(jwt)
-			if err == nil {
-				write(string(b))
-			}
-		}
-	}
-
-	return hex.EncodeToString(h.Sum(nil)[:16])
+// SyncMapCache records, per peer key, the network serial of the last full map sent
+// since the peer's last Login.
+type SyncMapCache struct {
+	store   nbcache.Store
+	enabled bool
 }
 
-func buildRevision() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return ""
+// NewSyncMapCache returns a sync map cache over the shared cache store. Only Sync reads
+// and writes it when EnvSyncMapCacheEnabled is set, but Login always clears the peer's
+// entry, so an instance with the flag off never leaves a stale one for the others.
+func NewSyncMapCache(cacheStore nbcache.Store) *SyncMapCache {
+	return &SyncMapCache{store: cacheStore, enabled: syncMapCacheEnabledByEnv()}
+}
+
+func syncMapCacheEnabledByEnv() bool {
+	val := os.Getenv(EnvSyncMapCacheEnabled)
+	if val == "" {
+		return false
 	}
-	for _, s := range info.Settings {
-		if s.Key == "vcs.revision" {
-			return s.Value
-		}
+	enabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvSyncMapCacheEnabled, err)
+		return false
 	}
-	return ""
+	return enabled
+}
+
+func syncMapCacheKey(peerKey string) string {
+	return syncMapCacheKeyPrefix + peerKey
+}
+
+// canSkipMap reports whether the peer received a full map since its last Login and its
+// client keeps that map when a SyncResponse carries none.
+func (c *SyncMapCache) canSkipMap(ctx context.Context, peerKey, clientVersion string) bool {
+	if c == nil || !c.enabled || !clientKeepsStateOnConfigOnlySync(clientVersion) {
+		return false
+	}
+	_, err := c.store.Get(ctx, syncMapCacheKey(peerKey))
+	if err == nil {
+		return true
+	}
+	if !errors.Is(err, &store.NotFound{}) {
+		log.WithContext(ctx).Debugf("failed to read the sync map cache of peer %s: %v", peerKey, err)
+	}
+	return false
+}
+
+// mapSent records that the peer was sent a full map with the given network serial.
+func (c *SyncMapCache) mapSent(ctx context.Context, peerKey string, serial uint64) {
+	if c == nil || !c.enabled {
+		return
+	}
+	value := strconv.FormatUint(serial, 10)
+	if err := c.store.Set(ctx, syncMapCacheKey(peerKey), value, store.WithExpiration(syncMapCacheTTL)); err != nil {
+		log.WithContext(ctx).Debugf("failed to record the network map sent to peer %s: %v", peerKey, err)
+	}
+}
+
+// forget makes the peer's next Sync compute its map.
+func (c *SyncMapCache) forget(ctx context.Context, peerKey string) error {
+	if c == nil {
+		return nil
+	}
+	if err := c.store.Delete(ctx, syncMapCacheKey(peerKey)); err != nil {
+		return fmt.Errorf("delete sync map cache entry: %w", err)
+	}
+	return nil
+}
+
+func sentMapSerial(netMap *types.NetworkMap) uint64 {
+	if netMap == nil || netMap.Network == nil {
+		return 0
+	}
+	return netMap.Network.CurrentSerial()
 }
 
 // clientKeepsStateOnConfigOnlySync reports whether a client of this version keeps
@@ -108,275 +143,19 @@ func clientKeepsStateOnConfigOnlySync(clientVersion string) bool {
 	return configOnlySyncConstraint.Check(v)
 }
 
-func keyFingerprint(key wgtypes.Key) syncmapcache.KeyFingerprint {
-	return syncmapcache.KeyFingerprint(key.PublicKey().String())
-}
-
-func cachePeerKey(peerKey wgtypes.Key) syncmapcache.PeerKey {
-	return syncmapcache.PeerKey(peerKey.String())
-}
-
-// deliveredSerial returns the network serial a SyncResponse makes the client apply,
-// and false when it carries no network map.
-func deliveredSerial(resp *proto.SyncResponse) (uint64, bool) {
-	if env := resp.GetNetworkMapEnvelope(); env != nil {
-		full := env.GetFull()
-		if full == nil {
-			return 0, false
-		}
-		return full.GetNetwork().GetSerial(), true
+// syncMapResyncWindow reads EnvSyncMapCacheResyncWindow. The resync cannot be turned
+// off, since it is what bounds how long a peer that resumed can miss a change.
+func syncMapResyncWindow() time.Duration {
+	val := os.Getenv(EnvSyncMapCacheResyncWindow)
+	if val == "" {
+		return defaultResyncWindow
 	}
-	if nm := resp.GetNetworkMap(); nm != nil {
-		return nm.GetSerial(), true
+	window, err := time.ParseDuration(val)
+	if err != nil || window <= 0 {
+		log.Warnf("invalid %s %q, using %s", EnvSyncMapCacheResyncWindow, val, defaultResyncWindow)
+		return defaultResyncWindow
 	}
-	return 0, false
-}
-
-// syncMapState is the sync map cache wiring of a server, replaced as a whole.
-type syncMapState struct {
-	cache  *syncmapcache.Cache
-	resync *mapResyncScheduler
-}
-
-func (s *Server) mapCache() *syncmapcache.Cache {
-	if st := s.syncMap.Load(); st != nil {
-		return st.cache
-	}
-	return nil
-}
-
-// SetSyncMapCache lets Sync skip computing the map of a peer that reconnects to a
-// restarted server without logging in and still holds the account's current map.
-func (s *Server) SetSyncMapCache(c *syncmapcache.Cache) {
-	if c == nil {
-		s.syncMap.Store(nil)
-		return
-	}
-	resync := newMapResyncScheduler(c.ResyncWindow(), c.ShuttingDown, func(ctx context.Context, accountID string, peerIDs []string) error {
-		return s.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
-	})
-	s.syncMap.Store(&syncMapState{cache: c, resync: resync})
-}
-
-// OnUpdateDropped records that an update to a peer's stream on this instance was
-// dropped, so the stream never vouches for the peer's map again.
-func (s *Server) OnUpdateDropped(_ context.Context, peerID string) {
-	if t, ok := s.streamTrackers.Load(peerID); ok {
-		t.(*deliveryTracker).dropped.Store(true)
-	}
-}
-
-// invalidateMapOnLogin makes the engine that follows this Login compute its map. It
-// fails the Login when reuse is enabled and the invalidation cannot be recorded.
-func (s *Server) invalidateMapOnLogin(ctx context.Context, peerKey wgtypes.Key) error {
-	cache := s.mapCache()
-	if cache == nil {
-		return nil
-	}
-	err := cache.OnLogin(ctx, cachePeerKey(peerKey))
-	if err == nil {
-		return nil
-	}
-	if cache.Enabled() {
-		return err
-	}
-	log.WithContext(ctx).Warnf("failed to invalidate the delivered network map of peer %s: %v", peerKey, err)
-	return nil
-}
-
-// mapReuseLookup is what a Sync read from the cache before syncing the peer.
-type mapReuseLookup struct {
-	seen  syncmapcache.Lookup
-	read  bool
-	reuse *types.MapReuse
-}
-
-// lookupMapReuse reads the peer's entry. A failed read leaves the stream out of the
-// cache, so it computes the map and records nothing.
-func (s *Server) lookupMapReuse(ctx context.Context, peerKey, streamKey wgtypes.Key, meta nbpeer.PeerSystemMeta) mapReuseLookup {
-	cache := s.mapCache()
-	if !cache.Enabled() {
-		return mapReuseLookup{}
-	}
-	seen, err := cache.Lookup(ctx, cachePeerKey(peerKey), keyFingerprint(streamKey))
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to read the delivered network map of peer %s, computing it: %v", peerKey, err)
-		return mapReuseLookup{}
-	}
-	l := mapReuseLookup{seen: seen, read: true}
-	if serial, ok := seen.Serial(); ok && clientKeepsStateOnConfigOnlySync(meta.WtVersion) {
-		l.reuse = &types.MapReuse{Serial: serial}
-	}
-	return l
-}
-
-// dropMapEntry forgets what any stream delivered to the peer.
-func (s *Server) dropMapEntry(ctx context.Context, peerKey wgtypes.Key) {
-	cache := s.mapCache()
-	if !cache.Enabled() {
-		return
-	}
-	if err := cache.Invalidate(ctx, cachePeerKey(peerKey)); err != nil {
-		log.WithContext(ctx).Debugf("failed to invalidate the delivered network map of peer %s: %v", peerKey, err)
-	}
-}
-
-// initialDelivery describes the first SyncResponse of a stream.
-type initialDelivery struct {
-	// serial is the network serial the response made the client apply.
-	serial uint64
-	// hasMap reports whether the response carried a network map.
-	hasMap bool
-	// key is the management key the response was encrypted with.
-	key wgtypes.Key
-}
-
-// syncStream identifies one Sync stream for the cache.
-type syncStream struct {
-	peerKey wgtypes.Key
-	// serverKey is the management key that decrypted the request; the client
-	// decrypts every response of the stream with it.
-	serverKey wgtypes.Key
-	peerID    string
-	session   syncmapcache.Session
-	srv       syncSender
-}
-
-// takeOverMapEntry hands the peer's entry to this stream after its initial sync and
-// returns the tracker for the updates that follow. When the stream cannot take the
-// entry over, it drops the entry: a released entry must not outlive a Sync that may
-// have changed what the peer holds.
-func (s *Server) takeOverMapEntry(ctx context.Context, st syncStream, l mapReuseLookup, res *types.PeerSyncResult, d initialDelivery) *deliveryTracker {
-	t := s.recordInitialDelivery(ctx, st, l, res, d)
-	if t == nil {
-		s.dropMapEntry(ctx, st.peerKey)
-	}
-	return t
-}
-
-// recordInitialDelivery claims the peer's entry for this stream. It returns nil when
-// the stream did not take the entry over.
-func (s *Server) recordInitialDelivery(ctx context.Context, st syncStream, l mapReuseLookup, res *types.PeerSyncResult, d initialDelivery) *deliveryTracker {
-	cache := s.mapCache()
-	if !cache.Enabled() || !l.read {
-		return nil
-	}
-
-	// A response under another key than the one that decrypted the request never
-	// reaches the client. An invalid peer got an empty map that must not outlive a
-	// validity change nothing announces.
-	if res.PeerNotValid || st.srv.Context().Err() != nil || d.key.PublicKey() != st.serverKey.PublicKey() || (!res.MapReused && !d.hasMap) {
-		return nil
-	}
-
-	t := &deliveryTracker{
-		cache:      cache,
-		peerKey:    cachePeerKey(st.peerKey),
-		session:    st.session,
-		streamKey:  st.serverKey.PublicKey(),
-		lastSerial: d.serial,
-		lastSent:   time.Now(),
-	}
-
-	var err error
-	if res.MapReused {
-		err = cache.ClaimReused(ctx, t.peerKey, l.seen, st.session, keyFingerprint(st.serverKey))
-		t.lastSerial, _ = l.seen.Serial()
-		t.lastSent = time.Time{}
-	} else {
-		err = cache.ClaimDelivered(ctx, t.peerKey, l.seen, st.session, d.serial, keyFingerprint(st.serverKey))
-	}
-	if err != nil {
-		if !errors.Is(err, syncmapcache.ErrClaimLost) {
-			log.WithContext(ctx).Debugf("failed to record the initial sync of peer %s: %v", st.peerKey, err)
-		}
-		return nil
-	}
-
-	cache.StreamStarted()
-	s.streamTrackers.Store(st.peerID, t)
-	return t
-}
-
-// onSyncStreamEnded stops routing dropped-update notices to the stream's tracker.
-func (s *Server) onSyncStreamEnded(peerID string, session syncmapcache.Session) {
-	if t, ok := s.streamTrackers.Load(peerID); ok && t.(*deliveryTracker).session == session {
-		s.streamTrackers.CompareAndDelete(peerID, t)
-	}
-}
-
-// deliveryTracker records the network maps one Sync stream sent after its initial
-// sync, and releases the entry when the server ends the stream on shutdown. Only
-// the stream's update loop uses it, except for dropped, which the update manager
-// sets.
-type deliveryTracker struct {
-	cache      *syncmapcache.Cache
-	peerKey    syncmapcache.PeerKey
-	session    syncmapcache.Session
-	streamKey  wgtypes.Key
-	lastSerial uint64
-	// lastSent is when the stream last sent a map, zero when it sent none.
-	lastSent time.Time
-	// stopped is set once the stream may have left the peer behind; the entry is
-	// then never released.
-	stopped bool
-	dropped atomic.Bool
-}
-
-// delivered records a response the stream sent with the given management key.
-func (t *deliveryTracker) delivered(ctx context.Context, resp *proto.SyncResponse, key wgtypes.Key) {
-	if t == nil || t.stopped {
-		return
-	}
-	// The client decrypts with the key it fetched before opening the stream, and a
-	// send during shutdown may be dropped by the hard stop.
-	if t.dropped.Load() || t.cache.ShuttingDown() || key.PublicKey() != t.streamKey {
-		t.stopped = true
-		return
-	}
-	serial, ok := deliveredSerial(resp)
-	if !ok {
-		return
-	}
-	t.lastSent = time.Now()
-	if serial == t.lastSerial {
-		return
-	}
-	applied, err := t.cache.Advance(ctx, t.peerKey, t.session, serial)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to record the network map sent to peer %s: %v", t.peerKey, err)
-		return
-	}
-	if !applied {
-		t.stopped = true
-		return
-	}
-	t.lastSerial = serial
-}
-
-// undelivered records that the stream ends with updates it never sent.
-func (t *deliveryTracker) undelivered() {
-	if t != nil {
-		t.stopped = true
-	}
-}
-
-// release marks the entry reusable when the server is ending the stream on
-// shutdown and the stream left nothing behind.
-func (t *deliveryTracker) release(ctx context.Context) {
-	if t == nil || t.stopped || t.dropped.Load() || !t.cache.ShuttingDown() {
-		return
-	}
-	if err := t.cache.Release(ctx, t.peerKey, t.session, t.lastSent); err != nil {
-		log.WithContext(ctx).Debugf("failed to release the network map of peer %s: %v", t.peerKey, err)
-	}
-}
-
-// ended uncounts the stream once it can no longer release its entry.
-func (t *deliveryTracker) ended() {
-	if t != nil {
-		t.cache.StreamEnded()
-	}
+	return min(window, maxResyncWindow)
 }
 
 // resyncBatch is the peers of one account waiting for their full push.
@@ -385,56 +164,48 @@ type resyncBatch struct {
 	attempt int
 }
 
-// mapResyncScheduler pushes a full map to peers that reused theirs on Sync, after a
-// random delay, so a change they missed while disconnected still reaches them. Peers
-// of one account share a timer, so their account is loaded once per batch.
+// mapResyncScheduler pushes a full map to the peers that resumed without one, so a
+// change they missed while disconnected still reaches them. Each account is pushed at
+// most once per window, at a tick derived from its ID: every instance pushes the
+// account's peers at the same time, and accounts spread evenly over the window.
 type mapResyncScheduler struct {
-	mu       sync.Mutex
-	window   time.Duration
-	pending  map[string]*resyncBatch
-	stopping func() bool
-	push     func(ctx context.Context, accountID string, peerIDs []string) error
-	delay    func(window time.Duration) time.Duration
+	mu      sync.Mutex
+	window  time.Duration
+	pending map[string]*resyncBatch
+	push    func(ctx context.Context, accountID string, peerIDs []string) error
+	now     func() time.Time
+	after   func(d time.Duration, f func())
 }
 
-func newMapResyncScheduler(window time.Duration, stopping func() bool, push func(ctx context.Context, accountID string, peerIDs []string) error) *mapResyncScheduler {
+func newMapResyncScheduler(window time.Duration, push func(ctx context.Context, accountID string, peerIDs []string) error) *mapResyncScheduler {
 	return &mapResyncScheduler{
-		window:   window,
-		pending:  make(map[string]*resyncBatch),
-		stopping: stopping,
-		push:     push,
-		delay:    rand.N[time.Duration],
+		window:  window,
+		pending: make(map[string]*resyncBatch),
+		push:    push,
+		now:     time.Now,
+		after:   func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 	}
 }
 
 func (r *mapResyncScheduler) schedule(accountID, peerID string) {
-	if r == nil {
-		return
+	if r != nil {
+		r.add(accountID, []string{peerID}, 0)
 	}
-	r.add(accountID, []string{peerID}, 0)
 }
 
 func (r *mapResyncScheduler) add(accountID string, peerIDs []string, attempt int) {
-	if r.window <= 0 {
-		return
-	}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if batch, ok := r.pending[accountID]; ok {
-		for _, id := range peerIDs {
-			batch.peers[id] = struct{}{}
-		}
-		return
+	batch, ok := r.pending[accountID]
+	if !ok {
+		batch = &resyncBatch{peers: make(map[string]struct{}, len(peerIDs)), attempt: attempt}
+		r.pending[accountID] = batch
+		r.after(untilResyncTick(accountID, r.window, r.now()), func() { r.fire(accountID) })
 	}
-
-	batch := &resyncBatch{peers: make(map[string]struct{}, len(peerIDs)), attempt: attempt}
 	for _, id := range peerIDs {
 		batch.peers[id] = struct{}{}
 	}
-	r.pending[accountID] = batch
-	time.AfterFunc(r.delay(r.window), func() { r.fire(accountID) })
 }
 
 func (r *mapResyncScheduler) fire(accountID string) {
@@ -443,7 +214,7 @@ func (r *mapResyncScheduler) fire(accountID string) {
 	delete(r.pending, accountID)
 	r.mu.Unlock()
 
-	if batch == nil || len(batch.peers) == 0 || r.stopping() {
+	if batch == nil {
 		return
 	}
 
@@ -453,9 +224,22 @@ func (r *mapResyncScheduler) fire(accountID string) {
 		return
 	}
 	if batch.attempt+1 >= maxResyncAttempts {
-		log.Warnf("gave up pushing network maps to %d peers of account %s that reused theirs: %v", len(peerIDs), accountID, err)
+		log.Warnf("gave up pushing network maps to %d peers of account %s that resumed without one: %v", len(peerIDs), accountID, err)
 		return
 	}
-	log.Debugf("failed to push network maps to %d peers of account %s that reused theirs, retrying: %v", len(peerIDs), accountID, err)
+	log.Debugf("failed to push network maps to %d peers of account %s that resumed without one, retrying: %v", len(peerIDs), accountID, err)
 	r.add(accountID, peerIDs, batch.attempt+1)
+}
+
+// untilResyncTick returns the time from now to the account's next resync tick, in
+// (0, window]. Ticks fall every window at an offset hashed from the account ID.
+func untilResyncTick(accountID string, window time.Duration, now time.Time) time.Duration {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(accountID))
+	offset := int64(h.Sum64() % uint64(window))
+	elapsed := (now.UnixNano() - offset) % int64(window)
+	if elapsed < 0 {
+		elapsed += int64(window)
+	}
+	return window - time.Duration(elapsed)
 }

@@ -23,7 +23,6 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
@@ -35,7 +34,6 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
-	"github.com/netbirdio/netbird/management/internals/shared/syncmapcache"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/api/v1alpha1"
@@ -89,22 +87,6 @@ func (s *BaseServer) CacheStore() nbcache.Store {
 			log.Fatalf("failed to create shared cache store: %v", err)
 		}
 		return cs
-	})
-}
-
-// SyncMapCache returns the cache of network maps delivered to peers, or nil when no
-// Redis is configured: the in-memory store does not survive the restarts it is for.
-func (s *BaseServer) SyncMapCache() *syncmapcache.Cache {
-	return Create(s, func() *syncmapcache.Cache {
-		client, ok := nbcache.RedisClient(s.CacheStore())
-		if !ok {
-			return nil
-		}
-		cfg := syncmapcache.ConfigFromEnv(nbgrpc.SyncMapGeneration(s.Config, s.DNSDomain()))
-		if cfg.Enabled {
-			log.Infof("reusing delivered network maps on Sync, max age %s, resync window %s", cfg.MaxAge, cfg.ResyncWindow)
-		}
-		return syncmapcache.New(client, cfg)
 	})
 }
 
@@ -289,10 +271,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}
-		srv.SetSyncMapCache(s.SyncMapCache())
-		if m, ok := s.PeersUpdateManager().(*update_channel.PeersUpdateManager); ok {
-			m.SetDropHandler(srv.OnUpdateDropped)
-		}
+		srv.SetSyncMapCache(nbgrpc.NewSyncMapCache(s.CacheStore()))
 		serviceMgr := s.ServiceManager()
 		srv.SetReverseProxyManager(serviceMgr)
 		if serviceMgr != nil {

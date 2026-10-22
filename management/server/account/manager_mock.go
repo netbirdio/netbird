@@ -1412,6 +1412,23 @@ func (mr *MockManagerMockRecorder) RejectUser(ctx, accountID, initiatorUserID, t
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RejectUser", reflect.TypeOf((*MockManager)(nil).RejectUser), ctx, accountID, initiatorUserID, targetUserID)
 }
 
+// ResumePeerSync mocks base method.
+func (m *MockManager) ResumePeerSync(ctx context.Context, accountID, peerPubKey string, syncTime time.Time) (*peer.Peer, *types.Settings, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResumePeerSync", ctx, accountID, peerPubKey, syncTime)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].(*types.Settings)
+	ret2, _ := ret[2].(bool)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
+}
+
+// ResumePeerSync indicates an expected call of ResumePeerSync.
+func (mr *MockManagerMockRecorder) ResumePeerSync(ctx, accountID, peerPubKey, syncTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumePeerSync", reflect.TypeOf((*MockManager)(nil).ResumePeerSync), ctx, accountID, peerPubKey, syncTime)
+}
+
 // SaveDNSSettings mocks base method.
 func (m *MockManager) SaveDNSSettings(ctx context.Context, accountID, userID string, dnsSettingsToSave *types.DNSSettings) error {
 	m.ctrl.T.Helper()
@@ -1569,18 +1586,21 @@ func (mr *MockManagerMockRecorder) StoreEvent(ctx, initiatorID, targetID, accoun
 }
 
 // SyncAndMarkPeer mocks base method.
-func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP, syncTime time.Time, reuse *types.MapReuse) (*types.PeerSyncResult, error) {
+func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*peer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncAndMarkPeer", ctx, accountID, peerPubKey, meta, realIP, syncTime, reuse)
-	ret0, _ := ret[0].(*types.PeerSyncResult)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret := m.ctrl.Call(m, "SyncAndMarkPeer", ctx, accountID, peerPubKey, meta, realIP, syncTime)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].(*types.NetworkMap)
+	ret2, _ := ret[2].([]*nmdata.PostureChecks)
+	ret3, _ := ret[3].(int64)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // SyncAndMarkPeer indicates an expected call of SyncAndMarkPeer.
-func (mr *MockManagerMockRecorder) SyncAndMarkPeer(ctx, accountID, peerPubKey, meta, realIP, syncTime, reuse any) *gomock.Call {
+func (mr *MockManagerMockRecorder) SyncAndMarkPeer(ctx, accountID, peerPubKey, meta, realIP, syncTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncAndMarkPeer", reflect.TypeOf((*MockManager)(nil).SyncAndMarkPeer), ctx, accountID, peerPubKey, meta, realIP, syncTime, reuse)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncAndMarkPeer", reflect.TypeOf((*MockManager)(nil).SyncAndMarkPeer), ctx, accountID, peerPubKey, meta, realIP, syncTime)
 }
 
 // SyncPeer mocks base method.

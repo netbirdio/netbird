@@ -30,7 +30,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/internals/shared/syncmapcache"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
 
@@ -91,10 +90,8 @@ type Server struct {
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
 
-	syncMap atomic.Pointer[syncMapState]
-	// streamTrackers maps the peer ID of each Sync stream on this instance that
-	// records its deliveries to the stream's *deliveryTracker.
-	streamTrackers sync.Map
+	syncMapCache *SyncMapCache
+	mapResync    *mapResyncScheduler
 }
 
 // NewServer creates a new Management server
@@ -252,7 +249,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	ctx := srv.Context()
 
 	syncReq := &proto.SyncRequest{}
-	peerKey, serverKey, err := s.parseRequestWithServerKey(ctx, req, syncReq)
+	peerKey, err := s.parseRequest(ctx, req, syncReq)
 	if err != nil {
 		s.syncSem.Add(-1)
 		return err
@@ -317,42 +314,12 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	metahash := metaHash(peerMeta)
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
-	reuseLookup := s.lookupMapReuse(ctx, peerKey, serverKey, peerMeta)
-	// Until the stream takes the entry over, a failure must not leave behind an
-	// entry that predates what this Sync may have changed or sent.
-	entryDecided := false
-	defer func() {
-		if !entryDecided {
-			s.dropMapEntry(ctx, peerKey)
-		}
-	}()
-
-	res, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart, reuseLookup.reuse)
+	peer, resumed, err := s.sendFirstSyncResponse(ctx, accountID, peerKey, peerMeta, realIP, syncStart, srv)
 	if err != nil {
-		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		return mapError(ctx, err)
-	}
-	peer := res.Peer
-
-	trackChallenge := func() { s.accountManager.TrackCertificateChallenges(ctx, accountID, peer.ID, syncStart) }
-	var delivered initialDelivery
-	if res.MapReused {
-		delivered, err = s.sendConfigOnlySync(ctx, peerKey, peer, srv)
-	} else {
-		delivered, err = s.sendInitialSync(ctx, peerKey, peer, res.NetworkMap, res.PostureChecks, srv, res.DNSForwarderPort, trackChallenge)
-	}
-	if err != nil {
-		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
-		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
 		return err
 	}
-	if res.MapReused {
-		// The client keeps the posture checks it has, but certificate challenge
-		// nonces are renewed only for peers tracked on the instance holding the stream.
-		trackChallenge()
-	}
+	trackChallenge := func() { s.accountManager.TrackCertificateChallenges(ctx, accountID, peer.ID, syncStart) }
 
 	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 	if err != nil {
@@ -362,16 +329,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	tracker := s.takeOverMapEntry(ctx, syncStream{
-		peerKey:   peerKey,
-		serverKey: serverKey,
-		peerID:    peer.ID,
-		session:   syncmapcache.Session(syncStart.UnixNano()),
-		srv:       srv,
-	}, reuseLookup, res, delivered)
-	entryDecided = true
-	if st := s.syncMap.Load(); st != nil && res.MapReused {
-		st.resync.schedule(accountID, peer.ID)
+	if resumed {
+		s.mapResync.schedule(accountID, peer.ID)
 	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
@@ -389,7 +348,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
 		trackChallenge,
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
-		WithMetrics(s.appMetrics).withDeliveryTracker(tracker).HandleUpdates(ctx)
+		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -501,7 +460,6 @@ func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID st
 		log.WithContext(ctx).Debugf("skipped peer routines teardown for %s: a newer session owns the peer", peer.Key)
 		return
 	}
-	s.onSyncStreamEnded(peer.ID, syncmapcache.Session(streamStartTime.UnixNano()))
 	s.secretsManager.CancelRefresh(peer.ID)
 	s.accountManager.UntrackCertificateChallenges(accountID, peer.ID, streamStartTime)
 
@@ -672,30 +630,23 @@ func capabilitiesToInt32(caps []proto.PeerCapability) []int32 {
 }
 
 func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
-	peerKey, _, err := s.parseRequestWithServerKey(ctx, req, parsed)
-	return peerKey, err
-}
-
-// parseRequestWithServerKey decrypts a request and also returns the management key
-// that decrypted it: the client decrypts the responses with the same key.
-func (s *Server) parseRequestWithServerKey(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, wgtypes.Key, error) {
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		log.WithContext(ctx).Warnf("error while parsing peer's WireGuard public key %s.", req.WgPubKey)
-		return wgtypes.Key{}, wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
+		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
-		return wgtypes.Key{}, wgtypes.Key{}, status.Errorf(codes.Internal, "failed processing request")
+		return wgtypes.Key{}, status.Errorf(codes.Internal, "failed processing request")
 	}
 
 	err = encryption.DecryptMessage(peerKey, key, req.Body, parsed)
 	if err != nil {
-		return wgtypes.Key{}, wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
+		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
 
-	return peerKey, key, nil
+	return peerKey, nil
 }
 
 // Login endpoint first checks whether peer is registered under any account
@@ -751,10 +702,8 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, msg
 	}
 
-	// Before the JWT is consumed, so a failure leaves the client a Login to retry.
-	if err := s.invalidateMapOnLogin(ctx, peerKey); err != nil {
-		log.WithContext(ctx).Warnf("failed to invalidate the delivered network map of peer %s: %v", peerKey, err)
-		return nil, status.Errorf(codes.Unavailable, "failed logging in peer")
+	if err := s.forgetSentMap(ctx, peerKey); err != nil {
+		return nil, err
 	}
 
 	userID, err := s.processJwtToken(ctx, loginReq, peerKey)
@@ -977,13 +926,135 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 	return &proto.Empty{}, nil
 }
 
-// sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64, onChallengeStamped func()) (initialDelivery, error) {
+// SetSyncMapCache lets Sync skip the network map of peers that reconnect without
+// logging in. It must be called before the server starts serving.
+func (s *Server) SetSyncMapCache(c *SyncMapCache) {
+	s.syncMapCache = c
+	s.mapResync = nil
+	if c != nil && c.enabled {
+		s.mapResync = newMapResyncScheduler(syncMapResyncWindow(), s.networkMapController.UpdateAffectedPeers)
+	}
+}
+
+// forgetSentMap makes the Sync that follows a Login compute the peer's map. The Login
+// fails when that cannot be recorded and the cache is in use, since the new engine would
+// otherwise start without a map.
+func (s *Server) forgetSentMap(ctx context.Context, peerKey wgtypes.Key) error {
+	err := s.syncMapCache.forget(ctx, peerKey.String())
+	if err == nil {
+		return nil
+	}
+	if !s.syncMapCache.enabled {
+		log.WithContext(ctx).Debugf("failed to clear the sync map cache of peer %s: %v", peerKey.String(), err)
+		return nil
+	}
+	log.WithContext(ctx).Warnf("failed to clear the sync map cache of peer %s: %v", peerKey.String(), err)
+	return status.Errorf(codes.Unavailable, "login temporarily unavailable")
+}
+
+// sendFirstSyncResponse sends the first message of a Sync stream: the connection config
+// alone when the peer still holds its map, the full network map otherwise. It reports
+// whether the peer resumed without a map.
+func (s *Server) sendFirstSyncResponse(ctx context.Context, accountID string, peerKey wgtypes.Key, peerMeta nbpeer.PeerSystemMeta, realIP net.IP, syncStart time.Time, srv proto.ManagementService_SyncServer) (*nbpeer.Peer, bool, error) {
+	if s.syncMapCache.canSkipMap(ctx, peerKey.String(), peerMeta.WtVersion) {
+		peer, settings, resumed, err := s.accountManager.ResumePeerSync(ctx, accountID, peerKey.String(), syncStart)
+		if err != nil {
+			log.WithContext(ctx).Debugf("error while resuming sync of peer %s: %v", peerKey.String(), err)
+			return nil, false, mapError(ctx, err)
+		}
+		if resumed {
+			if err := s.sendConfigOnlySync(ctx, peerKey, peer, settings, srv); err != nil {
+				s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
+				return nil, false, err
+			}
+			s.accountManager.TrackCertificateChallenges(ctx, accountID, peer.ID, syncStart)
+			return peer, true, nil
+		}
+	}
+
+	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart)
+	if err != nil {
+		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
+		return nil, false, mapError(ctx, err)
+	}
+
+	trackChallenge := func() { s.accountManager.TrackCertificateChallenges(ctx, accountID, peer.ID, syncStart) }
+	if err := s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort, trackChallenge); err != nil {
+		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
+		return nil, false, err
+	}
+	s.syncMapCache.mapSent(ctx, peerKey.String(), sentMapSerial(netMap))
+	return peer, false, nil
+}
+
+// sendConfigOnlySync sends a peer that still holds its network map the connection
+// config with fresh credentials and its session deadline.
+func (s *Server) sendConfigOnlySync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, settings *types.Settings, srv proto.ManagementService_SyncServer) error {
 	turnToken, relayToken := s.syncTokens()
 
-	settings, peerGroups, err := s.syncPeerContext(ctx, peer)
+	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
 	if err != nil {
-		return initialDelivery{}, err
+		log.WithContext(ctx).Debugf("failed to get groups of peer %s: %v", peer.ID, err)
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	resp := toConfigOnlySyncResponse(s.config, types.TwinPeer(peer), turnToken, relayToken, types.TwinAccountSettings(settings), settings.Extra, peerGroups)
+	return s.sendSyncResponse(ctx, peerKey, resp, srv)
+}
+
+func (s *Server) syncTokens() (turnToken, relayToken *Token) {
+	var err error
+	if s.config.TURNConfig != nil && s.config.TURNConfig.TimeBasedCredentials {
+		turnToken, err = s.secretsManager.GenerateTurnToken()
+		if err != nil {
+			log.Errorf("failed generating TURN token: %v", err)
+		}
+	}
+
+	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
+		relayToken, err = s.secretsManager.GenerateRelayToken()
+		if err != nil {
+			log.Errorf("failed generating Relay token: %v", err)
+		}
+	}
+	return turnToken, relayToken
+}
+
+func (s *Server) sendSyncResponse(ctx context.Context, peerKey wgtypes.Key, resp *proto.SyncResponse, srv proto.ManagementService_SyncServer) error {
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed getting server key")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, resp)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	err = srv.Send(&proto.EncryptedMessage{
+		WgPubKey: key.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+	return nil
+}
+
+// sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
+func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64, onChallengeStamped func()) error {
+	turnToken, relayToken := s.syncTokens()
+
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
 	dnsName := s.networkMapController.GetDNSDomain(settings)
@@ -1017,7 +1088,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		freshPeer, components, freshPostureChecks, freshDnsFwdPort, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to build components for peer %s on initial sync: %v", peer.ID, err)
-			return initialDelivery{}, status.Errorf(codes.Internal, "failed to build initial sync envelope")
+			return status.Errorf(codes.Internal, "failed to build initial sync envelope")
 		}
 		plainResp = ToComponentSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, types.TwinPeer(freshPeer), turnToken, relayToken, components, dnsName, freshPostureChecks, types.TwinAccountSettings(settings), settings.Extra, peerGroups, freshDnsFwdPort)
 	} else {
@@ -1027,93 +1098,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	if stampCertificateChallenges(plainResp.Checks, s.challenger, peerKey) {
 		onChallengeStamped()
 	}
-
-	key, err := s.sendSyncResponse(ctx, peerKey, plainResp, srv)
-	if err != nil {
-		return initialDelivery{}, err
-	}
-
-	serial, hasMap := deliveredSerial(plainResp)
-	return initialDelivery{serial: serial, hasMap: hasMap, key: key}, nil
-}
-
-// sendConfigOnlySync sends the initial SyncResponse of a peer that still holds the
-// account's current network map: its connection config and fresh credentials only.
-func (s *Server) sendConfigOnlySync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, srv proto.ManagementService_SyncServer) (initialDelivery, error) {
-	turnToken, relayToken := s.syncTokens()
-
-	settings, peerGroups, err := s.syncPeerContext(ctx, peer)
-	if err != nil {
-		return initialDelivery{}, err
-	}
-
-	resp := toConfigOnlySyncResponse(s.config, types.TwinPeer(peer), turnToken, relayToken, types.TwinAccountSettings(settings), settings.Extra, peerGroups)
-	key, err := s.sendSyncResponse(ctx, peerKey, resp, srv)
-	if err != nil {
-		return initialDelivery{}, err
-	}
-	return initialDelivery{key: key}, nil
-}
-
-// syncPeerContext reads the account settings and the peer's groups an initial
-// SyncResponse is built from.
-func (s *Server) syncPeerContext(ctx context.Context, peer *nbpeer.Peer) (*types.Settings, []string, error) {
-	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to get settings of account %s: %v", peer.AccountID, err)
-		return nil, nil, status.Errorf(codes.Internal, "error handling request")
-	}
-
-	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to get groups of peer %s: %v", peer.ID, err)
-		return nil, nil, status.Errorf(codes.Internal, "error handling request")
-	}
-	return settings, peerGroups, nil
-}
-
-// syncTokens generates the TURN and relay credentials of an initial SyncResponse.
-func (s *Server) syncTokens() (turnToken, relayToken *Token) {
-	var err error
-	if s.config.TURNConfig != nil && s.config.TURNConfig.TimeBasedCredentials {
-		turnToken, err = s.secretsManager.GenerateTurnToken()
-		if err != nil {
-			log.Errorf("failed generating TURN token: %v", err)
-		}
-	}
-
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
-	}
-	return turnToken, relayToken
-}
-
-// sendSyncResponse encrypts and sends a SyncResponse, returning the management key it
-// was encrypted with.
-func (s *Server) sendSyncResponse(ctx context.Context, peerKey wgtypes.Key, resp *proto.SyncResponse, srv proto.ManagementService_SyncServer) (wgtypes.Key, error) {
-	key, err := s.secretsManager.GetWGKey()
-	if err != nil {
-		return wgtypes.Key{}, status.Errorf(codes.Internal, "failed getting server key")
-	}
-
-	encryptedResp, err := encryption.EncryptMessage(peerKey, key, resp)
-	if err != nil {
-		return wgtypes.Key{}, status.Errorf(codes.Internal, "error handling request")
-	}
-
-	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: key.PublicKey().String(),
-		Body:     encryptedResp,
-	})
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)
-		return wgtypes.Key{}, status.Errorf(codes.Internal, "error handling request")
-	}
-
-	return key, nil
+	return s.sendSyncResponse(ctx, peerKey, plainResp, srv)
 }
 
 func (s *Server) perAccountOrGlobalSyncMessageVersions(accountId string) grpc.SyncMessageVersion {

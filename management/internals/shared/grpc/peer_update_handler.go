@@ -54,19 +54,10 @@ type PeerUpdateHandler struct {
 	encrypter          encryption.Encrypter
 	debouncer          Debouncer
 	cleanupFunc        func()
-	// tracker records the network maps the stream delivers; nil when it records nothing.
-	tracker *deliveryTracker
 }
 
 func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
 	pu.appMetrics = appMetrics
-	return pu
-}
-
-// withDeliveryTracker records the network maps the stream delivers in the sync map
-// cache. A nil tracker records nothing.
-func (pu *PeerUpdateHandler) withDeliveryTracker(tracker *deliveryTracker) *PeerUpdateHandler {
-	pu.tracker = tracker
 	return pu
 }
 
@@ -80,7 +71,6 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", pu.peerKey.String())
 
 	defer pu.debouncer.Stop()
-	defer pu.tracker.ended()
 
 	for {
 		select {
@@ -93,7 +83,6 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", pu.peerKey.String())
-				pu.recordUndelivered()
 				pu.cleanupFunc()
 				return nil
 			}
@@ -125,29 +114,15 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 		case <-pu.srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", pu.peerKey.String())
-			pu.recordUndelivered()
-			pu.tracker.release(ctx)
 			pu.cleanupFunc()
 			return pu.srv.Context().Err()
 		}
 	}
 }
 
-// recordUndelivered keeps the stream from vouching for the peer's map when it ends
-// with updates it never sent: queued in its channel or held back by the debouncer.
-func (pu *PeerUpdateHandler) recordUndelivered() {
-	if pu.tracker == nil {
-		return
-	}
-	if len(pu.updates) > 0 || len(pu.debouncer.GetPendingUpdates()) > 0 {
-		pu.tracker.undelivered()
-	}
-}
-
 func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map.UpdateMessage) error {
 	key, err := pu.secretsManager.GetWGKey()
 	if err != nil {
-		pu.tracker.undelivered()
 		pu.cleanupFunc()
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
@@ -157,7 +132,6 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 	}
 	encryptedResp, err := pu.encrypter.EncryptMessage(pu.peerKey, key, update.Update)
 	if err != nil {
-		pu.tracker.undelivered()
 		pu.cleanupFunc()
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
@@ -166,11 +140,9 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		pu.tracker.undelivered()
 		pu.cleanupFunc()
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
-	pu.tracker.delivered(ctx, update.Update, key)
 	log.WithContext(ctx).Tracef("sent an update to peer %s", pu.peerKey.String())
 	return nil
 }

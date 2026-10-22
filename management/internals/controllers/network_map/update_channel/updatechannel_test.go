@@ -139,23 +139,3 @@ func TestCloseSessionChannel(t *testing.T) {
 		assert.False(t, open, "registered channel must be closed")
 	})
 }
-
-func TestSendUpdateReportsDrops(t *testing.T) {
-	ctx := context.Background()
-	m := NewPeersUpdateManager(nil)
-	var dropped []string
-	m.SetDropHandler(func(_ context.Context, peerID string) { dropped = append(dropped, peerID) })
-
-	m.CreateChannel(ctx, "full")
-	t.Cleanup(func() { m.CloseChannel(ctx, "full") })
-	for range channelBufferSize {
-		m.SendUpdate(ctx, "full", &network_map.UpdateMessage{Update: &proto.SyncResponse{}})
-	}
-	assert.Empty(t, dropped, "updates that fit in the channel are not dropped")
-
-	m.SendUpdate(ctx, "full", &network_map.UpdateMessage{Update: &proto.SyncResponse{}})
-	assert.Equal(t, []string{"full"}, dropped, "an update that finds the channel full must be reported")
-
-	m.SendUpdate(ctx, "absent", &network_map.UpdateMessage{Update: &proto.SyncResponse{}})
-	assert.Equal(t, []string{"full"}, dropped, "a peer without a stream on this instance has nothing to drop")
-}

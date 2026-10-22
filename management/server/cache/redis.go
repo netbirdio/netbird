@@ -47,16 +47,6 @@ func getRedisStore(ctx context.Context, redisEnvAddr string, maxConn int) (Store
 	}, nil
 }
 
-// RedisClient returns the client behind a Redis-backed store. It reports false for the
-// in-memory store, which is local to one process and survives no restart.
-func RedisClient(s Store) (*redis.Client, bool) {
-	rs, ok := s.(*redisStore)
-	if !ok {
-		return nil, false
-	}
-	return rs.client, true
-}
-
 func (s *redisStore) SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
 	return s.client.SetNX(ctx, key, value, ttl).Result()
 }
