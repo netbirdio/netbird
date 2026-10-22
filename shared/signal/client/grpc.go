@@ -151,10 +151,12 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 }
 
 func (c *GrpcClient) StreamConnected() bool {
-	return c.status == StreamConnected
+	return c.GetStatus() == StreamConnected
 }
 
 func (c *GrpcClient) GetStatus() Status {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 	return c.status
 }
 
