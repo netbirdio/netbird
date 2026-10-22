@@ -28,11 +28,16 @@ type NetworkMonitor struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	mu     sync.Mutex
+
+	// nexthopChanged reports whether the default next hop changed; overridable in tests.
+	nexthopChanged func(oldv4, oldv6 systemops.Nexthop) bool
 }
 
 // New creates a new network monitor.
 func New() *NetworkMonitor {
-	return &NetworkMonitor{}
+	return &NetworkMonitor{
+		nexthopChanged: nexthopChanged,
+	}
 }
 
 // Listen begins monitoring network changes. When a change is detected, this function will return without error.
@@ -97,7 +102,12 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 		case <-event:
 			timer.Reset(debounceTime)
 		case <-timer.C:
-			return nil
+			// A flapping NIC may return to the same default route after the
+			// debounce window; only restart if the next hop actually changed.
+			if nw.nexthopChanged(nexthop4, nexthop6) {
+				return nil
+			}
+			log.Debug("Network monitor: default route unchanged after debounce, ignoring")
 		case <-ctx.Done():
 			timer.Stop()
 			return ctx.Err()
@@ -133,4 +143,27 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 		default:
 		}
 	}
+}
+
+// nexthopChanged reports whether the current default next hop differs from the
+// given baseline, per protocol. A failed lookup is treated as an absent route
+// (zero Nexthop), so a protocol that had no default route to begin with (e.g.
+// IPv6 in a single-stack network) does not by itself count as a change.
+func nexthopChanged(oldv4, oldv6 systemops.Nexthop) bool {
+	newv4, _ := systemops.GetNextHop(netip.IPv4Unspecified())
+	newv6, _ := systemops.GetNextHop(netip.IPv6Unspecified())
+	return !sameNexthop(oldv4, newv4) || !sameNexthop(oldv6, newv6)
+}
+
+func sameNexthop(a, b systemops.Nexthop) bool {
+	if a.IP != b.IP {
+		return false
+	}
+	if (a.Intf == nil) != (b.Intf == nil) {
+		return false
+	}
+	if a.Intf != nil && a.Intf.Index != b.Intf.Index {
+		return false
+	}
+	return true
 }
