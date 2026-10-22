@@ -33,38 +33,55 @@ func TestEnvelopeToNetworkMap_CountryRoutes(t *testing.T) {
 		{name: "routing peer without support", sourceCapable: true, exitCapable: false, expectRoute: false, expectRuleOnRP: false},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, sourceKey, exitKey := buildCountryRouteComponents(t, "peer-S", tt.sourceCapable, tt.exitCapable)
-			sourceMap := countryRouteNetworkMap(t, c, sourceKey)
-			countryRoutes := filterCountryRoutes(sourceMap.Routes)
-			if !tt.expectRoute {
-				assert.Empty(t, countryRoutes, "the source peer must not receive the country route")
-			} else {
-				require.Len(t, countryRoutes, 1, "the source peer should receive the country route")
-				assert.Equal(t, []string{"US", "CA"}, countryRoutes[0].Countries, "countries should survive the envelope")
-				assert.Equal(t, exitKey, countryRoutes[0].Peer, "the route should point at the exit node")
-				assert.Equal(t, "us-exit", countryRoutes[0].NetID)
-			}
+	aclModes := []struct {
+		name                string
+		accessControlGroups []string
+		source              string
+	}{
+		// Without access control groups the routing peer permits every source.
+		{name: "default permit", source: "0.0.0.0/0"},
+		// With one, the ACL comes from the policies whose destinations hold the group, and its
+		// sources are the policy's sources in the distribution group: the source peer only.
+		{name: "policy", accessControlGroups: []string{"g-all"}, source: "100.64.0.1/32"},
+	}
 
-			c, _, exitKey = buildCountryRouteComponents(t, "peer-E", tt.sourceCapable, tt.exitCapable)
-			exitMap := countryRouteNetworkMap(t, c, exitKey)
-			var countryRules []*proto.RouteFirewallRule
-			for _, rule := range exitMap.RoutesFirewallRules {
-				if len(rule.Countries) > 0 {
-					countryRules = append(countryRules, rule)
+	for _, mode := range aclModes {
+		for _, tt := range tests {
+			t.Run(mode.name+"/"+tt.name, func(t *testing.T) {
+				c, sourceKey, exitKey := buildCountryRouteComponents(t, "peer-S", tt.sourceCapable, tt.exitCapable, mode.accessControlGroups)
+				sourceMap := countryRouteNetworkMap(t, c, sourceKey)
+				countryRoutes := filterCountryRoutes(sourceMap.Routes)
+				if !tt.expectRoute {
+					assert.Empty(t, countryRoutes, "the source peer must not receive the country route")
+				} else {
+					require.Len(t, countryRoutes, 1, "the source peer should receive the country route")
+					assert.Equal(t, []string{"US", "CA"}, countryRoutes[0].Countries, "countries should survive the envelope")
+					assert.Equal(t, exitKey, countryRoutes[0].Peer, "the route should point at the exit node")
+					assert.Equal(t, "us-exit", countryRoutes[0].NetID)
 				}
-			}
-			if !tt.expectRuleOnRP {
-				assert.Empty(t, countryRules, "a routing peer without support must not get country rules")
-				assert.Empty(t, filterCountryRoutes(exitMap.Routes), "a routing peer without support must not serve the route")
-				return
-			}
-			require.NotEmpty(t, countryRules, "the routing peer should get the country route ACL")
-			for _, rule := range countryRules {
-				assert.Equal(t, []string{"US", "CA"}, rule.Countries, "the rule should carry the countries")
-			}
-		})
+
+				c, _, exitKey = buildCountryRouteComponents(t, "peer-E", tt.sourceCapable, tt.exitCapable, mode.accessControlGroups)
+				exitMap := countryRouteNetworkMap(t, c, exitKey)
+				var countryRules []*proto.RouteFirewallRule
+				for _, rule := range exitMap.RoutesFirewallRules {
+					if len(rule.Countries) > 0 {
+						countryRules = append(countryRules, rule)
+					}
+				}
+				if !tt.expectRuleOnRP {
+					assert.Empty(t, countryRules, "a routing peer without support must not get country rules")
+					assert.Empty(t, filterCountryRoutes(exitMap.Routes), "a routing peer without support must not serve the route")
+					return
+				}
+				require.NotEmpty(t, countryRules, "the routing peer should get the country route ACL")
+				var sources []string
+				for _, rule := range countryRules {
+					assert.Equal(t, []string{"US", "CA"}, rule.Countries, "the rule should carry the countries")
+					sources = append(sources, rule.SourceRanges...)
+				}
+				assert.Equal(t, []string{mode.source}, sources, "the country ACL sources should come from the %s path", mode.name)
+			})
+		}
 	}
 }
 
@@ -98,7 +115,7 @@ func filterCountryRoutes(routes []*proto.Route) []*proto.Route {
 
 // buildCountryRouteComponents returns components, seen from localPeerID, with a source peer S
 // and an exit peer E that routes US and CA traffic for the sources group.
-func buildCountryRouteComponents(t *testing.T, localPeerID string, sourceCapable, exitCapable bool) (*types.NetworkMapComponents, string, string) {
+func buildCountryRouteComponents(t *testing.T, localPeerID string, sourceCapable, exitCapable bool, accessControlGroups []string) (*types.NetworkMapComponents, string, string) {
 	t.Helper()
 
 	capabilities := func(capable bool) []int32 {
@@ -152,17 +169,18 @@ func buildCountryRouteComponents(t *testing.T, localPeerID string, sourceCapable
 		},
 		Policies: []*nmdata.Policy{policy},
 		Routes: []*nmdata.Route{{
-			ID:          "route-us",
-			PublicID:    "100",
-			NetID:       "us-exit",
-			Network:     netip.MustParsePrefix("192.0.2.0/32"),
-			Countries:   []string{"US", "CA"},
-			NetworkType: nmdata.NetworkTypeCountry,
-			Peer:        "peer-E",
-			Groups:      []string{"g-sources"},
-			Masquerade:  true,
-			Metric:      9999,
-			Enabled:     true,
+			ID:                  "route-us",
+			PublicID:            "100",
+			NetID:               "us-exit",
+			Network:             netip.MustParsePrefix("192.0.2.0/32"),
+			Countries:           []string{"US", "CA"},
+			NetworkType:         nmdata.NetworkTypeCountry,
+			Peer:                "peer-E",
+			Groups:              []string{"g-sources"},
+			AccessControlGroups: accessControlGroups,
+			Masquerade:          true,
+			Metric:              9999,
+			Enabled:             true,
 		}},
 	}
 	return c, sourceKey, exitKey

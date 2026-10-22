@@ -1101,6 +1101,10 @@ func syncMessageVersion(info system.Info) int32 {
 
 // GetCountryPrefixes fetches the IP prefixes the management geolocation database assigns to a country.
 func (c *GrpcClient) GetCountryPrefixes(ctx context.Context, country string) ([]netip.Prefix, error) {
+	if !c.ready() {
+		return nil, errors.New(errMsgNoMgmtConnection)
+	}
+
 	serverPubKey, err := c.getServerPublicKey()
 	if err != nil {
 		return nil, err
