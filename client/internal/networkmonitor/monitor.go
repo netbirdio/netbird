@@ -25,6 +25,9 @@ const (
 
 var checkChangeFn = checkChange
 
+// readSnapshotFn reads the current underlay; tests replace it.
+var readSnapshotFn = readSnapshot
+
 // errWokeUp is returned by a checkChange that detected a wake-up from sleep
 // rather than a route change, so Listen can report it as its own kind.
 var errWokeUp = errors.New("system woke up from sleep")
@@ -64,7 +67,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change
 	if !given {
 		operation := func() error {
 			var err error
-			baseline, err = readSnapshot()
+			baseline, err = readSnapshotFn()
 			return err
 		}
 
@@ -82,6 +85,17 @@ func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change
 		}
 	}()
 
+	// Offline the checker must report any default that comes back, even the
+	// pre-loss one; the baseline stays for the comparison.
+	checkV4, checkV6 := baseline.V4, baseline.V6
+	waitingForNetwork := false
+	if given {
+		if current, _ := readSnapshotFn(); !current.HasDefault() {
+			waitingForNetwork = true
+			checkV4, checkV6 = offlineCheckNextHops(baseline.V4, baseline.V6)
+		}
+	}
+
 	event := make(chan struct{}, 1)
 	var woke atomic.Bool
 	// The checker must be gone before Listen returns: the next Listen starts a
@@ -95,7 +109,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change
 	}()
 	go func() {
 		defer checker.Done()
-		nw.checkChanges(checkCtx, event, &woke, baseline.V4, baseline.V6)
+		nw.checkChanges(checkCtx, event, &woke, checkV4, checkV6)
 	}()
 
 	log.Infof("start watching for network changes")
@@ -104,9 +118,10 @@ func (nw *NetworkMonitor) Listen(ctx context.Context, baseline NextHops) (change
 	timer.Stop()
 	// A change that landed between two Listen rounds raised its event before
 	// this checker subscribed: catch it by comparing with the baseline now.
-	// While still offline there is nothing new to report.
+	// While still offline there is nothing new to report, unless a default
+	// came back meanwhile.
 	if given {
-		if current, _ := readSnapshot(); current.HasDefault() && classify(baseline, current) != ChangeNone {
+		if current, _ := readSnapshotFn(); current.HasDefault() && (waitingForNetwork || classify(baseline, current) != ChangeNone) {
 			timer.Reset(debounceTime)
 		}
 	}
@@ -172,7 +187,7 @@ func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{},
 // newChange compares the baseline with the current snapshot. A failed lookup
 // leaves After empty, which classifies as ChangeOffline.
 func newChange(before NextHops) Change {
-	after, _ := readSnapshot()
+	after, _ := readSnapshotFn()
 	return Change{Kind: kindOf(before, after), Before: before, After: after}
 }
 
