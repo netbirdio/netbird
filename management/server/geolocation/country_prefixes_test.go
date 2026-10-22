@@ -128,3 +128,15 @@ func TestGeoLite_CountryPrefixesStopped(t *testing.T) {
 	_, err = geo.CountryPrefixes("SE")
 	assert.ErrorIs(t, err, errDatabaseNotAvailable)
 }
+
+func TestIsCountryCode(t *testing.T) {
+	for code, valid := range map[string]bool{
+		"US":  true,
+		"de":  false,
+		"USA": false,
+		"U1":  false,
+		"":    false,
+	} {
+		assert.Equal(t, valid, IsCountryCode(code), "IsCountryCode(%q)", code)
+	}
+}

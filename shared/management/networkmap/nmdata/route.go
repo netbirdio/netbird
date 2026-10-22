@@ -14,6 +14,7 @@ const (
 	NetworkTypeIPv4    = 1
 	NetworkTypeIPv6    = 2
 	NetworkTypeDomain  = 3
+	NetworkTypeCountry = 4
 
 	haSeparator = "|"
 )
@@ -25,6 +26,7 @@ type Route struct {
 	PublicID            string
 	Network             netip.Prefix
 	Domains             domain.List
+	Countries           []string
 	KeepRoute           bool
 	NetID               string
 	Description         string
@@ -52,6 +54,7 @@ func (r *Route) Equal(other *Route) bool {
 		other.NetID == r.NetID &&
 		other.Network == r.Network &&
 		slices.Equal(r.Domains, other.Domains) &&
+		slices.Equal(r.Countries, other.Countries) &&
 		other.KeepRoute == r.KeepRoute &&
 		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
@@ -69,9 +72,16 @@ func (r *Route) IsDynamic() bool {
 	return r.NetworkType == NetworkTypeDomain
 }
 
+func (r *Route) IsCountry() bool {
+	return r.NetworkType == NetworkTypeCountry
+}
+
 func (r *Route) NetString() string {
 	if r.IsDynamic() && r.Domains != nil {
 		return r.Domains.SafeString()
+	}
+	if r.IsCountry() {
+		return strings.Join(r.Countries, ", ")
 	}
 	return r.Network.String()
 }
@@ -91,6 +101,7 @@ func (r *Route) Copy() *Route {
 		PublicID:            r.PublicID,
 		Network:             r.Network,
 		Domains:             slices.Clone(r.Domains),
+		Countries:           slices.Clone(r.Countries),
 		KeepRoute:           r.KeepRoute,
 		NetID:               r.NetID,
 		Description:         r.Description,

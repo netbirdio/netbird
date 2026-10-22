@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"strconv"
 	"sync"
@@ -1096,4 +1097,43 @@ func syncMessageVersion(info system.Info) int32 {
 		return int32(*info.SyncMessageVersion)
 	}
 	return int32(nbmgmtgrpc.HighestSyncMessageVersion)
+}
+
+// GetCountryPrefixes fetches the IP prefixes the management geolocation database assigns to a country.
+func (c *GrpcClient) GetCountryPrefixes(ctx context.Context, country string) ([]netip.Prefix, error) {
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.CountryPrefixesRequest{Country: country})
+	if err != nil {
+		return nil, fmt.Errorf("encrypt country prefixes request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.GetCountryPrefixes(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	prefixesResp := &proto.CountryPrefixesResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, prefixesResp); err != nil {
+		return nil, fmt.Errorf("decrypt country prefixes response: %w", err)
+	}
+
+	prefixes := make([]netip.Prefix, 0, len(prefixesResp.GetPrefixes()))
+	for _, p := range prefixesResp.GetPrefixes() {
+		prefix, err := netip.ParsePrefix(p)
+		if err != nil {
+			return nil, fmt.Errorf("parse prefix %q of country %s: %w", p, country, err)
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
 }

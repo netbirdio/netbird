@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
 
@@ -89,6 +90,8 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	geo geolocation.Geolocation
 }
 
 // NewServer creates a new Management server

@@ -68,6 +68,12 @@ service ManagementService {
 
   // StopExpose terminates an active expose session
   rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // GetCountryPrefixes returns the IP prefixes the geolocation database assigns to a country.
+  // Peers fetch them for country routes, which carry only the country codes.
+  // EncryptedMessage of the request has a body of CountryPrefixesRequest.
+  // EncryptedMessage of the response has a body of CountryPrefixesResponse.
+  rpc GetCountryPrefixes(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -251,6 +257,8 @@ enum PeerCapability {
   PeerCapabilityIPv6Overlay = 2;
   // Client receives NetworkMap as components and assembles it locally.
   PeerCapabilityComponentNetworkMap = 3;
+  // Client installs country routes and fetches their prefixes with GetCountryPrefixes.
+  PeerCapabilityCountryRoutes = 4;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -617,6 +625,8 @@ message Route {
   repeated string Domains = 8;
   bool keepRoute = 9;
   bool skipAutoApply = 10;
+  // ISO 3166-1 alpha-2 codes of a country route, resolved with GetCountryPrefixes.
+  repeated string countries = 11;
 }
 
 // DNSConfig represents a dns.Update
@@ -780,6 +790,9 @@ message RouteFirewallRule {
 
   // RouteID is the ID of the route that this rule belongs to
   string RouteID = 10;
+
+  // Countries is the list of countries whose prefixes the rule applies to.
+  repeated string countries = 11;
 }
 
 // ForwardingRule is unused; the ingress port-forwarding feature was discontinued.
@@ -829,6 +842,15 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+message CountryPrefixesRequest {
+  // ISO 3166-1 alpha-2 country code.
+  string country = 1;
+}
+
+message CountryPrefixesResponse {
+  repeated string prefixes = 1;
+}
 
 // =====================================================================
 // Component-based NetworkMap wire format (PeerCapabilityComponentNetworkMap).
@@ -1065,6 +1087,10 @@ message PeerCompact {
   // ephemeral proxy peer on either endpoint default to lazy, so this bit
   // feeds the per-peer lazyState emitted in RemotePeerConfig.
   bool proxy_embedded = 14;
+
+  // Mirror of types.Peer.SupportsCountryRoutes(). Calculate() leaves out
+  // country routes served by a routing peer without it.
+  bool supports_country_routes = 15;
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use
@@ -1170,7 +1196,7 @@ message RouteRaw {
   string net_id = 2;
   string description = 3;
 
-  // Either network_cidr (e.g. "10.0.0.0/16") or domains is set, not both.
+  // Either network_cidr (e.g. "10.0.0.0/16"), domains or countries is set.
   string network_cidr = 4;
   repeated string domains = 5;
   bool keep_route = 6;
@@ -1196,6 +1222,7 @@ message RouteRaw {
   repeated string group_ids = 14;
   repeated string access_control_group_ids = 15;
   bool skip_auto_apply = 16;
+  repeated string countries = 17;
 }
 
 // NameServerGroupRaw mirrors *nbdns.NameServerGroup. Distinct from the

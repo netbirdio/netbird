@@ -34,6 +34,8 @@ const (
 	IPv6NetworkString = "IPv6"
 	// DomainNetworkString domain network type string
 	DomainNetworkString = "Domain"
+	// CountryNetworkString country network type string
+	CountryNetworkString = "Country"
 )
 
 const (
@@ -45,6 +47,8 @@ const (
 	IPv6Network
 	// DomainNetwork domain network type
 	DomainNetwork
+	// CountryNetwork network type of routes whose destination is a list of countries
+	CountryNetwork
 )
 
 // ID is the unique route ID.
@@ -71,6 +75,8 @@ func (p NetworkType) String() string {
 		return IPv6NetworkString
 	case DomainNetwork:
 		return DomainNetworkString
+	case CountryNetwork:
+		return CountryNetworkString
 	default:
 		return InvalidNetworkString
 	}
@@ -85,6 +91,8 @@ func ToPrefixType(prefix string) NetworkType {
 		return IPv6Network
 	case DomainNetworkString:
 		return DomainNetwork
+	case CountryNetworkString:
+		return CountryNetwork
 	default:
 		return InvalidNetwork
 	}
@@ -96,9 +104,10 @@ type Route struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
 	PublicID  string `json:"-" gorm:"index"`
-	// Network and Domains are mutually exclusive
+	// Network, Domains and Countries (ISO 3166-1 alpha-2 codes) are mutually exclusive
 	Network             netip.Prefix `gorm:"serializer:json"`
 	Domains             domain.List  `gorm:"serializer:json"`
+	Countries           []string     `gorm:"serializer:json"`
 	KeepRoute           bool
 	NetID               NetID
 	Description         string
@@ -121,7 +130,7 @@ func (r *Route) EventMeta() map[string]any {
 	if r.Domains != nil {
 		domains = r.Domains.SafeString()
 	}
-	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": domains, "peer_id": r.Peer, "peer_groups": r.PeerGroups}
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": domains, "countries": strings.Join(r.Countries, ", "), "peer_id": r.Peer, "peer_groups": r.PeerGroups}
 }
 
 // Copy copies a route object
@@ -134,6 +143,7 @@ func (r *Route) Copy() *Route {
 		NetID:               r.NetID,
 		Network:             r.Network,
 		Domains:             slices.Clone(r.Domains),
+		Countries:           slices.Clone(r.Countries),
 		KeepRoute:           r.KeepRoute,
 		NetworkType:         r.NetworkType,
 		Peer:                r.Peer,
@@ -162,6 +172,7 @@ func (r *Route) Equal(other *Route) bool {
 		other.NetID == r.NetID &&
 		other.Network == r.Network &&
 		slices.Equal(r.Domains, other.Domains) &&
+		slices.Equal(r.Countries, other.Countries) &&
 		other.KeepRoute == r.KeepRoute &&
 		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
@@ -180,6 +191,11 @@ func (r *Route) IsDynamic() bool {
 	return r.NetworkType == DomainNetwork
 }
 
+// IsCountry returns if the route's destination is the IP prefixes of a list of countries.
+func (r *Route) IsCountry() bool {
+	return r.NetworkType == CountryNetwork
+}
+
 // GetHAUniqueID returns the HAUniqueID for the route, it can be used for grouping.
 func (r *Route) GetHAUniqueID() HAUniqueID {
 	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.NetString()))
@@ -193,10 +209,14 @@ func (r *Route) GetResourceID() ResID {
 
 // NetString returns the network string.
 // If the route is dynamic, it returns the domains as comma-separated punycode-encoded string.
-// If the route is not dynamic, it returns the network (prefix) string.
+// If the route is a country route, it returns the comma-separated country codes.
+// Otherwise, it returns the network (prefix) string.
 func (r *Route) NetString() string {
 	if r.IsDynamic() && r.Domains != nil {
 		return r.Domains.SafeString()
+	}
+	if r.IsCountry() {
+		return strings.Join(r.Countries, ", ")
 	}
 	return r.Network.String()
 }

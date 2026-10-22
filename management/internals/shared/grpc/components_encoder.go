@@ -465,6 +465,7 @@ func (e *componentEncoder) encodeRoutes(routes []*nmdata.Route) []*proto.RouteRa
 			Enabled:               r.Enabled,
 			SkipAutoApply:         r.SkipAutoApply,
 			Domains:               r.Domains.ToPunycodeList(),
+			Countries:             r.Countries,
 			GroupIds:              e.groupPublicXids(r.Groups),
 			AccessControlGroupIds: e.groupPublicXids(r.AccessControlGroups),
 			PeerGroupIds:          e.groupPublicXids(r.PeerGroups),
@@ -748,6 +749,7 @@ func toPeerCompact(p *nmdata.Peer) *proto.PeerCompact {
 		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
 		ServerSshAllowed:       p.Meta.Flags.ServerSSHAllowed,
 		ProxyEmbedded:          p.ProxyMeta.Embedded,
+		SupportsCountryRoutes:  p.SupportsCountryRoutes(),
 	}
 	if p.LastLogin != nil {
 		pc.LastLoginUnixNano = p.LastLogin.UnixNano()

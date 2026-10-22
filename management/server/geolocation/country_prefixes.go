@@ -3,12 +3,20 @@ package geolocation
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
 )
+
+var countryCodeRegex = regexp.MustCompile("^[A-Z]{2}$")
+
+// IsCountryCode reports whether code is an upper-case ISO 3166-1 alpha-2 country code.
+func IsCountryCode(code string) bool {
+	return countryCodeRegex.MatchString(code)
+}
 
 // countryRecord is the part of a database record needed to group networks by country.
 type countryRecord struct {

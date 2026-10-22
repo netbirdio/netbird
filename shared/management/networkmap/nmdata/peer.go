@@ -12,6 +12,7 @@ const (
 	PeerCapabilitySourcePrefixes      int32 = 1
 	PeerCapabilityIPv6Overlay         int32 = 2
 	PeerCapabilityComponentNetworkMap int32 = 3
+	PeerCapabilityCountryRoutes       int32 = 4
 )
 
 // Peer is the slim twin of peer.Peer.
@@ -96,6 +97,10 @@ func (p *Peer) SupportsIPv6() bool {
 
 func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+func (p *Peer) SupportsCountryRoutes() bool {
+	return p.HasCapability(PeerCapabilityCountryRoutes)
 }
 
 func (p *Peer) AddedWithSSOLogin() bool {
