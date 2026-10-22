@@ -4,8 +4,10 @@ package NetBirdSDK
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"sort"
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
@@ -25,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -411,9 +416,9 @@ func (c *Client) IsLoginRequiredCached() bool {
 	return c.recorder.IsLoginRequired()
 }
 
-// IsLoginRequired reports confirmed missing or expired credentials. A transport
-// failure is not an authentication verdict: Run must retry it with the existing
-// credentials instead of sending the user back through browser login.
+// IsLoginRequired reports whether login is needed, including when local config
+// or keys cannot be loaded. A transport failure for an existing valid profile
+// returns false so Run can retry with its credentials; it does not confirm login.
 func (c *Client) IsLoginRequired() bool {
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
@@ -424,27 +429,74 @@ func (c *Client) IsLoginRequired() bool {
 	ctx, cancel := context.WithCancel(ctxWithValues)
 	defer cancel()
 
-	cfg, err := c.loadConfig(profilemanager.ConfigInput{ConfigPath: c.cfgFile})
-	if err != nil {
-		log.Errorf("IsLoginRequired: failed to load config: %v", err)
+	return c.isLoginRequired(ctx)
+}
+
+func (c *Client) isLoginRequired(ctx context.Context) bool {
+	// Read without creating a profile or applying defaults that generate keys.
+	// An offline check must never manufacture credentials and then preserve them
+	// as though this profile had already logged in.
+	var configJSON []byte
+	if preloaded := c.preloadedConfigJSON.Load(); preloaded != nil {
+		configJSON = []byte(*preloaded)
+	} else {
+		var err error
+		configJSON, err = os.ReadFile(c.cfgFile)
+		if err != nil {
+			log.Errorf("IsLoginRequired: failed to read config: %v", err)
+			return true
+		}
+	}
+	cfg := &profilemanager.Config{}
+	if err := json.Unmarshal(configJSON, cfg); err != nil {
+		log.Errorf("IsLoginRequired: failed to parse config: %v", err)
+		return true
+	}
+	c.applyMDMOverlay(cfg)
+
+	if cfg.ManagementURL == nil || cfg.ManagementURL.Host == "" ||
+		(cfg.ManagementURL.Scheme != "http" && cfg.ManagementURL.Scheme != "https") {
+		log.Error("IsLoginRequired: invalid management URL")
+		return true
+	}
+	if _, err := ssh.GeneratePublicKey([]byte(cfg.SSHKey)); err != nil {
+		log.Errorf("IsLoginRequired: invalid SSH key: %v", err)
 		return true
 	}
 
 	authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
 	if err != nil {
 		log.Errorf("IsLoginRequired: failed to create auth client: %v", err)
-		return false // The engine will surface configuration errors or retry transport failures.
+		return !isLoginTransportError(err)
 	}
 	defer authClient.Close()
 
 	needsLogin, err := authClient.IsLoginRequired(ctx)
 	if err != nil {
 		log.Errorf("IsLoginRequired: check failed: %v", err)
-		// No auth verdict was received. Let the engine retry, preserving credentials.
-		return false
+		// Only transport failures leave the login verdict unknown.
+		return !isLoginTransportError(err)
 	}
 	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin
+}
+
+// isLoginTransportError excludes local key/configuration failures and unknown
+// errors: only a recognized outage can defer the decision to the engine.
+func isLoginTransportError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
+		return true
+	default:
+		return false
+	}
 }
 
 // loginForMobileAuthTimeout is the timeout for requesting auth info from the server
