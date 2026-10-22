@@ -7,7 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type pqInbound struct {
@@ -68,7 +69,7 @@ func TestPQTransport_HostRoundTrip(t *testing.T) {
 // starting); the transport must open its socket on the netstack instead.
 func TestPQTransport_NetstackRoundTrip(t *testing.T) {
 	overlay := netip.MustParseAddr("192.0.2.1")
-	dev, ns, err := netstack.CreateNetTUN([]netip.Addr{overlay}, nil, 1280)
+	dev, ns, err := wgbackend.CreateNetTUN([]netip.Addr{overlay}, nil, 1280)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close() })
 

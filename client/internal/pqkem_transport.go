@@ -7,7 +7,8 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // DefaultPort is the preferred UDP port for the ML-KEM data-path service, bound on
@@ -34,7 +35,7 @@ type pqTransport struct {
 // clients): the overlay IP then exists only inside that userspace stack, so the socket
 // is opened there and its datagrams ride the tunnel like any other overlay traffic. A
 // nil ns binds on the host.
-func newPQTransport(overlayIP netip.Addr, ns *netstack.Net) (*pqTransport, error) {
+func newPQTransport(overlayIP netip.Addr, ns *wgbackend.NetstackNet) (*pqTransport, error) {
 	if !overlayIP.IsValid() {
 		return nil, fmt.Errorf("invalid overlay IP for pqkem transport")
 	}
