@@ -930,13 +930,16 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 func GetUnderlayNextHop(unspec netip.Addr, vpnIntf string) (Nexthop, error) {
 	// bestRoute only warns when it cannot resolve the VPN interface, which
 	// suits the dialer, but here its split routes would win: unknown, not
-	// the tunnel.
+	// the tunnel. Resolve it once and skip exactly that index.
+	var skipInterfaceIndex int
 	if vpnIntf != "" {
-		if _, err := net.InterfaceByName(vpnIntf); err != nil {
+		vpn, err := net.InterfaceByName(vpnIntf)
+		if err != nil {
 			return Nexthop{}, fmt.Errorf("resolve the NetBird interface %s: %w", vpnIntf, err)
 		}
+		skipInterfaceIndex = vpn.Index
 	}
-	candidate, iface, err := bestRoute(unspec, vpnIntf)
+	candidate, iface, err := bestRouteSkipping(unspec, skipInterfaceIndex)
 	if err != nil {
 		return Nexthop{}, err
 	}
