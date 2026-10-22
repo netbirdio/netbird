@@ -42,7 +42,7 @@ type MockAccountManager struct {
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
-	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
+	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time, reuse *types.MapReuse) (*types.PeerSyncResult, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
@@ -242,11 +242,11 @@ func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, use
 	return status.Errorf(codes.Unimplemented, "method DeleteSetupKey is not implemented")
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time, reuse *types.MapReuse) (*types.PeerSyncResult, error) {
 	if am.SyncAndMarkPeerFunc != nil {
-		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP, syncTime)
+		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP, syncTime, reuse)
 	}
-	return nil, nil, nil, 0, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {

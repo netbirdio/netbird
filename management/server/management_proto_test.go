@@ -327,7 +327,7 @@ func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServ
 	return loginResp, nil
 }
 
-func startManagementForTest(t *testing.T, testFile string, config *config.Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
+func startManagementForTest(t *testing.T, testFile string, config *config.Config, opts ...func(*nbgrpc.Server)) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -393,6 +393,9 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
+	}
+	for _, opt := range opts {
+		opt(mgmtServer)
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 

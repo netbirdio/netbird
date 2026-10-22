@@ -1056,6 +1056,17 @@ func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
+	res, err := am.syncPeer(ctx, sync, accountID, nil)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+	return res.Peer, res.NetworkMap, res.PostureChecks, res.DNSForwarderPort, nil
+}
+
+// syncPeer runs every check and update of a Sync before computing the peer's map.
+// With reuse set, it skips the computation when nothing about the peer changed and
+// the account's network serial still equals reuse.Serial.
+func (am *DefaultAccountManager) syncPeer(ctx context.Context, sync types.PeerSync, accountID string, reuse *types.MapReuse) (*types.PeerSyncResult, error) {
 	var peer *nbpeer.Peer
 	var ipv6CapabilityChanged bool
 	var metaDiff nbpeer.MetaDiff
@@ -1063,7 +1074,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, err
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1101,22 +1112,27 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil
 	})
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, err
 	}
 
 	peerGroupIDs, err := getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, err
 	}
 
 	peerNotValid, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, err
+	}
+
+	peerChanged := metaDiff.Updated() || ipv6CapabilityChanged || peerNotValid || isStatusChanged
+	if !peerChanged && !sync.UpdateAccountPeers && am.accountSerialEquals(ctx, accountID, reuse) {
+		return &types.PeerSyncResult{Peer: peer, MapReused: true}, nil
 	}
 
 	nmap, resPostureChecks, dnsFwdPort, err := am.networkMapController.GetValidatedPeerWithMap(ctx, peerNotValid, accountID, peer.ID)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, err
 	}
 
 	metaDiffAffectsPosture := metaDiffAffectsPosture(&metaDiff, resPostureChecks)
@@ -1124,11 +1140,31 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
-			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
+			return nil, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
 
-	return peer, nmap, resPostureChecks, dnsFwdPort, nil
+	return &types.PeerSyncResult{
+		Peer:             peer,
+		NetworkMap:       nmap,
+		PostureChecks:    resPostureChecks,
+		DNSForwarderPort: dnsFwdPort,
+		PeerNotValid:     peerNotValid,
+	}, nil
+}
+
+// accountSerialEquals reports whether the account's network serial still equals the
+// one a reconnecting peer holds. A failed read counts as a change.
+func (am *DefaultAccountManager) accountSerialEquals(ctx context.Context, accountID string, reuse *types.MapReuse) bool {
+	if reuse == nil {
+		return false
+	}
+	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to read the network serial of account %s, computing the map: %v", accountID, err)
+		return false
+	}
+	return network.CurrentSerial() == reuse.Serial
 }
 
 // metaDiffAffectsPosture reports whether the meta change flips the verdict of any of

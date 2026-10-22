@@ -49,7 +49,6 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/auth"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
-	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -2014,18 +2013,19 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 // network map and then marks the peer connected with a session token
 // derived from syncTime (the moment the gRPC stream opened). Any
 // concurrent stream that started earlier loses the optimistic-lock race
-// in MarkPeerConnected and bails without writing.
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
-	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP}, accountID)
+// in MarkPeerConnected and bails without writing. With reuse set, the map
+// is not computed when the peer still holds the account's current one.
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time, reuse *types.MapReuse) (*types.PeerSyncResult, error) {
+	res, err := am.syncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP}, accountID, reuse)
 	if err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
+		return nil, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	if err := am.MarkPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), netMap); err != nil {
+	if err := am.MarkPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), res.NetworkMap); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	return peer, netMap, postureChecks, dnsfwdPort, nil
+	return res, nil
 }
 
 // OnPeerDisconnected is invoked when a sync stream ends. It marks the

@@ -4,7 +4,31 @@ import (
 	"net"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
+
+// MapReuse names the network serial a reconnecting peer is known to hold. Sync skips
+// computing the peer's map when nothing about the peer changed and the account's
+// network serial still equals it.
+type MapReuse struct {
+	// Serial is the account network serial last delivered to the peer.
+	Serial uint64
+}
+
+// PeerSyncResult is the outcome of syncing a peer that opened a Sync stream.
+type PeerSyncResult struct {
+	Peer *nbpeer.Peer
+	// NetworkMap is nil when MapReused is true.
+	NetworkMap       *NetworkMap
+	PostureChecks    []*nmdata.PostureChecks
+	DNSForwarderPort int64
+	// PeerNotValid reports that the peer failed integrated validation, so its map
+	// is empty.
+	PeerNotValid bool
+	// MapReused reports that the peer still holds the map of the account's current
+	// network serial, so the map was not computed.
+	MapReused bool
+}
 
 // PeerSync used as a data object between the gRPC API and Manager on Sync request.
 type PeerSync struct {

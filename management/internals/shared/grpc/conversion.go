@@ -221,6 +221,24 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	return response
 }
 
+// ToConfigOnlySyncResponse builds the initial SyncResponse of a peer that still holds
+// the account's current network map. It carries the connection config with fresh
+// credentials and the session deadline, but no network map, peer config or posture
+// checks: clients from configOnlySyncVersion on keep all of those when a response
+// has no map.
+func ToConfigOnlySyncResponse(config *nbconfig.Config, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
+	resp := &proto.SyncResponse{
+		NetbirdConfig: integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings),
+	}
+	if settings != nil {
+		resp.SessionExpiresAt = encodeSessionExpiresAt(
+			peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+		)
+	}
+	return resp
+}
+
 // encodeSessionExpiresAt encodes a server-side deadline into the 3-state wire
 // representation used on LoginResponse, SyncResponse and
 // ExtendAuthSessionResponse. See the proto comments on those messages.
