@@ -141,3 +141,49 @@ func TestManager_OfferErrorMarkerAnsweredWithMarker(t *testing.T) {
 	_, established := dA.PSK("bbbb")
 	assert.False(t, established, "a marker must not derive a PSK")
 }
+
+// TestManager_UnreadableOfferAnsweredWithMarker: an offer the responder cannot process, such
+// as one from a newer protocol version, must get an error marker. An empty answer would make
+// the initiator mark the responder non-capable for good and stay classical with it.
+func TestManager_UnreadableOfferAnsweredWithMarker(t *testing.T) {
+	dA, dB, _, _, _ := pair(t)
+	defer dB.Stop()
+
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+
+	newerVersion := append([]byte(nil), offer...)
+	newerVersion[1] = ProtocolVersion + 1
+	answerType := (&ErrorMsg{}).Encode()
+	answerType[0] = byte(MsgAnswer)
+
+	cases := map[string][]byte{
+		"garbage":        {1, 2, 3},
+		"newer version":  newerVersion,
+		"not an offer":   answerType,
+		"truncated body": offer[:len(offer)-1],
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			reply, err := dA.SignalOnOffer("bbbb", in)
+			assert.Error(t, err)
+			assertErrorMarker(t, reply)
+		})
+	}
+
+	t.Run("manager stopping", func(t *testing.T) {
+		dA.Stop()
+		reply, err := dA.SignalOnOffer("bbbb", offer)
+		assert.Error(t, err)
+		assertErrorMarker(t, reply)
+	})
+}
+
+func assertErrorMarker(t *testing.T, reply []byte) {
+	t.Helper()
+	require.NotEmpty(t, reply, "an empty reply would mark the responder non-capable")
+	typ, _, err := Decode(reply)
+	require.NoError(t, err)
+	assert.Equal(t, MsgError, typ, "the reply must be an error marker")
+}

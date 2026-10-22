@@ -418,15 +418,18 @@ func (m *Manager) ShouldSendBootstrapOffer(remoteID RemoteID) bool {
 }
 
 // SignalOnOffer processes a KEM offer the host extracted from an incoming offer and
-// returns the KEM answer for the host to embed in its outgoing answer.
+// returns the KEM answer for the host to embed in its outgoing answer. Every failure
+// still returns an error marker: an empty answer means "this peer does not run the KEM"
+// and would stop the initiator from ever offering again.
 func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error) {
 	if !m.beginCall() {
-		return nil, fmt.Errorf("manager stopping")
+		return (&ErrorMsg{}).Encode(), fmt.Errorf("manager stopping")
 	}
 	defer m.wait.Done()
 	typ, msg, err := Decode(offer)
 	if err != nil {
-		return nil, fmt.Errorf("decode signal offer from %s: %w", remoteID, err)
+		// Also covers an offer from a newer protocol version this peer cannot read.
+		return (&ErrorMsg{}).Encode(), fmt.Errorf("decode signal offer from %s: %w", remoteID, err)
 	}
 	if typ == MsgError {
 		// The initiator failed to build its offer and sent a marker. Answer with our own
@@ -435,7 +438,7 @@ func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error)
 		return (&ErrorMsg{}).Encode(), nil
 	}
 	if typ != MsgOffer {
-		return nil, fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
+		return (&ErrorMsg{}).Encode(), fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
 	}
 	o := msg.(*OfferMsg)
 	answer, err := m.processOffer(remoteID, o, viaSignalLabel)
