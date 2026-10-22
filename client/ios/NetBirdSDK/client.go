@@ -454,7 +454,7 @@ func (c *Client) isLoginRequired(ctx context.Context) bool {
 	}
 	c.applyMDMOverlay(cfg)
 
-	if cfg.ManagementURL == nil || cfg.ManagementURL.Host == "" ||
+	if cfg.ManagementURL == nil || cfg.ManagementURL.Hostname() == "" ||
 		(cfg.ManagementURL.Scheme != "http" && cfg.ManagementURL.Scheme != "https") {
 		log.Error("IsLoginRequired: invalid management URL")
 		return true
@@ -492,7 +492,8 @@ func isLoginTransportError(err error) bool {
 		return true
 	}
 	switch status.Code(err) {
-	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
+	// Match the connection failures retried by auth.isConnectionError.
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Internal:
 		return true
 	default:
 		return false

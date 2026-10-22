@@ -49,6 +49,7 @@ func TestIsLoginRequiredLocalErrorsAndOutage(t *testing.T) {
 		{name: "missing WireGuard key", mutate: func(c *profilemanager.Config) { c.PrivateKey = "" }, want: true},
 		{name: "invalid SSH key", mutate: func(c *profilemanager.Config) { c.SSHKey = "invalid" }, want: true},
 		{name: "invalid WireGuard key", mutate: func(c *profilemanager.Config) { c.PrivateKey = "invalid" }, want: true},
+		{name: "empty management hostname", mutate: func(c *profilemanager.Config) { c.ManagementURL = &url.URL{Scheme: "http", Host: ":1234"} }, want: true},
 		{name: "invalid management URL", mutate: func(c *profilemanager.Config) { c.ManagementURL = &url.URL{Scheme: "ftp", Host: "localhost"} }, want: true},
 		{name: "malformed config", malformed: true, want: true},
 	}
@@ -118,7 +119,7 @@ func TestIsLoginTransportError(t *testing.T) {
 		{status.Error(codes.Canceled, "canceled"), true},
 		{status.Error(codes.PermissionDenied, "denied"), false},
 		{status.Error(codes.InvalidArgument, "invalid"), false},
-		{status.Error(codes.Internal, "server error"), false},
+		{status.Error(codes.Internal, "server error"), true},
 		{errors.New("invalid key"), false},
 	} {
 		if got := isLoginTransportError(tc.err); got != tc.want {
@@ -130,12 +131,23 @@ func TestIsLoginTransportError(t *testing.T) {
 // An RPC outage after dialing must preserve an existing profile just like a
 // dial failure. Exercise the real auth client, not a substituted verdict.
 func TestIsLoginRequiredManagementOutage(t *testing.T) {
+	t.Run("unavailable", func(t *testing.T) { testLoginManagementOutage(t, codes.Unavailable, time.Second) })
+	t.Run("internal retries exhausted", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("exercises the two-minute auth retry budget")
+		}
+		testLoginManagementOutage(t, codes.Internal, 3*time.Minute)
+	})
+}
+
+func testLoginManagementOutage(t *testing.T, code codes.Code, timeout time.Duration) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := grpc.NewServer()
-	service := &unavailableManagement{}
+	service := &unavailableManagement{code: code}
 	mgmProto.RegisterManagementServiceServer(server, service)
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve(listener) }()
@@ -153,11 +165,19 @@ func TestIsLoginRequiredManagementOutage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	c := &Client{cfgFile: path}
 	if c.isLoginRequired(ctx) {
 		t.Fatal("management outage must not require browser login")
+	}
+	if code == codes.Internal {
+		if ctx.Err() != nil {
+			t.Fatalf("context ended before retry exhaustion: %v", ctx.Err())
+		}
+		if service.calls.Load() < 2 {
+			t.Fatal("internal failure did not exercise auth retries")
+		}
 	}
 	if service.calls.Load() == 0 {
 		t.Fatal("management RPC was never reached")
@@ -174,9 +194,10 @@ func TestIsLoginRequiredManagementOutage(t *testing.T) {
 type unavailableManagement struct {
 	mgmProto.UnimplementedManagementServiceServer
 	calls atomic.Int32
+	code  codes.Code
 }
 
 func (s *unavailableManagement) GetServerKey(context.Context, *mgmProto.Empty) (*mgmProto.ServerKeyResponse, error) {
 	s.calls.Add(1)
-	return nil, status.Error(codes.Unavailable, "management offline")
+	return nil, status.Error(s.code, "management offline")
 }
