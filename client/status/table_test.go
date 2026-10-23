@@ -158,3 +158,15 @@ func TestShortName(t *testing.T) {
 	assert.Equal(t, "web-01", shortName("web-01"))
 	assert.Equal(t, "-", shortName(""))
 }
+
+func TestTableLatency(t *testing.T) {
+	tests := map[time.Duration]string{
+		0:                           "-",
+		145939625 * time.Nanosecond: "146ms",
+		12 * time.Millisecond:       "12ms",
+		420*time.Microsecond + 700:  "421µs",
+	}
+	for in, want := range tests {
+		assert.Equal(t, want, tableLatency(PeerStateDetailOutput{Latency: in}), "latency %s", in)
+	}
+}

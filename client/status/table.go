@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 const pubKeyPrefixLen = 8
@@ -44,7 +45,10 @@ func tableLatency(p PeerStateDetailOutput) string {
 	if p.Latency <= 0 {
 		return "-"
 	}
-	return p.Latency.String()
+	if p.Latency >= time.Millisecond {
+		return p.Latency.Round(time.Millisecond).String()
+	}
+	return p.Latency.Round(time.Microsecond).String()
 }
 
 func shortPubKey(key string) string {

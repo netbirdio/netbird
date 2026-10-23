@@ -44,7 +44,7 @@ func init() {
 	ipsFilterMap = make(map[string]struct{})
 	prefixNamesFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
-	statusCmd.PersistentFlags().BoolVar(&tableFlag, "table", false, "display peers in a table, supports the --filter-by-* flags")
+	statusCmd.PersistentFlags().BoolVarP(&tableFlag, "table", "t", false, "display peers in a table, supports the --filter-by-* flags")
 	statusCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display detailed status information in json format")
 	statusCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display detailed status information in yaml format")
 	statusCmd.PersistentFlags().BoolVarP(&ipv4Flag, "ipv4", "4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
