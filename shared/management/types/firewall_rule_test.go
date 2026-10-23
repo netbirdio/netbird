@@ -148,6 +148,40 @@ func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
 	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
 }
 
+func TestGenerateRouteFirewallRules_CountryRoute_DualStack(t *testing.T) {
+	peers := []*nmdata.Peer{
+		{
+			IP:   netip.MustParseAddr("100.64.0.1"),
+			IPv6: netip.MustParseAddr("fd00::1"),
+		},
+		{IP: netip.MustParseAddr("100.64.0.2")},
+	}
+
+	r := &nmdata.Route{
+		ID:          "route1",
+		NetworkType: nmdata.NetworkTypeCountry,
+		Network:     netip.MustParsePrefix("192.0.2.0/32"),
+		Countries:   []string{"US", "CA"},
+	}
+	rule := &nmdata.PolicyRule{
+		PolicyID: "policy1",
+		ID:       "rule1",
+		Action:   string(PolicyTrafficActionAccept),
+		Protocol: string(PolicyRuleProtocolALL),
+	}
+
+	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
+
+	// Country prefixes span both families, so a v6 rule follows the v4 one like for domains.
+	require.Len(t, rules, 2, "country routes need a v4 and a v6 rule")
+	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
+	assert.Equal(t, []string{"fd00::1/128"}, rules[1].SourceRanges)
+	for _, fwRule := range rules {
+		assert.Equal(t, []string{"US", "CA"}, fwRule.Countries, "every rule should carry the countries")
+		assert.False(t, fwRule.IsDynamic, "a country route is not a DNS route")
+	}
+}
+
 func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
 	peers := []*nmdata.Peer{
 		{

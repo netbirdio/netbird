@@ -644,6 +644,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		PeerStore:           e.peerStore,
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
+		CountryPrefixes:     e.mgmClient.GetCountryPrefixes,
 	})
 	if err := e.routeManager.Init(); err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -1790,6 +1791,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 			ID:            route.ID(protoRoute.ID),
 			Network:       prefix.Masked(),
 			Domains:       domain.FromPunycodeList(protoRoute.Domains),
+			Countries:     protoRoute.Countries,
 			NetID:         route.NetID(protoRoute.NetID),
 			NetworkType:   route.NetworkType(protoRoute.NetworkType),
 			Peer:          protoRoute.Peer,
