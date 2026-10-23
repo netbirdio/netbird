@@ -65,13 +65,23 @@ func (s *BaseServer) SessionStore() *auth.SessionStore {
 	})
 }
 
+// AuthManager returns the configured auth manager instance.
 func (s *BaseServer) AuthManager() auth.Manager {
 	audiences := s.Config.GetAuthAudiences()
-	audience := s.Config.HttpConfig.AuthAudience
-	keysLocation := s.Config.HttpConfig.AuthKeysLocation
-	signingKeyRefreshEnabled := s.Config.HttpConfig.IdpSignKeyRefreshEnabled
-	issuer := s.Config.HttpConfig.AuthIssuer
-	userIDClaim := s.Config.HttpConfig.AuthUserIDClaim
+	var (
+		audience                 string
+		keysLocation             string
+		signingKeyRefreshEnabled bool
+		issuer                   string
+		userIDClaim              string
+	)
+	if s.Config.HttpConfig != nil {
+		audience = s.Config.HttpConfig.AuthAudience
+		keysLocation = s.Config.HttpConfig.AuthKeysLocation
+		signingKeyRefreshEnabled = s.Config.HttpConfig.IdpSignKeyRefreshEnabled
+		issuer = s.Config.HttpConfig.AuthIssuer
+		userIDClaim = s.Config.HttpConfig.AuthUserIDClaim
+	}
 	var keyFetcher nbjwt.KeyFetcher
 
 	// Use embedded IdP configuration if available

@@ -234,6 +234,7 @@ func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
 	})
 }
 
+// GRPCServer returns the lazy-initialized gRPC server instance.
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
 		realipOpts := realIPOptions(s.Config.ReverseProxy)
@@ -250,14 +251,14 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		// run after the built-in chain (ChainUnaryInterceptor is additive).
 		gRPCOpts = appendExtensionInterceptors(gRPCOpts, s.grpcExtensions)
 
-		if s.Config.HttpConfig.LetsEncryptDomain != "" {
+		if s.Config.HttpConfig != nil && s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
 				log.Fatalf("failed to create certificate service: %v", err)
 			}
 			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
-		} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
+		} else if s.Config.HttpConfig != nil && s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
 			tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
 			if err != nil {
 				log.Fatalf("cannot load TLS credentials: %v", err)
@@ -274,7 +275,9 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		serviceMgr := s.ServiceManager()
 		srv.SetReverseProxyManager(serviceMgr)
 		if serviceMgr != nil {
-			serviceMgr.StartExposeReaper(context.Background())
+			reaperCtx, cancel := context.WithCancel(context.Background())
+			s.exposeReaperCancel = cancel
+			serviceMgr.StartExposeReaper(reaperCtx)
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
@@ -326,6 +329,9 @@ func (a *agentNetworkSynthesizerAdapter) SynthesizeServiceForDomain(ctx context.
 
 func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 	return Create(s, func() nbgrpc.ProxyOIDCConfig {
+		if s.Config.HttpConfig == nil {
+			return nbgrpc.ProxyOIDCConfig{}
+		}
 		return nbgrpc.ProxyOIDCConfig{
 			Issuer: s.Config.HttpConfig.AuthIssuer,
 			// todo: double check auth clientID value
