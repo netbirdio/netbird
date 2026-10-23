@@ -36,7 +36,8 @@ const (
 	DefaultManagementURL = "https://api.netbird.io:443"
 	// oldDefaultManagementURL points to the NetBird's old cloud management endpoint
 	oldDefaultManagementURL = "https://api.wiretrustee.com:443"
-	// DefaultAdminURL points to NetBird's cloud management console
+	// DefaultAdminURL points to NetBird's cloud management console. It is only
+	// reported by the deprecated mobile admin URL getters.
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
 
@@ -60,7 +61,6 @@ var DefaultInterfaceBlacklist = []string{
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
 	ManagementURL                 string
-	AdminURL                      string
 	ConfigPath                    string
 	StateFilePath                 string
 	PreSharedKey                  *string
@@ -114,7 +114,6 @@ type Config struct {
 	PrivateKey                    string
 	PreSharedKey                  string
 	ManagementURL                 *url.URL
-	AdminURL                      *url.URL
 	WgIface                       string
 	WgPort                        int
 	NetworkMonitor                *bool
@@ -504,29 +503,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("new Management URL provided, updated to %#v (old value %#v)",
 				URL.String(), config.ManagementURL.String())
 			config.ManagementURL = URL
-			updated = true
-		}
-	}
-
-	if config.AdminURL == nil {
-		log.Infof("using default Admin URL %s", DefaultAdminURL)
-		config.AdminURL, err = parseURL("Admin URL", DefaultAdminURL)
-		if err != nil {
-			return false, err
-		}
-	}
-	// The admin panel is opened, not dialed, so unlike the Management URL its
-	// path is part of what identifies it: a panel served under /netbird is not
-	// the one served at the root.
-	if input.AdminURL != "" {
-		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
-		if err != nil {
-			return updated, err
-		}
-		if !SameServiceURLIncludingPath(newURL, config.AdminURL) {
-			log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
-				newURL.String(), config.AdminURL.String())
-			config.AdminURL = newURL
 			updated = true
 		}
 	}
@@ -1027,8 +1003,7 @@ func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
 // matches only another nil one.
 //
 // The path plays no part: a management URL is dialed, and only its host and
-// port are. util.SameServiceURL is this comparison plus the path, which is
-// what SameServiceURLIncludingPath needs and delegates to.
+// port are. util.SameServiceURL is this comparison plus the path.
 func SameServiceURL(a, b *url.URL) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -1037,25 +1012,6 @@ func SameServiceURL(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) &&
 		strings.EqualFold(a.Hostname(), b.Hostname()) &&
 		util.ServiceURLPort(a) == util.ServiceURLPort(b)
-}
-
-// SameServiceURLIncludingPath is SameServiceURL plus everything a URL carries
-// past its endpoint: path, query, fragment and userinfo.
-//
-// Use it for a URL that gets opened rather than dialed. The admin panel can
-// live under a path, so two URLs with the same endpoint and different paths are
-// two different panels — where for a URL the client dials over gRPC only the
-// endpoint is ever used. Equivalent spellings still compare equal: a missing
-// path and "/" are the same root, and so is a trailing slash on any path.
-func SameServiceURLIncludingPath(a, b *url.URL) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-
-	return util.SameServiceURL(a, b) &&
-		a.RawQuery == b.RawQuery &&
-		a.Fragment == b.Fragment &&
-		a.User.String() == b.User.String()
 }
 
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {

@@ -41,13 +41,17 @@ type ErrorResponse struct {
 }
 
 type PeerBatch struct {
-	Peer
-	// CreatedAt Peer creation date (UTC).
-	// CreatedAt example value is defined in the OpenAPI schema.
-	CreatedAt time.Time `json:"created_at"`
-	// AccessiblePeersCount Number of accessible peers.
-	// AccessiblePeersCount example value is defined in the OpenAPI schema.
-	AccessiblePeersCount int `json:"accessible_peers_count"`
+	// PeerCount Total number of peers.
+	// PeerCount example value is defined in the OpenAPI schema.
+	PeerCount int `json:"peer_count"`
+	// Page Current page number.
+	// Page example value is defined in the OpenAPI schema.
+	Page int `json:"page"`
+	// PageSize Page size.
+	// PageSize example value is defined in the OpenAPI schema.
+	PageSize int `json:"page_size"`
+	// Peers List of peers.
+	Peers []Peer `json:"peers"`
 }
 
 type PeerMinimum struct {
