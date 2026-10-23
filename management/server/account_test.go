@@ -3690,7 +3690,7 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 	store, err := createStoreAt(t, dataDir)
 	require.NoError(t, err)
 
-	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t))
+	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t), nil)
 	require.NoError(t, err)
 	sqliteStore, ok := nmdataStore.Store.(*networkmap_sqlite.SqliteStore)
 	require.True(t, ok, "network map store is %T, want *networkmap_sqlite.SqliteStore", nmdataStore.Store)
@@ -5109,4 +5109,47 @@ func TestDefaultAccountManager_ExpirationJobsStopForDeletedAccount(t *testing.T)
 			assert.False(t, reschedule, "job must not reschedule for a deleted account")
 		})
 	}
+}
+
+func networkSerial(t *testing.T, manager *DefaultAccountManager, accountID string) uint64 {
+	t.Helper()
+
+	network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+	return network.Serial
+}
+
+func TestDefaultAccountManager_UpdatePeerIP_BumpsNetworkSerial(t *testing.T) {
+	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	newIP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), []netip.Addr{peer1.IP, peer2.IP, peer3.IP})
+	require.NoError(t, err)
+
+	before := networkSerial(t, manager, account.Id)
+	require.NoError(t, manager.UpdatePeerIP(context.Background(), account.Id, userID, peer1.ID, newIP))
+	assert.Greater(t, networkSerial(t, manager, account.Id), before)
+}
+
+func TestDefaultAccountManager_SyncUserJWTGroups_BumpsNetworkSerialWithoutPropagation(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: "jwt-user", Domain: "test.domain"})
+	require.NoError(t, err)
+	acc, err := manager.Store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	acc.Settings.JWTGroupsEnabled = true
+	acc.Settings.JWTGroupsClaimName = "idp-groups"
+	acc.Settings.GroupsPropagationEnabled = false
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), acc))
+
+	before := networkSerial(t, manager, accountID)
+	err = manager.SyncUserJWTGroups(context.Background(), auth.UserAuth{
+		AccountId: accountID,
+		Domain:    "test.domain",
+		UserId:    "jwt-user",
+		Groups:    []string{"group1"},
+	})
+	require.NoError(t, err)
+	assert.Greater(t, networkSerial(t, manager, accountID), before)
 }

@@ -3255,3 +3255,71 @@ func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
 	require.Len(t, peers, 1)
 	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)
 }
+
+func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
+	manager, _, account, peer1, peer2, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	t.Run("SyncPeer with changed meta bumps, unchanged does not", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		before := networkSerial(t, manager, account.Id)
+		_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: current.Meta}, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, before, networkSerial(t, manager, account.Id))
+
+		meta := current.Meta
+		meta.Hostname = "renamed-host"
+		_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: meta}, account.Id)
+		require.NoError(t, err)
+		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("LoginPeer with changed ssh key bumps, unchanged does not", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		before := networkSerial(t, manager, account.Id)
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: current.SSHKey, Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Equal(t, before, networkSerial(t, manager, account.Id))
+
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAnew", Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("MarkPeerConnected and MarkPeerDisconnected", func(t *testing.T) {
+		session := time.Now().UTC().UnixNano()
+
+		before := networkSerial(t, manager, account.Id)
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		assert.Equal(t, before, networkSerial(t, manager, account.Id), "regular peers must not bump")
+
+		expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		expired.Status.LoginExpired = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
+
+		session++
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		afterExpired := networkSerial(t, manager, account.Id)
+		assert.Equal(t, before, afterExpired, "login-expired reconnect writes no network map data")
+
+		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		embedded.Status.LoginExpired = false
+		embedded.ProxyMeta.Embedded = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, embedded))
+
+		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		afterDisconnect := networkSerial(t, manager, account.Id)
+		assert.Greater(t, afterDisconnect, afterExpired, "embedded proxy disconnect must bump")
+
+		session++
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		assert.Greater(t, networkSerial(t, manager, account.Id), afterDisconnect, "embedded proxy connect must bump")
+	})
+}
