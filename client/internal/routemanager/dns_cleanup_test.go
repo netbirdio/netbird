@@ -11,8 +11,8 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -26,7 +26,7 @@ import (
 
 type dnsCleanupInterface struct{ iface.WGIface }
 
-func (*dnsCleanupInterface) GetNet() *netstack.Net { return nil }
+func (*dnsCleanupInterface) GetNet() *wgbackend.NetstackNet { return nil }
 
 func TestFailedDNSRemovalDoesNotDeregisterReplacement(t *testing.T) {
 	upstream, err := net.ListenPacket("udp", "127.0.0.1:0")
