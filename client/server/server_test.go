@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	daemonProto "github.com/netbirdio/netbird/client/proto"
 )
@@ -96,64 +97,14 @@ func (m *mockSubscribeEventsServer) Context() context.Context {
 }
 
 func TestServer_SubcribeEvents(t *testing.T) {
-	tempDir := t.TempDir()
-	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
-	origDefaultConfigPath := profilemanager.DefaultConfigPath
-	profilemanager.ConfigDirOverride = tempDir
-	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
-	profilemanager.DefaultConfigPathDir = tempDir
-	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
-	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
-	t.Cleanup(func() {
-		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
-		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
-		profilemanager.DefaultConfigPath = origDefaultConfigPath
-		profilemanager.ConfigDirOverride = ""
-	})
-
-	ctx := internal.CtxInitState(context.Background())
-	ic := profilemanager.ConfigInput{
-		ConfigPath: tempDir + "/default.json",
-	}
-
-	_, err := profilemanager.UpdateOrCreateConfig(ic)
-	if err != nil {
-		t.Fatalf("failed to create config: %v", err)
-	}
-
-	currUser, err := user.Current()
-	require.NoError(t, err)
-
-	pm := profilemanager.ServiceManager{}
-	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       "default",
-		Username: currUser.Username,
-	})
-	if err != nil {
-		t.Fatalf("failed to set active profile state: %v", err)
-	}
-
-	s := New(ctx, "console", "", false, false, false, false)
-
-	err = s.Start()
-	require.NoError(t, err)
-
-	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
-	require.NoError(t, err)
-	s.config = &profilemanager.Config{
-		ManagementURL: u,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	s := &Server{statusRecorder: peer.NewRecorder("")}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	upReq := &daemonProto.SubscribeRequest{}
-	mockServer := &mockSubscribeEventsServer{
-		ctx:          ctx,
-		sentEvents:   make([]*daemonProto.SystemEvent, 0),
-		ServerStream: nil,
-	}
-	err = s.SubscribeEvents(upReq, mockServer)
-
-	assert.NoError(t, err)
+	stream := &mockSubscribeEventsServer{ctx: ctx}
+	err := s.SubscribeEvents(&daemonProto.SubscribeRequest{}, stream)
+	require.NoError(t, err)
+	require.NotEmpty(t, stream.sentEvents, "a subscriber must receive the current log level")
+	assert.Equal(t, daemonProto.MetadataKindLogLevelChanged,
+		stream.sentEvents[0].Metadata[daemonProto.MetadataKindKey])
 }
