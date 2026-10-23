@@ -16,13 +16,14 @@
 #   VARIANT=release|debug  debug swaps the base for Chainguard busybox (a shell)
 #   VERSION                stamped into the binary the same way goreleaser does
 #
-# Chainguard publishes only :latest for free, so the bases are pinned by digest
-# and moved by Dependabot.
+# Images are pinned by digest alone. The builder is golang:1.26.10-bookworm and
+# the bases are Chainguard's :latest, the only free tag; bump them by hand with
+# docker buildx imagetools inspect <image:tag>.
 
 ARG VARIANT=release
 
 # Pure Go: cross-compile from the build host instead of emulating the target.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS builder
+FROM --platform=$BUILDPLATFORM golang@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
@@ -39,8 +40,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /out/netbird-upload ./upload-server \
     && mkdir -p /out/var/lib/netbird
 
-FROM cgr.dev/chainguard/static:latest@sha256:17367e4d3ae2b46c3290858e483fac09be085c92b372360fe3bf6a6150848fde AS base-release
-FROM cgr.dev/chainguard/busybox:latest@sha256:98e9e7306c899a8af252ef1ff50c54def91c2fe04677298eafdf0b902f2980ed AS base-debug
+FROM cgr.dev/chainguard/static@sha256:17367e4d3ae2b46c3290858e483fac09be085c92b372360fe3bf6a6150848fde AS base-release
+FROM cgr.dev/chainguard/busybox@sha256:98e9e7306c899a8af252ef1ff50c54def91c2fe04677298eafdf0b902f2980ed AS base-debug
 
 # hadolint ignore=DL3006
 FROM base-${VARIANT}
