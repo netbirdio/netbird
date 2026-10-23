@@ -28,7 +28,6 @@ import (
 	users "github.com/netbirdio/netbird/management/server/users"
 	route "github.com/netbirdio/netbird/route"
 	auth "github.com/netbirdio/netbird/shared/auth"
-	domain "github.com/netbirdio/netbird/shared/management/domain"
 	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -234,18 +233,18 @@ func (mr *MockManagerMockRecorder) CreatePeerJob(ctx, accountID, peerID, userID,
 }
 
 // CreateRoute mocks base method.
-func (m *MockManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute, skipAutoApply bool) (*route.Route, error) {
+func (m *MockManager) CreateRoute(ctx context.Context, accountID, userID string, routeToCreate *route.Route) (*route.Route, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateRoute", ctx, accountID, prefix, networkType, domains, peerID, peerGroupIDs, description, netID, masquerade, metric, groups, accessControlGroupIDs, enabled, userID, keepRoute, skipAutoApply)
+	ret := m.ctrl.Call(m, "CreateRoute", ctx, accountID, userID, routeToCreate)
 	ret0, _ := ret[0].(*route.Route)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateRoute indicates an expected call of CreateRoute.
-func (mr *MockManagerMockRecorder) CreateRoute(ctx, accountID, prefix, networkType, domains, peerID, peerGroupIDs, description, netID, masquerade, metric, groups, accessControlGroupIDs, enabled, userID, keepRoute, skipAutoApply any) *gomock.Call {
+func (mr *MockManagerMockRecorder) CreateRoute(ctx, accountID, userID, routeToCreate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRoute", reflect.TypeOf((*MockManager)(nil).CreateRoute), ctx, accountID, prefix, networkType, domains, peerID, peerGroupIDs, description, netID, masquerade, metric, groups, accessControlGroupIDs, enabled, userID, keepRoute, skipAutoApply)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRoute", reflect.TypeOf((*MockManager)(nil).CreateRoute), ctx, accountID, userID, routeToCreate)
 }
 
 // CreateSetupKey mocks base method.
@@ -861,9 +860,9 @@ func (mr *MockManagerMockRecorder) GetNetworkMap(ctx, peerID any) *gomock.Call {
 }
 
 // GetOrCreateAccountByPrivateDomain mocks base method.
-func (m *MockManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, arg2 string) (*types.Account, bool, error) {
+func (m *MockManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOrCreateAccountByPrivateDomain", ctx, initiatorId, arg2)
+	ret := m.ctrl.Call(m, "GetOrCreateAccountByPrivateDomain", ctx, initiatorId, domain)
 	ret0, _ := ret[0].(*types.Account)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -871,9 +870,9 @@ func (m *MockManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, ini
 }
 
 // GetOrCreateAccountByPrivateDomain indicates an expected call of GetOrCreateAccountByPrivateDomain.
-func (mr *MockManagerMockRecorder) GetOrCreateAccountByPrivateDomain(ctx, initiatorId, arg2 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) GetOrCreateAccountByPrivateDomain(ctx, initiatorId, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAccountByPrivateDomain", reflect.TypeOf((*MockManager)(nil).GetOrCreateAccountByPrivateDomain), ctx, initiatorId, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAccountByPrivateDomain", reflect.TypeOf((*MockManager)(nil).GetOrCreateAccountByPrivateDomain), ctx, initiatorId, domain)
 }
 
 // GetOrCreateAccountByUser mocks base method.

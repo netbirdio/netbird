@@ -10,7 +10,7 @@ import (
 
 const (
 	GetRoutesQuery = `
-	select id, account_id, public_id, network, domains, keep_route, net_id, description,
+	select id, account_id, public_id, network, domains, countries, keep_route, net_id, description,
 	peer, peer as peer_id, peer_groups, network_type, masquerade, metric, enabled, 
 	groups, access_control_groups, skip_auto_apply
 	from routes

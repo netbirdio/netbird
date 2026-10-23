@@ -1562,3 +1562,23 @@ func TestRecalculateRoutesRetriesFailedReconcile(t *testing.T) {
 	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, connected))
 	assert.Equal(t, 2, calls, "nothing to retry once the reconcile succeeded")
 }
+
+func TestHandlerType(t *testing.T) {
+	tests := []struct {
+		name           string
+		route          *route.Route
+		useNewDNSRoute bool
+		expected       int
+	}{
+		{name: "static", route: &route.Route{NetworkType: route.IPv4Network}, expected: handlerTypeStatic},
+		{name: "domain with routing peer resolution", route: &route.Route{NetworkType: route.DomainNetwork}, useNewDNSRoute: true, expected: handlerTypeDnsInterceptor},
+		{name: "domain with local resolution", route: &route.Route{NetworkType: route.DomainNetwork}, expected: handlerTypeDynamic},
+		{name: "country", route: &route.Route{NetworkType: route.CountryNetwork}, useNewDNSRoute: true, expected: handlerTypeCountry},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, handlerType(tt.route, tt.useNewDNSRoute), "handler type")
+		})
+	}
+}

@@ -302,6 +302,7 @@ func twinRoute(r *nbroute.Route) *nmdata.Route {
 		PublicID:            r.PublicID,
 		Network:             r.Network,
 		Domains:             r.Domains,
+		Countries:           r.Countries,
 		KeepRoute:           r.KeepRoute,
 		NetID:               string(r.NetID),
 		Description:         r.Description,

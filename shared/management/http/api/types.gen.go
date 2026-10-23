@@ -4888,10 +4888,13 @@ type Route struct {
 	// AccessControlGroups Access control group identifier associated with route.
 	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
 
+	// Countries Countries whose IP prefixes, as resolved by the management geolocation database, are routed. Requires geolocation to be enabled and peers that support country routes. Max of 32 countries can be added per route configuration. Conflicts with network and domains
+	Countries *[]CountryCode `json:"countries,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
-	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
+	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network and countries
 	Domains *[]string `json:"domains,omitempty"`
 
 	// Enabled Route status
@@ -4912,13 +4915,13 @@ type Route struct {
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// Network Network range in CIDR format, Conflicts with domains
+	// Network Network range in CIDR format, Conflicts with domains and countries
 	Network *string `json:"network,omitempty"`
 
 	// NetworkId Route network identifier, to group HA routes
 	NetworkId string `json:"network_id"`
 
-	// NetworkType Network type indicating if it is a domain route or a IPv4/IPv6 route
+	// NetworkType Network type indicating if it is a domain, country or IPv4/IPv6 route
 	NetworkType string `json:"network_type"`
 
 	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
@@ -4936,10 +4939,13 @@ type RouteRequest struct {
 	// AccessControlGroups Access control group identifier associated with route.
 	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
 
+	// Countries Countries whose IP prefixes, as resolved by the management geolocation database, are routed. Requires geolocation to be enabled and peers that support country routes. Max of 32 countries can be added per route configuration. Conflicts with network and domains
+	Countries *[]CountryCode `json:"countries,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
-	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
+	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network and countries
 	Domains *[]string `json:"domains,omitempty"`
 
 	// Enabled Route status
@@ -4957,7 +4963,7 @@ type RouteRequest struct {
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// Network Network range in CIDR format, Conflicts with domains
+	// Network Network range in CIDR format, Conflicts with domains and countries
 	Network *string `json:"network,omitempty"`
 
 	// NetworkId Route network identifier, to group HA routes
