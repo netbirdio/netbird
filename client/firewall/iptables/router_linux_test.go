@@ -31,7 +31,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
+	manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU, newIPSetSupport())
 	require.NoError(t, err, "should return a valid iptables manager")
 	require.NoError(t, manager.init(nil))
 
@@ -84,7 +84,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 			require.NoError(t, err, "failed to init iptables client")
 
-			manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
+			manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU, newIPSetSupport())
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 
@@ -157,7 +157,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
+			manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU, newIPSetSupport())
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 			defer func() {
@@ -219,7 +219,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "Failed to create iptables client")
 
-	r, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
+	r, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU, newIPSetSupport())
 	require.NoError(t, err, "Failed to create family manager")
 	require.NoError(t, r.init(nil))
 
