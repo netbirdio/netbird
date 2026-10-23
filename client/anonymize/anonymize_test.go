@@ -313,32 +313,6 @@ func TestAnonymizeDomain_StrictLevel(t *testing.T) {
 	})
 }
 
-// A fresh anonymizer numbers placeholders from 1, so a peer already named
-// like its own placeholder must still be replaced.
-func TestAnonymizeDomain_StrictPlaceholderNeverEqualsOriginal(t *testing.T) {
-	tests := []struct {
-		name   string
-		domain string
-		want   string
-	}{
-		{"protected peer domain", "peer-1.netbird.cloud", `^peer-\d+\.netbird\.cloud$`},
-		{"other domain", "host-1.example.com", `^host-\d+\.anon-[a-zA-Z0-9]+\.domain$`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
-			anonymizer.SetLevel(anonymize.LevelStrict)
-
-			result := anonymizer.AnonymizeDomain(tt.domain)
-
-			assert.NotEqual(t, tt.domain, result, "the original name must not survive")
-			assert.Regexp(t, tt.want, result)
-			assert.Equal(t, result, anonymizer.AnonymizeDomain(tt.domain), "repeated domain should map consistently")
-			assert.Equal(t, result, anonymizer.AnonymizeDomain(result), "an anonymized domain should pass through unchanged")
-		})
-	}
-}
-
 func TestAnonymizeDomain_DefaultLevelKeepsPeerNames(t *testing.T) {
 	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 

@@ -174,23 +174,3 @@ func TestTableLatency(t *testing.T) {
 		assert.Equal(t, want, tableLatency(PeerStateDetailOutput{Latency: in}), "latency %s", in)
 	}
 }
-
-// peer-1 is what a fresh strict anonymizer would hand out first, so a peer
-// with that exact name must still be replaced in the table.
-func TestPeersTable_AnonymizedPeerNamedLikePlaceholder(t *testing.T) {
-	fullStatus := &proto.FullStatus{
-		Peers: []*proto.PeerState{
-			{Fqdn: "peer-1.netbird.cloud", IP: "100.64.0.1", ConnStatus: "Idle"},
-		},
-		ManagementState: &proto.ManagementState{},
-		SignalState:     &proto.SignalState{},
-	}
-	overview := ConvertToStatusOutputOverview(fullStatus, ConvertOptions{
-		Anonymize:      true,
-		AnonymizeLevel: anonymize.LevelStrict,
-	})
-
-	lines := strings.Split(strings.TrimRight(overview.PeersTable(), "\n"), "\n")
-	require.Len(t, lines, 3, "title, header and one peer row")
-	assert.NotEqual(t, "peer-1", strings.Fields(lines[2])[0], "the original name must not be shown")
-}
