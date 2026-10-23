@@ -8,6 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 const (
@@ -17,16 +19,17 @@ const (
 type Metrics struct {
 	metric.Meter
 
-	TransferBytesSent  metric.Int64Counter
-	TransferBytesRecv  metric.Int64Counter
-	AuthenticationTime metric.Float64Histogram
-	PeerStoreTime      metric.Float64Histogram
-	peerReconnections  metric.Int64Counter
-	peers              metric.Int64UpDownCounter
-	peerActivityChan   chan string
-	peerLastActive     map[string]time.Time
-	mutexActivity      sync.Mutex
-	ctx                context.Context
+	TransferBytesSent    metric.Int64Counter
+	TransferBytesRecv    metric.Int64Counter
+	AuthenticationTime   metric.Float64Histogram
+	PeerStoreTime        metric.Float64Histogram
+	peerReconnections    metric.Int64Counter
+	peerProtocolVersions metric.Int64Counter
+	peers                metric.Int64UpDownCounter
+	peerActivityChan     chan string
+	peerLastActive       map[string]time.Time
+	mutexActivity        sync.Mutex
+	ctx                  context.Context
 }
 
 func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
@@ -88,14 +91,22 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	peerProtocolVersions, err := meter.Int64Counter("relay_peer_protocol_versions_total",
+		metric.WithDescription("Total number of peer connections by advertised and selected protocol version"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Metrics{
-		Meter:              meter,
-		TransferBytesSent:  bytesSent,
-		TransferBytesRecv:  bytesRecv,
-		AuthenticationTime: authTime,
-		PeerStoreTime:      peerStoreTime,
-		peers:              peers,
-		peerReconnections:  peerReconnections,
+		Meter:                meter,
+		TransferBytesSent:    bytesSent,
+		TransferBytesRecv:    bytesRecv,
+		AuthenticationTime:   authTime,
+		PeerStoreTime:        peerStoreTime,
+		peers:                peers,
+		peerReconnections:    peerReconnections,
+		peerProtocolVersions: peerProtocolVersions,
 
 		ctx:              ctx,
 		peerActivityChan: make(chan string, 10),
@@ -149,6 +160,15 @@ func (m *Metrics) PeerDisconnected(id, transport string) {
 
 func (m *Metrics) RecordPeerReconnection() {
 	m.peerReconnections.Add(m.ctx, 1)
+}
+
+// RecordProtocolVersion counts a new peer connection by the protocol version the client advertised
+// and the version the server selected for it
+func (m *Metrics) RecordProtocolVersion(advertised, selected messages.ProtocolVersion) {
+	m.peerProtocolVersions.Add(m.ctx, 1, metric.WithAttributes(
+		attribute.Int("advertised", int(advertised)),
+		attribute.Int("selected", int(selected)),
+	))
 }
 
 // PeerActivity increases the active connections

@@ -1344,6 +1344,22 @@ func (mr *MockStoreMockRecorder) GetAccountPeers(ctx, lockStrength, accountID, n
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountPeers", reflect.TypeOf((*MockStore)(nil).GetAccountPeers), ctx, lockStrength, accountID, nameFilter, ipFilter, macFilter)
 }
 
+// GetAccountPeersPaginated mocks base method.
+func (m *MockStore) GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*peer.Peer, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountPeersPaginated", ctx, lockStrength, accountID, pagination, filters, sorting)
+	ret0, _ := ret[0].([]*peer.Peer)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAccountPeersPaginated indicates an expected call of GetAccountPeersPaginated.
+func (mr *MockStoreMockRecorder) GetAccountPeersPaginated(ctx, lockStrength, accountID, pagination, filters, sorting any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountPeersPaginated", reflect.TypeOf((*MockStore)(nil).GetAccountPeersPaginated), ctx, lockStrength, accountID, pagination, filters, sorting)
+}
+
 // GetAccountPeersWithExpiration mocks base method.
 func (m *MockStore) GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*peer.Peer, error) {
 	m.ctrl.T.Helper()

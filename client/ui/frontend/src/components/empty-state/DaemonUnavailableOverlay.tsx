@@ -19,7 +19,7 @@ export const DaemonUnavailableOverlay = () => {
     return (
         <div
             className={
-                "wails-draggable fixed inset-0 z-[100] flex cursor-default select-none items-center justify-center bg-nb-gray-950 backdrop-blur-sm"
+                "wails-draggable fixed inset-0 z-100 flex cursor-default items-center justify-center bg-nb-gray-950 backdrop-blur-xs select-none"
             }
         >
             <div className={"flex max-w-lg flex-col items-center gap-5 px-8 text-center"}>

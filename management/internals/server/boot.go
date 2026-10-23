@@ -165,7 +165,7 @@ func (s *BaseServer) EventStore() activity.Store {
 func (s *BaseServer) APIHandler() http.Handler {
 	_ = CreateNamed(s, "http_v1api", func() http.Handler {
 		apiv1Router := s.ApiV1Router()
-		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
+		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.PeersManager(), s.NetworkMapController(), s.PermissionsManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}

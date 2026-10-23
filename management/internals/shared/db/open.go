@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -115,30 +114,6 @@ func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, erro
 	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
 	if err != nil {
 		pgxPool.Close()
-		closeGorm(gormDB)
-		return nil, err
-	}
-	return conn, nil
-}
-
-// MysqlDSN adds the connection parameters every MySQL handle needs, keeping
-// the options already present in dsn.
-func MysqlDSN(dsn string) string {
-	separator := "?"
-	if strings.Contains(dsn, "?") {
-		separator = "&"
-	}
-	return dsn + separator + "charset=utf8&parseTime=True&loc=Local"
-}
-
-// OpenMysql opens a MySQL database through gorm.
-func OpenMysql(ctx context.Context, dsn string) (*Conn, error) {
-	gormDB, err := gorm.Open(mysql.Open(MysqlDSN(dsn)), GormConfig())
-	if err != nil {
-		return nil, err
-	}
-	conn, err := NewConn(ctx, gormDB, MysqlStoreEngine, nil)
-	if err != nil {
 		closeGorm(gormDB)
 		return nil, err
 	}

@@ -36,17 +36,14 @@ func TestGetConfig(t *testing.T) {
 	}
 
 	assert.Equal(t, config.ManagementURL.String(), DefaultManagementURL)
-	assert.Equal(t, config.AdminURL.String(), DefaultAdminURL)
 
 	managementURL := "https://test.management.url:33071"
-	adminURL := "https://app.admin.url:443"
 	path := filepath.Join(t.TempDir(), "config.json")
 	preSharedKey := "preSharedKey"
 
 	// case 2: new config has to be generated
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: managementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -64,7 +61,6 @@ func TestGetConfig(t *testing.T) {
 	// case 3: existing config -> fetch it
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: managementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -79,7 +75,6 @@ func TestGetConfig(t *testing.T) {
 	newManagementURL := "https://test.newManagement.url:33071"
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: newManagementURL,
-		AdminURL:      adminURL,
 		ConfigPath:    path,
 		PreSharedKey:  &preSharedKey,
 	})
@@ -164,7 +159,6 @@ func TestNewProfileDefaults(t *testing.T) {
 	require.NoError(t, err, "should create new config")
 
 	assert.Equal(t, DefaultManagementURL, config.ManagementURL.String(), "ManagementURL should have default")
-	assert.Equal(t, DefaultAdminURL, config.AdminURL.String(), "AdminURL should have default")
 	assert.NotEmpty(t, config.PrivateKey, "PrivateKey should be generated")
 	assert.NotEmpty(t, config.SSHKey, "SSHKey should be generated")
 	assert.Equal(t, iface.WgInterfaceDefault, config.WgIface, "WgIface should have default")

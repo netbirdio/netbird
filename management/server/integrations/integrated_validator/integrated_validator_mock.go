@@ -130,6 +130,18 @@ func (mr *MockIntegratedValidatorMockRecorder) SetPeerInvalidationListener(fn an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPeerInvalidationListener", reflect.TypeOf((*MockIntegratedValidator)(nil).SetPeerInvalidationListener), fn)
 }
 
+// SetPeerValidationChangeListener mocks base method.
+func (m *MockIntegratedValidator) SetPeerValidationChangeListener(fn func(string, []string)) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPeerValidationChangeListener", fn)
+}
+
+// SetPeerValidationChangeListener indicates an expected call of SetPeerValidationChangeListener.
+func (mr *MockIntegratedValidatorMockRecorder) SetPeerValidationChangeListener(fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPeerValidationChangeListener", reflect.TypeOf((*MockIntegratedValidator)(nil).SetPeerValidationChangeListener), fn)
+}
+
 // Stop mocks base method.
 func (m *MockIntegratedValidator) Stop(ctx context.Context) {
 	m.ctrl.T.Helper()
