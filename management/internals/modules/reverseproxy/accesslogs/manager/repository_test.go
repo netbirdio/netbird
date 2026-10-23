@@ -127,10 +127,10 @@ func TestSqlRepository_ListByAccount_StatusFilter(t *testing.T) {
 func TestSqlRepository_ListByAccount_Search(t *testing.T) {
 	repo, _ := newTestRepository(t)
 	ctx := context.Background()
-	api := newEntry("api", "acc", "GET", time.Hour)
+	api := newEntry("req-api", "acc", "GET", time.Hour)
 	api.Host = "api.example.com"
 	api.Path = "/v1/peers"
-	web := newEntry("web", "acc", "GET", 2*time.Hour)
+	web := newEntry("req-web", "acc", "GET", 2*time.Hour)
 	web.Host = "web.example.com"
 	web.Path = "/login"
 	foreign := newEntry("foreign", "other", "GET", time.Hour)
@@ -150,10 +150,10 @@ func TestSqlRepository_ListByAccount_Search(t *testing.T) {
 		return ids
 	}
 
-	assert.Equal(t, []string{"api"}, search("api.example"), "search should match the host")
-	assert.Equal(t, []string{"web"}, search("/login"), "search should match the path")
-	assert.Equal(t, []string{"api"}, search("example.com/v1"), "search should match host and path joined")
-	assert.Equal(t, []string{"web"}, search("we"), "search should match the log ID")
-	assert.Equal(t, []string{"api", "web"}, search("example.com"), "search should list every match newest first")
+	assert.Equal(t, []string{"req-api"}, search("api.example"), "search should match the host")
+	assert.Equal(t, []string{"req-web"}, search("/login"), "search should match the path")
+	assert.Equal(t, []string{"req-api"}, search("example.com/v1"), "search should match host and path joined")
+	assert.Equal(t, []string{"req-web"}, search("req-web"), "search should match the log ID")
+	assert.Equal(t, []string{"req-api", "req-web"}, search("example.com"), "search should list every match newest first")
 	assert.Empty(t, search("nothing-matches"))
 }
