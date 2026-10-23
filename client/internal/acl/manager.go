@@ -380,9 +380,9 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dyn
 
 		if d.needsCountryFill(rule, addedRule.ID(), newRouteRules) {
 			if err := d.fillCountrySet(rule, countryPrefixes); err != nil {
-				// The rule stays tracked and the next update fills the set again. A partly filled
-				// set makes an accept rule permit less, but a drop rule cover only those prefixes,
-				// as with domain sets. iptables sets hold at most 65,536 prefixes per family.
+				// Kept tracked, so the next update retries the fill. A partly filled set makes an
+				// accept rule permit less, but a drop rule covers only its prefixes: best-effort by
+				// design, as with domain sets. Past the iptables cap of 65,536 the retry never fills.
 				d.unfilledCountryRules[addedRule.ID()] = struct{}{}
 				merr = multierror.Append(merr, fmt.Errorf("fill country set: %w", err))
 			} else {
