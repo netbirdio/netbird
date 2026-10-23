@@ -2,7 +2,7 @@
 # Multi-stage build for minimal image size
 
 # Build stage
-FROM golang:1.26.7-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ RUN go mod tidy
 RUN go build -tags server -ldflags="-s -w" -o server .
 
 # Runtime stage - minimal image
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian13
 
 # Copy the binary
 COPY --from=builder /app/server /server
