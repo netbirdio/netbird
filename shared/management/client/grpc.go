@@ -534,7 +534,12 @@ func (c *GrpcClient) HealthCheck() error {
 
 // getServerPublicKey fetches the server's WireGuard public key.
 func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	return c.getServerPublicKeyWithContext(c.ctx)
+}
+
+// getServerPublicKeyWithContext fetches the server key, bounded by ctx as well as the lookup timeout.
+func (c *GrpcClient) getServerPublicKeyWithContext(ctx context.Context) (*wgtypes.Key, error) {
+	mgmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
@@ -1105,7 +1110,7 @@ func (c *GrpcClient) GetCountryPrefixes(ctx context.Context, country string) ([]
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
-	serverPubKey, err := c.getServerPublicKey()
+	serverPubKey, err := c.getServerPublicKeyWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
