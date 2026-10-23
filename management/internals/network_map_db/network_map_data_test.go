@@ -10,6 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
@@ -169,11 +172,16 @@ type fakeNmdataStore struct {
 	name     string
 	serial   atomic.Int64
 	readErr  error
+	stall    bool
 	begins   atomic.Int32
 	finishes atomic.Int32
 }
 
-func (f *fakeNmdataStore) BeginTx(context.Context) (NetworkMapDBStoreConn, error) {
+func (f *fakeNmdataStore) BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error) {
+	if f.stall {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	f.begins.Add(1)
 	return &fakeNmdataConn{store: f}, nil
 }
@@ -334,4 +342,93 @@ func TestReadNetworkMapData_CancelledWhileWaitingForReplica(t *testing.T) {
 		assert.Equal(t, primary.begins.Load(), primary.finishes.Load())
 		assert.Equal(t, replica.begins.Load(), replica.finishes.Load())
 	})
+}
+
+func TestReadNetworkMapData_FallsBackToPrimaryWhenReplicaStalls(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reader := sdkmetric.NewManualReader()
+		metrics, err := NewMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"), nil)
+		require.NoError(t, err)
+
+		s, primary, replica := newReplicaTestStores(5, 5)
+		s.Metrics = metrics
+		replica.stall = true
+
+		start := time.Now()
+		data, err := s.readNetworkMapData(context.Background(), "account")
+		require.NoError(t, err)
+
+		assert.Equal(t, "primary", data.Network.Identifier)
+		assert.Equal(t, s.ReplicaWait, time.Since(start), "a stalled replica must be abandoned at the wait deadline")
+		assert.Equal(t, primary.begins.Load(), primary.finishes.Load())
+
+		reads, waits := collectReadMetrics(t, reader)
+		assert.Equal(t, map[[2]string]int64{{readSourcePrimary, readReasonLagTimeout}: 1}, reads)
+		assert.Equal(t, uint64(1), waits)
+	})
+}
+
+func TestReadNetworkMapData_CountsReadsBySourceAndReason(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reader := sdkmetric.NewManualReader()
+		metrics, err := NewMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"), nil)
+		require.NoError(t, err)
+
+		s, _, replica := newReplicaTestStores(5, 5)
+		s.Metrics = metrics
+
+		_, err = s.readNetworkMapData(context.Background(), "account")
+		require.NoError(t, err)
+
+		replica.serial.Store(4)
+		_, err = s.readNetworkMapData(context.Background(), "account")
+		require.NoError(t, err)
+
+		replica.serial.Store(5)
+		replica.readErr = errors.New("canceling statement due to conflict with recovery")
+		_, err = s.readNetworkMapData(context.Background(), "account")
+		require.NoError(t, err)
+
+		s.Replica = nil
+		_, err = s.readNetworkMapData(context.Background(), "account")
+		require.NoError(t, err)
+
+		reads, waits := collectReadMetrics(t, reader)
+
+		assert.Equal(t, map[[2]string]int64{
+			{readSourceReplica, readReasonCaughtUp}:     1,
+			{readSourcePrimary, readReasonLagTimeout}:   1,
+			{readSourcePrimary, readReasonReplicaError}: 1,
+			{readSourcePrimary, readReasonNoReplica}:    1,
+		}, reads)
+		assert.Equal(t, uint64(3), waits, "every replica attempt that reached the serial check records its wait")
+	})
+}
+
+// collectReadMetrics returns the read counts keyed by source and reason and the
+// number of recorded replica waits.
+func collectReadMetrics(t *testing.T, reader *sdkmetric.ManualReader) (map[[2]string]int64, uint64) {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	reads := map[[2]string]int64{}
+	var waits uint64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			switch data := m.Data.(type) {
+			case metricdata.Sum[int64]:
+				for _, dp := range data.DataPoints {
+					source, _ := dp.Attributes.Value(attribute.Key("source"))
+					reason, _ := dp.Attributes.Value(attribute.Key("reason"))
+					reads[[2]string{source.AsString(), reason.AsString()}] = dp.Value
+				}
+			case metricdata.Histogram[int64]:
+				for _, dp := range data.DataPoints {
+					waits += dp.Count
+				}
+			}
+		}
+	}
+	return reads, waits
 }

@@ -134,6 +134,7 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			s.IntegratedValidator(),
 			s.SettingsManager(),
 			s.NetworkMapReplicaPool(),
+			s.Metrics().GetMeter(),
 		)
 		// networkmap db store supports postgres and sqlite backends only
 		// for other backends a fallback is used, so NotSupportedStoreEngineError
@@ -156,8 +157,10 @@ func (s *BaseServer) NetworkMapReplicaPool() *pgxpool.Pool {
 		}
 		pool, err := db.OpenPgxPool(context.Background(), dsn, db.DefaultPoolConfig)
 		if err != nil {
-			log.Fatalf("failed to connect to network map replica: %v", err)
+			log.Errorf("network map data reads use the primary, connecting to the replica failed: %v", err)
+			return nil
 		}
+		s.OnStop(pool.Close)
 		return pool
 	})
 }

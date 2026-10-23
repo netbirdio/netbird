@@ -2,6 +2,7 @@ package networkmapdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,22 +37,45 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 }
 
 func (s *NetworkMapDBStoreImpl) readNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error) {
+	reason := readReasonNoReplica
 	if s.Replica != nil {
 		toret, err := s.readFromReplica(ctx, accountId)
 		if err == nil {
+			s.Metrics.countRead(ctx, readSourceReplica, readReasonCaughtUp)
 			return toret, nil
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		log.WithContext(ctx).Warnf("reading network map data of account %s from primary: %v", accountId, err)
+		reason = fallbackReason(err)
+		if reason == readReasonLagTimeout {
+			log.WithContext(ctx).Debugf("reading network map data of account %s from primary: %v", accountId, err)
+		} else {
+			log.WithContext(ctx).Warnf("reading network map data of account %s from primary: %v", accountId, err)
+		}
 	}
 
 	tx, network, err := beginRead(ctx, s.Store, accountId)
 	if err != nil {
 		return nil, err
 	}
-	return readFromTx(ctx, tx, accountId, network)
+	toret, err := readFromTx(ctx, tx, accountId, network)
+	if err != nil {
+		return nil, err
+	}
+	s.Metrics.countRead(ctx, readSourcePrimary, reason)
+	return toret, nil
+}
+
+func fallbackReason(err error) string {
+	switch {
+	case errors.Is(err, errReplicaLagging):
+		return readReasonLagTimeout
+	case errors.Is(err, errPrimarySerialRead):
+		return readReasonSerialReadError
+	default:
+		return readReasonReplicaError
+	}
 }
 
 func (s *NetworkMapDBStoreImpl) readFromReplica(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error) {
@@ -67,31 +91,48 @@ func (s *NetworkMapDBStoreImpl) readFromReplica(ctx context.Context, accountId s
 func (s *NetworkMapDBStoreImpl) beginOnReplica(ctx context.Context, accountId string) (NetworkMapDBStoreConn, nmdata.Network, error) {
 	primaryTx, primaryNetwork, err := beginRead(ctx, s.Store, accountId)
 	if err != nil {
-		return nil, nmdata.Network{}, fmt.Errorf("read primary network serial: %w", err)
+		return nil, nmdata.Network{}, fmt.Errorf("%w: %w", errPrimarySerialRead, err)
 	}
 	rollbackTx(ctx, primaryTx)
 
-	timeout := time.NewTimer(s.ReplicaWait)
-	defer timeout.Stop()
+	start := time.Now()
+	deadline := start.Add(s.ReplicaWait)
 
 	for {
-		tx, network, err := beginRead(ctx, s.Replica, accountId)
+		tx, network, err := beginReadBefore(ctx, s.Replica, accountId, deadline)
 		if err != nil {
+			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				s.Metrics.recordReplicaWait(ctx, time.Since(start))
+				return nil, nmdata.Network{}, fmt.Errorf("%w: no answer within %s: %w", errReplicaLagging, s.ReplicaWait, err)
+			}
 			return nil, nmdata.Network{}, err
 		}
 		if network.Serial >= primaryNetwork.Serial {
+			s.Metrics.recordReplicaWait(ctx, time.Since(start))
 			return tx, network, nil
 		}
 		rollbackTx(ctx, tx)
 
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			s.Metrics.recordReplicaWait(ctx, time.Since(start))
+			return nil, nmdata.Network{}, fmt.Errorf("%w: at network serial %d after %s, primary at %d", errReplicaLagging, network.Serial, s.ReplicaWait, primaryNetwork.Serial)
+		}
+
 		select {
 		case <-ctx.Done():
 			return nil, nmdata.Network{}, ctx.Err()
-		case <-timeout.C:
-			return nil, nmdata.Network{}, fmt.Errorf("replica at network serial %d after %s, primary at %d", network.Serial, s.ReplicaWait, primaryNetwork.Serial)
-		case <-time.After(replicaPollInterval):
+		case <-time.After(min(replicaPollInterval, remaining)):
 		}
 	}
+}
+
+// beginReadBefore runs beginRead with its connect, begin and network read bounded
+// by deadline, so a stalled replica cannot hold the read past it.
+func beginReadBefore(ctx context.Context, store NetworkMapDBStore, accountId string, deadline time.Time) (NetworkMapDBStoreConn, nmdata.Network, error) {
+	attemptCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	return beginRead(attemptCtx, store, accountId)
 }
 
 // beginRead opens a read transaction and reads the account's network as its

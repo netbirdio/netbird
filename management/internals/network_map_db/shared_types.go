@@ -20,6 +20,11 @@ var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 const replicaPollInterval = 10 * time.Millisecond
 
+var (
+	errReplicaLagging    = errors.New("replica lagging")
+	errPrimarySerialRead = errors.New("read primary network serial")
+)
+
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
 	Exec(ctx context.Context, query string, args ...any) error
@@ -54,7 +59,9 @@ type NetworkMapDBStoreImpl struct { //nolint:revive // established name across t
 	// replicated the account's current network serial.
 	Replica NetworkMapDBStore
 	// ReplicaWait bounds how long a read waits for Replica before it falls back to Store.
-	ReplicaWait             time.Duration
+	ReplicaWait time.Duration
+	// Metrics records how reads are served. It is optional.
+	Metrics                 *Metrics
 	IntegratedPeerValidator integrated_validator.IntegratedValidator
 	ExtraSettingsManager    settings.Manager
 }

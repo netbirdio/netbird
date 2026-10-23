@@ -3690,7 +3690,7 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 	store, err := createStoreAt(t, dataDir)
 	require.NoError(t, err)
 
-	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t), nil)
+	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t), nil, nil)
 	require.NoError(t, err)
 	sqliteStore, ok := nmdataStore.Store.(*networkmap_sqlite.SqliteStore)
 	require.True(t, ok, "network map store is %T, want *networkmap_sqlite.SqliteStore", nmdataStore.Store)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
@@ -39,7 +40,8 @@ func NewNetworkMapDBStore(
 	dataDir string,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	extraSettingsManager settings.Manager,
-	replicaPool *pgxpool.Pool) (*networkmapdb.NetworkMapDBStoreImpl, error) {
+	replicaPool *pgxpool.Pool,
+	meter metric.Meter) (*networkmapdb.NetworkMapDBStoreImpl, error) {
 	switch kind {
 	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("networkmap store is using SQLite")
@@ -74,10 +76,23 @@ func NewNetworkMapDBStore(
 			ExtraSettingsManager:    extraSettingsManager,
 		}
 
+		pools := map[string]*pgxpool.Pool{"primary": store.Pool}
 		if replicaPool != nil {
 			impl.Replica = &networkmap_pgsql.PgStore{Pool: replicaPool}
 			impl.ReplicaWait = requestbuffer.Interval(ctx, replicaWaitEnv, defaultReplicaWait)
-			log.WithContext(ctx).Infof("networkmap store reads from Postgres replica, waiting up to %s for replication", impl.ReplicaWait)
+			pools["replica"] = replicaPool
+			replicaConfig := replicaPool.Config().ConnConfig
+			log.WithContext(ctx).Infof("networkmap store reads from Postgres replica %s:%d/%s, waiting up to %s for replication",
+				replicaConfig.Host, replicaConfig.Port, replicaConfig.Database, impl.ReplicaWait)
+		} else {
+			log.WithContext(ctx).Info("networkmap store reads from the primary, no replica configured")
+		}
+
+		if meter != nil {
+			impl.Metrics, err = networkmapdb.NewMetrics(meter, pools)
+			if err != nil {
+				return nil, fmt.Errorf("create network map data metrics: %w", err)
+			}
 		}
 
 		return impl, nil
