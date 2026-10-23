@@ -135,7 +135,7 @@ export const SettingsPage = () => {
                                     <ScrollArea.Scrollbar
                                         orientation={"vertical"}
                                         className={cn(
-                                            "flex touch-none select-none transition-colors",
+                                            "flex touch-none transition-colors select-none",
                                             "w-1.5 bg-transparent py-1",
                                         )}
                                     >

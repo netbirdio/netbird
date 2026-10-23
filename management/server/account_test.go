@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -50,6 +51,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/job"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -842,6 +844,49 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected an error when user ID is empty")
 	}
+}
+
+type setupOwnerInstanceManager struct {
+	instance.Manager
+	user *idp.UserData
+}
+
+func (m setupOwnerInstanceManager) CreateOwnerUser(context.Context, string, string, string) (*idp.UserData, error) {
+	return m.user, nil
+}
+
+// The /api/setup owner account must get the single account mode domain, so later
+// users join that account instead of forking a new one.
+func TestSetupOwner_SingleAccountMode_LaterUsersJoinSetupAccount(t *testing.T) {
+	t.Setenv(instance.SetupPATEnabledEnvKey, "true")
+
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	manager.singleAccountMode = true
+	manager.singleAccountModeDomain = "netbird.selfhosted"
+
+	ctx := context.Background()
+	owner := &idp.UserData{ID: "owner", Email: "owner@example.com", Name: "Owner"}
+	setup := instance.NewSetupService(setupOwnerInstanceManager{user: owner}, manager)
+	_, err = setup.SetupOwner(ctx, owner.Email, "password", owner.Name, instance.SetupOptions{CreatePAT: true})
+	require.NoError(t, err)
+
+	ownerAccountID, err := manager.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, owner.ID)
+	require.NoError(t, err)
+	acc, err := manager.Store.GetAccount(ctx, ownerAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, "netbird.selfhosted", acc.Domain)
+	assert.Equal(t, types.PrivateCategory, acc.DomainCategory)
+	assert.True(t, acc.IsDomainPrimaryAccount)
+
+	jitAccountID, _, err := manager.GetAccountIDFromUserAuth(ctx, auth.UserAuth{
+		UserId:         "jit-user",
+		Email:          "jit@gmail.com",
+		Domain:         "gmail.com",
+		DomainCategory: types.PublicCategory,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ownerAccountID, jitAccountID)
 }
 
 func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*types.Account, error) {
@@ -2231,6 +2276,57 @@ func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiratio
 	case <-time.After(time.Second):
 		t.Fatal("expected inactivity expiration to be rescheduled when an eligible peer disconnects")
 	}
+}
+
+func TestDefaultAccountManager_PeerConnect_KeepsScheduledInactivityExpiration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: true,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	// The account already has an inactivity job scheduled. A connecting peer
+	// cannot expire, so connect must leave that job alone instead of cancelling
+	// it and re-scanning every peer of the account. Cancel runs synchronously,
+	// so counting it observes the decision deterministically.
+	var cancels atomic.Int32
+	manager.peerInactivityExpiry = &MockScheduler{
+		IsSchedulerRunningFunc: func(ID string) bool { return ID == accountID },
+		CancelFunc:             func(ctx context.Context, IDs []string) { cancels.Add(1) },
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+		},
+	}
+
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+	assert.Zero(t, cancels.Load(), "connect must not cancel a scheduled inactivity job")
+
+	// A disconnect still cancels and re-arms: the running job may be finishing
+	// its last run without having seen this peer as disconnected.
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+	assert.Equal(t, int32(1), cancels.Load(), "disconnect must cancel and re-arm the inactivity job")
 }
 
 func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {
