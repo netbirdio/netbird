@@ -25,12 +25,32 @@ import (
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
-const localSubnetsCacheTTL = 15 * time.Minute
+const (
+	// localSubnetsCacheTTL bounds the exclusion-route lookup, which runs per connection.
+	localSubnetsCacheTTL = 15 * time.Minute
+
+	// localSubnetsGuardTTL bounds the VPN-route guard. Route installs come in bursts on a
+	// network map update, so this collapses a whole burst into one refresh while still
+	// re-reading the host's subnets between bursts, where a LAN change would show up.
+	localSubnetsGuardTTL = 5 * time.Second
+)
 
 var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
+
+// isSplitDefaultPrefix reports whether prefix is one of the synthetic /1 halves
+// genericAddVPNRoute installs in place of a default route. They are mirrored for
+// idempotent removal but refcounted under the parent default, so per-prefix
+// reconciliation must skip them.
+func isSplitDefaultPrefix(prefix netip.Prefix) bool {
+	switch prefix {
+	case splitDefaultv4_1, splitDefaultv4_2, splitDefaultv6_1, splitDefaultv6_2:
+		return true
+	}
+	return false
+}
 
 func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	stateManager.RegisterState(&ShutdownState{})
@@ -124,7 +144,10 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 	// BSDs blackhole a /32 added inside a directly-connected subnet; Linux/Windows need it to beat the wt0 route.
 	switch runtime.GOOS {
 	case "darwin", "freebsd", "netbsd", "openbsd", "dragonfly":
-		if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
+		if isLocal, subnet, healthy := r.isPrefixInLocalSubnets(prefix); isLocal {
+			if !healthy {
+				return Nexthop{}, fmt.Errorf("prefix %s local-subnet ownership unverified: %w", prefix, vars.ErrRouteNotAllowed)
+			}
 			return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
 		}
 	}
@@ -147,49 +170,323 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 	}
 
 	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop.IP)
-	if err := r.addToRouteTable(prefix, exitNextHop); err != nil {
+	if _, err := r.addToRouteTable(prefix, exitNextHop); err != nil {
 		return Nexthop{}, fmt.Errorf("add route to table: %w", err)
 	}
 
 	return exitNextHop, nil
 }
 
-func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) {
-	r.localSubnetsCacheMu.RLock()
-	cacheAge := time.Since(r.localSubnetsCacheTime)
-	subnets := r.localSubnetsCache
-	r.localSubnetsCacheMu.RUnlock()
-
-	if cacheAge > localSubnetsCacheTTL || subnets == nil {
-		r.localSubnetsCacheMu.Lock()
-		if time.Since(r.localSubnetsCacheTime) > localSubnetsCacheTTL || r.localSubnetsCache == nil {
-			r.refreshLocalSubnetsCache()
-		}
-		subnets = r.localSubnetsCache
-		r.localSubnetsCacheMu.Unlock()
+// isPrefixInLocalSubnets reports whether the prefix's own address falls inside a locally
+// attached subnet. It deliberately does not require the whole prefix to be contained, unlike
+// localSubnetOverlap: BSD blackholes any host route added inside a connected subnet, however
+// much of the prefix that subnet covers. Healthy is false when discovery did not verify the
+// answer; isLocal is then true so callers fail closed instead of installing.
+func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet, bool) {
+	subnets, healthy := r.localSubnets(localSubnetsCacheTTL)
+	if !healthy {
+		return true, nil, false
 	}
-
 	for _, subnet := range subnets {
 		if subnet.Contains(prefix.Addr().AsSlice()) {
-			return true, subnet
+			return true, subnet, true
 		}
 	}
 
-	return false, nil
+	return false, nil, true
 }
 
+// localSubnetOverlap returns the directly attached subnet that contains the prefix, if any.
+// The host already reaches such a subnet over its own link, and a VPN route inside it would
+// shadow that link: longest-prefix match ignores the route metric, so a /32 host route on the
+// overlay beats the native /24 no matter how the two are weighted.
+//
+// A prefix broader than the local subnet is deliberately not reported. Longest-prefix match
+// already leaves the local subnet's own addresses on the local link, and the overlay still has
+// to carry the rest of the prefix. The default route is exempt for the same reason.
+//
+// Healthy is false when discovery did not verify the answer. Callers must then fail closed
+// (withhold the route) rather than treat the missing overlap as verified non-overlap.
+func (r *SysOps) localSubnetOverlap(prefix netip.Prefix) (*net.IPNet, bool, bool) {
+	if !prefix.IsValid() || prefix.Bits() == 0 {
+		return nil, false, true
+	}
+
+	subnets, healthy := r.localSubnets(localSubnetsGuardTTL)
+	if !healthy {
+		return nil, false, false
+	}
+	for _, subnet := range subnets {
+		local, ok := ipNetToPrefix(subnet)
+		if !ok {
+			continue
+		}
+		if prefix.Bits() >= local.Bits() && local.Contains(prefix.Addr()) {
+			return subnet, true, true
+		}
+	}
+
+	return nil, false, true
+}
+
+// trackInstalledVPNRoute mirrors a successful table install with the interface that owns it.
+func (r *SysOps) trackInstalledVPNRoute(prefix netip.Prefix, intf *net.Interface) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	if r.installedVPNRoutes == nil {
+		r.installedVPNRoutes = make(map[netip.Prefix]vpnRouteState)
+	}
+	r.routeGen++
+	r.installedVPNRoutes[prefix] = vpnRouteState{intf: intf, gen: r.routeGen}
+	delete(r.suppressedVPNRoutes, prefix)
+}
+
+// suppressVPNRoute records a withheld prefix with the interface needed to install it later.
+// Only ever called for prefixes the caller's refcounter counts, so holder accounting stays
+// balanced; the mark merely notes that no OS route exists.
+func (r *SysOps) suppressVPNRoute(prefix netip.Prefix, intf *net.Interface) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	if r.suppressedVPNRoutes == nil {
+		r.suppressedVPNRoutes = make(map[netip.Prefix]vpnRouteState)
+	}
+	delete(r.installedVPNRoutes, prefix)
+	r.routeGen++
+	r.suppressedVPNRoutes[prefix] = vpnRouteState{intf: intf, gen: r.routeGen}
+}
+
+// unsuppressVPNRoute drops the suppressed mark, e.g. after a verified install.
+func (r *SysOps) unsuppressVPNRoute(prefix netip.Prefix) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	delete(r.suppressedVPNRoutes, prefix)
+}
+
+// unsuppressVPNRouteIfMatch drops the suppressed mark if it matches the snapshot generation.
+func (r *SysOps) unsuppressVPNRouteIfMatch(prefix netip.Prefix, gen uint64) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	if state, ok := r.suppressedVPNRoutes[prefix]; ok && state.gen == gen {
+		delete(r.suppressedVPNRoutes, prefix)
+	}
+}
+
+// takeSuppressedVPNRoute clears the suppressed mark and reports whether it was set. A set
+// mark means no OS route was installed, so the caller can skip the table removal.
+func (r *SysOps) takeSuppressedVPNRoute(prefix netip.Prefix) bool {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	if _, ok := r.suppressedVPNRoutes[prefix]; !ok {
+		return false
+	}
+	delete(r.suppressedVPNRoutes, prefix)
+	return true
+}
+
+// peekInstalledVPNRoute reports the owning interface and generation without clearing the mark.
+func (r *SysOps) peekInstalledVPNRoute(prefix netip.Prefix) (*net.Interface, uint64, bool) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	state, ok := r.installedVPNRoutes[prefix]
+	if !ok {
+		return nil, 0, false
+	}
+	return state.intf, state.gen, true
+}
+
+// takeInstalledVPNRoute clears the installed mirror and reports the owning interface.
+func (r *SysOps) takeInstalledVPNRoute(prefix netip.Prefix) (*net.Interface, bool) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	state, ok := r.installedVPNRoutes[prefix]
+	if !ok {
+		return nil, false
+	}
+	delete(r.installedVPNRoutes, prefix)
+	return state.intf, true
+}
+
+// takeInstalledVPNRouteIfMatch clears the installed mirror if it matches the snapshot generation.
+func (r *SysOps) takeInstalledVPNRouteIfMatch(prefix netip.Prefix, gen uint64) (*net.Interface, bool) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	state, ok := r.installedVPNRoutes[prefix]
+	if !ok || state.gen != gen {
+		return nil, false
+	}
+	delete(r.installedVPNRoutes, prefix)
+	return state.intf, true
+}
+
+// isSuppressedVPNRoute reports whether the prefix is currently withheld.
+func (r *SysOps) isSuppressedVPNRoute(prefix netip.Prefix) bool {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	_, ok := r.suppressedVPNRoutes[prefix]
+	return ok
+}
+
+// vpnRoutesSnapshot copies both guard sets so reconciliation can act on them without holding
+// the mirror mutex while calling into route programming or the refcounter.
+func (r *SysOps) vpnRoutesSnapshot() (map[netip.Prefix]vpnRouteState, map[netip.Prefix]vpnRouteState) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	installed := make(map[netip.Prefix]vpnRouteState, len(r.installedVPNRoutes))
+	for prefix, state := range r.installedVPNRoutes {
+		installed[prefix] = state
+	}
+	suppressed := make(map[netip.Prefix]vpnRouteState, len(r.suppressedVPNRoutes))
+	for prefix, state := range r.suppressedVPNRoutes {
+		suppressed[prefix] = state
+	}
+	return installed, suppressed
+}
+
+// ReconcileLocalSubnets converges installed and withheld VPN routes with the host's current
+// topology. It force-refreshes discovery, removes table routes that now overlap a local
+// subnet, reinstalls withheld routes that are routable again, and drops stale marks whose
+// holder is gone. Holder accounting is untouched: every flip keeps the refcounter entry and
+// only changes the OS route plus the guard marks, so per-holder add/remove stays balanced.
+// A flip is recorded only after its table operation succeeds, otherwise the old state is
+// kept for the next pass. Concurrent adds and removes race safely: table programs tolerate
+// already-there and not-there, and a key whose holder vanished mid-pass is rolled back
+// instead of leaked.
+//
+// Advanced routing on Linux is out of scope: VPN routes live in a separate table the main
+// table already outranks, so the guard never withholds there and there is nothing to converge.
+func (r *SysOps) ReconcileLocalSubnets(counter *refcounter.RouteRefCounter) error {
+	if r == nil || counter == nil {
+		return nil
+	}
+	if runtime.GOOS == "linux" && nbnet.AdvancedRouting() {
+		return nil
+	}
+
+	r.localSubnetsCacheMu.Lock()
+	r.refreshLocalSubnetsCache()
+	healthy := r.localSubnetsHealthy
+	r.localSubnetsCacheMu.Unlock()
+
+	if !healthy {
+		return nil
+	}
+
+	installed, suppressed := r.vpnRoutesSnapshot()
+
+	var merr *multierror.Error
+	for prefix, state := range installed {
+		if isSplitDefaultPrefix(prefix) {
+			continue
+		}
+		if _, ok := counter.Get(prefix); !ok {
+			r.takeInstalledVPNRouteIfMatch(prefix, state.gen)
+			continue
+		}
+		if _, overlap, healthy := r.localSubnetOverlap(prefix); !healthy || !overlap {
+			continue
+		}
+		if err := r.removeTableRoute(prefix, state.intf); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove shadowing route %s: %w", prefix, err))
+			continue
+		}
+		r.suppressVPNRoute(prefix, state.intf)
+	}
+
+	for prefix, state := range suppressed {
+		if isSplitDefaultPrefix(prefix) {
+			continue
+		}
+		if _, ok := counter.Get(prefix); !ok {
+			r.unsuppressVPNRouteIfMatch(prefix, state.gen)
+			continue
+		}
+		if _, overlap, healthy := r.localSubnetOverlap(prefix); !healthy || overlap {
+			continue
+		}
+		if err := r.installTableRoute(prefix, state.intf); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("reinstall route %s: %w", prefix, err))
+			continue
+		}
+		r.trackInstalledVPNRoute(prefix, state.intf)
+		if _, ok := counter.Get(prefix); !ok {
+			if err := r.removeTableRoute(prefix, state.intf); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("roll back orphaned route %s: %w", prefix, err))
+				continue
+			}
+			r.takeInstalledVPNRoute(prefix)
+		}
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+// installTableRoute installs a guard-managed prefix, defaulting to the platform AddVPNRoute
+// (which re-evaluates the guard and mirrors the outcome) unless tests override the seam.
+func (r *SysOps) installTableRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if r.installGuardedRoute != nil {
+		return r.installGuardedRoute(prefix, intf)
+	}
+	return r.AddVPNRoute(prefix, intf)
+}
+
+// removeTableRoute removes a guard-managed prefix, defaulting to the platform RemoveVPNRoute
+// (which clears the guard marks on success) unless tests override the seam.
+func (r *SysOps) removeTableRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if r.removeGuardedRoute != nil {
+		return r.removeGuardedRoute(prefix, intf)
+	}
+	return r.RemoveVPNRoute(prefix, intf)
+}
+
+// localSubnets returns the last validated snapshot and whether it is verified. A fresh
+// attempt window collapses bursts into one enumeration; a failed attempt keeps serving the
+// last validated snapshot with healthy=false so the guard fails closed. A nil snapshot with
+// healthy=false means no attempt has ever succeeded and nothing may be installed.
+func (r *SysOps) localSubnets(maxAge time.Duration) ([]*net.IPNet, bool) {
+	r.localSubnetsCacheMu.RLock()
+	fresh := time.Since(r.localSubnetsCacheTime) <= maxAge
+	subnets, healthy := r.localSubnetsCache, r.localSubnetsHealthy
+	r.localSubnetsCacheMu.RUnlock()
+
+	if fresh {
+		return subnets, healthy
+	}
+
+	r.localSubnetsCacheMu.Lock()
+	defer r.localSubnetsCacheMu.Unlock()
+
+	if time.Since(r.localSubnetsCacheTime) <= maxAge {
+		return r.localSubnetsCache, r.localSubnetsHealthy
+	}
+	r.refreshLocalSubnetsCache()
+	return r.localSubnetsCache, r.localSubnetsHealthy
+}
+
+// refreshLocalSubnetsCache rebuilds the cache from the host's current interfaces. A fully
+// successful enumeration publishes the new snapshot as validated; any failure retains the
+// last validated snapshot and marks discovery unhealthy. Skipped interfaces and addresses
+// (down, loopback, overlay, link-local) are deliberate filtering, not failure.
+// The caller must hold localSubnetsCacheMu for writing.
 func (r *SysOps) refreshLocalSubnetsCache() {
-	localInterfaces, err := net.Interfaces()
+	localInterfaces, err := r.listHostInterfaces()
 	if err != nil {
 		log.Errorf("Failed to get local interfaces: %v", err)
+		r.localSubnetsCacheTime = time.Now()
+		r.localSubnetsHealthy = false
 		return
 	}
 
 	var newSubnets []*net.IPNet
+	incomplete := false
 	for _, intf := range localInterfaces {
-		addrs, err := intf.Addrs()
+		if r.skipLocalInterface(intf) {
+			continue
+		}
+
+		addrs, err := r.hostInterfaceAddrs(intf)
 		if err != nil {
 			log.Errorf("Failed to get addresses for interface %s: %v", intf.Name, err)
+			incomplete = true
 			continue
 		}
 
@@ -197,14 +494,101 @@ func (r *SysOps) refreshLocalSubnetsCache() {
 			ipnet, ok := addr.(*net.IPNet)
 			if !ok {
 				log.Errorf("Failed to convert address to IPNet: %v", addr)
+				incomplete = true
+				continue
+			}
+			if r.skipLocalSubnet(ipnet) {
 				continue
 			}
 			newSubnets = append(newSubnets, ipnet)
 		}
 	}
 
-	r.localSubnetsCache = newSubnets
 	r.localSubnetsCacheTime = time.Now()
+	if incomplete {
+		log.Warnf("Local-subnet discovery incomplete, retaining last validated snapshot")
+		r.localSubnetsHealthy = false
+		return
+	}
+	r.localSubnetsCache = newSubnets
+	r.localSubnetsHealthy = true
+}
+
+// listHostInterfaces enumerates host interfaces, or the test override when set.
+func (r *SysOps) listHostInterfaces() ([]net.Interface, error) {
+	if r.listInterfaces != nil {
+		return r.listInterfaces()
+	}
+	return net.Interfaces()
+}
+
+// hostInterfaceAddrs returns the addresses of an interface, or the test override when set.
+func (r *SysOps) hostInterfaceAddrs(intf net.Interface) ([]net.Addr, error) {
+	if r.interfaceAddrs != nil {
+		return r.interfaceAddrs(intf)
+	}
+	return intf.Addrs()
+}
+
+// skipLocalInterface reports whether an interface contributes no locally reachable
+// subnet: it is down or loopback, or it is the overlay interface itself, whose
+// subnet would otherwise make every mesh prefix look local.
+func (r *SysOps) skipLocalInterface(intf net.Interface) bool {
+	if intf.Flags&net.FlagUp == 0 || intf.Flags&net.FlagLoopback != 0 {
+		return true
+	}
+	return r.wgInterface != nil && intf.Name == r.wgInterface.Name()
+}
+
+// skipLocalSubnet drops addresses that cannot stand in for a reachable LAN.
+//
+// It deliberately does not filter on overlay pool membership. The overlay's own addresses
+// are already excluded by interface in skipLocalInterface, and validateRoute rejects any
+// prefix inside the pool before the guard runs. Filtering by pool membership here would
+// instead discard a physical subnet that legitimately overlaps the pool, which happens
+// whenever the host sits behind CGNAT and the overlay uses the default 100.64.0.0/10.
+func (r *SysOps) skipLocalSubnet(ipnet *net.IPNet) bool {
+	addr, ok := netip.AddrFromSlice(ipnet.IP)
+	if !ok {
+		return true
+	}
+	addr = addr.Unmap()
+
+	return addr.IsLoopback() ||
+		addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast()
+}
+
+// ipNetToPrefix converts a net.IPNet to a canonical netip.Prefix, unmapping v4-in-v6
+// addresses so IPv4 comparisons match. It reports false for a non-contiguous mask.
+func ipNetToPrefix(ipnet *net.IPNet) (netip.Prefix, bool) {
+	if ipnet == nil {
+		return netip.Prefix{}, false
+	}
+
+	addr, ok := netip.AddrFromSlice(ipnet.IP)
+	if !ok {
+		return netip.Prefix{}, false
+	}
+	addr = addr.Unmap()
+
+	ones, bits := ipnet.Mask.Size()
+	if bits == 0 {
+		return netip.Prefix{}, false
+	}
+	// A v4 address carrying a 16-byte mask counts the 96-bit v4-mapped prefix.
+	if addr.Is4() && bits == 128 {
+		ones -= 96
+	}
+	if ones < 0 {
+		return netip.Prefix{}, false
+	}
+
+	prefix := netip.PrefixFrom(addr, ones)
+	if !prefix.IsValid() {
+		return netip.Prefix{}, false
+	}
+	return prefix.Masked(), true
 }
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
@@ -214,14 +598,26 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 
 	switch prefix {
 	case vars.Defaultv4:
-		if err := r.addToRouteTable(splitDefaultv4_1, nextHop); err != nil {
+		created1, err := r.addToRouteTable(splitDefaultv4_1, nextHop)
+		if err != nil {
 			return err
 		}
-		if err := r.addToRouteTable(splitDefaultv4_2, nextHop); err != nil {
-			if err2 := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+		if created1 {
+			r.trackInstalledVPNRoute(splitDefaultv4_1, intf)
+		}
+
+		created2, err := r.addToRouteTable(splitDefaultv4_2, nextHop)
+		if err != nil {
+			if created1 {
+				if err2 := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err2 != nil {
+					log.Warnf("Failed to rollback route addition: %s", err2)
+				}
+				r.takeInstalledVPNRoute(splitDefaultv4_1)
 			}
 			return err
+		}
+		if created2 {
+			r.trackInstalledVPNRoute(splitDefaultv4_2, intf)
 		}
 
 		// When the interface has no v6, add v6 split-default as blackhole so
@@ -240,7 +636,30 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		return r.addV6SplitDefault(nextHop)
 	}
 
-	return r.addToRouteTable(prefix, nextHop)
+	created, err := r.addToRouteTable(prefix, nextHop)
+	if err != nil {
+		return err
+	}
+	if created {
+		r.trackInstalledVPNRoute(prefix, intf)
+	}
+	return nil
+}
+
+// removeInstalledTableRoute deletes the OS route for a mirrored prefix, clearing the mirror
+// mark only after the deletion succeeds. A failed removal keeps the mark so the refcounter's
+// retained entry can retry on the next decrement instead of leaking the route. A prefix with
+// no mark is a no-op.
+func (r *SysOps) removeInstalledTableRoute(prefix netip.Prefix, nextHop Nexthop) error {
+	_, gen, ok := r.peekInstalledVPNRoute(prefix)
+	if !ok {
+		return nil
+	}
+	if err := r.removeFromRouteTable(prefix, nextHop); err != nil {
+		return err
+	}
+	r.takeInstalledVPNRouteIfMatch(prefix, gen)
+	return nil
 }
 
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
@@ -251,12 +670,8 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	switch prefix {
 	case vars.Defaultv4:
 		var result *multierror.Error
-		if err := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := r.removeFromRouteTable(splitDefaultv4_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
+		result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv4_1, nextHop))
+		result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv4_2, nextHop))
 
 		if !r.wgInterface.Address().HasIPv6() {
 			result = multierror.Append(result, r.removeV6SplitDefault(nextHop))
@@ -266,31 +681,43 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	case vars.Defaultv6:
 		return nberrors.FormatErrorOrNil(r.removeV6SplitDefault(nextHop))
 	default:
-		return r.removeFromRouteTable(prefix, nextHop)
+		return r.removeInstalledTableRoute(prefix, nextHop)
 	}
 }
 
+// addV6SplitDefault installs the two /1 halves that stand in for ::/0 over the VPN interface,
+// rolling back the first half if the second fails so no partial default is left behind.
 func (r *SysOps) addV6SplitDefault(nextHop Nexthop) error {
-	if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
+	created1, err := r.addToRouteTable(splitDefaultv6_1, nextHop)
+	if err != nil {
 		return fmt.Errorf("add split 1: %w", err)
 	}
-	if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
-		if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-			log.Warnf("Failed to rollback v6 split-default: %s", err2)
+	if created1 {
+		r.trackInstalledVPNRoute(splitDefaultv6_1, nextHop.Intf)
+	}
+
+	created2, err := r.addToRouteTable(splitDefaultv6_2, nextHop)
+	if err != nil {
+		if created1 {
+			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
+				log.Warnf("Failed to rollback v6 split-default: %s", err2)
+			}
+			r.takeInstalledVPNRoute(splitDefaultv6_1)
 		}
 		return fmt.Errorf("add split 2: %w", err)
+	}
+	if created2 {
+		r.trackInstalledVPNRoute(splitDefaultv6_2, nextHop.Intf)
 	}
 	return nil
 }
 
+// removeV6SplitDefault removes the two /1 halves that stand in for ::/0, accumulating errors so
+// a failure on one half still attempts the other.
 func (r *SysOps) removeV6SplitDefault(nextHop Nexthop) *multierror.Error {
 	var result *multierror.Error
-	if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-		result = multierror.Append(result, err)
-	}
-	if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-		result = multierror.Append(result, err)
-	}
+	result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv6_1, nextHop))
+	result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv6_2, nextHop))
 	return result
 }
 
