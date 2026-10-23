@@ -24,9 +24,10 @@ cask "{{ $projectName }}" do
   end
 
   uninstall_preflight_steps do
-    run "/bin/launchctl", args: ["bootout", "system/netbird"], sudo: true, must_succeed: false
+    run "/bin/launchctl", args: ["bootout", "system/netbird"],
+        sudo: true, must_succeed: false, print_stderr: false
     run "/bin/launchctl", args: ["unload", "/Library/LaunchDaemons/netbird.plist"],
-        sudo: true, must_succeed: false
+        sudo: true, must_succeed: false, print_stderr: false
     remove "/Library/LaunchDaemons/netbird.plist", sudo: true
   end
 
