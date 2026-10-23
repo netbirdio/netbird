@@ -22,7 +22,7 @@
 ARG VARIANT=release
 
 # Pure Go: cross-compile from the build host instead of emulating the target.
-FROM --platform=$BUILDPLATFORM golang:1.26.7-bookworm@sha256:e8c859f5632dcfde7b32d2012b4351728f6437930887c2f6a91ea242459e5514 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
@@ -39,8 +39,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /out/netbird-upload ./upload-server \
     && mkdir -p /out/var/lib/netbird
 
-FROM cgr.dev/chainguard/static:latest@sha256:41e17ed83c594a64a9396b6ab96dd26d5ddc290dacf4c177464712ff21ad534f AS base-release
-FROM cgr.dev/chainguard/busybox:latest@sha256:b2953ab1cae4a6265e18cf675851bd99975211b150d7a014774911d76eb309ba AS base-debug
+FROM cgr.dev/chainguard/static:latest@sha256:17367e4d3ae2b46c3290858e483fac09be085c92b372360fe3bf6a6150848fde AS base-release
+FROM cgr.dev/chainguard/busybox:latest@sha256:98e9e7306c899a8af252ef1ff50c54def91c2fe04677298eafdf0b902f2980ed AS base-debug
 
 # hadolint ignore=DL3006
 FROM base-${VARIANT}

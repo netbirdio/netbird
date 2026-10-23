@@ -2,9 +2,9 @@ module github.com/netbirdio/netbird
 
 go 1.26.0
 
-// Pin the toolchain to a patch release >= go1.26.2
-// See https://go.dev/issue/77875.
-toolchain go1.26.7
+// Pin the toolchain to a patch release >= go1.26.2 (https://go.dev/issue/77875)
+// and >= go1.26.10, whose crypto/x509 rejects the compromised eMudhra CA keys.
+toolchain go1.26.10
 
 require (
 	cunicu.li/go-rosenpass v0.5.42

@@ -12,6 +12,13 @@ LABEL name="netbird-signal" \
       summary="NetBird Signal" \
       description="NetBird Signal brokers the connection handshakes between peers in NetBird networks."
 
+# Distrust the root that signed the compromised eMudhra intermediates until
+# Red Hat ships a ca-certificates update without it (RHSB-2026-012).
+RUN trust extract --format=pem-bundle \
+      --filter="pkcs11:object=emSign%20ECC%20Root%20CA%20-%20G3;type=cert" \
+      /etc/pki/ca-trust/source/blocklist/emsign-ecc-root-ca-g3.pem && \
+    update-ca-trust extract
+
 COPY --chmod=0555 ${TARGETPLATFORM}/netbird-signal /go/bin/netbird-signal
 COPY licenses/ /licenses/
 # Only the data directory shares the root group for arbitrary non-root UIDs.

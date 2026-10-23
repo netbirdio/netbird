@@ -15,6 +15,13 @@ LABEL name="netbird-rootless" \
 
 RUN microdnf install -y bash ca-certificates && microdnf clean all
 
+# Distrust the root that signed the compromised eMudhra intermediates until
+# Red Hat ships a ca-certificates update without it (RHSB-2026-012).
+RUN trust extract --format=pem-bundle \
+      --filter="pkcs11:object=emSign%20ECC%20Root%20CA%20-%20G3;type=cert" \
+      /etc/pki/ca-trust/source/blocklist/emsign-ecc-root-ca-g3.pem && \
+    update-ca-trust extract
+
 COPY --chmod=0555 client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
 COPY --chmod=0555 ${NETBIRD_BINARY} /usr/local/bin/netbird
 COPY licenses/ /licenses/
