@@ -179,10 +179,14 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create identity provider: %v", err)
 	}
-
 	am.StoreEvent(ctx, userID, idpConfig.ID, accountID, activity.IdentityProviderCreated, idpConfig.EventMeta())
+	created, err := embeddedManager.GetConnector(ctx, idpConfig.ID)
+	if err != nil {
+		log.WithError(err).Warn("failed to read created identity provider")
+		return idpConfig, nil
+	}
 
-	return idpConfig, nil
+	return connectorConfigToIdentityProvider(created, accountID), nil
 }
 
 // UpdateIdentityProvider updates an existing identity provider
@@ -210,12 +214,19 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 	connCfg := identityProviderToConnectorConfig(idpConfig)
 
 	if err := embeddedManager.UpdateConnector(ctx, connCfg); err != nil {
+		if errors.Is(err, dex.ErrIncompatibleClaimMapping) {
+			return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
+		}
 		return nil, status.Errorf(status.Internal, "failed to update identity provider: %v", err)
 	}
-
 	am.StoreEvent(ctx, userID, idpConfig.ID, accountID, activity.IdentityProviderUpdated, idpConfig.EventMeta())
+	updated, err := embeddedManager.GetConnector(ctx, idpID)
+	if err != nil {
+		log.WithError(err).Warn("failed to read updated identity provider")
+		return idpConfig, nil
+	}
 
-	return idpConfig, nil
+	return connectorConfigToIdentityProvider(updated, accountID), nil
 }
 
 // DeleteIdentityProvider deletes an identity provider
@@ -258,25 +269,31 @@ func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, acc
 // connectorConfigToIdentityProvider converts a dex.ConnectorConfig to types.IdentityProvider
 func connectorConfigToIdentityProvider(conn *dex.ConnectorConfig, accountID string) *types.IdentityProvider {
 	return &types.IdentityProvider{
-		ID:           conn.ID,
-		AccountID:    accountID,
-		Type:         types.IdentityProviderType(conn.Type),
-		Name:         conn.Name,
-		Issuer:       conn.Issuer,
-		ClientID:     conn.ClientID,
-		ClientSecret: conn.ClientSecret,
+		ID:               conn.ID,
+		AccountID:        accountID,
+		Type:             types.IdentityProviderType(conn.Type),
+		Name:             conn.Name,
+		Issuer:           conn.Issuer,
+		ClientID:         conn.ClientID,
+		ClientSecret:     conn.ClientSecret,
+		AdditionalScopes: conn.AdditionalScopes,
+		GroupsClaim:      conn.GroupsClaim,
+		GetUserInfo:      conn.GetUserInfo,
 	}
 }
 
 // identityProviderToConnectorConfig converts a types.IdentityProvider to dex.ConnectorConfig
 func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.ConnectorConfig {
 	return &dex.ConnectorConfig{
-		ID:           idpConfig.ID,
-		Name:         idpConfig.Name,
-		Type:         string(idpConfig.Type),
-		Issuer:       idpConfig.Issuer,
-		ClientID:     idpConfig.ClientID,
-		ClientSecret: idpConfig.ClientSecret,
+		ID:               idpConfig.ID,
+		Name:             idpConfig.Name,
+		Type:             string(idpConfig.Type),
+		Issuer:           idpConfig.Issuer,
+		ClientID:         idpConfig.ClientID,
+		ClientSecret:     idpConfig.ClientSecret,
+		AdditionalScopes: idpConfig.AdditionalScopes,
+		GroupsClaim:      idpConfig.GroupsClaim,
+		GetUserInfo:      idpConfig.GetUserInfo,
 	}
 }
 
