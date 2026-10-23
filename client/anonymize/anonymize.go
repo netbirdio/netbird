@@ -370,14 +370,26 @@ func (a *Anonymizer) anonymizeLabels(prefix, placeholder string) string {
 		}
 		anon, ok := a.labelAnonymizer[label]
 		if !ok {
-			a.labelCounter++
-			anon = fmt.Sprintf("%s-%d", placeholder, a.labelCounter)
+			anon = a.nextPlaceholder(placeholder, label)
 			a.labelAnonymizer[label] = anon
 			a.labelAnonymized[anon] = struct{}{}
 		}
 		labels[i] = anon
 	}
 	return strings.Join(labels, ".")
+}
+
+// nextPlaceholder returns the next numbered placeholder, skipping any that
+// equals the label it replaces: a fresh anonymizer would otherwise map
+// "peer-1" to "peer-1" and keep the original name.
+func (a *Anonymizer) nextPlaceholder(placeholder, label string) string {
+	for {
+		a.labelCounter++
+		anon := fmt.Sprintf("%s-%d", placeholder, a.labelCounter)
+		if anon != label {
+			return anon
+		}
+	}
 }
 
 func (a *Anonymizer) AnonymizeURI(uri string) string {
