@@ -3,6 +3,7 @@
 Thanks for your interest in contributing to NetBird.
 
 There are many ways that you can contribute:
+
 - Reporting issues
 - Updating documentation
 - Sharing use cases in slack or Reddit
@@ -10,42 +11,37 @@ There are many ways that you can contribute:
 
 If you haven't already, join our slack workspace [here](https://docs.netbird.io/slack-url), we would love to discuss topics that need community contribution and enhancements to existing features.
 
+This file is the source of truth for contributions to this repository. For work in [other NetBird repositories](#other-project-repositories), follow that repository's contribution guide, templates, and workflows.
+
+## Find a first contribution
+
+Start with a problem you understand. Browse the [`good first issue`](https://github.com/netbirdio/netbird/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) and [`help wanted`](https://github.com/netbirdio/netbird/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22) issues, read the latest comments, and check whether someone is already working on the task. Confirm the scope in the issue before starting; a label alone does not mean the proposed approach is still current.
+
+Contributions can also help without changing product code:
+
+- Reproduce a reported bug and add the affected version, environment, exact steps, and observed result.
+- Answer a [Q&A discussion](https://github.com/netbirdio/netbird/discussions/categories/q-a-support) after verifying the solution.
+- Correct a typo, broken link, or unclear documentation step.
+- Share a concrete use case that explains where a workflow falls short.
+- Help with [desktop UI translations](#translations) through Crowdin.
+
+Search existing discussions and issues before reporting a new problem. See [SUPPORT.md](SUPPORT.md) for reporting guidance, including how to sanitize logs, screenshots, and configuration before sharing them publicly. Suspected vulnerabilities belong in the private channels listed in the [security policy](https://github.com/netbirdio/netbird/security/policy).
+
 ## Ticket first, PR second
 
-**Open a ticket and wait for feedback before you open a pull request.** Every PR
-that changes behavior must link to an issue the NetBird team has agreed on. A PR
-that arrives without one may be closed and redirected to a discussion, no matter
-how good the code is.
+**Open a ticket and wait for feedback before you open a pull request.** Every PR that changes behavior must link to an issue the NetBird team has agreed on. A PR that arrives without one may be closed and redirected to a discussion, no matter how good the code is.
 
-Issues in this repository are maintainer-curated work items, so the flow starts
-in [Discussions](https://github.com/netbirdio/netbird/discussions):
+Issues in this repository are maintainer-curated work items, so the flow starts in [Discussions](https://github.com/netbirdio/netbird/discussions):
 
-1. **Open a discussion.** Use
-   [Issue Triage](https://github.com/netbirdio/netbird/discussions/new?category=issue-triage)
-   for a bug, regression, or unexpected behavior, and
-   [Ideas & Feature Requests](https://github.com/netbirdio/netbird/discussions/new?category=ideas-feature-requests)
-   for a feature, enhancement, or integration idea. Setup and usage questions
-   belong in
-   [Q&A / Support](https://github.com/netbirdio/netbird/discussions/new?category=q-a-support).
-   Never report a security vulnerability in public — follow the
-   [security policy](https://github.com/netbirdio/netbird/security/policy)
-   instead.
-2. **Wait for feedback.** DevRel validates and reproduces the report, and a
-   maintainer confirms the direction. We may ask for more detail or propose a
-   different approach. Validated discussions become issues.
-3. **Then write the code**, following the approach agreed in the issue, and open
-   the PR linking that issue.
+1. **Open a discussion.** Use [Issue Triage](https://github.com/netbirdio/netbird/discussions/new?category=issue-triage) for a bug, regression, or unexpected behavior, and [Ideas & Feature Requests](https://github.com/netbirdio/netbird/discussions/new?category=ideas-feature-requests) for a feature, enhancement, or integration idea. Setup and usage questions belong in [Q&A / Support](https://github.com/netbirdio/netbird/discussions/new?category=q-a-support). Never report a security vulnerability in public — follow the [security policy](https://github.com/netbirdio/netbird/security/policy) instead.
+2. **Wait for feedback.** DevRel validates and reproduces the report, and a maintainer confirms the direction. We may ask for more detail or propose a different approach. Validated discussions become issues.
+3. **Then write the code**, following the approach agreed in the issue, and open the PR linking that issue.
 
-Trivial fixes — a typo, a broken link, a documentation correction, or a one-line
-fix that already has an issue — can go straight to a PR. Everything else starts
-with a ticket. When in doubt, ask in the discussion or on
-[Slack](https://docs.netbird.io/slack-url); an hour of conversation up front
-regularly saves a week of rework.
+Trivial fixes — a typo, a broken link, a documentation correction, or a one-line fix that already has an issue — can go straight to a PR. Everything else starts with a ticket. When in doubt, ask in the discussion or on [Slack](https://docs.netbird.io/slack-url); an hour of conversation up front regularly saves a week of rework.
 
 ### High-risk areas
 
-These always need the design discussed and agreed in the issue **before** you
-write code:
+These always need the design discussed and agreed in the issue **before** you write code:
 
 - **Public API** — REST / management API, OpenAPI schema, dashboard-facing contracts
 - **gRPC protocols** — management, signal, relay, and client daemon protos
@@ -57,47 +53,26 @@ write code:
 - **Store and database schema** — models and migrations
 - **New features**
 
-These surfaces are NetBird's contract with operators, self-hosters, and
-downstream integrators, and changes to them have compatibility, security, and
-release-planning implications. Agreeing on the direction early lets the PR
-review focus on implementation rather than design.
+These surfaces are NetBird's contract with operators, self-hosters, and downstream integrators, and changes to them have compatibility, security, and release-planning implications. Agreeing on the direction early lets the PR review focus on implementation rather than design.
 
-Typical bug fixes, internal refactors, documentation updates, and tests do not
-need a design discussion, but should still be tied to an issue so the work is
-visible and nobody duplicates it.
+Typical bug fixes, internal refactors, documentation updates, and tests do not need a design discussion, but should still be tied to an issue so the work is visible and nobody duplicates it.
 
 ### Using AI coding agents
 
-We have no policy for or against using an AI agent to write NetBird code. That
-choice is yours, and we are not going to interrogate anyone about their tools.
+We have no policy for or against using an AI agent to write NetBird code. That choice is yours, and we are not going to interrogate anyone about their tools.
 
-What we do have is a lot of incoming contributions that were plainly drafted with
-one, and enough experience reviewing them to see the same avoidable problems
-again and again: no ticket behind the change, a diff far too large to review, a
-description longer than the code it describes, an approach that was never going
-to be accepted, and an author who cannot answer questions about their own PR.
-None of that is caused by the tooling — it is what happens when a tool is pointed
-at a repository whose expectations it has never been told.
+What we do have is a lot of incoming contributions that were plainly drafted with one, and enough experience reviewing them to see the same avoidable problems again and again: no ticket behind the change, a diff far too large to review, a description longer than the code it describes, an approach that was never going to be accepted, and an author who cannot answer questions about their own PR. None of that is caused by the tooling — it is what happens when a tool is pointed at a repository whose expectations it has never been told.
 
-So rather than a rule, there is a guide. [AGENTS.md](AGENTS.md) restates the
-expectations from this document in the form agents read automatically
-(`CLAUDE.md` points to it), so pointing your tool at the repository is usually
-enough. Among other things it tells the agent to ask you for the
-discussion or issue before drafting a PR, to keep the change small and
-single-purpose, to run the tests locally, to use this repository's PR template
-and title tags, and to write a description a reviewer can get through.
+So rather than a rule, there is a guide. [AGENTS.md](AGENTS.md) restates the expectations from this document in the form agents read automatically (`CLAUDE.md` points to it), so pointing your tool at the repository is usually enough. Among other things it tells the agent to ask you for the discussion or issue before drafting a PR, to keep the change small and single-purpose, to run the tests locally, to use this repository's PR template and title tags, and to write a description a reviewer can get through.
 
-The guardrails are the point, and they are the same ones we apply to everyone: an
-agreed ticket, a change you have actually run, a diff small enough to review with
-care, and an author who can explain it. Whatever wrote the diff, you are its
-author — you own every line you submit and the consequences of opening a PR with it.
+The guardrails are the point, and they are the same ones we apply to everyone: an agreed ticket, a change you have actually run, a diff small enough to review with care, and an author who can explain it. Whatever wrote the diff, you are its author — you own every line you submit and the consequences of opening a PR with it.
 
-We may assess whether a contribution is maintainable and whether its merged code
-aligns with our security standards and design expectations.
+We may assess whether a contribution is maintainable and whether its merged code aligns with our security standards and design expectations.
 
 ## Contents
 
 - [Contributing to NetBird](#contributing-to-netbird)
+    - [Find a first contribution](#find-a-first-contribution)
     - [Ticket first, PR second](#ticket-first-pr-second)
         - [High-risk areas](#high-risk-areas)
         - [Using AI coding agents](#using-ai-coding-agents)
@@ -110,7 +85,10 @@ aligns with our security standards and design expectations.
         - [Dev Container Support](#dev-container-support)
         - [Build and start](#build-and-start)
         - [Test suite](#test-suite)
+        - [Generated and synchronized files](#generated-and-synchronized-files)
     - [Checklist before submitting a PR](#checklist-before-submitting-a-pr)
+        - [Changes across repositories](#changes-across-repositories)
+        - [Review the final diff](#review-the-final-diff)
     - [When we close a PR](#when-we-close-a-pr)
     - [Translations](#translations)
     - [Other project repositories](#other-project-repositories)
@@ -118,17 +96,11 @@ aligns with our security standards and design expectations.
 
 ## Code of conduct
 
-This project and everyone participating in it are governed by the Code of
-Conduct which can be found in the file [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-By participating, you are expected to uphold this code. Please report
-unacceptable behavior to community@netbird.io.
+This project and everyone participating in it are governed by the Code of Conduct which can be found in the file [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to community@netbird.io.
 
 ## Directory structure
 
-The NetBird project monorepo keeps most of each component's code within its own
-directory, except for a few auxiliary or shared packages. Protocol definitions
-and the client-side service clients live under [/shared](/shared), because both
-the agent and the services import them.
+The NetBird project monorepo keeps most of each component's code within its own directory, except for a few auxiliary or shared packages. Protocol definitions and the client-side service clients live under [/shared](/shared), because both the agent and the services import them.
 
 **Agent**
 
@@ -184,11 +156,9 @@ the agent and the services import them.
 - [/release_files](/release_files) - Files that goes into release packages
 - [/tools](/tools) - Development and maintenance tooling
 
-
 ## Development setup
 
-If you want to contribute to bug fixes or improve existing features, you have to ensure that all needed
-dependencies are installed. Here is a short guide on how that can be done.
+If you want to contribute to bug fixes or improve existing features, you have to ensure that all needed dependencies are installed. Here is a short guide on how that can be done.
 
 ### Requirements
 
@@ -209,8 +179,8 @@ The desktop UI client (`client/ui`) is built with [Wails v3](https://v3.wails.io
 All UI build, dev-loop, and cross-compile commands are described in the [UI client](#ui-client) section below.
 
 #### gRPC
-You can follow the instructions from the quickstarter guide https://grpc.io/docs/languages/go/quickstart/#prerequisites and then run the `generate.sh` files located in each `proto` directory to generate changes.
-> **IMPORTANT**: We are very open to contributions that can improve the client daemon protocol. For Signal and Management protocols, please reach out on slack or via github issues with your proposals.
+
+Install the prerequisites from the [Go gRPC quickstart](https://grpc.io/docs/languages/go/quickstart/#prerequisites), then use the scripts listed under [Generated and synchronized files](#generated-and-synchronized-files). Protocol changes, including daemon IPC, need the design agreed in an issue before implementation; see [High-risk areas](#high-risk-areas).
 
 #### Docker
 
@@ -237,8 +207,7 @@ golangci-lint run
 
 > **IMPORTANT**: All the steps below have to get executed at least once to get the development setup up and running!
 
-Now that everything NetBird requires to run is installed, the actual NetBird code can be
-checked out and set up:
+Now that everything NetBird requires to run is installed, the actual NetBird code can be checked out and set up:
 
 1. [Fork](https://guides.github.com/activities/forking/#fork) the NetBird repository
 
@@ -260,13 +229,20 @@ checked out and set up:
    git remote add upstream https://github.com/netbirdio/netbird.git
    ```
 
-5. Install all Go dependencies:
+5. Fetch the current upstream branch and create a branch for your change:
+
+   ```bash
+   git fetch upstream
+   git switch -c your-change upstream/main
+   ```
+
+6. Download the Go dependencies:
 
    ```
-   go mod tidy
+   go mod download
    ```
 
-6. Configure Git hooks for automatic linting:
+7. Configure Git hooks for automatic linting:
 
    ```bash
    make setup-hooks
@@ -274,10 +250,11 @@ checked out and set up:
 
    This will configure Git to run linting automatically before each push, helping catch issues early.
 
+Check `git status --short` before and after builds or generators. Keep local environment files, credentials, logs, and build output out of the change, and review any module or lockfile updates before including them.
+
 ### Dev Container Support
 
-If you prefer using a dev container for development, NetBird now includes support for dev containers. 
-Dev containers provide a consistent and isolated development environment, making it easier for contributors to get started quickly. Follow the steps below to set up NetBird in a dev container.
+If you prefer using a dev container for development, NetBird now includes support for dev containers. Dev containers provide a consistent and isolated development environment, making it easier for contributors to get started quickly. Follow the steps below to set up NetBird in a dev container.
 
 #### 1. Prerequisites:
 
@@ -299,13 +276,11 @@ Open the project folder in Visual Studio Code:
 code .
 ```
 
-When you open the project in VS Code, it will detect the presence of a dev container configuration.
-Click on the green "Reopen in Container" button in the bottom-right corner of VS Code.
+When you open the project in VS Code, it will detect the presence of a dev container configuration. Click on the green "Reopen in Container" button in the bottom-right corner of VS Code.
 
 **Goland**:
 
-Open GoLand and select `"File" > "Open"` to open the NetBird project folder.
-GoLand will detect the dev container configuration and prompt you to open the project in the container. Accept the prompt.
+Open GoLand and select `"File" > "Open"` to open the NetBird project folder. GoLand will detect the dev container configuration and prompt you to open the project in the container. Accept the prompt.
 
 #### 4. Wait for the Container to Build:
 
@@ -314,7 +289,6 @@ VsCode or GoLand will use the specified Docker image to build the dev container.
 #### 6. Development:
 
 Once the container is built, you can start developing within the dev container. All the necessary dependencies and configurations are set up within the container.
-
 
 ### Build and start
 #### Client
@@ -329,12 +303,22 @@ CGO_ENABLED=0 go build .
 
 > To test the client GUI application on Windows machines with RDP or vituralized environments (e.g. virtualbox or cloud), you need to download and extract the opengl32.dll from https://fdossena.com/?p=mesa/index.frag next to the built application.
 
-To start NetBird the client in the foreground:
+Run the client only in a disposable VM or test host. Starting it with elevated privileges changes routes, firewall rules, DNS settings, and the overlay interface. Keep console access or another recovery path that does not depend on the NetBird connection, and avoid running a test client alongside an active NetBird service.
+
+To start the locally built client in the foreground:
 
 ```
-sudo ./client up --log-level debug --log-file console
+sudo ./client up --foreground-mode --log-level debug --log-file console
 ```
-> On Windows use a powershell with administrator privileges
+> On Windows use PowerShell with administrator privileges.
+
+Stop the foreground client with Ctrl+C and wait for it to exit before rebuilding or leaving the environment. When testing through a daemon instead, disconnect it before stopping the service:
+
+```shell
+sudo ./client down
+```
+
+`down` talks to the daemon; it does not stop a separate foreground client. After every run, including failures, verify that routes, DNS, firewall state, and normal connectivity have been restored. Clean up temporary peers and other test resources before discarding the environment.
 
 #### UI client
 
@@ -354,14 +338,7 @@ task dev -- --daemon-addr=unix:///var/run/netbird.sock   # Linux, macOS
 task dev -- --daemon-addr=npipe://netbird                # Windows
 ```
 
-On Windows the daemon serves a named pipe (`npipe://netbird`). Which path that
-ends up being depends on what the daemon may create: as a service or elevated it
-serves `\\.\pipe\ProtectedPrefix\Administrators\netbird`, which no unprivileged
-process can take from it, and otherwise it falls back to `\\.\pipe\netbird`.
-Clients try both and check who owns the pipe before using the plain one. Avoid
-`tcp://127.0.0.1:41731`: loopback TCP carries no caller identity, so the daemon
-refuses the operations that require an administrator and you will not exercise
-those paths.
+On Windows the daemon serves a named pipe (`npipe://netbird`). Which path that ends up being depends on what the daemon may create: as a service or elevated it serves `\\.\pipe\ProtectedPrefix\Administrators\netbird`, which no unprivileged process can take from it, and otherwise it falls back to `\\.\pipe\netbird`. Clients try both and check who owns the pipe before using the plain one. Avoid `tcp://127.0.0.1:41731`: loopback TCP carries no caller identity, so the daemon refuses the operations that require an administrator and you will not exercise those paths.
 
 Production build (frontend assets embedded into the binary, output in `client/ui/bin/`):
 
@@ -377,6 +354,8 @@ CGO_ENABLED=1 task windows:build
 ```
 
 > macOS cross-compile from Linux is not supported (signing and notarization need a real Mac).
+
+Exercise the affected UI behavior on each supported operating system your change touches, including tray actions, connection state, and platform permissions where relevant. A successful build alone does not verify native lifecycle behavior. For visual changes, check narrow layouts, light and dark themes, and the loading, empty, and error states the change can encounter.
 
 #### Signal service
 
@@ -447,20 +426,21 @@ The installer `netbird-installer.exe` will be created in root directory.
 
 ### Test suite
 
-The host-safe unit tests run as a normal user and leave host networking
-untouched:
+On a fresh checkout, install the [UI prerequisites](#ui-client---wails-v3--react) and run the [UI production build](#ui-client) before the broad Go suite. `make test-unit` includes `client/ui`, whose Go code embeds `client/ui/frontend/dist`. A missing `frontend/dist` error means those assets have not been built. Service-only work can start with the affected package's tests before running the broader checks.
+
+The host-safe unit tests run as a normal user and leave host networking untouched:
 
 ```
 make test-unit
 ```
 
-Tests that need root and mutate host networking (firewall, routing, interface
-management) carry the `privileged` build tag and run inside a
-`--privileged --cap-add=NET_ADMIN` Docker container:
+Tests that need root and mutate host networking (firewall, routing, interface management) carry the `privileged` build tag and run inside a `--privileged --cap-add=NET_ADMIN` Docker container:
 
 ```
 make test-privileged
 ```
+
+Use a disposable test environment for this suite and run it through the Docker harness, never directly on the host with the `privileged` tag. The harness bind-mounts the repository and host Go caches; on Linux, container writes can leave root-owned cache files. Use a disposable VM with its own caches to keep that state separate from your normal development environment.
 
 Narrow a privileged run with environment variables:
 
@@ -468,79 +448,67 @@ Narrow a privileged run with environment variables:
 PRIV_RUN=TestNftablesManager PRIV_PKGS=./client/firewall/nftables/... make test-privileged
 ```
 
-Single packages can be run directly, adding `-race` when the change touches
-shared state:
+Host-safe package tests can be run directly. Include `devcert` to match the unit suite, and add `-race` when the change touches shared state:
 
 ```
-go test -race ./client/internal/dns/...
+go test -tags devcert -race ./client/internal/dns/...
 ```
 
-> On Windows use a powershell with administrator privileges
+See [Privileged tests](docs/testing-privileged.md) for the harness, filters, and guidance on adding tests that alter networking. End-to-end suites live under [`e2e/`](e2e/); use the relevant suite's instructions and an isolated environment for tests that create deployments or external resources.
+
+### Generated and synchronized files
+
+Edit source definitions and run the matching generator. Do not hand-edit generated bindings, API types, or mocks. Run these scripts from the repository root and use the tool versions and options they specify:
+
+| Area | Source to edit | Generator |
+| --- | --- | --- |
+| Management REST API | [OpenAPI schema](shared/management/http/api/openapi.yml) | [shared/management/http/api/generate.sh](shared/management/http/api/generate.sh) |
+| Management gRPC | `.proto` files in [shared/management/proto/](shared/management/proto/) | [shared/management/proto/generate.sh](shared/management/proto/generate.sh) |
+| Signal gRPC | `.proto` files in [shared/signal/proto/](shared/signal/proto/) | [shared/signal/proto/generate.sh](shared/signal/proto/generate.sh) |
+| Daemon IPC | `.proto` files in [client/proto/](client/proto/) | [client/proto/generate.sh](client/proto/generate.sh) |
+| Flow events | `.proto` files in [flow/proto/](flow/proto/) | [flow/proto/generate.sh](flow/proto/generate.sh) |
+
+For other generated files, follow the generator directive or instructions beside the source. The desktop UI build tasks regenerate Wails bindings; translations are synchronized through [Crowdin](#translations).
+
+Include required tracked generated output in the same PR as its source change, review the complete diff, and record the generation command. Keep ignored build artifacts out of the PR. Generated output must be reproducible from the source revision under review.
 
 ## Checklist before submitting a PR
 
-As a critical network service and open source project, we must enforce a few
-things before submitting a pull request. The
-[pull request template](/.github/pull_request_template.md) mirrors this list —
-fill it in rather than deleting it.
+As a critical network service and open source project, we must enforce a few things before submitting a pull request. The [pull request template](/.github/pull_request_template.md) mirrors this list — fill it in rather than deleting it.
 
 ### Link the issue
 
-The PR description must link the agreed issue (or the validated discussion it
-came from). See [Ticket first, PR second](#ticket-first-pr-second).
+The PR description must link the agreed issue (or the validated discussion it came from). See [Ticket first, PR second](#ticket-first-pr-second).
 
 ### Run it locally
 
-**If you can't run it, you can't submit it.** Build the affected components and
-exercise the change on a real setup — see [Build and start](#build-and-start).
-"CI will tell me" is not acceptable for a VPN agent that runs as root on other
-people's machines.
+**If you can't run it, you can't submit it.** Build the affected components and exercise the change on a real setup — see [Build and start](#build-and-start). "CI will tell me" is not acceptable for a VPN agent that runs as root on other people's machines.
+
+Record the commands and manual scenarios you ran, the relevant operating systems and component versions or commits, and the observed results. State any cases you could not test, and describe cleanup after privileged or integration tests.
+
+For a bug fix, add a regression test when practical. Confirm that it fails for the original reason before applying the fix, then passes with it. For UI changes, include screenshots or a short recording when the interaction is hard to assess from the diff. Sanitize all evidence using the guidance in [SUPPORT.md](SUPPORT.md).
 
 ### Green CI, and answer the bots
 
-We do not start reviewing while CI is red. Get the pipeline green first — a
-failing build, lint, or test means the PR is not ready for review.
+We do not start reviewing while CI is red. Get the pipeline green first — a failing build, lint, or test means the PR is not ready for review.
 
-Alongside the test workflows, your PR is reviewed by CodeRabbit and scanned by
-SonarCloud, Snyk, and Codecov. Read what they report and either fix it or reply
-with why it does not apply; please do not resolve the threads without a
-response. They are not always right — this codebase has privileged,
-platform-specific, and concurrency-heavy paths that static analysis reads poorly
-— so push back when a finding is wrong rather than changing correct code to
-silence it. Security and dependency findings are the exception: treat those as
-real until shown otherwise. Do not edit workflows, thresholds, or scanner
-configuration to make a check pass.
+Alongside the test workflows, your PR is reviewed by CodeRabbit and scanned by SonarCloud, Snyk, and Codecov. Read what they report and either fix it or reply with why it does not apply; please do not resolve the threads without a response. They are not always right — this codebase has privileged, platform-specific, and concurrency-heavy paths that static analysis reads poorly — so push back when a finding is wrong rather than changing correct code to silence it. Security and dependency findings are the exception: treat those as real until shown otherwise. Do not edit workflows, thresholds, or scanner configuration to make a check pass.
 
 ### One PR, one purpose
 
-Bug fix, refactor, feature: separate PRs. Mixed PRs are slow to review, hard to
-revert, and may be closed with a request to split them.
+Bug fix, refactor, feature: separate PRs. Mixed PRs are slow to review, hard to revert, and may be closed with a request to split them.
 
 ### Keep it small
 
-Size is the strongest predictor of how long a PR waits for review. Aim for under
-roughly 400 changed lines across under 20 files. Past about 1000 lines or 50
-files, expect to be asked to split the change — and large PRs from outside the
-core team may be blocked until the scope has been agreed in a ticket. This is
-not only about reviewer time: NetBird's agent runs as root on other people's
-machines, and a sprawling diff cannot be reviewed with the care that deserves.
+Size is the strongest predictor of how long a PR waits for review. Aim for under roughly 400 changed lines across under 20 files. Past about 1000 lines or 50 files, expect to be asked to split the change — and large PRs from outside the core team may be blocked until the scope has been agreed in a ticket. This is not only about reviewer time: NetBird's agent runs as root on other people's machines, and a sprawling diff cannot be reviewed with the care that deserves.
 
-Measure by hand-written code, excluding generated output, `go.sum`, and
-fixtures. If a change genuinely cannot be small — a protocol migration, a
-cross-component rename — agree the split in the issue before you start, and land
-it as a series of PRs that each build and make sense on their own.
+Measure by hand-written code, excluding generated output, `go.sum`, and fixtures. If a change genuinely cannot be small — a protocol migration, a cross-component rename — agree the split in the issue before you start, and land it as a series of PRs that each build and make sense on their own.
 
 ### Avoid force-pushing during review
 
-Once a PR is open, push new commits instead of rewriting history. A force-push
-detaches existing review comments from their lines, throws away the
-"changes since your last review" diff, and loses the CI history that showed
-which commit broke what. Since we squash on merge, there is nothing to gain from
-a tidy branch history.
+Once a PR is open, push new commits instead of rewriting history. A force-push detaches existing review comments from their lines, throws away the "changes since your last review" diff, and loses the CI history that showed which commit broke what. Since we squash on merge, there is nothing to gain from a tidy branch history.
 
-Force-pushing is sometimes unavoidable — rebasing to clear a real conflict, or
-removing a secret or large binary committed by mistake. When that happens, leave
-a comment on the PR so reviewers know their anchors moved.
+Force-pushing is sometimes unavoidable — rebasing to clear a real conflict, or removing a secret or large binary committed by mistake. When that happens, leave a comment on the PR so reviewers know their anchors moved.
 
 ### Quality checks
 
@@ -553,10 +521,7 @@ make lint-all    # full-repository lint, matches CI
 make test-unit   # host-safe unit tests
 ```
 
-`make setup-hooks` wires `make lint` into a pre-push hook so the fast lint runs
-automatically. If your change touches privileged paths (firewall, routing,
-interface management), also run `make test-privileged`, which executes the
-`privileged`-tagged suite inside a Docker container with `NET_ADMIN`.
+`make setup-hooks` wires `make lint` into a pre-push hook so the fast lint runs automatically. If your change touches privileged paths (firewall, routing, interface management), also run `make test-privileged`, which executes the `privileged`-tagged suite inside a Docker container with `NET_ADMIN`.
 
 ### Code standards
 
@@ -569,33 +534,56 @@ interface management), also run `make test-privileged`, which executes the
 
 ### PR title and commits
 
-PR titles must start with a bracketed tag, enforced by
-[pr-title-check.yml](/.github/workflows/pr-title-check.yml):
+PR titles must start with a bracketed tag, enforced by [pr-title-check.yml](/.github/workflows/pr-title-check.yml):
 
 ```text
 [client] Authorize daemon IPC callers by their local identity
 [management,client] Add MDM policy support
 ```
 
-Use a comma-separated list inside a single pair of brackets when a change spans
-components. The `allowedTags` array in
-[pr-title-check.yml](/.github/workflows/pr-title-check.yml) is the source of
-truth — at the time of writing it accepts `management`, `client`, `signal`,
-`proxy`, `relay`, `misc`, `infrastructure`, `self-hosted`, and `doc`.
+Use a comma-separated list inside a single pair of brackets when a change spans components. The `allowedTags` array in [pr-title-check.yml](/.github/workflows/pr-title-check.yml) is the source of truth; check its current values when choosing a tag.
 
-Commit subjects follow the same convention — keep them short and put the
-reasoning in the body, why before what, with no bullet list of files changed.
+Commit subjects follow the same convention — keep them short and put the reasoning in the body, why before what, with no bullet list of files changed.
 
-Keep the PR description itself under 1000 words on top of the template text.
-Reviewers read the diff; the description explains what the diff cannot.
+Keep the PR description itself under 1000 words on top of the template text. Reviewers read the diff; the description explains what the diff cannot.
 
 > When pushing fixes to the PR comments, please push as separate commits; we will squash the PR before merging, so there is no need to squash it before pushing it, and we are more than okay with 10-100 commits in a single PR. This helps review the fixes to the requested changes.
 
 ### Documentation
 
-User-facing changes need a matching PR in
-[netbirdio/docs](https://github.com/netbirdio/docs); link it in the PR
-description, or state why documentation is not needed.
+User-facing changes need a matching PR in [netbirdio/docs](https://github.com/netbirdio/docs); link it in the PR description, or state why documentation is not needed.
+
+For small product documentation corrections, use **Edit on GitHub** on the affected page. For larger changes, follow the docs repository's setup and preview instructions. Verify commands, defaults, UI labels, and compatibility claims against the current source or tested behavior. Generated API documentation must be updated through its OpenAPI source and documented generator.
+
+Contributor instructions belong in this repository. Keep this guide and its linked repository files current when development or contribution workflows change.
+
+### Changes across repositories
+
+Identify dependent work while agreeing the scope in the issue. A management API change can affect the dashboard, Terraform provider, and API documentation; client changes can also affect mobile bindings, installers, or packaging.
+
+- Link related PRs and state the required merge or release order in each one.
+- Test compatible revisions together and record the versions or commits used.
+- Verify backward compatibility when one side may be released before another.
+- Update user-facing documentation in the same release window as the behavior.
+- Record the source revision and generator when updating generated consumers in another repository.
+
+Each repository's own contribution rules and checks apply to its PR.
+
+### Review the final diff
+
+Inspect both unstaged and staged changes before pushing:
+
+```shell
+git status --short
+git diff --check
+git diff --cached --check
+git diff
+git diff --cached
+```
+
+Review committed changes against the PR base as well. For the fork setup above, use `git diff upstream/main...HEAD`; use `origin/main` when `origin` points to `netbirdio/netbird`, or the actual base branch for a stacked PR.
+
+Check that the complete patch has one purpose, includes the necessary source, tests, and generated output, and contains no unrelated formatting, credentials, local configuration, or build artifacts. Confirm that verification results and any testing gaps are recorded, related PRs are linked, and the documentation section of the template is complete.
 
 ## When we close a PR
 
@@ -609,27 +597,37 @@ We would rather redirect early than let a PR sit. We may close one if:
 - The author cannot answer questions about their own change — including PRs that read as unreviewed model output, where review turns into a relay between the maintainer and an LLM. Tooling is fine; unreviewed output is not, you are responsible for the code you sign your name to
 - There has been no activity for 14 days after we requested changes
 
-A closed PR is not a rejected idea. Take it back to the
-[discussion](https://github.com/netbirdio/netbird/discussions), settle the
-approach, and reopen the work from there.
+A closed PR is not a rejected idea. Take it back to the [discussion](https://github.com/netbirdio/netbird/discussions), settle the approach, and reopen the work from there.
 
 ## Translations
 
-Desktop UI translations are not contributed through pull requests. Translate on
-[Crowdin](https://crowdin.com/project/netbird) instead: no ticket needed, just
-join the project and pick your language. Crowdin syncs with this repository and
-opens the service PRs itself, so hand-edited locale files would conflict with
-the next sync. Style, terminology, and review guidance live in
-[client/ui/i18n/TRANSLATING.md](client/ui/i18n/TRANSLATING.md). To request a
-language the project does not offer yet, ask on the Crowdin project page or in
-a [discussion](https://github.com/netbirdio/netbird/discussions).
+Desktop UI translations are not contributed through pull requests. Translate on [Crowdin](https://crowdin.com/project/netbird) instead: no ticket needed, just join the project and pick your language. Crowdin syncs with this repository and opens the service PRs itself, so hand-edited locale files would conflict with the next sync. Style, terminology, and review guidance live in [client/ui/i18n/TRANSLATING.md](client/ui/i18n/TRANSLATING.md). To request a language the project does not offer yet, ask on the Crowdin project page or in a [discussion](https://github.com/netbirdio/netbird/discussions).
 
 ## Other project repositories
 
-NetBird project is composed of 3 main repositories:
-- NetBird: This repository, which contains the code for the agents and control plane services.
-- Dashboard: https://github.com/netbirdio/dashboard, contains the Administration UI for the management service
-- Documentations: https://github.com/netbirdio/docs, contains the documentation from https://netbird.io/docs
+Choose the repository that owns the behavior you want to change:
+
+| Area | Repository or location |
+| --- | --- |
+| Agent, CLI, control plane, relay, and proxy | This repository; see [Directory structure](#directory-structure) |
+| Desktop application | [client/ui/](client/ui/) in this repository |
+| Web administration dashboard | [netbirdio/dashboard](https://github.com/netbirdio/dashboard) |
+| Android application | [netbirdio/android-client](https://github.com/netbirdio/android-client) |
+| iOS and tvOS application | [netbirdio/ios-client](https://github.com/netbirdio/ios-client) |
+| Product documentation | [netbirdio/docs](https://github.com/netbirdio/docs) |
+| Kubernetes operator | [netbirdio/kubernetes-operator](https://github.com/netbirdio/kubernetes-operator) |
+| Terraform provider | [netbirdio/terraform-provider-netbird](https://github.com/netbirdio/terraform-provider-netbird) |
+| NetworkManager integration | [netbirdio/network-manager-vpn-plugin](https://github.com/netbirdio/network-manager-vpn-plugin) |
+| Helm charts | [netbirdio/helms](https://github.com/netbirdio/helms) |
+| Home Assistant add-on | [netbirdio/addon-netbird](https://github.com/netbirdio/addon-netbird) |
+| Ansible collection | [netbirdio/ansible-netbird](https://github.com/netbirdio/ansible-netbird) |
+| Community tools and integrations | [netbirdio/awesome-netbird](https://github.com/netbirdio/awesome-netbird) |
+
+Read the target repository's README, contribution guide, agent instructions, templates, and workflows before starting. Tool versions, generators, test commands, licenses, contribution agreements, and sign-off requirements can differ. Use that repository's current instructions for setup and validation.
+
+Mobile applications combine platform-specific code with core NetBird components. Check the mobile repository's submodule, signing, and device-testing requirements alongside the relevant bindings under `client/android/` or `client/ios/` here.
+
+For other integrations and packaging projects, browse the [NetBird organization](https://github.com/netbirdio) and check whether the project accepts contributions or is an archived repository, fork, or mirror. Coordinate [changes across repositories](#changes-across-repositories) when a shared contract is involved.
 
 ## Contributor License Agreement
 
