@@ -97,14 +97,14 @@ func (s *Server) GetCountryPrefixes(ctx context.Context, req *proto.EncryptedMes
 		return nil, status.Errorf(codes.InvalidArgument, "invalid country code %q", countryReq.GetCountry())
 	}
 
+	if s.geo == nil {
+		return nil, status.Errorf(codes.Unavailable, "geolocation is disabled")
+	}
+
 	// Checked after the peer lookup and the code check, so only registered peers get budgets,
 	// and only for valid codes.
 	if !s.countryPrefixesLimiter.allow(countryPrefixesKey{peer: peerKey, country: country}, time.Now()) {
 		return nil, status.Errorf(codes.ResourceExhausted, "too many prefix requests for country %s", country)
-	}
-
-	if s.geo == nil {
-		return nil, status.Errorf(codes.Unavailable, "geolocation is disabled")
 	}
 
 	prefixes, err := s.geo.CountryPrefixes(country)
