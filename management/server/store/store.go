@@ -90,6 +90,7 @@ type Store interface {
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
+	GetAccountUsersPaginated(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter string) ([]*types.User, error)
 	GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error)
 	SaveUsers(ctx context.Context, users []*types.User) error
 	SaveUser(ctx context.Context, user *types.User) error
@@ -978,7 +979,7 @@ func openDBWithRetry(dsn string, maxRetries int) (*gorm.DB, error) {
 	var err error
 
 	for i := range maxRetries {
-		gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Info)})
 		if err == nil {
 			return gormDB, nil
 		}

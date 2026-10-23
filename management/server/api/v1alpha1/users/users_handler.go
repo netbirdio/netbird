@@ -29,9 +29,7 @@ func NewHandler(accountManager account.Manager) *Handler {
 
 func (h *Handler) WithEndpointsForRouter(router *mux.Router) *mux.Router {
 	router.HandleFunc("/users", h.getAllUsers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users", h.createUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}", h.updateUser).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/users/{userId}", h.deleteUser).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users/{userId}", h.updateUser).Methods("GET", "OPTIONS")
 	return router
 }
 
@@ -89,87 +87,6 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		IntegrationReference: existingUser.IntegrationReference,
 	})
 
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userID))
-}
-
-// deleteUser is a DELETE request to delete a user
-func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
-	if len(targetUserID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-
-	err = h.accountManager.DeleteUser(r.Context(), accountID, userID, targetUserID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
-}
-
-// createUser creates a User in the system with a status "invited" (effectively this is a user invite).
-func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	req := &apiv1alpha1.UserCreateRequest{}
-	err = json.NewDecoder(r.Body).Decode(req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if types.StrRoleToUserRole(req.Role) == types.UserRoleUnknown {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown user role %s", req.Role), w)
-		return
-	}
-
-	email := ""
-	if req.Email != nil {
-		email = *req.Email
-	}
-
-	name := ""
-	if req.Name != nil {
-		name = *req.Name
-	}
-
-	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &types.UserInfo{
-		Email:         email,
-		Name:          name,
-		Role:          req.Role,
-		AutoGroups:    req.AutoGroups,
-		IsServiceUser: req.IsServiceUser,
-		Issued:        types.UserIssuedAPI,
-	})
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

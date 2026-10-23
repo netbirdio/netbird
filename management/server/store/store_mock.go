@@ -1510,6 +1510,21 @@ func (mr *MockStoreMockRecorder) GetAccountUsers(ctx, lockStrength, accountID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountUsers", reflect.TypeOf((*MockStore)(nil).GetAccountUsers), ctx, lockStrength, accountID)
 }
 
+// GetAccountUsersPaginated mocks base method.
+func (m *MockStore) GetAccountUsersPaginated(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter string) ([]*types3.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountUsersPaginated", ctx, lockStrength, accountID, nameFilter)
+	ret0, _ := ret[0].([]*types3.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountUsersPaginated indicates an expected call of GetAccountUsersPaginated.
+func (mr *MockStoreMockRecorder) GetAccountUsersPaginated(ctx, lockStrength, accountID, nameFilter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountUsersPaginated", reflect.TypeOf((*MockStore)(nil).GetAccountUsersPaginated), ctx, lockStrength, accountID, nameFilter)
+}
+
 // GetAccountZones mocks base method.
 func (m *MockStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
 	m.ctrl.T.Helper()
