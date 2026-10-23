@@ -460,6 +460,11 @@ func lookupDSNEnv(nbKey, legacyKey string) (string, bool) {
 	return os.LookupEnv(legacyKey)
 }
 
+// LookupPostgresDSN returns the DSN the main store opens a Postgres engine with.
+func LookupPostgresDSN() (string, bool) {
+	return lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
+}
+
 var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine}
 
 func getStoreEngineFromEnv() types.Engine {
@@ -530,7 +535,7 @@ func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn,
 		return db.OpenSqlite(ctx, dataDir)
 	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
+		dsn, ok := LookupPostgresDSN()
 		if !ok {
 			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 		}
