@@ -26,6 +26,7 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -152,6 +153,20 @@ func applyActivityStoreEnv(storeConfig StoreConfig) error {
 	return nil
 }
 
+// applyAccessLogStoreEnv leaves unset fields to follow the main store, so a
+// postgres engine without a DSN reuses the main store DSN.
+func applyAccessLogStoreEnv(storeConfig StoreConfig) {
+	if engine := storeConfig.Engine; engine != "" {
+		os.Setenv(accesslogsmanager.StoreEngineEnv, strings.ToLower(engine))
+	}
+	if dsn := storeConfig.DSN; dsn != "" {
+		os.Setenv(accesslogsmanager.PostgresDSNEnv, dsn)
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv(accesslogsmanager.SqliteFileEnv, file)
+	}
+}
+
 func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
@@ -172,6 +187,7 @@ func initializeConfig() error {
 	if err := applyActivityStoreEnv(config.Server.ActivityStore); err != nil {
 		return err
 	}
+	applyAccessLogStoreEnv(config.Server.AccessLogStore)
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)

@@ -101,7 +101,7 @@ func OpenSqliteFile(ctx context.Context, dataDir, storeFile string) (*Conn, erro
 }
 
 // OpenPostgres opens a Postgres database through gorm and a pgx pool sized by pool.
-func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, error) {
+func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig, opts ...Option) (*Conn, error) {
 	gormDB, err := gorm.Open(postgres.Open(dsn), GormConfig())
 	if err != nil {
 		return nil, err
@@ -111,9 +111,24 @@ func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, erro
 		closeGorm(gormDB)
 		return nil, err
 	}
-	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool, opts...)
 	if err != nil {
 		pgxPool.Close()
+		closeGorm(gormDB)
+		return nil, err
+	}
+	return conn, nil
+}
+
+// OpenPostgresWithoutPool opens a Postgres database through gorm alone, for
+// repositories that never take the pgx read paths.
+func OpenPostgresWithoutPool(ctx context.Context, dsn string, opts ...Option) (*Conn, error) {
+	gormDB, err := gorm.Open(postgres.Open(dsn), GormConfig())
+	if err != nil {
+		return nil, err
+	}
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, nil, opts...)
+	if err != nil {
 		closeGorm(gormDB)
 		return nil, err
 	}

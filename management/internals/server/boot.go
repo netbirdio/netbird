@@ -201,7 +201,8 @@ func (s *BaseServer) APIHandler() http.Handler {
 			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
 			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
 			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
-			s.AgentNetworkManager(), nil)
+			s.AgentNetworkManager(), nil,
+		)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -381,14 +382,30 @@ func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
 	})
 }
 
+func (s *BaseServer) AccessLogDBConn() *db.Conn {
+	return CreateNamed(s, "accesslogs", func() *db.Conn {
+		conn, err := accesslogsmanager.OpenConn(context.Background(), s.Config.Datadir, s.DBConn().Engine())
+		if err != nil {
+			log.Fatalf("failed to open access log database connection: %v", err)
+		}
+		s.OnStop(func() {
+			if err := conn.Close(); err != nil {
+				log.Debugf("failed to close access log database connection: %v", err)
+			}
+		})
+		return conn
+	})
+}
+
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
-		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.DBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.AccessLogDBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
 		accessLogManager.StartPeriodicCleanup(
 			context.Background(),
 			s.Config.ReverseProxy.AccessLogRetentionDays,
 			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
 		)
+		s.OnStop(accessLogManager.StopPeriodicCleanup)
 		return accessLogManager
 	})
 }
