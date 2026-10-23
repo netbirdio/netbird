@@ -41,8 +41,9 @@ type connOptions struct {
 	maxOpenConns int
 }
 
-// WithMaxOpenConns sizes the connection pool of this Conn alone, taking
-// precedence over NB_SQL_MAX_OPEN_CONNS. SQLite always uses one connection.
+// WithMaxOpenConns sizes the gorm connection pool of this Conn, taking
+// precedence over NB_SQL_MAX_OPEN_CONNS. A pgx pool keeps its PoolConfig size,
+// and SQLite always uses one connection.
 func WithMaxOpenConns(n int) Option {
 	return func(o *connOptions) {
 		o.maxOpenConns = n
