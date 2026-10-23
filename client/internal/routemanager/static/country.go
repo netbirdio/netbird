@@ -23,10 +23,13 @@ func NewCountryRoute(params common.HandlerParams) *CountryRoute {
 	return &CountryRoute{params: params}
 }
 
+// String returns the route's countries.
 func (r *CountryRoute) String() string {
 	return r.params.Route.NetString()
 }
 
+// AddRoute fetches the prefixes of the route's countries and installs an OS route for each,
+// leaving out IPv6 prefixes when the interface has no IPv6.
 func (r *CountryRoute) AddRoute(ctx context.Context) error {
 	prefixes, err := common.ResolveCountries(ctx, r.params.CountryPrefixes, r.params.Route.Countries)
 	if err != nil {
@@ -47,6 +50,7 @@ func (r *CountryRoute) AddRoute(ctx context.Context) error {
 	return nil
 }
 
+// RemoveRoute removes the OS routes AddRoute installed.
 func (r *CountryRoute) RemoveRoute() error {
 	if r.route == nil {
 		return nil
@@ -54,6 +58,8 @@ func (r *CountryRoute) RemoveRoute() error {
 	return r.route.RemoveRoute()
 }
 
+// AddAllowedIPs routes the fetched prefixes to the given peer. It fails until AddRoute has
+// fetched them.
 func (r *CountryRoute) AddAllowedIPs(peerKey string) error {
 	if r.route == nil {
 		return errCountryPrefixesNotResolved
@@ -61,6 +67,7 @@ func (r *CountryRoute) AddAllowedIPs(peerKey string) error {
 	return r.route.AddAllowedIPs(peerKey)
 }
 
+// RemoveAllowedIPs removes the prefixes from the peer AddAllowedIPs routed them to.
 func (r *CountryRoute) RemoveAllowedIPs() error {
 	if r.route == nil {
 		return nil
