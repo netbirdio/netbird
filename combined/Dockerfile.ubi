@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:2d4c4551af6831dcd26bbf86108c4385de5183ec8fe6b5868f6f9640fe47f4ed
 
 ARG TARGETPLATFORM
 ARG VERSION=dev
@@ -11,13 +11,6 @@ LABEL name="netbird-server" \
       release="${RELEASE}" \
       summary="NetBird Server" \
       description="NetBird Server runs the Management, Signal, Relay and STUN services of a self-hosted NetBird deployment in a single process."
-
-# Distrust the root that signed the compromised eMudhra intermediates until
-# Red Hat ships a ca-certificates update without it (RHSB-2026-012).
-RUN trust extract --format=pem-bundle \
-      --filter="pkcs11:object=emSign%20ECC%20Root%20CA%20-%20G3;type=cert" \
-      /etc/pki/ca-trust/source/blocklist/emsign-ecc-root-ca-g3.pem && \
-    update-ca-trust extract
 
 COPY --chmod=0555 ${TARGETPLATFORM}/netbird-server /go/bin/netbird-server
 COPY licenses/ /licenses/
