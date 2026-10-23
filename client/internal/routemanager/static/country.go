@@ -59,7 +59,7 @@ func (r *CountryRoute) RemoveRoute() error {
 }
 
 // AddAllowedIPs routes the fetched prefixes to the given peer. It fails until AddRoute has
-// fetched them.
+// succeeded.
 func (r *CountryRoute) AddAllowedIPs(peerKey string) error {
 	if r.route == nil {
 		return errCountryPrefixesNotResolved
