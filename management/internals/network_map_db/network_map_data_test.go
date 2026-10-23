@@ -207,7 +207,7 @@ func (c *fakeNmdataConn) GetNetworkResources(context.Context, string) ([]nmdata.
 	return nil, nil
 }
 func (c *fakeNmdataConn) GetNetworkRouters(context.Context, string) (map[string]map[string]*nmdata.NetworkRouter, error) {
-	return nil, nil
+	return map[string]map[string]*nmdata.NetworkRouter{}, nil
 }
 func (c *fakeNmdataConn) GetAppliedZoneCandidates(context.Context, string) ([]networkmap.AppliedZoneCandidate, error) {
 	return nil, nil
@@ -225,13 +225,13 @@ func (c *fakeNmdataConn) GetDnsSettings(context.Context, string) (nmdata.DNSSett
 	return nmdata.DNSSettings{}, nil
 }
 func (c *fakeNmdataConn) GetNetworkXIDToPublicIdMap(context.Context, string) (map[string]string, error) {
-	return nil, nil
+	return map[string]string{}, nil
 }
 func (c *fakeNmdataConn) GetPrivateServices(context.Context, string) ([]Service, error) {
 	return nil, nil
 }
 func (c *fakeNmdataConn) GetProxyTargetedDomainResourceIDs(context.Context, string) (map[string]struct{}, error) {
-	return nil, nil
+	return map[string]struct{}{}, nil
 }
 
 func (c *fakeNmdataConn) CommitTx(context.Context) error {
