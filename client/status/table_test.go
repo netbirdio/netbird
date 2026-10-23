@@ -7,8 +7,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/anonymize"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 func TestPeersTable(t *testing.T) {
@@ -17,15 +19,14 @@ func TestPeersTable(t *testing.T) {
 		Connected: 1,
 		Details: []PeerStateDetailOutput{
 			{
-				FQDN:                   "web-01.netbird.cloud",
-				IP:                     "100.64.0.12",
-				PubKey:                 "k3Vx9pQ2abcdefghijklmnopqrstuvwxyz0123456789=",
-				Status:                 "Connected",
-				ConnType:               "P2P",
-				Latency:                12 * time.Millisecond,
-				LastWireguardHandshake: time.Now().Add(-8 * time.Second),
-				TransferReceived:       1024,
-				TransferSent:           2048,
+				FQDN:             "web-01.netbird.cloud",
+				IP:               "100.64.0.12",
+				PubKey:           "k3Vx9pQ2abcdefghijklmnopqrstuvwxyz0123456789=",
+				Status:           "Connected",
+				ConnType:         "P2P",
+				Latency:          12 * time.Millisecond,
+				TransferReceived: 1024,
+				TransferSent:     2048,
 			},
 			{
 				FQDN:   "old-nas.netbird.cloud",
@@ -40,19 +41,19 @@ func TestPeersTable(t *testing.T) {
 
 	assert.Equal(t, "Peers (1/2 connected):", lines[0])
 	assert.Equal(t,
-		[]string{"NAME", "IP", "PUBLIC", "KEY", "STATUS", "CONN", "LATENCY", "HANDSHAKE", "RX", "/", "TX"},
+		[]string{"NAME", "IP", "STATUS", "CONN", "LATENCY", "RX", "/", "TX"},
 		strings.Fields(lines[1]))
 
 	connected := strings.Fields(lines[2])
 	assert.Equal(t, "web-01", connected[0], "domain suffix must be dropped")
-	assert.Equal(t, "k3Vx9pQ2...", connected[2], "public key must be truncated")
-	assert.Equal(t, "Connected", connected[3])
-	assert.Equal(t, "P2P", connected[4])
-	assert.Equal(t, "12ms", connected[5])
+	assert.Equal(t, "Connected", connected[2])
+	assert.Equal(t, "P2P", connected[3])
+	assert.Equal(t, "12ms", connected[4])
+	assert.NotContains(t, lines[2], "k3Vx9pQ2", "public key must not be shown")
 	assert.Contains(t, lines[2], "1.0 KiB / 2.0 KiB")
 
 	idle := strings.Fields(lines[3])
-	assert.Equal(t, []string{"old-nas", "100.64.0.77", "-", "Idle", "-", "-", "-", "0", "B", "/", "0", "B"}, idle,
+	assert.Equal(t, []string{"old-nas", "100.64.0.77", "Idle", "-", "-", "0", "B", "/", "0", "B"}, idle,
 		"missing values render as dashes")
 }
 
@@ -67,7 +68,10 @@ func tableRows(t *testing.T, opts ConvertOptions) []string {
 
 	opts.DaemonVersion = resp.GetDaemonVersion()
 	opts.DaemonStatus = ParseDaemonStatus(resp.GetStatus())
-	overview := ConvertToStatusOutputOverview(resp.GetFullStatus(), opts)
+	// The anonymizer rewrites slices in place, so work on a copy to keep the
+	// shared fixture intact for the other tests.
+	fullStatus := protobuf.Clone(resp.GetFullStatus()).(*proto.FullStatus)
+	overview := ConvertToStatusOutputOverview(fullStatus, opts)
 	out := overview.PeersTable()
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
