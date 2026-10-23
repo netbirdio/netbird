@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -162,19 +164,19 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context, lockStrength Lo
 		b.add([]byte(trigram))
 	}
 
-	// tx = tx.Where(generateBloomFilterClause("name_hash_1"), generateBloomFilterClauseValues(b.buckets[0])...)
-	tx = tx.Where(generateBloomFilterClause("name_hash_2"), generateBloomFilterClauseValues(b.buckets[1])...)
-	// tx = tx.Where(generateBloomFilterClause("name_hash_3"), generateBloomFilterClauseValues(b.buckets[2])...)
-	// tx = tx.Where(generateBloomFilterClause("name_hash_4"), generateBloomFilterClauseValues(b.buckets[3])...)
-	// tx = tx.Where(generateBloomFilterClause("name_hash_5"), generateBloomFilterClauseValues(b.buckets[4])...)
+	tx = tx.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_5) @> bitmap_to_bitarray(?)", b.buckets[4])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_6) @> bitmap_to_bitarray(?)", b.buckets[5])
 
 	var users []*types.User
 	queryString := tx.ToSQL(func(tx *gorm.DB) *gorm.DB {
-		return tx.Find(&users, accountIDCondition, accountID)
+		return tx.Distinct().Find(&users, accountIDCondition, accountID)
 	})
 	fmt.Println("The query is ", queryString)
-	result := tx.Find(&users, accountIDCondition, accountID)
-
+	result := tx.Distinct().Find(&users, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
@@ -183,80 +185,35 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context, lockStrength Lo
 		return nil, status.Errorf(status.Internal, "issue getting users from store")
 	}
 
+	toret := make([]*types.User, 0, len(users))
 	for _, user := range users {
 		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
-	}
-
-	return users, nil
-}
-
-const bloomWhere = `
-bitcheck(%[1]s, 1)=?
- and bitcheck(%[1]s, 2)=?
- and bitcheck(%[1]s, 3)=?
- and bitcheck(%[1]s, 4)=?
- and bitcheck(%[1]s, 5)=?
- and bitcheck(%[1]s, 6)=?
- and bitcheck(%[1]s, 7)=?
- and bitcheck(%[1]s, 8)=?
- and bitcheck(%[1]s, 9)=?
- and bitcheck(%[1]s, 10)=?
- and bitcheck(%[1]s, 11)=?
- and bitcheck(%[1]s, 12)=?
- and bitcheck(%[1]s, 13)=?
- and bitcheck(%[1]s, 14)=?
- and bitcheck(%[1]s, 15)=?
- and bitcheck(%[1]s, 16)=?
- and bitcheck(%[1]s, 17)=?
- and bitcheck(%[1]s, 18)=?
- and bitcheck(%[1]s, 19)=?
- and bitcheck(%[1]s, 20)=?
- and bitcheck(%[1]s, 21)=?
- and bitcheck(%[1]s, 22)=?
- and bitcheck(%[1]s, 23)=?
- and bitcheck(%[1]s, 24)=?
- and bitcheck(%[1]s, 25)=?
- and bitcheck(%[1]s, 26)=?
- and bitcheck(%[1]s, 27)=?
- and bitcheck(%[1]s, 28)=?
- and bitcheck(%[1]s, 29)=?
- and bitcheck(%[1]s, 30)=?
- and bitcheck(%[1]s, 31)=?
- and bitcheck(%[1]s, 32)=?
-`
-
-func generateBloomFilterClause(idxColumn string) string {
-	return fmt.Sprintf(bloomWhere, idxColumn)
-}
-
-func generateBloomFilterClauseValues(hash uint32) []any {
-	toret := make([]any, 32)
-	for i := 0; i < 32; i++ {
-		sign := 1
-		if hash&(1<<i) == 0 {
-			sign = -1
+		if !strings.Contains(user.Name, nameFilter) {
+			continue
 		}
-		toret[i] = sign * (i + 1)
+		toret = append(toret, user)
 	}
-	return toret
+
+	return toret, nil
 }
 
 // use https://hur.st/bloomfilter/ to calculate filter params
 type bloom struct {
-	buckets  []uint32
+	buckets  []int32
 	k        uint64 // num of hash passes
 	m        uint64 // num of bits
 	nbuckets uint64 // bits split into 32bit words
 }
 
 func newBloomFilter(m int) *bloom {
+	n := int(math.Ceil(float64(m) / 31))
 	return &bloom{
-		buckets:  make([]uint32, m/32),
+		buckets:  make([]int32, n),
 		m:        uint64(m),
 		k:        4,
-		nbuckets: uint64(m / 32),
+		nbuckets: uint64(n),
 	}
 }
 
@@ -265,7 +222,7 @@ func (b *bloom) add(d []byte) {
 	for i := uint64(0); i < b.k; i++ {
 		idx := (h1 + i*h2) % b.m
 		bidx := idx % b.nbuckets
-		bit := uint32(1 << (idx % 32))
+		bit := int32(1 << (idx % 31))
 		b.buckets[bidx] |= bit
 	}
 }
@@ -276,7 +233,7 @@ func (b *bloom) test(d []string) bool {
 		for i := uint64(0); i < b.k; i++ {
 			idx := (h1 + i*h2) % b.m
 			bidx := idx % b.nbuckets
-			bit := uint32(1 << (idx % 32))
+			bit := int32(1 << (idx % 31))
 			if b.buckets[bidx]&bit == 0 {
 				return false
 			}
@@ -293,14 +250,26 @@ func (b *bloom) hash(d []byte) (uint64, uint64) {
 }
 
 func toTrigrams(s string) []string {
-	if len(s) < 3 {
+	in := strings.TrimSpace(s)
+	if len(in) < 3 {
 		return nil
 	}
 
-	toret := make([]string, 0, len(s)-2)
-	toret = append(toret, s[:3])
-	for i := 3; i < len(s); i++ {
-		toret = append(toret, s[i-2:i+1])
+	parts := make([]string, 0)
+	for _, part := range strings.Split(in, " ") {
+		if len(part) < 3 {
+			parts = append(parts, part+strings.Repeat(" ", 3-len(part)))
+		} else {
+			parts = append(parts, part)
+		}
+	}
+
+	toret := make([]string, 0)
+	for _, part := range parts {
+		toret = append(toret, part[:3])
+		for i := 3; i < len(part); i++ {
+			toret = append(toret, part[i-2:i+1])
+		}
 	}
 	return toret
 }
