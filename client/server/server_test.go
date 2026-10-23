@@ -106,5 +106,6 @@ func TestServer_SubcribeEvents(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, stream.sentEvents, "a subscriber must receive the current log level")
 	assert.Equal(t, daemonProto.MetadataKindLogLevelChanged,
-		stream.sentEvents[0].Metadata[daemonProto.MetadataKindKey])
+		stream.sentEvents[0].Metadata[daemonProto.MetadataKindKey],
+		"the initial replay must identify the log-level event")
 }
