@@ -35,13 +35,9 @@ func TestOpenAdminEventStoreMissingEncryptionKeyReturnsNilInterface(t *testing.T
 
 func TestApplyServerStoreEnv(t *testing.T) {
 	t.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", "")
-	t.Setenv("NB_STORE_ENGINE_MYSQL_DSN", "")
 	t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "")
 
 	applyServerStoreEnv(StoreConfig{Engine: "postgres", DSN: "postgres-dsn", File: "store.db"})
 	require.Equal(t, "postgres-dsn", os.Getenv("NB_STORE_ENGINE_POSTGRES_DSN"))
 	require.Equal(t, "store.db", os.Getenv("NB_STORE_ENGINE_SQLITE_FILE"))
-
-	applyServerStoreEnv(StoreConfig{Engine: "mysql", DSN: "mysql-dsn"})
-	require.Equal(t, "mysql-dsn", os.Getenv("NB_STORE_ENGINE_MYSQL_DSN"))
 }

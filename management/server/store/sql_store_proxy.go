@@ -21,8 +21,8 @@ func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
 	var m ProxyMetrics
 	activeCutoff := time.Now().Add(-proxyActiveThreshold)
 
-	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite/postgres
-	// (MySQL too) and keeps the round-trip to one. proxy.StatusConnected
+	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite and postgres
+	// and keeps the round-trip to one. proxy.StatusConnected
 	// is the same string the cluster-capability queries use; the active
 	// window matches the cluster-capability semantics (only proxies
 	// heartbeating within ~2 * heartbeat interval count as connected).
@@ -292,7 +292,7 @@ func (s *SqlStore) GetProxyClusters(ctx context.Context, accountID string) ([]pr
 				"cluster_address AS address, "+
 				// COUNT(CASE WHEN ... THEN 1 END) counts only non-NULL — i.e. only
 				// rows that satisfy the predicate — so it works portably across
-				// sqlite/postgres/mysql without dialect-specific FILTER syntax.
+				// sqlite and postgres without dialect-specific FILTER syntax.
 				"COUNT(CASE WHEN status = ? AND last_seen > ? THEN 1 END) AS connected_proxies, "+
 				// MAX(CASE …) > 0 expresses BOOL_OR in a way Postgres tolerates
 				// (Postgres can't MAX a boolean column).
