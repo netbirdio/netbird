@@ -3,7 +3,6 @@ package cmd
 import (
 	"testing"
 
-	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,14 +15,18 @@ func TestParsingOfIP(t *testing.T) {
 	assert.Equal(t, "192.168.178.123\n", parsedIP)
 }
 
+// resetStatusFlags restores only the status-specific output flags. The global
+// root flags (setup-key and friends) are shared with other tests in the
+// package, so they must not be touched here.
 func resetStatusFlags(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
-		statusCmd.Flags().VisitAll(func(f *pflag.Flag) {
-			_ = f.Value.Set(f.DefValue)
+		for _, name := range []string{"detail", "table", "json", "yaml", "ipv4", "ipv6"} {
+			f := statusCmd.Flags().Lookup(name)
+			require.NotNil(t, f, "flag %s must exist", name)
+			require.NoError(t, f.Value.Set(f.DefValue))
 			f.Changed = false
-		})
-		detailFlag, tableFlag, jsonFlag, yamlFlag = false, false, false, false
+		}
 	})
 }
 
