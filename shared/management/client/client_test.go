@@ -767,8 +767,12 @@ func TestClient_GetCountryPrefixes(t *testing.T) {
 		defer closeManagementSilently(s, lis)
 		client := newRegisteredClient(t, lis.Addr().String())
 
-		_, err := client.GetCountryPrefixes(ctx, "US")
-		assert.Equal(t, codes.Unavailable, status.Code(err), "unexpected error: %v", err)
+		// More fetches than the per-country budget: each must still report geolocation as
+		// unavailable rather than exhaust the budget.
+		for i := range 8 {
+			_, err := client.GetCountryPrefixes(ctx, "US")
+			assert.Equal(t, codes.Unavailable, status.Code(err), "fetch %d: unexpected error: %v", i+1, err)
+		}
 	})
 
 	t.Run("canceled context stops the server key lookup", func(t *testing.T) {
