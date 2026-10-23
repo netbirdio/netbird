@@ -770,4 +770,16 @@ func TestClient_GetCountryPrefixes(t *testing.T) {
 		_, err := client.GetCountryPrefixes(ctx, "US")
 		assert.Equal(t, codes.Unavailable, status.Code(err), "unexpected error: %v", err)
 	})
+
+	t.Run("canceled context stops the server key lookup", func(t *testing.T) {
+		s, lis := startManagementWithGeo(t, geo)
+		defer closeManagementSilently(s, lis)
+		client := newRegisteredClient(t, lis.Addr().String())
+
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		_, err := client.GetCountryPrefixes(canceled, "US")
+		assert.Equal(t, codes.Canceled, status.Code(err), "unexpected error: %v", err)
+		assert.ErrorContains(t, err, "public key", "the key lookup itself should honor the caller's context")
+	})
 }
