@@ -72,6 +72,7 @@ func (r *Route) IsDynamic() bool {
 	return r.NetworkType == NetworkTypeDomain
 }
 
+// IsCountry reports whether the route's destination is the IP prefixes of its countries.
 func (r *Route) IsCountry() bool {
 	return r.NetworkType == NetworkTypeCountry
 }

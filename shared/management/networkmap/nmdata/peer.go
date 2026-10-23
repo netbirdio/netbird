@@ -99,6 +99,7 @@ func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
 }
 
+// SupportsCountryRoutes reports whether the peer can fetch and install country prefixes.
 func (p *Peer) SupportsCountryRoutes() bool {
 	return p.HasCapability(PeerCapabilityCountryRoutes)
 }
