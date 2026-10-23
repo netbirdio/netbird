@@ -3,9 +3,12 @@ package static
 import (
 	"context"
 	"fmt"
+	"sync"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
@@ -15,6 +18,7 @@ type Route struct {
 	route                *route.Route
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
+	allowedIPsMu         sync.Mutex
 	// currentPeerKey is the routing peer this watcher currently has the prefix installed on
 	// (the HA winner elected by the watcher). It can differ from route.Peer and change on
 	// failover, so it is recorded on AddAllowedIPs and used on RemoveAllowedIPs to decrement
@@ -42,13 +46,20 @@ func (r *Route) AddRoute(context.Context) error {
 }
 
 func (r *Route) RemoveRoute() error {
-	if _, err := r.routeRefCounter.Decrement(r.route.Network); err != nil {
-		return err
+	var merr *multierror.Error
+	if err := r.RemoveAllowedIPs(); err != nil {
+		merr = multierror.Append(merr, err)
 	}
-	return nil
+	if _, err := r.routeRefCounter.Decrement(r.route.Network); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *Route) AddAllowedIPs(peerKey string) error {
+	r.allowedIPsMu.Lock()
+	defer r.allowedIPsMu.Unlock()
+
 	if ref, err := r.allowedIPsRefcounter.Increment(r.route.Network, peerKey); err != nil {
 		return fmt.Errorf("add allowed IP %s: %w", r.route.Network, err)
 	} else if ref.Count > 1 && ref.Out != peerKey {
@@ -62,6 +73,9 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 }
 
 func (r *Route) RemoveAllowedIPs() error {
+	r.allowedIPsMu.Lock()
+	defer r.allowedIPsMu.Unlock()
+
 	var err error
 	if _, decErr := r.allowedIPsRefcounter.Decrement(r.route.Network, r.currentPeerKey); decErr != nil {
 		err = fmt.Errorf("remove allowed IP %s: %w", r.route.Network, decErr)
