@@ -348,7 +348,7 @@ func (t *Tray) relayoutMenu() {
 
 	disableProfiles, disableNetworks := t.featuresDisabled()
 
-	daemonUnavailable := strings.EqualFold(lastStatus, services.StatusDaemonUnavailable)
+	daemonUnavailable := services.IsDaemonOutage(lastStatus)
 	connecting := strings.EqualFold(lastStatus, services.StatusConnecting)
 
 	if t.statusItem != nil && lastStatus != "" {

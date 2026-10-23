@@ -62,11 +62,11 @@ export const formatErrorMessage = (e: unknown): string => {
 export const errorCommand = (e: unknown): string => classify(e)?.command ?? "";
 
 // isDaemonUnavailable reports whether an error means the daemon could not be
-// reached, so a caller can retry quietly instead of putting a dialog up while
-// the service is still starting. Matches the classified code first and the raw
+// reached or refuses this user. Matches the classified code first and the raw
 // gRPC status text second, since not every service classifies its errors.
 export const isDaemonUnavailable = (e: unknown): boolean => {
-    if (classify(e)?.code === "daemon_unreachable") return true;
+    const code = classify(e)?.code;
+    if (code === "daemon_unreachable" || code === "daemon_access_denied") return true;
     const msg = e instanceof Error ? e.message : String(e);
     return msg.includes("code = Unavailable");
 };
