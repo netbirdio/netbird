@@ -170,6 +170,14 @@ jobs:
         # root, which has no Go files.
         run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,CGO_ENABLED' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /client/testutil/privileged)
 
+      - name: Test SSH privilege drop in the PKCS#11 package build
+        # deb and rpm packages build with CGO_ENABLED=0 and the pkcs11 tag, which links
+        # libc through purego. The Test step above uses real cgo and never hits that path.
+        if: matrix.arch == 'amd64'
+        run: |
+          CGO_ENABLED=0 go test -c -tags 'pkcs11 privileged' -o ssh-server-pkcs11.test ./client/ssh/server/
+          sudo ./ssh-server-pkcs11.test -test.run '^TestDropPrivilegesAllThreads$' -test.v
+
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f #v7.0.0
