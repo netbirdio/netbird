@@ -22,7 +22,10 @@ func (pgc *PgStoreConn) GetNetwork(ctx context.Context, accountId string) (nmdat
 	if err != nil {
 		return nmdata.Network{}, err
 	}
+	return collectNetwork(rows)
+}
 
+func collectNetwork(rows pgx.Rows) (nmdata.Network, error) {
 	n, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[networkmapdb.AccountNetwork])
 	if err != nil {
 		return nmdata.Network{}, err

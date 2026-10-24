@@ -21,7 +21,10 @@ func (pgc *PgStoreConn) GetDnsSettings(ctx context.Context, accountId string) (n
 	if err != nil {
 		return nmdata.DNSSettings{}, err
 	}
+	return collectDnsSettings(rows)
+}
 
+func collectDnsSettings(rows pgx.Rows) (nmdata.DNSSettings, error) {
 	return pgx.CollectOneRow(rows, rowToDnsSettings)
 }
 

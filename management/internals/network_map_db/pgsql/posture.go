@@ -22,7 +22,10 @@ func (pgc *PgStoreConn) GetPostureChecks(ctx context.Context, accountId string) 
 	if err != nil {
 		return nil, nil, err
 	}
+	return collectPostureChecks(rows)
+}
 
+func collectPostureChecks(rows pgx.Rows) ([]nmdata.PostureChecks, map[string]string, error) {
 	checks, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.PostureChecks])
 	if err != nil {
 		return nil, nil, err

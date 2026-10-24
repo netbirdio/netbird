@@ -33,7 +33,10 @@ func (pgc *PgStoreConn) GetAccountSettings(ctx context.Context, accountId string
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err
 	}
+	return collectAccountSettings(rows)
+}
 
+func collectAccountSettings(rows pgx.Rows) (nmdata.AccountSettingsInfo, error) {
 	settings, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[networkmapdb.Account])
 	if err != nil {
 		return nmdata.AccountSettingsInfo{}, err

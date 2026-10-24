@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func TestRecordTypeAndRdata(t *testing.T) {
@@ -57,4 +59,11 @@ func TestConvertToNmdataPeers_RejectsMalformedCertificates(t *testing.T) {
 	_, _, err := ConvertToNmdataPeers([]Peer{{MetaCertificates: []byte(`{"not":"a list"}`)}})
 
 	assert.Error(t, err, "a stored value that is not a list of chains must not load as no certificates")
+}
+
+func TestAccountRowsUnreadPeerIDs(t *testing.T) {
+	rows := &AccountRows{Peers: []nmdata.Peer{{ID: "peer-1"}, {ID: "peer-2"}}}
+
+	assert.Equal(t, []string{"peer-3"}, rows.UnreadPeerIDs([]string{"peer-1", "peer-3", "peer-2"}))
+	assert.Empty(t, rows.UnreadPeerIDs([]string{"peer-2"}))
 }

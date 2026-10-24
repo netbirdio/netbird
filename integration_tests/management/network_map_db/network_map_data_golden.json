@@ -555,5 +555,10 @@
       "Domain": "test-331.com",
       "TargetCluster": "target-1.cluster.local"
     }
+  ],
+  "PeerVersions": [
+    "0.76.0",
+    "0.76.1",
+    "0.76.2"
   ]
 }

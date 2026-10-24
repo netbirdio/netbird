@@ -44,6 +44,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/encoding/prototext"
 	goproto "google.golang.org/protobuf/proto"
 	"gorm.io/driver/postgres"
@@ -61,6 +62,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/types/legacynmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -133,8 +135,14 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 		return
 	}
 
-	nmData, err := nmStore.GetNetworkMapData(ctx, account.Id)
+	// The controller hands the twin the account's reverse-proxy services, from
+	// which the proxy ACLs are synthesised; the store never reads them.
+	services := types.TwinServices(account.Services)
+
+	nmData, err := nmStore.GetNetworkMapData(ctx, account.Id, nil, nil)
 	require.NoError(t, err, "account %s: nmdata store load", account.Id)
+	nmData.Services = services
+	nmData.BuildPrivateServiceCandidates()
 
 	validated := make(map[string]struct{}, len(account.Peers))
 	peerIDs := make([]string, 0, len(account.Peers))
@@ -180,7 +188,7 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 	}
 
 	accountPeersZone := account.GetPeersCustomZone(ctx, equivDNSName)
-	storePeersZone := networkmap.PeersCustomZone(ctx, account.Id, equivDNSName, nmData.Peers, controller.IPv6AllowedPeersFromData(nmData))
+	storePeersZone := networkmap.NewPeersZone(networkmap.PeersCustomZone(ctx, account.Id, equivDNSName, nmData.Peers, controller.IPv6AllowedPeersFromData(nmData)))
 
 	for _, peerID := range peerIDs {
 		peer := account.Peers[peerID]
@@ -237,7 +245,55 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 		if !goproto.Equal(legacyProto, acctProto) {
 			t.Fatalf("after %d peers: account path: %s", stats.peersChecked, describeDivergence(legacyProto, acctProto, account.Id, peerID))
 		}
+
+		// PARTIAL PATH — the nmdata store loading only the peer's closure, as the
+		// controller does for a single peer.
+		partialProto := partialLoadProto(ctx, t, nmStore, account.Id, peerID, services, validated, settings)
+		canonicalize(partialProto)
+		if !goproto.Equal(legacyProto, partialProto) {
+			t.Fatalf("after %d peers: partial load path: %s", stats.peersChecked, describeDivergence(legacyProto, partialProto, account.Id, peerID))
+		}
 	}
+
+	partial, err := nmStore.GetNetworkMapData(ctx, account.Id, nil, func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
+		return networkmapdb.PeerSelection{}, nil
+	})
+	require.NoError(t, err, "account %s: version-only load", account.Id)
+	require.ElementsMatch(t, distinctVersions(nmData.Peers), partial.PeerVersions, "account %s: client versions of a partial load", account.Id)
+}
+
+// partialLoadProto computes the peer's proto network map from a load of only
+// the peer's closure, the way the controller serves a single peer.
+func partialLoadProto(ctx context.Context, t *testing.T, nmStore *networkmapdb.NetworkMapDBStoreImpl, accountID, peerID string, services []*nmdata.Service, validated map[string]struct{}, settings *types.Settings) *proto.NetworkMap {
+	t.Helper()
+
+	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, []string{peerID}, func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
+		nmd.Services = services
+		closure, _ := nmd.PeerClosure([]string{peerID}, 0)
+		return networkmapdb.PeerSelection{PeerIDs: maps.Keys(closure), SkipUsers: !nmd.RequiresUsers(peerID)}, nil
+	})
+	require.NoError(t, err, "account %s peer %s: partial load", accountID, peerID)
+	nmData.BuildPrivateServiceCandidates()
+	nmData.ValidatedPeers = validated
+
+	zone := networkmap.NewPeersZone(networkmap.PeersCustomZone(ctx, accountID, equivDNSName, nmData.Peers, controller.IPv6AllowedPeersFromData(nmData)))
+	components := nmData.GetPeerNetworkMapComponents(peerID, zone)
+	nm := &types.NetworkMap{Network: components.Network}
+	if !components.IsEmpty() {
+		nm = types.CalculateNetworkMapFromComponents(ctx, components)
+	}
+	return mgmtgrpc.ToSyncResponse(
+		ctx, nil, nil, nil, nmData.Peers[peerID], nil, nil, nm, equivDNSName, nil,
+		&cache.DNSConfigCache{}, nmData.AccountSettings, settings.Extra, nil, 0,
+	).NetworkMap
+}
+
+func distinctVersions(peers map[string]*nmdata.Peer) []string {
+	set := make(map[string]struct{})
+	for _, p := range peers {
+		set[p.Meta.WtVersion] = struct{}{}
+	}
+	return maps.Keys(set)
 }
 
 // nmDataStore wraps a raw connection store the way production's factory does.

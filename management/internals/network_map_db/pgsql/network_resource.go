@@ -21,7 +21,10 @@ func (pgc *PgStoreConn) GetNetworkResources(ctx context.Context, accountId strin
 	if err != nil {
 		return nil, err
 	}
+	return collectNetworkResources(rows)
+}
 
+func collectNetworkResources(rows pgx.Rows) ([]nmdata.NetworkResource, error) {
 	netresorces, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Networkresource])
 	if err != nil {
 		return nil, err

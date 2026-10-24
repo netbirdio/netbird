@@ -24,8 +24,7 @@ func (pgc *PgStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (
 	if err != nil {
 		return nil, nil, err
 	}
-
-	users, err := pgx.CollectRows(rows, pgx.RowToStructByName[user])
+	users, err := collectUsers(rows)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -34,11 +33,24 @@ func (pgc *PgStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	allGroupIds, err := pgx.CollectOneRow(rows, pgx.RowTo[[]string])
+	allGroupIds, err := collectAllGroupIds(rows)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	userIdIdx, groupIdToUserIds := allowedUsers(users, allGroupIds)
+	return userIdIdx, groupIdToUserIds, nil
+}
+
+func collectUsers(rows pgx.Rows) ([]user, error) {
+	return pgx.CollectRows(rows, pgx.RowToStructByName[user])
+}
+
+func collectAllGroupIds(rows pgx.Rows) ([]string, error) {
+	return pgx.CollectOneRow(rows, pgx.RowTo[[]string])
+}
+
+func allowedUsers(users []user, allGroupIds []string) (map[string]struct{}, map[string][]string) {
 	userIdIdx := make(map[string]struct{})
 	groupIdToUserIds := make(map[string][]string)
 	for _, user := range users {
@@ -51,7 +63,7 @@ func (pgc *PgStoreConn) GetAllowedUsers(ctx context.Context, accountId string) (
 		}
 	}
 
-	return userIdIdx, groupIdToUserIds, nil
+	return userIdIdx, groupIdToUserIds
 }
 
 type user struct {
