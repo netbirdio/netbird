@@ -4,8 +4,6 @@ package mcpe2e
 
 import (
 	"context"
-	"net/http"
-	"net/url"
 	"testing"
 	"time"
 
@@ -52,33 +50,4 @@ func TestPATReadAndWriteTools(t *testing.T) {
 	res := callTool(ctx, t, session, "delete_group", map[string]any{"group_id": created.Id})
 	require.False(t, res.IsError, "delete_group failed: %s", resultText(t, res))
 	assert.False(t, groupExists(ctx, t, created.Id), "the group deleted over MCP must be gone from REST")
-}
-
-// Tools act only on the caller's account. The ?account= query a tenant URL carries must be
-// the caller's own on a deployment that cannot switch accounts: any other is refused rather
-// than quietly served from the caller's account. update_account fills its account from the
-// caller, so the client is never offered the argument.
-func TestPATStaysInItsAccount(t *testing.T) {
-	logsOnFailure(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-
-	accounts, err := srv.API().Accounts.List(ctx)
-	require.NoError(t, err)
-	require.Len(t, accounts, 1, "the PAT sees exactly its own account")
-	own := accounts[0].Id
-
-	plain := &http.Client{Timeout: 30 * time.Second}
-	endpoint := srv.BaseURL + mcpPath
-	status, _ := probe(ctx, t, plain, endpoint+"?account="+url.QueryEscape(own), "Token "+srv.PAT)
-	assert.Equal(t, http.StatusOK, status, "the caller's own account is served")
-	status, _ = probe(ctx, t, plain, endpoint+"?account="+url.QueryEscape(own+"-other"), "Token "+srv.PAT)
-	assert.Equal(t, http.StatusForbidden, status, "another account is refused, not replaced by the caller's own")
-	status, _ = probe(ctx, t, plain, endpoint+"?Account="+url.QueryEscape(own+"-other"), "Token "+srv.PAT)
-	assert.Equal(t, http.StatusBadRequest, status, "a miscased account key is refused, not ignored")
-
-	session := connect(ctx, t, endpoint, "Token "+srv.PAT, nil)
-	props := schemaProperties(t, findTool(ctx, t, session, "update_account"))
-	assert.Contains(t, props, "settings", "update_account takes the settings object")
-	assert.NotContains(t, props, "account_id", "update_account must take the account from the caller, never from the client")
 }

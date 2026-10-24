@@ -220,27 +220,19 @@ func (c *oauthClient) consent(ctx context.Context) *consentStep {
 	return step
 }
 
-// decide submits the consent form with the given fields, as the consent page itself would.
-func (c *oauthClient) decide(ctx context.Context, step *consentStep, fields url.Values, fetchSite string) *page {
-	c.t.Helper()
-	form := url.Values{"request": {step.request}}
-	for k, v := range fields {
-		form[k] = v
-	}
-	return c.postForm(ctx, step.action.String(), form, map[string]string{"Sec-Fetch-Site": fetchSite})
-}
-
 // authorize runs the whole browser part of the flow: consent, with or without write, then
 // sign-in at the embedded IdP as the bootstrapped admin. It returns the authorization code
 // and the PKCE verifier that redeems it.
 func (c *oauthClient) authorize(ctx context.Context, allowWrite bool) (string, string) {
 	c.t.Helper()
 	step := c.consent(ctx)
-	fields := url.Values{"action": {"approve"}}
+	form := url.Values{"request": {step.request}, "action": {"approve"}}
 	if allowWrite {
-		fields.Set("write", "on")
+		form.Set("write", "on")
 	}
-	loc := c.signIn(ctx, c.decide(ctx, step, fields, "same-origin"))
+	// Posted the way a browser posts the consent page's own form.
+	decided := c.postForm(ctx, step.action.String(), form, map[string]string{"Sec-Fetch-Site": "same-origin"})
+	loc := c.signIn(ctx, decided)
 
 	q := loc.Query()
 	require.Empty(c.t, q.Get("error"), "the broker refused the sign-in: %s", q.Get("error_description"))
