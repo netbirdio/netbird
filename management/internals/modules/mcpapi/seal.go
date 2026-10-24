@@ -37,8 +37,8 @@ const (
 var errUnsealable = errors.New("value is not valid")
 
 // sealer encrypts small JSON payloads into opaque strings with AES-GCM. Everything the
-// broker hands out is sealed, which keeps the broker stateless: any instance holding the
-// same secret can verify any value, and nothing needs a database row.
+// broker hands out is sealed, so any instance holding the same secret can open any value
+// without a lookup; only sessions and single-use markers live in the grant store.
 type sealer struct {
 	aead cipher.AEAD
 }

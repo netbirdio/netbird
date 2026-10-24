@@ -3,7 +3,8 @@
 This package runs an OAuth 2.1 authorization server (the broker) so
 [Model Context Protocol](https://modelcontextprotocol.io) clients can sign users in to
 management's MCP endpoint at `/api/mcp` without a personal access token. It is off
-unless `NB_MCP_ENABLED` is true.
+unless `NB_MCP_ENABLED` is true. The package authenticates calls to `/api/mcp` but
+mounts no handler there.
 
 ## Enabling
 
@@ -60,10 +61,11 @@ from the embedded IdP's issuer or else the request; see [Reverse proxy](#reverse
    only, token endpoint authentication `none` and RFC 9207 `iss`.
 3. **Registration.** Only absolute `https` redirect URIs, or `http` on a loopback host
    (`localhost`, `127.0.0.0/8`, `::1`), with no fragment, no user info and an ASCII
-   host are kept; others are dropped. None left answers 400 `invalid_redirect_uri`, a
-   body that is not a JSON object 400 `invalid_client_metadata`. Success is 201 with
-   no secret. The client ID (`nbmcpc_...`) seals the redirect URIs, the name (cut to
-   100 bytes) and the issue time; nothing is stored and it never expires.
+   host are kept; others are dropped. None left, or a `null` body, answers 400
+   `invalid_redirect_uri`; a body that does not decode as client metadata answers 400
+   `invalid_client_metadata`. Success is 201 with no secret. The client ID
+   (`nbmcpc_...`) seals the redirect URIs, the name (cut to 100 bytes) and the issue
+   time; nothing is stored and it never expires.
 4. **Authorize.** Until the client ID opens and `redirect_uri` matches a registered
    one (exactly, or for loopback `http` on any port, RFC 8252 section 7.3), errors
    render a 400 page. After that, a malformed request is redirected as an OAuth error
@@ -85,24 +87,29 @@ from the embedded IdP's issuer or else the request; see [Reverse proxy](#reverse
    when set, and `<base>/api/mcp/auth/callback`. The client's challenge, state and
    redirect URI never reach the identity provider, and no `prompt=login` is sent.
 7. **Callback.** The login cookie must open, its state match and its first use be
-   recorded (a replay gets an error page). The broker redeems the code and validates
-   the token like a dashboard login: `ValidateAndParseToken`,
-   `GetAccountIDFromUserAuth`, `EnsureUserAccessByJWTGroups`, `SyncUserJWTGroups`
-   (failure only logged) and `GetUserFromUserAuth`; the user must not be blocked or
-   pending approval and must belong to the account. The identity provider's token is
-   then discarded. Failures redirect with `access_denied`, logged at debug.
+   recorded; otherwise an error page answers, 503 when the store cannot record the
+   use. The broker redeems the code and validates the token like a dashboard login:
+   `ValidateAndParseToken`, `GetAccountIDFromUserAuth`, `EnsureUserAccessByJWTGroups`,
+   `SyncUserJWTGroups` (failure only logged) and `GetUserFromUserAuth`; the user must
+   not be blocked or pending approval and must belong to the account. The identity
+   provider's token is then discarded. An identity provider error or a failed check
+   redirects with `access_denied`, logged at debug; an internal error redirects with
+   `server_error`.
 8. **Token.** `authorization_code`: an unknown client is 401 `invalid_client`; the
    code must open, be unexpired, match the client ID, `redirect_uri` and PKCE
    verifier (else 400 `invalid_grant`) and `resource` (else 400 `invalid_target`). A
    second redemption answers `invalid_grant` and revokes the session the first one
    started (OAuth 2.1 section 4.1.3). `refresh_token`: every refusal answers 400
    `invalid_grant`, the only error on which the Go MCP SDK drops its tokens and signs
-   in again. Other grant types are 400 `unsupported_grant_type`.
+   in again. Other grant types are 400 `unsupported_grant_type`. A store outage
+   answers either grant with 503 `temporarily_unavailable` instead, so the client
+   retries.
 9. **Calling `/api/mcp`.** `AuthMiddleware` checks a `Bearer nbmcp_` token itself: it
    must open, be unexpired, name this `<base>/api/mcp` as resource, and its grant must
    exist. The user is reloaded and must still be active, in the same account, and not
-   created after the session began. Failures answer 401 with the challenge. The call
-   then runs as that user with the granted scopes in the request context.
+   created more than a minute after the session began. Failures answer 401 with the
+   challenge. The call then runs as that user with the granted scopes in the request
+   context.
 
 ### Sessions and refresh
 
@@ -168,8 +175,9 @@ key, which revives unexpired tokens sealed with that key. A value shorter than 3
 keeps the broker from starting rather than falling back. Generate one with
 `openssl rand -base64 32`.
 
-The `management` command saves a generated datastore key to its config; the combined
-server generates one per start unless `server.store.encryptionKey` is set. Persist it.
+The `management` command saves a generated datastore key to its config file as
+`DataStoreEncryptionKey`; the combined server generates one per start unless
+`server.store.encryptionKey` is set. Persist it.
 
 ### Cookies
 
@@ -196,8 +204,9 @@ page.
 
 A stolen access token gives the user's API access through `/api/mcp`, within its
 scopes, for at most 1 hour. A stolen refresh token works until either party refreshes
-again, which is a replay and revokes the session for both. A stolen code is useless
-without the client's PKCE verifier.
+again, which is a replay and revokes the session for both. A second use within 10
+seconds of the first is not a replay: it gets the current tokens as well. A stolen
+code is useless without the client's PKCE verifier.
 
 ### Security notes
 
@@ -210,7 +219,9 @@ without the client's PKCE verifier.
   so the callback is limited to 30 per minute per client address. The address comes
   from `X-Forwarded-For` only when the request arrives from one of
   `ReverseProxy.TrustedHTTPProxies`; otherwise everyone behind the proxy shares one
-  budget.
+  budget. `TrustedHTTPProxiesCount` is not used: trusting the header by position lets a
+  client that reaches management directly choose its own address. List the proxy in
+  `TrustedHTTPProxies` for a budget per client.
 - **Forwarded headers** are trusted from any caller when the base URL comes from the
   request. See [Reverse proxy](#reverse-proxy).
 

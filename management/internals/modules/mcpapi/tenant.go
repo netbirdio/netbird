@@ -27,7 +27,11 @@ func canonicalResource(raw string) (string, bool) {
 	if err != nil || u.Fragment != "" || u.User != nil {
 		return "", false
 	}
-	for key := range u.Query() {
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", false
+	}
+	for key := range query {
 		if key != accountParam {
 			return "", false
 		}
