@@ -200,6 +200,7 @@ type Route struct {
 	PublicID            sql.NullString
 	Network             []byte `nmap:"json"`
 	Domains             []byte `nmap:"json"`
+	Countries           []byte `nmap:"json"`
 	KeepRoute           sql.NullBool
 	NetID               sql.NullString
 	Description         sql.NullString

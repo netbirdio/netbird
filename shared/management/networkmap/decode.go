@@ -331,6 +331,9 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 	if pc.SupportsIpv6 {
 		caps = append(caps, nmdata.PeerCapabilityIPv6Overlay)
 	}
+	if pc.SupportsCountryRoutes {
+		caps = append(caps, nmdata.PeerCapabilityCountryRoutes)
+	}
 	peer := &nmdata.Peer{
 		ID:                     peerID,
 		Key:                    peerID,
@@ -444,6 +447,7 @@ func decodeRouteRaw(rr *proto.RouteRaw, peerIDByIndex []string) *nmdata.Route {
 		NetID:               rr.NetId,
 		Description:         rr.Description,
 		Domains:             domainsFromPunycode(rr.Domains),
+		Countries:           rr.Countries,
 		KeepRoute:           rr.KeepRoute,
 		NetworkType:         int(rr.NetworkType),
 		Masquerade:          rr.Masquerade,
