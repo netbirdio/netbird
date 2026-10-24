@@ -7,8 +7,9 @@ without a personal access token. Both are off unless `NB_MCP_ENABLED` is true.
 
 ## How tool calls work
 
-- Every tool maps onto exactly one REST operation: `list_peers` is `GET /api/peers`,
-  `update_peer` is `PUT /api/peers/{peer_id}`. The catalog is in `catalog.go`.
+- Every tool except `get_guide` maps onto exactly one REST operation: `list_peers` is
+  `GET /api/peers`, `update_peer` is `PUT /api/peers/{peer_id}`. The catalog is in
+  `catalog.go`.
 - A tool call is replayed in-process against the API router, so it runs the same
   handler and permission checks and returns the same JSON as the REST call. A non-2xx
   response becomes a tool error carrying the status and the API's error body, and a

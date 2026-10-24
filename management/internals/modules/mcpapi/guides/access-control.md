@@ -21,9 +21,9 @@ NetBird denies all traffic unless an enabled policy allows it.
 - DNS resolvers behind NetBird need two policies, `udp` and `tcp`, port "53"; missing DNS is the most common breakage.
 
 ## Replace the Default policy
-New accounts have `Default`: `All` to `All`, `all`, bidirectional. While enabled, narrower peer policies restrict nothing. Network resources are not in `All` and always need their own policy.
+New accounts have `Default`: `All` to `All`, `all`, bidirectional. Self-hosted servers can skip it; check `list_policies`. While enabled, narrower peer policies restrict nothing. Network resources are not in `All` and always need their own policy.
 1. Create the specific policies, DNS included.
-2. Ask the user to confirm: disabling Default cuts every flow no other policy allows, at once. Then `get_policy` Default, `update_policy` with `enabled: false`, all else unchanged.
+2. Ask the user to confirm: disabling Default cuts every flow no other policy allows, at once. Then take Default's `id` from `list_policies`, `get_policy` it, and `update_policy` with that `policy_id` and `enabled: false`, all else unchanged.
 3. `list_accessible_peers` on typical peers; if an expected peer is missing, re-enable Default and fix.
 4. `delete_policy` only after the user confirms.
 
