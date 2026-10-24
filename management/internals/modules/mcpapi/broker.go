@@ -232,8 +232,6 @@ func parseBaseURL(raw string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
-// baseURL is the scheme and host clients reach management at: the configured one, or the
-// one the request came in on.
 func (b *Broker) baseURL(r *http.Request) string {
 	if b.base != "" {
 		return b.base
@@ -480,8 +478,6 @@ type upstreamLogin struct {
 	Expires  int64          `json:"e"`
 }
 
-// decide handles the consent form: deny goes back to the client, approve sends the user to
-// the identity provider to log in.
 func (b *Broker) decide(w http.ResponseWriter, r *http.Request) {
 	// The form is only ever submitted from the consent page itself.
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
@@ -560,7 +556,6 @@ func (b *Broker) upstreamAuthorizeURL(login upstreamLogin) string {
 	return b.upstream.AuthCodeURL(login.State, opts...)
 }
 
-// authCode is the code the broker returns to the client after a successful login.
 type authCode struct {
 	// ID makes the code single-use: its first redemption is recorded in the grant store.
 	ID          string        `json:"j"`

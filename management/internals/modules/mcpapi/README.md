@@ -31,19 +31,13 @@ and adds no pointer to OAuth metadata to the endpoint's 401.
 
 ### Endpoints
 
-| Path | Method | Purpose |
-| --- | --- | --- |
-| `/api/mcp/.well-known/oauth-protected-resource` | `GET` | RFC 9728 protected resource metadata. The 401 challenge points here. |
-| `/.well-known/oauth-protected-resource/api/mcp` | `GET` | The same document at its RFC 9728 root location. |
-| `/.well-known/oauth-authorization-server/api/mcp/auth` | `GET` | RFC 8414 authorization server metadata. |
-| `/.well-known/openid-configuration/api/mcp/auth`, `/api/mcp/auth/.well-known/openid-configuration` | `GET` | The same metadata, for clients that try OpenID discovery. |
-| `/api/mcp/auth/register` | `POST` | RFC 7591 dynamic client registration. |
-| `/api/mcp/auth/authorize` | `GET` | Validates the request and renders the consent page. |
-| `/api/mcp/auth/authorize` | `POST` | The consent decision. |
-| `/api/mcp/auth/callback` | `GET` | Where the identity provider returns the user. |
-| `/api/mcp/auth/token` | `POST` | Redeems authorization codes and refresh tokens. |
-| `/api/mcp/auth/revoke` | `POST` | RFC 7009 revocation: ends the session the token belongs to. |
-| `/api/mcp/auth/jwks` | `GET` | An empty key set: the metadata names one for OpenID clients, and the broker signs nothing they verify. |
+The authorization server's endpoints sit under `/api/mcp/auth`. Three discovery
+documents are served at the root, where clients look first; [Reverse proxy](#reverse-proxy)
+covers the forms under `/api`.
+
+- `/.well-known/oauth-protected-resource/api/mcp` (RFC 9728)
+- `/.well-known/oauth-authorization-server/api/mcp/auth` (RFC 8414)
+- `/.well-known/openid-configuration/api/mcp/auth`
 
 Everything but `/api/mcp` bypasses the API authentication and its rate limiter. The
 issuer is `<base>/api/mcp/auth` and the resource `<base>/api/mcp`, where `<base>` comes
@@ -51,65 +45,34 @@ from the embedded IdP's issuer or else the request; see [Reverse proxy](#reverse
 
 ### The flow
 
-1. **Challenge.** A call to `/api/mcp` without a valid credential gets 401.
-   `ChallengeMiddleware` adds `WWW-Authenticate: Bearer resource_metadata="<base>/api/mcp/.well-known/oauth-protected-resource"`
-   and exposes `WWW-Authenticate`, `Mcp-Session-Id` and `Mcp-Protocol-Version` through
-   CORS.
-2. **Discovery.** The resource metadata names the broker as the only authorization
-   server and the scopes `mcp:read` and `mcp:write`. The server metadata advertises
-   response type `code`, grants `authorization_code` and `refresh_token`, PKCE `S256`
-   only, token endpoint authentication `none` and RFC 9207 `iss`.
-3. **Registration.** Only absolute `https` redirect URIs, or `http` on a loopback host
-   (`localhost`, `127.0.0.0/8`, `::1`), with no fragment, no user info and an ASCII
-   host are kept; others are dropped. None left, or a `null` body, answers 400
-   `invalid_redirect_uri`; a body that does not decode as client metadata answers 400
-   `invalid_client_metadata`. Success is 201 with no secret. The client ID
-   (`nbmcpc_...`) seals the redirect URIs, the name (cut to 100 bytes) and the issue
-   time; nothing is stored and it never expires.
-4. **Authorize.** Until the client ID opens and `redirect_uri` matches a registered
-   one (exactly, or for loopback `http` on any port, RFC 8252 section 7.3), errors
-   render a 400 page. After that, a malformed request is redirected as an OAuth error
-   only to a loopback client; an `https` client gets the page, since open
-   registration would otherwise make this an open redirector. Checked in order:
-   `state` up to 1024 characters, `response_type=code`, S256 with a 43 to 128
-   character challenge, and `resource` (RFC 8707), when sent, naming `<base>/api/mcp`.
-5. **Consent.** The page names the client and the host the code goes to, and warns
-   for a loopback redirect. Read access is always granted; write access is a ticked
-   checkbox when the client asked for `mcp:write` or no scope. The request is sealed
-   into the form and bound to the browser by a nonce cookie. The page is `no-store`,
-   unframeable (`X-Frame-Options`, CSP `frame-ancestors 'none'`), and arms the
-   approve button only after pointer or keyboard input.
-6. **Decision.** A post whose `Sec-Fetch-Site` is present and not `same-origin` gets
-   403. The sealed request must open and be unexpired and the cookie must match.
-   Cancel redirects with `access_denied`. Approve fixes the scopes, generates the
-   broker's own PKCE verifier and state, seals them into the login cookie and
-   redirects to the identity provider with the PKCE flow's client ID, scope, audience
-   when set, and `<base>/api/mcp/auth/callback`. The client's challenge, state and
-   redirect URI never reach the identity provider, and no `prompt=login` is sent.
-7. **Callback.** The login cookie must open, its state match and its first use be
-   recorded; otherwise an error page answers, 503 when the store cannot record the
-   use. The broker redeems the code and validates the token like a dashboard login:
-   `ValidateAndParseToken`, `GetAccountIDFromUserAuth`, `EnsureUserAccessByJWTGroups`,
-   `SyncUserJWTGroups` (failure only logged) and `GetUserFromUserAuth`; the user must
-   not be blocked or pending approval and must belong to the account. The identity
-   provider's token is then discarded. An identity provider error or a failed check
-   redirects with `access_denied`, logged at debug; an internal error redirects with
-   `server_error`.
-8. **Token.** `authorization_code`: an unknown client is 401 `invalid_client`; the
-   code must open, be unexpired, match the client ID, `redirect_uri` and PKCE
-   verifier (else 400 `invalid_grant`) and `resource` (else 400 `invalid_target`). A
-   second redemption answers `invalid_grant` and revokes the session the first one
-   started (OAuth 2.1 section 4.1.3). `refresh_token`: every refusal answers 400
-   `invalid_grant`, the only error on which the Go MCP SDK drops its tokens and signs
-   in again. Other grant types are 400 `unsupported_grant_type`. A store outage
-   answers either grant with 503 `temporarily_unavailable` instead, so the client
-   retries.
-9. **Calling `/api/mcp`.** `AuthMiddleware` checks a `Bearer nbmcp_` token itself: it
-   must open, be unexpired, name this `<base>/api/mcp` as resource, and its grant must
-   exist. The user is reloaded and must still be active, in the same account, and not
-   created more than a minute after the session began. Failures answer 401 with the
-   challenge. The call then runs as that user with the granted scopes in the request
-   context.
+1. **Discovery and registration.** A call to `/api/mcp` without a valid credential gets
+   401 with an RFC 9728 `resource_metadata` pointer. Registration is open and stores
+   nothing: the client ID seals the redirect URIs and the name, and never expires. Only
+   `https` redirect URIs, or `http` on a loopback host, are kept.
+2. **Authorize.** `redirect_uri` must match a registered one exactly, or on any port for
+   loopback `http` (RFC 8252 section 7.3), and PKCE `S256` is required. A malformed
+   request is redirected as an OAuth error only to a loopback client; an `https` client
+   gets an error page, since open registration would otherwise make this an open
+   redirector.
+3. **Consent.** The page names the client and the host the code goes to; write access is
+   a ticked checkbox when the client asked for `mcp:write` or no scope. The request is
+   sealed into the form and bound to the browser by the consent cookie, a post from
+   another origin (by `Sec-Fetch-Site`) gets 403, and the page is unframeable and arms
+   the approve button only after pointer or keyboard input.
+4. **Login.** Approve sends the user to the identity provider with the broker's own PKCE
+   verifier, state and callback; the client's challenge, state and redirect URI never
+   reach it, and no `prompt=login` is sent. The callback validates the returned token
+   like a dashboard login, JWT group restrictions included, requires a user of that
+   account who is neither blocked nor pending approval, and discards the identity
+   provider's token.
+5. **Token.** A code lasts 2 minutes and redeems once, for the client ID, `redirect_uri`,
+   PKCE verifier and `resource` it was issued to. A second redemption also revokes the
+   session the first one started (OAuth 2.1 section 4.1.3).
+6. **Calling `/api/mcp`.** `AuthMiddleware` checks a broker token itself: unexpired,
+   issued for this `<base>/api/mcp`, and its grant still there. The user is reloaded on
+   every call and must still exist, be neither blocked nor pending approval, belong to the
+   same account, and not have been created more than a minute after the session began. A
+   refused token answers 401 with the challenge; a grant or user store outage answers 503.
 
 ### Sessions and refresh
 
@@ -122,38 +85,27 @@ rotate on each use (OAuth 2.1 section 4.3.1):
 - Each refresh is one atomic step on the grant (a Lua script in Redis, a mutex in
   memory), so racing refreshes rotate once and a revocation cannot interleave.
 - Any older refresh token is a replay: it is refused and the whole session is revoked.
-- When the grant store cannot answer, token requests and MCP calls get 503, so
-  clients retry instead of signing in again.
+- When the grant store or the user store cannot answer, token requests and MCP calls
+  get 503 instead of an error that makes the client sign in again. A rotation whose
+  reply was lost may still have landed: a retry within 10 seconds gets its result, a
+  later one presents the replaced token and is a replay.
 
 ### Sealed values
 
-Every value is JSON sealed with AES-256-GCM, with the purpose bound as associated data
-so one kind cannot be replayed as another.
-
-| Value | Prefix | Lifetime | Travels in |
-| --- | --- | --- | --- |
-| Client ID | `nbmcpc_` | Unlimited | Client storage |
-| Consent request | none | 10 minutes | Hidden form field |
-| Login state | none | 10 minutes | Login cookie |
-| Authorization code | `nbmcpk_` | 2 minutes, one redemption | Redirect to the client |
-| Access token | `nbmcp_` | 1 hour, capped at the session end, while the grant exists | `Authorization` header |
-| Refresh token | `nbmcpr_` | Until rotated, revoked or the session ends | Client storage |
-
-Tokens and codes carry the user ID, account ID, a SHA-256 fingerprint of the client ID,
-the resource and the scopes, never the identity provider's token.
+Client IDs, codes, tokens and the consent and login state are JSON sealed with
+AES-256-GCM, with the purpose bound as associated data so one kind cannot be replayed as
+another. Client IDs start with `nbmcpc_`, codes with `nbmcpk_`, access tokens with
+`nbmcp_` and refresh tokens with `nbmcpr_`, which secret scanners can match. Codes and
+tokens carry the user ID, account ID, a SHA-256 fingerprint of the client ID, the
+resource and the scopes, never the identity provider's token.
 
 ### Grants
 
 A grant is the record of one login, created when its code is redeemed. Grants live in
 Redis at `NB_CACHE_REDIS_ADDRESS` (or the legacy `NB_IDP_CACHE_REDIS_ADDRESS`) on a
 connection of the broker's own, else in the management process. If Redis is
-configured but unreachable at boot, the broker does not start.
-
-| Key | Holds | Expires |
-| --- | --- | --- |
-| `mcp-oauth:session:<grant id>` | User, account, client fingerprint, current and previous refresh token IDs, last rotation, start | With the session |
-| `mcp-oauth:used-code:<code id>` | The grant the code started | With the code |
-| `mcp-oauth:used-login:<state>` | Marker that the callback ran | With the login state |
+configured but unreachable at boot, the broker does not start. Keys start with
+`mcp-oauth:`, and deleting `mcp-oauth:session:*` ends every session.
 
 Management running as more than one instance needs Redis. The in-memory store suits a
 single instance, and a restart signs every MCP client out. Losing the store never lets
@@ -181,17 +133,12 @@ The `management` command saves a generated datastore key to its config file as
 
 ### Cookies
 
-| Cookie | Set by | SameSite | Lifetime |
-| --- | --- | --- | --- |
-| `__Host-nb_mcp_consent` | Consent page | `Strict` | 10 minutes |
-| `__Host-nb_mcp_login` | Approve | `Lax` | 10 minutes |
-
-Both are `HttpOnly` and cleared once used; the login cookie is `Lax` because the
-identity provider returns the user with a cross-site navigation. Over https the
-`__Host-` prefix, `Secure` and `Path=/` keep a sibling subdomain from planting either
-cookie. Over plain http they carry neither, with path `/api/mcp/auth`. Names are fixed,
-so a second connection started before the first finishes ends the first on an error
-page.
+The consent cookie (`SameSite=Strict`) ties the consent form to the browser, and the
+login cookie (`Lax`, since the identity provider returns the user with a cross-site
+navigation) carries the login state to the callback. Both are `HttpOnly`, last 10
+minutes and are cleared once used. Over https they are `__Host-` cookies, which a sibling
+subdomain cannot plant; over plain http they lack that protection. Names are fixed, so a
+second connection started before the first finishes ends the first on an error page.
 
 ### Revocation model
 
@@ -203,10 +150,10 @@ page.
 | A user disabled at the identity provider or removed from JWT allow groups | Nothing, or block the user in NetBird for immediate effect | Next login, at most 30 days later |
 
 A stolen access token gives the user's API access through `/api/mcp`, within its
-scopes, for at most 1 hour. A stolen refresh token works until either party refreshes
-again, which is a replay and revokes the session for both. A second use within 10
-seconds of the first is not a replay: it gets the current tokens as well. A stolen
-code is useless without the client's PKCE verifier.
+scopes, for at most 1 hour. A stolen refresh token works until the thief and the client
+refresh more than 10 seconds apart: the later of the two presents a replaced token,
+which is a replay and revokes the session for both. A stolen code is useless without
+the client's PKCE verifier.
 
 ### Security notes
 
@@ -242,9 +189,12 @@ clients must connect at that host, since the resource metadata and the accepted
 `AuthorizationEndpoint` and `TokenEndpoint` (all required), `Scope`, `Audience`,
 `UseIDToken`, and `ClientSecret` when the client is confidential. `RedirectURLs` and
 `LoginFlag` are not used. Add `https://<management>/api/mcp/auth/callback` to that
-application's allowed redirect URIs, once for every host MCP clients use. The token is
-validated with the same validator as an agent's SSO login, so a flow that works for
-`netbird up` works here.
+application's allowed redirect URIs, once for every host MCP clients use. The code
+exchange goes through `golang.org/x/oauth2` as in `netbird up`, so a secret is sent in
+HTTP Basic or the form, whichever the provider takes, and the token is checked with the
+validator an agent's SSO login goes through. A flow that works for `netbird up` works
+here once the callback is allowed, unless the provider requires the client certificate
+agents can present (`ClientCertPath`): the broker presents none.
 
 ## Reverse proxy
 
@@ -271,25 +221,12 @@ validated with the same validator as an agent's SSO login, so a flow that works 
 metadata and the accepted `resource` values repeat the query (RFC 9728 section 3.3),
 while tokens bind to host and path only, so one sign-in serves every account URL.
 
-## Code map
+## Wiring
 
-| File | Contents |
-| --- | --- |
-| `mcpapi.go` | `NB_MCP_ENABLED` and the endpoint path |
-| `tenant.go` | The `account` query and resource canonicalization |
-| `broker.go` | The authorization server and its metadata |
-| `tokenauth.go` | `AuthMiddleware` and the read-only scope check |
-| `challenge.go` | The 401 pointer and exposed headers |
-| `discovery.go` | Paths, `FlowFromConfig`, redirect URI rules, `externalBaseURL` |
-| `seal.go` | Sealing, `ResolveSecrets`, `NB_MCP_OAUTH_KEY` |
-| `grants.go`, `grants_memory.go`, `grants_redis.go` | The grant store and the rotation rule |
-| `consent.go` | Consent and error pages |
-
-Wiring lives in `management/internals/server/mcp.go` (`MCPBroker`, `mcpBaseURL`,
-`registerMCPEndpoints`) and `boot.go`: `Router` installs
-`ChallengeMiddleware` and wraps the auth middleware, the last element of
-`BuildMiddleware`, with `AuthMiddleware`; `APIHandler` mounts the broker's endpoints in
-its `http_mcp` block.
+`management/internals/server/mcp.go` builds the broker (`MCPBroker`, `mcpBaseURL`,
+`registerMCPEndpoints`). In `boot.go`, `Router` installs `ChallengeMiddleware` and wraps
+the auth middleware, the last element of `BuildMiddleware`, with `AuthMiddleware`;
+`APIHandler` mounts the broker's endpoints in its `http_mcp` block.
 
 ## Tests
 
@@ -297,7 +234,3 @@ its `http_mcp` block.
 go test ./management/internals/modules/mcpapi/...
 go test -run MCP ./management/internals/server/
 ```
-
-The server test boots `BaseServer` with the embedded IdP and signs in through Dex. The
-grant store tests also run against Redis from testcontainers, and skip the Redis case
-without Docker.
