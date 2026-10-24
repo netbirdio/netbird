@@ -2,7 +2,6 @@ package mcpapi
 
 import (
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -40,8 +39,6 @@ type spec struct {
 	Paths map[string]map[string]yaml.Node `yaml:"paths"`
 }
 
-var specPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
-
 // TestCatalogIsInThePublicAPISpec holds every tool to an operation the public OpenAPI spec
 // documents and every NetBird server serves: the same method and path, only documented query
 // parameters, and the request body the spec names.
@@ -57,12 +54,12 @@ func TestCatalogIsInThePublicAPISpec(t *testing.T) {
 	}
 	paths := map[string]map[string]yaml.Node{}
 	for path, item := range api.Paths {
-		paths[specPlaceholder.ReplaceAllString(path, "{}")] = item
+		paths[pathVariable.ReplaceAllString(path, "{}")] = item
 	}
 
 	for _, op := range catalog {
 		t.Run(op.name, func(t *testing.T) {
-			item, ok := paths[specPlaceholder.ReplaceAllString(op.path, "{}")]
+			item, ok := paths[pathVariable.ReplaceAllString(op.path, "{}")]
 			require.True(t, ok, "%s is not in the public API spec", op.path)
 			node, ok := item[strings.ToLower(op.method)]
 			require.True(t, ok, "%s %s is not in the public API spec", op.method, op.path)
