@@ -160,6 +160,32 @@ func TestGrantStoresRotate(t *testing.T) {
 	})
 }
 
+// An instance whose clock is behind the one that rotated sees the rotation in the future.
+// Skew within the grace window must not fail a burst, and a rotation further in the future
+// is outside the window rather than inside it.
+func TestGrantStoresBoundTheGraceWindowBothWays(t *testing.T) {
+	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
+		ctx := context.Background()
+		start := time.Unix(1_800_000_000, 0)
+		id := newStoredGrant(t, grants, "r0")
+		outcome, _, err := grants.rotate(ctx, id, "r0", "r1", start)
+		require.NoError(t, err)
+		require.Equal(t, grantRotated, outcome)
+
+		outcome, current, err := grants.rotate(ctx, id, "r0", "r2", start.Add(-refreshGrace))
+		require.NoError(t, err)
+		assert.Equal(t, grantServed, outcome, "a clock up to the grace window behind is within it")
+		assert.Equal(t, "r1", current)
+
+		outcome, _, err = grants.rotate(ctx, id, "r0", "r2", start.Add(-refreshGrace-time.Millisecond))
+		require.NoError(t, err)
+		assert.Equal(t, grantReplayed, outcome, "a clock further behind is outside the grace window")
+		_, ok, err := grants.load(ctx, id)
+		require.NoError(t, err)
+		assert.False(t, ok, "the replay deletes the grant")
+	})
+}
+
 func TestGrantStoresExpire(t *testing.T) {
 	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
 		ctx := context.Background()

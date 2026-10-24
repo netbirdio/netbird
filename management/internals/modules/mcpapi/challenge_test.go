@@ -70,3 +70,17 @@ func TestChallengeWriterKeepsFlushing(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "an implicit write means 200")
 	assert.Empty(t, rec.Header().Get("WWW-Authenticate"))
 }
+
+func TestChallengeWriterFlushBeforeWriteExposesHeaders(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := &challengeWriter{ResponseWriter: rec, metadataURL: "https://mgmt.example.com/x"}
+	// A streaming handler may flush to send the headers before it has a body to write.
+	w.Flush()
+	_, err := w.Write([]byte("data"))
+	require.NoError(t, err)
+
+	res := rec.Result()
+	assert.Equal(t, http.StatusOK, res.StatusCode, "a flush before any write means 200")
+	assert.Equal(t, "WWW-Authenticate, Mcp-Session-Id, Mcp-Protocol-Version", res.Header.Get("Access-Control-Expose-Headers"),
+		"the headers the flush sent expose the MCP headers to browser clients")
+}
