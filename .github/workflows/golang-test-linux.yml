@@ -244,6 +244,14 @@ jobs:
           NB_TEST_PKCS11_DISPOSABLE: "1"
         run: CGO_ENABLED=0 go test -tags pkcs11 -timeout 5m ./client/internal/pkcs11/... ./client/internal/certproof/...
 
+      - name: Test SSH privilege drop
+        # purego marks the runtime as cgo without libc's setxid hooks, so the syscall
+        # package's setuid family panics in this build. Drop privileges as root to cover it.
+        run: |
+          CGO_ENABLED=0 go test -c -tags 'pkcs11 privileged' -o "$RUNNER_TEMP/ssh-server.test" ./client/ssh/server/
+          sudo "$RUNNER_TEMP/ssh-server.test" -test.run '^TestDropPrivilegesAllThreads$' -test.v
+          CGO_ENABLED=0 GOARCH=arm64 go test -c -tags 'pkcs11 privileged' -o "$RUNNER_TEMP/ssh-server-arm64.test" ./client/ssh/server/
+
   test_client_on_docker:
     name: "Client (Docker) / Unit"
     needs: [build-cache]
