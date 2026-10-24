@@ -54,48 +54,9 @@ limit answers 429.
 
 ## Connecting a client
 
-`<management>` below is the public scheme and host of management, the one the
-dashboard calls the API on.
-
-### With a personal access token
-
-```bash
-claude mcp add --transport http netbird https://<management>/api/mcp \
-  --header "Authorization: Token nbp_..."
-```
-
-Any client that speaks streamable HTTP takes the same URL and header:
-
-```json
-{"mcpServers": {"netbird": {
-  "type": "http",
-  "url": "https://<management>/api/mcp",
-  "headers": {"Authorization": "Token nbp_..."}
-}}}
-```
-
-A smoke test that lists the tools:
-
-```bash
-curl -s https://<management>/api/mcp \
-  -H "Authorization: Token nbp_..." \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-### With OAuth
-
-Give the client the URL only:
-
-```bash
-claude mcp add --transport http netbird https://<management>/api/mcp
-```
-
-In Claude Code, run `/mcp`, select `netbird` and authenticate. A browser opens the
-consent page, then the identity provider's login. Other clients that implement MCP
-authorization (RFC 9728 discovery, dynamic client registration, PKCE) work the same
-way.
+Clients connect to `https://<management>/api/mcp`, the scheme and host the dashboard
+calls the API on, with a personal access token in the `Authorization` header or through
+OAuth, which needs only the URL. Setup for users belongs in the NetBird docs.
 
 ### Accepted credentials
 
