@@ -146,36 +146,6 @@ func toolNames(ctx context.Context, t *testing.T, session *mcp.ClientSession) []
 	return names
 }
 
-// findTool returns the advertised definition of the named tool.
-func findTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, name string) *mcp.Tool {
-	t.Helper()
-	for tool, err := range session.Tools(ctx, nil) {
-		require.NoError(t, err, "list tools")
-		if tool.Name == name {
-			return tool
-		}
-	}
-	require.Failf(t, "tool not advertised", "%s is not in tools/list", name)
-	return nil
-}
-
-// schemaProperties returns the property names of a tool's input schema.
-func schemaProperties(t *testing.T, tool *mcp.Tool) []string {
-	t.Helper()
-	raw, err := json.Marshal(tool.InputSchema)
-	require.NoError(t, err)
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &schema), "input schema of %s", tool.Name)
-	names := make([]string, 0, len(schema.Properties))
-	for name := range schema.Properties {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
-}
-
 // callTool runs a tool and returns its result, failing the test on a protocol error.
 // Tool errors come back in the result for the caller to assert on.
 func callTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {

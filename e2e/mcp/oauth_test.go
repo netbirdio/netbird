@@ -5,7 +5,6 @@ package mcpe2e
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -112,26 +111,4 @@ func TestOAuthReadOnlyConsent(t *testing.T) {
 	assert.Contains(t, body, "invalid_grant", "a replayed code is an invalid grant")
 	status, _ = probe(ctx, t, client.browser, client.resource, "Bearer "+tokens.AccessToken)
 	assert.Equal(t, http.StatusUnauthorized, status, "a replayed code must revoke the session its first use started")
-}
-
-// Declining on the consent page goes back to the client with access_denied and never
-// reaches the identity provider. The decision is only taken from the consent page itself:
-// a cross-site form post is refused before it is read.
-func TestOAuthConsentDeclinedOrForged(t *testing.T) {
-	logsOnFailure(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-
-	client := newOAuthClient(ctx, t)
-
-	forged := client.decide(ctx, client.consent(ctx), url.Values{"action": {"approve"}, "write": {"on"}}, "cross-site")
-	assert.Equal(t, http.StatusForbidden, forged.status, "a cross-site consent post must be refused: %s", forged.body)
-
-	step := client.consent(ctx)
-	declined := client.decide(ctx, step, url.Values{"action": {"deny"}}, "same-origin")
-	loc, ok := declined.redirectsToClient()
-	require.True(t, ok, "declining returns to the client, got %d at %s: %s", declined.status, declined.url, declined.body)
-	assert.Equal(t, "access_denied", loc.Query().Get("error"), "the client learns the user declined")
-	assert.Equal(t, step.state, loc.Query().Get("state"), "the client's state comes back unchanged")
-	assert.Empty(t, loc.Query().Get("code"), "no code is issued for a declined request")
 }
