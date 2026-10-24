@@ -11,11 +11,73 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 )
+
+func Test_Policies_RejectMultipleRules(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/api/policies"},
+		{method: http.MethodPut, path: "/api/policies/testPolicyId"},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/policies.sql", nil, false)
+			db := testing_tools.GetDB(t, am.GetStore())
+			var policiesBefore []*types.Policy
+			require.NoError(t, db.Preload("Rules").Find(&policiesBefore).Error)
+			require.Len(t, policiesBefore, 1, "the fixture must contain one policy")
+			require.Len(t, policiesBefore[0].Rules, 1, "the existing policy must have one rule")
+			var rulesBefore []*types.PolicyRule
+			require.NoError(t, db.Find(&rulesBefore).Error)
+
+			groups := []string{testing_tools.TestGroupId}
+			rule := api.PolicyRuleUpdate{
+				Name:          "first rule",
+				Enabled:       true,
+				Action:        "accept",
+				Protocol:      "all",
+				Bidirectional: true,
+				Sources:       &groups,
+				Destinations:  &groups,
+			}
+			request := api.PolicyCreate{
+				Name:    "multiple rules",
+				Enabled: true,
+				Rules:   []api.PolicyRuleUpdate{rule, rule},
+			}
+			request.Rules[1].Name = "second rule"
+			if tc.method == http.MethodPut {
+				request.Rules[0].Id = &policiesBefore[0].Rules[0].ID
+			}
+			body, err := json.Marshal(request)
+			require.NoError(t, err)
+			req := testing_tools.BuildRequest(t, body, tc.method, tc.path, testing_tools.TestAdminId)
+			recorder := httptest.NewRecorder()
+			apiHandler.ServeHTTP(recorder, req)
+
+			assert.Equal(t, http.StatusUnprocessableEntity, recorder.Code, "multiple rules must be rejected")
+			var response util.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.Equal(t, http.StatusUnprocessableEntity, response.Code, "the body must use the standard error code")
+			assert.Equal(t, "policies with multiple rules are not supported", response.Message, "the error must explain the unsupported input")
+
+			var policiesAfter []*types.Policy
+			require.NoError(t, db.Preload("Rules").Find(&policiesAfter).Error)
+			assert.Equal(t, policiesBefore, policiesAfter, "rejection must leave persisted policies unchanged")
+			var rulesAfter []*types.PolicyRule
+			require.NoError(t, db.Find(&rulesAfter).Error)
+			assert.ElementsMatch(t, rulesBefore, rulesAfter, "rejection must leave every rule row unchanged")
+		})
+	}
+}
 
 func Test_Policies_GetAll(t *testing.T) {
 	users := []struct {
