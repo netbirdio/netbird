@@ -41,21 +41,17 @@ func (c *Combined) Browser() (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse base URL: %w", err)
 	}
-	if mapped.Host == "" {
-		return nil, fmt.Errorf("base URL %q names no host", c.BaseURL)
-	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create cookie jar: %w", err)
 	}
 
-	publicAddr := hostPort(public)
-	mappedAddr := hostPort(mapped)
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if addr == publicAddr {
-				addr = mappedAddr
+			// Both URLs name their port, so each Host is already a dial address.
+			if addr == public.Host {
+				addr = mapped.Host
 			}
 			return dialer.DialContext(ctx, network, addr)
 		},
@@ -64,16 +60,4 @@ func (c *Combined) Browser() (*http.Client, error) {
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	return &http.Client{Jar: jar, Transport: transport, Timeout: 60 * time.Second}, nil
-}
-
-// hostPort is the address the transport dials for u: its host with the scheme's default
-// port filled in when the URL names none.
-func hostPort(u *url.URL) string {
-	if u.Port() != "" {
-		return u.Host
-	}
-	if u.Scheme == "https" {
-		return net.JoinHostPort(u.Hostname(), "443")
-	}
-	return net.JoinHostPort(u.Hostname(), "80")
 }
