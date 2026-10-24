@@ -18,14 +18,11 @@ import (
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
-	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
-	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 
@@ -57,26 +54,10 @@ import (
 	"github.com/netbirdio/netbird/shared/auth"
 )
 
-// testAPI is the store and managers behind the test API, built once for every layout.
-type testAPI struct {
-	ctx                  context.Context
-	metrics              telemetry.AppMetrics
-	am                   account.Manager
-	authManager          serverauth.Manager
-	networksManager      networks.Manager
-	resourcesManager     resources.Manager
-	routersManager       routers.Manager
-	groupsManager        groups.Manager
-	geo                  geolocation.Geolocation
-	permissionsManager   permissions.Manager
-	settingsManager      settings.Manager
-	zonesManager         zones.Manager
-	recordsManager       records.Manager
-	networkMapController network_map.Controller
-	serviceManager       service.Manager
-}
-
-func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network_map.PeersUpdateManager) *testAPI {
+// buildTestAPI builds the store and managers behind the test API. It returns the shared API
+// middleware, ending with the authentication, and a function that mounts the REST handlers on
+// an API router, so each layout can place them on its own routers.
+func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network_map.PeersUpdateManager) (context.Context, account.Manager, []mux.MiddlewareFunc, func(*mux.Router) http.Handler) {
 	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
@@ -152,46 +133,25 @@ func buildTestAPI(t testing_tools.TB, sqlFile string, peersUpdateManager network
 	routersManager := routers.NewManager(store, permissionsManager, am)
 	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
 	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
+	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
+	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
-	return &testAPI{
-		ctx:                  ctx,
-		metrics:              metrics,
-		am:                   am,
-		authManager:          authManagerMock,
-		networksManager:      networksManager,
-		resourcesManager:     resourcesManager,
-		routersManager:       routersManager,
-		groupsManager:        groupsManager,
-		geo:                  geoMock,
-		permissionsManager:   permissionsManager,
-		settingsManager:      settingsManager,
-		zonesManager:         zonesManager.NewManager(store, am, permissionsManager, ""),
-		recordsManager:       recordsManager.NewManager(store, am, permissionsManager),
-		networkMapController: networkMapController,
-		serviceManager:       serviceManager,
+	register := func(apiRouter *mux.Router) http.Handler {
+		apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
+			groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
+			networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("Failed to create API handler: %v", err)
+		}
+		return apiHandler
 	}
-}
-
-// middleware is the shared API middleware, ending with the authentication.
-func (a *testAPI) middleware() []mux.MiddlewareFunc {
-	return middleware.BuildMiddleware(nil, a.authManager, a.am, a.metrics)
-}
-
-// register mounts the REST handlers on apiRouter.
-func (a *testAPI) register(t testing_tools.TB, apiRouter *mux.Router) http.Handler {
-	apiHandler, err := http2.NewAPIHandler(a.ctx, apiRouter, a.am, a.networksManager, a.resourcesManager, a.routersManager,
-		a.groupsManager, a.geo, a.permissionsManager, a.settingsManager, a.zonesManager, a.recordsManager,
-		a.networkMapController, nil, a.serviceManager, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("Failed to create API handler: %v", err)
-	}
-	return apiHandler
+	return ctx, am, middleware.BuildMiddleware(nil, authManagerMock, am, metrics), register
 }
 
 func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPeerUpdate *network_map.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
 	peersUpdateManager := update_channel.NewPeersUpdateManager(nil)
-	api := buildTestAPI(t, sqlFile, peersUpdateManager)
-	updMsg := peersUpdateManager.CreateChannel(api.ctx, testing_tools.TestPeerId)
+	ctx, am, apiMiddleware, register := buildTestAPI(t, sqlFile, peersUpdateManager)
+	updMsg := peersUpdateManager.CreateChannel(ctx, testing_tools.TestPeerId)
 	done := make(chan struct{})
 	if validateUpdate {
 		go func() {
@@ -205,8 +165,8 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	}
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiRouter.Use(api.middleware()...)
-	return api.register(t, apiRouter), api.am, done
+	apiRouter.Use(apiMiddleware...)
+	return register(apiRouter), am, done
 }
 
 func peerShouldNotReceiveUpdate(t testing_tools.TB, updateMessage <-chan *network_map.UpdateMessage) {
@@ -259,12 +219,12 @@ func PeerShouldNotReceiveAnyUpdate(t testing_tools.TB, updateMessage <-chan *net
 // the peer update channel directly so tests can verify updates inline.
 func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile string) (http.Handler, account.Manager, <-chan *network_map.UpdateMessage) {
 	peersUpdateManager := update_channel.NewPeersUpdateManager(nil)
-	api := buildTestAPI(t, sqlFile, peersUpdateManager)
-	updMsg := peersUpdateManager.CreateChannel(api.ctx, testing_tools.TestPeerId)
+	ctx, am, apiMiddleware, register := buildTestAPI(t, sqlFile, peersUpdateManager)
+	updMsg := peersUpdateManager.CreateChannel(ctx, testing_tools.TestPeerId)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiRouter.Use(api.middleware()...)
-	return api.register(t, apiRouter), api.am, updMsg
+	apiRouter.Use(apiMiddleware...)
+	return register(apiRouter), am, updMsg
 }
 
 func newAccessLogsRepository(t testing_tools.TB) accesslogs.Repository {
