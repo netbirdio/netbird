@@ -4,7 +4,7 @@ go 1.26.0
 
 // Pin the toolchain to a patch release >= go1.26.2
 // See https://go.dev/issue/77875.
-toolchain go1.26.7
+toolchain go1.26.10
 
 require (
 	cunicu.li/go-rosenpass v0.5.42
