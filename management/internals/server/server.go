@@ -361,6 +361,9 @@ func (s *BaseServer) Stop() error {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
+	if broker := s.MCPBroker(); broker != nil {
+		broker.Close()
+	}
 	hooksCtx, cancelHooks := context.WithDeadline(ctx, deadline.Add(-shutdownIdPReserve))
 	runExtensionShutdownHooks(hooksCtx, s.grpcExtensions)
 	cancelHooks()
