@@ -250,6 +250,7 @@ jobs:
         run: |
           CGO_ENABLED=0 go test -c -tags 'pkcs11 privileged' -o "$RUNNER_TEMP/ssh-server.test" ./client/ssh/server/
           sudo "$RUNNER_TEMP/ssh-server.test" -test.run '^TestDropPrivilegesAllThreads$' -test.v
+          CGO_ENABLED=0 GOARCH=arm64 go test -c -tags 'pkcs11 privileged' -o "$RUNNER_TEMP/ssh-server-arm64.test" ./client/ssh/server/
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
