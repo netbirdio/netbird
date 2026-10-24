@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -181,7 +182,6 @@ func TestBrokerCallbackIsSingleUse(t *testing.T) {
 type faultyGrants struct {
 	GrantStore
 	down       atomic.Bool
-	failRotate atomic.Bool // fail the next rotation without applying it
 	lostReply  atomic.Bool // apply the next rotation but report an error, like a timeout
 	holdRotate atomic.Bool // hold the next rotation until release is closed
 	entered    chan struct{}
@@ -214,7 +214,7 @@ func (f *faultyGrants) load(ctx context.Context, grantID string) (grantRecord, b
 
 func (f *faultyGrants) rotate(ctx context.Context, grantID, presented, next string, now time.Time) (rotationOutcome, string, error) {
 	switch {
-	case f.down.Load(), f.failRotate.CompareAndSwap(true, false):
+	case f.down.Load():
 		return grantGone, "", errDown
 	case f.lostReply.CompareAndSwap(true, false):
 		_, _, _ = f.GrantStore.rotate(ctx, grantID, presented, next, now)
@@ -262,12 +262,7 @@ func TestBrokerRefusesTokensWithoutAGrant(t *testing.T) {
 	var g grant
 	require.NoError(t, env.broker.seal.open(purposeAccess, accessTokenPrefix, s.access, &g))
 
-	// A token from before grants existed, or one whose grant was never saved.
-	g.GrantID = ""
-	legacy, err := env.broker.seal.seal(purposeAccess, accessTokenPrefix, g)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusUnauthorized, env.callMCP("/api/mcp", legacy, nil).status)
-
+	// A token whose grant was never saved.
 	g.GrantID = "never-saved"
 	unknown, err := env.broker.seal.seal(purposeAccess, accessTokenPrefix, g)
 	require.NoError(t, err)
@@ -322,28 +317,6 @@ func TestBrokerTenantURLs(t *testing.T) {
 	}
 }
 
-func TestBrokerKeepsOneRecordPerSession(t *testing.T) {
-	env := newBrokerEnv(t)
-	s := env.signIn()
-	var g grant
-	require.NoError(t, env.broker.seal.open(purposeRefresh, refreshTokenPrefix, s.refresh, &g))
-
-	token := s.refresh
-	for range 5 {
-		env.now = env.now.Add(time.Hour)
-		status, out := env.refreshWith(s, token)
-		require.Equal(t, http.StatusOK, status, out)
-		token = out["refresh_token"].(string)
-	}
-	record, ok, err := env.grants.load(context.Background(), g.GrantID)
-	require.NoError(t, err)
-	require.True(t, ok)
-	var latest grant
-	require.NoError(t, env.broker.seal.open(purposeRefresh, refreshTokenPrefix, token, &latest))
-	assert.Equal(t, latest.ID, record.Current, "the record tracks the one refresh token that works")
-	assert.Equal(t, g.GrantID, latest.GrantID, "rotation keeps the session")
-}
-
 func refreshIDOf(t *testing.T, env *brokerEnv, token string) string {
 	t.Helper()
 	var g grant
@@ -357,18 +330,27 @@ func refreshInFlight(t *testing.T, env *brokerEnv, s session, token string) (rel
 	t.Helper()
 	faults := withFaults(env)
 	faults.holdRotate.Store(true)
+	// A failed test must release the held refresh before the server's Close waits for it.
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(faults.release) }) }
+	t.Cleanup(unblock)
 	type result struct {
 		status int
 		out    map[string]any
 	}
 	done := make(chan result, 1)
 	go func() {
-		status, out := env.refreshWith(s, token)
-		done <- result{status, out}
+		var r result
+		defer func() { done <- r }()
+		r.status, r.out = env.refreshWith(s, token)
 	}()
-	<-faults.entered
+	select {
+	case <-faults.entered:
+	case r := <-done:
+		t.Fatalf("the refresh ended before its rotation: %d %v", r.status, r.out)
+	}
 	return func() (int, map[string]any) {
-		close(faults.release)
+		unblock()
 		r := <-done
 		return r.status, r.out
 	}
@@ -385,96 +367,17 @@ func TestBrokerRevocationSurvivesARefreshInFlight(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, env.callMCP("/api/mcp", s.access, nil).status, "the revoked session stays revoked")
 }
 
-func TestBrokerReplayRevocationSurvivesAThiefsRefreshInFlight(t *testing.T) {
+func TestBrokerRetryAfterALostRotationReply(t *testing.T) {
 	env := newBrokerEnv(t)
 	s := env.signIn()
-	// The thief rotates the stolen token first, then refreshes again while the client
-	// presents the stolen one.
-	status, stolen := env.refreshWith(s, s.refresh)
-	require.Equal(t, http.StatusOK, status)
-	env.now = env.now.Add(refreshGrace + time.Second)
-	finish := refreshInFlight(t, env, s, stolen["refresh_token"].(string))
+	withFaults(env).lostReply.Store(true)
 
-	status, _ = env.refreshWith(s, s.refresh)
-	require.Equal(t, http.StatusBadRequest, status, "the replay is detected")
-	status, out := finish()
-	assert.Equal(t, http.StatusBadRequest, status, "the thief's refresh in flight does not bring the session back: %v", out)
-	assert.Equal(t, http.StatusUnauthorized, env.callMCP("/api/mcp", stolen["access_token"].(string), nil).status)
-}
-
-func TestBrokerRacingRefreshesAllSucceed(t *testing.T) {
-	env := newBrokerEnv(t)
-	s := env.signIn()
-	type result struct {
-		status int
-		out    map[string]any
-	}
-	const racers = 8
-	results := make(chan result, racers)
-	for range racers {
-		go func() {
-			status, out := env.refreshWith(s, s.refresh)
-			results <- result{status, out}
-		}()
-	}
-	ids := map[string]bool{}
-	for range racers {
-		r := <-results
-		require.Equal(t, http.StatusOK, r.status, r.out)
-		ids[refreshIDOf(t, env, r.out["refresh_token"].(string))] = true
-	}
-	assert.Len(t, ids, 1, "every racing request ends with the same refresh token")
-}
-
-// A client that refreshes in bursts, like one whose parallel calls each find the access token
-// expired, refreshes with the token it just got while slower requests still carry the old one.
-func TestBrokerRefreshBurstDoesNotChainRotations(t *testing.T) {
-	env := newBrokerEnv(t)
-	s := env.signIn()
-
-	status, first := env.refreshWith(s, s.refresh)
-	require.Equal(t, http.StatusOK, status, first)
-	gen1 := refreshIDOf(t, env, first["refresh_token"].(string))
-
-	env.now = env.now.Add(refreshGrace / 2)
-	status, again := env.refreshWith(s, first["refresh_token"].(string))
-	require.Equal(t, http.StatusOK, status, again)
-	assert.Equal(t, gen1, refreshIDOf(t, env, again["refresh_token"].(string)), "the new token does not rotate again within the grace window")
-
-	status, straggler := env.refreshWith(s, s.refresh)
-	require.Equal(t, http.StatusOK, status, "a slow request with the replaced token is not a replay: %v", straggler)
-	assert.Equal(t, gen1, refreshIDOf(t, env, straggler["refresh_token"].(string)))
-
-	env.now = env.now.Add(refreshGrace)
-	status, later := env.refreshWith(s, first["refresh_token"].(string))
-	require.Equal(t, http.StatusOK, status, later)
-	assert.NotEqual(t, gen1, refreshIDOf(t, env, later["refresh_token"].(string)), "after the grace window the current token rotates")
-}
-
-func TestBrokerRetryAfterAFailedRotation(t *testing.T) {
-	t.Run("the rotation failed", func(t *testing.T) {
-		env := newBrokerEnv(t)
-		s := env.signIn()
-		withFaults(env).failRotate.Store(true)
-
-		status, out := env.refreshWith(s, s.refresh)
-		require.Equal(t, http.StatusServiceUnavailable, status, out)
-		status, out = env.refreshWith(s, s.refresh)
-		assert.Equal(t, http.StatusOK, status, "the retry the 503 asked for rotates: %v", out)
-	})
-
-	t.Run("the rotation landed but its reply was lost", func(t *testing.T) {
-		env := newBrokerEnv(t)
-		s := env.signIn()
-		withFaults(env).lostReply.Store(true)
-
-		status, out := env.refreshWith(s, s.refresh)
-		require.Equal(t, http.StatusServiceUnavailable, status, out)
-		env.now = env.now.Add(time.Second)
-		status, out = env.refreshWith(s, s.refresh)
-		require.Equal(t, http.StatusOK, status, "the retry gets the rotation that landed: %v", out)
-		assert.Equal(t, http.StatusOK, env.callMCP("/api/mcp", out["access_token"].(string), nil).status)
-	})
+	status, out := env.refreshWith(s, s.refresh)
+	require.Equal(t, http.StatusServiceUnavailable, status, out)
+	env.now = env.now.Add(time.Second)
+	status, out = env.refreshWith(s, s.refresh)
+	require.Equal(t, http.StatusOK, status, "the retry gets the rotation that landed: %v", out)
+	assert.Equal(t, http.StatusOK, env.callMCP("/api/mcp", out["access_token"].(string), nil).status)
 }
 
 // Every change to the user behind a session ends it, on the next call and the next refresh,

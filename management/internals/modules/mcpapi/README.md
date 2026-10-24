@@ -299,5 +299,5 @@ go test -run MCP ./management/internals/server/
 ```
 
 The server test boots `BaseServer` with the embedded IdP and signs in through Dex. The
-grant store tests use Redis from testcontainers or `NB_MCP_TEST_REDIS_URL`, and skip
-the Redis case without Docker.
+grant store tests also run against Redis from testcontainers, and skip the Redis case
+without Docker.

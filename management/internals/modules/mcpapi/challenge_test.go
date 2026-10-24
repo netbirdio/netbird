@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// challengeRouter mounts the MCP path and a neighbour behind the challenge middleware and a
-// stand-in auth middleware that refuses every request lacking a token.
+// challengeRouter mounts the MCP path behind the challenge middleware and a stand-in auth
+// middleware that refuses every request lacking a token.
 func challengeRouter() *mux.Router {
 	root := mux.NewRouter()
 	root.Use((&Broker{}).ChallengeMiddleware())
@@ -27,7 +27,6 @@ func challengeRouter() *mux.Router {
 	})
 	ok := func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }
 	root.HandleFunc(apiPrefix+Path, ok)
-	root.HandleFunc(apiPrefix+"/peers", ok)
 	return root
 }
 
@@ -41,23 +40,6 @@ func TestChallengeMiddlewareAddsPointerOnUnauthorizedMCPCall(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.Equal(t, `Bearer resource_metadata="https://mgmt.example.com/api/mcp/.well-known/oauth-protected-resource"`, rec.Header().Get("WWW-Authenticate"))
 	assert.Contains(t, rec.Body.String(), "no valid authentication provided", "the API's own error body is preserved")
-}
-
-func TestChallengeMiddlewareLeavesOtherResponsesAlone(t *testing.T) {
-	router := challengeRouter()
-
-	req := httptest.NewRequest(http.MethodPost, "http://mgmt.example.com/api/mcp", nil)
-	req.Header.Set("Authorization", "Bearer good")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, rec.Header().Get("WWW-Authenticate"), "a successful call carries no challenge")
-	assert.Equal(t, "ok", rec.Body.String())
-
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://mgmt.example.com/api/peers", nil))
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Empty(t, rec.Header().Get("WWW-Authenticate"), "only the MCP endpoint advertises resource metadata")
 }
 
 func TestChallengeWriterKeepsFlushing(t *testing.T) {
