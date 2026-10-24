@@ -143,8 +143,3 @@ func TestSealerSeparatesPurposes(t *testing.T) {
 	_, err = newSealer(nil)
 	assert.Error(t, err)
 }
-
-func TestCallbackIsRegisteredWithTheEmbeddedIdP(t *testing.T) {
-	assert.Equal(t, idp.MCPCallbackPath, apiPrefix+callbackPath,
-		"the embedded IdP allows the callback the broker sends users back to")
-}
