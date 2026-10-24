@@ -59,7 +59,7 @@ func OptionsFromEnv() Options {
 // tool by dispatching to api, the REST API router. router must sit behind the
 // API authentication middleware: tool calls take the caller identity from the
 // request context and refuse to run without one.
-func RegisterEndpoints(router *mux.Router, api http.Handler, opts Options) error {
+func RegisterEndpoints(router, api *mux.Router, opts Options) error {
 	server, err := newServer(api, opts)
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func rejectBatches(next http.Handler) http.Handler {
 	})
 }
 
-func newServer(api http.Handler, opts Options) (*mcp.Server, error) {
+func newServer(api *mux.Router, opts Options) (*mcp.Server, error) {
 	selected, err := selectOperations(opts.Tools)
 	if err != nil {
 		return nil, err
