@@ -350,6 +350,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(s.compat))
 }
 
+// newMainWindow creates the main application window with the stored view-mode width.
 func newMainWindow(app *application.App, prefStore *preferences.Store, wm *services.WindowManager, startURL string) *application.WebviewWindow {
 	// Width matches the last view mode so Advanced-mode users don't see the
 	// window pop from 380px to 900px on launch. Height is mode-agnostic.
@@ -369,9 +370,8 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		Hidden:              true,
 		BackgroundColour:    services.WindowBackgroundColour(appearance),
 		URL:                 startURL,
-		DisableResize:       true,
-		MinimiseButtonState: application.ButtonHidden,
-		MaximiseButtonState: application.ButtonHidden,
+		MinWidth:            320,
+		MinHeight:           400,
 		Mac:                 services.AppleMacOSAppearanceOptions(appearance),
 		Windows:             services.MicrosoftWindowsAppearanceOptions(appearance),
 		Linux: application.LinuxWindow{
