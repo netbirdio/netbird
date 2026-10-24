@@ -346,10 +346,11 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 	})
 
 	t.Run("discovery documents are built from the issuer", func(t *testing.T) {
-		// One document from each router: RFC 9728 and RFC 8414 clients look at the root,
+		// Documents from both routers: RFC 9728 and RFC 8414 clients look at the root,
 		// while the shipped proxies forward only /api.
 		docs := []struct{ path, field, want string }{
 			{mcpapi.ProtectedResourcePath, "resource", m.base + "/api/mcp"},
+			{"/.well-known/oauth-authorization-server/api/mcp/auth", "issuer", m.base + "/api/mcp/auth"},
 			{"/api/mcp/auth/.well-known/openid-configuration", "issuer", m.base + "/api/mcp/auth"},
 		}
 		for _, doc := range docs {
