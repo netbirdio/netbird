@@ -1,0 +1,132 @@
+# Keep Linux packaging in sync with .goreleaser_ui.yaml: dependencies, contents,
+# scripts, signing and upload settings. Build/package/archive IDs and the
+# checksum name stay ARM64-specific to avoid collisions between release jobs.
+version: 2
+env:
+  - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
+project_name: netbird-ui
+
+before:
+  hooks:
+    # Bindings are gitignored; regenerate before the frontend build so
+    # the @wailsio/runtime Vite plugin can resolve them (vite refuses to
+    # build without them).
+    - sh -c 'cd client/ui && wails3 generate bindings -clean=true -ts'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
+
+builds:
+  # The Linux UI uses CGO and native GTK/WebKitGTK libraries, so this target
+  # runs on GitHub's native ARM64 runner instead of cross-compiling in the
+  # existing amd64/Windows release job.
+  - id: netbird-ui-linux-arm64
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - production
+
+archives:
+  - id: linux-arm64-arch
+    name_template: "{{ .ProjectName }}-linux_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    ids:
+      - netbird-ui-linux-arm64
+
+nfpms:
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_deb_linux_arm64
+    package_name: netbird-ui
+    ids:
+      - netbird-ui-linux-arm64
+    formats:
+      - deb
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
+    dependencies:
+      - netbird (>= 0.75.0)
+      - libgtk-4-1 (>= 4.14)
+      - libwebkitgtk-6.0-4
+      - xdg-utils
+
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_rpm_linux_arm64
+    package_name: netbird-ui
+    ids:
+      - netbird-ui-linux-arm64
+    formats:
+      - rpm
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
+    dependencies:
+      - netbird >= 0.75.0
+      - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)
+      - (webkitgtk6.0 or libwebkitgtk-6_0-4)
+      - xdg-utils
+
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
+# The amd64/Windows UI job shares project_name, so use a unique checksum name
+# when both jobs publish assets to the same GitHub release.
+checksum:
+  name_template: "{{ .ProjectName }}_linux_arm64_checksums.txt"
+
+changelog:
+  disable: true
+
+uploads:
+  - name: debian
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_ui_deb_linux_arm64
+    mode: archive
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }};deb.package=
+    username: dev@wiretrustee.com
+    method: PUT
+
+  - name: yum
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_ui_rpm_linux_arm64
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}
+    username: dev@wiretrustee.com
+    method: PUT
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto
