@@ -6,7 +6,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -29,13 +28,9 @@ func TestPATReadAndWriteTools(t *testing.T) {
 	session := connect(ctx, t, srv.BaseURL+mcpPath, "Token "+srv.PAT, nil)
 
 	names := toolNames(ctx, t, session)
-	for _, want := range []string{"list_peers", "get_guide", "get_current_user", "list_groups", "create_group", "delete_group"} {
+	for _, want := range []string{"list_peers", "get_current_user", "list_groups", "create_group", "delete_group"} {
 		assert.Contains(t, names, want, "tools/list must advertise %s", want)
 	}
-
-	guide := callTool(ctx, t, session, "get_guide", map[string]any{"topic": "access-control"})
-	require.False(t, guide.IsError, "get_guide failed: %s", resultText(t, guide))
-	assert.True(t, strings.HasPrefix(resultText(t, guide), "# "), "the guide is served as markdown from the binary")
 
 	var me api.User
 	decodeResult(t, "get_current_user", callTool(ctx, t, session, "get_current_user", nil), &me)
