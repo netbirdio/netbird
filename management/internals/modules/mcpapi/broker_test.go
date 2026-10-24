@@ -45,6 +45,8 @@ type fakeIdP struct {
 	authorize     url.Values
 	refuse        bool
 	tokenRequests int
+	// basicSecret, when set, plays an application that takes its secret only in HTTP Basic.
+	basicSecret string
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -68,11 +70,21 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		require.NoError(t, r.ParseForm())
 		f.mu.Lock()
 		f.tokenRequests++
-		authorize := f.authorize
+		authorize, secret := f.authorize, f.basicSecret
 		f.mu.Unlock()
+		clientID := r.PostForm.Get("client_id")
+		if secret != "" {
+			id, presented, _ := r.BasicAuth()
+			if id != "upstream-client" || presented != secret {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+				return
+			}
+			clientID = id
+		}
 		ok := r.PostForm.Get("grant_type") == "authorization_code" &&
 			r.PostForm.Get("code") == idpCode &&
-			r.PostForm.Get("client_id") == "upstream-client" &&
+			clientID == "upstream-client" &&
 			r.PostForm.Get("redirect_uri") == authorize.Get("redirect_uri") &&
 			oauth2.S256ChallengeFromVerifier(r.PostForm.Get("code_verifier")) == authorize.Get("code_challenge")
 		if !ok {
@@ -80,6 +92,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"` + idpToken + `","token_type":"Bearer"}`))
 	})
 	f.srv = httptest.NewServer(mux)
@@ -170,14 +183,14 @@ func newBrokerEnv(t *testing.T) *brokerEnv {
 	return newBrokerEnvWith(t, httptest.NewServer, nil)
 }
 
-// newBrokerEnvWith serves the env with serve, and mounts endpoint as the MCP endpoint when
-// it is not nil instead of the echo handler.
-func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, endpoint http.Handler) *brokerEnv {
+// newBrokerEnvWith serves the env with serve, mounts endpoint as the MCP endpoint when it is
+// not nil instead of the echo handler, and lets configure adjust the broker's configuration.
+func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, endpoint http.Handler, configure ...func(*BrokerConfig)) *brokerEnv {
 	t.Helper()
 	env := &brokerEnv{t: t, idp: newFakeIdP(t), now: time.Unix(1_800_000_000, 0), grants: newTestGrants(t)}
 	env.accounts = &stubAccounts{users: map[string]*types.User{"user-1": {Id: "user-1", AccountID: "account-1"}}}
 
-	broker, err := NewBroker(BrokerConfig{
+	cfg := BrokerConfig{
 		Flow: &FlowConfig{
 			ClientID:              "upstream-client",
 			Audience:              "https://api.example/",
@@ -189,7 +202,11 @@ func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, e
 		Grants:   env.grants,
 		Identity: stubIdentity{},
 		Accounts: env.accounts,
-	})
+	}
+	for _, fn := range configure {
+		fn(&cfg)
+	}
+	broker, err := NewBroker(cfg)
 	require.NoError(t, err)
 	t.Cleanup(broker.Close)
 	broker.now = func() time.Time { return env.now }
@@ -473,6 +490,36 @@ func TestBrokerFullLogin(t *testing.T) {
 			"grant_type": {"refresh_token"}, "refresh_token": {tokens["refresh_token"].(string)}, "client_id": {clientID},
 		})
 		assert.Equal(t, http.StatusBadRequest, status, "refresh is refused too")
+	})
+}
+
+// The identity provider hop authenticates the way `netbird up` does, so a PKCE flow that
+// works for agents works here too.
+func TestBrokerUpstreamClientAuthentication(t *testing.T) {
+	t.Run("a confidential client's secret reaches a provider that takes only HTTP Basic", func(t *testing.T) {
+		const secret = "s3cret"
+		env := newBrokerEnvWith(t, httptest.NewServer, nil, func(cfg *BrokerConfig) { cfg.ClientSecret = secret })
+		env.idp.mu.Lock()
+		env.idp.basicSecret = secret
+		env.idp.mu.Unlock()
+		req := env.newRequest(env.register(clientCallback))
+
+		back := env.login(req, false)
+		code := back.Query().Get("code")
+		require.NotEmpty(t, code, "the provider accepted the client, got %s", back)
+		status, tokens := env.exchange(req, code)
+		assert.Equal(t, http.StatusOK, status, tokens)
+	})
+
+	t.Run("a public client sends its client id in the form, in one request", func(t *testing.T) {
+		env := newBrokerEnv(t)
+		req := env.newRequest(env.register(clientCallback))
+
+		back := env.login(req, false)
+		assert.NotEmpty(t, back.Query().Get("code"), "the provider accepted the client, got %s", back)
+		env.idp.mu.Lock()
+		defer env.idp.mu.Unlock()
+		assert.Equal(t, 1, env.idp.tokenRequests, "the exchange does not probe for the client authentication method")
 	})
 }
 

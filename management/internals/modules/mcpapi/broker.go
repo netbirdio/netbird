@@ -95,8 +95,6 @@ type BrokerConfig struct {
 	Accounts Accounts
 	// Limiter is optional.
 	Limiter Limiter
-	// HTTPClient is used for the identity provider's token endpoint; nil means a client with a timeout.
-	HTTPClient *http.Client
 	// TrustedProxies are the reverse proxies whose X-Forwarded-For the callback's rate limit
 	// believes. Without them every request counts against the address it came from.
 	TrustedProxies []netip.Prefix
@@ -112,19 +110,19 @@ type BrokerConfig struct {
 // provider only to log in, receives that login on its own callback, and issues its own
 // tokens, bound to the MCP endpoint and re-checked against the user on every call.
 type Broker struct {
-	flow         *FlowConfig
-	clientSecret string
-	seal         *sealer
-	clients      *sealer
-	base         string
-	grants       GrantStore
-	identity     Identity
-	accounts     Accounts
-	limiter      Limiter
-	callbacks    *ratelimit.APIRateLimiter
-	http         *http.Client
-	now          func() time.Time
-	closeOnce    sync.Once
+	flow      *FlowConfig
+	upstream  *oauth2.Config
+	seal      *sealer
+	clients   *sealer
+	base      string
+	grants    GrantStore
+	identity  Identity
+	accounts  Accounts
+	limiter   Limiter
+	callbacks *ratelimit.APIRateLimiter
+	http      *http.Client
+	now       func() time.Time
+	closeOnce sync.Once
 }
 
 // Callbacks per client address. The callback is the one unauthenticated endpoint that
@@ -155,22 +153,18 @@ func NewBroker(cfg BrokerConfig) (*Broker, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
-	}
 	return &Broker{
-		flow:         cfg.Flow,
-		clientSecret: cfg.ClientSecret,
-		seal:         seal,
-		clients:      clients,
-		base:         base,
-		grants:       cfg.Grants,
-		identity:     cfg.Identity,
-		accounts:     cfg.Accounts,
-		limiter:      cfg.Limiter,
-		http:         client,
-		now:          time.Now,
+		flow:     cfg.Flow,
+		upstream: upstreamConfig(cfg.Flow, cfg.ClientSecret),
+		seal:     seal,
+		clients:  clients,
+		base:     base,
+		grants:   cfg.Grants,
+		identity: cfg.Identity,
+		accounts: cfg.Accounts,
+		limiter:  cfg.Limiter,
+		http:     &http.Client{Timeout: 15 * time.Second},
+		now:      time.Now,
 		callbacks: ratelimit.NewAPIRateLimiter(&ratelimit.RateLimiterConfig{
 			RequestsPerMinute: callbacksPerMinute,
 			Burst:             callbackBurst,
@@ -327,7 +321,7 @@ type clientInfo struct {
 func (b *Broker) register(w http.ResponseWriter, r *http.Request) {
 	var req clientRegistration
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxFormBody)).Decode(&req); err != nil {
-		writeRegistrationError(w, "invalid_client_metadata", "request body must be a JSON object")
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "request body must be a JSON object")
 		return
 	}
 	// Keep only redirect URIs the broker will ever redirect to. Clients such as Cursor list a
@@ -346,7 +340,7 @@ func (b *Broker) register(w http.ResponseWriter, r *http.Request) {
 		if rejected != nil {
 			description = rejected.Error()
 		}
-		writeRegistrationError(w, "invalid_redirect_uri", description)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", description)
 		return
 	}
 	req.RedirectURIs = allowed
@@ -446,11 +440,6 @@ func (b *Broker) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scopes := strings.Fields(q.Get("scope"))
-	nonce, err := randomToken()
-	if err != nil {
-		renderError(w, http.StatusInternalServerError, "Something went wrong. Try again.")
-		return
-	}
 	req := consentRequest{
 		ClientKey:      clientKey(q.Get("client_id")),
 		ClientName:     client.Name,
@@ -459,7 +448,7 @@ func (b *Broker) authorize(w http.ResponseWriter, r *http.Request) {
 		Challenge:      challenge,
 		WriteRequested: len(scopes) == 0 || slices.Contains(scopes, scopeWrite),
 		Resource:       b.resourceURL(r),
-		Nonce:          nonce,
+		Nonce:          randomToken(),
 		Expires:        b.now().Add(consentTTL).Unix(),
 	}
 	sealed, err := b.seal.seal(purposeConsent, "", req)
@@ -469,7 +458,7 @@ func (b *Broker) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b.setCookie(w, r, consentCookie, nonce, consentTTL, http.SameSiteStrictMode)
+	b.setCookie(w, r, consentCookie, req.Nonce, consentTTL, http.SameSiteStrictMode)
 	renderConsent(w, consentPage{
 		ClientName:     displayName(client.Name),
 		RedirectHost:   redirectHost(redirectURI),
@@ -526,17 +515,11 @@ func (b *Broker) decide(w http.ResponseWriter, r *http.Request) {
 	if req.WriteRequested && r.PostForm.Get("write") == "on" {
 		scopes = append(scopes, scopeWrite)
 	}
-	verifier := oauth2.GenerateVerifier()
-	state, err := randomToken()
-	if err != nil {
-		renderError(w, http.StatusInternalServerError, "Something went wrong. Try again.")
-		return
-	}
 	login := upstreamLogin{
 		Request:  req,
 		Scopes:   scopes,
-		Verifier: verifier,
-		State:    state,
+		Verifier: oauth2.GenerateVerifier(),
+		State:    randomToken(),
 		Callback: b.baseURL(r) + apiPrefix + callbackPath,
 		Expires:  b.now().Add(loginTTL).Unix(),
 	}
@@ -550,24 +533,31 @@ func (b *Broker) decide(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, b.upstreamAuthorizeURL(login), http.StatusFound)
 }
 
+// upstreamConfig is the identity provider's client as `netbird up` uses it: oauth2 sends a
+// secret in HTTP Basic or the form, whichever the provider takes. A public client has no
+// secret, so it skips that probe and sends its client id in the form.
+func upstreamConfig(flow *FlowConfig, secret string) *oauth2.Config {
+	cfg := &oauth2.Config{
+		ClientID:     flow.ClientID,
+		ClientSecret: secret,
+		Endpoint:     oauth2.Endpoint{AuthURL: flow.AuthorizationEndpoint, TokenURL: flow.TokenEndpoint},
+		Scopes:       strings.Fields(flow.Scope),
+	}
+	if secret == "" {
+		cfg.Endpoint.AuthStyle = oauth2.AuthStyleInParams
+	}
+	return cfg
+}
+
 func (b *Broker) upstreamAuthorizeURL(login upstreamLogin) string {
-	params := url.Values{
-		"response_type":         {"code"},
-		"client_id":             {b.flow.ClientID},
-		"redirect_uri":          {login.Callback},
-		"scope":                 {b.flow.Scope},
-		"state":                 {login.State},
-		"code_challenge":        {oauth2.S256ChallengeFromVerifier(login.Verifier)},
-		"code_challenge_method": {"S256"},
+	opts := []oauth2.AuthCodeOption{
+		oauth2.S256ChallengeOption(login.Verifier),
+		oauth2.SetAuthURLParam("redirect_uri", login.Callback),
 	}
 	if b.flow.Audience != "" {
-		params.Set("audience", b.flow.Audience)
+		opts = append(opts, oauth2.SetAuthURLParam("audience", b.flow.Audience))
 	}
-	sep := "?"
-	if strings.Contains(b.flow.AuthorizationEndpoint, "?") {
-		sep = "&"
-	}
-	return b.flow.AuthorizationEndpoint + sep + params.Encode()
+	return b.upstream.AuthCodeURL(login.State, opts...)
 }
 
 // authCode is the code the broker returns to the client after a successful login.
@@ -625,13 +615,8 @@ func (b *Broker) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	codeID, err := randomToken()
-	if err != nil {
-		b.redirectError(w, r, req.RedirectURI, req.State, "server_error", "")
-		return
-	}
 	code, err := b.seal.seal(purposeCode, codePrefix, authCode{
-		ID:          codeID,
+		ID:          randomToken(),
 		Identity:    identity,
 		ClientKey:   req.ClientKey,
 		RedirectURI: req.RedirectURI,
@@ -703,48 +688,16 @@ func (b *Broker) loginIdentity(ctx context.Context, code string, login upstreamL
 	}, nil
 }
 
-type upstreamTokens struct {
-	AccessToken string `json:"access_token"`
-	IDToken     string `json:"id_token"`
-}
-
 func (b *Broker) exchangeUpstream(ctx context.Context, code string, login upstreamLogin) (string, error) {
-	form := url.Values{
-		"grant_type":    {"authorization_code"},
-		"client_id":     {b.flow.ClientID},
-		"code":          {code},
-		"redirect_uri":  {login.Callback},
-		"code_verifier": {login.Verifier},
-	}
-	if b.clientSecret != "" {
-		form.Set("client_secret", b.clientSecret)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.flow.TokenEndpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", fmt.Errorf("build token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := b.http.Do(req)
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, b.http)
+	tok, err := b.upstream.Exchange(ctx, code, oauth2.VerifierOption(login.Verifier),
+		oauth2.SetAuthURLParam("redirect_uri", login.Callback))
 	if err != nil {
 		return "", fmt.Errorf("identity provider token endpoint: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", fmt.Errorf("read token response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("identity provider token endpoint answered %d", resp.StatusCode)
-	}
-	var tokens upstreamTokens
-	if err := json.Unmarshal(body, &tokens); err != nil {
-		return "", fmt.Errorf("decode token response: %w", err)
-	}
-	token := tokens.AccessToken
+	token := tok.AccessToken
 	if b.flow.UseIDToken {
-		token = tokens.IDToken
+		token, _ = tok.Extra("id_token").(string)
 	}
 	if token == "" {
 		return "", errors.New("identity provider returned no usable token")
@@ -847,21 +800,8 @@ func (b *Broker) redeemCode(w http.ResponseWriter, r *http.Request, form url.Val
 		writeOAuthError(w, http.StatusBadRequest, "invalid_target", "the requested resource does not match the authorization")
 		return
 	}
-	if code.ID == "" {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the authorization code is invalid or expired")
-		return
-	}
 
-	grantID, err := randomToken()
-	if err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "")
-		return
-	}
-	refreshID, err := randomToken()
-	if err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "")
-		return
-	}
+	grantID, refreshID := randomToken(), randomToken()
 	// The session ends a fixed time after this login. Refreshing never extends it, so the user
 	// signs in at the identity provider again, and its checks run again, at least that often.
 	expires := b.now().Add(sessionTTL).Unix()
@@ -911,7 +851,7 @@ func (b *Broker) refresh(w http.ResponseWriter, r *http.Request, form url.Values
 		writeStoreError(w, r, err)
 		return
 	}
-	if !ok || g.ID == "" || !record.belongsTo(g) {
+	if !ok || !record.belongsTo(g) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the session was revoked or has ended, sign in again")
 		return
 	}
@@ -925,14 +865,9 @@ func (b *Broker) refresh(w http.ResponseWriter, r *http.Request, form url.Values
 		return
 	}
 
-	next, err := randomToken()
-	if err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "")
-		return
-	}
-	// A rotation whose reply is lost to a timeout still lands. The client's retry presents the
-	// replaced token within the grace window and gets the rotation's result.
-	outcome, refreshID, err := b.grants.rotate(r.Context(), g.GrantID, g.ID, next, b.now())
+	// A rotation whose reply is lost may still have landed. A retry within refreshGrace gets its
+	// result; a later one presents the replaced token and counts as a replay.
+	outcome, refreshID, err := b.grants.rotate(r.Context(), g.GrantID, g.ID, randomToken(), b.now())
 	if err != nil {
 		writeStoreError(w, r, err)
 		return
@@ -953,10 +888,6 @@ func (b *Broker) refresh(w http.ResponseWriter, r *http.Request, form url.Values
 // the grant record already holds as current.
 func (b *Broker) issueTokens(w http.ResponseWriter, r *http.Request, g grant, refreshID string) {
 	now := b.now()
-	if g.Expires <= now.Unix() {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the session has ended, sign in again")
-		return
-	}
 	access := g
 	access.ID = ""
 	access.Expires = min(now.Add(accessTokenTTL).Unix(), g.Expires)
@@ -1155,14 +1086,7 @@ func (b *Broker) setCookie(w http.ResponseWriter, r *http.Request, name, value s
 }
 
 func (b *Broker) clearCookie(w http.ResponseWriter, r *http.Request, name string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     b.cookieName(r, name),
-		Value:    "",
-		Path:     b.cookiePath(r),
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   b.isHTTPS(r),
-	})
+	b.setCookie(w, r, name, "", -time.Second, http.SameSiteDefaultMode)
 }
 
 // truncate cuts s to at most n bytes without splitting a UTF-8 character.
