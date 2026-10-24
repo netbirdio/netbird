@@ -36,15 +36,17 @@ message is its own HTTP request, so each tool call is authenticated, rate limite
 metered like the REST call it stands for. JSON-RPC batches are refused with 400, so one
 request carries at most one tool call. `GET` and `DELETE` answer 405.
 
-`mcpapi_test.go` fails when a tool description or the server instructions name a tool
-the catalog does not have.
+`get_guide` returns one of the markdown guides in `guides/` (`exit-nodes`,
+`site-to-site`, `networks-and-dns`, `access-control`, `account-and-peers`). It makes no
+API call and is always exposed. `guides_test.go` fails when a guide, a tool
+description or the server instructions name a tool the catalog does not have.
 
 ## Enabling
 
 | Variable | Meaning |
 | --- | --- |
 | `NB_MCP_ENABLED` | A true value (`strconv.ParseBool`) mounts `/api/mcp` and, when it can start, the broker. Unset, false or unparseable leaves both off; an unparseable value is logged. |
-| `NB_MCP_TOOLS` | Optional comma-separated tool allowlist. Empty exposes the whole catalog. An unknown name stops management at boot. |
+| `NB_MCP_TOOLS` | Optional comma-separated tool allowlist. Empty exposes the whole catalog. An unknown name stops management at boot. `get_guide` is always exposed. |
 | `NB_MCP_OAUTH_KEY` | Optional secret of at least 32 bytes that seals the broker's codes and tokens. See [Keys](#keys). |
 | `NB_CACHE_REDIS_ADDRESS` | Management's existing shared cache address. When set, broker grants live there. See [Grants](#grants). |
 
@@ -290,7 +292,7 @@ anonymous self-hosted metrics, which `--disable-anonymous-metrics` (or
 | --- | --- |
 | `mcp_enabled` | `NB_MCP_ENABLED` is true |
 | `mcp_oauth_enabled` | The broker is running |
-| `mcp_tool_calls_last_day` | Tool calls, those returning a tool error included, in the current hour and the 23 before |
+| `mcp_tool_calls_last_day` | Tool calls, `get_guide` and calls returning a tool error included, in the current hour and the 23 before |
 | `mcp_active_users_last_day` | Distinct users who made those calls |
 
 `Usage` (`usage.go`) counts in memory per process in hourly buckets, so a restart
