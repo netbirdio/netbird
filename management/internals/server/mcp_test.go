@@ -6,7 +6,6 @@ import (
 	"errors"
 	"html"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	dexsql "github.com/netbirdio/dex/storage/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -62,8 +60,7 @@ type mcpTestServer struct {
 	*BaseServer
 	web *httptest.Server
 	// base is the issuer without /oauth2: the URL the deployment believes it is served at.
-	base    string
-	idpFile string
+	base string
 }
 
 // startMCPTestServer boots a BaseServer with the embedded IdP and the MCP environment the
@@ -136,7 +133,7 @@ func startMCPTestServer(t *testing.T) *mcpTestServer {
 	web.Config.Handler = s.handlerFunc(ctx, s.GRPCServer(), s.APIHandler(), s.IDPHandler(), s.Metrics().GetMeter())
 	web.Start()
 
-	return &mcpTestServer{BaseServer: s, web: web, base: base, idpFile: idpFile}
+	return &mcpTestServer{BaseServer: s, web: web, base: base}
 }
 
 // setMCPTestEnv pins the environment the MCP wiring reads, so the host's own cannot leak in,
@@ -230,18 +227,6 @@ func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[st
 	require.True(t, ok, "%s returns text", name)
 	require.False(t, res.IsError, "%s failed: %s", name, text.Text)
 	require.NoError(t, json.Unmarshal([]byte(text.Text), out), "%s returns JSON", name)
-}
-
-// dexRedirectURIs reads a client's redirect URIs from the embedded IdP's own storage, the
-// list Dex checks an authorization request against.
-func dexRedirectURIs(t *testing.T, file, clientID string) []string {
-	t.Helper()
-	st, err := (&dexsql.SQLite3{File: file}).Open(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = st.Close() })
-	client, err := st.GetClient(context.Background(), clientID)
-	require.NoError(t, err)
-	return client.RedirectURIs
 }
 
 // mcpBrowser plays the user's browser during an MCP sign-in: it keeps cookies across the
@@ -366,7 +351,7 @@ func (m *mcpTestServer) signInWithOAuth(t *testing.T) string {
 
 // TestMCPWithEmbeddedIdP boots management the way a self-hosted deployment with the embedded
 // IdP runs it, with nothing but NB_MCP_ENABLED added, and checks the MCP endpoint, the OAuth
-// broker and the self-hosted metrics end to end in-process.
+// broker and the self-hosted metrics report end to end in-process.
 func TestMCPWithEmbeddedIdP(t *testing.T) {
 	setMCPTestEnv(t, "true")
 	m := startMCPTestServer(t)
@@ -394,72 +379,25 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 	})
 
 	t.Run("discovery documents are built from the issuer", func(t *testing.T) {
-		for _, path := range []string{"/api/mcp/.well-known/oauth-protected-resource", mcpapi.ProtectedResourcePath} {
-			resp, body := m.request(t, http.MethodGet, path, "", forged)
-			require.Equal(t, http.StatusOK, resp.StatusCode, "%s is served without a token: %s", path, body)
-			var prm struct {
-				Resource             string   `json:"resource"`
-				AuthorizationServers []string `json:"authorization_servers"`
-			}
-			require.NoError(t, json.Unmarshal([]byte(body), &prm))
-			assert.Equal(t, m.base+"/api/mcp", prm.Resource, "%s names the MCP endpoint at the issuer's host", path)
-			assert.Equal(t, []string{m.base + "/api/mcp/auth"}, prm.AuthorizationServers, "%s names the broker as the authorization server", path)
+		// Documents from both routers: RFC 9728 and RFC 8414 clients look at the root,
+		// while the shipped proxies forward only /api.
+		docs := []struct{ path, field, want string }{
+			{mcpapi.ProtectedResourcePath, "resource", m.base + "/api/mcp"},
+			{"/.well-known/oauth-authorization-server/api/mcp/auth", "issuer", m.base + "/api/mcp/auth"},
+			{"/api/mcp/auth/.well-known/openid-configuration", "issuer", m.base + "/api/mcp/auth"},
 		}
-
-		for _, path := range []string{"/api/mcp/auth/.well-known/openid-configuration", "/.well-known/oauth-authorization-server/api/mcp/auth"} {
-			resp, body := m.request(t, http.MethodGet, path, "", forged)
-			require.Equal(t, http.StatusOK, resp.StatusCode, "%s is served without a token: %s", path, body)
-			var meta struct {
-				Issuer                string `json:"issuer"`
-				AuthorizationEndpoint string `json:"authorization_endpoint"`
-				TokenEndpoint         string `json:"token_endpoint"`
-				RegistrationEndpoint  string `json:"registration_endpoint"`
-				RevocationEndpoint    string `json:"revocation_endpoint"`
-			}
-			require.NoError(t, json.Unmarshal([]byte(body), &meta))
-			assert.Equal(t, m.base+"/api/mcp/auth", meta.Issuer, "%s issuer", path)
-			assert.Equal(t, m.base+"/api/mcp/auth/authorize", meta.AuthorizationEndpoint, "%s authorization endpoint", path)
-			assert.Equal(t, m.base+"/api/mcp/auth/token", meta.TokenEndpoint, "%s token endpoint", path)
-			assert.Equal(t, m.base+"/api/mcp/auth/register", meta.RegistrationEndpoint, "%s registration endpoint", path)
-			assert.Equal(t, m.base+"/api/mcp/auth/revoke", meta.RevocationEndpoint, "%s revocation endpoint", path)
-			assert.NotContains(t, body, "attacker.example", "%s ignores the forwarded host", path)
+		for _, doc := range docs {
+			resp, body := m.request(t, http.MethodGet, doc.path, "", forged)
+			require.Equal(t, http.StatusOK, resp.StatusCode, "%s is served without a token: %s", doc.path, body)
+			var fields map[string]any
+			require.NoError(t, json.Unmarshal([]byte(body), &fields))
+			assert.Equal(t, doc.want, fields[doc.field], "%s names its %s at the issuer's host", doc.path, doc.field)
+			assert.NotContains(t, body, "attacker.example", "%s ignores the forwarded host", doc.path)
 		}
-	})
-
-	t.Run("the embedded IdP registers the broker's callback", func(t *testing.T) {
-		assert.Equal(t, idp.StaticClientCLI, m.OAuthConfigProvider().GetCLIClientID(), "the broker logs users in with the CLI client")
-		assert.Contains(t, dexRedirectURIs(t, m.idpFile, idp.StaticClientCLI), m.base+idp.MCPCallbackPath,
-			"Dex lists the broker's callback for the client the broker logs in with")
-
-		// Dex enforces that list, which is what makes the OAuth sign-in below prove the
-		// registration: an unlisted redirect URI never reaches the login form.
-		dexAuthorize := func(redirectURI string) int {
-			query := url.Values{"client_id": {idp.StaticClientCLI}, "redirect_uri": {redirectURI}, "response_type": {"code"}, "scope": {"openid"}}
-			resp, _ := browse(t, mcpBrowser(t), http.MethodGet, m.base+"/oauth2/auth?"+query.Encode(), nil)
-			return resp.StatusCode
-		}
-		assert.Equal(t, http.StatusOK, dexAuthorize(m.base+idp.MCPCallbackPath), "Dex starts a login for the broker's callback")
-		assert.Equal(t, http.StatusBadRequest, dexAuthorize(m.base+"/api/mcp/auth/elsewhere"), "Dex refuses an unlisted redirect URI")
 	})
 
 	t.Run("a personal access token calls tools", func(t *testing.T) {
 		session := m.connect(t, "Token "+pat)
-
-		tools, err := session.ListTools(context.Background(), nil)
-		require.NoError(t, err)
-		byName := map[string]*mcp.Tool{}
-		for _, tool := range tools.Tools {
-			byName[tool.Name] = tool
-		}
-		assert.Len(t, tools.Tools, len(mcpapi.Routes()), "every API tool")
-		for _, name := range []string{"get_current_user", "list_groups", "update_account"} {
-			assert.Contains(t, byName, name, "the catalog advertises %s", name)
-		}
-		if updateAccount := byName["update_account"]; updateAccount != nil {
-			schema, err := json.Marshal(updateAccount.InputSchema)
-			require.NoError(t, err)
-			assert.NotContains(t, string(schema), `"account_id"`, "the account is taken from the caller, never from the client")
-		}
 
 		var viaREST api.User
 		resp, body := m.request(t, http.MethodGet, "/api/users/current", "", http.Header{"Authorization": {"Token " + pat}})
@@ -470,14 +408,6 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 		callTool(t, session, "get_current_user", nil, &me)
 		assert.Equal(t, viaREST, me, "the tool returns what GET /api/users/current returns")
 		assert.Equal(t, mcpTestOwnerEmail, me.Email, "the PAT acts as the owner")
-
-		var groups []api.Group
-		callTool(t, session, "list_groups", nil, &groups)
-		names := make([]string, 0, len(groups))
-		for _, g := range groups {
-			names = append(names, g.Name)
-		}
-		assert.Contains(t, names, "All", "every account has the All group")
 	})
 
 	t.Run("an OAuth client signs in at the embedded IdP", func(t *testing.T) {

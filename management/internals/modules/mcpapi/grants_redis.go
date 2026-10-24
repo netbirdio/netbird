@@ -37,8 +37,8 @@ local cur, prev, at = g[1], g[2], tonumber(g[3]) or 0
 if not cur then
   return {0, ''}
 end
-local presented, now = ARGV[1], tonumber(ARGV[3])
-local within = at ~= 0 and now - at <= tonumber(ARGV[4])
+local presented, now, grace = ARGV[1], tonumber(ARGV[3]), tonumber(ARGV[4])
+local within = at ~= 0 and now - at >= -grace and now - at <= grace
 if presented == cur then
   if within then
     return {2, cur}

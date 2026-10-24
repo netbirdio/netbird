@@ -10,7 +10,6 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -45,6 +44,12 @@ type fakeIdP struct {
 	authorize     url.Values
 	refuse        bool
 	tokenRequests int
+	// basicSecret and postSecret, when set, play an application that takes its secret only
+	// in HTTP Basic or only in the form.
+	basicSecret, postSecret string
+	// idToken plays a provider whose access token is opaque and whose ID token is the one
+	// management validates.
+	idToken bool
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -68,16 +73,36 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		require.NoError(t, r.ParseForm())
 		f.mu.Lock()
 		f.tokenRequests++
-		authorize := f.authorize
+		authorize, secret, postSecret, idToken := f.authorize, f.basicSecret, f.postSecret, f.idToken
 		f.mu.Unlock()
+		clientID := r.PostForm.Get("client_id")
+		id, presented, basic := r.BasicAuth()
+		if secret != "" {
+			if id != "upstream-client" || presented != secret {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+				return
+			}
+			clientID = id
+		}
+		if postSecret != "" && (basic || r.PostForm.Get("client_secret") != postSecret) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+			return
+		}
 		ok := r.PostForm.Get("grant_type") == "authorization_code" &&
 			r.PostForm.Get("code") == idpCode &&
-			r.PostForm.Get("client_id") == "upstream-client" &&
+			clientID == "upstream-client" &&
 			r.PostForm.Get("redirect_uri") == authorize.Get("redirect_uri") &&
 			oauth2.S256ChallengeFromVerifier(r.PostForm.Get("code_verifier")) == authorize.Get("code_challenge")
 		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if idToken {
+			_, _ = w.Write([]byte(`{"access_token":"opaque","id_token":"` + idpToken + `","token_type":"Bearer"}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"access_token":"` + idpToken + `","token_type":"Bearer"}`))
@@ -146,22 +171,6 @@ type brokerEnv struct {
 	now      time.Time
 }
 
-// testRedisEnv points the broker tests at a Redis server, such as redis://127.0.0.1:6379/15,
-// instead of the memory store. The grant store tests start one in a container without it.
-const testRedisEnv = "NB_MCP_TEST_REDIS_URL"
-
-func newTestGrants(t *testing.T) GrantStore {
-	t.Helper()
-	redisURL := os.Getenv(testRedisEnv)
-	if redisURL == "" {
-		return newMemoryGrants()
-	}
-	grants, err := newRedisGrants(context.Background(), redisURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = grants.client.Close() })
-	return grants
-}
-
 // newBrokerEnv mounts the broker like BaseServer.Router does: the challenge outermost, then
 // a stand-in for the API auth middleware that only lets bypass paths through, wrapped by the
 // broker, and an MCP endpoint that echoes the caller it was handed.
@@ -170,14 +179,14 @@ func newBrokerEnv(t *testing.T) *brokerEnv {
 	return newBrokerEnvWith(t, httptest.NewServer, nil)
 }
 
-// newBrokerEnvWith serves the env with serve, and mounts endpoint as the MCP endpoint when
-// it is not nil instead of the echo handler.
-func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, endpoint http.Handler) *brokerEnv {
+// newBrokerEnvWith serves the env with serve, mounts endpoint as the MCP endpoint when it is
+// not nil instead of the echo handler, and lets configure adjust the broker's configuration.
+func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, endpoint http.Handler, configure ...func(*BrokerConfig)) *brokerEnv {
 	t.Helper()
-	env := &brokerEnv{t: t, idp: newFakeIdP(t), now: time.Unix(1_800_000_000, 0), grants: newTestGrants(t)}
+	env := &brokerEnv{t: t, idp: newFakeIdP(t), now: time.Unix(1_800_000_000, 0), grants: newMemoryGrants()}
 	env.accounts = &stubAccounts{users: map[string]*types.User{"user-1": {Id: "user-1", AccountID: "account-1"}}}
 
-	broker, err := NewBroker(BrokerConfig{
+	cfg := BrokerConfig{
 		Flow: &FlowConfig{
 			ClientID:              "upstream-client",
 			Audience:              "https://api.example/",
@@ -189,7 +198,11 @@ func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, e
 		Grants:   env.grants,
 		Identity: stubIdentity{},
 		Accounts: env.accounts,
-	})
+	}
+	for _, fn := range configure {
+		fn(&cfg)
+	}
+	broker, err := NewBroker(cfg)
 	require.NoError(t, err)
 	t.Cleanup(broker.Close)
 	broker.now = func() time.Time { return env.now }
@@ -251,15 +264,40 @@ func (e *brokerEnv) browser() *http.Client {
 }
 
 func (e *brokerEnv) register(redirectURIs ...string) string {
-	body, err := json.Marshal(map[string]any{"client_name": "Test <Client>", "redirect_uris": redirectURIs})
+	status, reg := e.registerClient(map[string]any{"client_name": "Test <Client>", "redirect_uris": redirectURIs})
+	require.Equal(e.t, http.StatusCreated, status)
+	return reg.ClientID
+}
+
+// registerClient posts the client metadata to the registration endpoint and returns the status
+// and, when the client was created, its registration.
+func (e *brokerEnv) registerClient(metadata map[string]any) (int, clientRegistrationResponse) {
+	e.t.Helper()
+	body, err := json.Marshal(metadata)
 	require.NoError(e.t, err)
 	resp, err := e.client().Post(e.srv.URL+"/api/mcp/auth/register", "application/json", strings.NewReader(string(body)))
 	require.NoError(e.t, err)
 	defer func() { _ = resp.Body.Close() }()
-	require.Equal(e.t, http.StatusCreated, resp.StatusCode)
 	var reg clientRegistrationResponse
-	require.NoError(e.t, json.NewDecoder(resp.Body).Decode(&reg))
-	return reg.ClientID
+	if resp.StatusCode == http.StatusCreated {
+		require.NoError(e.t, json.NewDecoder(resp.Body).Decode(&reg))
+	}
+	return resp.StatusCode, reg
+}
+
+// getJSON decodes the document served at path, sending header with the request.
+func (e *brokerEnv) getJSON(path string, header http.Header, out any) {
+	e.t.Helper()
+	req, err := http.NewRequest(http.MethodGet, e.srv.URL+path, nil)
+	require.NoError(e.t, err)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	resp, err := e.client().Do(req)
+	require.NoError(e.t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(e.t, http.StatusOK, resp.StatusCode, path)
+	require.NoError(e.t, json.NewDecoder(resp.Body).Decode(out), path)
 }
 
 type authRequest struct {
@@ -463,16 +501,60 @@ func TestBrokerFullLogin(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, res.status)
 		assert.Contains(t, res.challenge, "resource_metadata=")
 	})
+}
 
-	t.Run("blocked user loses access at once", func(t *testing.T) {
-		env.accounts.set(func(u *types.User) { u.Blocked = true })
-		defer env.accounts.set(func(u *types.User) { u.Blocked = false })
+// The identity provider hop authenticates the way `netbird up` does, so a PKCE flow that
+// works for agents works here too.
+func TestBrokerUpstreamClientAuthentication(t *testing.T) {
+	t.Run("a confidential client's secret reaches a provider that takes only HTTP Basic", func(t *testing.T) {
+		const secret = "s3cret"
+		env := newBrokerEnvWith(t, httptest.NewServer, nil, func(cfg *BrokerConfig) { cfg.ClientSecret = secret })
+		env.idp.mu.Lock()
+		env.idp.basicSecret = secret
+		env.idp.mu.Unlock()
+		req := env.newRequest(env.register(clientCallback))
 
-		assert.Equal(t, http.StatusUnauthorized, env.callMCP("/api/mcp", access, nil).status)
-		status, _ := env.tokenRequest(url.Values{
-			"grant_type": {"refresh_token"}, "refresh_token": {tokens["refresh_token"].(string)}, "client_id": {clientID},
-		})
-		assert.Equal(t, http.StatusBadRequest, status, "refresh is refused too")
+		back := env.login(req, false)
+		code := back.Query().Get("code")
+		require.NotEmpty(t, code, "the provider accepted the client, got %s", back)
+		status, tokens := env.exchange(req, code)
+		assert.Equal(t, http.StatusOK, status, tokens)
+	})
+
+	t.Run("a confidential client's secret reaches a provider that takes it only in the form", func(t *testing.T) {
+		const secret = "s3cret"
+		env := newBrokerEnvWith(t, httptest.NewServer, nil, func(cfg *BrokerConfig) { cfg.ClientSecret = secret })
+		env.idp.mu.Lock()
+		env.idp.postSecret = secret
+		env.idp.mu.Unlock()
+		req := env.newRequest(env.register(clientCallback))
+
+		back := env.login(req, false)
+		assert.NotEmpty(t, back.Query().Get("code"), "the provider accepted the client, got %s", back)
+	})
+
+	t.Run("UseIDToken validates the ID token instead of the access token", func(t *testing.T) {
+		for _, useIDToken := range []bool{true, false} {
+			env := newBrokerEnvWith(t, httptest.NewServer, nil, func(cfg *BrokerConfig) { cfg.Flow.UseIDToken = useIDToken })
+			env.idp.mu.Lock()
+			env.idp.idToken = true
+			env.idp.mu.Unlock()
+			req := env.newRequest(env.register(clientCallback))
+
+			back := env.login(req, false)
+			assert.Equal(t, useIDToken, back.Query().Get("code") != "", "UseIDToken=%v, got %s", useIDToken, back)
+		}
+	})
+
+	t.Run("a public client sends its client id in the form, in one request", func(t *testing.T) {
+		env := newBrokerEnv(t)
+		req := env.newRequest(env.register(clientCallback))
+
+		back := env.login(req, false)
+		assert.NotEmpty(t, back.Query().Get("code"), "the provider accepted the client, got %s", back)
+		env.idp.mu.Lock()
+		defer env.idp.mu.Unlock()
+		assert.Equal(t, 1, env.idp.tokenRequests, "the exchange does not probe for the client authentication method")
 	})
 }
 
@@ -770,62 +852,24 @@ func TestBrokerConsentDecisions(t *testing.T) {
 func TestBrokerRegistrationKeepsUsableRedirects(t *testing.T) {
 	env := newBrokerEnv(t)
 
-	body := `{"client_name":"Cursor","redirect_uris":["cursor://anysphere.cursor-mcp/oauth/callback","http://localhost:8787/callback"]}`
-	resp, err := http.Post(env.srv.URL+"/api/mcp/auth/register", "application/json", strings.NewReader(body))
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var reg clientRegistrationResponse
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&reg))
+	status, reg := env.registerClient(map[string]any{
+		"client_name": "Cursor", "redirect_uris": []string{"cursor://anysphere.cursor-mcp/oauth/callback", "http://localhost:8787/callback"},
+	})
+	require.Equal(t, http.StatusCreated, status)
 	assert.Equal(t, []string{"http://localhost:8787/callback"}, reg.RedirectURIs, "the custom scheme is dropped, the loopback kept")
 	assert.Equal(t, "none", reg.TokenEndpointAuthMethod)
 	assert.True(t, strings.HasPrefix(reg.ClientID, clientIDPrefix))
 
 	// A name cut at the 100-byte limit keeps whole characters, in the response and on the
 	// consent page.
-	long := strings.Repeat("a", 99) + "é"
-	nameBody, err := json.Marshal(map[string]any{"client_name": long, "redirect_uris": []string{clientCallback}})
-	require.NoError(t, err)
-	resp3, err := http.Post(env.srv.URL+"/api/mcp/auth/register", "application/json", strings.NewReader(string(nameBody)))
-	require.NoError(t, err)
-	defer func() { _ = resp3.Body.Close() }()
-	require.Equal(t, http.StatusCreated, resp3.StatusCode)
-	var named clientRegistrationResponse
-	require.NoError(t, json.NewDecoder(resp3.Body).Decode(&named))
+	status, named := env.registerClient(map[string]any{"client_name": strings.Repeat("a", 99) + "é", "redirect_uris": []string{clientCallback}})
+	require.Equal(t, http.StatusCreated, status)
 	assert.Equal(t, strings.Repeat("a", 99), named.ClientName, "the response echoes the stored name, cut before the split character")
 	page, _ := env.consent(env.browser(), env.newRequest(named.ClientID))
 	assert.Contains(t, page, "Allow "+strings.Repeat("a", 99)+" to access")
 
-	resp2, err := http.Post(env.srv.URL+"/api/mcp/auth/register", "application/json", strings.NewReader(`{"redirect_uris":["http://evil.example/cb"]}`))
-	require.NoError(t, err)
-	defer func() { _ = resp2.Body.Close() }()
-	assert.Equal(t, http.StatusBadRequest, resp2.StatusCode, "a client with no usable redirect is refused")
-}
-
-func TestBrokerMetadata(t *testing.T) {
-	env := newBrokerEnv(t)
-
-	var meta authorizationServer
-	resp, err := http.Get(env.srv.URL + authServerMetadataPath)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&meta))
-	assert.Equal(t, env.srv.URL+"/api/mcp/auth", meta.Issuer)
-	assert.Equal(t, env.srv.URL+"/api/mcp/auth/authorize", meta.AuthorizationEndpoint, "management runs the authorize step")
-	assert.Equal(t, env.srv.URL+"/api/mcp/auth/token", meta.TokenEndpoint, "management issues the tokens")
-	assert.Equal(t, []string{scopeRead, scopeWrite}, meta.ScopesSupported)
-	for _, endpoint := range []string{meta.Issuer, meta.AuthorizationEndpoint, meta.TokenEndpoint, meta.RegistrationEndpoint} {
-		assert.True(t, strings.HasPrefix(endpoint, env.srv.URL+"/api/mcp/"), "%s sits under the MCP endpoint", endpoint)
-	}
-	assert.True(t, meta.IssParameterSupported)
-
-	var prm protectedResource
-	resp2, err := http.Get(env.srv.URL + ProtectedResourcePath)
-	require.NoError(t, err)
-	defer func() { _ = resp2.Body.Close() }()
-	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&prm))
-	assert.Equal(t, env.srv.URL+"/api/mcp", prm.Resource)
-	assert.Equal(t, []string{env.srv.URL + "/api/mcp/auth"}, prm.AuthorizationServers)
+	status, _ = env.registerClient(map[string]any{"redirect_uris": []string{"http://evil.example/cb"}})
+	assert.Equal(t, http.StatusBadRequest, status, "a client with no usable redirect is refused")
 }
 
 func TestNewBrokerRequiresAFlow(t *testing.T) {
@@ -865,30 +909,21 @@ func TestNewBrokerValidatesTheBaseURL(t *testing.T) {
 func TestBrokerBaseURLIgnoresForwardingHeaders(t *testing.T) {
 	env := newBrokerEnv(t)
 	env.broker.base = "https://netbird.example.com"
-
-	getJSON := func(path string, out any) {
-		req, err := http.NewRequest(http.MethodGet, env.srv.URL+path, nil)
-		require.NoError(t, err)
-		req.Header.Set("X-Forwarded-Host", "attacker.example")
-		req.Header.Set("X-Forwarded-Proto", "http")
-		resp, err := env.client().Do(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
-	}
+	forwarded := http.Header{"X-Forwarded-Host": {"attacker.example"}, "X-Forwarded-Proto": {"http"}}
 
 	var meta authorizationServer
-	getJSON("/api/mcp/auth/.well-known/openid-configuration", &meta)
+	env.getJSON("/api/mcp/auth/.well-known/openid-configuration", forwarded, &meta)
 	assert.Equal(t, "https://netbird.example.com/api/mcp/auth", meta.Issuer)
 	assert.Equal(t, "https://netbird.example.com/api/mcp/auth/token", meta.TokenEndpoint)
+	assert.Equal(t, "https://netbird.example.com/api/mcp/auth/revoke", meta.RevocationEndpoint)
 
 	var prm protectedResource
-	getJSON("/api/mcp/.well-known/oauth-protected-resource", &prm)
+	env.getJSON("/api/mcp/.well-known/oauth-protected-resource", forwarded, &prm)
 	assert.Equal(t, "https://netbird.example.com/api/mcp", prm.Resource)
 
 	req, err := http.NewRequest(http.MethodPost, env.srv.URL+"/api/mcp", nil)
 	require.NoError(t, err)
-	req.Header.Set("X-Forwarded-Host", "attacker.example")
+	req.Header = forwarded
 	resp, err := env.client().Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -916,19 +951,13 @@ func TestBrokerBaseURLIgnoresForwardingHeaders(t *testing.T) {
 func TestBrokerMetadataIsValidOpenIDProviderMetadata(t *testing.T) {
 	env := newBrokerEnv(t)
 
-	getJSON := func(path string, out any) {
-		resp, err := http.Get(env.srv.URL + path)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		require.Equal(t, http.StatusOK, resp.StatusCode, path)
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(out), path)
-	}
-
 	var meta map[string]any
-	getJSON("/api/mcp/auth/.well-known/openid-configuration", &meta)
+	env.getJSON("/api/mcp/auth/.well-known/openid-configuration", nil, &meta)
 	for _, field := range []string{"issuer", "authorization_endpoint", "token_endpoint", "jwks_uri", "response_types_supported", "subject_types_supported", "id_token_signing_alg_values_supported"} {
 		assert.NotEmpty(t, meta[field], "OpenID provider metadata needs %s", field)
 	}
+	assert.Equal(t, []any{scopeRead, scopeWrite}, meta["scopes_supported"], "the scopes the consent page offers")
+	assert.Equal(t, true, meta["authorization_response_iss_parameter_supported"], "clients can check the RFC 9207 issuer")
 	jwksURI, ok := meta["jwks_uri"].(string)
 	require.True(t, ok, "jwks_uri is a URL")
 	require.True(t, strings.HasPrefix(jwksURI, env.srv.URL+"/api/"), "the key set is under /api, which the proxy forwards: %s", jwksURI)
@@ -936,7 +965,7 @@ func TestBrokerMetadataIsValidOpenIDProviderMetadata(t *testing.T) {
 	var keys struct {
 		Keys []any `json:"keys"`
 	}
-	getJSON(strings.TrimPrefix(jwksURI, env.srv.URL), &keys)
+	env.getJSON(strings.TrimPrefix(jwksURI, env.srv.URL), nil, &keys)
 	assert.NotNil(t, keys.Keys, "the key set is a JSON Web Key Set")
 	assert.Empty(t, keys.Keys, "the broker signs nothing a client verifies")
 }

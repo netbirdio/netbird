@@ -38,12 +38,13 @@ var consentTemplate = template.Must(template.New("consent").Parse(`<!doctype htm
 <script nonce="{{.Nonce}}">` + armScript + `</script>
 </main></body></html>`))
 
-// armScript keeps the approve button disabled until the page sees the pointer move or a key
-// press, and briefly after. A window opened under the cursor between the two clicks of a
-// double-click cannot take the second one. Without scripts the button stays usable.
+// armScript keeps the approve button disabled until the page sees the pointer move, a key
+// press or a tap, and briefly after. A window opened under a mouse that keeps clicking, as
+// in a double-click, cannot take those clicks. Without scripts the button stays usable.
 const armScript = `(function(){var b=document.getElementById("approve"),armed=false;b.disabled=true;` +
 	`function arm(){if(armed)return;armed=true;setTimeout(function(){b.disabled=false},600)}` +
-	`addEventListener("pointermove",arm);addEventListener("keydown",arm)})();`
+	`addEventListener("pointermove",arm);addEventListener("keydown",arm);` +
+	`addEventListener("pointerdown",function(e){if(e.pointerType!=="mouse")arm()})})();`
 
 var errorTemplate = template.Must(template.New("error").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -75,13 +76,8 @@ func pageHeaders(w http.ResponseWriter, scriptNonce string) {
 }
 
 func renderConsent(w http.ResponseWriter, page consentPage) {
-	nonce, err := randomToken()
-	if err != nil {
-		renderError(w, http.StatusInternalServerError, "The page could not be prepared. Try again.")
-		return
-	}
-	page.Nonce = nonce
-	pageHeaders(w, nonce)
+	page.Nonce = randomToken()
+	pageHeaders(w, page.Nonce)
 	if err := consentTemplate.Execute(w, page); err != nil {
 		log.Debugf("failed to render MCP consent page: %v", err)
 	}

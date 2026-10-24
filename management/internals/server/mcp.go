@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"strings"
 	"time"
 
@@ -47,11 +48,25 @@ func (s *BaseServer) MCPBroker() *mcpapi.Broker {
 			TrustedProxies: s.Config.ReverseProxy.TrustedHTTPProxies,
 		})
 		if err != nil {
+			closeGrantStore(grants)
 			log.Warnf("MCP OAuth disabled, MCP clients must use a personal access token: %v", err)
 			return nil
 		}
+		// Stop and a failed Start both run the stop handlers.
+		s.OnStop(broker.Close)
 		return broker
 	})
+}
+
+// closeGrantStore closes the Redis connection of a grant store no broker took over.
+func closeGrantStore(grants mcpapi.GrantStore) {
+	closer, ok := grants.(io.Closer)
+	if !ok {
+		return
+	}
+	if err := closer.Close(); err != nil {
+		log.Debugf("failed to close the MCP grant store: %v", err)
+	}
 }
 
 // mcpBaseURL is the URL clients reach management at when the deployment knows it, which it
@@ -62,7 +77,6 @@ func (s *BaseServer) mcpBaseURL() string {
 	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
 		return ""
 	}
-	// The same base the embedded IdP registers the callback under.
 	return strings.TrimSuffix(s.Config.EmbeddedIdP.Issuer, "/oauth2")
 }
 

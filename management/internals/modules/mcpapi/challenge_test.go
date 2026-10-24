@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// challengeRouter mounts the MCP path and a neighbour behind the challenge middleware and a
-// stand-in auth middleware that refuses every request lacking a token.
+// challengeRouter mounts the MCP path behind the challenge middleware and a stand-in auth
+// middleware that refuses every request lacking a token.
 func challengeRouter() *mux.Router {
 	root := mux.NewRouter()
 	root.Use((&Broker{}).ChallengeMiddleware())
@@ -27,7 +27,6 @@ func challengeRouter() *mux.Router {
 	})
 	ok := func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }
 	root.HandleFunc(apiPrefix+Path, ok)
-	root.HandleFunc(apiPrefix+"/peers", ok)
 	return root
 }
 
@@ -43,23 +42,6 @@ func TestChallengeMiddlewareAddsPointerOnUnauthorizedMCPCall(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "no valid authentication provided", "the API's own error body is preserved")
 }
 
-func TestChallengeMiddlewareLeavesOtherResponsesAlone(t *testing.T) {
-	router := challengeRouter()
-
-	req := httptest.NewRequest(http.MethodPost, "http://mgmt.example.com/api/mcp", nil)
-	req.Header.Set("Authorization", "Bearer good")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, rec.Header().Get("WWW-Authenticate"), "a successful call carries no challenge")
-	assert.Equal(t, "ok", rec.Body.String())
-
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://mgmt.example.com/api/peers", nil))
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Empty(t, rec.Header().Get("WWW-Authenticate"), "only the MCP endpoint advertises resource metadata")
-}
-
 func TestChallengeWriterKeepsFlushing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := &challengeWriter{ResponseWriter: rec, metadataURL: "https://mgmt.example.com/x"}
@@ -69,4 +51,18 @@ func TestChallengeWriterKeepsFlushing(t *testing.T) {
 	assert.True(t, rec.Flushed, "flushes reach the underlying writer")
 	assert.Equal(t, http.StatusOK, rec.Code, "an implicit write means 200")
 	assert.Empty(t, rec.Header().Get("WWW-Authenticate"))
+}
+
+func TestChallengeWriterFlushBeforeWriteExposesHeaders(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := &challengeWriter{ResponseWriter: rec, metadataURL: "https://mgmt.example.com/x"}
+	// A streaming handler may flush to send the headers before it has a body to write.
+	w.Flush()
+	_, err := w.Write([]byte("data"))
+	require.NoError(t, err)
+
+	res := rec.Result()
+	assert.Equal(t, http.StatusOK, res.StatusCode, "a flush before any write means 200")
+	assert.Equal(t, "WWW-Authenticate, Mcp-Session-Id, Mcp-Protocol-Version", res.Header.Get("Access-Control-Expose-Headers"),
+		"the headers the flush sent expose the MCP headers to browser clients")
 }

@@ -3,7 +3,6 @@ package mcpapi
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,32 +10,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
+	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
-// startTestRedis returns the Redis of testRedisEnv, or one in a container.
+// startTestRedis returns the URL of a Redis it starts in a container.
 func startTestRedis(t *testing.T) string {
 	t.Helper()
-	if redisURL := os.Getenv(testRedisEnv); redisURL != "" {
-		return redisURL
-	}
 	testcontainers.SkipIfProviderIsNotHealthy(t)
 	ctx := context.Background()
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "redis:7-alpine",
-			ExposedPorts: []string{"6379/tcp"},
-			WaitingFor:   wait.ForLog("Ready to accept connections"),
-		},
-		Started: true,
-	})
+	container, err := testcontainersredis.Run(ctx, "redis:7")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = container.Terminate(ctx) })
-	host, err := container.Host(ctx)
+	redisURL, err := container.ConnectionString(ctx)
 	require.NoError(t, err)
-	port, err := container.MappedPort(ctx, "6379")
-	require.NoError(t, err)
-	return fmt.Sprintf("redis://%s:%s", host, port.Port())
+	return redisURL
 }
 
 // eachGrantStore runs a test against both stores, which must behave the same.
@@ -55,10 +42,7 @@ func eachGrantStore(t *testing.T, test func(t *testing.T, grants GrantStore)) {
 // newStoredGrant starts a grant under fresh IDs and returns its ID.
 func newStoredGrant(t *testing.T, grants GrantStore, current string) string {
 	t.Helper()
-	codeID, err := randomToken()
-	require.NoError(t, err)
-	grantID, err := randomToken()
-	require.NoError(t, err)
+	codeID, grantID := randomToken(), randomToken()
 	record := grantRecord{UserID: "user-1", AccountID: "account-1", ClientKey: "client-1", Current: current}
 	_, reused, err := grants.start(context.Background(), codeID, time.Minute, grantID, record, time.Hour)
 	require.NoError(t, err)
@@ -69,8 +53,7 @@ func newStoredGrant(t *testing.T, grants GrantStore, current string) string {
 func TestGrantStoresStartOnce(t *testing.T) {
 	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
 		ctx := context.Background()
-		codeID, err := randomToken()
-		require.NoError(t, err)
+		codeID := randomToken()
 		record := grantRecord{UserID: "user-1", AccountID: "account-1", ClientKey: "client-1", Current: "r0", Started: 1_800_000_000}
 
 		previous, reused, err := grants.start(ctx, codeID, time.Minute, "grant-a-"+codeID, record, time.Hour)
@@ -138,8 +121,8 @@ func TestGrantStoresRotate(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, grantRecord{UserID: "user-1", AccountID: "account-1", ClientKey: "client-1", Current: "r2", Previous: "r1", RotatedAt: later.UnixMilli()}, record)
 
-		outcome, _ = rotate(id, "r0", "r3", later)
-		assert.Equal(t, grantReplayed, outcome, "a token two rotations old is a replay")
+		outcome, _ = rotate(id, "r1", "r3", later.Add(refreshGrace+time.Millisecond))
+		assert.Equal(t, grantReplayed, outcome, "the replaced token is a replay after the grace window")
 		_, ok, err = grants.load(ctx, id)
 		require.NoError(t, err)
 		assert.False(t, ok, "a replay deletes the grant")
@@ -160,13 +143,38 @@ func TestGrantStoresRotate(t *testing.T) {
 	})
 }
 
+// An instance whose clock is behind the one that rotated sees the rotation in the future.
+// Skew within the grace window must not fail a burst, and a rotation further in the future
+// is outside the window rather than inside it.
+func TestGrantStoresBoundTheGraceWindowBothWays(t *testing.T) {
+	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
+		ctx := context.Background()
+		start := time.Unix(1_800_000_000, 0)
+		id := newStoredGrant(t, grants, "r0")
+		outcome, _, err := grants.rotate(ctx, id, "r0", "r1", start)
+		require.NoError(t, err)
+		require.Equal(t, grantRotated, outcome)
+
+		outcome, current, err := grants.rotate(ctx, id, "r0", "r2", start.Add(-refreshGrace))
+		require.NoError(t, err)
+		assert.Equal(t, grantServed, outcome, "a clock up to the grace window behind is within it")
+		assert.Equal(t, "r1", current)
+
+		outcome, _, err = grants.rotate(ctx, id, "r0", "r2", start.Add(-refreshGrace-time.Millisecond))
+		require.NoError(t, err)
+		assert.Equal(t, grantReplayed, outcome, "a clock further behind is outside the grace window")
+		_, ok, err := grants.load(ctx, id)
+		require.NoError(t, err)
+		assert.False(t, ok, "the replay deletes the grant")
+	})
+}
+
 func TestGrantStoresExpire(t *testing.T) {
 	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
 		ctx := context.Background()
-		codeID, err := randomToken()
-		require.NoError(t, err)
+		codeID := randomToken()
 		grantID := "expiring-" + codeID
-		_, _, err = grants.start(ctx, codeID, 50*time.Millisecond, grantID, grantRecord{UserID: "user-1", Current: "r0"}, 50*time.Millisecond)
+		_, _, err := grants.start(ctx, codeID, 50*time.Millisecond, grantID, grantRecord{UserID: "user-1", Current: "r0"}, 50*time.Millisecond)
 		require.NoError(t, err)
 		time.Sleep(100 * time.Millisecond)
 

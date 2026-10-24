@@ -9,14 +9,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// A grant is the server-side record of one login: the session a code redemption starts.
-// Tokens stay sealed values, but each carries its grant's ID, and a token whose grant is gone
-// is refused. That makes a session revocable on its own and lets the broker enforce the
-// OAuth 2.1 rules a stateless server cannot: single-use codes and refresh token rotation.
-//
-// The records live in Redis whenever management's shared cache does, which it must when
-// management runs as more than one instance. Losing them, to a flush or to a single
-// instance's restart, signs MCP clients out; it never lets a token through.
+// A grant records the session a code redemption starts. A token is refused once its grant
+// is gone, so a session can be revoked; the store also makes codes single-use and rotates
+// refresh tokens. Losing it signs clients out and never lets a token through.
 const (
 	grantKeyPrefix     = "mcp-oauth:session:"
 	usedCodeKeyPrefix  = "mcp-oauth:used-code:"
@@ -97,7 +92,10 @@ const (
 // refreshes cannot chain rotations. rotateScript is the same rule for Redis.
 func rotateGrant(record *grantRecord, presented, next string, now time.Time) rotationOutcome {
 	nowMs := now.UnixMilli()
-	withinGrace := record.RotatedAt != 0 && nowMs-record.RotatedAt <= refreshGrace.Milliseconds()
+	// A clock behind the one that rotated sees a negative elapsed time. Bounding it both ways
+	// tolerates small skew and caps how long a skewed clock accepts a replaced token.
+	elapsed, grace := nowMs-record.RotatedAt, refreshGrace.Milliseconds()
+	withinGrace := record.RotatedAt != 0 && elapsed >= -grace && elapsed <= grace
 	switch {
 	case presented == record.Current && withinGrace:
 		return grantServed
@@ -117,7 +115,6 @@ func (b *Broker) until(unix int64) time.Duration {
 	return max(time.Unix(unix, 0).Sub(b.now()), time.Second)
 }
 
-// writeStoreError answers a token endpoint request the store could not serve.
 func writeStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	log.WithContext(r.Context()).Errorf("MCP OAuth: %v", err)
 	writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "try again shortly")
