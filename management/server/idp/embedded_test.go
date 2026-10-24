@@ -696,3 +696,89 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		assert.Contains(t, err.Error(), "local user creation is disabled")
 	})
 }
+
+func TestEmbeddedIdPConfig_ToYAMLConfig_Branding(t *testing.T) {
+	newConfig := func(issuer, brandName, brandLogoURL string) *EmbeddedIdPConfig {
+		return &EmbeddedIdPConfig{
+			Enabled:      true,
+			Issuer:       issuer,
+			BrandName:    brandName,
+			BrandLogoURL: brandLogoURL,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(t.TempDir(), "dex.db"),
+				},
+			},
+		}
+	}
+
+	const httpsIssuer = "https://example.com/oauth2"
+
+	tests := []struct {
+		name         string
+		issuer       string
+		brandName    string
+		brandLogoURL string
+		wantIssuer   string
+		wantLogoURL  string
+	}{
+		{name: "defaults to NetBird", wantIssuer: "NetBird"},
+		{name: "blank values keep the defaults", brandName: "  ", brandLogoURL: " ", wantIssuer: "NetBird"},
+		{name: "name only", brandName: " Acme Access ", wantIssuer: "Acme Access"},
+		{
+			name:         "name and logo",
+			brandName:    "Acme Access",
+			brandLogoURL: " https://example.com/logo.svg ",
+			wantIssuer:   "Acme Access",
+			wantLogoURL:  "https://example.com/logo.svg",
+		},
+		{
+			name:         "logo only",
+			brandLogoURL: "https://example.com:8443/logo.png",
+			wantIssuer:   "NetBird",
+			wantLogoURL:  "https://example.com:8443/logo.png",
+		},
+		{
+			name:         "http logo with an http issuer",
+			issuer:       "http://localhost:8080/oauth2",
+			brandLogoURL: "http://localhost:8080/logo.png",
+			wantIssuer:   "NetBird",
+			wantLogoURL:  "http://localhost:8080/logo.png",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issuer := tt.issuer
+			if issuer == "" {
+				issuer = httpsIssuer
+			}
+			yamlConfig, err := newConfig(issuer, tt.brandName, tt.brandLogoURL).ToYAMLConfig()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantIssuer, yamlConfig.Frontend.Issuer, "login page name")
+			assert.Equal(t, tt.wantLogoURL, yamlConfig.Frontend.Extra[brandLogoExtraKey], "login page logo")
+			assert.Equal(t, "light", yamlConfig.Frontend.Theme, "theme must not depend on branding")
+		})
+	}
+
+	// The login pages cannot serve operator files, so anything but an absolute http(s)
+	// URL would render as a broken image and is rejected at startup instead.
+	// An http logo is rejected too when the pages are served over https, where browsers
+	// refuse to load it.
+	rejected := []string{
+		"/logo.svg",
+		"logo.svg",
+		"//example.com/logo.svg",
+		"javascript:alert(1)",
+		"https://",
+		"https://:8080/logo.svg",
+		"http://example.com/logo.svg",
+	}
+	for _, logoURL := range rejected {
+		t.Run("rejects "+logoURL, func(t *testing.T) {
+			_, err := newConfig(httpsIssuer, "", logoURL).ToYAMLConfig()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "brand logo URL")
+		})
+	}
+}
