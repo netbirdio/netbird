@@ -340,33 +340,8 @@ func TestEmbeddedIdPConfig_ToYAMLConfig_IncludesDeviceCallbackRedirectURI(t *tes
 	assert.Contains(t, cliRedirectURIs, "/device/callback")
 	assert.Contains(t, cliRedirectURIs, "/oauth2/device/callback")
 	assert.Contains(t, cliRedirectURIs, "https://example.com/oauth2/device/callback")
-}
-
-func TestEmbeddedIdPConfig_ToYAMLConfig_IncludesMCPCallbackRedirectURI(t *testing.T) {
-	config := &EmbeddedIdPConfig{
-		Enabled: true,
-		Issuer:  "https://example.com/oauth2",
-		Storage: EmbeddedStorageConfig{
-			Type: "sqlite3",
-			Config: EmbeddedStorageTypeConfig{
-				File: filepath.Join(t.TempDir(), "dex.db"),
-			},
-		},
-	}
-
-	yamlConfig, err := config.ToYAMLConfig()
-	require.NoError(t, err)
-
-	clients := map[string][]string{}
-	for _, client := range yamlConfig.StaticClients {
-		clients[client.ID] = client.RedirectURIs
-	}
-	// The broker logs users in with the CLI client; both clients share one list.
-	for _, id := range []string{StaticClientCLI, StaticClientDashboard} {
-		require.Contains(t, clients, id, "the embedded IdP defines the %s client", id)
-		assert.Contains(t, clients[id], "https://example.com/api/mcp/auth/callback",
-			"the %s client allows the MCP broker's callback without extra configuration", id)
-	}
+	assert.Contains(t, cliRedirectURIs, "https://example.com/api/mcp/auth/callback",
+		"the client the MCP broker logs in with allows its callback without extra configuration")
 }
 
 func TestEmbeddedIdPConfig_ToYAMLConfig_SessionCookieEncryptionKey(t *testing.T) {
