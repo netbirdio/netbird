@@ -18,11 +18,11 @@ import (
 // handlers on apiRouter before serving requests through root.
 func BuildApiBlackBoxWithRouters(t testing_tools.TB, sqlFile string) (root http.Handler, apiRouter *mux.Router, am account.Manager) {
 	t.Helper()
-	api := buildTestAPI(t, sqlFile, update_channel.NewPeersUpdateManager(nil))
+	_, am, apiMiddleware, register := buildTestAPI(t, sqlFile, update_channel.NewPeersUpdateManager(nil))
 
 	rootRouter := mux.NewRouter()
-	rootRouter.Use(api.middleware()...)
+	rootRouter.Use(apiMiddleware...)
 	apiRouter = rootRouter.PathPrefix("/api").Subrouter()
-	api.register(t, apiRouter)
-	return rootRouter, apiRouter, api.am
+	register(apiRouter)
+	return rootRouter, apiRouter, am
 }

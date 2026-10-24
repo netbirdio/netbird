@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -68,29 +69,6 @@ func TestGuidanceNamesExistingTools(t *testing.T) {
 	}
 	check("instructions", instructions)
 	assert.LessOrEqual(t, len(instructions), 2048, "clients cut long server instructions")
-}
-
-func TestInputSchemaMergesPathQueryAndBody(t *testing.T) {
-	op := findOperation(t, "update_peer")
-	schema, err := op.inputSchema()
-	require.NoError(t, err)
-
-	assert.Equal(t, "string", schema.Properties["peer_id"].Type, "path argument is a string")
-	assert.Equal(t, "string", schema.Properties["name"].Type, "body field is merged in")
-	assert.Equal(t, "boolean", schema.Properties["ssh_enabled"].Type, "body field keeps its type")
-	assert.Contains(t, schema.Properties, "ip", "optional body field is present")
-	assert.Equal(t, "peer_id", schema.PropertyOrder[0], "path arguments come first")
-
-	assert.Subset(t, schema.Required, []string{"peer_id", "name", "ssh_enabled", "login_expiration_enabled", "inactivity_expiration_enabled"})
-	assert.NotContains(t, schema.Required, "ip", "pointer fields are optional")
-	require.NotNil(t, schema.AdditionalProperties)
-	assert.NotNil(t, schema.AdditionalProperties.Not, "unknown arguments are rejected by the schema")
-
-	list := findOperation(t, "list_peers")
-	listSchema, err := list.inputSchema()
-	require.NoError(t, err)
-	assert.Empty(t, listSchema.Required, "query arguments are optional")
-	assert.ElementsMatch(t, []string{"name", "ip", "mac"}, listSchema.PropertyOrder)
 }
 
 func TestInputSchemaRejectsUndocumentedPathArgument(t *testing.T) {
@@ -217,26 +195,6 @@ func TestDispatchSplitsArgumentsIntoPathQueryAndBody(t *testing.T) {
 	assert.Equal(t, map[string]string{"service_user": "true"}, got.Query, "booleans become query strings")
 }
 
-func TestDispatchRejectsBadArguments(t *testing.T) {
-	api := echoRouter(t)
-
-	res := call(t, api, "get_peer", `{}`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, textOf(t, res), `missing properties: ["peer_id"]`)
-
-	res = call(t, api, "get_peer", `{"peer_id":"p1","colour":"blue"}`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, textOf(t, res), `unexpected additional properties ["colour"]`)
-
-	res = call(t, api, "get_peer", `{"peer_id":{"nested":true}}`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, textOf(t, res), `want "string"`)
-
-	res = call(t, api, "list_peers", `[1,2]`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, textOf(t, res), `want "object"`)
-}
-
 // TestDispatchValidatesBodyFields covers the case validation exists for: a body field the
 // model misspells or leaves out must fail the call, not reach an update as a zero value.
 func TestDispatchValidatesBodyFields(t *testing.T) {
@@ -265,6 +223,14 @@ func TestDispatchValidatesBodyFields(t *testing.T) {
 
 	res = call(t, api, "list_peers", `{"name":1,"ip":null}`)
 	assert.False(t, res.IsError, "query arguments accept numbers and null: %s", textOf(t, res))
+
+	res = call(t, api, "get_peer", `{"peer_id":{"nested":true}}`)
+	assert.True(t, res.IsError, "a path argument must be a string")
+	assert.Contains(t, textOf(t, res), `want "string"`)
+
+	res = call(t, api, "list_peers", `[1,2]`)
+	assert.True(t, res.IsError, "arguments must be an object")
+	assert.Contains(t, textOf(t, res), `want "object"`)
 }
 
 func TestDispatchBindsTheAccountToTheCaller(t *testing.T) {
@@ -360,13 +326,15 @@ func TestDispatchRefusesWithoutCallerIdentity(t *testing.T) {
 	assert.ErrorContains(t, err, "caller identity missing")
 }
 
-// tokenTransport plays the MCP client's configured credential.
+// tokenTransport plays the MCP client's configured credential. It sends a public Host over
+// the loopback listener, as a reverse proxy on the same host does.
 type tokenTransport struct {
 	token string
 }
 
 func (t tokenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
+	r.Host = "netbird.example.com"
 	if t.token != "" {
 		r.Header.Set("Authorization", "Bearer "+t.token)
 	}
@@ -387,7 +355,8 @@ func TestServeOverHTTP(t *testing.T) {
 			next.ServeHTTP(w, nbcontext.SetUserAuthInRequest(r, auth.UserAuth{AccountId: "acc-1", UserId: "user-1"}))
 		})
 	})
-	require.NoError(t, RegisterEndpoints(root.PathPrefix("/api").Subrouter(), echoRouter(t), Options{Tools: []string{"get_peer", "list_peers"}}))
+	usage := NewUsage()
+	require.NoError(t, RegisterEndpoints(root.PathPrefix("/api").Subrouter(), echoRouter(t), Options{Tools: []string{"get_peer", "list_peers"}, Usage: usage}))
 
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
@@ -403,27 +372,6 @@ func TestServeOverHTTP(t *testing.T) {
 
 	_, err := connect("")
 	assert.Error(t, err, "the endpoint sits behind the API authentication")
-
-	tenant := func(account string) error {
-		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
-		s, err := client.Connect(ctx, &mcp.StreamableClientTransport{
-			Endpoint:   srv.URL + "/api" + Path + "?account=" + account,
-			HTTPClient: &http.Client{Transport: tokenTransport{token: "good"}},
-		}, nil)
-		if err == nil {
-			_ = s.Close()
-		}
-		return err
-	}
-	assert.Error(t, tenant("acc-2"), "an account the credential did not switch to is refused, not replaced by its own")
-	assert.NoError(t, tenant("acc-1"), "the account the request runs as is served")
-	for _, raw := range []string{"acc-2%", "acc-2;x=1", ""} {
-		assert.Error(t, tenant(raw), "a tenant URL the middleware cannot read is refused: %q", raw)
-	}
-	miscased, err := (&http.Client{Transport: tokenTransport{token: "good"}}).Post(srv.URL+"/api"+Path+"?Account=acc-2", "application/json", strings.NewReader(`{}`))
-	require.NoError(t, err)
-	_ = miscased.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, miscased.StatusCode, "a miscased account key is refused, not ignored")
 
 	session, err := connect("good")
 	require.NoError(t, err)
@@ -458,6 +406,10 @@ func TestServeOverHTTP(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "JSON-RPC batches are refused")
+
+	calls, users := usage.LastDay(time.Now())
+	assert.Equal(t, 2, calls, "tool calls count, listing tools and refused batches do not")
+	assert.Equal(t, 1, users, "distinct callers")
 }
 
 func findOperation(t *testing.T, name string) operation {

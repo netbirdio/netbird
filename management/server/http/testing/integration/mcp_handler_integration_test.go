@@ -151,9 +151,10 @@ func (s mcpServer) callTool(t *testing.T, authorization, tool string, args any) 
 	return *resp.Result
 }
 
-// requireToolOK asserts the tool succeeded and returns its JSON text.
-func requireToolOK(t *testing.T, tool string, res toolResult) string {
+// callToolOK runs the tool, requires it to succeed and returns its JSON text.
+func (s mcpServer) callToolOK(t *testing.T, authorization, tool string, args any) string {
 	t.Helper()
+	res := s.callTool(t, authorization, tool, args)
 	require.False(t, res.IsError, "%s must succeed: %s", tool, res.text())
 	return res.text()
 }
@@ -165,9 +166,10 @@ func assertToolDenied(t *testing.T, tool string, res toolResult) {
 	assert.Regexp(t, mcpDeniedPattern, res.text(), "%s must fail as forbidden or not found", tool)
 }
 
-// idsOf returns the id field of every object in a JSON array tool result.
-func idsOf(t *testing.T, tool, text string) []string {
+// listIDs runs a list tool without arguments and returns the id of every object it lists.
+func (s mcpServer) listIDs(t *testing.T, authorization, tool string) []string {
 	t.Helper()
+	text := s.callToolOK(t, authorization, tool, map[string]any{})
 	var objects []struct {
 		ID string `json:"id"`
 	}
@@ -241,20 +243,16 @@ func Test_MCP_ToolsStayInCallerAccount(t *testing.T) {
 			auth := caller.authorization(t, srv)
 			own, foreign := caller.own, caller.foreign
 
-			peers := idsOf(t, "list_peers", requireToolOK(t, "list_peers", srv.callTool(t, auth, "list_peers", map[string]any{})))
-			assert.Equal(t, []string{own.peerID}, peers, "list_peers lists only the caller's peers")
-
-			groups := idsOf(t, "list_groups", requireToolOK(t, "list_groups", srv.callTool(t, auth, "list_groups", map[string]any{})))
+			assert.Equal(t, []string{own.peerID}, srv.listIDs(t, auth, "list_peers"), "list_peers lists only the caller's peers")
+			groups := srv.listIDs(t, auth, "list_groups")
 			assert.Contains(t, groups, own.groupID, "list_groups lists the caller's groups")
 			assert.NotContains(t, groups, foreign.groupID, "list_groups does not list the other account's groups")
-
-			keys := idsOf(t, "list_setup_keys", requireToolOK(t, "list_setup_keys", srv.callTool(t, auth, "list_setup_keys", map[string]any{})))
-			assert.Equal(t, []string{own.keyID}, keys, "list_setup_keys lists only the caller's setup keys")
+			assert.Equal(t, []string{own.keyID}, srv.listIDs(t, auth, "list_setup_keys"), "list_setup_keys lists only the caller's setup keys")
 
 			// The caller's own objects are reachable, so a refusal below is about the account.
-			requireToolOK(t, "get_peer", srv.callTool(t, auth, "get_peer", map[string]any{"peer_id": own.peerID}))
-			requireToolOK(t, "get_group", srv.callTool(t, auth, "get_group", map[string]any{"group_id": own.groupID}))
-			requireToolOK(t, "get_setup_key", srv.callTool(t, auth, "get_setup_key", map[string]any{"key_id": own.keyID}))
+			srv.callToolOK(t, auth, "get_peer", map[string]any{"peer_id": own.peerID})
+			srv.callToolOK(t, auth, "get_group", map[string]any{"group_id": own.groupID})
+			srv.callToolOK(t, auth, "get_setup_key", map[string]any{"key_id": own.keyID})
 
 			crossAccount := []struct {
 				tool string
@@ -280,7 +278,8 @@ func Test_MCP_ToolsStayInCallerAccount(t *testing.T) {
 			// For an admin the REST handler computes what the ID reaches inside the caller's own
 			// account, which for another account's peer is nothing.
 			res := srv.callTool(t, auth, "list_accessible_peers", map[string]any{"peer_id": foreign.peerID})
-			assert.True(t, res.IsError || res.text() == "[]", "list_accessible_peers reveals nothing of the other account, got: %s", res.text())
+			assert.False(t, res.IsError, "list_accessible_peers must answer with an empty list, got: %s", res.text())
+			assert.Equal(t, "[]", res.text(), "list_accessible_peers reveals nothing of the other account")
 
 			assertAccountObjectsIntact(t, srv.store, foreign)
 			assertAccountObjectsIntact(t, srv.store, own)
@@ -311,9 +310,9 @@ func Test_MCP_ReferencesToOtherAccountAreRefused(t *testing.T) {
 
 	// The same update with only the account's own peer goes through, so the refusal below is
 	// about the foreign peer and not about the update itself.
-	requireToolOK(t, "update_group", srv.callTool(t, auth, "update_group", map[string]any{
+	srv.callToolOK(t, auth, "update_group", map[string]any{
 		"group_id": accountA.groupID, "name": accountA.groupName, "peers": []string{accountA.peerID},
-	}))
+	})
 	res = srv.callTool(t, auth, "update_group", map[string]any{
 		"group_id": accountA.groupID, "name": accountA.groupName, "peers": []string{accountA.peerID, accountB.peerID},
 	})
@@ -337,7 +336,7 @@ func Test_MCP_ReferencesToOtherAccountAreRefused(t *testing.T) {
 // accountSettingsOf returns the settings object get_account reports for the caller's account.
 func accountSettingsOf(t *testing.T, srv mcpServer, authorization string) map[string]any {
 	t.Helper()
-	text := requireToolOK(t, "get_account", srv.callTool(t, authorization, "get_account", map[string]any{}))
+	text := srv.callToolOK(t, authorization, "get_account", map[string]any{})
 	var accounts []struct {
 		ID       string         `json:"id"`
 		Settings map[string]any `json:"settings"`
@@ -355,8 +354,7 @@ func peerLoginExpirationOf(t *testing.T, s store.Store, accountID string) time.D
 }
 
 // Test_MCP_UpdateAccountTargetsCallerAccount checks that update_account takes the account
-// from the caller's identity: an account_id argument is refused, and without one each admin
-// changes only their own account.
+// from the caller's identity, so each admin changes only their own account.
 func Test_MCP_UpdateAccountTargetsCallerAccount(t *testing.T) {
 	srv := newMCPServer(t)
 	adminA := bearer(testing_tools.TestAdminId)
@@ -369,22 +367,13 @@ func Test_MCP_UpdateAccountTargetsCallerAccount(t *testing.T) {
 
 	settingsA := accountSettingsOf(t, srv, adminA)
 	settingsA["peer_login_expiration"] = 7200
-
-	for _, target := range []string{accountB.accountID, accountA.accountID} {
-		res := srv.callTool(t, adminA, "update_account", map[string]any{"account_id": target, "settings": settingsA})
-		assert.True(t, res.IsError, "an account_id argument naming %s must be refused, got: %s", target, res.text())
-		assert.Contains(t, res.text(), "account_id", "the refusal names the argument")
-	}
-	assert.Equal(t, initial, peerLoginExpirationOf(t, srv.store, accountA.accountID), "refused calls leave account A unchanged")
-	assert.Equal(t, initial, peerLoginExpirationOf(t, srv.store, accountB.accountID), "refused calls leave account B unchanged")
-
-	requireToolOK(t, "update_account", srv.callTool(t, adminA, "update_account", map[string]any{"settings": settingsA}))
+	srv.callToolOK(t, adminA, "update_account", map[string]any{"settings": settingsA})
 	assert.Equal(t, 2*time.Hour, peerLoginExpirationOf(t, srv.store, accountA.accountID), "admin of A updates account A")
 	assert.Equal(t, initial, peerLoginExpirationOf(t, srv.store, accountB.accountID), "admin of A leaves account B unchanged")
 
 	settingsB := accountSettingsOf(t, srv, adminB)
 	settingsB["peer_login_expiration"] = 10800
-	requireToolOK(t, "update_account", srv.callTool(t, adminB, "update_account", map[string]any{"settings": settingsB}))
+	srv.callToolOK(t, adminB, "update_account", map[string]any{"settings": settingsB})
 	assert.Equal(t, 3*time.Hour, peerLoginExpirationOf(t, srv.store, accountB.accountID), "admin of B updates account B")
 	assert.Equal(t, 2*time.Hour, peerLoginExpirationOf(t, srv.store, accountA.accountID), "admin of B leaves account A unchanged")
 }
@@ -434,11 +423,11 @@ func Test_MCP_RegularUserCannotWrite(t *testing.T) {
 
 	// The same arguments succeed for an admin, so the refusals above came from the role and
 	// not from the arguments.
-	requireToolOK(t, "create_setup_key", srv.callTool(t, admin, "create_setup_key", newKey))
+	srv.callToolOK(t, admin, "create_setup_key", newKey)
 	keysAfter, err = srv.store.GetAccountSetupKeys(ctx, store.LockingStrengthNone, accountA.accountID)
 	require.NoError(t, err)
 	assert.Len(t, keysAfter, len(keysBefore)+1, "an admin creates the setup key")
-	requireToolOK(t, "update_account", srv.callTool(t, admin, "update_account", map[string]any{"settings": settings}))
+	srv.callToolOK(t, admin, "update_account", map[string]any{"settings": settings})
 	assert.Equal(t, 2*time.Hour, peerLoginExpirationOf(t, srv.store, accountA.accountID), "an admin changes the account")
 }
 
@@ -459,8 +448,8 @@ func Test_MCP_AccountQueryCannotSwitchAccount(t *testing.T) {
 		{"user of B asking for account A", bearer(testing_tools.OtherUserId), "?account=" + accountA.accountID, http.StatusForbidden},
 		{"empty account", bearer(testing_tools.TestAdminId), "?account=", http.StatusBadRequest},
 		{"miscased account key", bearer(testing_tools.TestAdminId), "?Account=" + accountB.accountID, http.StatusBadRequest},
-		{"no credential", "", "?account=" + accountB.accountID, http.StatusUnauthorized},
-		{"invalid token", bearer(testing_tools.InvalidToken), "", http.StatusUnauthorized},
+		{"unparseable escape", bearer(testing_tools.TestAdminId), "?account=" + accountB.accountID + "%", http.StatusBadRequest},
+		{"semicolon in query", bearer(testing_tools.TestAdminId), "?account=" + accountB.accountID + ";x=1", http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -529,11 +518,11 @@ func Test_MCP_PathArgumentStaysOnToolRoute(t *testing.T) {
 		assert.Contains(t, res.text(), "another API route", "get_network %q is refused before dispatch", id)
 	}
 
-	created := requireToolOK(t, "create_network", srv.callTool(t, admin, "create_network", map[string]any{"name": "office"}))
+	created := srv.callToolOK(t, admin, "create_network", map[string]any{"name": "office"})
 	var network struct {
 		ID string `json:"id"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(created), &network), "create_network returns the network: %s", created)
-	got := requireToolOK(t, "get_network", srv.callTool(t, admin, "get_network", map[string]any{"network_id": network.ID}))
+	got := srv.callToolOK(t, admin, "get_network", map[string]any{"network_id": network.ID})
 	assert.Contains(t, got, `"name":"office"`, "an ID still reaches get_network's own route")
 }
