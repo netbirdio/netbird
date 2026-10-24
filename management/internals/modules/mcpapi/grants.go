@@ -97,7 +97,10 @@ const (
 // refreshes cannot chain rotations. rotateScript is the same rule for Redis.
 func rotateGrant(record *grantRecord, presented, next string, now time.Time) rotationOutcome {
 	nowMs := now.UnixMilli()
-	withinGrace := record.RotatedAt != 0 && nowMs-record.RotatedAt <= refreshGrace.Milliseconds()
+	// A clock behind the one that rotated sees a negative elapsed time. Bounding it both ways
+	// tolerates small skew and caps how long a skewed clock accepts a replaced token.
+	elapsed, grace := nowMs-record.RotatedAt, refreshGrace.Milliseconds()
+	withinGrace := record.RotatedAt != 0 && elapsed >= -grace && elapsed <= grace
 	switch {
 	case presented == record.Current && withinGrace:
 		return grantServed

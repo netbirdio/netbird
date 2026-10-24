@@ -48,8 +48,12 @@ func (c *challengeWriter) Write(b []byte) (int, error) {
 	return c.ResponseWriter.Write(b)
 }
 
-// Flush keeps streaming responses working through the wrapper.
+// Flush keeps streaming responses working through the wrapper. A flush before any write
+// sends the headers, so the implicit 200 goes through WriteHeader first.
 func (c *challengeWriter) Flush() {
+	if !c.wroteHeader {
+		c.WriteHeader(http.StatusOK)
+	}
 	if f, ok := c.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}

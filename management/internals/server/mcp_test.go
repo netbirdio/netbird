@@ -332,8 +332,8 @@ func (m *mcpTestServer) signInWithOAuth(t *testing.T) string {
 }
 
 // TestMCPWithEmbeddedIdP boots management the way a self-hosted deployment with the embedded
-// IdP runs it, with nothing but NB_MCP_ENABLED added, and checks the MCP endpoint, the OAuth
-// broker and the self-hosted metrics end to end in-process.
+// IdP runs it, with nothing but NB_MCP_ENABLED added, and checks the OAuth broker and the
+// authentication of its tokens at the MCP endpoint path end to end in-process.
 func TestMCPWithEmbeddedIdP(t *testing.T) {
 	setMCPTestEnv(t, "true")
 	m := startMCPTestServer(t)

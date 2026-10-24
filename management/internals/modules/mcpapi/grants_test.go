@@ -308,15 +308,18 @@ func TestBrokerTenantURLs(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, tokens)
 	assert.Equal(t, http.StatusOK, env.callMCP("/api/mcp?account=tenant-1", tokens["access_token"].(string), nil).status)
 
-	other := env.newRequest(req.clientID)
-	other.extra = url.Values{"resource": {env.srv.URL + "/api/mcp?debug=1"}}
-	resp, err = env.browser().Get(env.authorizeURL(other))
-	require.NoError(t, err)
-	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusFound, resp.StatusCode)
-	loc, err := url.Parse(resp.Header.Get("Location"))
-	require.NoError(t, err)
-	assert.Equal(t, "invalid_target", loc.Query().Get("error"), "any other query is another resource")
+	// A query that does not parse is refused too, rather than read as an empty one.
+	for _, query := range []string{"?debug=1", "?account=tenant-1;debug=1", "?%zz=1"} {
+		other := env.newRequest(req.clientID)
+		other.extra = url.Values{"resource": {env.srv.URL + "/api/mcp" + query}}
+		resp, err = env.browser().Get(env.authorizeURL(other))
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusFound, resp.StatusCode, query)
+		loc, err := url.Parse(resp.Header.Get("Location"))
+		require.NoError(t, err)
+		assert.Equal(t, "invalid_target", loc.Query().Get("error"), "any other query is another resource: %s", query)
+	}
 }
 
 func TestBrokerKeepsOneRecordPerSession(t *testing.T) {
