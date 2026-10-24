@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -73,7 +72,7 @@ func NewServer(config Config) (*Server, error) {
 }
 
 func (s *Server) ListenAndServe() error {
-	log.Infof("starting healthcheck server on: http://%s%s", dialAddress(s.config.ListenAddress), path)
+	log.Infof("starting healthcheck server on: %s%s", s.config.ListenAddress, path)
 	return s.httpServer.ListenAndServe()
 }
 
@@ -164,18 +163,4 @@ func (s *Server) validateConnection(ctx context.Context) bool {
 	}
 
 	return true
-}
-
-func dialAddress(listenAddress string) string {
-	host, port, err := net.SplitHostPort(listenAddress)
-	if err != nil {
-		return listenAddress // fallback, might be invalid for dialing
-	}
-
-	// When listening on all interfaces, show localhost for better readability
-	if host == "" || host == "::" || host == "0.0.0.0" {
-		host = "localhost"
-	}
-
-	return net.JoinHostPort(host, port)
 }
