@@ -20,6 +20,7 @@ import (
 
 const (
 	// EnvTools is a comma-separated allowlist of tool names. Empty exposes the whole catalog.
+	// get_guide makes no API call and is always exposed.
 	EnvTools = "NB_MCP_TOOLS"
 
 	serverName = "netbird-management"
@@ -28,6 +29,8 @@ const (
 		"IDs come from the list_* tools; pass IDs, never names. update_* tools replace the whole object: " +
 		"fetch it first and send every field back, since an omitted field resets. " +
 		"Errors carry the API's message; fix the arguments and retry rather than guessing.\n\n" +
+		"Before a setup that takes several tools, call get_guide with one of: exit-nodes, site-to-site, " +
+		"networks-and-dns, access-control, account-and-peers.\n\n" +
 		"Model: groups hold peers and resources (a user's auto_groups apply to the user's peers), and " +
 		"policies between groups are the only thing that lets traffic flow. The Default policy allows All to All until it is disabled. " +
 		"Networks (network, resources, routers, and a policy to the resource groups) reach private hosts, " +
@@ -119,6 +122,7 @@ func newServer(api *mux.Router, opts Options) (*mcp.Server, error) {
 		}
 		server.AddTool(tool, counted(opts.Usage, op.handler(api)))
 	}
+	server.AddTool(guideTool(), counted(opts.Usage, handleGuide))
 	return server, nil
 }
 
@@ -142,7 +146,9 @@ func selectOperations(names []string) ([]operation, error) {
 
 	wanted := make(map[string]bool, len(names))
 	for _, name := range names {
-		wanted[name] = false
+		if name != guideToolName {
+			wanted[name] = false
+		}
 	}
 	selected := make([]operation, 0, len(names))
 	for _, op := range catalog {
