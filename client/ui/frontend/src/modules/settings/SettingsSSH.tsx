@@ -261,7 +261,7 @@ function GuardedHint({
         <HintBox>
             <span>{t("settings.ssh.privilege.hint", { actor })}</span>
             <CopyToClipboard message={command} alwaysShowIcon wrap variant={"bright"}>
-                <code className={"select-text break-all font-mono text-xs text-nb-gray-200"}>
+                <code className={"font-mono text-xs break-all text-nb-gray-200 select-text"}>
                     {command}
                 </code>
             </CopyToClipboard>

@@ -12,11 +12,10 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -256,10 +255,10 @@ func New(opts Options) (*Client, error) {
 	}
 
 	if opts.Performance.PreallocatedBuffersPerPool != nil {
-		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
+		wgbackend.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
 	}
 	if opts.Performance.MaxBatchSize != nil {
-		wgdevice.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
+		wgbackend.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
 	}
 
 	return &Client{
@@ -651,7 +650,7 @@ func (c *Client) getEngine() (*internal.Engine, error) {
 	return engine, nil
 }
 
-func (c *Client) getNet() (*wgnetstack.Net, netip.Addr, error) {
+func (c *Client) getNet() (*wgbackend.NetstackNet, netip.Addr, error) {
 	engine, err := c.getEngine()
 	if err != nil {
 		return nil, netip.Addr{}, err

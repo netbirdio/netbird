@@ -167,6 +167,10 @@ func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string
 	// just a dummy
 }
 
+func (MockIntegratedValidator) SetPeerValidationChangeListener(func(accountID string, peerIDs []string)) {
+	// just a dummy
+}
+
 func (MockIntegratedValidator) Stop(_ context.Context) {
 	// just a dummy
 }
