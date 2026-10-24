@@ -68,9 +68,8 @@ func (s *sealer) seal(p purpose, prefix string, v any) (string, error) {
 		return "", fmt.Errorf("encode: %w", err)
 	}
 	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("nonce: %w", err)
-	}
+	// Since Go 1.24 rand.Read never returns an error; it crashes the program instead.
+	_, _ = rand.Read(nonce)
 	sealed := s.aead.Seal(nonce, nonce, plain, []byte(p))
 	return prefix + base64.RawURLEncoding.EncodeToString(sealed), nil
 }
@@ -129,19 +128,14 @@ func ResolveSecrets(dataStoreKey string) (Secrets, error) {
 	}
 	log.Warnf("no datastore encryption key or %s set: MCP OAuth logins will not survive a restart or work across instances", EnvOAuthKey)
 	random := make([]byte, 32)
-	if _, err := rand.Read(random); err != nil {
-		return Secrets{}, fmt.Errorf("generate MCP OAuth secret: %w", err)
-	}
+	// Since Go 1.24 rand.Read never returns an error; it crashes the program instead.
+	_, _ = rand.Read(random)
 	return Secrets{Tokens: random, Registrations: random}, nil
 }
 
 // randomToken returns an unguessable URL-safe string.
-func randomToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
+func randomToken() string {
+	return rand.Text()
 }
 
 // clientKey is a short fingerprint of a client id, carried in tokens instead of the id itself.

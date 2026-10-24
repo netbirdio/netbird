@@ -55,10 +55,7 @@ func eachGrantStore(t *testing.T, test func(t *testing.T, grants GrantStore)) {
 // newStoredGrant starts a grant under fresh IDs and returns its ID.
 func newStoredGrant(t *testing.T, grants GrantStore, current string) string {
 	t.Helper()
-	codeID, err := randomToken()
-	require.NoError(t, err)
-	grantID, err := randomToken()
-	require.NoError(t, err)
+	codeID, grantID := randomToken(), randomToken()
 	record := grantRecord{UserID: "user-1", AccountID: "account-1", ClientKey: "client-1", Current: current}
 	_, reused, err := grants.start(context.Background(), codeID, time.Minute, grantID, record, time.Hour)
 	require.NoError(t, err)
@@ -69,8 +66,7 @@ func newStoredGrant(t *testing.T, grants GrantStore, current string) string {
 func TestGrantStoresStartOnce(t *testing.T) {
 	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
 		ctx := context.Background()
-		codeID, err := randomToken()
-		require.NoError(t, err)
+		codeID := randomToken()
 		record := grantRecord{UserID: "user-1", AccountID: "account-1", ClientKey: "client-1", Current: "r0", Started: 1_800_000_000}
 
 		previous, reused, err := grants.start(ctx, codeID, time.Minute, "grant-a-"+codeID, record, time.Hour)
@@ -189,10 +185,9 @@ func TestGrantStoresBoundTheGraceWindowBothWays(t *testing.T) {
 func TestGrantStoresExpire(t *testing.T) {
 	eachGrantStore(t, func(t *testing.T, grants GrantStore) {
 		ctx := context.Background()
-		codeID, err := randomToken()
-		require.NoError(t, err)
+		codeID := randomToken()
 		grantID := "expiring-" + codeID
-		_, _, err = grants.start(ctx, codeID, 50*time.Millisecond, grantID, grantRecord{UserID: "user-1", Current: "r0"}, 50*time.Millisecond)
+		_, _, err := grants.start(ctx, codeID, 50*time.Millisecond, grantID, grantRecord{UserID: "user-1", Current: "r0"}, 50*time.Millisecond)
 		require.NoError(t, err)
 		time.Sleep(100 * time.Millisecond)
 
