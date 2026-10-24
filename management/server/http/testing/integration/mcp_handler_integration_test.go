@@ -514,3 +514,26 @@ func Test_MCP_BlockedUserIsRefused(t *testing.T) {
 	assert.Len(t, groupsAfter, len(groupsBefore), "a blocked user creates or deletes no group")
 	assertAccountObjectsIntact(t, srv.store, accountA)
 }
+
+// Test_MCP_PathArgumentStaysOnToolRoute checks that an ID equal to a literal segment of a
+// sibling route cannot send a tool there. The API router registers GET /api/networks/routers
+// and /api/networks/resources ahead of /api/networks/{networkId}, so get_network with those
+// IDs would list routers and resources, tools the NB_MCP_TOOLS allowlist may leave out.
+func Test_MCP_PathArgumentStaysOnToolRoute(t *testing.T) {
+	srv := newMCPServer(t)
+	admin := bearer(testing_tools.TestAdminId)
+
+	for _, id := range []string{"routers", "resources"} {
+		res := srv.callTool(t, admin, "get_network", map[string]any{"network_id": id})
+		assert.True(t, res.IsError, "get_network %q must not reach another route, got: %s", id, res.text())
+		assert.Contains(t, res.text(), "another API route", "get_network %q is refused before dispatch", id)
+	}
+
+	created := requireToolOK(t, "create_network", srv.callTool(t, admin, "create_network", map[string]any{"name": "office"}))
+	var network struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(created), &network), "create_network returns the network: %s", created)
+	got := requireToolOK(t, "get_network", srv.callTool(t, admin, "get_network", map[string]any{"network_id": network.ID}))
+	assert.Contains(t, got, `"name":"office"`, "an ID still reaches get_network's own route")
+}

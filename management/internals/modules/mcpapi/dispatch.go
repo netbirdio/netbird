@@ -8,11 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"runtime/debug"
-	"sort"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/gorilla/mux"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	log "github.com/sirupsen/logrus"
 
@@ -23,10 +24,11 @@ import (
 // request against the REST API router. Argument mistakes come back as tool
 // errors so the model can correct them; a missing caller identity is a
 // deployment error and is reported as a protocol error instead.
-func (o operation) handler(api http.Handler) mcp.ToolHandler {
+func (o operation) handler(api *mux.Router) mcp.ToolHandler {
 	schema, schemaErr := o.resolvedSchema()
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if _, err := nbcontext.GetUserAuthFromContext(ctx); err != nil {
+		userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+		if err != nil {
 			return nil, fmt.Errorf("caller identity missing from request context: %w", err)
 		}
 		if !o.readOnly && !writeAllowed(ctx) {
@@ -43,9 +45,12 @@ func (o operation) handler(api http.Handler) mcp.ToolHandler {
 			return toolError(err.Error()), nil
 		}
 
-		httpReq, err := o.buildRequest(ctx, req.Params.Arguments)
+		httpReq, err := o.buildRequest(ctx, userAuth.AccountId, req.Params.Arguments)
 		if err != nil {
 			return toolError(err.Error()), nil
+		}
+		if !o.routesTo(api, httpReq) {
+			return toolError(fmt.Sprintf("the arguments of %s name another API route, not an ID", o.name)), nil
 		}
 
 		rec := &responseRecorder{header: http.Header{}}
@@ -92,35 +97,18 @@ func validateArguments(schema *jsonschema.Resolved, raw json.RawMessage) error {
 	return nil
 }
 
-// pathArgument is the value of a path argument: the caller's own for a caller-bound one,
-// otherwise the client's.
-func (o operation) pathArgument(ctx context.Context, args map[string]json.RawMessage, name string) (string, error) {
-	bind, bound := callerBound[name]
-	if !bound {
-		return scalarArgument(args, name)
-	}
-	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
-	if err != nil {
-		return "", fmt.Errorf("caller identity missing from request context: %w", err)
-	}
-	return bind(userAuth), nil
-}
-
 // buildRequest splits the flat argument object into path, query and body and
-// assembles the REST request that the catalog maps the tool onto.
-func (o operation) buildRequest(ctx context.Context, raw json.RawMessage) (*http.Request, error) {
+// assembles the REST request that the catalog maps the tool onto. raw must have
+// passed validateArguments, so it is absent, null or an object of declared arguments.
+func (o operation) buildRequest(ctx context.Context, accountID string, raw json.RawMessage) (*http.Request, error) {
 	args := map[string]json.RawMessage{}
-	if len(bytes.TrimSpace(raw)) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return nil, fmt.Errorf("arguments must be a JSON object: %w", err)
-		}
-	}
+	_ = json.Unmarshal(raw, &args)
 
 	path := o.path
 	for _, name := range o.pathParams() {
-		value, err := o.pathArgument(ctx, args, name)
-		if err != nil {
-			return nil, err
+		value := scalarArgument(args, name)
+		if name == callerBound {
+			value = accountID
 		}
 		if value == "" {
 			return nil, fmt.Errorf("missing required argument %q", name)
@@ -136,26 +124,19 @@ func (o operation) buildRequest(ctx context.Context, raw json.RawMessage) (*http
 
 	values := url.Values{}
 	for _, q := range o.query {
-		value, err := scalarArgument(args, q.name)
-		if err != nil {
-			return nil, err
-		}
-		if value != "" {
+		if value := scalarArgument(args, q.name); value != "" {
 			values.Set(q.name, value)
 		}
 		delete(args, q.name)
 	}
 
 	var body io.Reader
-	switch {
-	case o.body != nil:
+	if o.body != nil {
 		encoded, err := json.Marshal(args)
 		if err != nil {
 			return nil, fmt.Errorf("encode request body: %w", err)
 		}
 		body = bytes.NewReader(encoded)
-	case len(args) > 0:
-		return nil, fmt.Errorf("unexpected arguments: %s", argumentNames(args))
 	}
 
 	target := path
@@ -177,27 +158,32 @@ func (o operation) buildRequest(ctx context.Context, raw json.RawMessage) (*http
 }
 
 // scalarArgument returns the argument as the string the REST API expects in a
-// URL. Numbers and booleans pass through as their JSON text; null and absent
-// both mean "not given".
-func scalarArgument(args map[string]json.RawMessage, name string) (string, error) {
+// URL. The schema allows only strings, numbers and booleans here; numbers and
+// booleans pass through as their JSON text. Null and absent both mean "not given".
+func scalarArgument(args map[string]json.RawMessage, name string) string {
 	raw, ok := args[name]
 	if !ok || string(bytes.TrimSpace(raw)) == "null" {
-		return "", nil
+		return ""
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return s, nil
+		return s
 	}
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return "", fmt.Errorf("argument %q: %w", name, err)
+	return string(bytes.TrimSpace(raw))
+}
+
+var pathVariable = regexp.MustCompile(`\{[^}]*\}`)
+
+// routesTo reports whether api serves req on the operation's own route. An ID equal to a
+// literal segment, such as "routers" for /api/networks/{network_id}, can match a sibling
+// route registered first. A request no route matches gets the router's own 404 or 405.
+func (o operation) routesTo(api *mux.Router, req *http.Request) bool {
+	var match mux.RouteMatch
+	if !api.Match(req, &match) || match.Route == nil {
+		return true
 	}
-	switch v.(type) {
-	case float64, bool:
-		return string(bytes.TrimSpace(raw)), nil
-	default:
-		return "", fmt.Errorf("argument %q must be a string, number or boolean", name)
-	}
+	template, err := match.Route.GetPathTemplate()
+	return err == nil && pathVariable.ReplaceAllString(template, "{}") == pathVariable.ReplaceAllString(o.path, "{}")
 }
 
 // result turns the recorded REST response into the tool result. Non-2xx
@@ -244,14 +230,4 @@ func (r *responseRecorder) WriteHeader(status int) {
 	if r.status == 0 {
 		r.status = status
 	}
-}
-
-// argumentNames lists the argument names sorted, for stable error messages.
-func argumentNames(args map[string]json.RawMessage) string {
-	names := make([]string, 0, len(args))
-	for name := range args {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }

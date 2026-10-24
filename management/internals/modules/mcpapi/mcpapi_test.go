@@ -173,7 +173,7 @@ func authedContext() context.Context {
 	return nbcontext.SetUserAuthInContext(context.Background(), auth.UserAuth{AccountId: "acc-1", UserId: "user-1"})
 }
 
-func call(t *testing.T, api http.Handler, tool string, args string) *mcp.CallToolResult {
+func call(t *testing.T, api *mux.Router, tool string, args string) *mcp.CallToolResult {
 	t.Helper()
 	op := findOperation(t, tool)
 	res, err := op.handler(api)(authedContext(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: tool, Arguments: json.RawMessage(args)}})

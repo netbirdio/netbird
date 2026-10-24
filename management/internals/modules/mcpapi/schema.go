@@ -61,7 +61,7 @@ func (o operation) inputSchema() (*jsonschema.Schema, error) {
 	}
 
 	for _, name := range o.pathParams() {
-		if _, bound := callerBound[name]; bound {
+		if name == callerBound {
 			continue
 		}
 		description, ok := pathParamDescriptions[name]

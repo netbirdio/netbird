@@ -26,8 +26,9 @@ without a personal access token. Both are off unless `NB_MCP_ENABLED` is true.
   so, and they are annotated destructive, like the delete tools.
 - The catalog only holds operations the public OpenAPI spec
   (`shared/management/http/api/openapi.yml`) documents and does not mark
-  `x-cloud-only`; `openapi_test.go` enforces it. Account deletion is left out because
-  a root router middleware guards it, which in-process dispatch does not pass through.
+  `x-cloud-only`; `openapi_test.go` enforces it. Account deletion is left out: a
+  deployment may guard it with middleware on the root router, as NetBird Cloud does
+  for MSP tenants, and in-process dispatch does not pass through that router.
 
 The transport is streamable HTTP in stateless mode with JSON responses. Every JSON-RPC
 message is its own HTTP request, so each tool call is authenticated, rate limited and

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -21,8 +20,8 @@ type operation struct {
 	description string
 	method      string
 	// path is the request path with the tool's path arguments in braces,
-	// e.g. "/api/peers/{peer_id}". Every brace name must have an entry in
-	// pathParamDescriptions.
+	// e.g. "/api/peers/{peer_id}". Every brace name other than callerBound must
+	// have an entry in pathParamDescriptions.
 	path  string
 	query []param
 	// body is the generated request type sent as the JSON body, nil when the
@@ -35,12 +34,10 @@ type operation struct {
 	destructive bool
 }
 
-// callerBound are path arguments dispatch fills from the caller instead of taking them from
-// the client, so a tool only ever acts on the account the request is authenticated for, the
-// one a tenant URL pins. The REST handler would accept any account the user may manage.
-var callerBound = map[string]func(auth.UserAuth) string{
-	"account_id": func(userAuth auth.UserAuth) string { return userAuth.AccountId },
-}
+// callerBound is the path argument dispatch fills with the caller's account instead of taking
+// it from the client, so a tool only ever acts on the account the request is authenticated
+// for, the one a tenant URL pins. The REST handler would accept any account the user may manage.
+const callerBound = "account_id"
 
 // pathParamDescriptions documents every path argument the client supplies.
 var pathParamDescriptions = map[string]string{
@@ -85,8 +82,9 @@ func remove(name, title, description, path string) operation {
 }
 
 // catalog lists every tool the server can expose, in the order they are
-// advertised. Account deletion is left out on purpose: it is guarded by a
-// middleware on the root router that in-process dispatch does not pass through.
+// advertised. Account deletion is left out: a deployment may guard it with
+// middleware on the root router, as NetBird Cloud does for MSP tenants, and
+// in-process dispatch does not pass through that router.
 var catalog = []operation{
 	read("get_account", "Get account",
 		"Retrieve the caller's account with its settings. Returns a JSON array holding exactly the caller's account. Use its whole settings object as the base for update_account. network_range and network_range_v6 show the effective ranges even when no custom range is set.",
