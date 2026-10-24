@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -729,6 +730,10 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 		{"no digit", "Password!", "one digit"},
 		{"no uppercase", "password1!", "one uppercase"},
 		{"no special", "Password1", "one special character"},
+		// A password past bcrypt's 72-byte limit must be rejected here, before
+		// the embedded IdP tries to hash it and fails with an opaque error.
+		{"too long", strings.Repeat("A", 71) + "1!", "at most 72"},
+		{"multibyte too long", strings.Repeat("é", 34) + "Ab1!x", "72 bytes"},
 	}
 
 	for _, tc := range testCases {
@@ -736,6 +741,49 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 			err := am.AcceptUserInvite(context.Background(), result.InviteToken, tc.password)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expectedMsg)
+			sErr, ok := status.FromError(err)
+			require.True(t, ok, "password validation must return a typed error")
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "invalid passwords must return InvalidArgument")
+		})
+	}
+
+	invites, err := am.Store.GetAccountUserInvites(context.Background(), store.LockingStrengthNone, testAccountID)
+	require.NoError(t, err)
+	assert.Len(t, invites, 1, "rejected passwords must not consume the invite")
+	users, err := am.Store.GetAccountUsers(context.Background(), store.LockingStrengthNone, testAccountID)
+	require.NoError(t, err)
+	assert.Len(t, users, 2, "rejected passwords must not create a management user")
+	err = am.AcceptUserInvite(context.Background(), result.InviteToken, strings.Repeat("é", 34)+"Ab1!")
+	require.NoError(t, err, "the same invite must remain usable with a 72-byte password")
+}
+
+func TestUpdateUserPassword_RejectsOverLength(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+	}{
+		{"ASCII", strings.Repeat("A", 70) + "1!"},
+		{"UTF-8", strings.Repeat("é", 34) + "Ab1!"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
+			t.Cleanup(cleanup)
+			ctx := context.Background()
+			embeddedIdP := am.idpManager.(*idp.EmbeddedIdPManager)
+			user, err := embeddedIdP.CreateUserWithPassword(ctx, "password@test.com", "OldPass1!", "Password User")
+			require.NoError(t, err)
+
+			err = am.UpdateUserPassword(ctx, testAccountID, user.ID, user.ID, "OldPass1!", tc.password+"x")
+			require.Error(t, err)
+			sErr, ok := status.FromError(err)
+			require.True(t, ok, "password validation must return a typed error")
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "invalid passwords must return InvalidArgument")
+			assert.Contains(t, err.Error(), "at most 72 bytes", "validation must reject the password before hashing")
+
+			err = am.UpdateUserPassword(ctx, testAccountID, user.ID, user.ID, "OldPass1!", tc.password)
+			require.NoError(t, err, "rejection must preserve the old password and accept exactly 72 bytes")
+			err = am.UpdateUserPassword(ctx, testAccountID, user.ID, user.ID, tc.password, "NextPass1!")
+			require.NoError(t, err, "the accepted 72-byte password must authenticate successfully")
 		})
 	}
 }
@@ -758,6 +806,13 @@ func TestValidatePassword(t *testing.T) {
 		{"all lowercase short", "pass", true, "at least 8 characters"},
 		{"empty", "", true, "at least 8 characters"},
 		{"spaces count as special", "Pass word1", false, ""},
+		// bcrypt hashes at most 72 bytes, so anything longer must be rejected
+		// here rather than failing later during hashing. The boundary is bytes,
+		// not runes: the multibyte case is under 72 runes but over 72 bytes.
+		{"exactly 72 bytes", strings.Repeat("A", 70) + "1!", false, ""},
+		{"multibyte exactly 72 bytes", strings.Repeat("é", 34) + "Ab1!", false, ""},
+		{"too long 73 bytes", strings.Repeat("A", 71) + "1!", true, "at most 72"},
+		{"multibyte 73 bytes", strings.Repeat("é", 34) + "Ab1!x", true, "72 bytes"},
 	}
 
 	for _, tc := range testCases {
