@@ -75,12 +75,10 @@ func (s *BaseServer) mcpBaseURL() string {
 	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
 		return ""
 	}
-	// The same base the embedded IdP registers the callback under.
 	return strings.TrimSuffix(s.Config.EmbeddedIdP.Issuer, "/oauth2")
 }
 
-// registerMCPEndpoints mounts the authorization server's endpoints, which bypass the API
-// authentication: clients reach them before they hold a token.
+// registerMCPEndpoints mounts the authorization server's endpoints when the broker runs.
 func (s *BaseServer) registerMCPEndpoints(apiRouter *mux.Router) error {
 	if broker := s.MCPBroker(); broker != nil {
 		return broker.RegisterEndpoints(s.Router(), apiRouter)
