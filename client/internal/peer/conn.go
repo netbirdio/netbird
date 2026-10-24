@@ -692,6 +692,42 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
+// OnUnderlayChanged reacts to a change of the host's physical network. A P2P
+// path whose local end is gone, or that relied on the old network's NAT
+// mapping, is dead, but ICE would only notice after its own timeouts. For
+// such a path, when the relay is ready, closing the ICE agent switches the
+// peer to relay at once, through the same path as an ICE disconnect, and lets
+// the guard renegotiate P2P on the new network; P2P becomes active again as
+// soon as the new negotiation connects. A path that can still work is left
+// alone: moving it would put the peer on a relay that is reconnecting too.
+func (conn *Conn) OnUnderlayChanged(localAddrExists func(netip.Addr) bool) {
+	state, err := conn.statusRecorder.GetPeer(conn.config.Key)
+	if err != nil {
+		return
+	}
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil {
+		return
+	}
+	if conn.currentConnPriority != conntype.ICEP2P && conn.currentConnPriority != conntype.ICETurn {
+		return
+	}
+	if !p2pPathLost(state.LocalIceCandidateType, state.LocalIceCandidateEndpoint, localAddrExists) {
+		conn.Log.Debugf("network changed, P2P path via %s can still work: keeping it", state.LocalIceCandidateEndpoint)
+		return
+	}
+	if !conn.isReadyToUpgrade() {
+		conn.Log.Debugf("network changed, relay not ready: keeping the current %s path", conn.currentConnPriority)
+		return
+	}
+
+	conn.Log.Infof("network changed, switching to relay while P2P renegotiates")
+	conn.workerICE.Close()
+}
+
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -1100,4 +1136,19 @@ func metricsConnType(priority conntype.ConnPriority) metrics.ConnectionType {
 	default:
 		return metrics.ConnectionTypeUnknown
 	}
+}
+
+// p2pPathLost reports whether a P2P path cannot have survived a network
+// change. A host candidate survives while its address is still on the host.
+// Server-reflexive, peer-reflexive and relay candidates depend on the old
+// network's NAT mapping or TURN allocation, so they are treated as lost.
+func p2pPathLost(localCandidateType, localEndpoint string, localAddrExists func(netip.Addr) bool) bool {
+	if localCandidateType != "host" {
+		return true
+	}
+	endpoint, err := netip.ParseAddrPort(localEndpoint)
+	if err != nil {
+		return true
+	}
+	return !localAddrExists(endpoint.Addr().Unmap())
 }
