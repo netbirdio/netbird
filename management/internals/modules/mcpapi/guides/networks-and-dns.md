@@ -2,7 +2,7 @@
 
 ## Choose the setup
 - Networks: default for hosts, subnets and domains without NetBird (VPN-to-site, site-to-site). Nothing is reachable until a policy allows it.
-- `create_route`: only exit nodes (`0.0.0.0/0`) and site-to-site that must keep source IPs. A route without `access_control_groups` grants unrestricted access.
+- `create_route`: only exit nodes (`0.0.0.0/0`) and site-to-site that must keep source IPs or run without policy gating. A route without `access_control_groups` grants unrestricted access.
 - Policy alone: the target runs NetBird and is reached at its NetBird IP.
 
 ## Prerequisites

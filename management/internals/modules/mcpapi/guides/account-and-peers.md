@@ -3,8 +3,8 @@
 Changing settings, peers, setup keys or users needs the `owner` or `admin` role; `network_admin` can still edit groups.
 
 ## update_account replaces every setting
-1. `get_account` returns a one-item array. Take `id` and the whole `settings` object.
-2. Call `update_account` with `{"account_id":"<id>","settings":{...every field from get_account, edited...}}`. Leave out `onboarding`.
+1. `get_account` returns a one-item array. Take its whole `settings` object.
+2. Call `update_account` with `{"settings":{...every field from get_account, edited...}}` and no `account_id`: it always acts on the caller's account. Leave out `onboarding`.
 3. Omitted fields reset to zero values: `dns_domain` to the default, a missing `ipv6_enabled_groups` removes IPv6 from all peers, `lazy_connection_enabled`, `groups_propagation_enabled` and `routing_peer_dns_resolution_enabled` turn false, `auto_update_version` is cleared. Always send `extra` with all five fields.
 4. `peer_login_expiration` must be 3600 to 15552000 seconds, even when expiration is off.
 

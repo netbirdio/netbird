@@ -1,10 +1,11 @@
 // Package mcpapi serves the management REST API as a Model Context Protocol server, together
 // with the OAuth 2.1 authorization server MCP clients sign in with.
 //
-// Every tool maps onto one REST operation and is executed by replaying the call in-process
-// against the API router, so a tool call and the matching HTTP request run the same handler,
-// the same permission checks and return the same JSON. The endpoint is mounted behind the API
-// authentication middleware and takes the caller identity from the request context.
+// Every tool except get_guide, which returns an embedded guide, maps onto one REST operation
+// and is executed by replaying the call in-process against the API router, so a tool call and
+// the matching HTTP request run the same handler, the same permission checks and return the
+// same JSON. The endpoint is mounted behind the API authentication middleware and takes the
+// caller identity from the request context.
 package mcpapi
 
 import (
