@@ -507,7 +507,8 @@ func Test_MCP_BlockedUserIsRefused(t *testing.T) {
 // Test_MCP_PathArgumentStaysOnToolRoute checks that an ID equal to a literal segment of a
 // sibling route cannot send a tool there. The API router registers GET /api/networks/routers
 // and /api/networks/resources ahead of /api/networks/{networkId}, so get_network with those
-// IDs would list routers and resources, tools the NB_MCP_TOOLS allowlist may leave out.
+// IDs would list all routers, a tool the NB_MCP_TOOLS allowlist may leave out, and all
+// resources, an endpoint outside the public spec and the catalog.
 func Test_MCP_PathArgumentStaysOnToolRoute(t *testing.T) {
 	srv := newMCPServer(t)
 	admin := bearer(testing_tools.TestAdminId)

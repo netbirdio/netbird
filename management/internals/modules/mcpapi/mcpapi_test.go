@@ -134,6 +134,7 @@ func echoRouter(t *testing.T) *mux.Router {
 		require.NoError(t, json.NewEncoder(w).Encode(echo{Method: r.Method, Path: r.URL.Path, Vars: mux.Vars(r), Query: query, Body: body}))
 	}
 	router.HandleFunc("/api/peers", handler).Methods(http.MethodGet)
+	router.HandleFunc("/api/peers/accessible", handler).Methods(http.MethodGet)
 	router.HandleFunc("/api/peers/{peerId}", handler).Methods(http.MethodGet, http.MethodPut)
 	router.HandleFunc("/api/users", handler).Methods(http.MethodGet)
 	router.HandleFunc("/api/accounts/{accountId}", handler).Methods(http.MethodPut)
@@ -197,6 +198,19 @@ func TestDispatchSplitsArgumentsIntoPathQueryAndBody(t *testing.T) {
 
 // TestDispatchValidatesBodyFields covers the case validation exists for: a body field the
 // model misspells or leaves out must fail the call, not reach an update as a zero value.
+// An ID equal to the literal segment of a sibling route registered first would reach that
+// route instead of the tool's.
+func TestDispatchStaysOnTheToolRoute(t *testing.T) {
+	api := echoRouter(t)
+
+	res := call(t, api, "get_peer", `{"peer_id":"accessible"}`)
+	assert.True(t, res.IsError, "an ID naming a sibling route is refused")
+	assert.Contains(t, textOf(t, res), "another API route")
+
+	res = call(t, api, "get_peer", `{"peer_id":"p1"}`)
+	assert.False(t, res.IsError, "a plain ID reaches the tool's route: %s", textOf(t, res))
+}
+
 func TestDispatchValidatesBodyFields(t *testing.T) {
 	api := echoRouter(t)
 
@@ -227,6 +241,10 @@ func TestDispatchValidatesBodyFields(t *testing.T) {
 	res = call(t, api, "get_peer", `{"peer_id":{"nested":true}}`)
 	assert.True(t, res.IsError, "a path argument must be a string")
 	assert.Contains(t, textOf(t, res), `want "string"`)
+
+	res = call(t, api, "get_peer", `{"peer_id":"p1","colour":"blue"}`)
+	assert.True(t, res.IsError, "an unknown argument fails a tool without a body too")
+	assert.Contains(t, textOf(t, res), "colour")
 
 	res = call(t, api, "list_peers", `[1,2]`)
 	assert.True(t, res.IsError, "arguments must be an object")
