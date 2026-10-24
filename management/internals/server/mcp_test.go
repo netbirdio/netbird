@@ -451,8 +451,8 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 		for _, tool := range tools.Tools {
 			byName[tool.Name] = tool
 		}
-		assert.Len(t, tools.Tools, len(mcpapi.Routes())+1, "every API tool plus get_guide")
-		for _, name := range []string{"get_current_user", "list_groups", "update_account", "get_guide"} {
+		assert.Len(t, tools.Tools, len(mcpapi.Routes()), "every API tool")
+		for _, name := range []string{"get_current_user", "list_groups", "update_account"} {
 			assert.Contains(t, byName, name, "the catalog advertises %s", name)
 		}
 		if updateAccount := byName["update_account"]; updateAccount != nil {

@@ -49,6 +49,27 @@ func TestCatalogBuildsValidTools(t *testing.T) {
 // maxDescriptionLength is how much of a tool description Claude Code passes to the model.
 const maxDescriptionLength = 4096
 
+var toolMention = regexp.MustCompile(`\b(?:list|get|create|update|delete|approve|reject)_[a-z][a-z_]*\b`)
+
+// TestGuidanceNamesExistingTools keeps descriptions and instructions from sending the
+// model to a tool that does not exist.
+func TestGuidanceNamesExistingTools(t *testing.T) {
+	known := map[string]bool{}
+	for _, op := range catalog {
+		known[op.name] = true
+	}
+	check := func(source, text string) {
+		for _, name := range toolMention.FindAllString(text, -1) {
+			assert.True(t, known[name], "%s names unknown tool %s", source, name)
+		}
+	}
+	for _, op := range catalog {
+		check("description of "+op.name, op.description)
+	}
+	check("instructions", instructions)
+	assert.LessOrEqual(t, len(instructions), 2048, "clients cut long server instructions")
+}
+
 func TestInputSchemaMergesPathQueryAndBody(t *testing.T) {
 	op := findOperation(t, "update_peer")
 	schema, err := op.inputSchema()
@@ -414,7 +435,7 @@ func TestServeOverHTTP(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
 	}
-	assert.ElementsMatch(t, []string{"list_peers", "get_peer", guideToolName}, names, "only the allowlisted tools and the guides are advertised")
+	assert.ElementsMatch(t, []string{"list_peers", "get_peer"}, names, "only the allowlisted tools are advertised")
 
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "get_peer", Arguments: map[string]any{"peer_id": "p1"}})
 	require.NoError(t, err)
@@ -425,11 +446,6 @@ func TestServeOverHTTP(t *testing.T) {
 	res, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "get_peer", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	assert.True(t, res.IsError, "argument errors are tool errors, not transport errors")
-
-	res, err = session.CallTool(ctx, &mcp.CallToolParams{Name: guideToolName, Arguments: map[string]any{"topic": "exit-nodes"}})
-	require.NoError(t, err)
-	require.False(t, res.IsError, textOf(t, res))
-	assert.True(t, strings.HasPrefix(textOf(t, res), "# Exit nodes"), "the guide is returned as markdown")
 
 	// A batch would run many tool calls for a single rate-limited HTTP request.
 	batch := `[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_peer","arguments":{"peer_id":"p1"}}},` +

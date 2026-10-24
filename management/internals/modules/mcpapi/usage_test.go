@@ -74,7 +74,7 @@ func TestToolCallsAreCounted(t *testing.T) {
 	}
 	call(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	call(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_peers","arguments":{}}}`)
-	call(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_guide","arguments":{"topic":"exit-nodes"}}}`)
+	call(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_peers","arguments":{}}}`)
 
 	calls, users := usage.LastDay(time.Now())
 	assert.Equal(t, 2, calls, "tool calls count, listing tools does not")
