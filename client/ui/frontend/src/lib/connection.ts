@@ -1,7 +1,7 @@
 import { Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
 import i18next from "@/lib/i18n";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 
 export const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
 export const EVENT_TRIGGER_LOGIN = "trigger-login";
@@ -120,10 +120,7 @@ export async function startConnection(onSettled?: () => void, signal?: AbortSign
     }
 
     if (connectError !== undefined) {
-        await errorDialog({
-            Title: i18next.t("connect.error.loginTitle"),
-            Message: formatErrorMessage(connectError),
-        });
+        await errorDialogFor(i18next.t("connect.error.loginTitle"), connectError);
         return;
     }
 

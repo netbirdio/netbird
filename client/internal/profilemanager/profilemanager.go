@@ -8,6 +8,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,6 +31,29 @@ type Profile struct {
 	// loader so callers do not have to reconstruct it from ID + dir.
 	Path     string
 	IsActive bool
+	Owners   []ipcauth.Principal
+	// LegacyUserDir is the sanitized username of the per-username directory the
+	// profile was found in, empty for the profiles.v1 directory and for the
+	// default profile. It is the only legacy evidence of profile ownership.
+	LegacyUserDir string
+}
+
+// AccessibleBy reports whether a kernel-attested caller may address this
+// profile.
+func (p *Profile) AccessibleBy(id ipcauth.Identity) bool {
+	if !id.Known() {
+		return false
+	}
+	if ipcauth.ProfileOwnershipDisabled() {
+		return true
+	}
+	if ipcauth.IsPrivilegedCaller(id) {
+		return true
+	}
+	if len(p.Owners) == 0 {
+		return false
+	}
+	return p.Owners[0].Matches(id)
 }
 
 func (p *Profile) FilePath() (string, error) {
@@ -58,7 +82,7 @@ func (p *Profile) FilePath() (string, error) {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	configDir, err := getConfigDirForUser(username.Username)
+	configDir, err := getConfigDirForUserLegacy(username.Username)
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
 	}

@@ -56,7 +56,7 @@ func PipeOwnedBySelf(conn net.Conn) bool {
 		log.Debugf("read daemon pipe owner: %v", err)
 		return false
 	}
-	return selfKnown && selfIdentity.SID != "" && owner == selfIdentity.SID
+	return selfIdentity.Known() && selfIdentity.SID != "" && owner == selfIdentity.SID
 }
 
 // pipeOwnerSID reads the owner of the pipe object a client is connected to. The
@@ -83,5 +83,5 @@ func trustedPipeOwner(owner string) bool {
 	case sidLocalSystem, sidLocalService, sidNetworkService, sidAdministrators:
 		return true
 	}
-	return selfKnown && selfIdentity.SID != "" && owner == selfIdentity.SID
+	return selfIdentity.Known() && selfIdentity.SID != "" && owner == selfIdentity.SID
 }

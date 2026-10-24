@@ -139,6 +139,10 @@ type Tray struct {
 	profilesMu   sync.Mutex
 	profiles     []services.Profile
 	profilesUser string
+	// profilesForeign records that the active profile is one this user cannot
+	// address, so no cached row is marked active and the submenu has no name
+	// to show.
+	profilesForeign bool
 
 	// menuMu serialises relayoutMenu (buildMenu + SetMenu) and guards the
 	// menu/item-pointer fields above. relayoutMenu is the only post-startup
@@ -344,7 +348,7 @@ func (t *Tray) relayoutMenu() {
 
 	disableProfiles, disableNetworks := t.featuresDisabled()
 
-	daemonUnavailable := strings.EqualFold(lastStatus, services.StatusDaemonUnavailable)
+	daemonUnavailable := services.IsDaemonOutage(lastStatus)
 	connecting := strings.EqualFold(lastStatus, services.StatusConnecting)
 
 	if t.statusItem != nil && lastStatus != "" {

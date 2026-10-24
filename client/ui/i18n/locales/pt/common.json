@@ -1393,5 +1393,35 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Aguardando a autorização…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Outro usuário"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "O perfil ativo pertence a outro usuário. Somente o proprietário pode alterá-lo ou desconectá-lo."
+    },
+    "error.privilege_required": {
+        "message": "Esta ação requer privilégios elevados."
+    },
+    "error.session_held": {
+        "message": "Outro usuário está com esta máquina conectada."
+    },
+    "error.not_profile_owner": {
+        "message": "Este perfil pertence a outro usuário."
+    },
+    "error.profile_unowned": {
+        "message": "Este perfil ainda não tem proprietário."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Sem acesso"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Sem acesso ao serviço NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "O seu administrador restringiu o serviço NetBird neste dispositivo a determinados usuários ou grupos, e a sua conta não é um deles. Contate o seu administrador para obter acesso."
+    },
+    "error.daemon_access_denied": {
+        "message": "A sua conta não tem permissão para usar o serviço NetBird neste dispositivo. Contacte o seu administrador para obter acesso."
     }
 }

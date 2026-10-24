@@ -130,7 +130,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	if profileName != "" {
 		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
+			return fmt.Errorf("switch profile: %w", err)
 		}
 		profileSwitched = true
 	} else {
@@ -184,10 +184,7 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 func createProfile(ctx context.Context, profileName, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return "", daemonConnectError(err)
 	}
 	defer conn.Close()
 
@@ -285,10 +282,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return daemonConnectError(err)
 	}
 	defer func() {
 		err := conn.Close()
@@ -300,8 +294,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	// The peer detail is asked for because of what its absence means, not
+	// because it is read: the daemon strips it from a caller who does not hold
+	// the session, which is how the check below tells the holder apart. Without
+	// the flag the daemon never fills it in for anyone and that check is always
+	// true.
 	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
+		WaitForReady:      func() *bool { b := true; return &b }(),
+		GetFullPeerStatus: true,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
@@ -332,14 +332,18 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	if status.Status == string(internal.StatusConnected) {
+		if status.GetFullStatus() == nil {
+			cmd.Println("Already connected and the connection belongs to another user.")
+			cmd.Println("Run 'netbird down' as a privileged user to be able to claim the session with this user.")
+			return nil
+		}
 		if !profileSwitched {
 			cmd.Println("Already connected")
 			return nil
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return daemonCallError("call service down method", err)
 		}
 	}
 

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { Connection as ConnectionSvc, Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 import { startConnection } from "@/lib/connection.ts";
 
 const NETBIRD_UPLOAD_URL = "https://upload.debug.netbird.io/upload-url";
@@ -260,10 +260,7 @@ const useDebugBundle = () => {
             }
             await cleanupBestEffort(pcap, level, false);
             setStage({ kind: "idle" });
-            await errorDialog({
-                Title: i18next.t("settings.error.debugBundleTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(i18next.t("settings.error.debugBundleTitle"), e);
         } finally {
             if (abortRef.current === ctrl) abortRef.current = null;
         }

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -93,6 +94,9 @@ var (
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		// Execute prints the error instead, so a refusal the daemon already
+		// explained is not reprinted inside a gRPC envelope.
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			SetFlagsFromEnvVars(cmd.Root())
 
@@ -113,7 +117,11 @@ func Execute() error {
 	if isUpdateBinary() {
 		return updateCmd.Execute()
 	}
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	if err != nil {
+		printCommandError(rootCmd, err)
+	}
+	return err
 }
 
 // init initialises package-level defaults and configures the root
@@ -155,7 +163,7 @@ func init() {
 		defaultDaemonAddr = daddr.WindowsPipeAddr
 	}
 
-	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|npipe]://[path|name]. tcp://host:port is deprecated: it carries no caller identity, so the daemon refuses every request on it")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", "(DEPRECATED) Admin Panel URL - This flag is no longer functional")
 	_ = rootCmd.PersistentFlags().MarkDeprecated("admin-url", "the admin-url flag is no longer functional and will be removed in a future version")
@@ -206,6 +214,7 @@ func init() {
 	profileCmd.AddCommand(profileRenameCmd)
 	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileSelectCmd)
+	profileCmd.AddCommand(profileClaimCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
@@ -283,9 +292,43 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	defer cancel()
 
 	target, opts := daddr.DialTarget(addr)
-	opts = append(opts, grpc.WithBlock())
+	// Refusals are re-presented here, at the one place every command dials, so
+	// no command has to remember to render them.
+	opts = append(opts,
+		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(denialInterceptor),
+		grpc.WithChainStreamInterceptor(denialStreamInterceptor),
+	)
 
-	return grpc.DialContext(ctx, target, opts...)
+	denied := watchAccessDenied(ctx, cancel, addr)
+	conn, err := grpc.DialContext(ctx, target, opts...)
+	if err != nil && denied.Load() {
+		return nil, errDaemonAccessDenied
+	}
+	return conn, err
+}
+
+// accessProbeDelay is how long a dial may block before the socket is probed.
+const accessProbeDelay = 500 * time.Millisecond
+
+// watchAccessDenied probes addr after accessProbeDelay and cancels the dial if
+// the socket refuses this user.
+func watchAccessDenied(ctx context.Context, cancel context.CancelFunc, addr string) *atomic.Bool {
+	denied := &atomic.Bool{}
+	go func() {
+		timer := time.NewTimer(accessProbeDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		if daddr.DeniesCaller(ctx, addr) {
+			denied.Store(true)
+			cancel()
+		}
+	}()
+	return denied
 }
 
 // terminalLoginError reports whether a Login failure is final, so the backoff
@@ -485,10 +528,7 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return nil, daemonConnectError(err)
 	}
 
 	return conn, nil
