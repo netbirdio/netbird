@@ -1,20 +1,109 @@
-# MCP OAuth broker
+# MCP endpoint and OAuth broker
 
-This package runs an OAuth 2.1 authorization server (the broker) so
-[Model Context Protocol](https://modelcontextprotocol.io) clients can sign users in to
-management's MCP endpoint at `/api/mcp` without a personal access token. It is off
-unless `NB_MCP_ENABLED` is true.
+This package serves the management REST API as a
+[Model Context Protocol](https://modelcontextprotocol.io) server at `/api/mcp`, and
+runs an OAuth 2.1 authorization server (the broker) so MCP clients can sign users in
+without a personal access token. Both are off unless `NB_MCP_ENABLED` is true.
+
+## How tool calls work
+
+- Every tool maps onto exactly one REST operation: `list_peers` is `GET /api/peers`,
+  `update_peer` is `PUT /api/peers/{peer_id}`. The catalog is in `catalog.go`.
+- A tool call is replayed in-process against the API router, so it runs the same
+  handler and permission checks and returns the same JSON as the REST call. A non-2xx
+  response becomes a tool error carrying the status and the API's error body, and a
+  panic in a handler is recovered into a tool error.
+- Input schemas are derived from the generated request types in
+  `shared/management/http/api`, with path and query arguments added as top-level
+  properties. Arguments are validated against the schema before the request is built,
+  so a misspelled, missing or mistyped field fails the call instead of reaching an
+  update as a zero value. A path argument containing `/` or `\`, or `.` or `..`, is
+  refused.
+- `account_id` is never taken from the client. Dispatch fills it from the caller's
+  identity (`callerBound` in `catalog.go`), so `update_account` only acts on the
+  account the request is authenticated for.
+- `update_*` tools have PUT semantics: an omitted field resets. Their descriptions say
+  so, and they are annotated destructive, like the delete tools.
+- The catalog only holds operations the public OpenAPI spec
+  (`shared/management/http/api/openapi.yml`) documents and does not mark
+  `x-cloud-only`; `openapi_test.go` enforces it. Account deletion is left out because
+  a root router middleware guards it, which in-process dispatch does not pass through.
+
+The transport is streamable HTTP in stateless mode with JSON responses. Every JSON-RPC
+message is its own HTTP request, so each tool call is authenticated, rate limited and
+metered like the REST call it stands for. JSON-RPC batches are refused with 400, so one
+request carries at most one tool call. `GET` and `DELETE` answer 405.
+
+`get_guide` returns one of the markdown guides in `guides/` (`exit-nodes`,
+`site-to-site`, `networks-and-dns`, `access-control`, `account-and-peers`). It makes no
+API call and is always exposed. `guides_test.go` fails when a guide, a tool
+description or the server instructions name a tool the catalog does not have.
 
 ## Enabling
 
 | Variable | Meaning |
 | --- | --- |
-| `NB_MCP_ENABLED` | A true value (`strconv.ParseBool`) starts the broker when it can. Unset, false or unparseable leaves it off; an unparseable value is logged. |
+| `NB_MCP_ENABLED` | A true value (`strconv.ParseBool`) mounts `/api/mcp` and, when it can start, the broker. Unset, false or unparseable leaves both off; an unparseable value is logged. |
+| `NB_MCP_TOOLS` | Optional comma-separated tool allowlist. Empty exposes the whole catalog. An unknown name stops management at boot. `get_guide` is always exposed. |
 | `NB_MCP_OAUTH_KEY` | Optional secret of at least 32 bytes that seals the broker's codes and tokens. See [Keys](#keys). |
 | `NB_CACHE_REDIS_ADDRESS` | Management's existing shared cache address. When set, broker grants live there. See [Grants](#grants). |
 
-With `NB_API_RATE_LIMITING_ENABLED=true`, calls with a broker token are limited per
-user with the API limiter's settings; over the limit answers 429.
+With `NB_API_RATE_LIMITING_ENABLED=true`, PAT calls are limited per token by the API
+middleware and broker-token calls per user with the same limiter settings; over the
+limit answers 429.
+
+## Connecting a client
+
+`<management>` below is the public scheme and host of management, the one the
+dashboard calls the API on.
+
+### With a personal access token
+
+```bash
+claude mcp add --transport http netbird https://<management>/api/mcp \
+  --header "Authorization: Token nbp_..."
+```
+
+Any client that speaks streamable HTTP takes the same URL and header:
+
+```json
+{"mcpServers": {"netbird": {
+  "type": "http",
+  "url": "https://<management>/api/mcp",
+  "headers": {"Authorization": "Token nbp_..."}
+}}}
+```
+
+A smoke test that lists the tools:
+
+```bash
+curl -s https://<management>/api/mcp \
+  -H "Authorization: Token nbp_..." \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+### With OAuth
+
+Give the client the URL only:
+
+```bash
+claude mcp add --transport http netbird https://<management>/api/mcp
+```
+
+In Claude Code, run `/mcp`, select `netbird` and authenticate. A browser opens the
+consent page, then the identity provider's login. Other clients that implement MCP
+authorization (RFC 9728 discovery, dynamic client registration, PKCE) work the same
+way.
+
+### Accepted credentials
+
+| `Authorization` header | Accepted on |
+| --- | --- |
+| `Token nbp_...` (personal access token) | The whole API, `/api/mcp` included |
+| `Bearer <JWT>` (dashboard login) | The whole API, `/api/mcp` included |
+| `Bearer nbmcp_...` (broker access token) | Exactly `/api/mcp`; anywhere else the API authentication rejects it |
 
 ## OAuth broker
 
@@ -25,13 +114,14 @@ log in, receives that login on its own callback, and issues its own tokens.
 
 The broker starts when `NB_MCP_ENABLED` is true, a PKCE flow is available (see
 [Identity provider setup](#identity-provider-setup)), the keys resolve and the grant
-store is reachable. Otherwise management logs why, serves none of the endpoints below,
-and adds no pointer to OAuth metadata to the endpoint's 401.
+store is reachable. Otherwise management logs why, `/api/mcp` accepts PATs and JWTs
+only, and its 401 carries no pointer to OAuth metadata.
 
 ### Endpoints
 
 | Path | Method | Purpose |
 | --- | --- | --- |
+| `/api/mcp` | `POST` | The MCP endpoint. |
 | `/api/mcp/.well-known/oauth-protected-resource` | `GET` | RFC 9728 protected resource metadata. The 401 challenge points here. |
 | `/.well-known/oauth-protected-resource/api/mcp` | `GET` | The same document at its RFC 9728 root location. |
 | `/.well-known/oauth-authorization-server/api/mcp/auth` | `GET` | RFC 8414 authorization server metadata. |
@@ -102,7 +192,8 @@ from the embedded IdP's issuer or else the request; see [Reverse proxy](#reverse
    must open, be unexpired, name this `<base>/api/mcp` as resource, and its grant must
    exist. The user is reloaded and must still be active, in the same account, and not
    created after the session began. Failures answer 401 with the challenge. The call
-   then runs as that user with the granted scopes in the request context.
+   then runs as that user with the granted scopes; without `mcp:write`, tools that
+   change data return a tool error.
 
 ### Sessions and refresh
 
@@ -253,19 +344,49 @@ validated with the same validator as an agent's SSO login, so a flow that works 
   resource, callback and cookie security follow. The proxy must set or overwrite both
   headers; omitting `X-Forwarded-Proto: https` yields an `http://` callback the
   identity provider rejects.
+- A proxy on the same host may connect over `127.0.0.1` and forward the public `Host`.
+  The MCP SDK's DNS rebinding check would refuse that with 403, so it is off: every
+  call carries its credential in a header, which a rebound page cannot obtain.
 
 ## Tenant URLs
 
-`/api/mcp?account=<account id>` is a valid resource. The challenge, the resource
-metadata and the accepted `resource` values repeat the query (RFC 9728 section 3.3),
-while tokens bind to host and path only, so one sign-in serves every account URL.
+`/api/mcp?account=<account id>` is accepted; the challenge, the resource metadata and
+the accepted `resource` values repeat the query (RFC 9728 section 3.3), while tokens
+bind to host and path only, so one sign-in serves every account URL. A deployment can
+add a middleware that switches the request to that account when the caller may manage
+it. Either way `requireTenant` (`server.go`) answers 403 unless the request ended up on
+that account, so tools never silently run against the caller's own account, and 400
+for an unparseable query, an empty `account` or a key such as `Account`. This
+repository has no switching middleware, so only the caller's own account ID passes.
+
+## Self-hosted metrics
+
+`mcpMetrics` (`management/internals/server/mcp.go`) adds these properties to the
+anonymous self-hosted metrics, which `--disable-anonymous-metrics` (or
+`disableAnonymousMetrics` in the combined server config) turns off:
+
+| Property | Meaning |
+| --- | --- |
+| `mcp_enabled` | `NB_MCP_ENABLED` is true |
+| `mcp_oauth_enabled` | The broker is running |
+| `mcp_tool_calls_last_day` | Tool calls, `get_guide` and calls returning a tool error included, in the current hour and the 23 before |
+| `mcp_active_users_last_day` | Distinct users who made those calls |
+
+`Usage` (`usage.go`) counts in memory per process in hourly buckets, so a restart
+resets it and each instance reports its own. User IDs are kept only to count them and
+are never reported.
 
 ## Code map
 
 | File | Contents |
 | --- | --- |
 | `mcpapi.go` | `NB_MCP_ENABLED` and the endpoint path |
+| `server.go` | `NB_MCP_TOOLS`, `RegisterEndpoints`, the stateless handler, batch refusal, the account check, the allowlist, `Routes` |
+| `catalog.go`, `schema.go` | The tool catalog, `callerBound`, input schemas and annotations |
+| `dispatch.go` | Argument validation, building the in-process REST request, results |
+| `guides.go`, `guides/` | `get_guide` and the guides |
 | `tenant.go` | The `account` query and resource canonicalization |
+| `usage.go` | The 24 hour usage counter |
 | `broker.go` | The authorization server and its metadata |
 | `tokenauth.go` | `AuthMiddleware` and the read-only scope check |
 | `challenge.go` | The 401 pointer and exposed headers |
@@ -275,18 +396,25 @@ while tokens bind to host and path only, so one sign-in serves every account URL
 | `consent.go` | Consent and error pages |
 
 Wiring lives in `management/internals/server/mcp.go` (`MCPBroker`, `mcpBaseURL`,
-`registerMCPEndpoints`) and `boot.go`: `Router` installs
+`registerMCPEndpoints`, `mcpMetrics`) and `boot.go`: `Router` installs
 `ChallengeMiddleware` and wraps the auth middleware, the last element of
-`BuildMiddleware`, with `AuthMiddleware`; `APIHandler` mounts the broker's endpoints in
-its `http_mcp` block.
+`BuildMiddleware`, with `AuthMiddleware`; `APIHandler` mounts everything in its
+`http_mcp` block.
 
 ## Tests
 
 ```bash
 go test ./management/internals/modules/mcpapi/...
 go test -run MCP ./management/internals/server/
+go test -tags integration -run MCP ./management/server/http/testing/integration/
+go test -tags e2e -timeout 25m -v ./e2e/mcp/...
 ```
 
 The server test boots `BaseServer` with the embedded IdP and signs in through Dex. The
-grant store tests use Redis from testcontainers or `NB_MCP_TEST_REDIS_URL`, and skip
-the Redis case without Docker.
+integration test runs tool calls against the real handlers and store with two accounts
+and checks that no tool reads or changes the other one.
+
+The grant store tests use Redis from testcontainers or `NB_MCP_TEST_REDIS_URL`, and
+skip the Redis case without Docker. The e2e suite (`e2e/mcp/README.md`, CI in
+`.github/workflows/mcp-e2e.yml`) runs the combined server with only
+`NB_MCP_ENABLED=true` and drives a PAT session and the full OAuth login through Dex.
