@@ -22,16 +22,44 @@ static char *nbGetGtkThemeName(void) {
 	return name;
 }
 
-// name may be NULL to leave the theme name untouched.
+// name may be NULL to keep the current theme name.
+//
+// On GTK 4.20+ any write to gtk-application-prefer-dark-theme resets the theme
+// provider, which unregisters the current theme's gtk.gresource and reloads the
+// theme without registering it again. Gresource-based themes such as Yaru then
+// fail to import their CSS and every window loses its styling. So the flag is
+// only written when its value actually changes, and around that write the
+// theme name is cleared and set again: the reset then reloads GTK's built-in
+// default theme, which has no gresource to lose, and setting the real name
+// afterwards loads it fresh and registers its gresource. Setting the same name
+// again without clearing it first does not reliably reload the theme.
 static void nbSetGtkTheme(const char *name, int dark) {
 	GtkSettings *settings = gtk_settings_get_default();
 	if (settings == NULL) {
 		return;
 	}
-	if (name != NULL && name[0] != '\0') {
-		g_object_set(settings, "gtk-theme-name", name, NULL);
+
+	gboolean want = dark ? TRUE : FALSE;
+	gboolean current = FALSE;
+	g_object_get(settings, "gtk-application-prefer-dark-theme", &current, NULL);
+	gboolean flagChanged = (current ? TRUE : FALSE) != want;
+
+	char *currentName = NULL;
+	g_object_get(settings, "gtk-theme-name", &currentName, NULL);
+	const char *target = (name != NULL && name[0] != '\0') ? name : currentName;
+	gboolean haveTarget = target != NULL && target[0] != '\0';
+	gboolean nameChanged = haveTarget && g_strcmp0(target, currentName) != 0;
+
+	if (haveTarget && (flagChanged || nameChanged)) {
+		g_object_set(settings, "gtk-theme-name", "", NULL);
 	}
-	g_object_set(settings, "gtk-application-prefer-dark-theme", dark ? TRUE : FALSE, NULL);
+	if (flagChanged) {
+		g_object_set(settings, "gtk-application-prefer-dark-theme", want, NULL);
+	}
+	if (haveTarget && (flagChanged || nameChanged)) {
+		g_object_set(settings, "gtk-theme-name", target, NULL);
+	}
+	g_free(currentName);
 }
 
 static void nbFreeGtkString(char *s) { g_free(s); }
