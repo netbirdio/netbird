@@ -44,8 +44,12 @@ type fakeIdP struct {
 	authorize     url.Values
 	refuse        bool
 	tokenRequests int
-	// basicSecret, when set, plays an application that takes its secret only in HTTP Basic.
-	basicSecret string
+	// basicSecret and postSecret, when set, play an application that takes its secret only
+	// in HTTP Basic or only in the form.
+	basicSecret, postSecret string
+	// idToken plays a provider whose access token is opaque and whose ID token is the one
+	// management validates.
+	idToken bool
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -69,17 +73,22 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		require.NoError(t, r.ParseForm())
 		f.mu.Lock()
 		f.tokenRequests++
-		authorize, secret := f.authorize, f.basicSecret
+		authorize, secret, postSecret, idToken := f.authorize, f.basicSecret, f.postSecret, f.idToken
 		f.mu.Unlock()
 		clientID := r.PostForm.Get("client_id")
+		id, presented, basic := r.BasicAuth()
 		if secret != "" {
-			id, presented, _ := r.BasicAuth()
 			if id != "upstream-client" || presented != secret {
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
 				return
 			}
 			clientID = id
+		}
+		if postSecret != "" && (basic || r.PostForm.Get("client_secret") != postSecret) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+			return
 		}
 		ok := r.PostForm.Get("grant_type") == "authorization_code" &&
 			r.PostForm.Get("code") == idpCode &&
@@ -92,6 +101,10 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if idToken {
+			_, _ = w.Write([]byte(`{"access_token":"opaque","id_token":"` + idpToken + `","token_type":"Bearer"}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"access_token":"` + idpToken + `","token_type":"Bearer"}`))
 	})
 	f.srv = httptest.NewServer(mux)
@@ -508,6 +521,31 @@ func TestBrokerUpstreamClientAuthentication(t *testing.T) {
 		assert.Equal(t, http.StatusOK, status, tokens)
 	})
 
+	t.Run("a confidential client's secret reaches a provider that takes it only in the form", func(t *testing.T) {
+		const secret = "s3cret"
+		env := newBrokerEnvWith(t, httptest.NewServer, nil, func(cfg *BrokerConfig) { cfg.ClientSecret = secret })
+		env.idp.mu.Lock()
+		env.idp.postSecret = secret
+		env.idp.mu.Unlock()
+		req := env.newRequest(env.register(clientCallback))
+
+		back := env.login(req, false)
+		assert.NotEmpty(t, back.Query().Get("code"), "the provider accepted the client, got %s", back)
+	})
+
+	t.Run("UseIDToken validates the ID token instead of the access token", func(t *testing.T) {
+		for _, useIDToken := range []bool{true, false} {
+			env := newBrokerEnvWith(t, httptest.NewServer, nil, func(cfg *BrokerConfig) { cfg.Flow.UseIDToken = useIDToken })
+			env.idp.mu.Lock()
+			env.idp.idToken = true
+			env.idp.mu.Unlock()
+			req := env.newRequest(env.register(clientCallback))
+
+			back := env.login(req, false)
+			assert.Equal(t, useIDToken, back.Query().Get("code") != "", "UseIDToken=%v, got %s", useIDToken, back)
+		}
+	})
+
 	t.Run("a public client sends its client id in the form, in one request", func(t *testing.T) {
 		env := newBrokerEnv(t)
 		req := env.newRequest(env.register(clientCallback))
@@ -877,6 +915,7 @@ func TestBrokerBaseURLIgnoresForwardingHeaders(t *testing.T) {
 	env.getJSON("/api/mcp/auth/.well-known/openid-configuration", forwarded, &meta)
 	assert.Equal(t, "https://netbird.example.com/api/mcp/auth", meta.Issuer)
 	assert.Equal(t, "https://netbird.example.com/api/mcp/auth/token", meta.TokenEndpoint)
+	assert.Equal(t, "https://netbird.example.com/api/mcp/auth/revoke", meta.RevocationEndpoint)
 
 	var prm protectedResource
 	env.getJSON("/api/mcp/.well-known/oauth-protected-resource", forwarded, &prm)
