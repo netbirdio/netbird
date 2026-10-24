@@ -76,13 +76,8 @@ func pageHeaders(w http.ResponseWriter, scriptNonce string) {
 }
 
 func renderConsent(w http.ResponseWriter, page consentPage) {
-	nonce, err := randomToken()
-	if err != nil {
-		renderError(w, http.StatusInternalServerError, "The page could not be prepared. Try again.")
-		return
-	}
-	page.Nonce = nonce
-	pageHeaders(w, nonce)
+	page.Nonce = randomToken()
+	pageHeaders(w, page.Nonce)
 	if err := consentTemplate.Execute(w, page); err != nil {
 		log.Debugf("failed to render MCP consent page: %v", err)
 	}
