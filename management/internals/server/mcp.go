@@ -4,12 +4,14 @@ import (
 	"context"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/mcpapi"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/metrics"
 )
 
 // MCPBroker is management's OAuth authorization server for MCP clients. It is nil when the
@@ -78,10 +80,37 @@ func (s *BaseServer) mcpBaseURL() string {
 	return strings.TrimSuffix(s.Config.EmbeddedIdP.Issuer, "/oauth2")
 }
 
-// registerMCPEndpoints mounts the authorization server's endpoints when the broker runs.
+// registerMCPEndpoints mounts the MCP endpoint on the API router, behind the API
+// authentication, and the broker's endpoints, which bypass it. Tool calls are replayed
+// against the API router, so they run the same handlers and permission checks as the REST API.
 func (s *BaseServer) registerMCPEndpoints(apiRouter *mux.Router) error {
+	if !mcpapi.EnabledByEnv() {
+		return nil
+	}
+	opts := mcpapi.OptionsFromEnv()
+	opts.Usage = s.mcpUsage()
+	if err := mcpapi.RegisterEndpoints(apiRouter, apiRouter, opts); err != nil {
+		return err
+	}
 	if broker := s.MCPBroker(); broker != nil {
 		return broker.RegisterEndpoints(s.Router(), apiRouter)
 	}
 	return nil
+}
+
+// mcpUsage counts MCP tool calls for the self-hosted metrics.
+func (s *BaseServer) mcpUsage() *mcpapi.Usage {
+	return Create(s, mcpapi.NewUsage)
+}
+
+// mcpMetrics reports the MCP endpoint to the self-hosted metrics. It resolves the server's
+// dependencies here, since the metrics worker calls it from its own goroutine.
+func (s *BaseServer) mcpMetrics() func() metrics.MCPMetrics {
+	enabled := mcpapi.EnabledByEnv()
+	oauthEnabled := enabled && s.MCPBroker() != nil
+	usage := s.mcpUsage()
+	return func() metrics.MCPMetrics {
+		calls, users := usage.LastDay(time.Now())
+		return metrics.MCPMetrics{Enabled: enabled, OAuthEnabled: oauthEnabled, ToolCallsLastDay: calls, UsersLastDay: users}
+	}
 }

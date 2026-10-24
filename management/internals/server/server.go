@@ -188,7 +188,7 @@ func (s *BaseServer) start(ctx context.Context) error {
 			idpManager = metrics.EmbeddedType
 		}
 
-		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
+		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager, s.mcpMetrics())
 		go metricsWorker.Run(srvCtx)
 	}
 
