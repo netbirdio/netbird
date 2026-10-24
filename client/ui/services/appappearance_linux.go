@@ -19,6 +19,17 @@ import (
 // changes only our own decorations; GTK re-reads the desktop value on a change,
 // which is why Theme.apply re-asserts. Must run on the main thread.
 //
+// The order inside applyGtkTheme matters, so keep it. On GTK 4.20+ a write to
+// gtk-application-prefer-dark-theme (or gtk-interface-color-scheme, which it is
+// bound to) resets the theme provider and unregisters the theme's gtk.gresource
+// without registering it again. Themes whose gtk.css only @imports from that
+// resource, such as Yaru, then fail to load and every window loses its headerbar
+// background, button styling, rounded corners and shadow. Writing the name and
+// then the flag, as this used to, or writing the flag on its own, triggers
+// exactly that. So the flag is written only when it changes, with the theme
+// name cleared before the write and set again after it, which makes GTK load
+// the theme fresh and register its gresource.
+//
 // GTK styling is app-wide, which is why this is separate from
 // setWindowAppearance: it must be applied even when no window exists yet, since
 // windows created later inherit it rather than carrying it in their options.
