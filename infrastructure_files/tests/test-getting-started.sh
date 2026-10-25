@@ -184,6 +184,20 @@ assert_appsec_enabled() {
     echo "AppSec: API router is not protected" >&2
     exit 1
   fi
+  # A path missing from this rule falls through to the uninspected backend
+  # router at priority 100.
+  local api_rule
+  api_rule=$(grep -F 'netbird-dashboard-api.rule=' <<< "$server")
+  for match in 'Host(`netbird.test`)' 'PathPrefix(`/api`)' 'PathPrefix(`/oauth2`)'; do
+    if [[ "$api_rule" != *"$match"* ]]; then
+      echo "AppSec: API router rule does not match $match" >&2
+      exit 1
+    fi
+  done
+  if ! grep -Fq 'netbird-dashboard-api.service=netbird-server' <<< "$server"; then
+    echo "AppSec: API router does not target netbird-server" >&2
+    exit 1
+  fi
   if [[ "$server" == *'netbird-dashboard-api.rule='*'/relay'* ]]; then
     echo "AppSec: API router includes relay" >&2
     exit 1
