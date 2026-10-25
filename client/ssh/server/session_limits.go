@@ -13,6 +13,10 @@ const (
 	// maxSessionsPerConn bounds concurrent session channels on one SSH connection.
 	maxSessionsPerConn = 64
 
+	// maxDirectTCPIPPerConn bounds concurrent direct-tcpip channels, dialing or
+	// relaying, on one SSH connection.
+	maxDirectTCPIPPerConn = 512
+
 	// maxEnvRequests and maxEnvPayload bound the environment a single session can
 	// accumulate before its command starts.
 	maxEnvRequests = 128
@@ -23,21 +27,23 @@ const (
 	maxQueuedRequests = 256
 )
 
-type sessionCountKey struct{}
+type (
+	sessionCountKey     struct{}
+	directTCPIPCountKey struct{}
+)
 
 // sessionChannelHandler serves "session" channels like ssh.DefaultSessionHandler, with
 // the per-connection session count capped, the request stream bounded, and any panic
 // from the session request loop contained to its channel.
 func (s *Server) sessionChannelHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {
-	counter := connSessionCounter(ctx)
-	if counter.Add(1) > maxSessionsPerConn {
-		counter.Add(-1)
+	release, ok := acquireConnSlot(ctx, sessionCountKey{}, maxSessionsPerConn)
+	if !ok {
 		if err := newChan.Reject(cryptossh.ResourceShortage, "too many sessions"); err != nil {
 			log.Debugf("reject session channel: %v", err)
 		}
 		return
 	}
-	defer counter.Add(-1)
+	defer release()
 
 	guarded := &guardedSessionChannel{NewChannel: newChan}
 	defer func() {
@@ -52,15 +58,26 @@ func (s *Server) sessionChannelHandler(srv *ssh.Server, conn *cryptossh.ServerCo
 	ssh.DefaultSessionHandler(srv, conn, guarded, ctx)
 }
 
-func connSessionCounter(ctx ssh.Context) *atomic.Int32 {
+// acquireConnSlot takes one of limit slots counted under key for the connection that
+// ctx belongs to. The returned func releases the slot.
+func acquireConnSlot(ctx ssh.Context, key any, limit int32) (func(), bool) {
+	counter := connCounter(ctx, key)
+	if counter.Add(1) > limit {
+		counter.Add(-1)
+		return nil, false
+	}
+	return func() { counter.Add(-1) }, true
+}
+
+func connCounter(ctx ssh.Context, key any) *atomic.Int32 {
 	ctx.Lock()
 	defer ctx.Unlock()
 
-	if c, ok := ctx.Value(sessionCountKey{}).(*atomic.Int32); ok {
+	if c, ok := ctx.Value(key).(*atomic.Int32); ok {
 		return c
 	}
 	c := new(atomic.Int32)
-	ctx.SetValue(sessionCountKey{}, c)
+	ctx.SetValue(key, c)
 	return c
 }
 

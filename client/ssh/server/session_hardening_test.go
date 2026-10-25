@@ -5,6 +5,8 @@ package server
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
+	"net"
 	"os/user"
 	"runtime"
 	"strings"
@@ -188,4 +190,59 @@ func TestSession_ResizeWhileRunningIsApplied(t *testing.T) {
 	require.NoError(t, session.WindowChange(50, 132))
 	require.NoError(t, session.Wait())
 	assert.Equal(t, "50 132", strings.TrimSpace(out.String()), "pty should have the resized dimensions")
+}
+
+// Forwarded connections beyond the per-connection cap are refused, and a closed one
+// frees its slot.
+func TestDirectTCPIP_PerConnectionLimit(t *testing.T) {
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	srv := New(&Config{HostKeyPEM: hostKey})
+	srv.SetAllowLocalPortForwarding(true)
+	addr := StartTestServer(t, srv)
+	t.Cleanup(func() { require.NoError(t, srv.Stop()) })
+
+	// Target that holds each connection open until the peer half-closes, then closes it
+	// like a regular server.
+	target, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = target.Close() })
+	go func() {
+		for {
+			c, err := target.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				_, _ = io.Copy(io.Discard, c)
+				_ = c.Close()
+			}()
+		}
+	}()
+
+	client := dialNoAuthServer(t, addr, hostKey)
+
+	conns := make([]net.Conn, 0, maxDirectTCPIPPerConn)
+	for i := 0; i < maxDirectTCPIPPerConn; i++ {
+		c, err := client.Dial("tcp", target.Addr().String())
+		require.NoError(t, err, "forward %d should open", i)
+		conns = append(conns, c)
+	}
+
+	_, err = client.Dial("tcp", target.Addr().String())
+	assert.Error(t, err, "forward beyond the limit should be refused")
+
+	require.NoError(t, conns[0].Close())
+	assert.Eventually(t, func() bool {
+		c, err := client.Dial("tcp", target.Addr().String())
+		if err != nil {
+			return false
+		}
+		_ = c.Close()
+		return true
+	}, 3*time.Second, 50*time.Millisecond, "a closed forward should free its slot")
+
+	for _, c := range conns[1:] {
+		_ = c.Close()
+	}
 }

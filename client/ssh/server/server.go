@@ -934,6 +934,14 @@ func (s *Server) removeRemoteForwardListener(key forwardKey) bool {
 func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {
 	logger := s.getRequestLogger(ctx)
 
+	release, ok := acquireConnSlot(ctx, directTCPIPCountKey{}, maxDirectTCPIPPerConn)
+	if !ok {
+		logger.Warnf("local port forwarding denied: too many forwarded connections")
+		_ = newChan.Reject(cryptossh.ResourceShortage, "too many forwarded connections")
+		return
+	}
+	defer release()
+
 	var payload struct {
 		Host           string
 		Port           uint32
