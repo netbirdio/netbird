@@ -56,6 +56,11 @@ func (p *PgStore) UsingTimeZone(location *time.Location) {
 }
 
 func (p *PgStore) UsingConnection(c *pgx.Conn) networkmapdb.NetworkMapDBStoreConn {
+	p.useLocation(c)
+	return &PgStoreConn{Conn: c}
+}
+
+func (p *PgStore) useLocation(c *pgx.Conn) {
 	if p.Location != nil {
 		c.TypeMap().RegisterType(&pgtype.Type{
 			Name:  "timestamptz",
@@ -63,8 +68,6 @@ func (p *PgStore) UsingConnection(c *pgx.Conn) networkmapdb.NetworkMapDBStoreCon
 			Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC},
 		})
 	}
-
-	return &PgStoreConn{Conn: c}
 }
 
 func (p *PgStore) Exec(ctx context.Context, query string, args ...any) error {
@@ -77,13 +80,7 @@ func (p *PgStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBStoreCo
 	if err != nil {
 		return nil, err
 	}
-	if p.Location != nil {
-		tx.Conn().TypeMap().RegisterType(&pgtype.Type{
-			Name:  "timestamptz",
-			OID:   pgtype.TimestamptzOID,
-			Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC},
-		})
-	}
+	p.useLocation(tx.Conn())
 	return &PgStoreConn{Conn: tx}, nil
 }
 

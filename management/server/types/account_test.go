@@ -1267,7 +1267,7 @@ func TestForcesRoutingPeerDNSResolution(t *testing.T) {
 
 	forced := func(account *Account, peerID string) bool {
 		nmd := account.toNetworkMapData(nil, nil, nil, account.GetResourceRoutersMap(), nil)
-		return nmd.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{}).ForceRoutingPeerDNSResolution
+		return nmd.GetPeerNetworkMapComponents(peerID, nil).ForceRoutingPeerDNSResolution
 	}
 
 	t.Run("router peer for RP-targeted domain resource is forced", func(t *testing.T) {

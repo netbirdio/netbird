@@ -30,6 +30,8 @@ package legacynmap_test
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -41,13 +43,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
-	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func BenchmarkGetAccount(b *testing.B) {
@@ -100,7 +103,7 @@ func BenchmarkGetNetworkMapData(b *testing.B) {
 		b.Run(accountID, func(b *testing.B) {
 			logAccountShape(b, ctx, statsConn, accountID)
 			benchDBLoad(b, ctx, statsConn, tracer, func() error {
-				_, err := nmStore.GetNetworkMapData(ctx, accountID)
+				_, err := nmStore.GetNetworkMapData(ctx, accountID, nil, nil)
 				return err
 			})
 		})
@@ -167,7 +170,7 @@ func BenchmarkNetworkMapDataFullRound(b *testing.B) {
 		b.Run(accountID, func(b *testing.B) {
 			logAccountShape(b, ctx, statsConn, accountID)
 			benchDBLoad(b, ctx, statsConn, tracer, func() error {
-				nmData, err := nmStore.GetNetworkMapData(ctx, accountID)
+				nmData, err := nmStore.GetNetworkMapData(ctx, accountID, nil, nil)
 				if err != nil {
 					return err
 				}
@@ -217,7 +220,7 @@ func buildDataSyncResponses(ctx context.Context, nmData *networkmap.NetworkMapDa
 	dnsCache := &cache.DNSConfigCache{}
 
 	for peerID, peer := range nmData.Peers {
-		components := nmData.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{})
+		components := nmData.GetPeerNetworkMapComponents(peerID, nil)
 		nm := &types.NetworkMap{Network: components.Network}
 		if !components.IsEmpty() {
 			nm = types.CalculateNetworkMapFromComponents(ctx, components)
@@ -348,3 +351,191 @@ func (t *queryCountTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ p
 }
 
 func (t *queryCountTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+// BenchmarkSyncPeerNetworkMap measures a single peer's Sync the way the
+// controller serves it: the store load for that peer plus its components.
+// Every op targets the next peer of the account.
+func BenchmarkSyncPeerNetworkMap(b *testing.B) {
+	benchPeerRound(b, 1)
+}
+
+// BenchmarkAffectedPeersNetworkMap measures an affected-peers update of 20
+// peers: one store load serving all of them plus their components.
+func BenchmarkAffectedPeersNetworkMap(b *testing.B) {
+	benchPeerRound(b, 20)
+}
+
+// BenchmarkAllPeersNetworkMap measures an account-wide update: the full store
+// load plus the components of every peer.
+func BenchmarkAllPeersNetworkMap(b *testing.B) {
+	benchPeerRound(b, 0)
+}
+
+// benchPeerRound runs one sub-benchmark per round-trip time and account. A
+// batch of 0 targets every peer of the account. NETMAP_RTTS lists the
+// simulated database round-trip times (default "0,2ms").
+func benchPeerRound(b *testing.B, batch int) {
+	dsn := equivDSN()
+	if dsn == "" {
+		b.Skip("NETBIRD_STORE_ENGINE_POSTGRES_DSN not set")
+	}
+	ctx := context.Background()
+
+	statsConn, err := pgx.Connect(ctx, dsn)
+	require.NoError(b, err, "connect stats connection")
+	b.Cleanup(func() { statsConn.Close(ctx) })
+
+	accountIDs := benchAccountIDs(b, ctx, statsConn)
+
+	for _, rtt := range benchRTTs(b) {
+		tracer := &queryCountTracer{}
+		cfg, err := pgxpool.ParseConfig(dsn)
+		require.NoError(b, err, "parse dsn")
+		cfg.ConnConfig.Tracer = tracer
+		if rtt > 0 {
+			addr := latencyProxy(b, fmt.Sprintf("%s:%d", cfg.ConnConfig.Host, cfg.ConnConfig.Port), rtt/2)
+			host, port, err := net.SplitHostPort(addr)
+			require.NoError(b, err, "proxy address")
+			cfg.ConnConfig.Host = host
+			_, err = fmt.Sscan(port, &cfg.ConnConfig.Port)
+			require.NoError(b, err, "proxy port")
+		}
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		require.NoError(b, err, "connect nmdata store")
+		b.Cleanup(pool.Close)
+		nmStore := nmDataStore(b, &networkmap_pgsql.PgStore{Pool: pool})
+
+		for _, accountID := range accountIDs {
+			rows, err := statsConn.Query(ctx, "select id from peers where account_id=$1 order by id", accountID)
+			require.NoError(b, err, "list peers")
+			peerIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+			require.NoError(b, err, "collect peers")
+			require.NotEmpty(b, peerIDs, "account %s has no peers", accountID)
+
+			b.Run(fmt.Sprintf("rtt=%s/%s", rtt, accountID), func(b *testing.B) {
+				logAccountShape(b, ctx, statsConn, accountID)
+				next := 0
+				benchDBLoad(b, ctx, statsConn, tracer, func() error {
+					targets := peerIDs
+					if batch > 0 {
+						targets = make([]string, 0, batch)
+						for range min(batch, len(peerIDs)) {
+							targets = append(targets, peerIDs[next%len(peerIDs)])
+							next++
+						}
+					}
+					return computeForPeers(ctx, nmStore, accountID, targets, batch == 0)
+				})
+			})
+		}
+	}
+}
+
+// computeForPeers mirrors the controller's fetchNetworkMapData and per-peer
+// fan-out: the store load serving the targets, reading only their closure
+// unless every peer is targeted, the account-wide derived values and the
+// components of every target.
+func computeForPeers(ctx context.Context, nmStore *networkmapdb.NetworkMapDBStoreImpl, accountID string, targets []string, all bool) error {
+	var loadTargets []string
+	var selectPeers func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error)
+	if !all {
+		loadTargets = targets
+		selectPeers = func(nmd *networkmap.NetworkMapData) (networkmapdb.PeerSelection, error) {
+			return controller.SelectPeers(nmd, targets), nil
+		}
+	}
+	nmData, err := nmStore.GetNetworkMapData(ctx, accountID, loadTargets, selectPeers)
+	if err != nil {
+		return err
+	}
+	nmData.BuildPrivateServiceCandidates()
+	nmData.InjectProxyPolicies()
+	nmData.PrecomputePostureValidation()
+
+	zone := networkmap.NewPeersZone(networkmap.PeersCustomZone(ctx, accountID, equivDNSName, nmData.Peers, controller.IPv6AllowedPeersFromData(nmData)))
+	for _, peerID := range targets {
+		_ = nmData.GetPeerNetworkMapComponents(peerID, zone)
+	}
+	return nil
+}
+
+func benchRTTs(b *testing.B) []time.Duration {
+	b.Helper()
+
+	value := os.Getenv("NETMAP_RTTS")
+	if value == "" {
+		value = "0,2ms"
+	}
+	var out []time.Duration
+	for _, s := range strings.Split(value, ",") {
+		s = strings.TrimSpace(s)
+		if s == "0" {
+			out = append(out, 0)
+			continue
+		}
+		d, err := time.ParseDuration(s)
+		require.NoError(b, err, "parse NETMAP_RTTS")
+		out = append(out, d)
+	}
+	return out
+}
+
+// latencyProxy forwards TCP connections to target and holds back every chunk
+// for oneWay in each direction. Chunks are stamped when read and released
+// independently, so pipelined requests pay the delay once, like a real link.
+func latencyProxy(tb testing.TB, target string, oneWay time.Duration) string {
+	tb.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(tb, err, "listen latency proxy")
+	tb.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			client, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			server, err := net.Dial("tcp", target)
+			if err != nil {
+				_ = client.Close()
+				continue
+			}
+			go delayedCopy(server, client, oneWay)
+			go delayedCopy(client, server, oneWay)
+		}
+	}()
+
+	return ln.Addr().String()
+}
+
+func delayedCopy(dst, src net.Conn, delay time.Duration) {
+	type chunk struct {
+		data []byte
+		at   time.Time
+	}
+	chunks := make(chan chunk, 4096)
+
+	go func() {
+		defer close(chunks)
+		for {
+			buf := make([]byte, 64<<10)
+			n, err := src.Read(buf)
+			if n > 0 {
+				chunks <- chunk{data: buf[:n], at: time.Now().Add(delay)}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for c := range chunks {
+		time.Sleep(time.Until(c.at))
+		if _, err := dst.Write(c.data); err != nil {
+			break
+		}
+	}
+	_ = dst.Close()
+	_ = src.Close()
+}

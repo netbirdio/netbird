@@ -58,10 +58,23 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 	// resolve the zone apex a private service's records hang under.
 	Domains []nmdata.ProxyDomain
 
+	// PeerVersions are the distinct client versions of all peers of the
+	// account, including the peers a partial load left out of Peers.
+	PeerVersions []string
+
 	peerGroupsOnce sync.Once
 	peerGroupsIdx  map[string]map[string]struct{}
 
 	proxyPoliciesOnce sync.Once
+
+	indexOnce sync.Once
+	index     *componentsIndex
+
+	postureFailuresOnce sync.Once
+	postureFailures     map[string]map[string]struct{}
+
+	memberPositionsOnce sync.Once
+	memberPositionsIdx  map[string]map[string]int
 }
 
 // AppliedZoneCandidate is an account-level custom DNS zone reduced to the

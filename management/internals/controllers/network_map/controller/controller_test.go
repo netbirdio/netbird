@@ -2,12 +2,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -129,4 +132,62 @@ func TestGetValidatedPeerWithComponents_DeletedPeer(t *testing.T) {
 	assert.Nil(t, posturechecks)
 	assert.Equal(t, int64(0), dnsforwardPort)
 	assert.NotNil(t, err)
+}
+
+func TestMergePeerSelections(t *testing.T) {
+	t.Run("ids are unioned", func(t *testing.T) {
+		merged := mergePeerSelections(selectedPeers("peer-1", "peer-2"), selectedPeers("peer-2", "peer-3"))
+
+		assert.False(t, merged.all)
+		assert.Equal(t, map[string]struct{}{"peer-1": {}, "peer-2": {}, "peer-3": {}}, merged.peerIDs)
+	})
+
+	t.Run("all wins on either side", func(t *testing.T) {
+		assert.True(t, mergePeerSelections(allPeers(), selectedPeers("peer-1")).all)
+		assert.True(t, mergePeerSelections(selectedPeers("peer-1"), allPeers()).all)
+	})
+}
+
+func TestSelectPeers(t *testing.T) {
+	data := func(rules ...*nmdata.PolicyRule) *networkmap.NetworkMapData {
+		nmd := &networkmap.NetworkMapData{
+			Peers:  map[string]*nmdata.Peer{},
+			Groups: map[string]*nmdata.Group{},
+		}
+		all := &nmdata.Group{ID: "group-all", Name: "All"}
+		for i := range 10 {
+			id := fmt.Sprintf("peer-%d", i)
+			nmd.Peers[id] = &nmdata.Peer{ID: id}
+			all.Peers = append(all.Peers, id)
+		}
+		nmd.Groups[all.ID] = all
+		nmd.Groups["group-a"] = &nmdata.Group{ID: "group-a", Peers: []string{"peer-1", "peer-2"}}
+		nmd.Groups["group-b"] = &nmdata.Group{ID: "group-b", Peers: []string{"peer-3"}}
+		nmd.Policies = []*nmdata.Policy{{ID: "policy", Enabled: true, Rules: rules}}
+		return nmd
+	}
+	rule := func(protocol string, sources, destinations string) *nmdata.PolicyRule {
+		return &nmdata.PolicyRule{Enabled: true, Protocol: protocol, Ports: []string{"443"}, Sources: []string{sources}, Destinations: []string{destinations}}
+	}
+
+	t.Run("a closure below half the account is read alone, without users", func(t *testing.T) {
+		selection := SelectPeers(data(rule("tcp", "group-a", "group-b")), []string{"peer-1"})
+
+		assert.False(t, selection.AllPeers)
+		assert.ElementsMatch(t, []string{"peer-1", "peer-3"}, selection.PeerIDs)
+		assert.True(t, selection.SkipUsers)
+	})
+
+	t.Run("a closure reaching half the account reads every peer", func(t *testing.T) {
+		selection := SelectPeers(data(rule("tcp", "group-all", "group-all")), []string{"peer-1"})
+
+		assert.True(t, selection.AllPeers)
+		assert.Empty(t, selection.PeerIDs)
+	})
+
+	t.Run("a netbird ssh rule reads the users", func(t *testing.T) {
+		selection := SelectPeers(data(rule(string(types.PolicyRuleProtocolNetbirdSSH), "group-a", "group-b")), []string{"peer-1"})
+
+		assert.False(t, selection.SkipUsers)
+	})
 }

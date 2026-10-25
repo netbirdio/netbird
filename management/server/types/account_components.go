@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
 
 // GetPeerNetworkMapResult dispatches to either the legacy-NetworkMap path or
@@ -105,7 +106,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 ) *NetworkMapComponents {
 
 	nmd := a.toNetworkMapData(accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
-	return nmd.GetPeerNetworkMapComponents(peerID, TwinCustomZone(peersCustomZone))
+	return nmd.GetPeerNetworkMapComponents(peerID, networkmap.NewPeersZone(TwinCustomZone(peersCustomZone)))
 }
 
 // PrecomputePostureValidation evaluates every posture check referenced by an enabled

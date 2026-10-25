@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestMissingDestinationFieldFailsEveryTime(t *testing.T) {
+	type source struct{ Missing sql.NullString }
+	for range 2 {
+		src := source{Missing: sql.NullString{String: "value", Valid: true}}
+		dst := withString{}
+		assert.EqualError(t, FromSqlTypesToSharedTypes(reflect.ValueOf(&src), reflect.ValueOf(&dst)), "unsupported type in destination field: Missing")
+	}
+}
+
 func TestNullStringSupport(t *testing.T) {
 	src := withNullString{Name: sql.NullString{String: "string", Valid: true}}
 	dst := withString{}

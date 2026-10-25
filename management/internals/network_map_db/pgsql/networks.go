@@ -19,7 +19,10 @@ func (pgc *PgStoreConn) GetNetworkXIDToPublicIdMap(ctx context.Context, accountI
 	if err != nil {
 		return nil, err
 	}
+	return collectNetworkXIDToPublicIdMap(rows)
+}
 
+func collectNetworkXIDToPublicIdMap(rows pgx.Rows) (map[string]string, error) {
 	networks, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Network])
 	if err != nil {
 		return nil, err

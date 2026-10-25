@@ -237,11 +237,11 @@ func computeMode(t *testing.T, ctx context.Context, mode Mode, nmData *networkma
 	case ModeLegacy:
 		return computeLegacy(t, ctx, legacy, peerID, zone, dnsDomain, dnsFwdPort)
 	case ModeFull:
-		nmap := controller.NetworkMapFromData(ctx, nmData, peerID, zone, nil)
+		nmap := controller.NetworkMapFromData(ctx, nmData, peerID, networkmap.NewPeersZone(zone), nil)
 		return mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, nmap, dnsDomain, nil,
 			&cache.DNSConfigCache{}, nmData.AccountSettings, nil, nil, dnsFwdPort).NetworkMap
 	case ModeEnvelope:
-		components := nmData.GetPeerNetworkMapComponents(peerID, zone)
+		components := nmData.GetPeerNetworkMapComponents(peerID, networkmap.NewPeersZone(zone))
 		peerGroups := maps.Keys(nmData.GetPeerGroups(peerID))
 		resp := mgmtgrpc.ToComponentSyncResponse(ctx, nil, nil, nil, peer, nil, nil, components,
 			dnsDomain, nil, nmData.AccountSettings, nil, peerGroups, dnsFwdPort)

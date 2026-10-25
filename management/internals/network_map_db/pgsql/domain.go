@@ -20,6 +20,9 @@ func (pgc *PgStoreConn) GetDomains(ctx context.Context, accountId string) ([]net
 	if err != nil {
 		return nil, err
 	}
+	return collectDomains(rows)
+}
 
+func collectDomains(rows pgx.Rows) ([]networkmapdb.Domain, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Domain])
 }

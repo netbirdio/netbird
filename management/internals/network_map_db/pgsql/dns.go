@@ -24,7 +24,10 @@ func (pgc *PgStoreConn) GetAppliedZoneCandidates(ctx context.Context, accountId 
 	if err != nil {
 		return nil, err
 	}
+	return collectAppliedZoneCandidates(rows)
+}
 
+func collectAppliedZoneCandidates(rows pgx.Rows) ([]networkmap.AppliedZoneCandidate, error) {
 	zones, err := pgx.CollectRows(rows, pgx.RowToStructByName[networkmapdb.Zone])
 	if err != nil {
 		return nil, err

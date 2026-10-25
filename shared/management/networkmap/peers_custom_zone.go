@@ -3,6 +3,7 @@ package networkmap
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
@@ -108,4 +109,58 @@ func PeersCustomZone(ctx context.Context, accountID string, dnsDomain string, pe
 	}()
 
 	return customZone
+}
+
+// PeersZone is the account's peers DNS zone with its records indexed by the
+// address they resolve to, so a peer's components pick their records by
+// lookup instead of scanning the whole zone. A nil PeersZone is empty.
+type PeersZone struct {
+	zone   nmdata.CustomZone
+	byAddr map[netip.Addr][]int
+}
+
+// NewPeersZone indexes the records of a peers DNS zone.
+func NewPeersZone(zone nmdata.CustomZone) *PeersZone {
+	byAddr := make(map[netip.Addr][]int, len(zone.Records))
+	for i, record := range zone.Records {
+		addr, err := netip.ParseAddr(record.RData)
+		if err != nil || addr.String() != record.RData {
+			continue
+		}
+		byAddr[addr] = append(byAddr[addr], i)
+	}
+	return &PeersZone{zone: zone, byAddr: byAddr}
+}
+
+// Domain returns the zone's domain.
+func (z *PeersZone) Domain() string {
+	if z == nil {
+		return ""
+	}
+	return z.zone.Domain
+}
+
+// recordsOf returns, in zone order, the records resolving to an address of one
+// of the peers, their IPv6 addresses only when includeIPv6 is set.
+func (z *PeersZone) recordsOf(peers map[string]*nmdata.Peer, includeIPv6 bool) []nmdata.SimpleRecord {
+	if z == nil || len(z.zone.Records) == 0 || len(peers) == 0 {
+		return nil
+	}
+
+	var indexes []int
+	for _, peer := range peers {
+		if peer == nil {
+			continue
+		}
+		indexes = append(indexes, z.byAddr[peer.IP]...)
+		if includeIPv6 && peer.IPv6.IsValid() {
+			indexes = append(indexes, z.byAddr[peer.IPv6]...)
+		}
+	}
+
+	records := make([]nmdata.SimpleRecord, 0, len(indexes))
+	for _, i := range sortedUnique(indexes) {
+		records = append(records, z.zone.Records[i])
+	}
+	return records
 }

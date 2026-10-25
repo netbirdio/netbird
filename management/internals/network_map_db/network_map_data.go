@@ -7,128 +7,224 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
-func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string) (*networkmap.NetworkMapData, error) {
-	tx, err := s.Store.BeginTx(ctx)
+// GetNetworkMapData loads the account's network-map data. A nil selectPeers
+// loads everything and ignores targets. Otherwise only the target peers, the
+// embedded proxy peers and what selectPeers picks are loaded: it receives the
+// data with only those two kinds of peers and without users, inside the
+// load's snapshot. PeerVersions always covers every peer of the account.
+func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId string, targets []string, selectPeers func(nmd *networkmap.NetworkMapData) (PeerSelection, error)) (*networkmap.NetworkMapData, error) {
+	type extraSettingsResult struct {
+		settings *types.ExtraSettings
+		err      error
+	}
+	extraSettingsCh := make(chan extraSettingsResult, 1)
+	go func() {
+		settings, err := s.ExtraSettingsManager.GetExtraSettings(ctx, accountId)
+		extraSettingsCh <- extraSettingsResult{settings: settings, err: err}
+	}()
+
+	var nmd *networkmap.NetworkMapData
+	var storeSelector PeerSelector
+	if selectPeers != nil {
+		storeSelector = func(rows *AccountRows) (PeerSelection, error) {
+			nmd = newNetworkMapData(rows)
+			return selectPeers(nmd)
+		}
+	}
+
+	rows, err := s.Store.LoadAccount(ctx, accountId, targets, storeSelector)
 	if err != nil {
 		return nil, err
 	}
 
-	acctSettings, err := tx.GetAccountSettings(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get account settings: %w", err))
+	if nmd == nil {
+		nmd = newNetworkMapData(rows)
+	} else {
+		nmd.Peers = toMap(rows.Peers, func(p nmdata.Peer) string { return p.ID })
+		nmd.AllowedUserIDs = rows.AllowedUserIDs
+		nmd.GroupIDToUserIDs = rows.GroupIDToUserIDs
 	}
-	dnsZones, err := tx.GetAppliedZoneCandidates(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get applied zone candidates: %w", err))
+	nmd.PeerVersions = rows.PeerVersions
+	if nmd.PeerVersions == nil {
+		nmd.PeerVersions = peerVersions(rows.Peers)
 	}
-	groups, resourceToGroupIdx, err := tx.GetGroups(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get groups: %w", err))
+
+	extraSettings := <-extraSettingsCh
+	if extraSettings.err != nil {
+		return nil, extraSettings.err
 	}
-	nsGroups, err := tx.GetNameServerGroups(ctx, accountId)
+
+	nmd.ValidatedPeers, err = s.IntegratedPeerValidator.GetValidatedPeers(ctx, accountId, maps.Values(nmd.Groups), maps.Values(nmd.Peers), extraSettings.settings)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get nameserver groups: %w", err))
+		return nil, err
 	}
-	networkResources, err := tx.GetNetworkResources(ctx, accountId)
+
+	return nmd, nil
+}
+
+// LoadAccountRows implements NetworkMapDBStore.LoadAccount one query at a time
+// over a transaction of store, for engines that cannot pipeline queries.
+func LoadAccountRows(ctx context.Context, store NetworkMapDBStore, accountID string, targets []string, selectPeers PeerSelector) (*AccountRows, error) {
+	tx, err := store.BeginTx(ctx)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network resources: %w", err))
+		return nil, err
 	}
-	routers, err := tx.GetNetworkRouters(ctx, accountId)
+
+	rows, err := readAccountRows(ctx, tx, accountID, targets, selectPeers)
 	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network routers: %w", err))
-	}
-	network, err := tx.GetNetwork(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network: %w", err))
-	}
-	peers, _, err := tx.GetPeers(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get peers: %w", err))
-	}
-	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := tx.GetPolicies(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get policies: %w", err))
-	}
-	postureChecks, postureCheckXIDToPublicID, err := tx.GetPostureChecks(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get posture checks: %w", err))
-	}
-	routes, err := tx.GetRoutes(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get routes: %w", err))
-	}
-	networkXIDToPublicID, err := tx.GetNetworkXIDToPublicIdMap(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network xid to public id map: %w", err))
-	}
-	allowedUserIds, groupsToUserIds, err := tx.GetAllowedUsers(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get allowed users: %w", err))
-	}
-	dnsSettings, err := tx.GetDnsSettings(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get dns settings: %w", err))
-	}
-	domains, err := tx.GetDomains(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
-	}
-	proxyTargetedDomainResourceIDs, err := tx.GetProxyTargetedDomainResourceIDs(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get proxy targeted domain resources: %w", err))
+		if rbErr := tx.RollbackTx(ctx); rbErr != nil {
+			log.WithContext(ctx).Warnf("failed to rollback network map read transaction: %v", rbErr)
+		}
+		return nil, err
 	}
 
 	if err = tx.CommitTx(ctx); err != nil {
 		log.WithContext(ctx).Warnf("failed to commit network map read transaction: %v", err)
 	}
-
-	resourcePolicies := buildResourcePolicies(
-		networkResources, policies, resourceToGroupIdx, policyToDestinationResourceIdx, policyToDestinationGroupIdx)
-
-	toret := networkmap.NetworkMapData{
-		AccountSettings:                &acctSettings,
-		DNSSettings:                    &dnsSettings,
-		Network:                        &network,
-		Peers:                          toMap(peers, func(p nmdata.Peer) string { return p.ID }),
-		Groups:                         toMap(groups, func(g nmdata.Group) string { return g.ID }),
-		Policies:                       toSliceOfPtrs(policies),
-		ResourcePolicies:               resourcePolicies,
-		Routes:                         toSliceOfPtrs(routes),
-		Routers:                        routers,
-		NameServerGroups:               toSliceOfPtrs(nsGroups),
-		NetworkResources:               toSliceOfPtrs(networkResources),
-		PostureChecks:                  toMap(postureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
-		AllowedUserIDs:                 allowedUserIds,
-		GroupIDToUserIDs:               groupsToUserIds,
-		NetworkXIDToPublicID:           networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
-		AppliedZoneCandidates:          dnsZones,
-		Domains:                        TwinProxyDomains(domains),
-		PostureCheckXIDToPublicID:      postureCheckXIDToPublicID,
-		ProxyTargetedDomainResourceIDs: proxyTargetedDomainResourceIDs,
-	}
-
-	extraSettings, err := s.ExtraSettingsManager.GetExtraSettings(ctx, accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	toret.ValidatedPeers, err = s.IntegratedPeerValidator.GetValidatedPeers(ctx, accountId, maps.Values(toret.Groups), maps.Values(toret.Peers), extraSettings)
-	if err != nil {
-		return nil, err
-	}
-
-	return &toret, nil
+	return rows, nil
 }
 
-func rollbackAndReturnError(ctx context.Context, tx NetworkMapDBStoreConn, err error) (*networkmap.NetworkMapData, error) {
-	if errr := tx.RollbackTx(ctx); errr != nil {
-		log.WithContext(ctx).Warnf("failed to rollback network map read transaction: %v", errr)
+func readAccountRows(ctx context.Context, tx NetworkMapDBStoreConn, accountID string, targets []string, selectPeers PeerSelector) (*AccountRows, error) {
+	rows := &AccountRows{}
+	var err error
+
+	if rows.Settings, err = tx.GetAccountSettings(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get account settings: %w", err)
 	}
-	return nil, err
+	if rows.ZoneCandidates, err = tx.GetAppliedZoneCandidates(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get applied zone candidates: %w", err)
+	}
+	if rows.Groups, rows.ResourceToGroupIdx, err = tx.GetGroups(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get groups: %w", err)
+	}
+	if rows.NameServerGroups, err = tx.GetNameServerGroups(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get nameserver groups: %w", err)
+	}
+	if rows.NetworkResources, err = tx.GetNetworkResources(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get network resources: %w", err)
+	}
+	if rows.Routers, err = tx.GetNetworkRouters(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get network routers: %w", err)
+	}
+	if rows.Network, err = tx.GetNetwork(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get network: %w", err)
+	}
+	if rows.Policies, rows.PolicyToDestinationResourceIdx, rows.PolicyToDestinationGroupIdx, err = tx.GetPolicies(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get policies: %w", err)
+	}
+	if rows.PostureChecks, rows.PostureCheckXIDToPublicID, err = tx.GetPostureChecks(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get posture checks: %w", err)
+	}
+	if rows.Routes, err = tx.GetRoutes(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get routes: %w", err)
+	}
+	if rows.NetworkXIDToPublicID, err = tx.GetNetworkXIDToPublicIdMap(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get network xid to public id map: %w", err)
+	}
+	if rows.DNSSettings, err = tx.GetDnsSettings(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get dns settings: %w", err)
+	}
+	if rows.Domains, err = tx.GetDomains(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get domains: %w", err)
+	}
+	if rows.ProxyTargetedDomainResourceIDs, err = tx.GetProxyTargetedDomainResourceIDs(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get proxy targeted domain resources: %w", err)
+	}
+
+	if selectPeers == nil {
+		if rows.AllowedUserIDs, rows.GroupIDToUserIDs, err = tx.GetAllowedUsers(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get allowed users: %w", err)
+		}
+		if rows.Peers, _, err = tx.GetPeers(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get peers: %w", err)
+		}
+		return rows, nil
+	}
+
+	if rows.Peers, err = tx.GetProxyPeers(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("get proxy peers: %w", err)
+	}
+	if len(targets) > 0 {
+		targetPeers, err := tx.GetPeersByIDs(ctx, accountID, targets)
+		if err != nil {
+			return nil, fmt.Errorf("get target peers: %w", err)
+		}
+		rows.Peers = append(rows.Peers, targetPeers...)
+	}
+
+	selection, err := selectPeers(rows)
+	if err != nil {
+		return nil, err
+	}
+	if !selection.SkipUsers {
+		if rows.AllowedUserIDs, rows.GroupIDToUserIDs, err = tx.GetAllowedUsers(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get allowed users: %w", err)
+		}
+	}
+	switch {
+	case selection.AllPeers:
+		if rows.Peers, _, err = tx.GetPeers(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get peers: %w", err)
+		}
+	default:
+		if unread := rows.UnreadPeerIDs(selection.PeerIDs); len(unread) > 0 {
+			selected, err := tx.GetPeersByIDs(ctx, accountID, unread)
+			if err != nil {
+				return nil, fmt.Errorf("get peers by id: %w", err)
+			}
+			rows.Peers = append(rows.Peers, selected...)
+		}
+		if rows.PeerVersions, err = tx.GetPeerVersions(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("get peer versions: %w", err)
+		}
+	}
+	return rows, nil
+}
+
+// newNetworkMapData assembles the network-map data from the rows of a load.
+func newNetworkMapData(rows *AccountRows) *networkmap.NetworkMapData {
+	resourcePolicies := buildResourcePolicies(
+		rows.NetworkResources, rows.Policies, rows.ResourceToGroupIdx, rows.PolicyToDestinationResourceIdx, rows.PolicyToDestinationGroupIdx)
+
+	return &networkmap.NetworkMapData{
+		AccountSettings:                &rows.Settings,
+		DNSSettings:                    &rows.DNSSettings,
+		Network:                        &rows.Network,
+		Peers:                          toMap(rows.Peers, func(p nmdata.Peer) string { return p.ID }),
+		Groups:                         toMap(rows.Groups, func(g nmdata.Group) string { return g.ID }),
+		Policies:                       toSliceOfPtrs(rows.Policies),
+		ResourcePolicies:               resourcePolicies,
+		Routes:                         toSliceOfPtrs(rows.Routes),
+		Routers:                        rows.Routers,
+		NameServerGroups:               toSliceOfPtrs(rows.NameServerGroups),
+		NetworkResources:               toSliceOfPtrs(rows.NetworkResources),
+		PostureChecks:                  toMap(rows.PostureChecks, func(pc nmdata.PostureChecks) string { return pc.ID }),
+		AllowedUserIDs:                 rows.AllowedUserIDs,
+		GroupIDToUserIDs:               rows.GroupIDToUserIDs,
+		NetworkXIDToPublicID:           rows.NetworkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
+		AppliedZoneCandidates:          rows.ZoneCandidates,
+		Domains:                        TwinProxyDomains(rows.Domains),
+		PostureCheckXIDToPublicID:      rows.PostureCheckXIDToPublicID,
+		ProxyTargetedDomainResourceIDs: rows.ProxyTargetedDomainResourceIDs,
+	}
+}
+
+func peerVersions(peers []nmdata.Peer) []string {
+	seen := make(map[string]struct{})
+	versions := make([]string, 0)
+	for _, p := range peers {
+		if _, ok := seen[p.Meta.WtVersion]; ok {
+			continue
+		}
+		seen[p.Meta.WtVersion] = struct{}{}
+		versions = append(versions, p.Meta.WtVersion)
+	}
+	return versions
 }
 
 func toMap[T any](all []T, id func(t T) string) map[string]*T {
@@ -147,34 +243,55 @@ func toSliceOfPtrs[T any](all []T) []*T {
 	return toret
 }
 
+// buildResourcePolicies maps every enabled network resource to the enabled
+// policies targeting it, directly or through one of its groups, in policy
+// order. Each policy resolves its targets through the indexes once.
 func buildResourcePolicies(networkResources []nmdata.NetworkResource,
 	policies []nmdata.Policy,
 	resourceToGroupIdx map[string]map[string]any,
 	policyToDestinationResourceIdx map[string]map[string]any,
 	policyToDestinationGroupIdx map[string]map[string]any) map[string][]*nmdata.Policy {
 
-	resourcePolicies := make(map[string][]*nmdata.Policy)
+	enabledResources := make(map[string]struct{}, len(networkResources))
 	for _, resource := range networkResources {
-		if !resource.Enabled {
+		if resource.Enabled {
+			enabledResources[resource.ID] = struct{}{}
+		}
+	}
+
+	groupToResources := make(map[string][]string)
+	for resourceID, groupIDs := range resourceToGroupIdx {
+		for groupID := range groupIDs {
+			groupToResources[groupID] = append(groupToResources[groupID], resourceID)
+		}
+	}
+
+	resourcePolicies := make(map[string][]*nmdata.Policy)
+	for i := range policies {
+		if !policies[i].Enabled {
 			continue
 		}
-		networkResourceGroups := resourceToGroupIdx[resource.ID]
-		for _, policy := range policies {
-			if !policy.Enabled {
+
+		targets := make(map[string]struct{})
+		for resourceID := range policyToDestinationResourceIdx[policies[i].ID] {
+			targets[resourceID] = struct{}{}
+		}
+		for groupID := range policyToDestinationGroupIdx[policies[i].ID] {
+			for _, resourceID := range groupToResources[groupID] {
+				targets[resourceID] = struct{}{}
+			}
+		}
+
+		var policy *nmdata.Policy
+		for resourceID := range targets {
+			if _, ok := enabledResources[resourceID]; !ok {
 				continue
 			}
-			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
-				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
-				continue
+			if policy == nil {
+				p := policies[i]
+				policy = &p
 			}
-			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
-				for networkResourceGroup := range networkResourceGroups {
-					if _, ok := groupIds[networkResourceGroup]; ok {
-						resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy)
-						break
-					}
-				}
-			}
+			resourcePolicies[resourceID] = append(resourcePolicies[resourceID], policy)
 		}
 	}
 
