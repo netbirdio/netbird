@@ -211,6 +211,17 @@ resolve() {
   return 0
 }
 
+validate_boolean_env() {
+  local env_name="$1"
+  case "${!env_name:-}" in
+    "" | true | false) return 0 ;;
+    *)
+      echo "$env_name must be true or false." > /dev/stderr
+      exit 1
+      ;;
+  esac
+}
+
 read_nb_domain() {
   READ_NETBIRD_DOMAIN=""
   echo -n "Enter the domain you want to use for NetBird (e.g. netbird.my-domain.com): " > /dev/stderr
@@ -612,6 +623,7 @@ configure_reverse_proxy() {
     if [[ "$ENABLE_PROXY" == "true" ]]; then
       ENABLE_CROWDSEC=$(resolve NETBIRD_ENABLE_CROWDSEC false read_enable_crowdsec)
       if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        validate_boolean_env NETBIRD_ENABLE_CROWDSEC_APPSEC
         ENABLE_CROWDSEC_APPSEC=$(resolve NETBIRD_ENABLE_CROWDSEC_APPSEC false read_enable_crowdsec_appsec)
       fi
     fi
@@ -660,7 +672,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env .env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi

@@ -176,6 +176,12 @@ assert_appsec_enabled() {
     echo "AppSec: crowdsec service does not register the dashboard bouncer key" >&2
     exit 1
   fi
+  for command in 'cscli lapi status' '/dev/tcp/127.0.0.1/7422'; do
+    if ! grep -Fq "$command" <<< "$crowdsec"; then
+      echo "AppSec: CrowdSec health check is missing '$command'" >&2
+      exit 1
+    fi
+  done
   if ! grep -Fq 'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker' <<< "$dashboard"; then
     echo "AppSec: dashboard router is not protected" >&2
     exit 1
@@ -249,8 +255,29 @@ assert_appsec_requires_crowdsec() {
   cases=$((cases + 1))
 }
 
+assert_appsec_rejects_invalid_value() {
+  local status=0
+  (
+    initialize_default_values
+    NETBIRD_NON_INTERACTIVE=true
+    NETBIRD_REVERSE_PROXY_TYPE=0
+    NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
+    NETBIRD_ENABLE_PROXY=true
+    NETBIRD_ENABLE_CROWDSEC=true
+    NETBIRD_ENABLE_CROWDSEC_APPSEC=yes
+    configure_reverse_proxy
+  ) >"$test_dir/appsec-invalid.out" 2>"$test_dir/appsec-invalid.err" || status=$?
+  if [[ "$status" -eq 0 ]] || ! grep -Fq 'NETBIRD_ENABLE_CROWDSEC_APPSEC must be true or false.' "$test_dir/appsec-invalid.err"; then
+    echo "Invalid AppSec value: expected the install to stop" >&2
+    cat "$test_dir/appsec-invalid.err" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
 assert_appsec_enabled
 assert_appsec_disabled
 assert_appsec_requires_crowdsec
+assert_appsec_rejects_invalid_value
 
 echo "Passed $cases configuration cases."
