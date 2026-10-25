@@ -8,12 +8,14 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"time"
 
 	"github.com/gorilla/mux"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/cors"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -44,6 +46,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
@@ -130,6 +133,8 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			s.Config.Datadir,
 			s.IntegratedValidator(),
 			s.SettingsManager(),
+			s.NetworkMapReplicaPool(),
+			s.Metrics().GetMeter(),
 		)
 		// networkmap db store supports postgres and sqlite backends only
 		// for other backends a fallback is used, so NotSupportedStoreEngineError
@@ -138,6 +143,25 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			log.Fatalf("failed to create network map store: %v", err)
 		}
 		return store
+	})
+}
+
+// NetworkMapReplicaPool opens the pgx pool to the Postgres read replica serving
+// network map data reads. It is nil unless the store engine is Postgres and
+// networkmapdbfactory.ReplicaDsnEnv is set.
+func (s *BaseServer) NetworkMapReplicaPool() *pgxpool.Pool {
+	return CreateNamed(s, "NetworkMapReplica", func() *pgxpool.Pool {
+		dsn := os.Getenv(networkmapdbfactory.ReplicaDsnEnv)
+		if dsn == "" || s.Config.StoreConfig.Engine != types.PostgresStoreEngine {
+			return nil
+		}
+		pool, err := db.OpenPgxPool(context.Background(), dsn, db.DefaultPoolConfig)
+		if err != nil {
+			log.Errorf("network map data reads use the primary, connecting to the replica failed: %v", err)
+			return nil
+		}
+		s.OnStop(pool.Close)
+		return pool
 	})
 }
 

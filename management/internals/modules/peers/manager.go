@@ -199,6 +199,10 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("increment network serial: %w", err)
+			}
+
 			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
 
 			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
