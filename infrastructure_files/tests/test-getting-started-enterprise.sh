@@ -94,3 +94,121 @@ for header_config in "" "$TRAEFIK_HEADER_CONFIG"; do
 done
 
 echo "Passed $cases Traefik tag validation cases."
+
+render_enterprise() {
+  NETBIRD_TRAFFIC_FLOW=no
+  NETBIRD_PROXY=yes
+  NETBIRD_CROWDSEC=yes
+  NETBIRD_CROWDSEC_APPSEC="$1"
+  CUSTOM_TLS_CERTS=""
+  render_docker_compose
+}
+
+assert_enterprise_appsec() {
+  local rendered traefik server
+  rendered=$(render_enterprise yes)
+  traefik=$(printf '%s\n' "$rendered" | service_block traefik)
+  server=$(printf '%s\n' "$rendered" | service_block netbird-server)
+  if [[ "$traefik" == *$'\n\n'* ]]; then
+    echo "AppSec: Traefik service contains a blank line" >&2
+    exit 1
+  fi
+  for line in \
+    'github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin' \
+    'version=v1.7.1' \
+    'condition: service_healthy' \
+    'crowdsecAppsecHost=crowdsec:7422' \
+    'middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' \
+    'netbird-dashboard-api.priority=110' \
+    'crowdsecurity/appsec-virtual-patching' \
+    './crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro' \
+    'start_period: 30s'; do
+    if ! grep -Fq "$line" <<< "$rendered"; then
+      echo "AppSec: missing '$line'" >&2
+      exit 1
+    fi
+  done
+  if grep -F 'netbird-dashboard-api.rule' <<< "$server" | grep -q '/relay'; then
+    echo "AppSec: API router includes relay" >&2
+    exit 1
+  fi
+  if grep -F 'netbird-grpc' <<< "$server" | grep -q 'crowdsec'; then
+    echo "AppSec: gRPC router gained the AppSec middleware" >&2
+    exit 1
+  fi
+  if grep -F 'netbird-backend.middlewares' <<< "$server" | grep -q 'crowdsec'; then
+    echo "AppSec: relay router gained the AppSec middleware" >&2
+    exit 1
+  fi
+  if grep -Fq 'proxy-passthrough.middlewares' <<< "$rendered"; then
+    echo "AppSec: proxy passthrough gained a middleware" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'netbird-grpc.middlewares=nb-security@docker' <<< "$server"; then
+    echo "AppSec: gRPC router lost nb-security" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_enterprise_crowdsec_only() {
+  local rendered
+  rendered=$(render_enterprise no)
+  if grep -Fq 'appsec' <<< "$rendered" || grep -Fq '7422' <<< "$rendered"; then
+    echo "AppSec off: CrowdSec-only compose includes AppSec" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'COLLECTIONS=crowdsecurity/linux' <<< "$rendered"; then
+    echo "AppSec off: missing the base CrowdSec collection" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'middlewares=nb-security@docker' <<< "$rendered"; then
+    echo "AppSec off: dashboard lost nb-security" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_dashboard_key_preserved() {
+  local case_dir="$test_dir/dashboard-key"
+  mkdir -p "$case_dir"
+  (
+    cd "$case_dir"
+    printf 'CROWDSEC_DASHBOARD_BOUNCER_KEY=existingkey\n' > .env
+    NETBIRD_CROWDSEC_APPSEC=yes
+    ensure_crowdsec_dashboard_key
+    if [[ -n "${CROWDSEC_DASHBOARD_BOUNCER_KEY}" ]]; then
+      echo "AppSec: existing dashboard bouncer key was replaced" >&2
+      exit 1
+    fi
+    if [[ "$(env_get CROWDSEC_DASHBOARD_BOUNCER_KEY)" != "existingkey" ]]; then
+      echo "AppSec: existing dashboard bouncer key changed" >&2
+      exit 1
+    fi
+    rm -f .env
+    NETBIRD_CROWDSEC_APPSEC=yes
+    ensure_crowdsec_dashboard_key
+    if [[ ! "$CROWDSEC_DASHBOARD_BOUNCER_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "AppSec: new dashboard bouncer key was not generated" >&2
+      exit 1
+    fi
+    generated=$CROWDSEC_DASHBOARD_BOUNCER_KEY
+    rendered=$(render_env_dashboard_bouncer_key)
+    if [[ "$rendered" != "CROWDSEC_DASHBOARD_BOUNCER_KEY=${generated}" ]]; then
+      echo "AppSec: dashboard bouncer key was not rendered into .env" >&2
+      exit 1
+    fi
+    CROWDSEC_DASHBOARD_BOUNCER_KEY=""
+    if [[ -n "$(render_env_dashboard_bouncer_key)" ]]; then
+      echo "AppSec: empty dashboard bouncer key would overwrite .env" >&2
+      exit 1
+    fi
+  )
+  cases=$((cases + 1))
+}
+
+assert_enterprise_appsec
+assert_enterprise_crowdsec_only
+assert_dashboard_key_preserved
+
+echo "Passed $cases enterprise configuration cases."
