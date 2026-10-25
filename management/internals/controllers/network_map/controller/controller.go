@@ -933,7 +933,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	}
 
 	// it's possible that the peer gets deleted between the call to "sendInitialSync()" and here, bail out in this case
-	if _, ok := account.Peers[peer.ID]; !ok {
+	if p, _ := account.Peers[peer.ID]; p == nil {
 		return nil, nil, nil, 0, fmt.Errorf("peer '%s' no longer exists", peer.ID)
 	}
 

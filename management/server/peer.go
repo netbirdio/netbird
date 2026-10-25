@@ -140,7 +140,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	return nil
 }
 
-// schedulePeerExpirations reschedules the account's login/inactivity expiration
+// schedulePeerExpirations arms the account's login/inactivity expiration
 // timers for an SSO peer that just connected.
 func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
 	if !peer.AddedWithSSOLogin() {
@@ -154,7 +154,7 @@ func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, ac
 		am.schedulePeerLoginExpiration(ctx, accountID)
 	}
 	if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
-		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		am.schedulePeerInactivityExpiration(ctx, accountID)
 	}
 	return nil
 }

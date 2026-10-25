@@ -9,11 +9,11 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -28,7 +28,7 @@ const (
 
 // wgIface defines the interface for WireGuard interface operations needed by the DNS forwarder.
 type wgIface interface {
-	GetNet() *netstack.Net
+	GetNet() *wgbackend.NetstackNet
 	Address() wgaddr.Address
 }
 

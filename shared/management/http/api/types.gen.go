@@ -6051,7 +6051,7 @@ type GetApiEventsProxyParams struct {
 	// SortOrder Sort order (ascending or descending)
 	SortOrder *GetApiEventsProxyParamsSortOrder `form:"sort_order,omitempty" json:"sort_order,omitempty"`
 
-	// Search General search across request ID, host, path, source IP, user email, and user name
+	// Search General search across request ID, host, path, and source IP
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
 	// SourceIp Filter by source IP address
