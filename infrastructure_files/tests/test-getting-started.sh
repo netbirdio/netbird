@@ -82,11 +82,13 @@ done
 echo "Passed $cases Traefik image configuration cases."
 
 file_mode() {
-  stat -c '%a' "$1" 2>/dev/null || stat -f '%OLp' "$1"
+  local file="$1"
+  stat -c '%a' "$file" 2>/dev/null || stat -f '%OLp' "$file"
 }
 
 service_block() {
-  awk -v s="  ${1}:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
+  local name="$1"
+  awk -v s="  ${name}:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
 }
 
 render_proxy_stack() {
