@@ -5,6 +5,7 @@ package server
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"os/user"
@@ -245,4 +246,31 @@ func TestDirectTCPIP_PerConnectionLimit(t *testing.T) {
 	for _, c := range conns[1:] {
 		_ = c.Close()
 	}
+}
+
+// A connection that never completes the SSH handshake is dropped, and one that does
+// complete it is not subject to the handshake deadline afterwards.
+func TestHandshakeTimeout(t *testing.T) {
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	srv := New(&Config{HostKeyPEM: hostKey})
+	srv.handshakeTimeout = 500 * time.Millisecond
+	addr := StartTestServer(t, srv)
+	t.Cleanup(func() { require.NoError(t, srv.Stop()) })
+
+	stalled, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stalled.Close() })
+
+	// The server sends its version line first; after that it waits for ours.
+	require.NoError(t, stalled.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = io.Copy(io.Discard, stalled)
+	var nerr net.Error
+	assert.False(t, errors.As(err, &nerr) && nerr.Timeout(), "server should close the stalled connection, not leave it open")
+
+	client := dialNoAuthServer(t, addr, hostKey)
+	time.Sleep(time.Second)
+	session, err := client.NewSession()
+	require.NoError(t, err, "an established connection must outlive the handshake deadline")
+	require.NoError(t, session.Close())
 }

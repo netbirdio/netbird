@@ -58,6 +58,10 @@ const (
 // the forwarded destination before rejecting the SSH channel.
 const directTCPIPDialTimeout = 30 * time.Second
 
+// defaultHandshakeTimeout bounds how long a connection may take to complete the SSH
+// handshake and authentication before it is dropped.
+const defaultHandshakeTimeout = 60 * time.Second
+
 var (
 	ErrPrivilegedUserDisabled = errors.New(msgPrivilegedUserDisabled)
 	ErrUserNotFound           = errors.New("user not found")
@@ -165,6 +169,7 @@ type Server struct {
 	allowRemotePortForwarding bool
 	allowRootLogin            bool
 	allowSFTP                 bool
+	handshakeTimeout          time.Duration
 	jwtEnabled                bool
 
 	netstackNet *wgbackend.NetstackNet
@@ -227,6 +232,7 @@ func New(config *Config) *Server {
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
 		authorizer:             sshauth.NewAuthorizer(),
+		handshakeTimeout:       defaultHandshakeTimeout,
 	}
 
 	if config.Auth != nil {
@@ -891,8 +897,9 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 			"tcpip-forward":        s.tcpipForwardHandler,
 			"cancel-tcpip-forward": s.cancelTcpipForwardHandler,
 		},
-		ConnCallback: s.connectionValidator,
-		Version:      serverVersion,
+		ConnCallback:     s.connectionValidator,
+		HandshakeTimeout: s.handshakeTimeout,
+		Version:          serverVersion,
 	}
 
 	if s.jwtEnabled {
