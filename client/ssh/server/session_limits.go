@@ -112,88 +112,125 @@ type sessionRequest struct {
 	reply   bool
 }
 
-// filterSessionRequests passes session channel requests to the session loop while
-// keeping what the loop can accumulate or block on bounded:
+func (r *sessionRequest) refuse() {
+	r.forward, r.reply = false, false
+}
+
+func (r *sessionRequest) accept() {
+	r.forward, r.reply = false, true
+}
+
+// requestFilter passes session channel requests to the session loop while keeping
+// what the loop can accumulate or block on bounded:
 //   - a malformed pty-req is refused instead of reaching the loop's parser
 //   - env requests beyond maxEnvRequests, or with an oversized payload, are refused
 //   - window-change requests are dropped until the command starts and coalesced
 //     after, as the loop blocks sending on a one-slot channel that only the command
 //     handler drains
 //   - the queue behind a stalled loop is capped, after which the channel is closed
+type requestFilter struct {
+	ch        cryptossh.Channel
+	queue     []*sessionRequest
+	lastWinch *sessionRequest
+	started   bool
+	envCount  int
+}
+
+// filterSessionRequests returns the requests of in as the session loop should see them.
 func filterSessionRequests(ch cryptossh.Channel, in <-chan *cryptossh.Request) <-chan *cryptossh.Request {
 	out := make(chan *cryptossh.Request)
-
+	f := &requestFilter{ch: ch}
 	go func() {
 		defer close(out)
+		f.run(in, out)
+	}()
+	return out
+}
+
+func (f *requestFilter) run(in <-chan *cryptossh.Request, out chan<- *cryptossh.Request) {
+	for {
+		f.replyToDecided()
 
 		var (
-			queue     []*sessionRequest
-			lastWinch *sessionRequest
-			started   bool
-			envCount  int
+			sendCh chan<- *cryptossh.Request
+			next   *cryptossh.Request
 		)
-
-		for {
-			for len(queue) > 0 && !queue[0].forward {
-				if err := queue[0].req.Reply(queue[0].reply, nil); err != nil {
-					log.Debugf("reply to session request: %v", err)
-				}
-				queue = queue[1:]
-			}
-
-			var (
-				sendCh chan<- *cryptossh.Request
-				next   *cryptossh.Request
-			)
-			if len(queue) > 0 {
-				sendCh = out
-				next = queue[0].req
-			}
-
-			select {
-			case req, ok := <-in:
-				if !ok {
-					return
-				}
-				if len(queue) >= maxQueuedRequests {
-					log.Warnf("SSH session request queue full, closing channel")
-					_ = ch.Close()
-					return
-				}
-				item := &sessionRequest{req: req, forward: true}
-				switch req.Type {
-				case "pty-req":
-					if !validPtyReqPayload(req.Payload) {
-						item.forward, item.reply = false, false
-					}
-				case "env":
-					envCount++
-					if envCount > maxEnvRequests || len(req.Payload) > maxEnvPayload {
-						item.forward, item.reply = false, false
-					}
-				case "shell", "exec", "subsystem":
-					started = true
-				case "window-change":
-					if !started {
-						item.forward, item.reply = false, true
-						break
-					}
-					if lastWinch != nil {
-						lastWinch.forward, lastWinch.reply = false, true
-					}
-					lastWinch = item
-				}
-				queue = append(queue, item)
-			case sendCh <- next:
-				if queue[0] == lastWinch {
-					lastWinch = nil
-				}
-				queue = queue[1:]
-			}
+		if len(f.queue) > 0 {
+			sendCh = out
+			next = f.queue[0].req
 		}
-	}()
 
-	return out
+		select {
+		case req, ok := <-in:
+			if !ok {
+				return
+			}
+			if !f.enqueue(req) {
+				return
+			}
+		case sendCh <- next:
+			f.dropHead()
+		}
+	}
+}
+
+// replyToDecided answers, in order, the requests at the head of the queue that are not
+// forwarded.
+func (f *requestFilter) replyToDecided() {
+	for len(f.queue) > 0 && !f.queue[0].forward {
+		head := f.queue[0]
+		if err := head.req.Reply(head.reply, nil); err != nil {
+			log.Debugf("reply to session request: %v", err)
+		}
+		f.queue = f.queue[1:]
+	}
+}
+
+func (f *requestFilter) dropHead() {
+	if f.queue[0] == f.lastWinch {
+		f.lastWinch = nil
+	}
+	f.queue = f.queue[1:]
+}
+
+// enqueue classifies req and queues it. It returns false after closing the channel
+// because the queue is full.
+func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
+	if len(f.queue) >= maxQueuedRequests {
+		log.Warnf("SSH session request queue full, closing channel")
+		_ = f.ch.Close()
+		return false
+	}
+
+	item := &sessionRequest{req: req, forward: true}
+	switch req.Type {
+	case "pty-req":
+		if !validPtyReqPayload(req.Payload) {
+			item.refuse()
+		}
+	case "env":
+		f.envCount++
+		if f.envCount > maxEnvRequests || len(req.Payload) > maxEnvPayload {
+			item.refuse()
+		}
+	case "shell", "exec", "subsystem":
+		f.started = true
+	case "window-change":
+		f.coalesceWindowChange(item)
+	}
+	f.queue = append(f.queue, item)
+	return true
+}
+
+func (f *requestFilter) coalesceWindowChange(item *sessionRequest) {
+	if !f.started {
+		item.accept()
+		return
+	}
+	if f.lastWinch != nil {
+		f.lastWinch.accept()
+	}
+	f.lastWinch = item
 }
 
 // validPtyReqPayload reports whether p holds a term string followed by the two

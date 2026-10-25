@@ -418,6 +418,8 @@ func discardWindowChanges(winCh <-chan ssh.Window) {
 	}
 	go func() {
 		for range winCh {
+			// The ConPty keeps the size it was started with.
+			continue
 		}
 	}()
 }

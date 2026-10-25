@@ -159,6 +159,12 @@ func TestSession_PerConnectionSessionLimit(t *testing.T) {
 
 	_, err := client.NewSession()
 	assert.Error(t, err, "session beyond the limit should be refused")
+
+	// The limit is per connection: another connection is unaffected.
+	other := dialNoAuthServer(t, addr, hostKey)
+	s, err := other.NewSession()
+	require.NoError(t, err, "a second connection should still open sessions")
+	require.NoError(t, s.Close())
 }
 
 func TestValidPtyReqPayload(t *testing.T) {
@@ -232,6 +238,12 @@ func TestDirectTCPIP_PerConnectionLimit(t *testing.T) {
 
 	_, err = client.Dial("tcp", target.Addr().String())
 	assert.Error(t, err, "forward beyond the limit should be refused")
+
+	// The limit is per connection: another connection is unaffected.
+	other := dialNoAuthServer(t, addr, hostKey)
+	oc, err := other.Dial("tcp", target.Addr().String())
+	require.NoError(t, err, "a second connection should still open forwards")
+	require.NoError(t, oc.Close())
 
 	require.NoError(t, conns[0].Close())
 	assert.Eventually(t, func() bool {
