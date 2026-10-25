@@ -103,35 +103,24 @@ func (g *guardedSessionChannel) closeChannel() {
 	}
 }
 
-// sessionRequest is a request waiting for the session loop. A request that is not
-// forwarded is answered with reply when it reaches the head of the queue, which keeps
-// replies in request order as the protocol requires.
-type sessionRequest struct {
-	req     *cryptossh.Request
-	forward bool
-	reply   bool
-}
-
-func (r *sessionRequest) refuse() {
-	r.forward, r.reply = false, false
-}
-
-func (r *sessionRequest) accept() {
-	r.forward, r.reply = false, true
-}
+// refusedRequestType is the type given to a request the filter refuses. The session
+// loop answers unknown request types with a failure reply, so a refused request is
+// answered by the loop itself and in its position among the replies, which the
+// protocol requires since replies carry no request identifier.
+const refusedRequestType = "refused@netbird.io"
 
 // requestFilter passes session channel requests to the session loop while keeping
 // what the loop can accumulate or block on bounded:
 //   - a malformed pty-req is refused instead of reaching the loop's parser
 //   - env requests beyond maxEnvRequests, or with an oversized payload, are refused
-//   - window-change requests are dropped until the command starts and coalesced
+//   - window-change requests are refused until the command starts and coalesced
 //     after, as the loop blocks sending on a one-slot channel that only the command
 //     handler drains
 //   - the queue behind a stalled loop is capped, after which the channel is closed
 type requestFilter struct {
 	ch        cryptossh.Channel
-	queue     []*sessionRequest
-	lastWinch *sessionRequest
+	queue     []*cryptossh.Request
+	lastWinch *cryptossh.Request
 	started   bool
 	envCount  int
 }
@@ -149,15 +138,13 @@ func filterSessionRequests(ch cryptossh.Channel, in <-chan *cryptossh.Request) <
 
 func (f *requestFilter) run(in <-chan *cryptossh.Request, out chan<- *cryptossh.Request) {
 	for {
-		f.replyToDecided()
-
 		var (
 			sendCh chan<- *cryptossh.Request
 			next   *cryptossh.Request
 		)
 		if len(f.queue) > 0 {
 			sendCh = out
-			next = f.queue[0].req
+			next = f.queue[0]
 		}
 
 		select {
@@ -171,18 +158,6 @@ func (f *requestFilter) run(in <-chan *cryptossh.Request, out chan<- *cryptossh.
 		case sendCh <- next:
 			f.dropHead()
 		}
-	}
-}
-
-// replyToDecided answers, in order, the requests at the head of the queue that are not
-// forwarded.
-func (f *requestFilter) replyToDecided() {
-	for len(f.queue) > 0 && !f.queue[0].forward {
-		head := f.queue[0]
-		if err := head.req.Reply(head.reply, nil); err != nil {
-			log.Debugf("reply to session request: %v", err)
-		}
-		f.queue = f.queue[1:]
 	}
 }
 
@@ -202,35 +177,39 @@ func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
 		return false
 	}
 
-	item := &sessionRequest{req: req, forward: true}
 	switch req.Type {
 	case "pty-req":
 		if !validPtyReqPayload(req.Payload) {
-			item.refuse()
+			refuseRequest(req)
 		}
 	case "env":
 		f.envCount++
 		if f.envCount > maxEnvRequests || len(req.Payload) > maxEnvPayload {
-			item.refuse()
+			refuseRequest(req)
 		}
 	case "shell", "exec", "subsystem":
 		f.started = true
 	case "window-change":
-		f.coalesceWindowChange(item)
+		f.coalesceWindowChange(req)
 	}
-	f.queue = append(f.queue, item)
+	f.queue = append(f.queue, req)
 	return true
 }
 
-func (f *requestFilter) coalesceWindowChange(item *sessionRequest) {
+func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
 	if !f.started {
-		item.accept()
+		refuseRequest(req)
 		return
 	}
 	if f.lastWinch != nil {
-		f.lastWinch.accept()
+		refuseRequest(f.lastWinch)
 	}
-	f.lastWinch = item
+	f.lastWinch = req
+}
+
+func refuseRequest(req *cryptossh.Request) {
+	req.Type = refusedRequestType
+	req.Payload = nil
 }
 
 // validPtyReqPayload reports whether p holds a term string followed by the two

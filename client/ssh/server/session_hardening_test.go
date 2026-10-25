@@ -286,3 +286,50 @@ func TestHandshakeTimeout(t *testing.T) {
 	require.NoError(t, err, "an established connection must outlive the handshake deadline")
 	require.NoError(t, session.Close())
 }
+
+// Refused requests are forwarded to the session loop under a type it answers with a
+// failure, so every reply is sent by the loop in request order.
+func TestFilterSessionRequests_RefusedRequestsStayInOrder(t *testing.T) {
+	in := make(chan *cryptossh.Request)
+	out := filterSessionRequests(nil, in)
+
+	validWinch := cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 40, 0, 0})
+	reqs := []*cryptossh.Request{
+		{Type: "pty-req", Payload: ptyReqPayload(0xFFFFFFFF, "xterm")},
+		{Type: "pty-req", Payload: ptyReqPayload(5, "xterm")},
+		{Type: "window-change", Payload: validWinch},
+		{Type: "shell"},
+		{Type: "window-change", Payload: validWinch},
+		{Type: "window-change", Payload: validWinch},
+	}
+	want := []string{
+		refusedRequestType, // malformed pty-req
+		"pty-req",
+		refusedRequestType, // resize before the command starts
+		"shell",
+		refusedRequestType, // older of two queued resizes
+		"window-change",
+	}
+
+	// Hold all requests in the filter's queue before the loop consumes any, so the
+	// coalescing of the two trailing resizes is exercised.
+	for _, r := range reqs {
+		in <- r
+	}
+	for i, w := range want {
+		select {
+		case got := <-out:
+			assert.Equal(t, w, got.Type, "request %d", i)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("request %d not delivered", i)
+		}
+	}
+
+	close(in)
+	select {
+	case _, ok := <-out:
+		assert.False(t, ok, "filter should close its output when the input closes")
+	case <-time.After(2 * time.Second):
+		t.Fatal("filter did not close its output")
+	}
+}
