@@ -130,29 +130,50 @@ assert_appsec_enabled() {
     echo "AppSec: dashboard bouncer key was written into docker-compose.yml" >&2
     exit 1
   fi
+  # Compose must read the key from .env for both the Traefik bouncer and the
+  # CrowdSec bouncer registration, or the two sides never authenticate.
   for line in \
-    'listen_addr: 0.0.0.0:7422' \
-    'crowdsecurity/appsec-default' \
+    'crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' \
+    'BOUNCER_KEY_netbird_dashboard: "${CROWDSEC_DASHBOARD_BOUNCER_KEY}"' \
     'github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin' \
     'version=v1.7.1' \
     'crowdsecAppsecHost=crowdsec:7422' \
     'crowdsecAppsecFailureBlock=true' \
     'crowdsecAppsecUnreachableBlock=true' \
-    'middlewares=netbird-dashboard-crowdsec@docker' \
+    'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker' \
+    'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker' \
     'netbird-dashboard-api.priority=110' \
     'crowdsecurity/appsec-virtual-patching' \
     'crowdsecurity/appsec-generic-rules' \
     'start_period: 30s'; do
-    if ! grep -Fq "$line" "$compose" "$case_dir/crowdsec/acquis.d/appsec.yaml"; then
-      echo "AppSec: missing '$line'" >&2
+    if ! grep -Fq "$line" "$compose"; then
+      echo "AppSec: missing '$line' in docker-compose.yml" >&2
       exit 1
     fi
   done
-  local traefik server
+  for line in \
+    'listen_addr: 0.0.0.0:7422' \
+    'crowdsecurity/appsec-default' \
+    'source: appsec'; do
+    if ! grep -Fq "$line" "$case_dir/crowdsec/acquis.d/appsec.yaml"; then
+      echo "AppSec: missing '$line' in appsec.yaml" >&2
+      exit 1
+    fi
+  done
+  local traefik dashboard server
   traefik=$(service_block traefik < "$compose")
+  dashboard=$(service_block dashboard < "$compose")
   server=$(service_block netbird-server < "$compose")
-  if [[ "$traefik" != *"condition: service_healthy"* ]]; then
+  if [[ "$traefik" != *$'depends_on:\n      crowdsec:\n        condition: service_healthy'* ]]; then
     echo "AppSec: Traefik does not wait for CrowdSec" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker' <<< "$dashboard"; then
+    echo "AppSec: dashboard router is not protected" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker' <<< "$server"; then
+    echo "AppSec: API router is not protected" >&2
     exit 1
   fi
   if [[ "$server" == *'netbird-dashboard-api.rule='*'/relay'* ]]; then

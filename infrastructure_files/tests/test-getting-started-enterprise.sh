@@ -105,26 +105,55 @@ render_enterprise() {
 }
 
 assert_enterprise_appsec() {
-  local rendered traefik server
+  local rendered traefik dashboard server crowdsec
   rendered=$(render_enterprise yes)
   traefik=$(printf '%s\n' "$rendered" | service_block traefik)
+  dashboard=$(printf '%s\n' "$rendered" | service_block dashboard)
   server=$(printf '%s\n' "$rendered" | service_block netbird-server)
+  crowdsec=$(printf '%s\n' "$rendered" | service_block crowdsec)
   if [[ "$traefik" == *$'\n\n'* ]]; then
     echo "AppSec: Traefik service contains a blank line" >&2
+    exit 1
+  fi
+  # netbird-server also waits on a healthy Postgres, so the dependency has to
+  # be found inside the Traefik block and name crowdsec.
+  if [[ "$traefik" != *$'depends_on:\n      crowdsec:\n        condition: service_healthy'* ]]; then
+    echo "AppSec: Traefik does not wait for CrowdSec" >&2
     exit 1
   fi
   for line in \
     'github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin' \
     'version=v1.7.1' \
-    'condition: service_healthy' \
+    'crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' \
     'crowdsecAppsecHost=crowdsec:7422' \
-    'middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' \
-    'netbird-dashboard-api.priority=110' \
+    'crowdsecAppsecFailureBlock=true' \
+    'crowdsecAppsecUnreachableBlock=true'; do
+    if ! grep -Fq "$line" <<< "$traefik"; then
+      echo "AppSec: Traefik service is missing '$line'" >&2
+      exit 1
+    fi
+  done
+  if ! grep -Fq 'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' <<< "$dashboard"; then
+    echo "AppSec: dashboard router is not protected" >&2
+    exit 1
+  fi
+  for line in \
+    'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' \
+    'netbird-dashboard-api.priority=110'; do
+    if ! grep -Fq "$line" <<< "$server"; then
+      echo "AppSec: netbird-server is missing '$line'" >&2
+      exit 1
+    fi
+  done
+  for line in \
     'crowdsecurity/appsec-virtual-patching' \
+    'crowdsecurity/appsec-generic-rules' \
+    'BOUNCER_KEY_netbird_dashboard=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' \
     './crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro' \
+    '/dev/tcp/127.0.0.1/7422' \
     'start_period: 30s'; do
-    if ! grep -Fq "$line" <<< "$rendered"; then
-      echo "AppSec: missing '$line'" >&2
+    if ! grep -Fq "$line" <<< "$crowdsec"; then
+      echo "AppSec: crowdsec service is missing '$line'" >&2
       exit 1
     fi
   done
@@ -207,8 +236,46 @@ assert_dashboard_key_preserved() {
   cases=$((cases + 1))
 }
 
+assert_appsec_acquisition() {
+  local case_dir="$test_dir/appsec-acquis"
+  mkdir -p "$case_dir"
+  (
+    cd "$case_dir"
+    APPSEC_ACQUIS_CREATED=""
+    write_crowdsec_appsec_acquisition
+    if [[ "$APPSEC_ACQUIS_CREATED" != "crowdsec/acquis.d/appsec.yaml" ]]; then
+      echo "AppSec: acquisition file was not recorded for rollback" >&2
+      exit 1
+    fi
+    for line in \
+      'listen_addr: 0.0.0.0:7422' \
+      'crowdsecurity/appsec-default' \
+      'type: appsec' \
+      'source: appsec'; do
+      if ! grep -Fq "$line" crowdsec/acquis.d/appsec.yaml; then
+        echo "AppSec: acquisition file is missing '$line'" >&2
+        exit 1
+      fi
+    done
+    # A customized file from an earlier run must survive --enable-proxy.
+    printf 'custom: true\n' > crowdsec/acquis.d/appsec.yaml
+    APPSEC_ACQUIS_CREATED=""
+    write_crowdsec_appsec_acquisition
+    if [[ "$(cat crowdsec/acquis.d/appsec.yaml)" != "custom: true" ]]; then
+      echo "AppSec: existing acquisition file was overwritten" >&2
+      exit 1
+    fi
+    if [[ -n "$APPSEC_ACQUIS_CREATED" ]]; then
+      echo "AppSec: existing acquisition file was marked for rollback" >&2
+      exit 1
+    fi
+  )
+  cases=$((cases + 1))
+}
+
 assert_enterprise_appsec
 assert_enterprise_crowdsec_only
 assert_dashboard_key_preserved
+assert_appsec_acquisition
 
 echo "Passed $cases enterprise configuration cases."

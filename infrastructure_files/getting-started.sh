@@ -169,7 +169,8 @@ check_domain_resolves() {
 #   NETBIRD_REVERSE_PROXY_TYPE        0-5 (default 0 = built-in Traefik)
 #   NETBIRD_ENABLE_PROXY              true/false (default false)
 #   NETBIRD_ENABLE_CROWDSEC           true/false (default false)
-#   NETBIRD_ENABLE_CROWDSEC_APPSEC    true/false (default false; requires CrowdSec)
+#   NETBIRD_ENABLE_CROWDSEC_APPSEC    true/false (default false; requires NETBIRD_ENABLE_CROWDSEC=true,
+#                                     which needs built-in Traefik (type 0) and NETBIRD_ENABLE_PROXY=true)
 #   NETBIRD_TRAEFIK_EXTERNAL_NETWORK  external-Traefik network (type 1)
 #   NETBIRD_TRAEFIK_ENTRYPOINT        external-Traefik entrypoint (type 1, default websecure)
 #   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
