@@ -256,20 +256,48 @@ assert_appsec_requires_crowdsec() {
 }
 
 assert_appsec_rejects_invalid_value() {
-  local status=0
+  local crowdsec status
+  for crowdsec in true false; do
+    status=0
+    (
+      initialize_default_values
+      NETBIRD_NON_INTERACTIVE=true
+      NETBIRD_REVERSE_PROXY_TYPE=0
+      NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
+      NETBIRD_ENABLE_PROXY=true
+      NETBIRD_ENABLE_CROWDSEC="$crowdsec"
+      NETBIRD_ENABLE_CROWDSEC_APPSEC=yes
+      configure_reverse_proxy
+    ) >"$test_dir/appsec-invalid.out" 2>"$test_dir/appsec-invalid.err" || status=$?
+    if [[ "$status" -eq 0 ]] || ! grep -Fq 'NETBIRD_ENABLE_CROWDSEC_APPSEC must be true or false.' "$test_dir/appsec-invalid.err"; then
+      echo "Invalid AppSec value with CrowdSec $crowdsec: expected the install to stop" >&2
+      cat "$test_dir/appsec-invalid.err" >&2
+      exit 1
+    fi
+    cases=$((cases + 1))
+  done
+}
+
+assert_reinitialize_rotates_only_appsec_key() {
+  local case_dir="$test_dir/reinitialize" output status=0
+  mkdir -p "$case_dir"
   (
-    initialize_default_values
-    NETBIRD_NON_INTERACTIVE=true
-    NETBIRD_REVERSE_PROXY_TYPE=0
-    NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
-    NETBIRD_ENABLE_PROXY=true
-    NETBIRD_ENABLE_CROWDSEC=true
-    NETBIRD_ENABLE_CROWDSEC_APPSEC=yes
-    configure_reverse_proxy
-  ) >"$test_dir/appsec-invalid.out" 2>"$test_dir/appsec-invalid.err" || status=$?
-  if [[ "$status" -eq 0 ]] || ! grep -Fq 'NETBIRD_ENABLE_CROWDSEC_APPSEC must be true or false.' "$test_dir/appsec-invalid.err"; then
-    echo "Invalid AppSec value: expected the install to stop" >&2
-    cat "$test_dir/appsec-invalid.err" >&2
+    cd "$case_dir"
+    : > config.yaml
+    DOCKER_COMPOSE_COMMAND="docker compose"
+    check_existing_installation
+  ) >"$case_dir/output" 2>&1 || status=$?
+  output=$(cat "$case_dir/output")
+  if [[ "$status" -eq 0 ]]; then
+    echo "Reinitialize instructions: expected existing install to stop" >&2
+    exit 1
+  fi
+  if [[ "$output" != *"sed -i '/^CROWDSEC_DASHBOARD_BOUNCER_KEY=/d' .env"* ]]; then
+    echo "Reinitialize instructions: dashboard bouncer key is not removed" >&2
+    exit 1
+  fi
+  if grep -F 'rm -f' "$case_dir/output" | grep -Fq ' .env'; then
+    echo "Reinitialize instructions: .env would be deleted" >&2
     exit 1
   fi
   cases=$((cases + 1))
@@ -279,5 +307,6 @@ assert_appsec_enabled
 assert_appsec_disabled
 assert_appsec_requires_crowdsec
 assert_appsec_rejects_invalid_value
+assert_reinitialize_rotates_only_appsec_key
 
 echo "Passed $cases configuration cases."

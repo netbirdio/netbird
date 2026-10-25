@@ -605,6 +605,8 @@ apply_agent_network_preset() {
 }
 
 configure_reverse_proxy() {
+  validate_boolean_env NETBIRD_ENABLE_CROWDSEC_APPSEC
+
   # Short-circuit: agent-network preset locks every reverse-proxy /
   # proxy / CrowdSec choice and bypasses the interactive prompts.
   if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
@@ -623,7 +625,6 @@ configure_reverse_proxy() {
     if [[ "$ENABLE_PROXY" == "true" ]]; then
       ENABLE_CROWDSEC=$(resolve NETBIRD_ENABLE_CROWDSEC false read_enable_crowdsec)
       if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
-        validate_boolean_env NETBIRD_ENABLE_CROWDSEC_APPSEC
         ENABLE_CROWDSEC_APPSEC=$(resolve NETBIRD_ENABLE_CROWDSEC_APPSEC false read_enable_crowdsec_appsec)
       fi
     fi
@@ -672,6 +673,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
+    echo "  if [ -f .env ]; then sed -i '/^CROWDSEC_DASHBOARD_BOUNCER_KEY=/d' .env; fi"
     echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
