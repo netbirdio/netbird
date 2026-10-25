@@ -137,8 +137,15 @@ assert_enterprise_appsec() {
     echo "AppSec: dashboard router is not protected" >&2
     exit 1
   fi
+  local api_rule
+  api_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-dashboard-api\.rule=//p' <<< "$server")
+  if [[ "$api_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec: API router has an unexpected rule: $api_rule" >&2
+    exit 1
+  fi
   for line in \
     'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' \
+    'netbird-dashboard-api.service=netbird-server' \
     'netbird-dashboard-api.priority=110'; do
     if ! grep -Fq "$line" <<< "$server"; then
       echo "AppSec: netbird-server is missing '$line'" >&2

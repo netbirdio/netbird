@@ -187,13 +187,11 @@ assert_appsec_enabled() {
   # A path missing from this rule falls through to the uninspected backend
   # router at priority 100.
   local api_rule
-  api_rule=$(grep -F 'netbird-dashboard-api.rule=' <<< "$server")
-  for match in 'Host(`netbird.test`)' 'PathPrefix(`/api`)' 'PathPrefix(`/oauth2`)'; do
-    if [[ "$api_rule" != *"$match"* ]]; then
-      echo "AppSec: API router rule does not match $match" >&2
-      exit 1
-    fi
-  done
+  api_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-dashboard-api\.rule=//p' <<< "$server")
+  if [[ "$api_rule" != 'Host(`netbird.test`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec: API router has an unexpected rule: $api_rule" >&2
+    exit 1
+  fi
   if ! grep -Fq 'netbird-dashboard-api.service=netbird-server' <<< "$server"; then
     echo "AppSec: API router does not target netbird-server" >&2
     exit 1
