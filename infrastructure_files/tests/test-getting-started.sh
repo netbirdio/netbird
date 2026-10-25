@@ -130,11 +130,7 @@ assert_appsec_enabled() {
     echo "AppSec: dashboard bouncer key was written into docker-compose.yml" >&2
     exit 1
   fi
-  # Compose must read the key from .env for both the Traefik bouncer and the
-  # CrowdSec bouncer registration, or the two sides never authenticate.
   for line in \
-    'crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' \
-    'BOUNCER_KEY_netbird_dashboard: "${CROWDSEC_DASHBOARD_BOUNCER_KEY}"' \
     'github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin' \
     'version=v1.7.1' \
     'crowdsecAppsecHost=crowdsec:7422' \
@@ -160,12 +156,24 @@ assert_appsec_enabled() {
       exit 1
     fi
   done
-  local traefik dashboard server
+  local traefik dashboard server crowdsec
   traefik=$(service_block traefik < "$compose")
   dashboard=$(service_block dashboard < "$compose")
   server=$(service_block netbird-server < "$compose")
+  crowdsec=$(service_block crowdsec < "$compose")
   if [[ "$traefik" != *$'depends_on:\n      crowdsec:\n        condition: service_healthy'* ]]; then
     echo "AppSec: Traefik does not wait for CrowdSec" >&2
+    exit 1
+  fi
+  # Both sides must read the same key from .env. The middleware belongs on the
+  # Traefik service: declared on the dashboard container, a restart would drop
+  # it and the routers would fail open.
+  if ! grep -Fq 'crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' <<< "$traefik"; then
+    echo "AppSec: Traefik service does not read the dashboard bouncer key" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'BOUNCER_KEY_netbird_dashboard: "${CROWDSEC_DASHBOARD_BOUNCER_KEY}"' <<< "$crowdsec"; then
+    echo "AppSec: crowdsec service does not register the dashboard bouncer key" >&2
     exit 1
   fi
   if ! grep -Fq 'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker' <<< "$dashboard"; then
