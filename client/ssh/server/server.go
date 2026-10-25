@@ -884,7 +884,7 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 		},
 		HostSigners: []ssh.Signer{},
 		ChannelHandlers: map[string]ssh.ChannelHandler{
-			"session":      ssh.DefaultSessionHandler,
+			"session":      s.sessionChannelHandler,
 			"direct-tcpip": s.directTCPIPHandler,
 		},
 		RequestHandlers: map[string]ssh.RequestHandler{
