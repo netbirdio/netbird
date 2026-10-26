@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -128,7 +129,8 @@ func (w *WorkerRelay) dropRelayedConn() {
 	}
 
 	w.conn.onRelayDisconnected(relayedConn)
-	if err := relayedConn.Close(); err != nil {
+	// The teardown closes the connection through its proxy when it was in use.
+	if err := relayedConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		w.log.Debugf("failed to close relayed connection of the previous remote session: %v", err)
 	}
 }
