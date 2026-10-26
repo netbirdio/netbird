@@ -6241,12 +6241,6 @@ type PostApiDnsZonesZoneIdRecordsJSONRequestBody = DNSRecordRequest
 // PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody defines body for PutApiDnsZonesZoneIdRecordsRecordId for application/json ContentType.
 type PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody = DNSRecordRequest
 
-// CreateIntegrationJSONRequestBody defines body for CreateIntegration for application/json ContentType.
-type CreateIntegrationJSONRequestBody = CreateIntegrationRequest
-
-// UpdateIntegrationJSONRequestBody defines body for UpdateIntegration for application/json ContentType.
-type UpdateIntegrationJSONRequestBody = CreateIntegrationRequest
-
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest
 
@@ -6306,6 +6300,12 @@ type CreateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 
 // UpdateSentinelOneEDRIntegrationJSONRequestBody defines body for UpdateSentinelOneEDRIntegration for application/json ContentType.
 type UpdateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
+
+// CreateIntegrationJSONRequestBody defines body for CreateIntegration for application/json ContentType.
+type CreateIntegrationJSONRequestBody = CreateIntegrationRequest
+
+// UpdateIntegrationJSONRequestBody defines body for UpdateIntegration for application/json ContentType.
+type UpdateIntegrationJSONRequestBody = CreateIntegrationRequest
 
 // CreateGoogleIntegrationJSONRequestBody defines body for CreateGoogleIntegration for application/json ContentType.
 type CreateGoogleIntegrationJSONRequestBody = CreateGoogleIntegrationRequest
