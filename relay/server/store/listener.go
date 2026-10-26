@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/netbirdio/netbird/shared/relay/messages"
@@ -59,38 +60,43 @@ func (l *Listener) listenForEvents(onPeersComeOnline, onPeersWentOffline func([]
 		case <-l.ctx.Done():
 			return
 		case e := <-l.eventChan:
-			// Events are delivered by the final state of each peer, so a peer that went
-			// offline and registered again within one batch is reported as online only.
-			order := []messages.PeerID{e.peerID}
-			online := map[messages.PeerID]bool{e.peerID: e.online}
-
-			// Drain the channel to collect all events
+			events := []*event{e}
 			for len(l.eventChan) > 0 {
-				e = <-l.eventChan
-				if _, seen := online[e.peerID]; !seen {
-					order = append(order, e.peerID)
-				}
-				online[e.peerID] = e.online
+				events = append(events, <-l.eventChan)
 			}
 
-			peersOnline := make([]messages.PeerID, 0)
-			peersOffline := make([]messages.PeerID, 0)
-			for _, id := range order {
-				if online[id] {
-					peersOnline = append(peersOnline, id)
+			for _, run := range sameStateRuns(events) {
+				if run.online {
+					onPeersComeOnline(run.peerIDs)
 				} else {
-					peersOffline = append(peersOffline, id)
+					onPeersWentOffline(run.peerIDs)
 				}
-			}
-
-			if len(peersOnline) > 0 {
-				onPeersComeOnline(peersOnline)
-			}
-			if len(peersOffline) > 0 {
-				onPeersWentOffline(peersOffline)
 			}
 		}
 	}
+}
+
+// stateRun is a set of peers that reached the same state in consecutive events.
+type stateRun struct {
+	online  bool
+	peerIDs []messages.PeerID
+}
+
+// sameStateRuns groups consecutive events of the same state, keeping the order in
+// which the states were reached, so a peer that went offline and registered again is
+// reported offline before it is reported online.
+func sameStateRuns(events []*event) []stateRun {
+	var runs []stateRun
+	for _, e := range events {
+		if len(runs) == 0 || runs[len(runs)-1].online != e.online {
+			runs = append(runs, stateRun{online: e.online})
+		}
+		run := &runs[len(runs)-1]
+		if !slices.Contains(run.peerIDs, e.peerID) {
+			run.peerIDs = append(run.peerIDs, e.peerID)
+		}
+	}
+	return runs
 }
 
 func (l *Listener) peerWentOffline(peerID messages.PeerID) {

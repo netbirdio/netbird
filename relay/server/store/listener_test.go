@@ -54,10 +54,12 @@ func TestListener_NoOnlineAfterInterestRemoved(t *testing.T) {
 	}
 }
 
-// Events that pile up while the listener is busy are delivered by the final state of
-// each peer. A peer that went offline and registered again in the meantime is online,
-// so the subscriber must not be told it is offline after being told it is online.
-func TestListener_BatchedEventsReportFinalState(t *testing.T) {
+// Events that pile up while the listener is busy are delivered in the order they
+// happened. A peer that went offline and registered again in the meantime must be
+// reported offline first: clients that only act on the offline event tear down the
+// relayed connection of the previous registration, and the online event that follows
+// must not be followed by an offline one for the same registration.
+func TestListener_BatchedEventsKeepOrder(t *testing.T) {
 	a := messages.HashID("peer-a")
 	b := messages.HashID("peer-b")
 	c := messages.HashID("peer-c")
@@ -67,26 +69,32 @@ func TestListener_BatchedEventsReportFinalState(t *testing.T) {
 	l.peerWentOffline(a)
 	l.peerComeOnline(a)
 	l.peerComeOnline(b)
+	l.peerComeOnline(b)
 	l.peerWentOffline(b)
 	l.peerComeOnline(c)
 
-	online := make(chan []messages.PeerID, 1)
-	offline := make(chan []messages.PeerID, 1)
+	type notification struct {
+		online bool
+		ids    []messages.PeerID
+	}
+	notifications := make(chan notification, 8)
 	go l.listenForEvents(
-		func(ids []messages.PeerID) { online <- ids },
-		func(ids []messages.PeerID) { offline <- ids },
+		func(ids []messages.PeerID) { notifications <- notification{online: true, ids: ids} },
+		func(ids []messages.PeerID) { notifications <- notification{online: false, ids: ids} },
 	)
 
-	select {
-	case ids := <-online:
-		assert.ElementsMatch(t, []messages.PeerID{a, c}, ids, "peers whose last event was online")
-	case <-time.After(time.Second):
-		require.FailNow(t, "missing online notification")
+	want := []notification{
+		{online: false, ids: []messages.PeerID{a}},
+		{online: true, ids: []messages.PeerID{a, b}},
+		{online: false, ids: []messages.PeerID{b}},
+		{online: true, ids: []messages.PeerID{c}},
 	}
-	select {
-	case ids := <-offline:
-		assert.Equal(t, []messages.PeerID{b}, ids, "peers whose last event was offline")
-	case <-time.After(time.Second):
-		require.FailNow(t, "missing offline notification")
+	for i, w := range want {
+		select {
+		case got := <-notifications:
+			assert.Equal(t, w, got, "notification %d", i)
+		case <-time.After(time.Second):
+			require.FailNowf(t, "missing notification", "notification %d", i)
+		}
 	}
 }
