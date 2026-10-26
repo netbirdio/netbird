@@ -110,6 +110,8 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	warnRosenpassDeprecated(cmd)
+
 	ctx := internal.CtxInitState(cmd.Context())
 
 	if hostName != "" {
@@ -152,6 +154,17 @@ func upFunc(cmd *cobra.Command, args []string) error {
 // missing profile instead of failing. Returns the daemon-resolved profile so
 // callers act on it directly instead of re-reading the local state, which is
 // not updated under sudo.
+// warnRosenpassDeprecated prints a deprecation notice when the user turns Rosenpass on.
+// Turning it off stays silent, since that is the action the notice asks for.
+func warnRosenpassDeprecated(cmd *cobra.Command) {
+	enabling := cmd.Flag(enableRosenpassFlag).Changed && rosenpassEnabled
+	permissive := cmd.Flag(rosenpassPermissiveFlag).Changed && rosenpassPermissive
+	if !enabling && !permissive {
+		return
+	}
+	cmd.PrintErrln("Warning: Rosenpass support is deprecated and may be removed in a future release.")
+}
+
 func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
