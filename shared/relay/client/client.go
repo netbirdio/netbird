@@ -759,8 +759,8 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			return
 		case <-ctx.Done():
 			// Close cancels the context it was connected with, so the client may
-			// already be stopped here.
-			if !c.Ready() {
+			// already be stopped, or connected again by now.
+			if !c.runningOn(conn) {
 				return
 			}
 			err := c.close(true)
@@ -770,6 +770,13 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			return
 		}
 	}
+}
+
+// runningOn reports whether the client is still running on the given connection.
+func (c *Client) runningOn(conn net.Conn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.serviceIsRunning && c.relayConn == conn
 }
 
 func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {

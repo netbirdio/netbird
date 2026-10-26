@@ -82,17 +82,29 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 			cancelDials(dialCancels, -1)
 			return nil, <-errChan
 		}
-		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
-		if err != nil {
-			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
-			return cr.RelayClient, nil
-		}
-		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
-		return cr.RelayClient, nil
+		return chosenClient(cr), nil
 	case <-ctx.Done():
+		// A dial that succeeded as the timeout fired is already the chosen one.
+		select {
+		case cr, ok := <-successChan:
+			if ok {
+				return chosenClient(cr), nil
+			}
+		default:
+		}
 		cancelDials(dialCancels, -1)
 		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
 	}
+}
+
+func chosenClient(cr connResult) *Client {
+	instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
+	if err != nil {
+		log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
+		return cr.RelayClient
+	}
+	log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
+	return cr.RelayClient
 }
 
 // cancelDials cancels every dial except the attempt to keep; -1 cancels all.
