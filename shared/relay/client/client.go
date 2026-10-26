@@ -758,8 +758,8 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			}
 			return
 		case <-ctx.Done():
-			// Close cancels the context it was connected with, so the client may
-			// already be stopped, or connected again by now.
+			// Closing a client chosen by the picker cancels the context it was
+			// connected with, so by now the client may be stopped or connected again.
 			if !c.runningOn(conn) {
 				return
 			}
