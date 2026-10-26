@@ -221,6 +221,10 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
 		return nil, fmt.Errorf("failed to setup TLS config: %w", err)
 	}
 
+	if err := servers.createSTUNServer(cfg); err != nil {
+		return nil, err
+	}
+
 	if err := servers.createRelayServer(cfg, tlsSupport); err != nil {
 		return nil, err
 	}
@@ -240,15 +244,24 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
 	return servers, nil
 }
 
-func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool) error {
-	if !cfg.Relay.Enabled {
-		return nil
-	}
-
+// createSTUNServer runs independently of the relay so STUN can stay on when the
+// local relay is disabled or replaced by external relays.
+func (s *serverInstances) createSTUNServer(cfg *CombinedConfig) error {
 	var err error
 	s.stunListeners, err = createSTUNListeners(cfg)
 	if err != nil {
 		return err
+	}
+
+	if len(s.stunListeners) > 0 {
+		s.stunServer = stun.NewServer(s.stunListeners, cfg.Relay.Stun.LogLevel)
+	}
+	return nil
+}
+
+func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool) error {
+	if !cfg.Relay.Enabled {
+		return nil
 	}
 
 	hashedSecret := sha256.Sum256([]byte(cfg.Relay.AuthSecret))
@@ -261,17 +274,13 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		TLSSupport:     tlsSupport,
 	}
 
-	s.relaySrv, err = createRelayServer(relayCfg, s.stunListeners)
+	relaySrv, err := createRelayServer(relayCfg, s.stunListeners)
 	if err != nil {
 		return err
 	}
+	s.relaySrv = relaySrv
 
 	log.Infof("Relay server created")
-
-	if len(s.stunListeners) > 0 {
-		s.stunServer = stun.NewServer(s.stunListeners, cfg.Relay.Stun.LogLevel)
-	}
-
 	return nil
 }
 
@@ -704,19 +713,35 @@ func logComponentsConfig(cfg *CombinedConfig) {
 	log.Infof("  Management: %v (log level: %s)", cfg.Management.Enabled, cfg.Management.LogLevel)
 	log.Infof("  Signal: %v (log level: %s)", cfg.Signal.Enabled, cfg.Signal.LogLevel)
 	log.Infof("  Relay: %v (log level: %s)", cfg.Relay.Enabled, cfg.Relay.LogLevel)
+	log.Infof("  STUN: %v", cfg.Relay.Stun.Enabled)
 }
 
 func logRelayConfig(cfg *CombinedConfig) {
-	if !cfg.Relay.Enabled {
-		return
+	if cfg.Relay.Enabled {
+		log.Info("--- Relay ---")
+		log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
+		log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
 	}
-	log.Info("--- Relay ---")
-	log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
-	log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
 	if cfg.Relay.Stun.Enabled {
-		log.Infof("  STUN ports: %v (log level: %s)", cfg.Relay.Stun.Ports, cfg.Relay.Stun.LogLevel)
+		log.Infof("  Local STUN ports: %v (log level: %s)", cfg.Relay.Stun.Ports, cfg.Relay.Stun.LogLevel)
 	} else {
-		log.Info("  STUN: disabled")
+		log.Info("  Local STUN: disabled")
+	}
+	logServiceWarnings(cfg)
+}
+
+// logServiceWarnings reports STUN and relay settings that are accepted but
+// probably not what the operator meant.
+func logServiceWarnings(cfg *CombinedConfig) {
+	if cfg.Server.KeepEmbeddedStun && !cfg.hasExternalStuns() {
+		log.Warn("server.keepEmbeddedStun has no effect without server.stuns")
+	}
+	if cfg.Server.KeepEmbeddedRelay && !cfg.hasExternalRelay() {
+		log.Warn("server.keepEmbeddedRelay has no effect without server.relays.addresses")
+	}
+	if cfg.advertisesLocalStun() && !cfg.runsLocalStun() && len(cfg.Server.StunPorts) > 0 {
+		log.Warnf("local STUN on ports %v is sent to clients but not started, because an external relay "+
+			"is set without server.stuns; set server.stuns or server.keepEmbeddedRelay", cfg.Server.StunPorts)
 	}
 }
 

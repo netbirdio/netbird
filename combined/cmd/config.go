@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	filePath "path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,8 +29,10 @@ import (
 // Architecture:
 //   - Management: Always runs locally (this IS the management server)
 //   - Signal: Runs locally by default; disabled if server.signalUri is set
-//   - Relay: Runs locally by default; disabled if server.relays is set
-//   - STUN: Runs locally on port 3478 by default; disabled if server.stuns is set
+//   - Relay: Runs locally by default; disabled if server.relays is set unless
+//     server.keepEmbeddedRelay is true; server.disableRelay turns relay off entirely
+//   - STUN: Runs locally on port 3478 by default; disabled if server.stuns or
+//     server.relays is set unless kept; server.disableStun turns STUN off entirely
 //
 // All user-facing settings are under "server". The relay/signal/management
 // fields are internal and populated automatically from server settings.
@@ -64,6 +67,11 @@ type ServerConfig struct {
 	Stuns     []HostConfig `yaml:"stuns"`     // External STUN servers (disables local STUN)
 	Relays    RelaysConfig `yaml:"relays"`    // External relay servers (disables local relay)
 	SignalURI string       `yaml:"signalUri"` // External signal server (disables local signal)
+
+	DisableStun       bool `yaml:"disableStun"`       // Run no STUN server and send none to clients
+	DisableRelay      bool `yaml:"disableRelay"`      // Run no relay server and send none to clients
+	KeepEmbeddedStun  bool `yaml:"keepEmbeddedStun"`  // Keep local STUN alongside server.stuns
+	KeepEmbeddedRelay bool `yaml:"keepEmbeddedRelay"` // Keep local relay alongside server.relays
 
 	// Management settings (simplified mode)
 	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
@@ -283,7 +291,8 @@ func parseExposedAddress(exposedAddress string) (protocol, hostname, hostPort st
 
 // ApplySimplifiedDefaults populates internal relay/signal/management configs from server settings.
 // Management is always enabled. Signal, Relay, and STUN are enabled unless external
-// overrides are configured (server.signalUri, server.relays, server.stuns).
+// overrides are configured (server.signalUri, server.relays, server.stuns) or the
+// service is disabled (server.disableRelay, server.disableStun).
 func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	if !c.hasRequiredSettings() {
 		return
@@ -292,22 +301,59 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	// Parse exposed address to extract protocol and hostname
 	exposedProto, exposedHost, exposedHostPort := parseExposedAddress(c.Server.ExposedAddress)
 
-	// Check for external service overrides
-	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
 	hasExternalSignal := c.Server.SignalURI != ""
-	hasExternalStuns := len(c.Server.Stuns) > 0
 
-	// Default stunPorts to [3478] if not specified and no external STUN
-	if len(c.Server.StunPorts) == 0 && !hasExternalStuns {
+	// Default stunPorts to [3478] if not specified and local STUN may be advertised
+	if len(c.Server.StunPorts) == 0 && c.advertisesLocalStun() {
 		c.Server.StunPorts = []int{3478}
 	}
 
-	c.applyRelayDefaults(exposedProto, exposedHostPort, hasExternalRelay, hasExternalStuns)
+	c.applyRelayDefaults(exposedProto, exposedHostPort)
+	c.applyStunDefaults()
 	c.applySignalDefaults(hasExternalSignal)
 	c.applyManagementDefaults(exposedHost)
 
 	// Auto-configure client settings (stuns, relays, signalUri)
-	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
+	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalSignal)
+}
+
+func (c *CombinedConfig) hasExternalRelay() bool {
+	return len(c.Server.Relays.Addresses) > 0
+}
+
+func (c *CombinedConfig) hasExternalStuns() bool {
+	return len(c.Server.Stuns) > 0
+}
+
+// runsLocalRelay reports whether the embedded relay server starts.
+func (c *CombinedConfig) runsLocalRelay() bool {
+	if c.Server.DisableRelay {
+		return false
+	}
+	return !c.hasExternalRelay() || c.Server.KeepEmbeddedRelay
+}
+
+// runsLocalStun reports whether the embedded STUN server starts. Without external
+// STUN servers it follows the relay, because an external relay is expected to
+// serve STUN as well.
+func (c *CombinedConfig) runsLocalStun() bool {
+	if c.Server.DisableStun {
+		return false
+	}
+	if c.hasExternalStuns() {
+		return c.Server.KeepEmbeddedStun
+	}
+	return c.runsLocalRelay() || c.Server.DisableRelay
+}
+
+// advertisesLocalStun reports whether the local STUN address is sent to clients.
+// It differs from runsLocalStun only for an external relay without external STUN,
+// where the address is kept for deployments that serve STUN on the same host.
+func (c *CombinedConfig) advertisesLocalStun() bool {
+	if c.Server.DisableStun {
+		return false
+	}
+	return !c.hasExternalStuns() || c.Server.KeepEmbeddedStun
 }
 
 // ApplyAdminDefaults applies the management settings needed by admin commands even
@@ -323,31 +369,38 @@ func (c *CombinedConfig) ApplyAdminDefaults() {
 	}
 }
 
-// applyRelayDefaults configures the relay service if no external relay is configured.
-func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay, hasExternalStuns bool) {
-	if hasExternalRelay {
+// applyRelayDefaults configures the local relay service when it runs.
+func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string) {
+	if !c.runsLocalRelay() {
 		return
 	}
 
 	c.Relay.Enabled = true
-	relayProto := "rel"
-	if exposedProto == "https" {
-		relayProto = "rels"
-	}
-	c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
+	c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayScheme(exposedProto), exposedHostPort)
 	c.Relay.AuthSecret = c.Server.AuthSecret
 	if c.Relay.LogLevel == "" {
 		c.Relay.LogLevel = c.Server.LogLevel
 	}
+}
 
-	// Enable local STUN only if no external STUN servers and stunPorts are configured
-	if !hasExternalStuns && len(c.Server.StunPorts) > 0 {
-		c.Relay.Stun.Enabled = true
-		c.Relay.Stun.Ports = c.Server.StunPorts
-		if c.Relay.Stun.LogLevel == "" {
-			c.Relay.Stun.LogLevel = c.Server.LogLevel
-		}
+// applyStunDefaults configures the local STUN service when it runs.
+func (c *CombinedConfig) applyStunDefaults() {
+	if !c.runsLocalStun() || len(c.Server.StunPorts) == 0 {
+		return
 	}
+
+	c.Relay.Stun.Enabled = true
+	c.Relay.Stun.Ports = c.Server.StunPorts
+	if c.Relay.Stun.LogLevel == "" {
+		c.Relay.Stun.LogLevel = c.Server.LogLevel
+	}
+}
+
+func relayScheme(exposedProto string) string {
+	if exposedProto == "https" {
+		return "rels"
+	}
+	return "rel"
 }
 
 // applySignalDefaults configures the signal service if no external signal is configured.
@@ -394,42 +447,9 @@ func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 
 // autoConfigureClientSettings sets up STUN/relay/signal URIs for clients
 // External overrides from server config take precedence over auto-generated values
-func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort string, hasExternalStuns, hasExternalRelay, hasExternalSignal bool) {
-	// Determine relay protocol from exposed protocol
-	relayProto := "rel"
-	if exposedProto == "https" {
-		relayProto = "rels"
-	}
-
-	// Configure STUN servers for clients
-	if hasExternalStuns {
-		// Use external STUN servers from server config
-		c.Management.Stuns = c.Server.Stuns
-	} else if len(c.Server.StunPorts) > 0 && len(c.Management.Stuns) == 0 {
-		// Auto-configure local STUN servers for all ports
-		for _, port := range c.Server.StunPorts {
-			c.Management.Stuns = append(c.Management.Stuns, HostConfig{
-				URI: "stun:" + net.JoinHostPort(strings.Trim(exposedHost, "[]"), fmt.Sprintf("%d", port)),
-			})
-		}
-	}
-
-	// Configure relay for clients
-	if hasExternalRelay {
-		// Use external relay config from server
-		c.Management.Relays = c.Server.Relays
-	} else if len(c.Management.Relays.Addresses) == 0 {
-		// Auto-configure local relay
-		c.Management.Relays.Addresses = []string{
-			fmt.Sprintf("%s://%s", relayProto, exposedHostPort),
-		}
-	}
-	if c.Management.Relays.Secret == "" {
-		c.Management.Relays.Secret = c.Server.AuthSecret
-	}
-	if c.Management.Relays.CredentialsTTL == "" {
-		c.Management.Relays.CredentialsTTL = "12h"
-	}
+func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort string, hasExternalSignal bool) {
+	c.configureClientStuns(exposedHost)
+	c.configureClientRelays(fmt.Sprintf("%s://%s", relayScheme(exposedProto), exposedHostPort))
 
 	// Configure signal for clients
 	if hasExternalSignal {
@@ -438,6 +458,51 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	} else if c.Management.SignalURI == "" {
 		// Auto-configure local signal
 		c.Management.SignalURI = fmt.Sprintf("%s://%s", exposedProto, exposedHostPort)
+	}
+}
+
+// configureClientStuns sends the external STUN servers first, followed by the
+// local ones when they are advertised.
+func (c *CombinedConfig) configureClientStuns(exposedHost string) {
+	if c.Server.DisableStun {
+		c.Management.Stuns = nil
+		return
+	}
+
+	stuns := append([]HostConfig(nil), c.Server.Stuns...)
+	if c.advertisesLocalStun() {
+		for _, port := range c.Server.StunPorts {
+			stuns = append(stuns, HostConfig{
+				URI: "stun:" + net.JoinHostPort(strings.Trim(exposedHost, "[]"), fmt.Sprintf("%d", port)),
+			})
+		}
+	}
+	c.Management.Stuns = stuns
+}
+
+// configureClientRelays sends the external relays, the local one, or both. With
+// both, management signs one token for all of them, so they share one secret.
+func (c *CombinedConfig) configureClientRelays(localRelayAddr string) {
+	if c.Server.DisableRelay {
+		c.Management.Relays = RelaysConfig{}
+		return
+	}
+
+	switch {
+	case !c.hasExternalRelay():
+		c.Management.Relays.Addresses = []string{localRelayAddr}
+	case c.Server.KeepEmbeddedRelay:
+		c.Management.Relays = c.Server.Relays
+		c.Management.Relays.Addresses = append(slices.Clone(c.Server.Relays.Addresses), localRelayAddr)
+	default:
+		c.Management.Relays = c.Server.Relays
+	}
+
+	if c.Management.Relays.Secret == "" {
+		c.Management.Relays.Secret = c.Server.AuthSecret
+	}
+	if c.Management.Relays.CredentialsTTL == "" {
+		c.Management.Relays.CredentialsTTL = "12h"
 	}
 }
 
@@ -485,10 +550,35 @@ func (c *CombinedConfig) Validate() error {
 		seen[port] = true
 	}
 
-	// authSecret is required only if running local relay (no external relay configured)
-	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
-	if !hasExternalRelay && c.Server.AuthSecret == "" {
+	if err := c.validateServiceToggles(); err != nil {
+		return err
+	}
+
+	if c.runsLocalRelay() && c.Server.AuthSecret == "" {
 		return fmt.Errorf("server.authSecret is required when running local relay")
+	}
+
+	return nil
+}
+
+// validateServiceToggles rejects contradicting STUN and relay settings instead of
+// letting one of them silently win.
+func (c *CombinedConfig) validateServiceToggles() error {
+	switch {
+	case c.Server.DisableStun && c.hasExternalStuns():
+		return fmt.Errorf("server.disableStun and server.stuns are mutually exclusive")
+	case c.Server.DisableStun && c.Server.KeepEmbeddedStun:
+		return fmt.Errorf("server.disableStun and server.keepEmbeddedStun are mutually exclusive")
+	case c.Server.DisableRelay && c.hasExternalRelay():
+		return fmt.Errorf("server.disableRelay and server.relays.addresses are mutually exclusive")
+	case c.Server.DisableRelay && c.Server.KeepEmbeddedRelay:
+		return fmt.Errorf("server.disableRelay and server.keepEmbeddedRelay are mutually exclusive")
+	}
+
+	// Management signs one relay token, which the local relay validates with authSecret.
+	if c.Server.KeepEmbeddedRelay && c.hasExternalRelay() &&
+		c.Server.Relays.Secret != "" && c.Server.Relays.Secret != c.Server.AuthSecret {
+		return fmt.Errorf("server.relays.secret must match server.authSecret when server.keepEmbeddedRelay is set")
 	}
 
 	return nil

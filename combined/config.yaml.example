@@ -8,8 +8,10 @@
 # Architecture:
 #   - Management: Always runs locally (this IS the management server)
 #   - Signal: Local by default; set 'signalUri' to use external (disables local)
-#   - Relay: Local by default; set 'relays' to use external (disables local)
-#   - STUN: Local on port 3478 by default; set 'stuns' to use external instead
+#   - Relay: Local by default; set 'relays' to use external (disables local),
+#     'keepEmbeddedRelay' to run both, or 'disableRelay' to turn relay off
+#   - STUN: Local on port 3478 by default; set 'stuns' to use external instead,
+#     'keepEmbeddedStun' to run both, or 'disableStun' to turn STUN off
 
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
@@ -62,7 +64,8 @@ server:
   #   - uri: "stun:stun.example.com:3478"
   #   - uri: "stun:stun.example.com:3479"
 
-  # External relay servers - disables local relay server
+  # External relay servers - disables local relay server, and local STUN
+  # too unless 'stuns' or 'keepEmbeddedRelay' is set
   # relays:
   #   addresses:
   #     - "rels://relay.example.com:443"
@@ -71,6 +74,19 @@ server:
 
   # External signal server - disables local signal server
   # signalUri: "https://signal.example.com:443"
+
+  # Keep the embedded STUN server running next to 'stuns'. Clients get both.
+  # keepEmbeddedStun: false
+
+  # Keep the embedded relay running next to 'relays'. Clients get both, and
+  # 'relays.secret' must be empty or equal to 'authSecret'.
+  # keepEmbeddedRelay: false
+
+  # Turn STUN or relay off entirely: nothing runs locally and clients get none.
+  # Cannot be combined with 'stuns' / 'relays' or the keepEmbedded options.
+  # Without STUN and relay, peers connect only when a direct path exists.
+  # disableStun: false
+  # disableRelay: false
 
   # ============================================================================
   # Management Settings
