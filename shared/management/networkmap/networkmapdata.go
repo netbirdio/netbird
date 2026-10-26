@@ -25,10 +25,11 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 
 	PostureChecks map[string]*nmdata.PostureChecks
 
-	// PostureValidation holds the precomputed posture-check results, keyed by
-	// posture check ID then peer ID. Filled by PrecomputePostureValidation; a
+	// PostureValidation optionally seeds the posture-check results, keyed by
+	// posture check ID then peer ID. May be filled by PrecomputePostureValidation; a
 	// present but nil inner map marks a check ID that resolves to no posture
-	// check, which the calc treats as passing.
+	// check, which the calc treats as passing. Checks it lacks are evaluated
+	// on first use.
 	PostureValidation map[string]map[string]bool
 
 	AllowedUserIDs            map[string]struct{}
@@ -63,8 +64,8 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 
 	proxyPoliciesOnce sync.Once
 
-	policySourcesMu sync.Mutex
-	policySources   map[*nmdata.Policy]*policySourcePeers
+	admissionsOnce sync.Once
+	admissionsIdx  *admissionCache
 }
 
 // AppliedZoneCandidate is an account-level custom DNS zone reduced to the

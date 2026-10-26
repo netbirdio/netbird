@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1745,6 +1746,160 @@ func BenchmarkGetPeerNetworkMapComponents_RouterManyResources(b *testing.B) {
 	for b.Loop() {
 		for routerID := range routers {
 			compute(nmd, routerID)
+		}
+	}
+}
+
+// newPolicyFixture builds an account with ACL policies over overlapping groups, the
+// All group, peer resources and posture checks, plus a routed resource policy.
+func newPolicyFixture(peerCount, policyCount int) *networkmap.NetworkMapData {
+	peers := make([]*nmdata.Peer, 0, peerCount)
+	allIDs := make([]string, 0, peerCount)
+	for i := range peerCount {
+		p := newPeer(fmt.Sprintf("peer-%d", i), byte(i))
+		if i%5 == 0 {
+			p.Meta.WtVersion = failingVersion
+		}
+		peers = append(peers, p)
+		allIDs = append(allIDs, p.ID)
+	}
+	nmd := newNMD(peers...)
+	delete(nmd.ValidatedPeers, peers[peerCount-1].ID)
+	addVersionCheck(nmd, "pc-1", postureMinVersion)
+	addVersionCheck(nmd, "pc-2", "0.0.1")
+	addGroup(nmd, "g-all", allIDs...).Name = nmdata.GroupAllName
+	for g := range 8 {
+		var members []string
+		for i := g; i < peerCount; i += 3 + g {
+			members = append(members, peers[i].ID)
+		}
+		addGroup(nmd, fmt.Sprintf("g-%d", g), members...)
+	}
+	for i := range policyCount {
+		rule := newRule([]string{fmt.Sprintf("g-%d", i%8), fmt.Sprintf("g-%d", (i+3)%8)}, []string{fmt.Sprintf("g-%d", (i+1)%8)})
+		switch i % 4 {
+		case 1:
+			rule.Sources = []string{fmt.Sprintf("g-%d", i%8), "g-all"}
+		case 2:
+			rule.SourceResource = nmdata.Resource{ID: peers[i%peerCount].ID, Type: string(nbtypes.ResourceTypePeer)}
+		}
+		policy := newPolicy(fmt.Sprintf("p-%d", i), rule)
+		if i%2 == 0 {
+			policy.SourcePostureChecks = []string{"pc-2", "pc-1"}
+		}
+		nmd.Policies = append(nmd.Policies, policy)
+	}
+	rp := newPolicy("rp-1", newRule([]string{"g-1", "g-2"}, []string{"g-resource"}))
+	rp.SourcePostureChecks = []string{"pc-1"}
+	nmd.Policies = append(nmd.Policies, rp)
+	nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+	nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {rp}}
+	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {peers[0].ID: {}, peers[1].ID: {}}}
+	return nmd
+}
+
+func TestGetPeerNetworkMapComponents_SharedAdmissionsMatchFreshData(t *testing.T) {
+	const peerCount = 60
+	expected := make(map[string]*nbtypes.NetworkMapComponents, peerCount)
+	for i := range peerCount {
+		peerID := fmt.Sprintf("peer-%d", i)
+		expected[peerID] = compute(newPolicyFixture(peerCount, 24), peerID)
+	}
+
+	shared := newPolicyFixture(peerCount, 24)
+	got := make([]*nbtypes.NetworkMapComponents, peerCount)
+	var wg sync.WaitGroup
+	for i := peerCount - 1; i >= 0; i-- {
+		wg.Go(func() {
+			got[i] = compute(shared, fmt.Sprintf("peer-%d", i))
+		})
+	}
+	wg.Wait()
+
+	for i, c := range got {
+		peerID := fmt.Sprintf("peer-%d", i)
+		want := expected[peerID]
+		assert.ElementsMatch(t, peerIDSet(want.Peers), peerIDSet(c.Peers), peerID)
+		assert.ElementsMatch(t, groupIDSet(want.Groups), groupIDSet(c.Groups), peerID)
+		assert.ElementsMatch(t, policyIDs(want.Policies), policyIDs(c.Policies), peerID)
+		assert.Equal(t, want.PostureFailedPeers, c.PostureFailedPeers, peerID)
+	}
+}
+
+func BenchmarkGetPeerNetworkMapComponents_AllPeersPosturePolicies(b *testing.B) {
+	const peerCount = 2000
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		nmd := newPolicyFixture(peerCount, 50)
+		b.StartTimer()
+		for i := range peerCount {
+			compute(nmd, fmt.Sprintf("peer-%d", i))
+		}
+	}
+}
+
+func TestGetPeerNetworkMapComponents_SeededPostureValidation(t *testing.T) {
+	target := newPeer(targetID, 1)
+	src := newPeer("peer-src", 2)
+	src.Meta.WtVersion = failingVersion
+	nmd := newNMD(target, src)
+	addVersionCheck(nmd, "pc-1", postureMinVersion)
+	addGroup(nmd, "g-src", src.ID)
+	addGroup(nmd, "g-dst", targetID)
+	policy := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
+	policy.SourcePostureChecks = []string{"pc-1"}
+	nmd.Policies = []*nmdata.Policy{policy}
+	nmd.PostureValidation = map[string]map[string]bool{"pc-1": {src.ID: true}}
+
+	c := compute(nmd, targetID)
+
+	assert.Contains(t, peerIDSet(c.Peers), src.ID, "the seeded verdict wins over evaluating the check")
+	assert.Empty(t, c.PostureFailedPeers)
+}
+
+// newClientsBehindRouterFixture builds clients that reach a routed network resource
+// and the routing peer through policies with posture checks a fifth of them fail.
+func newClientsBehindRouterFixture(clientCount int) (*networkmap.NetworkMapData, []string) {
+	router := newPeer("peer-router", 1)
+	peers := []*nmdata.Peer{router}
+	clientIDs := make([]string, 0, clientCount)
+	for i := range clientCount {
+		p := newPeer(fmt.Sprintf("peer-client-%d", i), byte(i))
+		if i%5 == 0 {
+			p.Meta.WtVersion = failingVersion
+		}
+		peers = append(peers, p)
+		clientIDs = append(clientIDs, p.ID)
+	}
+	nmd := newNMD(peers...)
+	addVersionCheck(nmd, "pc-1", postureMinVersion)
+	addGroup(nmd, "g-clients", clientIDs...)
+	addGroup(nmd, "g-routers", router.ID)
+	addGroup(nmd, "g-resource")
+	acl := newPolicy("p-acl", newRule([]string{"g-clients"}, []string{"g-routers"}))
+	acl.SourcePostureChecks = []string{"pc-1"}
+	rp := newPolicy("rp-1", newRule([]string{"g-clients"}, []string{"g-resource"}))
+	rp.SourcePostureChecks = []string{"pc-1"}
+	nmd.Policies = []*nmdata.Policy{acl, rp}
+	nmd.ResourcePolicies = map[string][]*nmdata.Policy{}
+	for i := range 5 {
+		res := &nmdata.NetworkResource{ID: fmt.Sprintf("res-%d", i), NetworkID: "net-1", Enabled: true}
+		nmd.NetworkResources = append(nmd.NetworkResources, res)
+		nmd.ResourcePolicies[res.ID] = []*nmdata.Policy{rp}
+	}
+	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {router.ID: {}}}
+	return nmd, append(clientIDs, router.ID)
+}
+
+func BenchmarkGetPeerNetworkMapComponents_ClientsBehindOneRouter(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		nmd, peerIDs := newClientsBehindRouterFixture(10000)
+		b.StartTimer()
+		for _, peerID := range peerIDs {
+			compute(nmd, peerID)
 		}
 	}
 }
