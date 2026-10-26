@@ -62,6 +62,9 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 	peerGroupsIdx  map[string]map[string]struct{}
 
 	proxyPoliciesOnce sync.Once
+
+	policySourcesMu sync.Mutex
+	policySources   map[*nmdata.Policy]*policySourcePeers
 }
 
 // AppliedZoneCandidate is an account-level custom DNS zone reduced to the

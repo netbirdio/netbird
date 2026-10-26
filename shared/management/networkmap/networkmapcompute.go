@@ -2,10 +2,19 @@ package networkmap
 
 import (
 	"slices"
+	"sync"
 
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/types"
 )
+
+// policySourcePeers is the peer-independent admission of a resource policy's source
+// side: the admitted peers and, keyed by posture check ID, the peers it rejected.
+type policySourcePeers struct {
+	once   sync.Once
+	valid  []string
+	failed map[string]map[string]struct{}
+}
 
 type sshRequirements struct {
 	neededGroupIDs     map[string]struct{}
@@ -87,6 +96,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
+	seenSourcePolicies := make(map[*nmdata.Policy]struct{})
 	for _, resource := range nmd.NetworkResources {
 		if resource == nil || !resource.Enabled {
 			continue
@@ -111,16 +121,9 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 				continue
 			}
 			if addSourcePeers {
-				var peers []string
-				if policy.Rules[0].SourceResource.Type == string(types.ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
-					peers = []string{policy.Rules[0].SourceResource.ID}
-				} else {
-					peers = nmd.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
-				}
-				for _, pID := range nmd.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, &components.PostureFailedPeers) {
-					if _, exists := components.Peers[pID]; !exists {
-						components.Peers[pID] = nmd.Peers[pID]
-					}
+				if _, seen := seenSourcePolicies[policy]; !seen {
+					seenSourcePolicies[policy] = struct{}{}
+					nmd.mergeSourcePeers(components, nmd.resourcePolicySourcePeers(policy))
 				}
 			} else {
 				peerInSources := false
@@ -562,6 +565,52 @@ func (nmd *NetworkMapData) cachedPostureCheckResult(postureChecksID, peerID stri
 	}
 	valid, found := results[peerID]
 	return valid, found
+}
+
+// resourcePolicySourcePeers returns the admitted source peers of a resource policy.
+// The result does not depend on the peer the map is built for, so it is computed
+// once per NetworkMapData and shared by all routing peers; callers must not mutate it.
+func (nmd *NetworkMapData) resourcePolicySourcePeers(policy *nmdata.Policy) *policySourcePeers {
+	nmd.policySourcesMu.Lock()
+	sources, ok := nmd.policySources[policy]
+	if !ok {
+		if nmd.policySources == nil {
+			nmd.policySources = make(map[*nmdata.Policy]*policySourcePeers)
+		}
+		sources = &policySourcePeers{}
+		nmd.policySources[policy] = sources
+	}
+	nmd.policySourcesMu.Unlock()
+
+	sources.once.Do(func() {
+		var peers []string
+		if rule := policy.Rules[0]; rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID != "" {
+			peers = []string{rule.SourceResource.ID}
+		} else {
+			peers = nmd.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
+		}
+		sources.failed = make(map[string]map[string]struct{})
+		sources.valid = nmd.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, &sources.failed)
+	})
+	return sources
+}
+
+// mergeSourcePeers adds the admitted source peers and the posture failures of a
+// resource policy to the components, copying the shared failure sets.
+func (nmd *NetworkMapData) mergeSourcePeers(components *types.NetworkMapComponents, sources *policySourcePeers) {
+	for _, pID := range sources.valid {
+		if _, exists := components.Peers[pID]; !exists {
+			components.Peers[pID] = nmd.Peers[pID]
+		}
+	}
+	for checkID, failedPeers := range sources.failed {
+		if _, ok := components.PostureFailedPeers[checkID]; !ok {
+			components.PostureFailedPeers[checkID] = make(map[string]struct{}, len(failedPeers))
+		}
+		for pID := range failedPeers {
+			components.PostureFailedPeers[checkID][pID] = struct{}{}
+		}
+	}
 }
 
 func (nmd *NetworkMapData) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, postureFailedPeers *map[string]map[string]struct{}) []string {

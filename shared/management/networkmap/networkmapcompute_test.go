@@ -1662,3 +1662,89 @@ func TestNetworkMapData_GetPeerGroups(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{"g-1": {}, "g-2": {}}, nmd.GetPeerGroups(targetID))
 	assert.Empty(t, nmd.GetPeerGroups("missing"))
 }
+
+func TestGetPeerNetworkMapComponents_NetworkResources_SharedPolicyAcrossResourcesAndRouters(t *testing.T) {
+	target := newPeer(targetID, 1)
+	router2 := newPeer("peer-router-2", 2)
+	clientOK := newPeer("peer-client-ok", 3)
+	clientFail := newPeer("peer-client-fail", 4)
+	clientFail.Meta.WtVersion = failingVersion
+	nmd := newNMD(target, router2, clientOK, clientFail)
+	addVersionCheck(nmd, "pc-1", postureMinVersion)
+	addGroup(nmd, "g-clients-a", clientOK.ID)
+	addGroup(nmd, "g-clients-b", clientFail.ID)
+	addGroup(nmd, "g-routers", targetID, router2.ID)
+	rp := newPolicy("rp-1", newRule([]string{"g-clients-a", "g-clients-b"}, []string{"g-resource"}))
+	rp.SourcePostureChecks = []string{"pc-1"}
+	nmd.Policies = []*nmdata.Policy{newPolicy("p-acl", newRule([]string{"g-clients-b"}, []string{"g-routers"}))}
+	nmd.ResourcePolicies = map[string][]*nmdata.Policy{}
+	for i := range 3 {
+		res := &nmdata.NetworkResource{ID: fmt.Sprintf("res-%d", i), NetworkID: "net-1", Enabled: true}
+		nmd.NetworkResources = append(nmd.NetworkResources, res)
+		nmd.ResourcePolicies[res.ID] = []*nmdata.Policy{rp}
+	}
+	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {targetID: {}, router2.ID: {}}}
+	nmd.PrecomputePostureValidation()
+
+	first := compute(nmd, targetID)
+	first.PostureFailedPeers["pc-1"]["mutated"] = struct{}{}
+	second := compute(nmd, router2.ID)
+
+	for _, c := range []*nbtypes.NetworkMapComponents{first, second} {
+		assert.Contains(t, peerIDSet(c.Peers), clientOK.ID)
+		assert.Len(t, c.ResourcePoliciesMap, 3)
+	}
+	assert.Equal(t, map[string]map[string]struct{}{"pc-1": {clientFail.ID: {}}}, second.PostureFailedPeers,
+		"a component's failure set must not alias the shared per-policy result")
+}
+
+func BenchmarkGetPeerNetworkMapComponents_RouterManyResources(b *testing.B) {
+	const (
+		peerCount     = 2000
+		groupCount    = 4
+		resourceCount = 200
+		routerCount   = 10
+	)
+	peers := make([]*nmdata.Peer, 0, peerCount)
+	for i := range peerCount {
+		p := newPeer(fmt.Sprintf("peer-%d", i), byte(i))
+		if i%3 == 0 {
+			p.Meta.WtVersion = failingVersion
+		}
+		peers = append(peers, p)
+	}
+	nmd := newNMD(peers...)
+	addVersionCheck(nmd, "pc-1", postureMinVersion)
+	sourceGroups := make([]string, 0, groupCount)
+	for g := range groupCount {
+		id := fmt.Sprintf("g-src-%d", g)
+		var members []string
+		for i := g; i < peerCount; i += groupCount {
+			members = append(members, peers[i].ID)
+		}
+		addGroup(nmd, id, members...)
+		sourceGroups = append(sourceGroups, id)
+	}
+	rp := newPolicy("rp-1", newRule(sourceGroups, []string{"g-resource"}))
+	rp.SourcePostureChecks = []string{"pc-1"}
+	nmd.Policies = []*nmdata.Policy{rp}
+	nmd.ResourcePolicies = map[string][]*nmdata.Policy{}
+	for i := range resourceCount {
+		res := &nmdata.NetworkResource{ID: fmt.Sprintf("res-%d", i), NetworkID: "net-1", Enabled: true}
+		nmd.NetworkResources = append(nmd.NetworkResources, res)
+		nmd.ResourcePolicies[res.ID] = []*nmdata.Policy{rp}
+	}
+	routers := make(map[string]*nmdata.NetworkRouter, routerCount)
+	for i := range routerCount {
+		routers[peers[i].ID] = &nmdata.NetworkRouter{}
+	}
+	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": routers}
+	nmd.PrecomputePostureValidation()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		for routerID := range routers {
+			compute(nmd, routerID)
+		}
+	}
+}
