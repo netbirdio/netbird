@@ -51,6 +51,7 @@ func startNoAuthServer(t *testing.T) (string, []byte) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 	srv := New(&Config{HostKeyPEM: hostKey})
+	srv.SetAllowRootLogin(true)
 	addr := StartTestServer(t, srv)
 	t.Cleanup(func() { require.NoError(t, srv.Stop()) })
 	return addr, hostKey
@@ -205,6 +206,7 @@ func TestDirectTCPIP_PerConnectionLimit(t *testing.T) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 	srv := New(&Config{HostKeyPEM: hostKey})
+	srv.SetAllowRootLogin(true)
 	srv.SetAllowLocalPortForwarding(true)
 	addr := StartTestServer(t, srv)
 	t.Cleanup(func() { require.NoError(t, srv.Stop()) })
