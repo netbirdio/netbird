@@ -552,12 +552,10 @@
         "message": "Ändern des Autostarts fehlgeschlagen"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Nach dem Beenden verbunden bleiben",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Nach dem Beenden verbunden bleiben"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "Die Verbindung bleibt im Hintergrund bestehen, nachdem Sie NetBird schließen. Sie endet erst, wenn Sie sie selbst trennen.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "Die Verbindung bleibt im Hintergrund bestehen, nachdem Sie NetBird schließen. Sie endet erst, wenn Sie sie selbst trennen."
     },
     "settings.general.language.label": {
         "message": "Anzeigesprache"
@@ -1362,6 +1360,12 @@
     },
     "error.daemon_unreachable": {
         "message": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft."
+    },
+    "error.settings_locked": {
+        "message": "Die Einstellungen können auf diesem Gerät nicht geändert werden: Ein Administrator hat sie gesperrt."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Diese Einstellung wird von Ihrer Organisation verwaltet und kann nicht geändert werden."
     },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."

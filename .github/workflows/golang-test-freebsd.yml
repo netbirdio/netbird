@@ -33,7 +33,7 @@ jobs:
         with:
           usesh: true
           copyback: false
-          release: "15.0"
+          release: "15.1"
           envs: "GO_VERSION"
           prepare: |
             pkg install -y curl pkgconf xorg

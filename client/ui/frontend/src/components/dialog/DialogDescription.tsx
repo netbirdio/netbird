@@ -1,12 +1,12 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-type DialogAlign = "left" | "center" | "right";
+type DialogAlign = "start" | "center" | "end";
 
 const alignClass: Record<DialogAlign, string> = {
-    left: "text-left",
+    start: "text-start",
     center: "text-center",
-    right: "text-right",
+    end: "text-end",
 };
 
 type DialogDescriptionProps = {
@@ -20,7 +20,7 @@ export const DialogDescription = ({
     className,
     align = "center",
 }: DialogDescriptionProps) => (
-    <p className={cn("w-full select-none text-sm text-nb-gray-300", alignClass[align], className)}>
+    <p className={cn("w-full text-sm text-nb-gray-300 select-none", alignClass[align], className)}>
         {children}
     </p>
 );

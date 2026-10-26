@@ -78,7 +78,7 @@ export function ProfilesTab() {
         return items;
     }, [profiles, activeProfileId]);
 
-    const guarded = async (title: string, fn: () => Promise<void>) => {
+    const guarded = async (title: string, fn: () => Promise<unknown>) => {
         if (busy) return;
         setBusy(true);
         try {
@@ -115,14 +115,15 @@ export function ProfilesTab() {
 
     const handleDelete = async (id: string, name: string) => {
         if (id === DEFAULT_PROFILE_ID) return;
-        const ok = await confirm({
-            title: t("profile.delete.title", { name }),
-            description: t("profile.delete.message", { name }),
-            confirmLabel: t("common.delete"),
-            danger: true,
-        });
-        if (!ok) return;
-        void guarded(i18next.t("profile.error.deleteTitle"), () => removeProfile(id));
+        await guarded(i18next.t("profile.error.deleteTitle"), () =>
+            confirm({
+                title: t("profile.delete.title", { name }),
+                description: t("profile.delete.message", { name }),
+                confirmLabel: t("common.delete"),
+                danger: true,
+                onConfirm: () => removeProfile(id),
+            }),
+        );
     };
 
     const handleCreate = async (name: string, managementUrl: string) => {
@@ -203,7 +204,7 @@ export function ProfilesTab() {
                             <p className={"text-sm font-semibold text-nb-gray-200"}>
                                 {t("settings.profiles.emptyTitle")}
                             </p>
-                            <p className={"mt-1 max-w-sm text-balance text-xs text-nb-gray-400"}>
+                            <p className={"mt-1 max-w-sm text-xs text-balance text-nb-gray-400"}>
                                 {t("settings.profiles.emptyDescription")}
                             </p>
                         </div>
@@ -408,10 +409,10 @@ const ProfileRow = ({
             className={cn(
                 "flex items-center gap-4 px-4 py-2.5",
                 "border-b border-nb-gray-910 last:border-b-0",
-                "outline-none",
+                "outline-hidden",
                 isFirst && "rounded-t-xl",
                 isLast && "rounded-b-xl",
-                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
+                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
             )}
         >
             <td
@@ -429,7 +430,7 @@ const ProfileRow = ({
                     <div className={"flex min-w-0 items-center gap-2"}>
                         <span
                             className={
-                                "cursor-text select-text truncate font-medium text-nb-gray-100"
+                                "cursor-text truncate font-medium text-nb-gray-100 select-text"
                             }
                         >
                             {profile.name}
@@ -439,7 +440,7 @@ const ProfileRow = ({
                     {showEmail && <TruncatedEmail email={profile.email} />}
                 </div>
             </td>
-            <td className={"shrink-0 text-right"}>
+            <td className={"shrink-0 text-end"}>
                 <RowActions
                     canSwitch={!isActive}
                     canDeregister={!!profile.email}
@@ -469,7 +470,7 @@ const TruncatedEmail = ({ email }: { email: string }) => {
     const span = (
         <span
             ref={ref}
-            className={"mt-0.5 cursor-text select-text truncate text-xs text-nb-gray-300"}
+            className={"mt-0.5 cursor-text truncate text-xs text-nb-gray-300 select-text"}
         >
             {email}
         </span>
@@ -557,7 +558,7 @@ const RowMoreMenu = ({
                     aria-label={moreLabel}
                     tabIndex={rowFocused ? 0 : -1}
                     className={cn(
-                        "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
+                        "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-hidden",
                         "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
                         "transition-colors duration-150",
                         "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
@@ -604,7 +605,7 @@ const DeleteMenuItem = ({ disabled, disabledReason, onDelete }: DeleteMenuItemPr
         <DropdownMenuItem
             disabled={disabled}
             onClick={disabled ? undefined : onDelete}
-            className={cn(!disabled && "text-red-500 hover:!text-red-500 focus:text-red-500")}
+            className={cn(!disabled && "text-red-500 hover:text-red-500! focus:text-red-500")}
         >
             <div className={"flex w-full items-center gap-2"}>
                 <Trash2 size={14} aria-hidden={"true"} />
@@ -652,7 +653,7 @@ const ActionIconButton = ({
             aria-disabled={disabled || undefined}
             tabIndex={hidden || !tabbable ? -1 : 0}
             className={cn(
-                "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
+                "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-hidden",
                 "transition-colors duration-150",
                 "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 variant === "danger"
@@ -660,7 +661,7 @@ const ActionIconButton = ({
                     : "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
                 hidden && "pointer-events-none opacity-0",
                 disabled &&
-                    "cursor-not-allowed opacity-40 hover:!bg-transparent hover:!text-nb-gray-400",
+                    "cursor-not-allowed opacity-40 hover:bg-transparent! hover:text-nb-gray-400!",
             )}
         >
             <Icon size={16} aria-hidden={"true"} />

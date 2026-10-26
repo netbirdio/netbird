@@ -784,6 +784,18 @@ func TestWasCredentialSubmitted(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "OIDC code in query",
+			method:   auth.MethodOIDC,
+			query:    url.Values{"nb_session_code": {"abc123"}},
+			expected: true,
+		},
+		{
+			name:     "OIDC backend session_code in query",
+			method:   auth.MethodOIDC,
+			query:    url.Values{"session_code": {"abc123"}},
+			expected: false,
+		},
+		{
 			name:     "OIDC token not in query",
 			method:   auth.MethodOIDC,
 			query:    url.Values{},
@@ -1570,4 +1582,25 @@ func TestProtect_TunnelPeerFastPath_TakesPathWithInboundMarker(t *testing.T) {
 		"ValidateTunnelPeer must run when the request carries the inbound TunnelLookup marker")
 	assert.Equal(t, http.StatusOK, rec.Code,
 		"a successful tunnel-peer validation must forward to the next handler")
+}
+
+func TestStripSessionTokenParam(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"strips session_token", "https://ex.com/p?a=1&session_token=tok", "/p?a=1"},
+		{"strips nb_session_code", "https://ex.com/p?a=1&nb_session_code=code", "/p?a=1"},
+		{"strips both", "https://ex.com/p?session_token=tok&nb_session_code=code&a=1", "/p?a=1"},
+		{"keeps backend session_code", "https://ex.com/p?a=1&session_code=backend", "/p?a=1&session_code=backend"},
+		{"no-op when absent", "https://ex.com/p?a=1", "/p?a=1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.in)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, stripSessionTokenParam(u))
+		})
+	}
 }

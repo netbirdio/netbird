@@ -552,12 +552,10 @@
         "message": "Не удалось изменить автозапуск"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Оставаться подключённым после выхода",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Оставаться подключённым после выхода"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "Соединение остаётся активным в фоне после закрытия NetBird. Оно прервётся, только когда вы отключите его сами.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "Соединение остаётся активным в фоне после закрытия NetBird. Оно прервётся, только когда вы отключите его сами."
     },
     "settings.general.language.label": {
         "message": "Язык интерфейса"
@@ -1362,6 +1360,12 @@
     },
     "error.daemon_unreachable": {
         "message": "Демон NetBird не отвечает. Проверьте, запущена ли служба."
+    },
+    "error.settings_locked": {
+        "message": "Настройки на этом устройстве изменить нельзя: администратор заблокировал их."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Эта настройка управляется вашей организацией и не может быть изменена."
     },
     "error.unknown": {
         "message": "Не удалось выполнить операцию."

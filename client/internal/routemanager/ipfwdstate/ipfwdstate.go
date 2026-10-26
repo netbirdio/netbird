@@ -19,8 +19,7 @@ type IPForwardingState struct {
 
 	// routingV4/routingV6 track whether the routing path currently holds a
 	// reference, so repeated EnableRouting calls (one per network-map update)
-	// hold at most one reference per family and an unpaired DisableRouting
-	// can't release references held by DNAT rules.
+	// hold at most one reference per family.
 	routingV4 bool
 	routingV6 bool
 
@@ -92,31 +91,6 @@ func (f *IPForwardingState) ReleaseRouting() error {
 		f.routingV6 = false
 		return f.releaseV6()
 	}
-	return nil
-}
-
-// RequestForwarding enables the family's forwarding sysctl on first request.
-func (f *IPForwardingState) RequestForwarding(v6 bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if v6 {
-		return f.requestV6()
-	}
-	return f.requestV4()
-}
-
-// ReleaseForwarding decrements the family counter. The last v6 release restores
-// what enable captured. v4 stays on: net.ipv4.ip_forward is co-owned by other
-// tooling (docker, k8s, libvirt).
-func (f *IPForwardingState) ReleaseForwarding(v6 bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if v6 {
-		return f.releaseV6()
-	}
-	f.releaseV4()
 	return nil
 }
 

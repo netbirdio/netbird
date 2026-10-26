@@ -3,13 +3,13 @@ package device
 import (
 	"os"
 
-	"golang.zx2c4.com/wireguard/device"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 func wgLogLevel() int {
 	if os.Getenv("NB_WG_DEBUG") == "true" {
-		return device.LogLevelVerbose
+		return wgbackend.LogLevelVerbose
 	} else {
-		return device.LogLevelSilent
+		return wgbackend.LogLevelSilent
 	}
 }

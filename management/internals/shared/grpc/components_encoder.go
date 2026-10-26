@@ -20,6 +20,7 @@ const wgKeyRawLen = 32
 // computed alongside the components in the network_map controller and reused
 // from the legacy proto path) and the dns_domain string.
 type ComponentsEnvelopeInput struct {
+	Peer             *nmdata.Peer // only used when encoding "empty" component maps
 	Components       *types.NetworkMapComponents
 	PeerConfig       *proto.PeerConfig
 	DNSDomain        string
@@ -28,10 +29,6 @@ type ComponentsEnvelopeInput struct {
 	// SshAuth.UserIDClaim when reconstructing the NetworkMap. Empty value
 	// is OK — client treats empty as "no SshAuth to build".
 	UserIDClaim string
-	// ProxyPatch carries pre-expanded NetworkMap fragments injected by
-	// external controllers (BYOP/port-forwarding). Nil when no proxy data
-	// is present; encoder skips the field in that case.
-	ProxyPatch *proto.ProxyPatch
 }
 
 // EncodeNetworkMapEnvelope converts NetworkMapComponents into the component
@@ -63,13 +60,12 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 					Serial:     networkSerial(c.Network),
 					Network:    toAccountNetwork(c.Network),
 					PeerConfig: in.PeerConfig,
-					// components.Peers always contains the target peer
-					Peers:            []*proto.PeerCompact{toPeerCompact(c.Peers[c.PeerID])},
+					// components.Peers may not contain the target peer
+					Peers:            []*proto.PeerCompact{toPeerCompact(in.Peer)},
 					DnsDomain:        in.DNSDomain,
 					DnsForwarderPort: in.DNSForwarderPort,
 					UserIdClaim:      in.UserIDClaim,
 					AccountSettings:  &proto.AccountSettingsCompact{},
-					ProxyPatch:       in.ProxyPatch,
 				},
 			},
 		}
@@ -101,7 +97,6 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		AccountSettings:     toAccountSettingsCompact(c.AccountSettings),
 		DnsForwarderPort:    in.DNSForwarderPort,
 		UserIdClaim:         in.UserIDClaim,
-		ProxyPatch:          in.ProxyPatch,
 		DnsSettings:         enc.encodeDNSSettings(c.DNSSettings),
 		DnsDomain:           in.DNSDomain,
 		CustomZoneDomain:    c.CustomZoneDomain,

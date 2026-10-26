@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-
 	log "github.com/sirupsen/logrus"
 )
 
@@ -217,8 +216,8 @@ func (v *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.To
 		jwt.WithAudience(v.audienceList...),
 		jwt.WithIssuer(v.issuer),
 		jwt.WithIssuedAt(),
+		jwt.WithStrictDecoding(),
 	)
-
 	// Check if there was an error in parsing...
 	if err != nil {
 		err = fmt.Errorf("%w: %s", errTokenParsing, err)

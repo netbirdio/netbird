@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,14 @@ type OAuthFlow interface {
 // HTTPClient http client interface for API calls
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
+}
+
+// accountPromptForcer is implemented by the PKCE flow only. The device code
+// flow has no equivalent: RFC 8628 defines no prompt parameter, and the user
+// confirms the code on a page that shows which account signs in, so a silent
+// wrong-account answer is not the failure mode there.
+type accountPromptForcer interface {
+	ForceAccountPrompt()
 }
 
 // AuthFlowInfo holds information for the OAuth 2.0  authorization flow
@@ -49,6 +58,23 @@ type TokenInfo struct {
 	ExpiresIn    int    `json:"expires_in"`
 	UseIDToken   bool   `json:"-"`
 	Email        string `json:"-"`
+	EmailClaim   string `json:"-"`
+}
+
+// MatchesAccount reports whether the token belongs to the account a profile is
+// bound to. A hint the IdP could not have acted on — no hint stored, or a token
+// that carried no email claim — is reported as a match: the check exists to catch a
+// login answered from the wrong account, not to block one it cannot judge.
+//
+// The comparison is case-insensitive. Local-parts are case-sensitive per RFC
+// 5321, but no IdP in practice issues two accounts differing only in case, and
+// an IdP that echoes a differently-cased address would otherwise fail every
+// login.
+func (t TokenInfo) MatchesAccount(hint string) bool {
+	if hint == "" || t.EmailClaim == "" {
+		return true
+	}
+	return strings.EqualFold(t.EmailClaim, hint)
 }
 
 // GetTokenToUse returns either the access or id token based on UseIDToken field
@@ -63,19 +89,22 @@ func shouldUseDeviceFlow(force bool, isUnixDesktopClient bool) bool {
 	return force || (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !isUnixDesktopClient
 }
 
-// NewOAuthFlow initializes and returns the appropriate OAuth flow based on the management configuration
+// NewOAuthFlow initializes and returns the appropriate OAuth flow based on the management configuration.
 //
 // It starts by initializing the PKCE.If this process fails, it resorts to the Device Code Flow,
 // and if that also fails, the authentication process is deemed unsuccessful
 //
-// On Linux distros without desktop environment support, it only tries to initialize the Device Code Flow
-// forceDeviceCodeFlow can be used to skip PKCE and go directly to Device Code Flow (e.g., for Android TV)
-func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, forceDeviceCodeFlow bool, hint string) (OAuthFlow, error) {
+// On Linux distros without desktop environment support, it only tries to initialize the Device Code Flow.
+// forceDeviceCodeFlow can be used to skip PKCE and go directly to Device Code Flow (e.g., for Android TV).
+//
+// sessionExtend marks the flow as renewing an existing peer's session rather than
+// logging one in. See PKCEAuthorizationFlowRequest for what the server makes of it.
+func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, forceDeviceCodeFlow bool, hint string, sessionExtend bool) (OAuthFlow, error) {
 	if shouldUseDeviceFlow(forceDeviceCodeFlow, isUnixDesktopClient) {
 		return authenticateWithDeviceCodeFlow(ctx, config, hint)
 	}
 
-	pkceFlow, err := authenticateWithPKCEFlow(ctx, config, hint)
+	pkceFlow, err := authenticateWithPKCEFlow(ctx, config, hint, sessionExtend)
 	if err != nil {
 		log.Debugf("failed to initialize pkce authentication with error: %v\n", err)
 		log.Debug("falling back to device code flow")
@@ -85,14 +114,14 @@ func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesk
 }
 
 // authenticateWithPKCEFlow initializes the Proof Key for Code Exchange flow auth flow
-func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config, hint string) (OAuthFlow, error) {
+func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config, hint string, sessionExtend bool) (OAuthFlow, error) {
 	authClient, err := NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth client: %v", err)
 	}
 	defer authClient.Close()
 
-	pkceFlowInfo, err := authClient.getPKCEFlow(authClient.client)
+	pkceFlowInfo, err := authClient.getPKCEFlow(authClient.client, sessionExtend)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
@@ -128,4 +157,22 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 	deviceFlowInfo.SetLoginHint(hint)
 
 	return deviceFlowInfo, nil
+}
+
+// RetryFlowForAccount returns a flow that asks the IdP to re-authenticate, for
+// a login answered with an account other than the one hinted. Returns nil when
+// the flow cannot ask — the caller then proceeds with the token it has.
+//
+// Proceeding rather than failing is deliberate. The hint is an email that may
+// simply have changed since it was stored, and refusing the login would lock a
+// user out of their own profile over a rename. The retry gives the account a
+// chance to be corrected; the server still rejects a token that does not own
+// the peer.
+func RetryFlowForAccount(flow OAuthFlow) OAuthFlow {
+	forcer, ok := flow.(accountPromptForcer)
+	if !ok {
+		return nil
+	}
+	forcer.ForceAccountPrompt()
+	return flow
 }

@@ -56,6 +56,20 @@ func (mr *MockManagerMockRecorder) CleanupStale(ctx, inactivityDuration any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStale", reflect.TypeOf((*MockManager)(nil).CleanupStale), ctx, inactivityDuration)
 }
 
+// ClusterAllProxiesPrivate mocks base method.
+func (m *MockManager) ClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterAllProxiesPrivate", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterAllProxiesPrivate indicates an expected call of ClusterAllProxiesPrivate.
+func (mr *MockManagerMockRecorder) ClusterAllProxiesPrivate(ctx, clusterAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterAllProxiesPrivate", reflect.TypeOf((*MockManager)(nil).ClusterAllProxiesPrivate), ctx, clusterAddr)
+}
+
 // ClusterRequireSubdomain mocks base method.
 func (m *MockManager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
@@ -110,6 +124,20 @@ func (m *MockManager) ClusterSupportsPrivate(ctx context.Context, clusterAddr st
 func (mr *MockManagerMockRecorder) ClusterSupportsPrivate(ctx, clusterAddr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsPrivate", reflect.TypeOf((*MockManager)(nil).ClusterSupportsPrivate), ctx, clusterAddr)
+}
+
+// ClusterSupportsSessionCode mocks base method.
+func (m *MockManager) ClusterSupportsSessionCode(ctx context.Context, clusterAddr string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterSupportsSessionCode", ctx, clusterAddr)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ClusterSupportsSessionCode indicates an expected call of ClusterSupportsSessionCode.
+func (mr *MockManagerMockRecorder) ClusterSupportsSessionCode(ctx, clusterAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsSessionCode", reflect.TypeOf((*MockManager)(nil).ClusterSupportsSessionCode), ctx, clusterAddr)
 }
 
 // Connect mocks base method.

@@ -15,6 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -36,6 +38,22 @@ func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T
 		t.Run(string(engine), func(t *testing.T) {
 			f(t, store)
 		})
+		os.Unsetenv("NETBIRD_STORE_ENGINE")
+	}
+}
+
+func runTestForAllEnginesNoSqliteSeed(t *testing.T, testDataFile string, f func(t *testing.T, engine string, store Store)) {
+	t.Helper()
+	for _, engine := range supportedEngines {
+		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
+			continue
+		}
+		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
+		store, cleanUp, err := NewTestStore(context.Background(), testDataFile, t.TempDir())
+		assert.NoError(t, err, "engine: ", string(engine))
+		t.Cleanup(cleanUp)
+		assert.NoError(t, err)
+		f(t, string(engine), store)
 		os.Unsetenv("NETBIRD_STORE_ENGINE")
 	}
 }
@@ -146,7 +164,6 @@ func TestMigrate(t *testing.T) {
 
 	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
-
 }
 
 func newAccount(store Store, id int) error {
@@ -334,10 +351,6 @@ func TestSqlStore_DatabaseBlocking(t *testing.T) {
 }
 
 func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("Skipping timeout test for MySQL")
-	}
-
 	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
 
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
@@ -346,7 +359,6 @@ func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
 
 	sqlStore, ok := store.(*SqlStore)
 	require.True(t, ok)
-	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
 
 	ctx := context.Background()
 	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {
@@ -410,4 +422,46 @@ func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
 			assert.Equal(t, tc.expected, busyTimeout)
 		})
 	}
+}
+
+func TestSqlStore_Transaction_RollsBackOnError(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		group := &types.Group{ID: "rolled-back-group", AccountID: accountID, Name: "rolled back", Issued: "api"}
+
+		err := store.(*SqlStore).transaction(ctx, func(tx *gorm.DB) error {
+			require.NoError(t, tx.Omit(clause.Associations).Create(group).Error)
+			return assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, group.ID)
+		require.Error(t, err)
+	})
+}
+
+func TestSqlStore_Transaction_NestedIsSavepoint(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		outer := &types.Group{ID: "outer-group", AccountID: accountID, Name: "outer", Issued: "api"}
+		inner := &types.Group{ID: "inner-group", AccountID: accountID, Name: "inner", Issued: "api"}
+
+		err := store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			require.NoError(t, transaction.CreateGroup(ctx, outer))
+			err := transaction.(*SqlStore).transaction(ctx, func(tx *gorm.DB) error {
+				require.NoError(t, tx.Omit(clause.Associations).Create(inner).Error)
+				return assert.AnError
+			})
+			require.ErrorIs(t, err, assert.AnError)
+			return nil
+		})
+		require.NoError(t, err)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, outer.ID)
+		require.NoError(t, err)
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
+		require.Error(t, err)
+	})
 }

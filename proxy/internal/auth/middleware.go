@@ -46,7 +46,7 @@ type Scheme interface {
 	// an authenticated user. An empty token indicates an unauthenticated
 	// request; optionally, promptData may be returned for the login UI.
 	// An error indicates an infrastructure failure (e.g. gRPC unavailable).
-	Authenticate(*http.Request) (token string, promptData string, err error)
+	Authenticate(*http.Request) (token, promptData string, err error)
 }
 
 // DomainConfig holds the authentication and restriction settings for a protected domain.
@@ -64,6 +64,22 @@ type DomainConfig struct {
 	// groups claim intersects this set. Empty means group membership does not
 	// restrict access.
 	AllowedGroups map[string]struct{}
+	// TargetResolver pins the target and access action used by this auth snapshot.
+	TargetResolver *proxy.TargetResolver
+}
+
+// DomainOption configures a domain authentication snapshot.
+type DomainOption func(*DomainConfig) error
+
+// WithTargetResolver attaches an immutable target-routing snapshot to a domain.
+func WithTargetResolver(resolver *proxy.TargetResolver) DomainOption {
+	return func(config *DomainConfig) error {
+		if resolver == nil {
+			return errors.New("target resolver is nil")
+		}
+		config.TargetResolver = resolver
+		return nil
+	}
 }
 
 type validationResult struct {
@@ -77,6 +93,8 @@ type validationResult struct {
 	// Groups for tokens minted before names were embedded; the consumer
 	// falls back to ids for missing positions.
 	GroupNames []string
+	// MintedToken is the session token issued when a one-time code is redeemed.
+	MintedToken string
 }
 
 // Middleware applies per-domain authentication and IP restriction checks.
@@ -130,6 +148,12 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
+		resolvedRequest, handled := mw.handleTargetAccess(w, r, config, next)
+		if handled {
+			return
+		}
+		r = resolvedRequest
+
 		// Private services bypass operator schemes and gate on tunnel peer.
 		if config.Private {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
@@ -167,6 +191,66 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 
 		mw.authenticateWithSchemes(w, r, host, config)
 	})
+}
+
+func (mw *Middleware) handleTargetAccess(w http.ResponseWriter, r *http.Request, config DomainConfig, next http.Handler) (*http.Request, bool) {
+	if config.TargetResolver == nil {
+		return r, false
+	}
+	resolvedRequest, action, err := config.TargetResolver.ResolveRequest(r)
+	if err != nil {
+		mw.rejectUnsafePath(w, r, err)
+		return r, true
+	}
+	r = resolvedRequest
+	switch action {
+	case proxy.AccessActionInherit:
+		return r, false
+	case proxy.AccessActionBypass:
+		if config.Private {
+			mw.logger.Error("private domain reached a bypass target; denying")
+			denyPrivate(w)
+			return r, true
+		}
+		markAccessAction(r, action)
+		next.ServeHTTP(w, r)
+	case proxy.AccessActionBlock:
+		markAccessAction(r, action)
+		w.Header().Set("Cache-Control", "no-store")
+		denyForbidden(w, config)
+	default:
+		mw.logger.Errorf("resolved unknown access action %q; denying", action)
+		markAccessAction(r, action)
+		w.Header().Set("Cache-Control", "no-store")
+		denyForbidden(w, config)
+	}
+	return r, true
+}
+
+func (mw *Middleware) rejectUnsafePath(w http.ResponseWriter, r *http.Request, err error) {
+	mw.logger.WithFields(log.Fields{
+		"host": r.Host,
+		"path": r.URL.EscapedPath(),
+	}).Debugf("rejecting request path: %v", err)
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(proxy.OriginAuth)
+		cd.SetMetadata("access_action", "invalid_path")
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "Bad Request", http.StatusBadRequest)
+}
+
+func markAccessAction(r *http.Request, action proxy.AccessAction) {
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetMetadata("access_action", string(action))
+		switch action {
+		case proxy.AccessActionBypass:
+			cd.SetAuthMethod("path_bypass")
+		case proxy.AccessActionBlock:
+			cd.SetAuthMethod("path_block")
+			cd.SetOrigin(proxy.OriginAuth)
+		}
+	}
 }
 
 // requestIsPlainHTTP reports whether the request arrived without TLS.
@@ -581,7 +665,8 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 // handleAuthenticatedToken validates the token, handles denied access, and on
 // success sets a session cookie and redirects to the original URL.
 func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Request, host, token string, config DomainConfig, scheme Scheme) {
-	result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, scheme.Type())
+	isCode := scheme.Type() == auth.MethodOIDC && r.URL.Query().Get(auth.SessionCodeQueryParam) != ""
+	result, err := mw.validateSessionToken(r.Context(), host, token, isCode, config.SessionPublicKey, scheme.Type())
 	if err != nil {
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 			cd.SetOrigin(proxy.OriginAuth)
@@ -612,7 +697,13 @@ func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	setSessionCookie(w, token, config.SessionExpiration)
+	// When a code was redeemed, the cookie must hold the durable token the
+	// server returned, not the single-use code.
+	cookieValue := token
+	if result.MintedToken != "" {
+		cookieValue = result.MintedToken
+	}
+	setSessionCookie(w, cookieValue, config.SessionExpiration)
 
 	// Redirect instead of forwarding the auth POST to the backend.
 	// The browser will follow with a GET carrying the new session cookie.
@@ -652,41 +743,15 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	case auth.MethodPassword:
 		return credentialFormValue(r, passwordFormId) != ""
 	case auth.MethodOIDC:
-		return r.URL.Query().Get("session_token") != ""
+		return r.URL.Query().Get(auth.SessionTokenQueryParam) != "" || r.URL.Query().Get(auth.SessionCodeQueryParam) != ""
 	}
 	return false
 }
 
-// AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
-// private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
-// allowedGroups restricts OIDC sessions to the given group ids; empty means unrestricted.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string) error {
-	if len(schemes) == 0 {
-		mw.domainsMux.Lock()
-		defer mw.domainsMux.Unlock()
-		mw.domains[domain] = DomainConfig{
-			AccountID:      accountID,
-			ServiceID:      serviceID,
-			IPRestrictions: ipRestrictions,
-			Private:        private,
-			AllowedGroups:  groupSet(allowedGroups),
-		}
-		return nil
-	}
-
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
-	if err != nil {
-		return fmt.Errorf("decode session public key for domain %s: %w", domain, err)
-	}
-	if len(pubKeyBytes) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
-	}
-
-	mw.domainsMux.Lock()
-	defer mw.domainsMux.Unlock()
-	mw.domains[domain] = DomainConfig{
-		Schemes:           schemes,
-		SessionPublicKey:  pubKeyBytes,
+// NewDomainConfig validates and builds an immutable domain configuration.
+func NewDomainConfig(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string, opts ...DomainOption) (DomainConfig, error) {
+	config := DomainConfig{
+		Schemes:           append([]Scheme(nil), schemes...),
 		SessionExpiration: expiration,
 		AccountID:         accountID,
 		ServiceID:         serviceID,
@@ -694,7 +759,61 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 		Private:           private,
 		AllowedGroups:     groupSet(allowedGroups),
 	}
+	if len(schemes) > 0 {
+		pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
+		if err != nil {
+			return DomainConfig{}, fmt.Errorf("decode session public key for domain %s: %w", domain, err)
+		}
+		if len(pubKeyBytes) != ed25519.PublicKeySize {
+			return DomainConfig{}, fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
+		}
+		config.SessionPublicKey = append(ed25519.PublicKey(nil), pubKeyBytes...)
+	}
+	for _, option := range opts {
+		if option == nil {
+			return DomainConfig{}, fmt.Errorf("nil domain option for domain %s", domain)
+		}
+		if err := option(&config); err != nil {
+			return DomainConfig{}, fmt.Errorf("configure domain %s: %w", domain, err)
+		}
+	}
+	if config.Private && config.TargetResolver != nil && config.TargetResolver.HasBypass() {
+		return DomainConfig{}, fmt.Errorf("authentication bypass is not allowed for private domain %s", domain)
+	}
+	return config, nil
+}
+
+// AddDomainConfig atomically publishes a validated domain configuration.
+func (mw *Middleware) AddDomainConfig(domain string, config DomainConfig) {
+	config.Schemes = append([]Scheme(nil), config.Schemes...)
+	config.SessionPublicKey = append(ed25519.PublicKey(nil), config.SessionPublicKey...)
+	config.AllowedGroups = cloneGroupSet(config.AllowedGroups)
+	mw.domainsMux.Lock()
+	defer mw.domainsMux.Unlock()
+	mw.domains[domain] = config
+}
+
+// AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
+// private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
+// allowedGroups restricts OIDC sessions to the given group ids; empty means unrestricted.
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string, opts ...DomainOption) error {
+	config, err := NewDomainConfig(domain, schemes, publicKeyB64, expiration, accountID, serviceID, ipRestrictions, private, allowedGroups, opts...)
+	if err != nil {
+		return err
+	}
+	mw.AddDomainConfig(domain, config)
 	return nil
+}
+
+func cloneGroupSet(groups map[string]struct{}) map[string]struct{} {
+	if groups == nil {
+		return nil
+	}
+	cloned := make(map[string]struct{}, len(groups))
+	for group := range groups {
+		cloned[group] = struct{}{}
+	}
+	return cloned
 }
 
 // RemoveDomain unregisters authentication for the given domain.
@@ -706,12 +825,15 @@ func (mw *Middleware) RemoveDomain(domain string) {
 
 // validateSessionToken validates a session token. OIDC tokens with a configured
 // validator go through gRPC for group access checks; other methods validate locally.
-func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, publicKey ed25519.PublicKey, method auth.Method) (*validationResult, error) {
+func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, isCode bool, publicKey ed25519.PublicKey, method auth.Method) (*validationResult, error) {
 	if method == auth.MethodOIDC && mw.sessionValidator != nil {
-		resp, err := mw.sessionValidator.ValidateSession(ctx, &proto.ValidateSessionRequest{
-			Domain:       host,
-			SessionToken: token,
-		})
+		req := &proto.ValidateSessionRequest{Domain: host}
+		if isCode {
+			req.SessionCode = token
+		} else {
+			req.SessionToken = token //nolint:staticcheck
+		}
+		resp, err := mw.sessionValidator.ValidateSession(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", errValidationUnavailable, err)
 		}
@@ -729,11 +851,12 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 			}, nil
 		}
 		return &validationResult{
-			UserID:     resp.UserId,
-			UserEmail:  resp.GetUserEmail(),
-			Valid:      true,
-			Groups:     resp.GetPeerGroupIds(),
-			GroupNames: resp.GetPeerGroupNames(),
+			UserID:      resp.UserId,
+			UserEmail:   resp.GetUserEmail(),
+			Valid:       true,
+			Groups:      resp.GetPeerGroupIds(),
+			GroupNames:  resp.GetPeerGroupNames(),
+			MintedToken: resp.GetSessionToken(),
 		}, nil
 	}
 
@@ -788,14 +911,16 @@ func sessionGroupsAllowed(allowed map[string]struct{}, method auth.Method, group
 	}
 }
 
-// stripSessionTokenParam returns the request URI with the session_token query
-// parameter removed so it doesn't linger in the browser's address bar or history.
+// stripSessionTokenParam returns the request URI with the session hand-off
+// query parameters removed so they don't linger in the browser's address bar
+// or history.
 func stripSessionTokenParam(u *url.URL) string {
 	q := u.Query()
-	if !q.Has("session_token") {
+	if !q.Has(auth.SessionTokenQueryParam) && !q.Has(auth.SessionCodeQueryParam) {
 		return u.RequestURI()
 	}
-	q.Del("session_token")
+	q.Del(auth.SessionTokenQueryParam)
+	q.Del(auth.SessionCodeQueryParam)
 	clean := *u
 	clean.RawQuery = q.Encode()
 	return clean.RequestURI()

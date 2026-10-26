@@ -32,16 +32,16 @@ export function WelcomeStepTray({ onContinue }: Readonly<WelcomeStepTrayProps>) 
                 <img
                     src={trayScreenshot}
                     alt={""}
-                    className={"pointer-events-none h-auto w-full select-none rounded-2xl"}
+                    className={"pointer-events-none h-auto w-full rounded-2xl select-none"}
                     draggable={false}
                 />
             </div>
 
             <div className={"flex w-full flex-col gap-1"}>
-                <DialogHeading id={"nb-welcome-title"} align={"left"}>
+                <DialogHeading id={"nb-welcome-title"} align={"start"}>
                     {t(titleKey)}
                 </DialogHeading>
-                <DialogDescription align={"left"}>{t(descriptionKey)}</DialogDescription>
+                <DialogDescription align={"start"}>{t(descriptionKey)}</DialogDescription>
             </div>
 
             <DialogActions>

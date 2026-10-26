@@ -167,13 +167,14 @@ func (m *Manager) Serve() error {
 // Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
 func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.RUnlock()
+	homeClient := m.relayClient
+	m.relayClientMu.RUnlock()
 
-	if m.relayClient == nil {
+	if homeClient == nil {
 		return nil, ErrRelayClientNotConnected
 	}
 
-	foreign, err := m.isForeignServer(serverAddress)
+	foreign, err := m.isForeignServer(homeClient, serverAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +182,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, s
 	var netConn *Conn
 	if !foreign {
 		log.Debugf("open peer connection via permanent server: %s", peerKey)
-		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
+		netConn, err = homeClient.OpenConn(ctx, peerKey)
 	} else {
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
 		netConn, err = m.openConnVia(ctx, serverAddress, peerKey, serverIP)
@@ -399,10 +400,26 @@ func (m *Manager) onServerDisconnected(serverAddress string) {
 func (m *Manager) evictForeignRelay(serverAddress string) {
 	m.relayClientsMutex.Lock()
 	defer m.relayClientsMutex.Unlock()
-	if _, ok := m.relayClients[serverAddress]; ok {
-		delete(m.relayClients, serverAddress)
-		log.Debugf("evicted disconnected foreign relay client: %s", serverAddress)
+
+	rt, ok := m.relayClients[serverAddress]
+	if !ok {
+		return
 	}
+
+	rt.RLock()
+	client := rt.relayClient
+	rt.RUnlock()
+	if client == nil {
+		log.Debugf("keeping foreign relay track with a dial in progress: %s", serverAddress)
+		return
+	}
+	if client.Ready() {
+		log.Debugf("keeping reconnected foreign relay client: %s", serverAddress)
+		return
+	}
+
+	delete(m.relayClients, serverAddress)
+	log.Debugf("evicted disconnected foreign relay client: %s", serverAddress)
 }
 
 func (m *Manager) listenGuardEvent(ctx context.Context) {
@@ -427,8 +444,8 @@ func (m *Manager) storeClient(client *Client) {
 	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
 }
 
-func (m *Manager) isForeignServer(address string) (bool, error) {
-	rAddr, err := m.relayClient.ServerInstanceURL()
+func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {
+	rAddr, err := homeClient.ServerInstanceURL()
 	if err != nil {
 		return false, fmt.Errorf("relay client not connected")
 	}

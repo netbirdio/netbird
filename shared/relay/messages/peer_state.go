@@ -5,7 +5,7 @@ import (
 )
 
 func MarshalSubPeerStateMsg(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(ids, byte(MsgTypeSubscribePeerState))
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeSubscribePeerState))
 }
 
 func UnmarshalSubPeerStateMsg(buf []byte) ([]PeerID, error) {
@@ -13,7 +13,7 @@ func UnmarshalSubPeerStateMsg(buf []byte) ([]PeerID, error) {
 }
 
 func MarshalUnsubPeerStateMsg(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(ids, byte(MsgTypeUnsubscribePeerState))
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypeUnsubscribePeerState))
 }
 
 func UnmarshalUnsubPeerStateMsg(buf []byte) ([]PeerID, error) {
@@ -21,7 +21,7 @@ func UnmarshalUnsubPeerStateMsg(buf []byte) ([]PeerID, error) {
 }
 
 func MarshalPeersOnline(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(ids, byte(MsgTypePeersOnline))
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersOnline))
 }
 
 func UnmarshalPeersOnlineMsg(buf []byte) ([]PeerID, error) {
@@ -29,7 +29,7 @@ func UnmarshalPeersOnlineMsg(buf []byte) ([]PeerID, error) {
 }
 
 func MarshalPeersWentOffline(ids []PeerID) ([][]byte, error) {
-	return marshalPeerIDs(ids, byte(MsgTypePeersWentOffline))
+	return marshalPeerIDs(CurrentProtocolVersion, ids, byte(MsgTypePeersWentOffline))
 }
 
 func UnMarshalPeersWentOffline(buf []byte) ([]PeerID, error) {
@@ -37,7 +37,7 @@ func UnMarshalPeersWentOffline(buf []byte) ([]PeerID, error) {
 }
 
 // marshalPeerIDs is a generic function to marshal peer IDs with a specific message type
-func marshalPeerIDs(ids []PeerID, msgType byte) ([][]byte, error) {
+func marshalPeerIDs(version ProtocolVersion, ids []PeerID, msgType byte) ([][]byte, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("no list of peer ids provided")
 	}
@@ -54,7 +54,7 @@ func marshalPeerIDs(ids []PeerID, msgType byte) ([][]byte, error) {
 
 		totalSize := sizeOfProtoHeader + len(chunk)*peerIDSize
 		buf := make([]byte, totalSize)
-		buf[0] = byte(CurrentProtocolVersion)
+		buf[0] = byte(version)
 		buf[1] = msgType
 
 		offset := sizeOfProtoHeader
