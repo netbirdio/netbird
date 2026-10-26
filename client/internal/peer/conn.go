@@ -138,7 +138,10 @@ type Conn struct {
 	wgProxyICE     wgproxy.Proxy
 	wgProxyRelay   wgproxy.Proxy
 	relayedConnRef *relayClient.Conn
-	handshaker     *Handshaker
+	// relayEndpointSetAt is when the interface was last pointed at the relayed
+	// connection. Guarded by mu.
+	relayEndpointSetAt time.Time
+	handshaker         *Handshaker
 
 	guard *guard.Guard
 	wg    sync.WaitGroup
@@ -526,6 +529,7 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		}
 
 		conn.currentConnPriority = conntype.Relay
+		conn.relayEndpointSetAt = time.Now()
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
 		conn.currentConnPriority = conntype.None
@@ -616,6 +620,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
+	conn.relayEndpointSetAt = updateTime
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy, rci.relayedConn)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
@@ -638,6 +643,53 @@ func (conn *Conn) onRelayDisconnected(relayedConn *relayClient.Conn) {
 	}
 
 	conn.handleRelayDisconnectedLocked()
+}
+
+// onRelayPeerReregistered restarts the handshake when the remote registered on the
+// relay again before any handshake completed over the relayed connection. Handshakes
+// sent until then went to the remote's previous registration and were lost, and the
+// next retry would only come after the rekey timeout.
+func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil || conn.relayedConnRef != relayedConn || conn.wgProxyRelay == nil {
+		return
+	}
+	if conn.currentConnPriority != conntype.Relay || !isController(conn.config) {
+		return
+	}
+
+	handshake, err := conn.lastHandshake()
+	if err != nil {
+		conn.Log.Debugf("failed to read the last handshake, keeping the relayed endpoint: %v", err)
+		return
+	}
+	if handshake.After(conn.relayEndpointSetAt) {
+		conn.Log.Debugf("remote peer registered on the relay again, handshake already completed at %s", handshake)
+		return
+	}
+
+	conn.Log.Infof("remote peer registered on the relay again before a handshake completed, restarting the handshake")
+	conn.resetEndpoint()
+	presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
+	if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
+		conn.Log.Errorf("failed to restore the relayed endpoint: %v", err)
+		return
+	}
+	conn.relayEndpointSetAt = time.Now()
+}
+
+func (conn *Conn) lastHandshake() (time.Time, error) {
+	stats, err := conn.config.WgConfig.WgInterface.GetStats()
+	if err != nil {
+		return time.Time{}, err
+	}
+	peerStats, ok := stats[conn.config.Key]
+	if !ok {
+		return time.Time{}, fmt.Errorf("peer %s not found on the interface", conn.config.Key)
+	}
+	return peerStats.LastHandshake, nil
 }
 
 // handleRelayDisconnectedLocked handles relay disconnection. Caller must hold conn.mu.

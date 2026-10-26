@@ -215,7 +215,13 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 }
 
 func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
-	<-relayedConn.Context().Done()
-
-	w.conn.onRelayDisconnected(relayedConn)
+	for {
+		select {
+		case <-relayedConn.PeerReregistered():
+			w.conn.onRelayPeerReregistered(relayedConn)
+		case <-relayedConn.Context().Done():
+			w.conn.onRelayDisconnected(relayedConn)
+			return
+		}
+	}
 }

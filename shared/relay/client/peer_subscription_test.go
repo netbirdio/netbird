@@ -25,7 +25,7 @@ func TestWaitToBeOnlineAndSubscribe_Success(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{}) // discard log output
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -45,7 +45,7 @@ func TestWaitToBeOnlineAndSubscribe_Timeout(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -60,7 +60,7 @@ func TestWaitToBeOnlineAndSubscribe_Duplicate(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, nil)
 
 	ctx := context.Background()
 	go func() {
@@ -78,7 +78,7 @@ func TestUnsubscribeStateChange(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, nil)
 
 	doneChan := make(chan struct{})
 	go func() {
@@ -96,4 +96,31 @@ func TestUnsubscribeStateChange(t *testing.T) {
 		// Expected timeout, meaning the subscription was successfully unsubscribed
 		t.Errorf("timeout")
 	}
+}
+
+func TestOnPeersOnline_ReportsReregistrationOfSubscribedPeers(t *testing.T) {
+	subscribed := messages.HashID("subscribed")
+	unsubscribed := messages.HashID("unsubscribed")
+	logger := logrus.New()
+	logger.SetOutput(&bytes.Buffer{})
+
+	var reported [][]messages.PeerID
+	sub := NewPeersStateSubscription(logrus.NewEntry(logger), &mockRelayedConn{}, nil, func(peerIDs []messages.PeerID) {
+		reported = append(reported, peerIDs)
+	})
+
+	// The first online event completes the wait and is not a re-registration.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		sub.OnPeersOnline([]messages.PeerID{subscribed})
+	}()
+	require.NoError(t, sub.WaitToBeOnlineAndSubscribe(context.Background(), subscribed))
+	assert.Empty(t, reported, "the online event that completes the wait should not be reported")
+
+	sub.OnPeersOnline([]messages.PeerID{subscribed, unsubscribed})
+	assert.Equal(t, [][]messages.PeerID{{subscribed}}, reported, "only the subscribed peer should be reported")
+
+	require.NoError(t, sub.UnsubscribeStateChange([]messages.PeerID{subscribed}))
+	sub.OnPeersOnline([]messages.PeerID{subscribed})
+	assert.Len(t, reported, 1, "a peer should not be reported after unsubscribing")
 }
