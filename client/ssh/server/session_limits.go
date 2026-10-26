@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/binary"
+	"math"
 	"sync/atomic"
 
 	"github.com/gliderlabs/ssh"
@@ -207,14 +208,19 @@ func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
 	f.lastWinch = req
 }
 
-// validWinchPayload reports whether p parses as a window-change payload with a non-zero
-// size. A malformed or zero-sized replacement must not displace a valid queued resize.
+// validWinchPayload reports whether p parses as a window-change payload whose columns and
+// rows are non-zero and fit the uint16 the PTY takes. A malformed or unusable replacement
+// must not displace a valid queued resize.
 func validWinchPayload(p []byte) bool {
 	var win struct{ Columns, Rows, Width, Height uint32 }
 	if err := cryptossh.Unmarshal(p, &win); err != nil {
 		return false
 	}
-	return win.Columns > 0 && win.Rows > 0
+	return usablePtyDimension(win.Columns) && usablePtyDimension(win.Rows)
+}
+
+func usablePtyDimension(v uint32) bool {
+	return v > 0 && v <= math.MaxUint16
 }
 
 func refuseRequest(req *cryptossh.Request) {

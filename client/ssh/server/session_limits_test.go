@@ -39,3 +39,24 @@ func TestRequestFilter_ZeroSizeWinchKeepsQueuedValidResize(t *testing.T) {
 	assert.Equal(t, "window-change", valid.Type, "valid resize must still reach the PTY handler")
 	assert.Equal(t, refusedRequestType, zeroRows.Type, "zero-row resize must be refused")
 }
+
+// Sizes that are zero or do not fit the PTY's uint16 dimensions are refused, so they
+// cannot replace a valid queued resize.
+func TestValidWinchPayload_RejectsUnusableSizes(t *testing.T) {
+	tests := []struct {
+		name          string
+		columns, rows uint32
+	}{
+		{name: "zero columns", columns: 0, rows: 40},
+		{name: "zero rows", columns: 100, rows: 0},
+		{name: "columns wrap to zero as uint16", columns: 65536, rows: 40},
+		{name: "rows wrap to zero as uint16", columns: 100, rows: 65536},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{tc.columns, tc.rows, 0, 0})
+			assert.False(t, validWinchPayload(payload))
+		})
+	}
+	assert.True(t, validWinchPayload(cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{65535, 65535, 0, 0})), "largest uint16 size is usable")
+}
