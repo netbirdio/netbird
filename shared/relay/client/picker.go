@@ -45,14 +45,20 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
 	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
+	// Each dial gets its own context: the chosen client is bound to its context
+	// for its whole lifetime, so only the dials that lost the race are cancelled
+	// here and the chosen client's context is released when the client closes.
+	dialCancels := make(map[string]context.CancelFunc, totalServers)
 	for _, url := range sp.ServerURLs.Load().([]string) {
+		dialCtx, dialCancel := context.WithCancel(parentCtx)
+		dialCancels[url] = dialCancel
 		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
 		go func(url string) {
 			defer func() {
 				<-concurrentLimiter
 			}()
-			sp.startConnection(parentCtx, connResultChan, url)
+			sp.startConnection(dialCtx, connResultChan, url)
 		}(url)
 	}
 
@@ -61,8 +67,14 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	select {
 	case cr, ok := <-successChan:
 		if !ok {
+			cancelDials(dialCancels, "")
 			return nil, <-errChan
 		}
+		// A dial that finished after this one would register the peer on its
+		// relay and close right away, which that relay reports as the peer going
+		// offline.
+		cancelDials(dialCancels, cr.Url)
+		cr.RelayClient.releaseContextOnClose(dialCancels[cr.Url])
 		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
 		if err != nil {
 			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
@@ -71,7 +83,17 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
 		return cr.RelayClient, nil
 	case <-ctx.Done():
+		cancelDials(dialCancels, "")
 		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
+	}
+}
+
+// cancelDials cancels every dial except the one to keepURL.
+func cancelDials(dialCancels map[string]context.CancelFunc, keepURL string) {
+	for url, cancel := range dialCancels {
+		if url != keepURL {
+			cancel()
+		}
 	}
 }
 

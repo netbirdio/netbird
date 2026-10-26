@@ -190,6 +190,10 @@ type Client struct {
 
 	stateSubscription *PeersStateSubscription
 
+	// lifetimeCancel releases the context the client was connected with once the
+	// client closes. Guarded by mu.
+	lifetimeCancel context.CancelFunc
+
 	mtu uint16
 
 	// transportFallback, when set, records datagram-too-large failures so a
@@ -853,12 +857,30 @@ func (c *Client) close(gracefullyExit bool) error {
 		c.writeCloseMsg()
 	}
 	err = c.relayConn.Close()
+	lifetimeCancel := c.lifetimeCancel
+	c.lifetimeCancel = nil
 	c.mu.Unlock()
 
 	c.log.Infof("waiting for read loop to close")
 	c.wgReadLoop.Wait()
+	if lifetimeCancel != nil {
+		lifetimeCancel()
+	}
 	c.log.Infof("relay connection closed")
 	return err
+}
+
+// releaseContextOnClose makes Close cancel the context the client was connected
+// with. If the client already closed, cancel runs right away.
+func (c *Client) releaseContextOnClose(cancel context.CancelFunc) {
+	c.mu.Lock()
+	if c.serviceIsRunning {
+		c.lifetimeCancel = cancel
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	cancel()
 }
 
 func (c *Client) notifyDisconnected() {
