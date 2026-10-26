@@ -226,9 +226,10 @@ func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
 		f.noteCommand(req.Type)
 	case "window-change":
 		f.coalesceWindowChange(req)
-	case "signal", "break", "auth-agent-req@openssh.com":
 	default:
-		refuseRequest(req)
+		if !loopActsOn(req.Type) {
+			refuseRequest(req)
+		}
 	}
 	f.queue = append(f.queue, queuedRequest{req: req, size: len(req.Payload)})
 	f.queuedBytes += len(req.Payload)
@@ -267,6 +268,17 @@ func validWinchPayload(p []byte) bool {
 
 func usablePtyDimension(v uint32) bool {
 	return v > 0 && v <= math.MaxUint16
+}
+
+// loopActsOn reports whether the session loop does anything with a request type other
+// than the ones the filter classifies itself. The loop answers every other type with a
+// failure, so its payload is not worth queueing.
+func loopActsOn(reqType string) bool {
+	switch reqType {
+	case "signal", "break", "auth-agent-req@openssh.com":
+		return true
+	}
+	return false
 }
 
 func refuseRequest(req *cryptossh.Request) {
