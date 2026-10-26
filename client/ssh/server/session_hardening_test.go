@@ -197,7 +197,10 @@ func TestSession_ResizeWhileRunningIsApplied(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	require.NoError(t, session.WindowChange(50, 132))
 	require.NoError(t, session.Wait())
-	assert.Equal(t, "50 132", strings.TrimSpace(out.String()), "pty should have the resized dimensions")
+	// Only the first line is the resize report. Coverage-instrumented binaries can append
+	// runtime warnings to the same output.
+	firstLine := strings.TrimSpace(strings.SplitN(out.String(), "\n", 2)[0])
+	assert.Equal(t, "50 132", firstLine, "pty should have the resized dimensions")
 }
 
 // Forwarded connections beyond the per-connection cap are refused, and a closed one
