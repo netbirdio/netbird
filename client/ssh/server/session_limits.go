@@ -207,11 +207,14 @@ func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
 	f.lastWinch = req
 }
 
-// validWinchPayload reports whether p parses as a window-change payload. A malformed
-// replacement must not displace a valid queued resize.
+// validWinchPayload reports whether p parses as a window-change payload with a non-zero
+// size. A malformed or zero-sized replacement must not displace a valid queued resize.
 func validWinchPayload(p []byte) bool {
 	var win struct{ Columns, Rows, Width, Height uint32 }
-	return cryptossh.Unmarshal(p, &win) == nil
+	if err := cryptossh.Unmarshal(p, &win); err != nil {
+		return false
+	}
+	return win.Columns > 0 && win.Rows > 0
 }
 
 func refuseRequest(req *cryptossh.Request) {

@@ -23,3 +23,19 @@ func TestRequestFilter_MalformedWinchKeepsQueuedValidResize(t *testing.T) {
 	assert.Equal(t, "window-change", valid.Type, "valid resize must still reach the PTY handler")
 	assert.Equal(t, refusedRequestType, malformed.Type, "malformed resize must be refused")
 }
+
+// A zero-row or zero-column resize parses but would size the PTY to nothing, so it must
+// not displace a valid queued resize either.
+func TestRequestFilter_ZeroSizeWinchKeepsQueuedValidResize(t *testing.T) {
+	f := &requestFilter{}
+	require.True(t, f.enqueue(&cryptossh.Request{Type: "shell"}))
+
+	valid := &cryptossh.Request{Type: "window-change", Payload: cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 40, 0, 0})}
+	require.True(t, f.enqueue(valid))
+
+	zeroRows := &cryptossh.Request{Type: "window-change", Payload: cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 0, 0, 0})}
+	require.True(t, f.enqueue(zeroRows))
+
+	assert.Equal(t, "window-change", valid.Type, "valid resize must still reach the PTY handler")
+	assert.Equal(t, refusedRequestType, zeroRows.Type, "zero-row resize must be refused")
+}
