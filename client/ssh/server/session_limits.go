@@ -197,7 +197,7 @@ func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
 }
 
 func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
-	if !f.started {
+	if !f.started || !validWinchPayload(req.Payload) {
 		refuseRequest(req)
 		return
 	}
@@ -205,6 +205,13 @@ func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
 		refuseRequest(f.lastWinch)
 	}
 	f.lastWinch = req
+}
+
+// validWinchPayload reports whether p parses as a window-change payload. A malformed
+// replacement must not displace a valid queued resize.
+func validWinchPayload(p []byte) bool {
+	var win struct{ Columns, Rows, Width, Height uint32 }
+	return cryptossh.Unmarshal(p, &win) == nil
 }
 
 func refuseRequest(req *cryptossh.Request) {
