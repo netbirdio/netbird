@@ -21,7 +21,7 @@ func TestSanitizeToastText(t *testing.T) {
 		{name: "subexpression", in: "ID: $(calc)", want: "ID: ?(calc)"},
 		{name: "variable expansion", in: "ID: $env:USERNAME", want: "ID: ?env:USERNAME"},
 		{name: "backtick escape", in: "a`$(calc)", want: "a??(calc)"},
-		{name: "control characters are replaced", in: "a\r\n\"@\nb\x00c", want: "a  ?@ b?c"},
+		{name: "control characters are replaced", in: "a\r\n\"@\n\tb\x00c", want: "a  ?@  b?c"},
 		{name: "here-string terminator", in: "\"@Remove-Item C:\\x", want: "?@Remove-Item C:\\x"},
 	}
 	for _, tc := range tests {
