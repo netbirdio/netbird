@@ -77,6 +77,16 @@ func TestListener_BatchedEventsReportFinalState(t *testing.T) {
 		func(ids []messages.PeerID) { offline <- ids },
 	)
 
-	assert.ElementsMatch(t, []messages.PeerID{a, c}, <-online, "peers whose last event was online")
-	assert.Equal(t, []messages.PeerID{b}, <-offline, "peers whose last event was offline")
+	select {
+	case ids := <-online:
+		assert.ElementsMatch(t, []messages.PeerID{a, c}, ids, "peers whose last event was online")
+	case <-time.After(time.Second):
+		require.FailNow(t, "missing online notification")
+	}
+	select {
+	case ids := <-offline:
+		assert.Equal(t, []messages.PeerID{b}, ids, "peers whose last event was offline")
+	case <-time.After(time.Second):
+		require.FailNow(t, "missing offline notification")
+	}
 }
