@@ -59,21 +59,27 @@ func (l *Listener) listenForEvents(onPeersComeOnline, onPeersWentOffline func([]
 		case <-l.ctx.Done():
 			return
 		case e := <-l.eventChan:
-			peersOffline := make([]messages.PeerID, 0)
-			peersOnline := make([]messages.PeerID, 0)
-			if e.online {
-				peersOnline = append(peersOnline, e.peerID)
-			} else {
-				peersOffline = append(peersOffline, e.peerID)
-			}
+			// Events are delivered by the final state of each peer, so a peer that went
+			// offline and registered again within one batch is reported as online only.
+			order := []messages.PeerID{e.peerID}
+			online := map[messages.PeerID]bool{e.peerID: e.online}
 
 			// Drain the channel to collect all events
 			for len(l.eventChan) > 0 {
 				e = <-l.eventChan
-				if e.online {
-					peersOnline = append(peersOnline, e.peerID)
+				if _, seen := online[e.peerID]; !seen {
+					order = append(order, e.peerID)
+				}
+				online[e.peerID] = e.online
+			}
+
+			peersOnline := make([]messages.PeerID, 0)
+			peersOffline := make([]messages.PeerID, 0)
+			for _, id := range order {
+				if online[id] {
+					peersOnline = append(peersOnline, id)
 				} else {
-					peersOffline = append(peersOffline, e.peerID)
+					peersOffline = append(peersOffline, id)
 				}
 			}
 

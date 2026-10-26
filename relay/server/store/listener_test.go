@@ -53,3 +53,30 @@ func TestListener_NoOnlineAfterInterestRemoved(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// Events that pile up while the listener is busy are delivered by the final state of
+// each peer. A peer that went offline and registered again in the meantime is online,
+// so the subscriber must not be told it is offline after being told it is online.
+func TestListener_BatchedEventsReportFinalState(t *testing.T) {
+	a := messages.HashID("peer-a")
+	b := messages.HashID("peer-b")
+	c := messages.HashID("peer-c")
+
+	l := newListener(t.Context())
+	l.AddInterestedPeers([]messages.PeerID{a, b, c})
+	l.peerWentOffline(a)
+	l.peerComeOnline(a)
+	l.peerComeOnline(b)
+	l.peerWentOffline(b)
+	l.peerComeOnline(c)
+
+	online := make(chan []messages.PeerID, 1)
+	offline := make(chan []messages.PeerID, 1)
+	go l.listenForEvents(
+		func(ids []messages.PeerID) { online <- ids },
+		func(ids []messages.PeerID) { offline <- ids },
+	)
+
+	assert.ElementsMatch(t, []messages.PeerID{a, c}, <-online, "peers whose last event was online")
+	assert.Equal(t, []messages.PeerID{b}, <-offline, "peers whose last event was offline")
+}

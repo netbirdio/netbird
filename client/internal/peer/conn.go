@@ -663,7 +663,11 @@ func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
 		return
 	}
 	if conn.relayedConnRef != relayedConn {
-		conn.relayReregisteredEarly = relayedConn
+		// A connection that is already torn down was replaced, its signal says
+		// nothing about the connection being set up.
+		if ctx := relayedConn.Context(); ctx == nil || ctx.Err() == nil {
+			conn.relayReregisteredEarly = relayedConn
+		}
 		return
 	}
 	conn.restartRelayHandshakeLocked()
