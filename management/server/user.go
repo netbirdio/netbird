@@ -670,6 +670,12 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
 
+	if len(usersToSave) > 0 {
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("increment network serial: %w", err)
+		}
+	}
+
 	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
 	if err != nil {
 		return nil, err
@@ -693,9 +699,6 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return nil, fmt.Errorf("failed to increment network serial: %w", err)
-		}
 		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
@@ -1423,6 +1426,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 		if err = transaction.DeleteUser(ctx, accountID, targetUserInfo.ID); err != nil {
 			return fmt.Errorf("failed to delete user: %s %w", targetUserInfo.ID, err)
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return nil

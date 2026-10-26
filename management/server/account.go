@@ -1825,10 +1825,10 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 			}
 			change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
+		}
 
-			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
-				return fmt.Errorf("error incrementing network serial: %w", err)
-			}
+		if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
+			return fmt.Errorf("error incrementing network serial: %w", err)
 		}
 
 		if snap, err = affectedpeers.Load(ctx, transaction, userAuth.AccountId, change); err != nil {
@@ -2844,6 +2844,10 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 		return fmt.Errorf("save peer: %w", err)
 	}
 
+	if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return fmt.Errorf("increment network serial: %w", err)
+	}
+
 	eventMeta["old_ip"] = oldIP
 	eventMeta["ip"] = newIP.String()
 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
@@ -2884,7 +2888,8 @@ func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, 
 
 // updatePeerIPv6InTransaction validates and applies an IPv6 address change within a store transaction.
 func (am *DefaultAccountManager) updatePeerIPv6InTransaction(ctx context.Context, transaction store.Store, accountID, peerID string, newIPv6 netip.Addr) (bool, error) {
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	// Locked for update because the serial increment below writes the same row.
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthUpdate, accountID)
 	if err != nil {
 		return false, fmt.Errorf("get network: %w", err)
 	}
@@ -2926,6 +2931,10 @@ func (am *DefaultAccountManager) updatePeerIPv6InTransaction(ctx context.Context
 	peer.IPv6 = newIPv6
 	if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
 		return false, fmt.Errorf("save peer: %w", err)
+	}
+
+	if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return false, fmt.Errorf("increment network serial: %w", err)
 	}
 
 	return true, nil
