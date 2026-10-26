@@ -23,9 +23,11 @@ const (
 	maxEnvRequests = 128
 	maxEnvPayload  = 8 * 1024
 
-	// maxQueuedRequests bounds the requests held for a session whose request loop is
-	// not consuming them. A client that exceeds it has its channel closed.
-	maxQueuedRequests = 256
+	// maxQueuedRequests and maxQueuedBytes bound the requests held for a session whose
+	// request loop is not consuming them. A client that exceeds either has its channel
+	// closed.
+	maxQueuedRequests = 128
+	maxQueuedBytes    = 256 * 1024
 )
 
 type (
@@ -57,6 +59,18 @@ func (s *Server) sessionChannelHandler(srv *ssh.Server, conn *cryptossh.ServerCo
 	}()
 
 	ssh.DefaultSessionHandler(srv, conn, guarded, ctx)
+}
+
+// drainWindowChanges discards window changes until winCh is closed. It must run after
+// the session's command handler has returned.
+func drainWindowChanges(winCh <-chan ssh.Window) {
+	go func() {
+		for {
+			if _, ok := <-winCh; !ok {
+				return
+			}
+		}
+	}()
 }
 
 // acquireConnSlot takes one of limit slots counted under key for the connection that
@@ -114,16 +128,31 @@ const refusedRequestType = "refused@netbird.io"
 // what the loop can accumulate or block on bounded:
 //   - a malformed pty-req is refused instead of reaching the loop's parser
 //   - env requests beyond maxEnvRequests, or with an oversized payload, are refused
-//   - window-change requests are refused until the command starts and coalesced
-//     after, as the loop blocks sending on a one-slot channel that only the command
-//     handler drains
-//   - the queue behind a stalled loop is capped, after which the channel is closed
+//   - window-change requests are refused unless the session's command is a shell or
+//     exec, and coalesced after it starts, as the loop blocks sending on a one-slot
+//     channel that only a shell or exec handler drains. Subsystems never read it.
+//   - request types the loop does not act on are refused, which also drops their payload
+//   - the queue behind a stalled loop is capped by count and by payload bytes, after
+//     which the channel is closed
 type requestFilter struct {
-	ch        cryptossh.Channel
-	queue     []*cryptossh.Request
-	lastWinch *cryptossh.Request
-	started   bool
-	envCount  int
+	ch          cryptossh.Channel
+	queue       []*queuedRequest
+	queuedBytes int
+	lastWinch   *queuedRequest
+	envCount    int
+
+	// commandSeen is set by the first shell, exec or subsystem request, which decides
+	// the session's command as far as the loop is concerned.
+	commandSeen bool
+	// started is set when that first command is a shell or exec.
+	started bool
+}
+
+// queuedRequest remembers the payload size counted against the queue, as a refusal
+// drops the payload and releases that size.
+type queuedRequest struct {
+	req  *cryptossh.Request
+	size int
 }
 
 // filterSessionRequests returns the requests of in as the session loop should see them.
@@ -145,7 +174,7 @@ func (f *requestFilter) run(in <-chan *cryptossh.Request, out chan<- *cryptossh.
 		)
 		if len(f.queue) > 0 {
 			sendCh = out
-			next = f.queue[0]
+			next = f.queue[0].req
 		}
 
 		select {
@@ -163,49 +192,83 @@ func (f *requestFilter) run(in <-chan *cryptossh.Request, out chan<- *cryptossh.
 }
 
 func (f *requestFilter) dropHead() {
-	if f.queue[0] == f.lastWinch {
+	head := f.queue[0]
+	if head == f.lastWinch {
 		f.lastWinch = nil
 	}
+	f.queuedBytes -= head.size
+	f.queue[0] = nil
 	f.queue = f.queue[1:]
 }
 
 // enqueue classifies req and queues it. It returns false after closing the channel
-// because the queue is full.
+// because the queue is full. Requests are classified first so a refused request's
+// dropped payload does not count against the limit.
 func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
-	if len(f.queue) >= maxQueuedRequests {
+	q := &queuedRequest{req: req}
+	f.classify(q)
+	q.size = len(req.Payload)
+
+	if len(f.queue) >= maxQueuedRequests || f.queuedBytes+q.size > maxQueuedBytes {
 		log.Warnf("SSH session request queue full, closing channel")
-		_ = f.ch.Close()
+		if f.ch != nil {
+			_ = f.ch.Close()
+		}
 		return false
 	}
 
+	f.queue = append(f.queue, q)
+	f.queuedBytes += q.size
+	return true
+}
+
+func (f *requestFilter) classify(q *queuedRequest) {
+	req := q.req
 	switch req.Type {
 	case "pty-req":
 		if !validPtyReqPayload(req.Payload) {
-			refuseRequest(req)
+			f.refuse(q)
 		}
 	case "env":
 		f.envCount++
 		if f.envCount > maxEnvRequests || len(req.Payload) > maxEnvPayload {
-			refuseRequest(req)
+			f.refuse(q)
 		}
 	case "shell", "exec", "subsystem":
-		f.started = true
+		f.noteCommand(req.Type)
 	case "window-change":
-		f.coalesceWindowChange(req)
+		f.coalesceWindowChange(q)
+	default:
+		if !loopActsOn(req.Type) {
+			f.refuse(q)
+		}
 	}
-	f.queue = append(f.queue, req)
-	return true
 }
 
-func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
-	if !f.started || !validWinchPayload(req.Payload) {
-		refuseRequest(req)
+// refuse drops the payload of q and releases the size it was charged against the queue.
+func (f *requestFilter) refuse(q *queuedRequest) {
+	f.queuedBytes -= q.size
+	q.size = 0
+	refuseRequest(q.req)
+}
+
+func (f *requestFilter) noteCommand(reqType string) {
+	if f.commandSeen {
+		return
+	}
+	f.commandSeen = true
+	f.started = reqType != "subsystem"
+}
+
+func (f *requestFilter) coalesceWindowChange(q *queuedRequest) {
+	if !f.started || !validWinchPayload(q.req.Payload) {
+		f.refuse(q)
 		return
 	}
 	if f.lastWinch != nil {
-		refuseRequest(f.lastWinch)
+		f.refuse(f.lastWinch)
 	}
-	f.lastWinch = req
+	f.lastWinch = q
 }
 
 // validWinchPayload reports whether p parses as a window-change payload whose columns and
@@ -221,6 +284,17 @@ func validWinchPayload(p []byte) bool {
 
 func usablePtyDimension(v uint32) bool {
 	return v > 0 && v <= math.MaxUint16
+}
+
+// loopActsOn reports whether the session loop does anything with a request type other
+// than the ones the filter classifies itself. The loop answers every other type with a
+// failure, so its payload is not worth queueing.
+func loopActsOn(reqType string) bool {
+	switch reqType {
+	case "signal", "break", "auth-agent-req@openssh.com":
+		return true
+	}
+	return false
 }
 
 func refuseRequest(req *cryptossh.Request) {
