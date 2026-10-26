@@ -159,18 +159,20 @@ func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
 	pagination PaginationState,
 	filters UserFilters,
 	sorting UserSorting) ([]*types.User, int, error) {
-	// if s.conn.Engine() == types.PostgresStoreEngine {
-	return s.getAccountUsersPaginatedPostgres(ctx, lockStrength, accountID, pagination, filters, sorting)
-	// } else {
-	// 	return s.getAccountUsersPaginatedSqlite(ctx, lockStrength, accountID, pagination, filters, sorting)
-	// }
+	if s.conn.Engine() == types.PostgresStoreEngine {
+		return s.getAccountUsersPaginated(ctx, lockStrength, accountID, pagination,
+			userFilters{UserFilters: filters, fuzzyNameSearchConditionFunc: fuzzyNameSearchConditionPostgres}, sorting)
+	}
+	return s.getAccountUsersPaginated(ctx, lockStrength, accountID, pagination,
+		userFilters{UserFilters: filters, fuzzyNameSearchConditionFunc: fuzzyNameSearchConditionSqlite}, sorting)
+
 }
 
-func (s *SqlStore) getAccountUsersPaginatedPostgres(ctx context.Context,
+func (s *SqlStore) getAccountUsersPaginated(ctx context.Context,
 	lockStrength LockingStrength,
 	accountID string,
 	pagination PaginationState,
-	filters UserFilters,
+	filters userFilters,
 	sorting UserSorting) ([]*types.User, int, error) {
 
 	tx := s.db
@@ -226,25 +228,67 @@ func (s *SqlStore) getAccountUsersPaginatedPostgres(ctx context.Context,
 }
 
 type UserFilters struct {
-	Name string
+	Name        string
+	ServiceUser *bool
 }
 
-func (uf *UserFilters) AsConditions(db *gorm.DB) *gorm.DB {
-	if uf.Name != "" {
-		b := newBloomFilter(160)
-		for _, trigram := range toTrigrams(uf.Name) {
-			b.add([]byte(trigram))
-		}
+type userFilters struct {
+	UserFilters
+	fuzzyNameSearchConditionFunc func(db *gorm.DB, pattern string) *gorm.DB
+}
 
-		tx := db.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
-		tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
-		tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
-		tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
-		tx = tx.Where("bitmap_to_bitarray(name_hash_5) @> bitmap_to_bitarray(?)", b.buckets[4])
-		tx = tx.Where("bitmap_to_bitarray(name_hash_6) @> bitmap_to_bitarray(?)", b.buckets[5])
+func (uf *userFilters) AsConditions(db *gorm.DB) *gorm.DB {
+	tx := db
+
+	uf.fuzzyNameSearchConditionFunc(db, uf.Name)
+
+	if uf.ServiceUser != nil && *uf.ServiceUser {
+		tx = tx.Where("is_service_user is true")
 	}
 
-	return db
+	return tx
+}
+
+func fuzzyNameSearchConditionPostgres(db *gorm.DB, pattern string) *gorm.DB {
+	if pattern == "" {
+		return db
+	}
+
+	tx := db
+	b := newBloomFilter(160)
+	for _, trigram := range toTrigrams(pattern) {
+		b.add([]byte(trigram))
+	}
+
+	tx = db.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_5) @> bitmap_to_bitarray(?)", b.buckets[4])
+	tx = tx.Where("bitmap_to_bitarray(name_hash_6) @> bitmap_to_bitarray(?)", b.buckets[5])
+
+	return tx
+}
+
+func fuzzyNameSearchConditionSqlite(db *gorm.DB, pattern string) *gorm.DB {
+	if pattern == "" {
+		return db
+	}
+
+	tx := db
+	b := newBloomFilter(160)
+	for _, trigram := range toTrigrams(pattern) {
+		b.add([]byte(trigram))
+	}
+
+	for i, bucket := range b.buckets {
+		if bucket == 0 {
+			continue
+		}
+		tx = db.Where(fmt.Sprintf("name_hash_%d & ? > 0", i), bucket)
+	}
+
+	return tx
 }
 
 type UserSorting struct{}

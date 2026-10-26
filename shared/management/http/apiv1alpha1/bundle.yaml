@@ -910,6 +910,28 @@ components:
           - BearerAuth: []
           - TokenAuth: []
         parameters:
+          - name: page
+            in: query
+            description: Page number
+            required: false
+            schema:
+              type: integer
+              minimum: 1
+              default: 1
+          - name: page_size
+            in: query
+            description: Number of peers per page
+            required: false
+            schema:
+              type: integer
+              minimum: 1
+              maximum: 250
+              default: 100
+          - in: query
+            description: filter users by name
+            required: false
+            schema:
+              type: string
           - in: query
             name: service_user
             schema:

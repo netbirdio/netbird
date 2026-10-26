@@ -52,5 +52,4 @@ VALUES('account-1','account-1-test.com','network-1','{"IP":"100.103.0.0","Mask":
        true, 86400000000000, false,
        86400000000000, null, '["group-one-resource-id"]', false,
        false, 'disabled', false, false);
--- insert into users (id,account_id,"name",email) values('user-1','account-1','','');
 

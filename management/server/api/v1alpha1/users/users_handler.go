@@ -3,6 +3,7 @@ package users
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/gorilla/mux"
@@ -110,8 +111,21 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
-	pagination := store.PaginationState{}
-	data, userCount, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), accountID, userID, pagination, store.UserFilters{}, store.UserSorting{})
+	pagination, err := paginationFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	filters, err := filtersFromQuery(r.URL.Query())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("error parsing query: %v", err)
+		util.WriteError(r.Context(), &status.Error{ErrorType: status.InvalidArgument, Message: err.Error()}, w)
+		return
+	}
+
+	data, userCount, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), accountID, userID, pagination, filters, store.UserSorting{})
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -191,4 +205,48 @@ func toUserResponse(user *types.UserInfo, currenUserID string) apiv1alpha1.User 
 		Password:        password,
 		IdpId:           idpID,
 	}
+}
+
+func paginationFromQuery(v url.Values) (store.PaginationState, error) {
+	page, err := strconv.Atoi(v.Get("page"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	pageSize, err := strconv.Atoi(v.Get("page_size"))
+	if err != nil {
+		return store.PaginationState{}, err
+	}
+
+	return store.PaginationState{
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+func filtersFromQuery(v url.Values) (store.UserFilters, error) {
+	toret := store.UserFilters{}
+
+	serviceUser, err := parseBool(v.Get("service_user"))
+	if err != nil {
+		return toret, err
+	}
+
+	toret.Name = v.Get("name")
+	toret.ServiceUser = serviceUser
+
+	return toret, nil
+}
+
+func parseBool(maybeBool string) (*bool, error) {
+	if maybeBool == "" {
+		return nil, nil //nolint:nilnil
+	}
+
+	parsed, err := strconv.ParseBool(maybeBool)
+	if err != nil {
+		return nil, err
+	}
+
+	return new(parsed), nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,68 +28,75 @@ func TestXXX(t *testing.T) {
 }
 
 func TestSqlStore_SearchUsers(t *testing.T) {
-	runTestForAllEnginesNoSqliteSeed(t, "../testdata/fuzzy_name_search.sql", func(t *testing.T, engine string, store Store) {
-		var tests = []struct {
-			description string
-			pattern     string
-			expectedLen int
-		}{
-			{
-				pattern:     "hijklmntest-9995",
-				expectedLen: 1,
-			},
-			{
-				pattern:     "hijklmntest",
-				expectedLen: 10000,
-			},
-			{
-				pattern:     "xyzacegtest-20",
-				expectedLen: 373,
-			},
-			{
-				pattern:     "ser67",
-				expectedLen: 36,
-			},
-			{
-				pattern:     "user",
-				expectedLen: 30000,
-			},
-		}
-
-		for i := 0; i < 30000; i++ {
-			var name string
-			switch i % 9 {
-			case 1, 3, 5:
-				name = fmt.Sprintf("abcdefguser hijklmntest-%d", i)
-			case 0, 2, 4:
-				name = fmt.Sprintf("opqrstvuser xyzacegtest-%d", i)
-			case 7, 6, 8:
-				name = fmt.Sprintf("acegijluser%dxyzacetest", i)
+	runTestForAllEnginesNoSqliteSeed(t,
+		func(e types.Engine) string {
+			switch e {
+			case types.PostgresStoreEngine:
+				return "../testdata/fuzzy_name_search.sql"
+			default:
+				return "../testdata/fuzzy_name_search_sqlite.sql"
 			}
-			b := newBloomFilter(160)
-			for _, trigram := range toTrigrams(name) {
-				b.add([]byte(trigram))
+		},
+		func(t *testing.T, engine string, store Store) {
+			var tests = []struct {
+				description string
+				pattern     string
+				expectedLen int
+			}{
+				{
+					pattern:     "hijklmntest-9995",
+					expectedLen: 1,
+				},
+				{
+					pattern:     "hijklmntest",
+					expectedLen: 10000,
+				},
+				{
+					pattern:     "xyzacegtest-20",
+					expectedLen: 373,
+				},
+				{
+					pattern:     "ser67",
+					expectedLen: 36,
+				},
+				{
+					pattern:     "user",
+					expectedLen: 30000,
+				},
 			}
 
-			store.(*SqlStore).db.Exec(
-				"insert into users (id,account_id,name,name_hash_1,name_hash_2,name_hash_3,name_hash_4,name_hash_5,name_hash_6) values(?,'account-1',?,?,?,?,?,?,?)",
-				name, name, b.buckets[0], b.buckets[1], b.buckets[2], b.buckets[3], b.buckets[4], b.buckets[5])
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.description+" "+engine, func(t *testing.T) {
-				t.Helper()
+			for i := 0; i < 30000; i++ {
+				var name string
+				switch i % 9 {
+				case 1, 3, 5:
+					name = fmt.Sprintf("abcdefguser hijklmntest-%d", i)
+				case 0, 2, 4:
+					name = fmt.Sprintf("opqrstvuser xyzacegtest-%d", i)
+				case 7, 6, 8:
+					name = fmt.Sprintf("acegijluser%dxyzacetest", i)
+				}
 				b := newBloomFilter(160)
-				for _, trigram := range toTrigrams(tt.pattern) {
+				for _, trigram := range toTrigrams(name) {
 					b.add([]byte(trigram))
 				}
 
-				users, _, err := store.GetAccountUsersPaginated(context.Background(), LockingStrengthNone, "account-1", PaginationState{}, UserFilters{Name: tt.pattern}, UserSorting{})
-				require.NoError(t, err)
-				require.Len(t, users, tt.expectedLen)
-			})
-		}
+				store.(*SqlStore).db.Exec(
+					"insert into users (id,account_id,name,name_hash_1,name_hash_2,name_hash_3,name_hash_4,name_hash_5,name_hash_6) values(?,'account-1',?,?,?,?,?,?,?)",
+					name, name, b.buckets[0], b.buckets[1], b.buckets[2], b.buckets[3], b.buckets[4], b.buckets[5])
+			}
 
-		fmt.Print("aaaaaaaaaaaaaaaaaaaaa")
-	})
+			for _, tt := range tests {
+				t.Run(tt.description+" "+engine, func(t *testing.T) {
+					t.Helper()
+					b := newBloomFilter(160)
+					for _, trigram := range toTrigrams(tt.pattern) {
+						b.add([]byte(trigram))
+					}
+
+					users, _, err := store.GetAccountUsersPaginated(context.Background(), LockingStrengthNone, "account-1", PaginationState{}, UserFilters{Name: tt.pattern}, UserSorting{})
+					require.NoError(t, err)
+					require.Len(t, users, tt.expectedLen)
+				})
+			}
+		})
 }
