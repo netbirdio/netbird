@@ -110,19 +110,21 @@ func TestOnPeersOnline_ReportsReregistrationOfSubscribedPeers(t *testing.T) {
 	})
 
 	// The first online event completes the wait and is not a re-registration.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	go func() {
-		for {
+		for ctx.Err() == nil {
 			sub.mu.Lock()
 			_, waiting := sub.waitingPeers[subscribed]
 			sub.mu.Unlock()
 			if waiting {
-				break
+				sub.OnPeersOnline([]messages.PeerID{subscribed})
+				return
 			}
 			time.Sleep(time.Millisecond)
 		}
-		sub.OnPeersOnline([]messages.PeerID{subscribed})
 	}()
-	require.NoError(t, sub.WaitToBeOnlineAndSubscribe(context.Background(), subscribed))
+	require.NoError(t, sub.WaitToBeOnlineAndSubscribe(ctx, subscribed))
 	assert.Empty(t, reported, "the online event that completes the wait should not be reported")
 
 	sub.OnPeersOnline([]messages.PeerID{subscribed, unsubscribed})

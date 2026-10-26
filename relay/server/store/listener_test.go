@@ -85,7 +85,7 @@ func TestListener_BatchedEventsKeepOrder(t *testing.T) {
 
 	want := []notification{
 		{online: false, ids: []messages.PeerID{a}},
-		{online: true, ids: []messages.PeerID{a, b}},
+		{online: true, ids: []messages.PeerID{a, b, b}},
 		{online: false, ids: []messages.PeerID{b}},
 		{online: true, ids: []messages.PeerID{c}},
 	}

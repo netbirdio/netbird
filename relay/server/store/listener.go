@@ -84,7 +84,8 @@ type stateRun struct {
 
 // sameStateRuns groups consecutive events of the same state, keeping the order in
 // which the states were reached, so a peer that went offline and registered again is
-// reported offline before it is reported online.
+// reported offline before it is reported online. Every registration of a peer is kept
+// in an online run, since each one is a new connection of the peer on the relay.
 func sameStateRuns(events []*event) []stateRun {
 	var runs []stateRun
 	for _, e := range events {
@@ -92,7 +93,7 @@ func sameStateRuns(events []*event) []stateRun {
 			runs = append(runs, stateRun{online: e.online})
 		}
 		run := &runs[len(runs)-1]
-		if !slices.Contains(run.peerIDs, e.peerID) {
+		if e.online || !slices.Contains(run.peerIDs, e.peerID) {
 			run.peerIDs = append(run.peerIDs, e.peerID)
 		}
 	}
