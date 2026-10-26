@@ -78,6 +78,18 @@ func TestWorkerRelayDetectsRemoteRestart(t *testing.T) {
 			want: []bool{false, false, false},
 		},
 		{
+			// An offer of the previous session delivered late must not be taken
+			// for yet another restart and tear down the new session's connection.
+			name: "late offer of a superseded session is ignored",
+			offers: []OfferAnswer{
+				{SessionID: sid("aaaaaaaaaa")},
+				{SessionID: sid("bbbbbbbbbb")},
+				{SessionID: sid("aaaaaaaaaa")},
+				{SessionID: sid("bbbbbbbbbb")},
+			},
+			want: []bool{false, true, false, false},
+		},
+		{
 			// Peers that predate session IDs in relay-only offers send none.
 			name:   "offers without a session are ignored",
 			offers: []OfferAnswer{{SessionID: sid("aaaaaaaaaa")}, {}, {SessionID: sid("aaaaaaaaaa")}},

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -12,6 +13,10 @@ import (
 
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
+
+// maxSupersededSessionIDs bounds how many replaced remote session IDs are kept to
+// recognize late offers of earlier sessions.
+const maxSupersededSessionIDs = 4
 
 type RelayConnInfo struct {
 	relayedConn     *relayClient.Conn
@@ -32,9 +37,11 @@ type WorkerRelay struct {
 
 	relaySupportedOnRemotePeer atomic.Bool
 
-	// remoteSessionID is the session ID of the remote's latest relay-only offer.
-	// Only OnNewOffer touches it, and the offer listener serializes those calls.
-	remoteSessionID ICESessionID
+	// remoteSessionID is the session ID of the remote's latest relay-only offer, and
+	// supersededSessionIDs the most recent ones it replaced. Only OnNewOffer touches
+	// them, and the offer listener serializes those calls.
+	remoteSessionID      ICESessionID
+	supersededSessionIDs []ICESessionID
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
@@ -101,7 +108,8 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 // remoteRestarted records the session ID of a relay-only offer and reports
 // whether it differs from the previous one, which means the remote peer created
-// a new connection. Offers with ICE credentials carry the ICE agent's session,
+// a new connection. A late offer carrying a session ID that was already replaced
+// is ignored. Offers with ICE credentials carry the ICE agent's session,
 // which rotates independently of a restart, and offers from peers that send no
 // session ID are ignored.
 func (w *WorkerRelay) remoteRestarted(remoteOfferAnswer *OfferAnswer) bool {
@@ -109,9 +117,21 @@ func (w *WorkerRelay) remoteRestarted(remoteOfferAnswer *OfferAnswer) bool {
 		return false
 	}
 
+	sid := *remoteOfferAnswer.SessionID
+	if sid == w.remoteSessionID || slices.Contains(w.supersededSessionIDs, sid) {
+		return false
+	}
+
 	prev := w.remoteSessionID
-	w.remoteSessionID = *remoteOfferAnswer.SessionID
-	return prev != "" && prev != w.remoteSessionID
+	w.remoteSessionID = sid
+	if prev == "" {
+		return false
+	}
+	w.supersededSessionIDs = append(w.supersededSessionIDs, prev)
+	if len(w.supersededSessionIDs) > maxSupersededSessionIDs {
+		w.supersededSessionIDs = w.supersededSessionIDs[1:]
+	}
+	return true
 }
 
 // dropRelayedConn tears down the relayed connection kept for the remote's
