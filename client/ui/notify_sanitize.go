@@ -28,12 +28,15 @@ func sanitizeNotification(opts notifications.NotificationOptions) notifications.
 // sanitizeToastText keeps letters, marks, numbers, punctuation and spaces and
 // replaces every other rune with '?'. That excludes the PowerShell expansion
 // characters ($ and the backtick) without having to enumerate them. Line breaks
-// and tabs become spaces so the text stays on one line.
+// and tabs become spaces so the text stays on one line, and the double quote is
+// replaced too so the text cannot contain the here-string terminator ("@).
 func sanitizeToastText(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\r' || r == '\n' || r == '\t':
 			return ' '
+		case r == '"':
+			return '?'
 		case unicode.IsLetter(r), unicode.IsMark(r), unicode.IsNumber(r),
 			unicode.IsPunct(r), unicode.Is(unicode.Zs, r):
 			return r
