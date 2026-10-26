@@ -168,25 +168,9 @@ func findKubernetesClusters(
 				continue
 			}
 			attempted[fqdn] = struct{}{}
-			comps := strings.Split(fqdn, ".")
-			if len(comps) < 2 {
+			kc, ok := probeCluster(ctx, httpClient, fqdn, nameFilter)
+			if !ok {
 				continue
-			}
-			if comps[1] != KubernetesDNSSuffix {
-				continue
-			}
-			if nameFilter != "" && nameFilter != comps[0] {
-				continue
-			}
-			clusterURL, clusterVersion, err := fingerprintClusters(ctx, httpClient, fqdn)
-			if err != nil {
-				log.Debugf("could not fingerprint Kubernetes cluster %s %q", fqdn, err)
-				continue
-			}
-			kc := kubernetesCluster{
-				name:    comps[0],
-				url:     clusterURL,
-				version: clusterVersion,
 			}
 			if nameFilter != "" {
 				return []kubernetesCluster{kc}, nil
@@ -203,6 +187,27 @@ func findKubernetesClusters(
 		return nil, fmt.Errorf("reverse lookup of peers: %w", lookupErr)
 	}
 	return kcs, nil
+}
+
+// probeCluster fingerprints fqdn when it names a netbird-kubeapi-proxy peer matching nameFilter.
+func probeCluster(ctx context.Context, httpClient *http.Client, fqdn, nameFilter string) (kubernetesCluster, bool) {
+	comps := strings.Split(fqdn, ".")
+	if len(comps) < 2 || comps[1] != KubernetesDNSSuffix {
+		return kubernetesCluster{}, false
+	}
+	if nameFilter != "" && nameFilter != comps[0] {
+		return kubernetesCluster{}, false
+	}
+	clusterURL, clusterVersion, err := fingerprintClusters(ctx, httpClient, fqdn)
+	if err != nil {
+		log.Debugf("could not fingerprint Kubernetes cluster %s %q", fqdn, err)
+		return kubernetesCluster{}, false
+	}
+	return kubernetesCluster{
+		name:    comps[0],
+		url:     clusterURL,
+		version: clusterVersion,
+	}, true
 }
 
 func isNotFoundErr(err error) bool {
