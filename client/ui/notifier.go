@@ -74,7 +74,7 @@ func (n *Notifier) SendNotification(options notifications.NotificationOptions) e
 		log.Debugf("notifications disabled, dropping %q", options.ID)
 		return nil
 	}
-	return n.inner.SendNotification(options)
+	return n.inner.SendNotification(sanitizeNotification(options))
 }
 
 func (n *Notifier) SendNotificationWithActions(options notifications.NotificationOptions) error {
@@ -82,7 +82,7 @@ func (n *Notifier) SendNotificationWithActions(options notifications.Notificatio
 		log.Debugf("notifications disabled, dropping %q", options.ID)
 		return nil
 	}
-	return n.inner.SendNotificationWithActions(options)
+	return n.inner.SendNotificationWithActions(sanitizeNotification(options))
 }
 
 func (n *Notifier) RegisterNotificationCategory(category notifications.NotificationCategory) error {
