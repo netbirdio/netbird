@@ -192,6 +192,71 @@ func TestCheckDomainAvailable(t *testing.T) {
 	}
 }
 
+func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty domain", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetServicesByDomain(ctx, store.LockingStrengthUpdate, "").
+			Return(nil, nil)
+
+		mgr := &Manager{}
+		err := mgr.checkDomainAvailable(ctx, mockStore, &rpservice.Service{Mode: rpservice.ModeHTTP}, "")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("empty exclude ID with existing service", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetServicesByDomain(ctx, store.LockingStrengthUpdate, "test.com").
+			Return([]*rpservice.Service{{
+				ID: "some-id", AccountID: "account-1", Domain: "test.com", Mode: rpservice.ModeHTTP,
+			}}, nil)
+
+		mgr := &Manager{}
+		err := mgr.checkDomainAvailable(ctx, mockStore, &rpservice.Service{
+			AccountID: "account-1",
+			Domain:    "test.com",
+			Mode:      rpservice.ModeHTTP,
+		}, "")
+
+		assert.Error(t, err)
+		sErr, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, status.AlreadyExists, sErr.Type())
+	})
+
+	t.Run("nil existing service with nil error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetServicesByDomain(ctx, store.LockingStrengthUpdate, "nil.com").
+			Return(nil, nil)
+
+		mgr := &Manager{}
+		err := mgr.checkDomainAvailable(ctx, mockStore, &rpservice.Service{Domain: "nil.com", Mode: rpservice.ModeHTTP}, "")
+
+		assert.NoError(t, err)
+	})
+}
+
+func networkSerial(t *testing.T, s store.Store, accountID string) uint64 {
+	t.Helper()
+	account, err := s.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	return account.Network.Serial
+}
+
 func TestPersistNewService(t *testing.T) {
 	ctx := context.Background()
 	accountID := "test-account"
@@ -219,6 +284,9 @@ func TestPersistNewService(t *testing.T) {
 					Return(nil, nil)
 				txMock.EXPECT().
 					CreateService(ctx, service).
+					Return(nil)
+				txMock.EXPECT().
+					IncrementNetworkSerial(ctx, accountID).
 					Return(nil)
 
 				return fn(txMock)
@@ -432,6 +500,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
+				txMock.EXPECT().
+					IncrementNetworkSerial(ctx, accountID).
+					Return(nil)
 				return fn(txMock)
 			})
 		mockStore.EXPECT().
@@ -537,6 +608,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
+				txMock.EXPECT().
+					IncrementNetworkSerial(ctx, accountID).
+					Return(nil)
 				return fn(txMock)
 			})
 		mockStore.EXPECT().
@@ -583,6 +657,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 					Return(nil)
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
+					Return(nil)
+				txMock.EXPECT().
+					IncrementNetworkSerial(ctx, accountID).
 					Return(nil)
 				return fn(txMock)
 			})
@@ -646,6 +723,7 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	err = testStore.SaveAccount(ctx, &types.Account{
 		Id:        testAccountID,
 		CreatedBy: testUserID,
+		Network:   types.NewNetwork(),
 		Settings: &types.Settings{
 			PeerExposeEnabled: true,
 			PeerExposeGroups:  []string{testGroupID},
@@ -810,6 +888,7 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		assert.Equal(t, rpservice.SourceEphemeral, persisted.Source, "source should be ephemeral")
 		assert.Equal(t, testPeerID, persisted.SourcePeer, "source peer should be set")
 		assert.NotNil(t, persisted.Meta.LastRenewedAt, "last renewed should be set")
+		assert.Equal(t, uint64(1), networkSerial(t, testStore, testAccountID), "network serial should be incremented")
 	})
 
 	t.Run("creates service with custom domain", func(t *testing.T) {
@@ -1016,8 +1095,10 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.NoError(t, err)
 
+	serial := networkSerial(t, testStore, testAccountID)
 	err = mgr.DeleteService(ctx, testAccountID, testUserID, svc.ID)
 	require.NoError(t, err)
+	assert.Equal(t, serial+1, networkSerial(t, testStore, testAccountID), "network serial should be incremented")
 
 	count, err = mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
 	require.NoError(t, err)
@@ -1032,7 +1113,7 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 
 func TestDeleteAllServices_DeletesEphemeralExposes(t *testing.T) {
 	ctx := context.Background()
-	mgr, _ := setupIntegrationTest(t)
+	mgr, testStore := setupIntegrationTest(t)
 
 	for i := range 3 {
 		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -1046,8 +1127,10 @@ func TestDeleteAllServices_DeletesEphemeralExposes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count, "all ephemeral services should exist")
 
+	serial := networkSerial(t, testStore, testAccountID)
 	err = mgr.DeleteAllServices(ctx, testAccountID, testUserID)
 	require.NoError(t, err)
+	assert.Equal(t, serial+1, networkSerial(t, testStore, testAccountID), "network serial should be incremented")
 
 	count, err = mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
 	require.NoError(t, err)
@@ -1190,8 +1273,10 @@ func TestDeleteExpiredPeerService_DeletesTargets(t *testing.T) {
 	require.Len(t, targets, 1, "ephemeral peer-exposed service should have exactly one persisted target before reaping")
 
 	expireEphemeralService(t, testStore, testAccountID, resp.Domain)
+	serial := networkSerial(t, testStore, testAccountID)
 	err = mgr.deleteExpiredPeerService(ctx, testAccountID, testPeerID, svcID)
 	require.NoError(t, err)
+	assert.Equal(t, serial+1, networkSerial(t, testStore, testAccountID), "network serial should be incremented")
 
 	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.Error(t, err, "expired peer-exposed service should be deleted")
@@ -1220,8 +1305,10 @@ func TestDeleteServiceFromPeer_DeletesTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, targets, 1, "ephemeral peer-exposed service should have exactly one persisted target before stopping")
 
+	serial := networkSerial(t, testStore, testAccountID)
 	err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 	require.NoError(t, err)
+	assert.Equal(t, serial+1, networkSerial(t, testStore, testAccountID), "network serial should be incremented")
 
 	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.Error(t, err, "stopped peer-exposed service should be deleted")
@@ -1487,4 +1574,31 @@ func TestReloadAllServicesForAccount_ContinuesAfterFailedService(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "svc-broken")
 	assert.NotContains(t, err.Error(), "svc-healthy")
+}
+
+func TestServiceWrites_IncrementNetworkSerial(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore, _ := setupL4Test(t, nil)
+
+	created, err := mgr.CreateService(ctx, testAccountID, testUserID, &rpservice.Service{
+		Name: "serial", Domain: "serial.test.netbird.io", Mode: rpservice.ModeHTTP, Enabled: true,
+		Targets: []*rpservice.Target{{
+			AccountID: testAccountID, TargetId: testPeerID,
+			TargetType: rpservice.TargetTypePeer, Protocol: "http", Port: 8080, Enabled: true,
+		}},
+	})
+	require.NoError(t, err)
+	serial := networkSerial(t, testStore, testAccountID)
+	assert.Equal(t, uint64(1), serial, "create should increment the network serial")
+
+	updated := created.Copy()
+	updated.Name = "serial renamed"
+	_, err = mgr.UpdateService(ctx, testAccountID, testUserID, updated)
+	require.NoError(t, err)
+	assert.Equal(t, serial+1, networkSerial(t, testStore, testAccountID), "update should increment the network serial")
+	serial++
+
+	require.NoError(t, mgr.SetStatus(ctx, testAccountID, created.ID, rpservice.StatusActive))
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID))
+	assert.Equal(t, serial, networkSerial(t, testStore, testAccountID), "meta-only writes must not increment the network serial")
 }

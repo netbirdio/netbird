@@ -374,6 +374,10 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 			return fmt.Errorf("create service: %w", err)
 		}
 
+		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		return nil
 	})
 }
@@ -640,6 +644,10 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 			return fmt.Errorf("create service: %w", err)
 		}
 
+		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		return nil
 	})
 }
@@ -895,6 +903,10 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 
 	if err := transaction.UpdateService(ctx, service); err != nil {
 		return fmt.Errorf("update service: %w", err)
+	}
+
+	if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return fmt.Errorf("increment network serial: %w", err)
 	}
 
 	return nil
@@ -1213,6 +1225,10 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 			return fmt.Errorf("failed to delete service: %w", err)
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -1252,6 +1268,12 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 
 			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
 				return fmt.Errorf("failed to delete service: %w", err)
+			}
+		}
+
+		if len(services) > 0 {
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 		}
 
@@ -1615,6 +1637,10 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 			return fmt.Errorf("delete service: %w", err)
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -1667,6 +1693,11 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
 			return fmt.Errorf("delete service: %w", err)
 		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		deleted = true
 
 		return nil

@@ -15,10 +15,10 @@ import (
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv6"
-	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
@@ -36,7 +36,7 @@ type receiverCreator struct {
 	iceBind *ICEBind
 }
 
-func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
+func (rc receiverCreator) CreateReceiverFn(pc wgbackend.BatchReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgbackend.ReceiveFunc {
 	return rc.iceBind.createReceiverFn(pc, conn, rxOffload, msgPool)
 }
 
@@ -48,7 +48,7 @@ func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPC
 // without port, in the format of 127.1.x.x where x.x is the last two octets of the peer address. We try to avoid to
 // use the port because in the Send function the wgConn.Endpoint the port info is not exported.
 type ICEBind struct {
-	*wgConn.StdNetBind
+	*wgbackend.StdNetBind
 
 	transportNet transport.Net
 	address      wgaddr.Address
@@ -74,7 +74,7 @@ type ICEBind struct {
 }
 
 func NewICEBind(transportNet transport.Net, address wgaddr.Address, mtu uint16) *ICEBind {
-	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
+	b, _ := wgbackend.NewStdNetBind().(*wgbackend.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
 		transportNet:     transportNet,
@@ -90,11 +90,11 @@ func NewICEBind(transportNet transport.Net, address wgaddr.Address, mtu uint16) 
 	rc := receiverCreator{
 		ib,
 	}
-	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
+	ib.StdNetBind = wgbackend.NewStdNetBindWithReceiverCreator(rc)
 	return ib
 }
 
-func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
+func (s *ICEBind) Open(uport uint16) ([]wgbackend.ReceiveFunc, uint16, error) {
 	s.closedChanMu.Lock()
 	defer s.closedChanMu.Unlock()
 
@@ -190,7 +190,7 @@ func (b *ICEBind) ReceiveFromEndpoint(ctx context.Context, ep *Endpoint, buf []b
 	}
 }
 
-func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
+func (b *ICEBind) Send(bufs [][]byte, ep wgbackend.Endpoint) error {
 	b.endpointsMu.Lock()
 	conn, ok := b.endpoints[ep.DstIP()]
 	b.endpointsMu.Unlock()
@@ -206,7 +206,7 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	return nil
 }
 
-func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
+func (s *ICEBind) createReceiverFn(pc wgbackend.BatchReader, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgbackend.ReceiveFunc {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
@@ -218,7 +218,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 	}
 	s.createOrUpdateMux()
 
-	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
+	return func(bufs [][]byte, sizes []int, eps []wgbackend.Endpoint) (n int, err error) {
 		msgs := getMessages(msgsPool)
 		for i := range bufs {
 			(*msgs)[i].Buffers[0] = bufs[i]
@@ -229,13 +229,13 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 		var numMsgs int
 		if runtime.GOOS == "linux" || runtime.GOOS == "android" {
 			if rxOffload {
-				readAt := len(*msgs) - (wgConn.IdealBatchSize / wgConn.UdpSegmentMaxDatagrams)
+				readAt := len(*msgs) - (wgbackend.IdealBatchSize / wgbackend.UdpSegmentMaxDatagrams)
 				//nolint:staticcheck
 				_, err = pc.ReadBatch((*msgs)[readAt:], 0)
 				if err != nil {
 					return 0, err
 				}
-				numMsgs, err = wgConn.SplitCoalescedMessages(*msgs, readAt, wgConn.GetGSOSize)
+				numMsgs, err = wgbackend.SplitCoalescedMessages(*msgs, readAt, wgbackend.GetGSOSize)
 				if err != nil {
 					return 0, err
 				}
@@ -278,8 +278,8 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 				s.activityRecorder.record(addrPort)
 			}
 
-			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
-			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
+			ep := &wgbackend.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
+			wgbackend.GetSrcFromControl(msg.OOB[:msg.NN], ep)
 			eps[i] = ep
 		}
 		return numMsgs, nil
@@ -363,7 +363,7 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 
 // receiveRelayed is a receive function that is used to receive packets from the relayed connection and forward to the
 // WireGuard. Critical part is do not block if the Closed() has been called.
-func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
+func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgbackend.Endpoint) (int, error) {
 	closedChan := c.currentClosedChan()
 
 	select {
@@ -375,7 +375,7 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		}
 		copy(buffs[0], msg.Buffer)
 		sizes[0] = len(msg.Buffer)
-		eps[0] = wgConn.Endpoint(msg.Endpoint)
+		eps[0] = wgbackend.Endpoint(msg.Endpoint)
 
 		if isTransportPkg(buffs, sizes[0]) {
 			if ep, ok := eps[0].(*Endpoint); ok {

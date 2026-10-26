@@ -19,20 +19,9 @@ type Validator interface {
 	Validate(any) error
 }
 
-// preparedMsg contains the marshalled success response message
+// preparedMsg contains the marshalled success response message for every supported protocol version
 type preparedMsg struct {
-	responseAuthMsg []byte
-}
-
-func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
-	ram, err := messages.MarshalAuthResponse(instanceURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal auth response msg: %w", err)
-	}
-
-	return &preparedMsg{
-		responseAuthMsg: ram,
-	}, nil
+	responseAuthMsg map[messages.ProtocolVersion][]byte
 }
 
 type handshake struct {
@@ -40,7 +29,35 @@ type handshake struct {
 	validator   Validator
 	preparedMsg *preparedMsg
 
-	peerID *messages.PeerID
+	peerID            *messages.PeerID
+	advertisedVersion messages.ProtocolVersion
+	selectedVersion   messages.ProtocolVersion
+}
+
+func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
+	responses := make(map[messages.ProtocolVersion][]byte, messages.CurrentProtocolVersion)
+	for version := messages.ProtocolV1; ; version++ {
+		ram, err := messages.NewEncoder(version).AuthResponse(instanceURL)
+		if err != nil {
+			return nil, fmt.Errorf("marshal auth response for version %d: %w", version, err)
+		}
+		responses[version] = ram
+		if version == messages.CurrentProtocolVersion {
+			break
+		}
+	}
+
+	return &preparedMsg{
+		responseAuthMsg: responses,
+	}, nil
+}
+
+func (p *preparedMsg) authResponse(version messages.ProtocolVersion) ([]byte, error) {
+	msg, ok := p.responseAuthMsg[version]
+	if !ok {
+		return nil, fmt.Errorf("no prepared auth response for protocol version %d", version)
+	}
+	return msg, nil
 }
 
 func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, error) {
@@ -52,9 +69,9 @@ func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, err
 
 	buf = buf[:n]
 
-	_, err = messages.ValidateVersion(buf)
+	advertised, err := messages.ReadVersion(buf)
 	if err != nil {
-		return nil, fmt.Errorf("validate version from %s: %w", h.conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("read version from %s: %w", h.conn.RemoteAddr(), err)
 	}
 
 	msgType, err := messages.DetermineClientMessageType(buf)
@@ -70,12 +87,20 @@ func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, err
 	if err != nil {
 		return peerID, err
 	}
+
 	h.peerID = peerID
+	h.advertisedVersion = advertised
+	h.selectedVersion = messages.SelectVersion(advertised, messages.CurrentProtocolVersion)
 	return peerID, nil
 }
 
 func (h *handshake) handshakeResponse(ctx context.Context) error {
-	if _, err := h.conn.Write(ctx, h.preparedMsg.responseAuthMsg); err != nil {
+	msg, err := h.preparedMsg.authResponse(h.selectedVersion)
+	if err != nil {
+		return err
+	}
+
+	if _, err := h.conn.Write(ctx, msg); err != nil {
 		return fmt.Errorf("handshake response write to %s (%s): %w", h.peerID, h.conn.RemoteAddr(), err)
 	}
 

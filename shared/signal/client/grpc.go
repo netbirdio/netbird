@@ -299,7 +299,6 @@ func (c *GrpcClient) notifyStreamDisconnected() {
 
 func (c *GrpcClient) notifyStreamConnected() {
 	c.mux.Lock()
-	defer c.mux.Unlock()
 
 	c.status = StreamConnected
 	if c.connectedCh != nil {
@@ -308,8 +307,12 @@ func (c *GrpcClient) notifyStreamConnected() {
 		c.connectedCh = nil
 	}
 
-	if c.onReconnectedListenerFn != nil {
-		c.onReconnectedListenerFn()
+	listener := c.onReconnectedListenerFn
+	c.mux.Unlock()
+
+	// Listeners can hold their own locks while unregistering from this client.
+	if listener != nil {
+		listener()
 	}
 }
 
@@ -409,6 +412,7 @@ func (c *GrpcClient) WaitStreamConnected(ctx context.Context) {
 	}
 }
 
+// SetOnReconnectedListener replaces the listener without waiting for an in-flight callback.
 func (c *GrpcClient) SetOnReconnectedListener(fn func()) {
 	c.mux.Lock()
 	defer c.mux.Unlock()

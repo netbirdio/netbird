@@ -4,7 +4,7 @@ package sdk
 import (
 	"context"
 
-	"github.com/dexidp/dex/storage"
+	"github.com/netbirdio/dex/storage"
 
 	"github.com/netbirdio/netbird/idp/dex"
 )

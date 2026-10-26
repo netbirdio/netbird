@@ -102,11 +102,11 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		createdBy, err := am.Store.GetAccountCreatedBy(ctx, store.LockingStrengthNone, accountID)
+		owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
-		inviterID = createdBy
+		inviterID = owner.Id
 	}
 
 	var idpUser *idp.UserData
@@ -238,9 +238,10 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(userAuth.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
+	if userAuth.LastLogin.After(user.GetLastLogin()) {
+		if err := am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
+		}
 	}
 
 	if newLogin {
@@ -669,6 +670,12 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
 
+	if len(usersToSave) > 0 {
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("increment network serial: %w", err)
+		}
+	}
+
 	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
 	if err != nil {
 		return nil, err
@@ -692,9 +699,6 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return nil, fmt.Errorf("failed to increment network serial: %w", err)
-		}
 		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
@@ -1422,6 +1426,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 		if err = transaction.DeleteUser(ctx, accountID, targetUserInfo.ID); err != nil {
 			return fmt.Errorf("failed to delete user: %s %w", targetUserInfo.ID, err)
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return nil

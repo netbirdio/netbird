@@ -1,7 +1,7 @@
 package peer
 
 import (
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 

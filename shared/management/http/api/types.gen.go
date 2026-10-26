@@ -2939,6 +2939,9 @@ type EDRFalconRequest struct {
 	// Secret CrowdStrike API client secret
 	Secret string `json:"secret"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
 	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
 	ZtaScoreThreshold int `json:"zta_score_threshold"`
 }
@@ -2969,6 +2972,9 @@ type EDRFalconResponse struct {
 	// LastSyncedAt Timestamp of when the integration was last synced.
 	LastSyncedAt time.Time `json:"last_synced_at"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -2995,6 +3001,9 @@ type EDRFleetDMRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRFleetDMResponse Represents a FleetDM EDR integration configuration
@@ -3029,6 +3038,9 @@ type EDRFleetDMResponse struct {
 	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -3052,6 +3064,9 @@ type EDRHuntressRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRHuntressResponse Represents a Huntress EDR integration configuration
@@ -3083,6 +3098,9 @@ type EDRHuntressResponse struct {
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -3103,6 +3121,9 @@ type EDRIntuneRequest struct {
 
 	// Secret The Azure application client secret
 	Secret string `json:"secret"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 
 	// TenantId The Azure tenant id
 	TenantId string `json:"tenant_id"`
@@ -3137,6 +3158,9 @@ type EDRIntuneResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
+
 	// TenantId The Azure tenant id
 	TenantId string `json:"tenant_id"`
 
@@ -3163,6 +3187,9 @@ type EDRSentinelOneRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
+	SyncInterval *int `json:"sync_interval,omitempty"`
 }
 
 // EDRSentinelOneResponse Represents a SentinelOne EDR integration configuration
@@ -3196,6 +3223,9 @@ type EDRSentinelOneResponse struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// SyncInterval How often devices are synced from the integration, in minutes.
+	SyncInterval int `json:"sync_interval"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
 	UpdatedAt time.Time `json:"updated_at"`
@@ -6069,7 +6099,7 @@ type GetApiEventsProxyParams struct {
 	// SortOrder Sort order (ascending or descending)
 	SortOrder *GetApiEventsProxyParamsSortOrder `form:"sort_order,omitempty" json:"sort_order,omitempty"`
 
-	// Search General search across request ID, host, path, source IP, user email, and user name
+	// Search General search across request ID, host, path, and source IP
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
 	// SourceIp Filter by source IP address

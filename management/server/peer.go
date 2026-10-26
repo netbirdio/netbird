@@ -73,7 +73,9 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	peers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
+	return peers, err
 }
 
 // MarkPeerConnected marks a peer as connected with optimistic-locked
@@ -101,7 +103,9 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	updated, err := am.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st store.Store) (bool, error) {
+		return st.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
 		return err
@@ -138,7 +142,29 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	return nil
 }
 
-// schedulePeerExpirations reschedules the account's login/inactivity expiration
+// writePeerStatus runs a peer status write. The connection state of an embedded
+// proxy peer is part of the network map, so for those peers an applied write also
+// increments the account network serial in the same transaction.
+func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func(store.Store) (bool, error)) (bool, error) {
+	if !peer.ProxyMeta.Embedded {
+		return write(am.Store)
+	}
+
+	var updated bool
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		if updated, err = write(transaction); err != nil || !updated {
+			return err
+		}
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+		return nil
+	})
+	return updated, err
+}
+
+// schedulePeerExpirations arms the account's login/inactivity expiration
 // timers for an SSO peer that just connected.
 func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
 	if !peer.AddedWithSSOLogin() {
@@ -152,7 +178,7 @@ func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, ac
 		am.schedulePeerLoginExpiration(ctx, accountID)
 	}
 	if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
-		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		am.schedulePeerInactivityExpiration(ctx, accountID)
 	}
 	return nil
 }
@@ -177,7 +203,9 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		return err
 	}
 
-	updated, err := am.Store.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st store.Store) (bool, error) {
+		return st.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusError)
 		return err
@@ -347,7 +375,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return transaction.SavePeer(ctx, accountID, peer)
@@ -616,7 +644,7 @@ func (am *DefaultAccountManager) deletePeerInTransaction(ctx context.Context, ac
 		}
 
 		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return nil
@@ -954,7 +982,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 			err = transaction.IncrementNetworkSerial(ctx, accountID)
 			if err != nil {
-				return fmt.Errorf("failed to increment network serial: %w", err)
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 
 			if ephemeral {
@@ -1094,6 +1122,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
+			}
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 		}
 		return nil
@@ -1269,6 +1300,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if shouldStorePeer {
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
+			}
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 		}
 

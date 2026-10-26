@@ -229,7 +229,7 @@ func TestValidateDomain_UnlocksClusterDerivation(t *testing.T) {
 	require.Error(t, err)
 
 	env.resolver.set("validation.later.example.com", testCluster)
-	env.manager.ValidateDomain(ctx, accountA, accountAUser, created.ID)
+	require.NoError(t, env.manager.ValidateDomain(ctx, accountA, accountAUser, created.ID))
 
 	require.True(t, storedDomain(t, env.store, accountA, "later.example.com").Validated)
 
@@ -286,7 +286,7 @@ func TestValidateDomain_PermissionDeniedDoesNotValidate(t *testing.T) {
 	// a validated domain is the permission check.
 	env.resolver.set("validation.guarded.example.com", testCluster)
 
-	env.manager.ValidateDomain(ctx, accountA, accountAMember, created.ID)
+	assert.Error(t, env.manager.ValidateDomain(ctx, accountA, accountAMember, created.ID), "a caller without permission must be refused")
 
 	stored := storedDomain(t, env.store, accountA, "guarded.example.com")
 	require.NotNil(t, stored)

@@ -38,6 +38,7 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 	err = testStore.SaveAccount(ctx, &types.Account{
 		Id:        testAccountID,
 		CreatedBy: testUserID,
+		Network:   types.NewNetwork(),
 		Settings: &types.Settings{
 			PeerExposeEnabled: true,
 			PeerExposeGroups:  []string{testGroupID},

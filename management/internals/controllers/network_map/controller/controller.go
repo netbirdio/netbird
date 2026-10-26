@@ -110,7 +110,7 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 	if nmdataStore != nil {
 		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
 		log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
-		c.nmdataBuffer = requestbuffer.New(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
+		c.nmdataBuffer = requestbuffer.NewSerialized(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
 	}
 
 	return c
@@ -933,7 +933,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	}
 
 	// it's possible that the peer gets deleted between the call to "sendInitialSync()" and here, bail out in this case
-	if _, ok := account.Peers[peer.ID]; !ok {
+	if p, _ := account.Peers[peer.ID]; p == nil {
 		return nil, nil, nil, 0, fmt.Errorf("peer '%s' no longer exists", peer.ID)
 	}
 
