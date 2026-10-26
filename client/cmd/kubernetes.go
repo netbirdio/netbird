@@ -154,6 +154,11 @@ func findKubernetesClusters(
 		fqdns, err := lookupAddr(ctx, peer.IP)
 		if err != nil {
 			log.Debugf("reverse lookup of peer %s: %v", peer.IP, err)
+			// Before any success, a timeout or SERVFAIL means the resolver is down; waiting
+			// on each remaining peer would only repeat the timeout.
+			if !resolvedAny && !isNotFoundErr(err) {
+				return nil, fmt.Errorf("reverse lookup of peers: %w", err)
+			}
 			lookupErr = err
 			continue
 		}
@@ -198,6 +203,11 @@ func findKubernetesClusters(
 		return nil, fmt.Errorf("reverse lookup of peers: %w", lookupErr)
 	}
 	return kcs, nil
+}
+
+func isNotFoundErr(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
 }
 
 func fingerprintClusters(ctx context.Context, httpClient *http.Client, fqdn string) (*url.URL, string, error) {

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -87,34 +88,51 @@ func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
 func TestFindKubernetesClustersReportsDeadResolver(t *testing.T) {
 	t.Parallel()
 
-	// No peer resolves, so the resolver itself is the likely problem and must be reported
-	// instead of an empty cluster list.
-	resolverErr := &net.DNSError{Err: "i/o timeout", Name: "1.0.64.100.in-addr.arpa.", IsTimeout: true}
-	failAll := func(context.Context, string) ([]string, error) {
-		return nil, resolverErr
-	}
-	peers := []*proto.PeerState{{IP: "100.64.0.1"}, {IP: "100.64.0.2"}}
+	peers := []*proto.PeerState{{IP: "100.64.0.1"}, {IP: "100.64.0.2"}, {IP: "100.64.0.3"}}
+	timeoutErr := &net.DNSError{Err: "i/o timeout", Name: "1.0.64.100.in-addr.arpa.", IsTimeout: true}
+	notFoundErr := &net.DNSError{Err: "no such host", Name: "1.0.64.100.in-addr.arpa.", IsNotFound: true}
 
+	// A timeout before any peer resolved means the resolver is down: stop at the first
+	// peer instead of waiting out the timeout once per peer.
 	for _, filter := range []string{"", "homelab"} {
-		kcs, err := findKubernetesClusters(t.Context(), http.DefaultClient, failAll, peers, filter)
-		require.ErrorIs(t, err, resolverErr, "filter %q", filter)
-		require.Empty(t, kcs)
+		calls := 0
+		timeoutAll := func(context.Context, string) ([]string, error) {
+			calls++
+			return nil, timeoutErr
+		}
+		kcs, err := findKubernetesClusters(t.Context(), http.DefaultClient, timeoutAll, peers, filter)
+		require.ErrorIs(t, err, timeoutErr, "filter %q", filter)
+		assert.Empty(t, kcs)
+		assert.Equal(t, 1, calls, "scan must stop after the first timeout (filter %q)", filter)
 	}
 
-	// A peer that resolves to a non-cluster name proves the resolver works: no error, no clusters.
-	someResolve := func(_ context.Context, addr string) ([]string, error) {
-		if addr == "100.64.0.2" {
+	// No PTR anywhere is not a resolver outage, so every peer is tried before the
+	// last lookup error is reported instead of an empty cluster list.
+	calls := 0
+	notFoundAll := func(context.Context, string) ([]string, error) {
+		calls++
+		return nil, notFoundErr
+	}
+	kcs, err := findKubernetesClusters(t.Context(), http.DefaultClient, notFoundAll, peers, "")
+	require.ErrorIs(t, err, notFoundErr)
+	assert.Empty(t, kcs)
+	assert.Equal(t, len(peers), calls, "every peer must be tried when lookups only miss")
+
+	// Once one peer resolved the resolver is known to work, so a later timeout is
+	// skipped like any other per-peer failure.
+	resolveThenTimeout := func(_ context.Context, addr string) ([]string, error) {
+		if addr == "100.64.0.1" {
 			return []string{"laptop.netbird.cloud."}, nil
 		}
-		return nil, resolverErr
+		return nil, timeoutErr
 	}
-	kcs, err := findKubernetesClusters(t.Context(), http.DefaultClient, someResolve, peers, "")
+	kcs, err = findKubernetesClusters(t.Context(), http.DefaultClient, resolveThenTimeout, peers, "")
 	require.NoError(t, err)
-	require.Empty(t, kcs)
+	assert.Empty(t, kcs)
 
-	kcs, err = findKubernetesClusters(t.Context(), http.DefaultClient, failAll, nil, "")
+	kcs, err = findKubernetesClusters(t.Context(), http.DefaultClient, notFoundAll, nil, "")
 	require.NoError(t, err, "an empty peer list is not a resolver failure")
-	require.Empty(t, kcs)
+	assert.Empty(t, kcs)
 }
 
 func TestResolveKubeconfigPath(t *testing.T) {
