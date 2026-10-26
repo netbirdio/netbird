@@ -1,6 +1,9 @@
 package server
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // Create a dependency and add it to the BaseServer's container. A string key identifier will be based on its type definition.
 func Create[T any](s Server, createFunc func() T) T {
@@ -33,13 +36,25 @@ func InjectNamed[T any](c Server, name string, thing T) {
 }
 
 func maybeCreate[T any](s Server, createFunc func() T) (result T, isNew bool) {
-	key := fmt.Sprintf("%T", (*T)(nil))[1:]
-	return maybeCreateKeyed(s, key, createFunc)
+	return maybeCreateKeyed(s, typeKey(reflect.TypeFor[T]()), createFunc)
 }
 
 func maybeCreateNamed[T any](s Server, name string, createFunc func() T) (result T, isNew bool) {
-	key := fmt.Sprintf("%T:%s", (*T)(nil), name)[1:]
+	key := fmt.Sprintf("%s:%s", typeKey(reflect.TypeFor[T]()), name)
 	return maybeCreateKeyed(s, key, createFunc)
+}
+
+// typeKey names t by its full package path, so same-named types of different
+// packages, such as google.golang.org/grpc.Server and a local grpc.Server, never
+// share a container key.
+func typeKey(t reflect.Type) string {
+	if t.Kind() == reflect.Pointer {
+		return "*" + typeKey(t.Elem())
+	}
+	if t.PkgPath() == "" {
+		return t.String()
+	}
+	return t.PkgPath() + "." + t.Name()
 }
 
 func maybeCreateKeyed[T any](s Server, key string, createFunc func() T) (result T, isNew bool) {
