@@ -387,8 +387,9 @@ func TestSession_ResizeDuringSFTPDoesNotLeakRequestLoop(t *testing.T) {
 		session, err := client.NewSession()
 		require.NoError(t, err)
 		require.NoError(t, session.RequestPty("xterm", 24, 80, cryptossh.TerminalModes{}))
-		_, err = session.SendRequest("subsystem", true, cryptossh.Marshal(struct{ Name string }{"sftp"}))
+		ok, err := session.SendRequest("subsystem", true, cryptossh.Marshal(struct{ Name string }{"sftp"}))
 		require.NoError(t, err)
+		require.True(t, ok, "the sftp subsystem must be accepted for the resize to matter")
 		// The sftp handler may already have ended the session, so a send can fail.
 		_, _ = session.SendRequest("window-change", false, winch)
 		_, _ = session.SendRequest("window-change", false, winch)

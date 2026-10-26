@@ -136,9 +136,9 @@ const refusedRequestType = "refused@netbird.io"
 //     which the channel is closed
 type requestFilter struct {
 	ch          cryptossh.Channel
-	queue       []queuedRequest
+	queue       []*queuedRequest
 	queuedBytes int
-	lastWinch   *cryptossh.Request
+	lastWinch   *queuedRequest
 	envCount    int
 
 	// commandSeen is set by the first shell, exec or subsystem request, which decides
@@ -148,8 +148,8 @@ type requestFilter struct {
 	started bool
 }
 
-// queuedRequest remembers the payload size counted against the queue when the request
-// was added, as a refusal later drops the payload.
+// queuedRequest remembers the payload size counted against the queue, as a refusal
+// drops the payload and releases that size.
 type queuedRequest struct {
 	req  *cryptossh.Request
 	size int
@@ -193,18 +193,23 @@ func (f *requestFilter) run(in <-chan *cryptossh.Request, out chan<- *cryptossh.
 
 func (f *requestFilter) dropHead() {
 	head := f.queue[0]
-	if head.req == f.lastWinch {
+	if head == f.lastWinch {
 		f.lastWinch = nil
 	}
 	f.queuedBytes -= head.size
-	f.queue[0] = queuedRequest{}
+	f.queue[0] = nil
 	f.queue = f.queue[1:]
 }
 
 // enqueue classifies req and queues it. It returns false after closing the channel
-// because the queue is full.
+// because the queue is full. Requests are classified first so a refused request's
+// dropped payload does not count against the limit.
 func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
-	if len(f.queue) >= maxQueuedRequests || f.queuedBytes+len(req.Payload) > maxQueuedBytes {
+	q := &queuedRequest{req: req}
+	f.classify(q)
+	q.size = len(req.Payload)
+
+	if len(f.queue) >= maxQueuedRequests || f.queuedBytes+q.size > maxQueuedBytes {
 		log.Warnf("SSH session request queue full, closing channel")
 		if f.ch != nil {
 			_ = f.ch.Close()
@@ -212,28 +217,39 @@ func (f *requestFilter) enqueue(req *cryptossh.Request) bool {
 		return false
 	}
 
+	f.queue = append(f.queue, q)
+	f.queuedBytes += q.size
+	return true
+}
+
+func (f *requestFilter) classify(q *queuedRequest) {
+	req := q.req
 	switch req.Type {
 	case "pty-req":
 		if !validPtyReqPayload(req.Payload) {
-			refuseRequest(req)
+			f.refuse(q)
 		}
 	case "env":
 		f.envCount++
 		if f.envCount > maxEnvRequests || len(req.Payload) > maxEnvPayload {
-			refuseRequest(req)
+			f.refuse(q)
 		}
 	case "shell", "exec", "subsystem":
 		f.noteCommand(req.Type)
 	case "window-change":
-		f.coalesceWindowChange(req)
+		f.coalesceWindowChange(q)
 	default:
 		if !loopActsOn(req.Type) {
-			refuseRequest(req)
+			f.refuse(q)
 		}
 	}
-	f.queue = append(f.queue, queuedRequest{req: req, size: len(req.Payload)})
-	f.queuedBytes += len(req.Payload)
-	return true
+}
+
+// refuse drops the payload of q and releases the size it was charged against the queue.
+func (f *requestFilter) refuse(q *queuedRequest) {
+	f.queuedBytes -= q.size
+	q.size = 0
+	refuseRequest(q.req)
 }
 
 func (f *requestFilter) noteCommand(reqType string) {
@@ -244,15 +260,15 @@ func (f *requestFilter) noteCommand(reqType string) {
 	f.started = reqType != "subsystem"
 }
 
-func (f *requestFilter) coalesceWindowChange(req *cryptossh.Request) {
-	if !f.started || !validWinchPayload(req.Payload) {
-		refuseRequest(req)
+func (f *requestFilter) coalesceWindowChange(q *queuedRequest) {
+	if !f.started || !validWinchPayload(q.req.Payload) {
+		f.refuse(q)
 		return
 	}
 	if f.lastWinch != nil {
-		refuseRequest(f.lastWinch)
+		f.refuse(f.lastWinch)
 	}
-	f.lastWinch = req
+	f.lastWinch = q
 }
 
 // validWinchPayload reports whether p parses as a window-change payload whose columns and

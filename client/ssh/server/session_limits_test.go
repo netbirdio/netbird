@@ -145,5 +145,42 @@ func TestDrainWindowChanges_ReleasesBlockedSender(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("drain did not release the blocked sender")
 	}
+
+	// A drain that read one window change and exited would release the first sender but
+	// leave the loop blocked on the next resize.
+	for i := 0; i < 5; i++ {
+		select {
+		case winCh <- ssh.Window{Width: 120, Height: 48}:
+		case <-time.After(2 * time.Second):
+			t.Fatal("drain stopped consuming after the first window change")
+		}
+	}
 	close(winCh)
+}
+
+// A superseded resize keeps its place in the queue so its refusal is answered in order,
+// but must stop counting against the byte limit.
+func TestRequestFilter_CoalescedResizeReleasesQueuedBytes(t *testing.T) {
+	f := &requestFilter{}
+	require.True(t, f.enqueue(&cryptossh.Request{Type: "shell"}))
+	winch := cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 40, 0, 0})
+
+	for i := 0; i < 50; i++ {
+		require.True(t, f.enqueue(&cryptossh.Request{Type: "window-change", Payload: winch}))
+	}
+
+	assert.Equal(t, len(winch), f.queuedBytes, "only the newest resize should be charged")
+}
+
+// A large request the loop ignores is refused and its payload dropped, so it cannot close
+// the channel by pushing the queue over the byte limit.
+func TestRequestFilter_IgnoredLargeRequestDoesNotCloseChannel(t *testing.T) {
+	f := &requestFilter{}
+	for i := 0; i < maxQueuedBytes/len(make([]byte, 32*1024)); i++ {
+		require.True(t, f.enqueue(&cryptossh.Request{Type: "exec", Payload: make([]byte, 32*1024)}))
+	}
+
+	ignored := &cryptossh.Request{Type: "x11-req", Payload: make([]byte, 200*1024)}
+	assert.True(t, f.enqueue(ignored), "an ignored request must be refused rather than close the channel")
+	assert.Equal(t, refusedRequestType, ignored.Type)
 }
