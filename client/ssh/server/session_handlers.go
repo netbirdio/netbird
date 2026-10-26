@@ -53,13 +53,20 @@ func (s *Server) sessionHandler(session ssh.Session) {
 		logger.Infof("SSH session closed after %v", duration)
 	}()
 
+	ptyReq, winCh, isPty := session.Pty()
+	if isPty {
+		// The request loop blocks sending a resize nobody reads, and only sees its request
+		// stream close once that send completes. Covers the paths below that return
+		// without consuming window changes.
+		defer drainWindowChanges(winCh)
+	}
+
 	privilegeResult, err := s.userPrivilegeCheck(session.User())
 	if err != nil {
 		s.handlePrivError(logger, session, err)
 		return
 	}
 
-	ptyReq, winCh, isPty := session.Pty()
 	hasCommand := session.RawCommand() != ""
 
 	if isPty && !hasCommand {
