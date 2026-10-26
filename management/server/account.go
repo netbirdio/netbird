@@ -2059,6 +2059,17 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	return nil
 }
 
+// MarkPeersDisconnected marks the peers of the given sessions disconnected in batched writes,
+// skipping every peer whose stored session differs from the given one.
+func (am *DefaultAccountManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
+	marked, err := am.Store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
+	if err != nil {
+		return fmt.Errorf("mark peers disconnected: %w", err)
+	}
+	log.WithContext(ctx).Infof("marked %d of %d peers as disconnected", marked, len(sessions))
+	return nil
+}
+
 func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) error {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
 	if err != nil {

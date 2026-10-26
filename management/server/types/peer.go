@@ -38,3 +38,10 @@ type PeerLogin struct {
 	// ExtraDNSLabels is a list of extra DNS labels that the peer wants to use
 	ExtraDNSLabels []string
 }
+
+// PeerSession identifies the sync session a peer is currently owned by.
+type PeerSession struct {
+	AccountID        string
+	PeerID           string
+	SessionStartedAt int64
+}

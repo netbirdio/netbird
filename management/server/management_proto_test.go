@@ -17,8 +17,10 @@ import (
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -823,4 +825,79 @@ func testLoginPerformance(t *testing.T, loginCalls []func() error) {
 	}
 	tAvg := tSum / time.Duration(len(durations))
 	t.Logf("Min: %v, Max: %v, Avg: %v", tMin, tMax, tAvg)
+}
+
+type expireOnConnectStore struct {
+	store.Store
+	once sync.Once
+	err  error
+}
+
+func (s *expireOnConnectStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error) {
+	updated, err := s.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peerID, newSessionStartedAt)
+	if err != nil {
+		return updated, err
+	}
+
+	s.once.Do(func() {
+		peer, getErr := s.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if getErr != nil {
+			s.err = getErr
+			return
+		}
+		peer.Status.LoginExpired = true
+		s.err = s.Store.SavePeerStatus(ctx, accountID, peerID, *peer.Status)
+	})
+	return updated, err
+}
+
+func Test_SyncRejectsPeerExpiredWhileConnecting(t *testing.T) {
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Datadir: t.TempDir(),
+	})
+	defer cleanup()
+	require.NoError(t, err)
+	defer mgmtServer.GracefulStop()
+
+	client, clientConn, err := createRawClient(mgmtAddr)
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err)
+
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	decorated := &expireOnConnectStore{Store: am.Store}
+	am.Store = decorated
+
+	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
+		WgPubKey: key.PublicKey().String(),
+		Body:     message,
+	})
+	require.NoError(t, err)
+
+	resp := &mgmtProto.EncryptedMessage{}
+	for err == nil {
+		err = sync.RecvMsg(resp)
+	}
+	require.Equal(t, codes.PermissionDenied, status.Code(err), "sync stream ended with: %v", err)
+	require.NoError(t, decorated.err)
+
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+	require.NoError(t, err)
+	require.True(t, peer.Status.LoginExpired)
+	require.Eventually(t, func() bool {
+		peer, err = am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		return err == nil && !peer.Status.Connected
+	}, 5*time.Second, 50*time.Millisecond)
 }

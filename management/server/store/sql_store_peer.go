@@ -106,7 +106,6 @@ func (s *SqlStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountI
 			"peer_status_connected":          true,
 			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
 			"peer_status_session_started_at": newSessionStartedAt,
-			"peer_status_login_expired":      false,
 		})
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "mark peer connected: %v", result.Error)
@@ -140,6 +139,43 @@ func (s *SqlStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accoun
 		return false, status.Errorf(status.Internal, "mark peer disconnected: %v", result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// markPeersDisconnectedChunkSize bounds the sessions per statement so the
+// bound parameter count stays below the database limits.
+const markPeersDisconnectedChunkSize = 1000
+
+// MarkPeersDisconnectedIfSameSession is the batched form of
+// MarkPeerDisconnectedIfSameSession: one UPDATE per chunk of sessions, each
+// peer guarded by its own (account, peer, session) tuple.
+func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error) {
+	var total int64
+	for start := 0; start < len(sessions); start += markPeersDisconnectedChunkSize {
+		end := min(start+markPeersDisconnectedChunkSize, len(sessions))
+		tuples := make([][]any, 0, end-start)
+		for _, session := range sessions[start:end] {
+			if session.SessionStartedAt == 0 {
+				continue
+			}
+			tuples = append(tuples, []any{session.AccountID, session.PeerID, session.SessionStartedAt})
+		}
+		if len(tuples) == 0 {
+			continue
+		}
+		result := s.db.WithContext(ctx).
+			Model(&nbpeer.Peer{}).
+			Where("(account_id, id, peer_status_session_started_at) IN ?", tuples).
+			Updates(map[string]any{
+				"peer_status_connected":          false,
+				"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
+				"peer_status_session_started_at": int64(0),
+			})
+		if result.Error != nil {
+			return total, status.Errorf(status.Internal, "mark peers disconnected: %v", result.Error)
+		}
+		total += result.RowsAffected
+	}
+	return total, nil
 }
 
 // ApproveAccountPeers marks all peers that currently require approval in the given account as approved.

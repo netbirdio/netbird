@@ -941,3 +941,82 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 		})
 	})
 }
+
+func TestSqlStore_MarkPeersDisconnectedIfSameSession(t *testing.T) {
+	ctx := context.Background()
+	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	sqlStore := store.(*SqlStore)
+
+	sessionOf := map[string]int64{"peer-a": 101, "peer-b": 102, "peer-c": 103, "peer-d": 104}
+	for id, session := range sessionOf {
+		require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+			ID:        id,
+			AccountID: accountID,
+			Key:       "key-" + id,
+			DNSLabel:  id,
+			IP:        netip.AddrFrom4([4]byte{10, 9, 0, byte(session)}),
+			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::9:%d", session)),
+		}))
+		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
+			"peer_status_connected":          true,
+			"peer_status_session_started_at": session,
+		}).Error)
+	}
+
+	sessions := []types.PeerSession{{AccountID: accountID, PeerID: "peer-a", SessionStartedAt: 101}}
+	for i := 0; i < markPeersDisconnectedChunkSize+5; i++ {
+		sessions = append(sessions, types.PeerSession{AccountID: accountID, PeerID: fmt.Sprintf("missing-%d", i), SessionStartedAt: 1})
+	}
+	sessions = append(sessions,
+		types.PeerSession{AccountID: accountID, PeerID: "peer-b", SessionStartedAt: 102},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-c", SessionStartedAt: 103},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-d", SessionStartedAt: 999},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-d", SessionStartedAt: 0},
+	)
+
+	marked, err := store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), marked)
+
+	for id, wantConnected := range map[string]bool{"peer-a": false, "peer-b": false, "peer-c": false, "peer-d": true} {
+		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, id)
+		require.NoError(t, err)
+		assert.Equal(t, wantConnected, peer.Status.Connected, id)
+		wantSession := int64(0)
+		if wantConnected {
+			wantSession = sessionOf[id]
+		}
+		assert.Equal(t, wantSession, peer.Status.SessionStartedAt, id)
+	}
+}
+
+func TestSqlStore_MarkPeerConnectedKeepsLoginExpired(t *testing.T) {
+	ctx := context.Background()
+	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+		ID:        "expired-peer",
+		AccountID: accountID,
+		Key:       "key-expired-peer",
+		DNSLabel:  "expired-peer",
+		IP:        netip.AddrFrom4([4]byte{10, 9, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::9:101"),
+		Status:    &nbpeer.PeerStatus{LoginExpired: true},
+	}))
+
+	updated, err := store.MarkPeerConnectedIfNewerSession(ctx, accountID, "expired-peer", 1)
+	require.NoError(t, err)
+	require.True(t, updated)
+
+	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, "expired-peer")
+	require.NoError(t, err)
+	assert.True(t, peer.Status.Connected)
+	assert.True(t, peer.Status.LoginExpired, "connecting must not clear a login expiry")
+}

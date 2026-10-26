@@ -40,6 +40,8 @@ const (
 	ContainerKeyBaseServer = "baseServer"
 
 	applicationName = "management"
+
+	grpcStopTimeout = 3 * time.Second
 )
 
 type Server interface {
@@ -318,7 +320,9 @@ func (s *BaseServer) Stop() error {
 	if s.certListener != nil {
 		_ = s.certListener.Close()
 	}
-	s.GRPCServer().Stop()
+	s.ManagementGRPCServer().StartDraining()
+	s.stopGRPCServer()
+	s.ManagementGRPCServer().FlushDisconnects(ctx)
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
@@ -344,6 +348,23 @@ func (s *BaseServer) Stop() error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// stopGRPCServer stops the gRPC server, which waits for the stream handlers to finish
+// their teardown, but gives up waiting after grpcStopTimeout so a stuck handler cannot
+// block the shutdown.
+func (s *BaseServer) stopGRPCServer() {
+	stopped := make(chan struct{})
+	go func() {
+		s.GRPCServer().Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(grpcStopTimeout):
+		log.Warnf("gRPC server did not stop within %s, continuing shutdown", grpcStopTimeout)
 	}
 }
 

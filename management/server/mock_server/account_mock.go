@@ -42,6 +42,8 @@ type MockAccountManager struct {
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
+	MarkPeersDisconnectedFunc             func(ctx context.Context, sessions []types.PeerSession) error
+	CheckPeerMaySyncFunc                  func(ctx context.Context, accountID, peerPubKey string) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
@@ -247,6 +249,20 @@ func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID str
 		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP, syncTime)
 	}
 	return nil, nil, nil, 0, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+}
+
+func (am *MockAccountManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
+	if am.MarkPeersDisconnectedFunc != nil {
+		return am.MarkPeersDisconnectedFunc(ctx, sessions)
+	}
+	return nil
+}
+
+func (am *MockAccountManager) CheckPeerMaySync(ctx context.Context, accountID, peerPubKey string) error {
+	if am.CheckPeerMaySyncFunc != nil {
+		return am.CheckPeerMaySyncFunc(ctx, accountID, peerPubKey)
+	}
+	return nil
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
