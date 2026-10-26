@@ -62,7 +62,7 @@ export const ProfileAvatar = forwardRef<HTMLButtonElement, Props>(function Profi
             type={type}
             className={cn(
                 "inline-grid place-items-center rounded-full bg-nb-gray-900 p-0 text-center",
-                "cursor-default outline-none",
+                "cursor-default outline-hidden",
                 "transition-colors duration-150 hover:bg-nb-gray-850",
                 "data-[state=open]:bg-nb-gray-850",
                 className,

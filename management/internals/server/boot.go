@@ -8,12 +8,14 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"time"
 
 	"github.com/gorilla/mux"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/cors"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -44,6 +46,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
@@ -130,6 +133,8 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			s.Config.Datadir,
 			s.IntegratedValidator(),
 			s.SettingsManager(),
+			s.NetworkMapReplicaPool(),
+			s.Metrics().GetMeter(),
 		)
 		// networkmap db store supports postgres and sqlite backends only
 		// for other backends a fallback is used, so NotSupportedStoreEngineError
@@ -138,6 +143,25 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			log.Fatalf("failed to create network map store: %v", err)
 		}
 		return store
+	})
+}
+
+// NetworkMapReplicaPool opens the pgx pool to the Postgres read replica serving
+// network map data reads. It is nil unless the store engine is Postgres and
+// networkmapdbfactory.ReplicaDsnEnv is set.
+func (s *BaseServer) NetworkMapReplicaPool() *pgxpool.Pool {
+	return CreateNamed(s, "NetworkMapReplica", func() *pgxpool.Pool {
+		dsn := os.Getenv(networkmapdbfactory.ReplicaDsnEnv)
+		if dsn == "" || s.Config.StoreConfig.Engine != types.PostgresStoreEngine {
+			return nil
+		}
+		pool, err := db.OpenPgxPool(context.Background(), dsn, db.DefaultPoolConfig)
+		if err != nil {
+			log.Errorf("network map data reads use the primary, connecting to the replica failed: %v", err)
+			return nil
+		}
+		s.OnStop(pool.Close)
+		return pool
 	})
 }
 
@@ -165,7 +189,7 @@ func (s *BaseServer) EventStore() activity.Store {
 func (s *BaseServer) APIHandler() http.Handler {
 	_ = CreateNamed(s, "http_v1api", func() http.Handler {
 		apiv1Router := s.ApiV1Router()
-		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
+		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.PeersManager(), s.NetworkMapController(), s.PermissionsManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -180,7 +204,8 @@ func (s *BaseServer) APIHandler() http.Handler {
 			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
 			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
 			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
-			s.AgentNetworkManager(), nil)
+			s.AgentNetworkManager(), nil,
+		)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -360,14 +385,30 @@ func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
 	})
 }
 
+func (s *BaseServer) AccessLogDBConn() *db.Conn {
+	return CreateNamed(s, "accesslogs", func() *db.Conn {
+		conn, err := accesslogsmanager.OpenConn(context.Background(), s.Config.Datadir, s.DBConn().Engine())
+		if err != nil {
+			log.Fatalf("failed to open access log database connection: %v", err)
+		}
+		s.OnStop(func() {
+			if err := conn.Close(); err != nil {
+				log.Debugf("failed to close access log database connection: %v", err)
+			}
+		})
+		return conn
+	})
+}
+
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
-		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.DBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.AccessLogDBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
 		accessLogManager.StartPeriodicCleanup(
 			context.Background(),
 			s.Config.ReverseProxy.AccessLogRetentionDays,
 			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
 		)
+		s.OnStop(accessLogManager.StopPeriodicCleanup)
 		return accessLogManager
 	})
 }

@@ -148,7 +148,7 @@ export const Peers = () => {
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
                         className={cn(
-                            "flex touch-none select-none transition-colors",
+                            "flex touch-none transition-colors select-none",
                             "w-1.5 bg-transparent py-1",
                         )}
                     >
@@ -280,7 +280,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
     return (
         <div
             className={cn(
-                "group relative flex min-w-0 items-start gap-2.5 py-3 pe-4 ps-6",
+                "group relative flex min-w-0 items-start gap-2.5 py-3 ps-6 pe-4",
                 "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
@@ -293,8 +293,8 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
                 onClick={() => onSelect(peer)}
                 onKeyDown={handleKey}
                 className={cn(
-                    "absolute inset-0 cursor-default outline-none",
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
+                    "absolute inset-0 cursor-default outline-hidden",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
                 )}
             />
             <Tooltip content={statusLabel} side={"left"}>

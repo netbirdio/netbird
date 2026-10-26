@@ -71,6 +71,7 @@ type ServerConfig struct {
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
+	AccessLogStore          StoreConfig        `yaml:"accessLogStore"`
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 
@@ -190,7 +191,7 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
-	DSN           string `yaml:"dsn"`  // Connection string for postgres or mysql engines
+	DSN           string `yaml:"dsn"`  // Connection string for the postgres engine
 	File          string `yaml:"file"` // SQLite database file path (optional, defaults to dataDir)
 }
 

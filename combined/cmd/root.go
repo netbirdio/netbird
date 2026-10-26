@@ -26,6 +26,7 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -127,13 +128,8 @@ func execute(cmd *cobra.Command, _ []string) error {
 
 // initializeConfig loads and validates the configuration, then initializes logging.
 func applyServerStoreEnv(storeConfig StoreConfig) {
-	if dsn := storeConfig.DSN; dsn != "" {
-		switch strings.ToLower(storeConfig.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
+	if dsn := storeConfig.DSN; dsn != "" && strings.EqualFold(storeConfig.Engine, "postgres") {
+		os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
 	}
 	if file := storeConfig.File; file != "" {
 		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
@@ -157,6 +153,20 @@ func applyActivityStoreEnv(storeConfig StoreConfig) error {
 	return nil
 }
 
+// applyAccessLogStoreEnv leaves unset fields to follow the main store, so a
+// postgres engine without a DSN reuses the main store DSN.
+func applyAccessLogStoreEnv(storeConfig StoreConfig) {
+	if engine := storeConfig.Engine; engine != "" {
+		os.Setenv(accesslogsmanager.StoreEngineEnv, strings.ToLower(engine))
+	}
+	if dsn := storeConfig.DSN; dsn != "" {
+		os.Setenv(accesslogsmanager.PostgresDSNEnv, dsn)
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv(accesslogsmanager.SqliteFileEnv, file)
+	}
+}
+
 func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
@@ -177,6 +187,7 @@ func initializeConfig() error {
 	if err := applyActivityStoreEnv(config.Server.ActivityStore); err != nil {
 		return err
 	}
+	applyAccessLogStoreEnv(config.Server.AccessLogStore)
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
@@ -758,7 +769,7 @@ func logAgentNetworkConfig(cfg *CombinedConfig) {
 
 // logEnvVars logs all NB_ environment variables that are currently set
 func logEnvVars() {
-	log.Info("=== Environment Variables ===")
+	log.Debug("=== Environment Variables ===")
 	found := false
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, "NB_") {
@@ -770,14 +781,14 @@ func logEnvVars() {
 			} else if strings.Contains(keyLower, "dsn") {
 				value = maskDSNPassword(value)
 			}
-			log.Infof("  %s=%s", key, value)
+			log.Debugf("  %s=%s", key, value)
 			found = true
 		}
 	}
 	if !found {
-		log.Info("  (none set)")
+		log.Debug("  (none set)")
 	}
-	log.Info("=== End Environment Variables ===")
+	log.Debug("=== End Environment Variables ===")
 }
 
 // maskDSNPassword masks the password in a DSN string.

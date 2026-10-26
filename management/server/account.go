@@ -152,7 +152,6 @@ func (am *DefaultAccountManager) runAccountDeletionHooks(ctx context.Context, ac
 func isUniqueConstraintError(err error) bool {
 	switch {
 	case strings.Contains(err.Error(), "(SQLSTATE 23505)"),
-		strings.Contains(err.Error(), "Error 1062 (23000)"),
 		strings.Contains(err.Error(), "UNIQUE constraint failed"):
 		return true
 
@@ -298,6 +297,9 @@ func BuildManager(
 
 	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string, peerIDs []string) {
 		am.onPeersInvalidated(ctx, accountID, peerIDs)
+	})
+	am.integratedPeerValidator.SetPeerValidationChangeListener(func(accountID string, peerIDs []string) {
+		am.onPeerValidationChanged(ctx, accountID, peerIDs)
 	})
 
 	// Started last: a manager that fails to build is never returned, so nothing would
@@ -804,6 +806,21 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
 		go am.peerLoginExpiry.Schedule(jobCtx, nextRun, accountID, am.peerLoginExpirationJob(jobCtx, accountID))
+	}
+}
+
+// schedulePeerInactivityExpiration arms the account's inactivity expiration job for a
+// connecting peer unless one is already scheduled: a connected peer cannot expire, so it
+// never moves the scheduled run earlier. Disconnects must not skip a running job, which may
+// be finishing its last run without seeing the newly disconnected peer.
+func (am *DefaultAccountManager) schedulePeerInactivityExpiration(ctx context.Context, accountID string) {
+	if am.peerInactivityExpiry.IsSchedulerRunning(accountID) {
+		log.WithContext(ctx).Tracef("peer inactivity expiration job for account %s is already scheduled", accountID)
+		return
+	}
+	jobCtx := context.WithoutCancel(ctx)
+	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
+		go am.peerInactivityExpiry.Schedule(jobCtx, nextRun, accountID, am.peerInactivityExpirationJob(jobCtx, accountID))
 	}
 }
 
@@ -1808,10 +1825,10 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 			}
 			change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
+		}
 
-			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
-				return fmt.Errorf("error incrementing network serial: %w", err)
-			}
+		if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
+			return fmt.Errorf("error incrementing network serial: %w", err)
 		}
 
 		if snap, err = affectedpeers.Load(ctx, transaction, userAuth.AccountId, change); err != nil {
@@ -2086,6 +2103,22 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 		log.WithContext(ctx).Debugf("running invalidation with no invalid peers")
 	}
 	log.WithContext(ctx).Debugf("invalidated peers have been expired for account %s", accountID)
+}
+
+// onPeerValidationChanged pushes fresh network maps to peers whose validation state
+// changed in the background, and to the peers that can reach them.
+func (am *DefaultAccountManager) onPeerValidationChanged(ctx context.Context, accountID string, peerIDs []string) {
+	if len(peerIDs) == 0 {
+		return
+	}
+	affected := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
+	if len(affected) == 0 {
+		// Resolution failed or found nothing; the changed peers' own maps still differ.
+		affected = peerIDs
+	}
+	if err := am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs, affected); err != nil {
+		log.WithContext(ctx).Errorf("failed to update peers after validation change for account %s: %v", accountID, err)
+	}
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
@@ -2811,6 +2844,10 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 		return fmt.Errorf("save peer: %w", err)
 	}
 
+	if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return fmt.Errorf("increment network serial: %w", err)
+	}
+
 	eventMeta["old_ip"] = oldIP
 	eventMeta["ip"] = newIP.String()
 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
@@ -2851,7 +2888,8 @@ func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, 
 
 // updatePeerIPv6InTransaction validates and applies an IPv6 address change within a store transaction.
 func (am *DefaultAccountManager) updatePeerIPv6InTransaction(ctx context.Context, transaction store.Store, accountID, peerID string, newIPv6 netip.Addr) (bool, error) {
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	// Locked for update because the serial increment below writes the same row.
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthUpdate, accountID)
 	if err != nil {
 		return false, fmt.Errorf("get network: %w", err)
 	}
@@ -2893,6 +2931,10 @@ func (am *DefaultAccountManager) updatePeerIPv6InTransaction(ctx context.Context
 	peer.IPv6 = newIPv6
 	if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
 		return false, fmt.Errorf("save peer: %w", err)
+	}
+
+	if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return false, fmt.Errorf("increment network serial: %w", err)
 	}
 
 	return true, nil

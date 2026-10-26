@@ -78,8 +78,8 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return nil, status.Errorf(status.NotFound, "unknown group name")
 			},
-			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
-				return maps.Values(TestPeers), nil
+			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error) {
+				return maps.Values(TestPeers), len(maps.Values(TestPeers)), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
 				if groupID == "linked-grp" {

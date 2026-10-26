@@ -47,13 +47,14 @@ func TestPreferences_ReadUncommitedValues(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	p := NewPreferences(cfgFile, stateFile)
 
+	// The admin URL is deprecated: setting it is a no-op.
 	p.SetAdminURL(exampleString)
 	resp, err := p.GetAdminURL()
 	if err != nil {
 		t.Fatalf("failed to read admin url: %s", err)
 	}
 
-	if resp != exampleString {
+	if resp != profilemanager.DefaultAdminURL {
 		t.Errorf("unexpected admin url: %s", resp)
 	}
 
@@ -100,7 +101,7 @@ func TestPreferences_Commit(t *testing.T) {
 		t.Fatalf("failed to read admin url: %s", err)
 	}
 
-	if resp != exampleURL {
+	if resp != profilemanager.DefaultAdminURL {
 		t.Errorf("unexpected admin url: %s", resp)
 	}
 
