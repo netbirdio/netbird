@@ -191,11 +191,14 @@ type DefaultServer struct {
 	// See refreshHealth for the lock-order rationale.
 	healthRefresh chan struct{}
 
-	// cacheFlushMu guards lastCacheFlush.
+	// cacheFlushMu guards lastCacheFlush and cacheFlushPending.
 	cacheFlushMu sync.Mutex
-	// lastCacheFlush is when the host DNS cache was last flushed by the
-	// health projection; used to coalesce bursts of recoveries.
+	// lastCacheFlush is the last successful host DNS cache flush, used to coalesce recoveries.
 	lastCacheFlush time.Time
+	// cacheFlushPending is set while a flush is scheduled but has not run yet.
+	cacheFlushPending bool
+	// cacheFlushCoalesce is the coalescing window, set at construction and mutated only by tests.
+	cacheFlushCoalesce time.Duration
 }
 
 type handlerWithStop interface {
@@ -313,6 +316,7 @@ func newDefaultServer(
 		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
 	}
+	defaultServer.cacheFlushCoalesce = hostCacheFlushCoalesce
 	// Wire the local resolver against the peer status recorder so it can
 	// suppress A/AAAA answers that point at disconnected peers (typical
 	// case: synthesised private-service records pointing at an embedded
@@ -1163,27 +1167,37 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 // flushHostDNSCache drops answers the OS cached while the group was down.
 func (s *DefaultServer) flushHostDNSCache() {
 	s.cacheFlushMu.Lock()
-	if !s.lastCacheFlush.IsZero() && time.Since(s.lastCacheFlush) < hostCacheFlushCoalesce {
-		s.cacheFlushMu.Unlock()
+	defer s.cacheFlushMu.Unlock()
+	if s.cacheFlushPending {
 		return
 	}
-	s.lastCacheFlush = time.Now()
+	s.cacheFlushPending = true
+	// Recoveries inside the window flush once it ends.
+	delay := time.Until(s.lastCacheFlush.Add(s.cacheFlushCoalesce))
+	time.AfterFunc(max(delay, 0), s.runHostDNSCacheFlush)
+}
+
+// runHostDNSCacheFlush holds s.mux so it can't overlap DNS config changes sharing D-Bus.
+func (s *DefaultServer) runHostDNSCacheFlush() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.cacheFlushMu.Lock()
+	s.cacheFlushPending = false
 	s.cacheFlushMu.Unlock()
 
-	// Off the projection path, because Stop takes healthProjectMu while holding s.mux.
-	go func() {
-		s.mux.Lock()
-		hm := s.hostManager
-		s.mux.Unlock()
+	flusher, ok := s.hostManager.(interface{ flushDNSCache() error })
+	if !ok {
+		return
+	}
+	if err := flusher.flushDNSCache(); err != nil {
+		log.Warnf("failed to flush host DNS cache after upstream recovery: %v", err)
+		return
+	}
 
-		flusher, ok := hm.(interface{ flushDNSCache() error })
-		if !ok {
-			return
-		}
-		if err := flusher.flushDNSCache(); err != nil {
-			log.Warnf("failed to flush host DNS cache after upstream recovery: %v", err)
-		}
-	}()
+	s.cacheFlushMu.Lock()
+	s.lastCacheFlush = time.Now()
+	s.cacheFlushMu.Unlock()
 }
 
 // projectUnhealthy records an unhealthy tick on p, publishes the

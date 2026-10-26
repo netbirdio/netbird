@@ -2,11 +2,13 @@ package dns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2394,20 +2396,46 @@ func TestDNSLoopPrevention(t *testing.T) {
 // flushCountingHostManager reports each host cache flush on flushes.
 type flushCountingHostManager struct {
 	noopHostConfigurator
-	flushes chan struct{}
+	flushes  chan struct{}
+	failNext atomic.Bool
+	server   *DefaultServer
+	// lockHeld reports, per flush, whether server.mux was held while flushing.
+	lockHeld chan bool
 }
 
 func (m *flushCountingHostManager) flushDNSCache() error {
+	held := !m.server.mux.TryLock()
+	if !held {
+		m.server.mux.Unlock()
+	}
+	m.lockHeld <- held
 	m.flushes <- struct{}{}
+	if m.failNext.Swap(false) {
+		return errors.New("flush failed")
+	}
 	return nil
 }
 
 func (f *projTestFixture) withFlushingHostManager() *flushCountingHostManager {
-	m := &flushCountingHostManager{flushes: make(chan struct{}, 10)}
+	m := &flushCountingHostManager{
+		flushes:  make(chan struct{}, 10),
+		server:   f.server,
+		lockHeld: make(chan bool, 10),
+	}
 	f.server.mux.Lock()
 	f.server.hostManager = m
 	f.server.mux.Unlock()
 	return m
+}
+
+func (f *projTestFixture) failAndRecover() {
+	f.t.Helper()
+	f.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	f.tick()
+	f.expectEvent("unreachable", "warning")
+	f.setHealth(UpstreamHealth{LastOk: time.Now()})
+	f.tick()
+	f.expectEvent("recovered", "recovery")
 }
 
 func (m *flushCountingHostManager) expectFlush(t *testing.T, why string) {
@@ -2471,32 +2499,48 @@ func TestProjection_RecoveryDuringGraceFlushesHostDNSCache(t *testing.T) {
 	hm.expectFlush(t, "recovery within grace")
 }
 
-// TestProjection_HostDNSCacheFlushCoalesced skips flushes within hostCacheFlushCoalesce.
+// TestProjection_HostDNSCacheFlushCoalesced turns recoveries inside the window into one trailing flush.
 func TestProjection_HostDNSCacheFlushCoalesced(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.server.cacheFlushCoalesce = 300 * time.Millisecond
+	hm := fx.withFlushingHostManager()
+
+	fx.failAndRecover()
+	hm.expectFlush(t, "first recovery")
+
+	fx.failAndRecover()
+	fx.failAndRecover()
+	hm.expectNoFlush(t, "recoveries inside the window wait for it to end")
+	hm.expectFlush(t, "trailing flush when the window ends")
+	hm.expectNoFlush(t, "one trailing flush for the whole burst")
+}
+
+// TestProjection_FailedFlushDoesNotDelayNextFlush only lets successful flushes open the window.
+func TestProjection_FailedFlushDoesNotDelayNextFlush(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.server.cacheFlushCoalesce = time.Hour
+	hm := fx.withFlushingHostManager()
+	hm.failNext.Store(true)
+
+	fx.failAndRecover()
+	hm.expectFlush(t, "first recovery attempts a flush, which fails")
+
+	fx.failAndRecover()
+	hm.expectFlush(t, "next recovery retries without waiting for the window")
+}
+
+// TestProjection_FlushHoldsServerLock keeps flushes from overlapping DNS config changes.
+func TestProjection_FlushHoldsServerLock(t *testing.T) {
 	fx := newProjTestFixture(t)
 	hm := fx.withFlushingHostManager()
 
-	failAndRecover := func() {
-		fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
-		fx.tick()
-		fx.expectEvent("unreachable", "warning")
-		fx.setHealth(UpstreamHealth{LastOk: time.Now()})
-		fx.tick()
-		fx.expectEvent("recovered", "recovery")
+	fx.failAndRecover()
+	select {
+	case held := <-hm.lockHeld:
+		assert.True(t, held, "s.mux must be held while flushing")
+	case <-time.After(time.Second):
+		t.Fatal("expected a host DNS cache flush")
 	}
-
-	failAndRecover()
-	hm.expectFlush(t, "first recovery")
-
-	failAndRecover()
-	hm.expectNoFlush(t, "second recovery within the coalesce window")
-
-	fx.server.cacheFlushMu.Lock()
-	fx.server.lastCacheFlush = time.Now().Add(-hostCacheFlushCoalesce)
-	fx.server.cacheFlushMu.Unlock()
-
-	failAndRecover()
-	hm.expectFlush(t, "recovery after the coalesce window")
 }
 
 // TestProjection_RecoveryFlushDoesNotTakeServerLock guards the lock order Stop relies on.
