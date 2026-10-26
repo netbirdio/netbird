@@ -18,6 +18,15 @@ import (
 // recognize late offers of earlier sessions.
 const maxSupersededSessionIDs = 4
 
+// remoteSessionState classifies a remote offer against the sessions seen before.
+type remoteSessionState int
+
+const (
+	remoteSessionCurrent remoteSessionState = iota
+	remoteSessionSuperseded
+	remoteSessionRestarted
+)
+
 type RelayConnInfo struct {
 	relayedConn     *relayClient.Conn
 	rosenpassPubKey []byte
@@ -64,12 +73,11 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 	w.relaySupportedOnRemotePeer.Store(true)
 
-	if w.isSupersededSession(remoteOfferAnswer) {
+	switch w.trackRemoteSession(remoteOfferAnswer) {
+	case remoteSessionSuperseded:
 		w.log.Debugf("ignoring a late offer of a superseded remote session")
 		return
-	}
-
-	if w.remoteRestarted(remoteOfferAnswer) {
+	case remoteSessionRestarted:
 		w.log.Infof("remote peer started a new session, dropping the relayed connection of its previous one")
 		w.dropRelayedConn()
 	}
@@ -111,41 +119,49 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	})
 }
 
-// isSupersededSession reports whether a relay-only offer belongs to a remote session
-// that was already replaced by a newer one.
-func (w *WorkerRelay) isSupersededSession(remoteOfferAnswer *OfferAnswer) bool {
-	if remoteOfferAnswer.hasICECredentials() || remoteOfferAnswer.SessionID == nil {
-		return false
+// trackRemoteSession records the session of a remote offer and classifies it. Relay-only
+// offers carry an ID that is fixed for the remote's connection, so a new ID means the
+// remote created a new connection, and an ID that was already replaced belongs to a
+// late offer. A peer only sends relay-only offers once it learned that this side has
+// no ICE, and only a new connection starts with ICE offers again, so an offer with ICE
+// credentials after relay-only ones also means a new connection. The ICE session ID
+// itself rotates with the ICE agent and is not tracked. Offers from peers that send
+// no session ID are never classified as a restart.
+func (w *WorkerRelay) trackRemoteSession(remoteOfferAnswer *OfferAnswer) remoteSessionState {
+	if remoteOfferAnswer.hasICECredentials() {
+		if w.remoteSessionID == "" {
+			return remoteSessionCurrent
+		}
+		w.supersedeRemoteSession("")
+		return remoteSessionRestarted
 	}
-	return slices.Contains(w.supersededSessionIDs, *remoteOfferAnswer.SessionID)
-}
-
-// remoteRestarted records the session ID of a relay-only offer and reports
-// whether it differs from the previous one, which means the remote peer created
-// a new connection. A late offer carrying a session ID that was already replaced
-// is ignored. Offers with ICE credentials carry the ICE agent's session,
-// which rotates independently of a restart, and offers from peers that send no
-// session ID are ignored.
-func (w *WorkerRelay) remoteRestarted(remoteOfferAnswer *OfferAnswer) bool {
-	if remoteOfferAnswer.hasICECredentials() || remoteOfferAnswer.SessionID == nil {
-		return false
+	if remoteOfferAnswer.SessionID == nil {
+		return remoteSessionCurrent
 	}
 
 	sid := *remoteOfferAnswer.SessionID
-	if sid == w.remoteSessionID || slices.Contains(w.supersededSessionIDs, sid) {
-		return false
+	switch {
+	case slices.Contains(w.supersededSessionIDs, sid):
+		return remoteSessionSuperseded
+	case sid == w.remoteSessionID:
+		return remoteSessionCurrent
+	case w.remoteSessionID == "":
+		w.remoteSessionID = sid
+		return remoteSessionCurrent
+	default:
+		w.supersedeRemoteSession(sid)
+		return remoteSessionRestarted
 	}
+}
 
-	prev := w.remoteSessionID
-	w.remoteSessionID = sid
-	if prev == "" {
-		return false
-	}
-	w.supersededSessionIDs = append(w.supersededSessionIDs, prev)
+// supersedeRemoteSession replaces the tracked remote session with next and keeps the
+// replaced ID to recognize late offers of it.
+func (w *WorkerRelay) supersedeRemoteSession(next ICESessionID) {
+	w.supersededSessionIDs = append(w.supersededSessionIDs, w.remoteSessionID)
 	if len(w.supersededSessionIDs) > maxSupersededSessionIDs {
 		w.supersededSessionIDs = w.supersededSessionIDs[1:]
 	}
-	return true
+	w.remoteSessionID = next
 }
 
 // dropRelayedConn tears down the relayed connection kept for the remote's

@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"fmt"
 	"testing"
 
 	log "github.com/sirupsen/logrus"
@@ -39,7 +40,7 @@ func TestHandshakerRelayOnlyOfferCarriesSessionID(t *testing.T) {
 	assert.NotEqual(t, *first.SessionID, *restarted.SessionID, "a new connection must use a new session ID")
 }
 
-func TestWorkerRelayDetectsRemoteRestart(t *testing.T) {
+func TestWorkerRelayTracksRemoteSession(t *testing.T) {
 	sid := func(s string) *ICESessionID {
 		id := ICESessionID(s)
 		return &id
@@ -49,33 +50,48 @@ func TestWorkerRelayDetectsRemoteRestart(t *testing.T) {
 	tests := []struct {
 		name   string
 		offers []OfferAnswer
-		want   []bool
+		want   []remoteSessionState
 	}{
 		{
 			name:   "first offer is not a restart",
 			offers: []OfferAnswer{{SessionID: sid("aaaaaaaaaa")}},
-			want:   []bool{false},
+			want:   []remoteSessionState{remoteSessionCurrent},
 		},
 		{
 			name:   "repeated session is not a restart",
 			offers: []OfferAnswer{{SessionID: sid("aaaaaaaaaa")}, {SessionID: sid("aaaaaaaaaa")}},
-			want:   []bool{false, false},
+			want:   []remoteSessionState{remoteSessionCurrent, remoteSessionCurrent},
 		},
 		{
 			name:   "new session is a restart",
 			offers: []OfferAnswer{{SessionID: sid("aaaaaaaaaa")}, {SessionID: sid("bbbbbbbbbb")}},
-			want:   []bool{false, true},
+			want:   []remoteSessionState{remoteSessionCurrent, remoteSessionRestarted},
 		},
 		{
-			// ICE session IDs rotate with the ICE agent, not with the peer, so they
-			// say nothing about a restart and must not reset the tracked session.
-			name: "ICE offers are ignored",
+			// ICE session IDs rotate with the ICE agent, not with the peer, so ICE
+			// offers alone say nothing about a restart.
+			name: "ICE offers before any relay-only offer are not a restart",
+			offers: []OfferAnswer{
+				{SessionID: sid("cccccccccc"), IceCredentials: iceCreds},
+				{SessionID: sid("dddddddddd"), IceCredentials: iceCreds},
+				{SessionID: sid("aaaaaaaaaa")},
+			},
+			want: []remoteSessionState{remoteSessionCurrent, remoteSessionCurrent, remoteSessionCurrent},
+		},
+		{
+			// A peer with ICE starts every connection with ICE offers and switches to
+			// relay-only offers once it learns this side has no ICE. An ICE offer after
+			// relay-only ones therefore comes from a new connection, and the relay-only
+			// offers it sends later must not be taken for one more restart.
+			name: "ICE offer after relay-only offers is a restart",
 			offers: []OfferAnswer{
 				{SessionID: sid("aaaaaaaaaa")},
 				{SessionID: sid("cccccccccc"), IceCredentials: iceCreds},
 				{SessionID: sid("aaaaaaaaaa")},
+				{SessionID: sid("bbbbbbbbbb")},
+				{SessionID: sid("bbbbbbbbbb")},
 			},
-			want: []bool{false, false, false},
+			want: []remoteSessionState{remoteSessionCurrent, remoteSessionRestarted, remoteSessionSuperseded, remoteSessionCurrent, remoteSessionCurrent},
 		},
 		{
 			// An offer of the previous session delivered late must not be taken
@@ -87,13 +103,13 @@ func TestWorkerRelayDetectsRemoteRestart(t *testing.T) {
 				{SessionID: sid("aaaaaaaaaa")},
 				{SessionID: sid("bbbbbbbbbb")},
 			},
-			want: []bool{false, true, false, false},
+			want: []remoteSessionState{remoteSessionCurrent, remoteSessionRestarted, remoteSessionSuperseded, remoteSessionCurrent},
 		},
 		{
 			// Peers that predate session IDs in relay-only offers send none.
 			name:   "offers without a session are ignored",
 			offers: []OfferAnswer{{SessionID: sid("aaaaaaaaaa")}, {}, {SessionID: sid("aaaaaaaaaa")}},
-			want:   []bool{false, false, false},
+			want:   []remoteSessionState{remoteSessionCurrent, remoteSessionCurrent, remoteSessionCurrent},
 		},
 	}
 
@@ -101,26 +117,21 @@ func TestWorkerRelayDetectsRemoteRestart(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := &WorkerRelay{}
 			for i := range tc.offers {
-				assert.Equal(t, tc.want[i], w.remoteRestarted(&tc.offers[i]), "offer %d", i)
+				assert.Equal(t, tc.want[i], w.trackRemoteSession(&tc.offers[i]), "offer %d", i)
 			}
 		})
 	}
 }
 
-// A late offer of a replaced session must not reach relay selection, where it could
-// open a connection through the relay of the previous session.
-func TestWorkerRelayIgnoresSupersededSessionOffers(t *testing.T) {
-	sid := func(s string) *ICESessionID {
-		id := ICESessionID(s)
-		return &id
-	}
+// Only the most recent replaced sessions are remembered, so the history stays bounded.
+func TestWorkerRelaySupersededSessionHistoryIsBounded(t *testing.T) {
 	w := &WorkerRelay{}
-	require.False(t, w.remoteRestarted(&OfferAnswer{SessionID: sid("aaaaaaaaaa")}))
-	require.True(t, w.remoteRestarted(&OfferAnswer{SessionID: sid("bbbbbbbbbb")}))
+	for i := 0; i <= maxSupersededSessionIDs+1; i++ {
+		id := ICESessionID(fmt.Sprintf("session-%02d", i))
+		w.trackRemoteSession(&OfferAnswer{SessionID: &id})
+	}
 
-	assert.True(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("aaaaaaaaaa")}), "replaced session")
-	assert.False(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("bbbbbbbbbb")}), "current session")
-	assert.False(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("cccccccccc")}), "unknown session")
-	assert.False(t, w.isSupersededSession(&OfferAnswer{}), "offer without a session")
-	assert.False(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("aaaaaaaaaa"), IceCredentials: IceCredentials{UFrag: "u", Pwd: "p"}}), "ICE offer")
+	assert.Len(t, w.supersededSessionIDs, maxSupersededSessionIDs, "superseded history size")
+	oldest := ICESessionID("session-00")
+	assert.Equal(t, remoteSessionRestarted, w.trackRemoteSession(&OfferAnswer{SessionID: &oldest}), "a session older than the history is not recognized")
 }
