@@ -65,10 +65,11 @@ func freeAddress(t *testing.T) string {
 // getHealth retries until the health check server is listening.
 func getHealth(t *testing.T, url string) *http.Response {
 	t.Helper()
+	client := &http.Client{Timeout: time.Second}
 	var resp *http.Response
 	require.Eventually(t, func() bool {
 		var err error
-		resp, err = http.Get(url)
+		resp, err = client.Get(url)
 		return err == nil
 	}, 5*time.Second, 50*time.Millisecond)
 	return resp
