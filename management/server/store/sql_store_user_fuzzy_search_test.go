@@ -83,7 +83,7 @@ func TestSqlStore_SearchUsers(t *testing.T) {
 					b.add([]byte(trigram))
 				}
 
-				users, err := store.GetAccountUsersPaginated(context.Background(), LockingStrengthNone, "account-1", tt.pattern)
+				users, _, err := store.GetAccountUsersPaginated(context.Background(), LockingStrengthNone, "account-1", PaginationState{}, UserFilters{Name: tt.pattern}, UserSorting{})
 				require.NoError(t, err)
 				require.Len(t, users, tt.expectedLen)
 			})

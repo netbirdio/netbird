@@ -79,6 +79,7 @@ type Manager interface {
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
+	GetUsersFromAccountPaginated(ctx context.Context, accountID, initiatorUserID string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) (map[string]*types.UserInfo, int, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)

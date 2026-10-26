@@ -1067,6 +1067,46 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 }
 
+// GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
+// based on provided user role.
+func (am *DefaultAccountManager) GetUsersFromAccountPaginated(ctx context.Context, accountID, initiatorUserID string,
+	pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) (map[string]*types.UserInfo, int, error) {
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
+	if err != nil {
+		return nil, 0, status.NewPermissionValidationError(err)
+	}
+
+	var user *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get user: %w", err)
+		}
+		user = result
+	}
+
+	var accountUsers []*types.User
+	var count int
+
+	switch {
+	case allowed:
+		start := time.Now()
+		accountUsers, count, err = am.Store.GetAccountUsersPaginated(ctx, store.LockingStrengthNone, accountID, pagination, filters, sorting)
+		if err != nil {
+			return nil, 0, err
+		}
+		log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
+	case user != nil && user.AccountID == accountID:
+		accountUsers = append(accountUsers, user)
+		count = len(accountUsers)
+	default:
+		return map[string]*types.UserInfo{}, 0, nil
+	}
+
+	users, err := am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
+	return users, count, err
+}
+
 // BuildUserInfosForAccount builds user info for the given account.
 func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, _ string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	var queriedUsers []*idp.UserData

@@ -90,7 +90,7 @@ type Store interface {
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
-	GetAccountUsersPaginated(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter string) ([]*types.User, error)
+	GetAccountUsersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters UserFilters, sorting UserSorting) ([]*types.User, int, error)
 	GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error)
 	SaveUsers(ctx context.Context, users []*types.User) error
 	SaveUser(ctx context.Context, user *types.User) error

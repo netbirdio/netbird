@@ -444,6 +444,31 @@ components:
         - ssh_enabled
         - login_expiration_enabled
         - inactivity_expiration_enabled
+    UserBatch:
+      type: object
+      properties:
+        user_count:
+          description: Total number of users
+          type: integer
+          example: 5
+        page:
+          description: Current page number
+          type: integer
+          example: 5
+        page_size:
+          description: Page size
+          type: integer
+          example: 5
+        users:
+          description: List of users
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+      required:
+        - user_count
+        - page
+        - page_size
+        - users
     User:
       type: object
       properties:
@@ -523,56 +548,6 @@ components:
         - status
         - is_blocked
         - pending_approval
-    UserCreateRequest:
-      type: object
-      properties:
-        email:
-          description: User's Email to send invite to
-          type: string
-          example: demo@netbird.io
-        name:
-          description: User's full name
-          type: string
-          example: Tom Schulz
-        role:
-          description: User's NetBird account role
-          type: string
-          example: admin
-        auto_groups:
-          description: Group IDs to auto-assign to peers registered by this user
-          type: array
-          items:
-            type: string
-            example: ch8i4ug6lnn4g9hqv7m0
-        is_service_user:
-          description: Is true if this user is a service user
-          type: boolean
-          example: false
-      required:
-        - role
-        - auto_groups
-        - is_service_user
-    UserRequest:
-      type: object
-      properties:
-        role:
-          description: User's NetBird account role
-          type: string
-          example: admin
-        auto_groups:
-          description: Group IDs to auto-assign to peers registered by this user
-          type: array
-          items:
-            type: string
-            example: ch8i4ug6lnn4g9hqv7m0
-        is_blocked:
-          description: If set to true then user is blocked and can't use the system
-          type: boolean
-          example: false
-      required:
-        - role
-        - auto_groups
-        - is_blocked
     UserPermissions:
       type: object
       properties:
@@ -948,39 +923,7 @@ components:
                 schema:
                   type: array
                   items:
-                    $ref: '#/components/schemas/User'
-          '400':
-            "$ref": "#/components/responses/bad_request"
-          '401':
-            "$ref": "#/components/responses/requires_authentication"
-          '403':
-            "$ref": "#/components/responses/forbidden"
-          '422':
-            "$ref": "#/components/responses/unprocessable"
-          '500':
-            "$ref": "#/components/responses/internal_error"
-      post:
-        summary: Create a User
-        description: Creates a new service user or sends an invite to a regular user
-        tags:
-          - Users
-        security:
-          - BearerAuth: []
-          - TokenAuth: []
-        requestBody:
-          description: User invite information
-          required: true
-          content:
-            'application/json':
-              schema:
-                $ref: '#/components/schemas/UserCreateRequest'
-        responses:
-          '200':
-            description: A User object
-            content:
-              application/json:
-                schema:
-                  $ref: '#/components/schemas/User'
+                    $ref: '#/components/schemas/UserBatch'
           '400':
             "$ref": "#/components/responses/bad_request"
           '401':
@@ -992,7 +935,7 @@ components:
           '500':
             "$ref": "#/components/responses/internal_error"
     UserPath:
-      put:
+      get:
         summary: Update a User
         description: Update information about a User
         tags:
@@ -1007,13 +950,6 @@ components:
             schema:
               type: string
             description: The unique identifier of a user
-        requestBody:
-          description: User update
-          required: true
-          content:
-            'application/json':
-              schema:
-                $ref: '#/components/schemas/UserRequest'
         responses:
           '200':
             description: A User object
@@ -1029,33 +965,6 @@ components:
             "$ref": "#/components/responses/forbidden"
           '422':
             "$ref": "#/components/responses/unprocessable"
-          '500':
-            "$ref": "#/components/responses/internal_error"
-      delete:
-        summary: Delete a User
-        description: This method removes a user from accessing the system. For this leaves the IDP user intact unless the `--user-delete-from-idp` is passed to management startup.
-        tags:
-          - Users
-        security:
-          - BearerAuth: []
-          - TokenAuth: []
-        parameters:
-          - in: path
-            name: userId
-            required: true
-            schema:
-              type: string
-            description: The unique identifier of a user
-        responses:
-          '200':
-            description: Delete status code
-            content: {}
-          '400':
-            "$ref": "#/components/responses/bad_request"
-          '401':
-            "$ref": "#/components/responses/requires_authentication"
-          '403':
-            "$ref": "#/components/responses/forbidden"
           '500':
             "$ref": "#/components/responses/internal_error"
 paths:

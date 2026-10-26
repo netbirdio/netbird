@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/apiv1alpha1"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -60,7 +61,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req := &apiv1alpha1.UserRequest{}
+	req := &apiv1alpha1.User{}
 	err = json.NewDecoder(r.Body).Decode(req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -109,7 +110,8 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
-	data, err := h.accountManager.GetUsersFromAccount(r.Context(), accountID, userID)
+	pagination := store.PaginationState{}
+	data, userCount, err := h.accountManager.GetUsersFromAccountPaginated(r.Context(), accountID, userID, pagination, store.UserFilters{}, store.UserSorting{})
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -117,7 +119,7 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 
 	serviceUser := r.URL.Query().Get("service_user")
 
-	users := make([]*apiv1alpha1.User, 0)
+	users := make([]apiv1alpha1.User, 0, len(data))
 	for _, d := range data {
 		if d.NonDeletable {
 			continue
@@ -138,10 +140,10 @@ func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	util.WriteJSONObject(r.Context(), w, users)
+	util.WriteJSONObject(r.Context(), w, apiv1alpha1.UserBatch{UserCount: userCount, Users: users, Page: pagination.Page, PageSize: pagination.PageSize})
 }
 
-func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User {
+func toUserResponse(user *types.UserInfo, currenUserID string) apiv1alpha1.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -173,7 +175,7 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *apiv1alpha1.User
 		idpID = &user.IdPID
 	}
 
-	return &apiv1alpha1.User{
+	return apiv1alpha1.User{
 		Id:              user.ID,
 		Name:            user.Name,
 		Email:           user.Email,

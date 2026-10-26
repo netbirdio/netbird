@@ -297,6 +297,14 @@ func (am *MockAccountManager) GetUsersFromAccount(ctx context.Context, accountID
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
 }
 
+func (am *MockAccountManager) GetUsersFromAccountPaginated(ctx context.Context, accountID string, userID string, pagination store.PaginationState, filters store.UserFilters, sorting store.UserSorting) (map[string]*types.UserInfo, int, error) {
+	if am.GetUsersFromAccountFunc != nil {
+		users, err := am.GetUsersFromAccountFunc(ctx, accountID, userID)
+		return users, len(users), err
+	}
+	return nil, 0, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
+}
+
 // DeletePeer mock implementation of DeletePeer from server.AccountManager interface
 func (am *MockAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
 	if am.DeletePeerFunc != nil {

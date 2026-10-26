@@ -153,50 +153,104 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	return users, nil
 }
 
-func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter string) ([]*types.User, error) {
+func (s *SqlStore) GetAccountUsersPaginated(ctx context.Context,
+	lockStrength LockingStrength,
+	accountID string,
+	pagination PaginationState,
+	filters UserFilters,
+	sorting UserSorting) ([]*types.User, int, error) {
+	// if s.conn.Engine() == types.PostgresStoreEngine {
+	return s.getAccountUsersPaginatedPostgres(ctx, lockStrength, accountID, pagination, filters, sorting)
+	// } else {
+	// 	return s.getAccountUsersPaginatedSqlite(ctx, lockStrength, accountID, pagination, filters, sorting)
+	// }
+}
+
+func (s *SqlStore) getAccountUsersPaginatedPostgres(ctx context.Context,
+	lockStrength LockingStrength,
+	accountID string,
+	pagination PaginationState,
+	filters UserFilters,
+	sorting UserSorting) ([]*types.User, int, error) {
+
 	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	b := newBloomFilter(160)
-	for _, trigram := range toTrigrams(nameFilter) {
-		b.add([]byte(trigram))
-	}
-
-	tx = tx.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_5) @> bitmap_to_bitarray(?)", b.buckets[4])
-	tx = tx.Where("bitmap_to_bitarray(name_hash_6) @> bitmap_to_bitarray(?)", b.buckets[5])
-
 	var users []*types.User
-	queryString := tx.ToSQL(func(tx *gorm.DB) *gorm.DB {
-		return tx.Distinct().Find(&users, accountIDCondition, accountID)
-	})
-	fmt.Println("The query is ", queryString)
-	result := tx.Distinct().Find(&users, accountIDCondition, accountID)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+	{
+		tx = filters.AsConditions(tx)
+		tx = pagination.AsScope(tx)
+		tx = sorting.AsOrderBy(tx)
+
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 		}
-		log.WithContext(ctx).Errorf("error when getting users from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "issue getting users from store")
+
+		// queryString := tx.ToSQL(func(tx *gorm.DB) *gorm.DB {
+		// 	return tx.Distinct().Find(&users, accountIDCondition, accountID)
+		// })
+		// fmt.Println("The query is ", queryString)
+
+		result := tx.Distinct().Find(&users, accountIDCondition, accountID)
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return nil, 0, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+			}
+			log.WithContext(ctx).Errorf("error when getting users from the store: %s", result.Error)
+			return nil, 0, status.Errorf(status.Internal, "issue getting users from store")
+		}
+	}
+
+	var count int64
+	{
+		tx = filters.AsConditions(tx)
+		tx = tx.Where(accountIDCondition, accountID)
+		if err := tx.Table("users").Select("count(distinct(users.id))").Count(&count).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get total number of peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get total number of peers from store")
+		}
 	}
 
 	toret := make([]*types.User, 0, len(users))
 	for _, user := range users {
 		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
-			return nil, fmt.Errorf("decrypt user: %w", err)
+			return nil, 0, fmt.Errorf("decrypt user: %w", err)
 		}
-		if !strings.Contains(user.Name, nameFilter) {
+		if !strings.Contains(user.Name, filters.Name) {
 			continue
 		}
 		toret = append(toret, user)
 	}
 
-	return toret, nil
+	// the actual total count might be lower than reported by the query above due to false matches returned by the bloom filter
+	// provided sufficiently long pattern is used (>= 5 chars), the number of false matches should be low, so we'll just report this number anyway
+	return toret, int(count), nil
+}
+
+type UserFilters struct {
+	Name string
+}
+
+func (uf *UserFilters) AsConditions(db *gorm.DB) *gorm.DB {
+	if uf.Name != "" {
+		b := newBloomFilter(160)
+		for _, trigram := range toTrigrams(uf.Name) {
+			b.add([]byte(trigram))
+		}
+
+		tx := db.Where("bitmap_to_bitarray(name_hash_1) @> bitmap_to_bitarray(?)", b.buckets[0])
+		tx = tx.Where("bitmap_to_bitarray(name_hash_2) @> bitmap_to_bitarray(?)", b.buckets[1])
+		tx = tx.Where("bitmap_to_bitarray(name_hash_3) @> bitmap_to_bitarray(?)", b.buckets[2])
+		tx = tx.Where("bitmap_to_bitarray(name_hash_4) @> bitmap_to_bitarray(?)", b.buckets[3])
+		tx = tx.Where("bitmap_to_bitarray(name_hash_5) @> bitmap_to_bitarray(?)", b.buckets[4])
+		tx = tx.Where("bitmap_to_bitarray(name_hash_6) @> bitmap_to_bitarray(?)", b.buckets[5])
+	}
+
+	return db
+}
+
+type UserSorting struct{}
+
+func (us *UserSorting) AsOrderBy(db *gorm.DB) *gorm.DB {
+	return db
 }
 
 // use https://hur.st/bloomfilter/ to calculate filter params

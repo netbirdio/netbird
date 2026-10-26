@@ -32,7 +32,7 @@ UsersPath:
       '500':
         "$ref": "../openapi.yaml#/components/responses/internal_error"
 UserPath:
-  put:
+  get:
     summary: Update a User
     description: Update information about a User
     tags: [ Users ]
@@ -46,13 +46,6 @@ UserPath:
         schema:
           type: string
         description: The unique identifier of a user
-    requestBody:
-      description: User update
-      required: true
-      content:
-        'application/json':
-          schema:
-            $ref: './user_components.yaml#/components/schemas/UserRequest'
     responses:
       '200':
         description: A User object
