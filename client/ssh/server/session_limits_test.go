@@ -40,6 +40,26 @@ func TestRequestFilter_ZeroSizeWinchKeepsQueuedValidResize(t *testing.T) {
 	assert.Equal(t, refusedRequestType, zeroRows.Type, "zero-row resize must be refused")
 }
 
+// The initial pty-req size must fit both the Unix uint16 winsize and the Windows int16
+// ConPty coordinate, so larger values are refused instead of wrapping. Zero stays
+// accepted because the Unix path defaults it to 80x24.
+func TestValidPtyReqPayload_BoundsInitialSize(t *testing.T) {
+	ptyReq := func(columns, rows uint32) []byte {
+		return cryptossh.Marshal(struct {
+			Term                         string
+			Columns, Rows, Width, Height uint32
+			Modes                        string
+		}{"xterm", columns, rows, 0, 0, ""})
+	}
+
+	assert.True(t, validPtyReqPayload(ptyReq(80, 24)), "ordinary size")
+	assert.True(t, validPtyReqPayload(ptyReq(0, 0)), "zero size is defaulted later")
+	assert.True(t, validPtyReqPayload(ptyReq(32767, 32767)), "largest size both platforms take")
+	assert.False(t, validPtyReqPayload(ptyReq(32768, 24)), "columns past the Windows int16 range")
+	assert.False(t, validPtyReqPayload(ptyReq(80, 32768)), "rows past the Windows int16 range")
+	assert.False(t, validPtyReqPayload(ptyReq(65536, 24)), "columns that wrap to zero as uint16")
+}
+
 // Sizes that are zero or do not fit the PTY's uint16 dimensions are refused, so they
 // cannot replace a valid queued resize.
 func TestValidWinchPayload_RejectsUnusableSizes(t *testing.T) {

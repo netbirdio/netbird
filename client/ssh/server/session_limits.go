@@ -229,11 +229,18 @@ func refuseRequest(req *cryptossh.Request) {
 }
 
 // validPtyReqPayload reports whether p holds a term string followed by the two
-// uint32 window dimensions, without overflowing on a hostile string length.
+// uint32 window dimensions, without overflowing on a hostile string length. The
+// dimensions must fit the Windows int16 ConPty coordinate, which is narrower than the
+// Unix uint16 winsize; zero is allowed and defaulted by the Unix path.
 func validPtyReqPayload(p []byte) bool {
 	if len(p) < 4 {
 		return false
 	}
 	termLen := uint64(binary.BigEndian.Uint32(p))
-	return uint64(len(p)) >= 4+termLen+8
+	if uint64(len(p)) < 4+termLen+8 {
+		return false
+	}
+	dims := p[4+termLen:]
+	return binary.BigEndian.Uint32(dims) <= math.MaxInt16 &&
+		binary.BigEndian.Uint32(dims[4:]) <= math.MaxInt16
 }
