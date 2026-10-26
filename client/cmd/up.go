@@ -148,12 +148,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	return runInDaemonMode(ctx, cmd, pm, activeProf, profileSwitched)
 }
 
-// switchOrCreateProfile switches the active profile to the one identified by
-// handle, creating it first when it does not exist yet. This restores the
-// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
-// missing profile instead of failing. Returns the daemon-resolved profile so
-// callers act on it directly instead of re-reading the local state, which is
-// not updated under sudo.
 // warnRosenpassDeprecated prints a deprecation notice when the user turns Rosenpass on.
 // Turning it off stays silent, since that is the action the notice asks for.
 func warnRosenpassDeprecated(cmd *cobra.Command) {
@@ -165,6 +159,12 @@ func warnRosenpassDeprecated(cmd *cobra.Command) {
 	cmd.PrintErrln("Warning: Rosenpass support is deprecated and may be removed in a future release.")
 }
 
+// switchOrCreateProfile switches the active profile to the one identified by
+// handle, creating it first when it does not exist yet. This restores the
+// pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
+// missing profile instead of failing. Returns the daemon-resolved profile so
+// callers act on it directly instead of re-reading the local state, which is
+// not updated under sudo.
 func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
