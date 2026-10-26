@@ -106,3 +106,21 @@ func TestWorkerRelayDetectsRemoteRestart(t *testing.T) {
 		})
 	}
 }
+
+// A late offer of a replaced session must not reach relay selection, where it could
+// open a connection through the relay of the previous session.
+func TestWorkerRelayIgnoresSupersededSessionOffers(t *testing.T) {
+	sid := func(s string) *ICESessionID {
+		id := ICESessionID(s)
+		return &id
+	}
+	w := &WorkerRelay{}
+	require.False(t, w.remoteRestarted(&OfferAnswer{SessionID: sid("aaaaaaaaaa")}))
+	require.True(t, w.remoteRestarted(&OfferAnswer{SessionID: sid("bbbbbbbbbb")}))
+
+	assert.True(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("aaaaaaaaaa")}), "replaced session")
+	assert.False(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("bbbbbbbbbb")}), "current session")
+	assert.False(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("cccccccccc")}), "unknown session")
+	assert.False(t, w.isSupersededSession(&OfferAnswer{}), "offer without a session")
+	assert.False(t, w.isSupersededSession(&OfferAnswer{SessionID: sid("aaaaaaaaaa"), IceCredentials: IceCredentials{UFrag: "u", Pwd: "p"}}), "ICE offer")
+}

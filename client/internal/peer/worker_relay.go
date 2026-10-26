@@ -64,6 +64,11 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 	w.relaySupportedOnRemotePeer.Store(true)
 
+	if w.isSupersededSession(remoteOfferAnswer) {
+		w.log.Debugf("ignoring a late offer of a superseded remote session")
+		return
+	}
+
 	if w.remoteRestarted(remoteOfferAnswer) {
 		w.log.Infof("remote peer started a new session, dropping the relayed connection of its previous one")
 		w.dropRelayedConn()
@@ -104,6 +109,15 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
 	})
+}
+
+// isSupersededSession reports whether a relay-only offer belongs to a remote session
+// that was already replaced by a newer one.
+func (w *WorkerRelay) isSupersededSession(remoteOfferAnswer *OfferAnswer) bool {
+	if remoteOfferAnswer.hasICECredentials() || remoteOfferAnswer.SessionID == nil {
+		return false
+	}
+	return slices.Contains(w.supersededSessionIDs, *remoteOfferAnswer.SessionID)
 }
 
 // remoteRestarted records the session ID of a relay-only offer and reports
