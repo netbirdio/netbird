@@ -338,3 +338,64 @@ func TestFilterSessionRequests_RefusedRequestsStayInOrder(t *testing.T) {
 		t.Fatal("filter did not close its output")
 	}
 }
+
+// A rejected subsystem starts no command, so nothing drains the window channel. A resize
+// after it must be refused instead of blocking the session's request loop.
+func TestSession_ResizeAfterRejectedSubsystemDoesNotStallLoop(t *testing.T) {
+	addr, hostKey := startNoAuthServer(t)
+	client := dialNoAuthServer(t, addr, hostKey)
+
+	session, err := client.NewSession()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	require.NoError(t, session.RequestPty("xterm", 24, 80, cryptossh.TerminalModes{}))
+	ok, err := session.SendRequest("subsystem", true, cryptossh.Marshal(struct{ Name string }{"nope"}))
+	require.NoError(t, err)
+	require.False(t, ok, "unknown subsystem must be rejected")
+
+	winch := cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 40, 0, 0})
+	_, err = session.SendRequest("window-change", false, winch)
+	require.NoError(t, err)
+
+	done := make(chan bool, 1)
+	go func() {
+		ok, err := session.SendRequest("env", true, cryptossh.Marshal(struct{ Key, Value string }{"A", "b"}))
+		done <- err == nil && ok
+	}()
+	select {
+	case ok := <-done:
+		assert.True(t, ok, "env request after the resize should be accepted")
+	case <-time.After(5 * time.Second):
+		t.Fatal("session request loop stalled behind a resize with no command running")
+	}
+}
+
+// A resize that reaches the loop while the command handler never reads window changes
+// (sftp) must not leave the loop goroutine behind once the handler returns.
+func TestSession_ResizeDuringSFTPDoesNotLeakRequestLoop(t *testing.T) {
+	addr, hostKey := startNoAuthServer(t)
+	loops := func() int {
+		buf := make([]byte, 1<<22)
+		return strings.Count(string(buf[:runtime.Stack(buf, true)]), "ssh.(*session).handleRequests")
+	}
+	before := loops()
+
+	winch := cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 40, 0, 0})
+	for i := 0; i < 10; i++ {
+		client := dialNoAuthServer(t, addr, hostKey)
+		session, err := client.NewSession()
+		require.NoError(t, err)
+		require.NoError(t, session.RequestPty("xterm", 24, 80, cryptossh.TerminalModes{}))
+		_, err = session.SendRequest("subsystem", true, cryptossh.Marshal(struct{ Name string }{"sftp"}))
+		require.NoError(t, err)
+		// The sftp handler may already have ended the session, so a send can fail.
+		_, _ = session.SendRequest("window-change", false, winch)
+		_, _ = session.SendRequest("window-change", false, winch)
+		_ = session.Close()
+		_ = client.Close()
+	}
+
+	assert.Eventually(t, func() bool { return loops() <= before }, 10*time.Second, 100*time.Millisecond,
+		"session request loops must exit after the clients disconnect")
+}

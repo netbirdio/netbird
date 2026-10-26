@@ -2,7 +2,9 @@ package server
 
 import (
 	"testing"
+	"time"
 
+	"github.com/gliderlabs/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cryptossh "golang.org/x/crypto/ssh"
@@ -79,4 +81,69 @@ func TestValidWinchPayload_RejectsUnusableSizes(t *testing.T) {
 		})
 	}
 	assert.True(t, validWinchPayload(cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{65535, 65535, 0, 0})), "largest uint16 size is usable")
+}
+
+// A client that stops the loop from reading must not make the server buffer more than
+// maxQueuedBytes of payload, however few requests that takes.
+func TestRequestFilter_QueueIsBoundedByBytes(t *testing.T) {
+	f := &requestFilter{}
+	payload := make([]byte, 32*1024)
+
+	accepted := 0
+	for f.enqueue(&cryptossh.Request{Type: "exec", Payload: payload}) {
+		accepted++
+		require.LessOrEqual(t, accepted, maxQueuedRequests, "queue must stop growing")
+	}
+	assert.LessOrEqual(t, f.queuedBytes, maxQueuedBytes, "queued payload bytes must stay under the limit")
+	assert.Equal(t, maxQueuedBytes/len(payload), accepted, "queue must hold payloads up to the byte limit")
+}
+
+// Request types the session loop only answers with a failure carry no useful payload, so
+// they are refused and cost nothing against the queue.
+func TestRequestFilter_UnhandledTypesDropPayload(t *testing.T) {
+	f := &requestFilter{}
+	req := &cryptossh.Request{Type: "x11-req", Payload: make([]byte, 32*1024)}
+	require.True(t, f.enqueue(req))
+
+	assert.Equal(t, refusedRequestType, req.Type, "unhandled type must be refused")
+	assert.Zero(t, f.queuedBytes, "refused request must not count its payload")
+}
+
+// Nothing drains window changes for a subsystem session, so a resize after one must be
+// refused for the rest of the session, even if a shell request follows.
+func TestRequestFilter_SubsystemSessionRefusesResize(t *testing.T) {
+	f := &requestFilter{}
+	winch := cryptossh.Marshal(struct{ Columns, Rows, Width, Height uint32 }{100, 40, 0, 0})
+
+	require.True(t, f.enqueue(&cryptossh.Request{Type: "subsystem", Payload: cryptossh.Marshal(struct{ Name string }{"sftp"})}))
+	require.True(t, f.enqueue(&cryptossh.Request{Type: "shell"}))
+	resize := &cryptossh.Request{Type: "window-change", Payload: winch}
+	require.True(t, f.enqueue(resize))
+	assert.Equal(t, refusedRequestType, resize.Type, "resize in a subsystem session must be refused")
+}
+
+// A loop blocked sending a resize that no handler reads is released by the drain, and the
+// drain ends when the loop closes the channel.
+func TestDrainWindowChanges_ReleasesBlockedSender(t *testing.T) {
+	winCh := make(chan ssh.Window, 1)
+	winCh <- ssh.Window{Width: 80, Height: 24}
+
+	sent := make(chan struct{})
+	go func() {
+		winCh <- ssh.Window{Width: 100, Height: 40}
+		close(sent)
+	}()
+	select {
+	case <-sent:
+		t.Fatal("sender should block while nothing reads the channel")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	drainWindowChanges(winCh)
+	select {
+	case <-sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain did not release the blocked sender")
+	}
+	close(winCh)
 }
