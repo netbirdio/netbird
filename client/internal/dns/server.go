@@ -1160,31 +1160,8 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 	return true
 }
 
-// flushHostDNSCache asks the host manager to drop the OS-level DNS cache,
-// when the platform supports it (currently macOS). While the overlay
-// upstreams for a match domain are unreachable (e.g. right after wake from
-// sleep, before tunnels re-establish), queries can be answered by the
-// public resolvers and the OS caches those answers for their full TTL.
-// Flushing on the unhealthy->healthy transition makes clients pick up the
-// overlay answers again immediately instead of serving stale public ones.
-//
-// Flushes triggered within hostCacheFlushCoalesce of each other coalesce
-// into one, so several groups recovering on the same projection tick cause
-// a single flush.
+// flushHostDNSCache drops answers the OS cached while the group was down.
 func (s *DefaultServer) flushHostDNSCache() {
-	s.mux.Lock()
-	hm := s.hostManager
-	s.mux.Unlock()
-
-	// The assertion targets an unexported method on purpose: every
-	// hostManager implementation lives in this package (host_darwin.go
-	// implements flushDNSCache), so this matches on darwin and is a
-	// no-op everywhere else.
-	flusher, ok := hm.(interface{ flushDNSCache() error })
-	if !ok {
-		return
-	}
-
 	s.cacheFlushMu.Lock()
 	if !s.lastCacheFlush.IsZero() && time.Since(s.lastCacheFlush) < hostCacheFlushCoalesce {
 		s.cacheFlushMu.Unlock()
@@ -1193,7 +1170,16 @@ func (s *DefaultServer) flushHostDNSCache() {
 	s.lastCacheFlush = time.Now()
 	s.cacheFlushMu.Unlock()
 
+	// Off the projection path, because Stop takes healthProjectMu while holding s.mux.
 	go func() {
+		s.mux.Lock()
+		hm := s.hostManager
+		s.mux.Unlock()
+
+		flusher, ok := hm.(interface{ flushDNSCache() error })
+		if !ok {
+			return
+		}
 		if err := flusher.flushDNSCache(); err != nil {
 			log.Warnf("failed to flush host DNS cache after upstream recovery: %v", err)
 		}
