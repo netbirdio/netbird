@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -45,15 +46,24 @@ func TestServerPicker_AbortsLosingDials(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = slow.Close() })
 	accepted := make(chan net.Conn, 4)
+	slowDialled := make(chan struct{})
 	go func() {
-		for {
+		for n := 1; ; n++ {
 			c, err := slow.Accept()
 			if err != nil {
 				return
 			}
 			accepted <- c
+			if n == 2 {
+				close(slowDialled)
+			}
 		}
 	}()
+
+	// The fast relay is reached through a gate that holds its connections until
+	// both slow dials have connected, so they are always in flight when the fast
+	// one wins.
+	fastAddr := gateUntil(t, fastCfg.Address, slowDialled)
 
 	sp := ServerPicker{
 		TokenStore:        hmacTokenStore,
@@ -61,30 +71,68 @@ func TestServerPicker_AbortsLosingDials(t *testing.T) {
 		MTU:               iface.DefaultMTU,
 		ConnectionTimeout: 30 * time.Second,
 	}
-	sp.ServerURLs.Store([]string{"rel://" + fastCfg.Address, "rel://" + slow.Addr().String()})
+	// The slow relay is listed twice: each attempt must be aborted on its own.
+	slowURL := "rel://" + slow.Addr().String()
+	sp.ServerURLs.Store([]string{"rel://" + fastAddr, slowURL, slowURL})
 
 	client, err := sp.PickServer(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	var held net.Conn
-	select {
-	case held = <-accepted:
-	case <-time.After(5 * time.Second):
-		require.FailNow(t, "the slow relay was never dialled")
-	}
-	t.Cleanup(func() { _ = held.Close() })
-
-	// Drain the WebSocket upgrade request; the client must then hang up rather
-	// than keep waiting for an answer.
-	require.NoError(t, held.SetReadDeadline(time.Now().Add(3*time.Second)))
-	buf := make([]byte, 4096)
-	for {
-		if _, err = held.Read(buf); err != nil {
-			break
+	for i := 0; i < 2; i++ {
+		var held net.Conn
+		select {
+		case held = <-accepted:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "the slow relay was not dialled twice")
 		}
+		t.Cleanup(func() { _ = held.Close() })
+
+		// Drain the WebSocket upgrade request; the client must then hang up rather
+		// than keep waiting for an answer.
+		require.NoError(t, held.SetReadDeadline(time.Now().Add(3*time.Second)))
+		buf := make([]byte, 4096)
+		for {
+			if _, err = held.Read(buf); err != nil {
+				break
+			}
+		}
+		assert.False(t, errors.Is(err, os.ErrDeadlineExceeded), "losing dial %d should be aborted once a home relay is chosen, got: %v", i, err)
 	}
-	assert.False(t, errors.Is(err, os.ErrDeadlineExceeded), "losing dial should be aborted once a home relay is chosen, got: %v", err)
+}
+
+// gateUntil listens on a local port and forwards each connection to target once
+// open is closed.
+func gateUntil(t *testing.T, target string, open <-chan struct{}) string {
+	t.Helper()
+	gate, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = gate.Close() })
+
+	go func() {
+		for {
+			in, err := gate.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer in.Close()
+				select {
+				case <-open:
+				case <-time.After(5 * time.Second):
+					return
+				}
+				out, err := net.Dial("tcp", target)
+				if err != nil {
+					return
+				}
+				defer out.Close()
+				go func() { _, _ = io.Copy(out, in) }()
+				_, _ = io.Copy(in, out)
+			}()
+		}
+	}()
+	return gate.Addr().String()
 }
 
 // trackingCtx counts the child contexts that register on it and how many of them
