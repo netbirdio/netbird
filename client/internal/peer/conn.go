@@ -317,6 +317,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 	conn.Log.Infof("close peer connection")
 	conn.ctxCancel()
+	conn.relayReregisteredEarly = nil
 
 	if conn.wgWatcherCancel != nil {
 		conn.wgWatcherCancel()
@@ -570,6 +571,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	reregisteredEarly := conn.takeEarlyRelayReregistrationLocked(rci.relayedConn)
+
 	if conn.ctx.Err() != nil || rci.relayedConn.Context().Err() != nil {
 		if err := rci.relayedConn.Close(); err != nil {
 			conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
@@ -629,7 +632,9 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy, rci.relayedConn)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
-	conn.applyEarlyRelayReregistrationLocked(rci.relayedConn)
+	if reregisteredEarly {
+		conn.restartRelayHandshakeLocked()
+	}
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
 }
@@ -643,6 +648,9 @@ func (conn *Conn) onRelayDisconnected(relayedConn *relayClient.Conn) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if relayedConn != nil && conn.relayReregisteredEarly == relayedConn {
+		conn.relayReregisteredEarly = nil
+	}
 	if relayedConn != nil && conn.relayedConnRef != relayedConn {
 		conn.Log.Debugf("ignoring relay disconnect of a superseded connection")
 		return
@@ -673,15 +681,15 @@ func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
 	conn.restartRelayHandshakeLocked()
 }
 
-// applyEarlyRelayReregistrationLocked restarts the handshake if the remote registered
-// on the relay again while the given connection was still being set up. Caller must
-// hold conn.mu.
-func (conn *Conn) applyEarlyRelayReregistrationLocked(relayedConn *relayClient.Conn) {
+// takeEarlyRelayReregistrationLocked reports whether the remote registered on the relay
+// again while the given connection was still being set up, and clears the record.
+// Caller must hold conn.mu.
+func (conn *Conn) takeEarlyRelayReregistrationLocked(relayedConn *relayClient.Conn) bool {
 	if conn.relayReregisteredEarly != relayedConn {
-		return
+		return false
 	}
 	conn.relayReregisteredEarly = nil
-	conn.restartRelayHandshakeLocked()
+	return true
 }
 
 // restartRelayHandshakeLocked resets the relayed endpoint when no handshake completed
@@ -691,7 +699,7 @@ func (conn *Conn) restartRelayHandshakeLocked() {
 		return
 	}
 
-	handshake, err := conn.lastHandshake()
+	handshake, err := peerHandshake(conn.config.WgConfig.WgInterface, conn.config.Key)
 	if err != nil {
 		conn.Log.Debugf("failed to read the last handshake, keeping the relayed endpoint: %v", err)
 		return
@@ -702,25 +710,17 @@ func (conn *Conn) restartRelayHandshakeLocked() {
 	}
 
 	conn.Log.Infof("remote peer registered on the relay again before a handshake completed, restarting the handshake")
-	conn.resetEndpoint()
+	// The handshake timeout of the watcher keeps running, so a remote that keeps
+	// registering again without ever completing a handshake is still torn down.
+	if err := conn.endpointUpdater.RemoveEndpointAddress(); err != nil {
+		conn.Log.Warnf("failed to remove endpoint address before restarting the handshake: %v", err)
+	}
 	presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 	if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 		conn.Log.Errorf("failed to restore the relayed endpoint: %v", err)
 		return
 	}
 	conn.relayEndpointSetAt = time.Now()
-}
-
-func (conn *Conn) lastHandshake() (time.Time, error) {
-	stats, err := conn.config.WgConfig.WgInterface.GetStats()
-	if err != nil {
-		return time.Time{}, err
-	}
-	peerStats, ok := stats[conn.config.Key]
-	if !ok {
-		return time.Time{}, fmt.Errorf("peer %s not found on the interface", conn.config.Key)
-	}
-	return peerStats.LastHandshake, nil
 }
 
 // handleRelayDisconnectedLocked handles relay disconnection. Caller must hold conn.mu.

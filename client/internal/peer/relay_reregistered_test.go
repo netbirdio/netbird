@@ -98,12 +98,17 @@ func TestConn_onRelayPeerReregistered(t *testing.T) {
 			if tc.superseded {
 				reported = &relayClient.Conn{}
 			}
+			watcher := NewWGWatcher(conn.Log, wgIface, remoteKey, newStateDump(remoteKey, conn.Log, conn.statusRecorder))
+			conn.wgWatcher = watcher
 			conn.onRelayPeerReregistered(reported)
 
 			assert.Equal(t, tc.want, wgIface.calls, "interface calls")
 			if tc.want != nil {
 				assert.True(t, conn.relayEndpointSetAt.After(setAt), "a restarted handshake should move the endpoint set time")
 			}
+			// A remote that keeps registering again without completing a handshake
+			// must still run into the handshake timeout.
+			assert.Empty(t, watcher.resetCh, "restarting the handshake must not restart the handshake timeout")
 		})
 	}
 }
@@ -127,19 +132,36 @@ func TestConn_relayReregisteredDuringSetup(t *testing.T) {
 	conn.onRelayPeerReregistered(relayedConn)
 	assert.Empty(t, wgIface.calls, "nothing to restart before the connection is set up")
 
+	// The tail of onRelayConnectionIsReady once the relayed endpoint is configured.
 	conn.mu.Lock()
+	reregisteredEarly := conn.takeEarlyRelayReregistrationLocked(relayedConn)
 	conn.relayedConnRef = relayedConn
 	conn.wgProxyRelay = &endpointOnlyProxy{addr: endpoint}
 	conn.currentConnPriority = conntype.Relay
 	conn.relayEndpointSetAt = time.Now().Add(-time.Second)
-	conn.applyEarlyRelayReregistrationLocked(relayedConn)
+	if reregisteredEarly {
+		conn.restartRelayHandshakeLocked()
+	}
+	again := conn.takeEarlyRelayReregistrationLocked(relayedConn)
 	conn.mu.Unlock()
 
+	assert.True(t, reregisteredEarly, "the early re-registration is reported to the setup")
 	assert.Equal(t, []string{"remove endpoint", "update " + endpoint.String()}, wgIface.calls, "interface calls")
+	assert.False(t, again, "a recorded re-registration is applied once")
+}
 
-	wgIface.calls = nil
+// A re-registration recorded for a connection that is torn down before its setup
+// completes must not be kept: it says nothing about a later connection.
+func TestConn_relayReregisteredEarlyDroppedOnDisconnect(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+	conn.config.WgConfig.WgInterface = &recordingWGIface{}
+
+	relayedConn := &relayClient.Conn{}
+	conn.onRelayPeerReregistered(relayedConn)
+	conn.onRelayDisconnected(relayedConn)
+
 	conn.mu.Lock()
-	conn.applyEarlyRelayReregistrationLocked(relayedConn)
-	conn.mu.Unlock()
-	assert.Empty(t, wgIface.calls, "a recorded re-registration is applied once")
+	defer conn.mu.Unlock()
+	assert.Nil(t, conn.relayReregisteredEarly, "the record of a torn down connection is dropped")
 }
