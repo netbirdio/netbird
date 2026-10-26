@@ -65,7 +65,10 @@ func (s *Server) sessionChannelHandler(srv *ssh.Server, conn *cryptossh.ServerCo
 // the session's command handler has returned.
 func drainWindowChanges(winCh <-chan ssh.Window) {
 	go func() {
-		for range winCh {
+		for {
+			if _, ok := <-winCh; !ok {
+				return
+			}
 		}
 	}()
 }
