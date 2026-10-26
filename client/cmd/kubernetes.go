@@ -144,6 +144,8 @@ func findKubernetesClusters(
 ) ([]kubernetesCluster, error) {
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
+	var lookupErr error
+	resolvedAny := false
 	for _, peer := range peers {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -152,8 +154,10 @@ func findKubernetesClusters(
 		fqdns, err := lookupAddr(ctx, peer.IP)
 		if err != nil {
 			log.Debugf("reverse lookup of peer %s: %v", peer.IP, err)
+			lookupErr = err
 			continue
 		}
+		resolvedAny = true
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
 				continue
@@ -188,6 +192,10 @@ func findKubernetesClusters(
 	// A skipped failure on the last peer would otherwise hide a cancellation.
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	// Every lookup failing points at the resolver rather than at individual peers.
+	if !resolvedAny && lookupErr != nil {
+		return nil, fmt.Errorf("reverse lookup of peers: %w", lookupErr)
 	}
 	return kcs, nil
 }

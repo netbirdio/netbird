@@ -84,6 +84,39 @@ func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+func TestFindKubernetesClustersReportsDeadResolver(t *testing.T) {
+	t.Parallel()
+
+	// No peer resolves, so the resolver itself is the likely problem and must be reported
+	// instead of an empty cluster list.
+	resolverErr := &net.DNSError{Err: "i/o timeout", Name: "1.0.64.100.in-addr.arpa.", IsTimeout: true}
+	failAll := func(context.Context, string) ([]string, error) {
+		return nil, resolverErr
+	}
+	peers := []*proto.PeerState{{IP: "100.64.0.1"}, {IP: "100.64.0.2"}}
+
+	for _, filter := range []string{"", "homelab"} {
+		kcs, err := findKubernetesClusters(t.Context(), http.DefaultClient, failAll, peers, filter)
+		require.ErrorIs(t, err, resolverErr, "filter %q", filter)
+		require.Empty(t, kcs)
+	}
+
+	// A peer that resolves to a non-cluster name proves the resolver works: no error, no clusters.
+	someResolve := func(_ context.Context, addr string) ([]string, error) {
+		if addr == "100.64.0.2" {
+			return []string{"laptop.netbird.cloud."}, nil
+		}
+		return nil, resolverErr
+	}
+	kcs, err := findKubernetesClusters(t.Context(), http.DefaultClient, someResolve, peers, "")
+	require.NoError(t, err)
+	require.Empty(t, kcs)
+
+	kcs, err = findKubernetesClusters(t.Context(), http.DefaultClient, failAll, nil, "")
+	require.NoError(t, err, "an empty peer list is not a resolver failure")
+	require.Empty(t, kcs)
+}
+
 func TestResolveKubeconfigPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
