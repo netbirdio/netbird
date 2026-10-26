@@ -758,6 +758,11 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			}
 			return
 		case <-ctx.Done():
+			// Close cancels the context it was connected with, so the client may
+			// already be stopped here.
+			if !c.Ready() {
+				return
+			}
 			err := c.close(true)
 			if err != nil {
 				c.log.Errorf("failed to teardown connection: %s", err)
