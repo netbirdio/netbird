@@ -141,7 +141,11 @@ type Conn struct {
 	// relayEndpointSetAt is when the interface was last pointed at the relayed
 	// connection. Guarded by mu.
 	relayEndpointSetAt time.Time
-	handshaker         *Handshaker
+	// relayReregisteredEarly is the relayed connection whose remote registered on the
+	// relay again before the connection was set up. The restart is applied once the
+	// setup completes.
+	relayReregisteredEarly *relayClient.Conn
+	handshaker             *Handshaker
 
 	guard *guard.Guard
 	wg    sync.WaitGroup
@@ -526,10 +530,11 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
+		} else {
+			conn.relayEndpointSetAt = time.Now()
 		}
 
 		conn.currentConnPriority = conntype.Relay
-		conn.relayEndpointSetAt = time.Now()
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
 		conn.currentConnPriority = conntype.None
@@ -624,6 +629,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy, rci.relayedConn)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
+	conn.applyEarlyRelayReregistrationLocked(rci.relayedConn)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
 }
@@ -653,10 +659,31 @@ func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil || conn.relayedConnRef != relayedConn || conn.wgProxyRelay == nil {
+	if conn.ctx.Err() != nil {
 		return
 	}
-	if conn.currentConnPriority != conntype.Relay || !isController(conn.config) {
+	if conn.relayedConnRef != relayedConn {
+		conn.relayReregisteredEarly = relayedConn
+		return
+	}
+	conn.restartRelayHandshakeLocked()
+}
+
+// applyEarlyRelayReregistrationLocked restarts the handshake if the remote registered
+// on the relay again while the given connection was still being set up. Caller must
+// hold conn.mu.
+func (conn *Conn) applyEarlyRelayReregistrationLocked(relayedConn *relayClient.Conn) {
+	if conn.relayReregisteredEarly != relayedConn {
+		return
+	}
+	conn.relayReregisteredEarly = nil
+	conn.restartRelayHandshakeLocked()
+}
+
+// restartRelayHandshakeLocked resets the relayed endpoint when no handshake completed
+// since it was set. Caller must hold conn.mu.
+func (conn *Conn) restartRelayHandshakeLocked() {
+	if conn.wgProxyRelay == nil || conn.currentConnPriority != conntype.Relay || !isController(conn.config) {
 		return
 	}
 

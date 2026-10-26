@@ -107,3 +107,39 @@ func TestConn_onRelayPeerReregistered(t *testing.T) {
 		})
 	}
 }
+
+// A re-registration reported while the relayed connection is still being set up must
+// not be lost: it is applied once the setup completes.
+func TestConn_relayReregisteredDuringSetup(t *testing.T) {
+	const (
+		localKey = "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU="
+	)
+	endpoint := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 51820}
+
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+	conn.config.LocalKey = localKey
+	wgIface := &recordingWGIface{}
+	conn.config.WgConfig.WgInterface = wgIface
+	conn.endpointUpdater = NewEndpointUpdater(conn.Log, conn.config.WgConfig, isController(conn.config))
+
+	relayedConn := &relayClient.Conn{}
+	conn.onRelayPeerReregistered(relayedConn)
+	assert.Empty(t, wgIface.calls, "nothing to restart before the connection is set up")
+
+	conn.mu.Lock()
+	conn.relayedConnRef = relayedConn
+	conn.wgProxyRelay = &endpointOnlyProxy{addr: endpoint}
+	conn.currentConnPriority = conntype.Relay
+	conn.relayEndpointSetAt = time.Now().Add(-time.Second)
+	conn.applyEarlyRelayReregistrationLocked(relayedConn)
+	conn.mu.Unlock()
+
+	assert.Equal(t, []string{"remove endpoint", "update " + endpoint.String()}, wgIface.calls, "interface calls")
+
+	wgIface.calls = nil
+	conn.mu.Lock()
+	conn.applyEarlyRelayReregistrationLocked(relayedConn)
+	conn.mu.Unlock()
+	assert.Empty(t, wgIface.calls, "a recorded re-registration is applied once")
+}
