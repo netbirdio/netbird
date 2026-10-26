@@ -73,6 +73,15 @@ func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
 	cancel()
 	_, err := findKubernetesClusters(ctx, httpClient, lookupAddr, peers, "homelab")
 	require.ErrorIs(t, err, context.Canceled)
+
+	// Cancellation during the last peer's lookup must surface instead of an empty result.
+	ctx, cancel = context.WithCancel(t.Context())
+	cancelOnLookup := func(ctx context.Context, _ string) ([]string, error) {
+		cancel()
+		return nil, ctx.Err()
+	}
+	_, err = findKubernetesClusters(ctx, httpClient, cancelOnLookup, peers[:1], "")
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestResolveKubeconfigPath(t *testing.T) {

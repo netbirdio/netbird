@@ -185,6 +185,10 @@ func findKubernetesClusters(
 			kcs = append(kcs, kc)
 		}
 	}
+	// A skipped failure on the last peer would otherwise hide a cancellation.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return kcs, nil
 }
 
