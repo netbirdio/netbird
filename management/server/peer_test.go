@@ -3410,13 +3410,13 @@ func TestCheckPeerMaySync(t *testing.T) {
 	manager, _, account, peer1, peer2, _ := setupNetworkMapTest(t)
 	ctx := context.Background()
 
-	require.NoError(t, manager.CheckPeerMaySync(ctx, account.Id, peer1.Key))
+	require.NoError(t, manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
 
 	expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
 	require.NoError(t, err)
 	expired.Status.LoginExpired = true
 	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
-	assert.Equal(t, status.NewPeerLoginExpiredError(), manager.CheckPeerMaySync(ctx, account.Id, peer1.Key))
+	assert.Equal(t, status.NewPeerLoginExpiredError(), manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
 
 	owner := types.NewRegularUser("blocked-owner", "", "")
 	owner.AccountID = account.Id
@@ -3426,10 +3426,10 @@ func TestCheckPeerMaySync(t *testing.T) {
 	require.NoError(t, err)
 	blocked.UserID = owner.Id
 	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, blocked))
-	err = manager.CheckPeerMaySync(ctx, account.Id, peer2.Key)
+	err = manager.CheckPeerMaySync(ctx, account.Id, peer2.Key, nil)
 	errStatus, ok := status.FromError(err)
 	require.True(t, ok, "expected a status error, got %v", err)
 	assert.Equal(t, status.PermissionDenied, errStatus.Type())
 
-	assert.Equal(t, status.NewPeerNotRegisteredError(), manager.CheckPeerMaySync(ctx, account.Id, "unknown-key"))
+	assert.Equal(t, status.NewPeerNotRegisteredError(), manager.CheckPeerMaySync(ctx, account.Id, "unknown-key", nil))
 }

@@ -18,6 +18,9 @@ type PeerSync struct {
 	// UpdateAccountPeers indicate updating account peers,
 	// which occurs when the peer's metadata is updated
 	UpdateAccountPeers bool
+	// Settings are the account settings the caller already read for this request.
+	// When nil they are loaded from the store.
+	Settings *Settings
 }
 
 // PeerLogin used as a data object between the gRPC API and Manager on Login request.
@@ -37,6 +40,9 @@ type PeerLogin struct {
 
 	// ExtraDNSLabels is a list of extra DNS labels that the peer wants to use
 	ExtraDNSLabels []string
+	// Settings are the account settings the caller already read for this request.
+	// When nil they are loaded from the store.
+	Settings *Settings
 }
 
 // PeerSession identifies the sync session a peer is currently owned by.

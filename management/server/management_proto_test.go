@@ -901,3 +901,55 @@ func Test_SyncRejectsPeerExpiredWhileConnecting(t *testing.T) {
 		return err == nil && !peer.Status.Connected
 	}, 5*time.Second, 50*time.Millisecond)
 }
+
+type settingsCountingStore struct {
+	store.Store
+	reads atomic.Int32
+}
+
+func (s *settingsCountingStore) GetAccountSettings(ctx context.Context, lockStrength store.LockingStrength, accountID string) (*types.Settings, error) {
+	s.reads.Add(1)
+	return s.Store.GetAccountSettings(ctx, lockStrength, accountID)
+}
+
+func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Datadir: t.TempDir(),
+	})
+	defer cleanup()
+	require.NoError(t, err)
+	defer mgmtServer.GracefulStop()
+
+	client, clientConn, err := createRawClient(mgmtAddr)
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err)
+
+	counting := &settingsCountingStore{Store: am.Store}
+	am.Store = counting
+
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err)
+	require.Zero(t, counting.reads.Load(), "login must reuse the settings the gRPC server read")
+
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{WgPubKey: key.PublicKey().String(), Body: message})
+	require.NoError(t, err)
+	require.NoError(t, sync.RecvMsg(&mgmtProto.EncryptedMessage{}))
+
+	require.Eventually(t, func() bool {
+		peer, err := counting.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		return err == nil && peer.Status.Connected
+	}, 5*time.Second, 50*time.Millisecond)
+	require.Zero(t, counting.reads.Load(), "sync must reuse the settings the gRPC server read")
+}
