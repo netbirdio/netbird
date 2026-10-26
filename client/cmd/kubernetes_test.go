@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 func TestFingerprintClusters(t *testing.T) {
@@ -25,6 +31,48 @@ func TestFingerprintClusters(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, srv.URL, clusterURL.String())
 	require.Equal(t, "foobar", clusterVersion)
+}
+
+func TestFindKubernetesClustersSkipsFailedLookup(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"gitVersion": "v1.30.0"}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	// Route every cluster FQDN to the test server, regardless of the resolved name.
+	httpClient := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, srv.Listener.Addr().String())
+		},
+	}}
+
+	// The first peer has no DNS record in NetBird, so its reverse lookup fails.
+	lookupAddr := func(_ context.Context, addr string) ([]string, error) {
+		switch addr {
+		case "100.64.0.1":
+			return nil, &net.DNSError{Err: "no such host", Name: "1.0.64.100.in-addr.arpa.", IsNotFound: true}
+		case "100.64.0.2":
+			return []string{"homelab." + KubernetesDNSSuffix + ".netbird.cloud."}, nil
+		}
+		return nil, errors.New("unexpected address " + addr)
+	}
+	peers := []*proto.PeerState{{IP: "100.64.0.1"}, {IP: "100.64.0.2"}}
+
+	for _, filter := range []string{"", "homelab"} {
+		kcs, err := findKubernetesClusters(t.Context(), httpClient, lookupAddr, peers, filter)
+		require.NoError(t, err)
+		require.Len(t, kcs, 1, "cluster behind the failing peer must be found (filter %q)", filter)
+		require.Equal(t, "homelab", kcs[0].name)
+		require.Equal(t, "v1.30.0", kcs[0].version)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := findKubernetesClusters(ctx, httpClient, lookupAddr, peers, "homelab")
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestResolveKubeconfigPath(t *testing.T) {

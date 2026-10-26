@@ -132,13 +132,27 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 		// https://github.com/golang/go/issues/17093
 		PreferGo: true,
 	}
+	return findKubernetesClusters(ctx, httpClient, resolver.LookupAddr, peers, nameFilter)
+}
 
+func findKubernetesClusters(
+	ctx context.Context,
+	httpClient *http.Client,
+	lookupAddr func(context.Context, string) ([]string, error),
+	peers []*proto.PeerState,
+	nameFilter string,
+) ([]kubernetesCluster, error) {
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
-		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		// Peers without a DNS record have no PTR, which must not hide the remaining peers.
+		fqdns, err := lookupAddr(ctx, peer.IP)
+		if err != nil {
+			log.Debugf("reverse lookup of peer %s: %v", peer.IP, err)
+			continue
 		}
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
