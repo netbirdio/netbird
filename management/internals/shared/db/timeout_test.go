@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,9 +67,19 @@ func TestOpenPostgres_NoStatementTimeoutKeepsServerSetting(t *testing.T) {
 			if value == "" {
 				require.NoError(t, os.Unsetenv(statementTimeoutEnv))
 			}
-			conn := openPostgresTestConn(t)
+			ctx := context.Background()
+			dsn := postgresTestDSN(t)
+			admin, err := pgx.Connect(ctx, dsn)
+			require.NoError(t, err)
+			_, err = admin.Exec(ctx, "ALTER ROLE CURRENT_USER SET statement_timeout = '7s'")
+			require.NoError(t, err)
+			require.NoError(t, admin.Close(ctx))
 
-			assert.Equal(t, "0", showSetting(t, conn.DB(nil), "statement_timeout"), "sessions should keep the server setting")
+			conn, err := OpenPostgres(ctx, dsn, DefaultPoolConfig)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+
+			assert.Equal(t, "7s", showSetting(t, conn.DB(nil), "statement_timeout"), "sessions should keep the server setting")
 		})
 	}
 }
