@@ -6,6 +6,7 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -21,6 +22,7 @@ func PeerUpdateHandlerFactory(
 	secretsManager SecretsManager,
 	challenger *certposture.Challenger,
 	onChallengeStamped func(),
+	heartbeat func(),
 	srv proto.ManagementService_SyncServer,
 	cleanupfunc func()) *PeerUpdateHandler {
 	return &PeerUpdateHandler{
@@ -29,6 +31,7 @@ func PeerUpdateHandlerFactory(
 		secretsManager:     secretsManager,
 		challenger:         challenger,
 		onChallengeStamped: onChallengeStamped,
+		heartbeat:          heartbeat,
 		srv:                srv,
 		encrypter:          encryption.DefaultEncrypter{},
 		debouncer:          NewUpdateDebouncer(1000 * time.Millisecond),
@@ -54,6 +57,7 @@ type PeerUpdateHandler struct {
 	encrypter          encryption.Encrypter
 	debouncer          Debouncer
 	cleanupFunc        func()
+	heartbeat          func()
 }
 
 func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
@@ -71,6 +75,13 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", pu.peerKey.String())
 
 	defer pu.debouncer.Stop()
+
+	var heartbeat <-chan time.Time
+	if pu.heartbeat != nil {
+		ticker := time.NewTicker(nbpeer.HeartbeatInterval)
+		defer ticker.Stop()
+		heartbeat = ticker.C
+	}
 
 	for {
 		select {
@@ -109,6 +120,9 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 					return err
 				}
 			}
+
+		case <-heartbeat:
+			pu.heartbeat()
 
 		// condition when client <-> server connection has been terminated
 		case <-pu.srv.Context().Done():

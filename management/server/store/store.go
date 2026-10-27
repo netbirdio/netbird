@@ -196,6 +196,11 @@ type Store interface {
 	// recorded by the database. Returns true when the update happened,
 	// false when a newer session has taken over.
 	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
+	// HeartbeatPeerSession stamps LastSeen with the database clock and marks the
+	// peer connected, but only while the stored SessionStartedAt equals
+	// sessionStartedAt and the peer's login has not expired. Returns true when
+	// the update happened.
+	HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 

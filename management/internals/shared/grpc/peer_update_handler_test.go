@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	pb "github.com/golang/protobuf/proto" //nolint
-	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestSendPeerUpdates_FirstUpdate(t *testing.T) {
@@ -116,6 +119,61 @@ func TestSendPeerUpdates_ServerContextDone(t *testing.T) {
 	wg.Go(func() { pu.HandleUpdates(context.TODO()) }) //nolint:errcheck
 	cancel()
 	wg.Wait()
+}
+
+func TestSendPeerUpdates_HeartbeatOnlyOnInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		secretsManager := NewMockSecretsManager(ctrl)
+		updateDebouncer := NewMockDebouncer(ctrl)
+		syncSender := NewMocksyncSender(ctrl)
+
+		var heartbeats int
+		pu := PeerUpdateHandler{
+			peerKey:        mustGenerateKey(t),
+			updates:        make(chan *network_map.UpdateMessage),
+			secretsManager: secretsManager,
+			encrypter:      testEncrypter{},
+			debouncer:      updateDebouncer,
+			srv:            syncSender,
+			cleanupFunc:    func() {},
+			heartbeat:      func() { heartbeats++ },
+		}
+
+		msg := network_map.UpdateMessage{
+			Update: &proto.SyncResponse{Version: 1},
+		}
+
+		srvCtx, cancel := context.WithCancel(context.Background())
+		srvKey := mustGenerateKey(t)
+		updateDebouncer.EXPECT().ProcessUpdate(gomock.Eq(&msg)).Return(true)
+		updateDebouncer.EXPECT().TimerChannel().AnyTimes().Return(make(chan time.Time))
+		syncSender.EXPECT().Context().AnyTimes().Return(srvCtx)
+		secretsManager.EXPECT().GetWGKey().Return(srvKey, nil)
+		syncSender.EXPECT().Send(gomock.Any())
+		updateDebouncer.EXPECT().Stop()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			pu.HandleUpdates(context.Background()) //nolint:errcheck
+		}()
+
+		pu.updates <- &msg
+		synctest.Wait()
+		assert.Zero(t, heartbeats, "an update must not write a heartbeat")
+
+		time.Sleep(nbpeer.HeartbeatInterval)
+		synctest.Wait()
+		assert.Equal(t, 1, heartbeats, "one heartbeat per interval")
+
+		time.Sleep(nbpeer.HeartbeatInterval)
+		synctest.Wait()
+		assert.Equal(t, 2, heartbeats, "one heartbeat per interval")
+
+		cancel()
+		<-done
+	})
 }
 
 func mustGenerateKey(t *testing.T) wgtypes.Key {

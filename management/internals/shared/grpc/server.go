@@ -57,6 +57,8 @@ const (
 	envConcurrentSyncs = "NB_MAX_CONCURRENT_SYNCS"
 
 	defaultSyncLim = 1000
+
+	peerHeartbeatTimeout = 5 * time.Second
 )
 
 // Server an instance of a Management gRPC API server
@@ -348,7 +350,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	s.syncSem.Add(-1)
 
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
-		trackChallenge, func() { s.refreshPeerLastSeen(ctx, accountID, peer.ID) },
+		trackChallenge, func() { s.heartbeatPeerSession(ctx, accountID, peer.ID, syncStart) },
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
@@ -442,13 +444,14 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 	return nil
 }
 
-// refreshPeerLastSeen records that the peer of a live sync stream is still connected,
-// so the stale peer sweep leaves it alone. A failed refresh keeps the stream open: the
-// sweep only acts after several missed heartbeats.
-func (s *Server) refreshPeerLastSeen(ctx context.Context, accountID, peerID string) {
-	staleBefore := time.Now().UTC().Add(-nbpeer.HeartbeatInterval / 2)
-	if _, err := s.accountManager.GetStore().RefreshPeerLastSeen(ctx, accountID, peerID, staleBefore); err != nil && ctx.Err() == nil {
-		log.WithContext(ctx).Warnf("refresh last seen of peer %s: %v", peerID, err)
+// heartbeatPeerSession records that the peer of a live sync stream is still connected.
+// A failed heartbeat keeps the stream open: the peer only reads as disconnected after
+// nbpeer.StaleAfter without one, and reads as connected again once a heartbeat lands.
+func (s *Server) heartbeatPeerSession(ctx context.Context, accountID, peerID string, streamStartTime time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, peerHeartbeatTimeout)
+	defer cancel()
+	if _, err := s.accountManager.GetStore().HeartbeatPeerSession(ctx, accountID, peerID, streamStartTime.UnixNano()); err != nil && !errors.Is(ctx.Err(), context.Canceled) {
+		log.WithContext(ctx).Warnf("heartbeat of peer %s: %v", peerID, err)
 	}
 }
 
