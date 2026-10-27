@@ -3433,3 +3433,27 @@ func TestCheckPeerMaySync(t *testing.T) {
 
 	assert.Equal(t, status.NewPeerNotRegisteredError(), manager.CheckPeerMaySync(ctx, account.Id, "unknown-key", nil))
 }
+
+type failingPeerLookupStore struct {
+	store.Store
+}
+
+func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, store.LockingStrength, string) (*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "issue getting peer from store: connection reset")
+}
+
+func TestPeerLookupErrorKeepsTransientStoreErrors(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+	manager.Store = &failingPeerLookupStore{Store: manager.Store}
+
+	err := manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil)
+	errStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.Internal, errStatus.Type(), "a store failure must not look like an unregistered peer")
+
+	_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key}, account.Id)
+	errStatus, ok = status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.Internal, errStatus.Type(), "a store failure must not look like an unregistered peer")
+}

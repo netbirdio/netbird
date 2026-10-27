@@ -44,17 +44,31 @@ func maybeCreateNamed[T any](s Server, name string, createFunc func() T) (result
 	return maybeCreateKeyed(s, key, createFunc)
 }
 
-// typeKey names t by its full package path, so same-named types of different
-// packages, such as google.golang.org/grpc.Server and a local grpc.Server, never
-// share a container key.
+// typeKey names t by the full package path of every named type it is built from, so
+// same-named types of different packages, such as google.golang.org/grpc.Server and a
+// local grpc.Server, never share a container key.
 func typeKey(t reflect.Type) string {
-	if t.Kind() == reflect.Pointer {
-		return "*" + typeKey(t.Elem())
+	if t.Name() != "" {
+		if t.PkgPath() == "" {
+			return t.Name()
+		}
+		return t.PkgPath() + "." + t.Name()
 	}
-	if t.PkgPath() == "" {
+
+	switch t.Kind() {
+	case reflect.Pointer:
+		return "*" + typeKey(t.Elem())
+	case reflect.Slice:
+		return "[]" + typeKey(t.Elem())
+	case reflect.Array:
+		return fmt.Sprintf("[%d]%s", t.Len(), typeKey(t.Elem()))
+	case reflect.Map:
+		return "map[" + typeKey(t.Key()) + "]" + typeKey(t.Elem())
+	case reflect.Chan:
+		return t.ChanDir().String() + " " + typeKey(t.Elem())
+	default:
 		return t.String()
 	}
-	return t.PkgPath() + "." + t.Name()
 }
 
 func maybeCreateKeyed[T any](s Server, key string, createFunc func() T) (result T, isNew bool) {

@@ -41,7 +41,9 @@ const (
 
 	applicationName = "management"
 
-	grpcStopTimeout = 3 * time.Second
+	grpcStopTimeout         = 3 * time.Second
+	flushDisconnectsTimeout = 10 * time.Second
+	shutdownCloseTimeout    = 5 * time.Second
 )
 
 type Server interface {
@@ -299,9 +301,10 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 	}
 }
 
-// Stop attempts a graceful shutdown, waiting up to 5 seconds for active connections to finish
+// Stop attempts a graceful shutdown. Each phase has its own budget: stopping the services and
+// gRPC streams, writing the disconnects of the drained streams, and closing the stores.
 func (s *BaseServer) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownCloseTimeout)
 	defer cancel()
 	defer s.RunStopHandlers()
 	if s.domainCleanupStop != nil {
@@ -322,32 +325,37 @@ func (s *BaseServer) Stop() error {
 	}
 	s.ManagementGRPCServer().StartDraining()
 	s.stopGRPCServer()
-	s.ManagementGRPCServer().FlushDisconnects(ctx)
+	flushCtx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), flushDisconnectsTimeout)
+	s.ManagementGRPCServer().FlushDisconnects(flushCtx)
+	cancelFlush()
+
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), shutdownCloseTimeout)
+	defer cancelClose()
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
-	runExtensionShutdownHooks(ctx, s.grpcExtensions)
-	_ = s.Store().Close(ctx)
-	_ = s.EventStore().Close(ctx)
+	runExtensionShutdownHooks(closeCtx, s.grpcExtensions)
+	_ = s.Store().Close(closeCtx)
+	_ = s.EventStore().Close(closeCtx)
 	if s.update != nil {
 		s.update.StopWatch()
 	}
 	// Stop embedded IdP if configured
 	if embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager); ok {
-		_ = embeddedIdP.Stop(ctx)
+		_ = embeddedIdP.Stop(closeCtx)
 	}
 
 	select {
 	case err := <-s.Errors():
 		if err != nil {
-			log.WithContext(ctx).Infof("stopped Management Service: %v", err)
+			log.WithContext(closeCtx).Infof("stopped Management Service: %v", err)
 			return nil
 		}
-		log.WithContext(ctx).Infof("stopped Management Service")
+		log.WithContext(closeCtx).Infof("stopped Management Service")
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-closeCtx.Done():
+		return closeCtx.Err()
 	}
 }
 

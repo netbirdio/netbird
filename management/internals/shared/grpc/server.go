@@ -336,7 +336,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil, false)
 		return err
 	}
 
@@ -344,14 +344,14 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil, false)
 		return err
 	}
 
 	if err = s.accountManager.CheckPeerMaySync(ctx, accountID, peerKey.String(), settings); err != nil {
 		log.WithContext(ctx).Debugf("peer %s may no longer sync after connecting: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, updates)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, updates, false)
 		return mapError(ctx, err)
 	}
 
@@ -462,19 +462,24 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 	return nil
 }
 
+// cancelPeerRoutines tears down the stream under the peer lock. While draining, the
+// disconnect is queued before waiting for the lock, so the shutdown flush covers the
+// stream even when the lock is held past the gRPC stop timeout.
 func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
 	uncanceledCTX := context.WithoutCancel(ctx)
+	disconnectQueued := s.queueDisconnect(accountID, peer, streamStartTime)
 	unlock := s.acquirePeerLockByUID(uncanceledCTX, peer.Key)
 	defer unlock()
 
-	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime, session)
+	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime, session, disconnectQueued)
 }
 
 // cancelPeerRoutinesWithoutLock tears down the stream of the session identified by streamStartTime
 // and its updates channel. A nil session means the stream failed before it registered a channel;
-// the controller then closes any channel still registered.
-func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
-	if !s.queueDisconnect(accountID, peer, streamStartTime) {
+// the controller then closes any channel still registered. disconnectQueued tells that the
+// caller already queued the disconnect for the shutdown flush.
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage, disconnectQueued bool) {
+	if !disconnectQueued && !s.queueDisconnect(accountID, peer, streamStartTime) {
 		err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key, streamStartTime)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
@@ -531,7 +536,13 @@ func (s *Server) FlushDisconnects(ctx context.Context) {
 	if len(sessions) == 0 {
 		return
 	}
-	if err := s.accountManager.MarkPeersDisconnected(ctx, sessions); err != nil {
+	err := s.accountManager.MarkPeersDisconnected(ctx, sessions)
+	if err != nil && ctx.Err() == nil {
+		// Retrying the whole batch is safe: rows already marked no longer match their session token.
+		log.WithContext(ctx).Warnf("retrying to mark %d peers disconnected on shutdown: %v", len(sessions), err)
+		err = s.accountManager.MarkPeersDisconnected(ctx, sessions)
+	}
+	if err != nil {
 		log.WithContext(ctx).Errorf("failed to mark %d peers disconnected on shutdown: %v", len(sessions), err)
 	}
 }

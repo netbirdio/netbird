@@ -147,9 +147,12 @@ const markPeersDisconnectedChunkSize = 1000
 
 // MarkPeersDisconnectedIfSameSession is the batched form of
 // MarkPeerDisconnectedIfSameSession: one UPDATE per chunk of sessions, each
-// peer guarded by its own (account, peer, session) tuple.
+// peer guarded by its own (account, peer, session) tuple. A failed chunk does
+// not stop the others; the count then covers the chunks that succeeded and
+// the error joins the failures.
 func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error) {
 	var total int64
+	var errs []error
 	for start := 0; start < len(sessions); start += markPeersDisconnectedChunkSize {
 		end := min(start+markPeersDisconnectedChunkSize, len(sessions))
 		tuples := make([][]any, 0, end-start)
@@ -171,11 +174,12 @@ func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessi
 				"peer_status_session_started_at": int64(0),
 			})
 		if result.Error != nil {
-			return total, status.Errorf(status.Internal, "mark peers disconnected: %v", result.Error)
+			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", result.Error))
+			continue
 		}
 		total += result.RowsAffected
 	}
-	return total, nil
+	return total, errors.Join(errs...)
 }
 
 // ApproveAccountPeers marks all peers that currently require approval in the given account as approved.

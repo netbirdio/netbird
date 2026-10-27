@@ -1151,7 +1151,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 func (am *DefaultAccountManager) prepareSyncPeer(ctx context.Context, st store.Store, lockStrength store.LockingStrength, sync types.PeerSync, settings *types.Settings) (*nbpeer.Peer, nbpeer.MetaDiff, bool, error) {
 	peer, err := st.GetPeerByPeerPubKey(ctx, lockStrength, sync.WireGuardPubKey)
 	if err != nil {
-		return nil, nbpeer.MetaDiff{}, false, status.NewPeerNotRegisteredError()
+		return nil, nbpeer.MetaDiff{}, false, peerLookupError(err)
 	}
 
 	if err = checkPeerMaySync(ctx, st, peer, settings); err != nil {
@@ -1167,8 +1167,9 @@ func (am *DefaultAccountManager) prepareSyncPeer(ctx context.Context, st store.S
 }
 
 // CheckPeerMaySync reads the peer again and rejects it like SyncPeer does when its owner
-// is blocked or its login expired. Nil settings are loaded from the store. The gRPC server calls it once the sync stream can
-// receive updates, so an expiry committed while the stream was being set up is not missed.
+// is blocked or its login expired. Nil settings are loaded from the store. The gRPC
+// server calls it once the sync stream can receive updates, so an expiry committed
+// while the stream was being set up is not missed.
 func (am *DefaultAccountManager) CheckPeerMaySync(ctx context.Context, accountID, peerPubKey string, settings *types.Settings) error {
 	settings, err := am.accountSettings(ctx, accountID, settings)
 	if err != nil {
@@ -1177,10 +1178,19 @@ func (am *DefaultAccountManager) CheckPeerMaySync(ctx context.Context, accountID
 
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
 	if err != nil {
-		return status.NewPeerNotRegisteredError()
+		return peerLookupError(err)
 	}
 
 	return checkPeerMaySync(ctx, am.Store, peer, settings)
+}
+
+// peerLookupError maps a missing peer to the not-registered error that makes the client
+// register again, and keeps any other store error so a transient failure is retried.
+func peerLookupError(err error) error {
+	if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+		return status.NewPeerNotRegisteredError()
+	}
+	return err
 }
 
 // accountSettings returns settings when the caller already read them for this request
@@ -1306,7 +1316,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	if login.UserID == "" {
-		err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login, settings)
+		err = am.checkIFPeerNeedsLoginWithoutLock(ctx, login, settings)
 		if err != nil {
 			return nil, nil, nil, false, err
 		}
@@ -1596,7 +1606,7 @@ func processPeerPostureChecks(policy *types.Policy, peerID string, peerGroupIDs 
 // The NetBird client doesn't have a way to check if the peer needs login besides sending a login request
 // with no JWT token and usually no setup-key. As the client can send up to two login request to check if it is expired
 // and before starting the engine, we do the checks without an account lock to avoid piling up requests.
-func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, accountID string, login types.PeerLogin, settings *types.Settings) error {
+func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, login types.PeerLogin, settings *types.Settings) error {
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, login.WireGuardPubKey)
 	if err != nil {
 		return err

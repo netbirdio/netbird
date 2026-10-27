@@ -262,7 +262,7 @@ func (am *MockAccountManager) CheckPeerMaySync(ctx context.Context, accountID, p
 	if am.CheckPeerMaySyncFunc != nil {
 		return am.CheckPeerMaySyncFunc(ctx, accountID, peerPubKey, settings)
 	}
-	return nil
+	return status.Errorf(codes.Unimplemented, "method CheckPeerMaySync is not implemented")
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {

@@ -934,7 +934,7 @@ func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
 
 	_, err = loginPeerWithValidSetupKey(key, client)
 	require.NoError(t, err)
-	require.Zero(t, counting.reads.Load(), "login must reuse the settings the gRPC server read")
+	require.Zero(t, counting.reads.Load(), "login must not read settings through the account manager")
 
 	serverKey, err := getServerKey(client)
 	require.NoError(t, err)
@@ -951,5 +951,5 @@ func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
 		peer, err := counting.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
 		return err == nil && peer.Status.Connected
 	}, 5*time.Second, 50*time.Millisecond)
-	require.Zero(t, counting.reads.Load(), "sync must reuse the settings the gRPC server read")
+	require.Zero(t, counting.reads.Load(), "sync must not read settings through the account manager")
 }
