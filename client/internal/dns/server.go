@@ -284,6 +284,7 @@ func NewDefaultServerIos(
 	return ds
 }
 
+// newDefaultServer builds a DefaultServer on dnsService; Initialize later replaces the no-op host manager.
 func newDefaultServer(
 	ctx context.Context,
 	wgInterface WGIface,
@@ -1183,6 +1184,12 @@ func (s *DefaultServer) runHostDNSCacheFlush() {
 	defer s.mux.Unlock()
 
 	s.cacheFlushMu.Lock()
+	// A flush may have finished while this one waited for s.mux.
+	if delay := time.Until(s.lastCacheFlush.Add(s.cacheFlushCoalesce)); delay > 0 {
+		time.AfterFunc(delay, s.runHostDNSCacheFlush)
+		s.cacheFlushMu.Unlock()
+		return
+	}
 	s.cacheFlushPending = false
 	s.cacheFlushMu.Unlock()
 

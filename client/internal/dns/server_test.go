@@ -2403,6 +2403,7 @@ type flushCountingHostManager struct {
 	lockHeld chan bool
 }
 
+// flushDNSCache records the flush and whether server.mux was held, failing once if failNext is set.
 func (m *flushCountingHostManager) flushDNSCache() error {
 	held := !m.server.mux.TryLock()
 	if !held {
@@ -2416,6 +2417,7 @@ func (m *flushCountingHostManager) flushDNSCache() error {
 	return nil
 }
 
+// withFlushingHostManager installs a flushCountingHostManager as the server's host manager.
 func (f *projTestFixture) withFlushingHostManager() *flushCountingHostManager {
 	m := &flushCountingHostManager{
 		flushes:  make(chan struct{}, 10),
@@ -2428,6 +2430,7 @@ func (f *projTestFixture) withFlushingHostManager() *flushCountingHostManager {
 	return m
 }
 
+// failAndRecover drives the group through one unhealthy and one healthy tick, expecting both events.
 func (f *projTestFixture) failAndRecover() {
 	f.t.Helper()
 	f.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
@@ -2438,6 +2441,7 @@ func (f *projTestFixture) failAndRecover() {
 	f.expectEvent("recovered", "recovery")
 }
 
+// expectFlush fails the test unless a flush arrives within a second.
 func (m *flushCountingHostManager) expectFlush(t *testing.T, why string) {
 	t.Helper()
 	select {
@@ -2447,6 +2451,7 @@ func (m *flushCountingHostManager) expectFlush(t *testing.T, why string) {
 	}
 }
 
+// expectNoFlush fails the test if a flush arrives within 100ms.
 func (m *flushCountingHostManager) expectNoFlush(t *testing.T, why string) {
 	t.Helper()
 	select {
@@ -2543,8 +2548,8 @@ func TestProjection_FlushHoldsServerLock(t *testing.T) {
 	}
 }
 
-// TestProjection_RecoveryFlushDoesNotTakeServerLock guards the lock order Stop relies on.
-func TestProjection_RecoveryFlushDoesNotTakeServerLock(t *testing.T) {
+// TestProjection_RecoveryDoesNotBlockOnServerLock checks the projection never waits on s.mux, the order Stop relies on.
+func TestProjection_RecoveryDoesNotBlockOnServerLock(t *testing.T) {
 	fx := newProjTestFixture(t)
 	hm := fx.withFlushingHostManager()
 
@@ -2574,4 +2579,22 @@ func TestProjection_RecoveryFlushDoesNotTakeServerLock(t *testing.T) {
 
 	fx.expectEvent("recovered", "recovery")
 	hm.expectFlush(t, "flush runs once s.mux is free")
+}
+
+// TestProjection_QueuedFlushWaitsForWindowAfterConcurrentFlush covers a flush queued behind one in progress.
+func TestProjection_QueuedFlushWaitsForWindowAfterConcurrentFlush(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.server.cacheFlushCoalesce = 300 * time.Millisecond
+	hm := fx.withFlushingHostManager()
+
+	fx.server.mux.Lock()
+	fx.server.flushHostDNSCache()
+	time.Sleep(50 * time.Millisecond)
+	fx.server.cacheFlushMu.Lock()
+	fx.server.lastCacheFlush = time.Now()
+	fx.server.cacheFlushMu.Unlock()
+	fx.server.mux.Unlock()
+
+	hm.expectNoFlush(t, "queued flush waits for the window of the flush that just finished")
+	hm.expectFlush(t, "queued flush runs once the window ends")
 }
