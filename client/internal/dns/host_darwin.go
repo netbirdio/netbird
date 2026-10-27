@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -503,7 +504,11 @@ func (s *systemConfigurator) flushDNSCache() error {
 func runWithTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, fmt.Errorf("%s timed out after %s: %w", name, timeout, ctx.Err())
+	}
+	return out, err
 }
 
 func (s *systemConfigurator) restoreUncleanShutdownDNS() error {

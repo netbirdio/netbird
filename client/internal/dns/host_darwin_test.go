@@ -613,6 +613,7 @@ func TestOriginalNameserversRouteAllTransition(t *testing.T) {
 func TestRunWithTimeoutKillsHungCommand(t *testing.T) {
 	start := time.Now()
 	_, err := runWithTimeout(100*time.Millisecond, "sleep", "5")
-	require.Error(t, err, "a command killed by the timeout must report an error")
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the error must say the command hit the timeout")
+	assert.Contains(t, err.Error(), "timed out after 100ms")
 	assert.Less(t, time.Since(start), 2*time.Second, "command was not killed at the timeout")
 }
