@@ -71,9 +71,9 @@ func TestOpenPostgres_NoStatementTimeoutKeepsServerSetting(t *testing.T) {
 			dsn := postgresTestDSN(t)
 			admin, err := pgx.Connect(ctx, dsn)
 			require.NoError(t, err)
+			t.Cleanup(func() { _ = admin.Close(ctx) })
 			_, err = admin.Exec(ctx, "ALTER ROLE CURRENT_USER SET statement_timeout = '7s'")
 			require.NoError(t, err)
-			require.NoError(t, admin.Close(ctx))
 
 			conn, err := OpenPostgres(ctx, dsn, DefaultPoolConfig)
 			require.NoError(t, err)
