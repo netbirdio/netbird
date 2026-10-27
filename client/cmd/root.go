@@ -227,6 +227,8 @@ func init() {
 	upCmd.PersistentFlags().StringVar(&localMetricsAddr, localMetricsAddressFlag, localmetrics.DefaultListenAddress, "Listen address of the local Prometheus /metrics endpoint.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "Deprecated: no longer used. Lazy connections are controlled by the server and the NB_LAZY_CONN environment variable.")
 	_ = upCmd.PersistentFlags().MarkDeprecated(enableLazyConnectionFlag, "no longer used; lazy connections are controlled by the server and the NB_LAZY_CONN environment variable")
+	_ = upCmd.PersistentFlags().MarkDeprecated(enableRosenpassFlag, "Rosenpass support may be removed in a future release")
+	_ = upCmd.PersistentFlags().MarkDeprecated(rosenpassPermissiveFlag, "Rosenpass support may be removed in a future release")
 
 }
 

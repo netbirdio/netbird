@@ -2,44 +2,27 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestWarnRosenpassDeprecated(t *testing.T) {
-	tests := []struct {
-		name     string
-		args     []string
-		wantWarn bool
-	}{
-		{name: "no rosenpass flags", args: nil, wantWarn: false},
-		{name: "enable rosenpass", args: []string{"--" + enableRosenpassFlag}, wantWarn: true},
-		{name: "disable rosenpass", args: []string{"--" + enableRosenpassFlag + "=false"}, wantWarn: false},
-		{name: "enable permissive", args: []string{"--" + rosenpassPermissiveFlag}, wantWarn: true},
-		{
-			name:     "disable both",
-			args:     []string{"--" + enableRosenpassFlag + "=false", "--" + rosenpassPermissiveFlag + "=false"},
-			wantWarn: false,
-		},
-	}
+func TestRosenpassFlagsWarnDeprecated(t *testing.T) {
+	flags := upCmd.PersistentFlags()
+	origEnabled, origPermissive := rosenpassEnabled, rosenpassPermissive
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// The flags bind to the package-level vars, so a fresh command per case
-			// resets both the values and the Changed state.
-			cmd := &cobra.Command{}
-			cmd.Flags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "")
-			cmd.Flags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "")
-			require.NoError(t, cmd.ParseFlags(tt.args))
+	var out bytes.Buffer
+	flags.SetOutput(&out)
+	t.Cleanup(func() {
+		flags.SetOutput(os.Stderr)
+		rosenpassEnabled, rosenpassPermissive = origEnabled, origPermissive
+	})
 
-			var stderr bytes.Buffer
-			cmd.SetErr(&stderr)
-			warnRosenpassDeprecated(cmd)
-
-			assert.Equal(t, tt.wantWarn, stderr.Len() > 0, "deprecation warning presence, stderr=%q", stderr.String())
-		})
+	for _, name := range []string{enableRosenpassFlag, rosenpassPermissiveFlag} {
+		out.Reset()
+		require.NoError(t, flags.Set(name, "true"))
+		assert.Contains(t, out.String(), "Flag --"+name+" has been deprecated", "setting --%s should print the deprecation notice", name)
 	}
 }
