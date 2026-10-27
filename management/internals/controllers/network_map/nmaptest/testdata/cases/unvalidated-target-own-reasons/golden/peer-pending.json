@@ -1,0 +1,18 @@
+{
+  "Serial": "41",
+  "peerConfig": {
+    "address": "100.64.0.2/10",
+    "sshConfig": {},
+    "fqdn": "peer-pending.netbird.test",
+    "autoUpdate": {}
+  },
+  "remotePeersIsEmpty": true,
+  "DNSConfig": {
+    "ForwarderPort": "5353"
+  },
+  "firewallRulesIsEmpty": true,
+  "routesFirewallRulesIsEmpty": true,
+  "ownExclusionReasons": [
+    "ExclusionReasonPendingApproval"
+  ]
+}

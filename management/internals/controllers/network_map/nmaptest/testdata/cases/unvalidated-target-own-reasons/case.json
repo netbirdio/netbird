@@ -1,0 +1,5 @@
+{
+  "description": "An unvalidated peer receives an otherwise empty map that still tells it why it is excluded: peer-pending awaits approval, peer-edr is rejected by the integrated validator without needing approval. Full mode only: the envelope expansion of an empty map currently differs from the full one (DNS service enabled and an SshAuth carrying only the user id claim), which is unrelated to the exclusion reasons; their envelope delivery is covered by TestEnvelopeToNetworkMap_UnvalidatedTargetOwnExclusionReasons.",
+  "peers": ["peer-pending", "peer-edr"],
+  "modes": ["full"]
+}

@@ -1,0 +1,116 @@
+{
+  "Serial": "41",
+  "peerConfig": {
+    "address": "100.64.0.10/10",
+    "sshConfig": {},
+    "fqdn": "peer-srv.netbird.test",
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "XPXITqbev8jVtIkumbPt5vpohe2OHWvhNGO3z2mgcxM=",
+      "allowedIps": [
+        "100.64.0.1/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-ok.netbird.test",
+      "agentVersion": "0.60.0"
+    },
+    {
+      "wgPubKey": "cfiic1ce52Yg3VfpqMGJ4ruNXuYz4qRSEkaEEqofagk=",
+      "allowedIps": [
+        "100.64.0.6/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-old-alt.netbird.test",
+      "agentVersion": "0.40.0"
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-old-alt.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.6"
+          },
+          {
+            "Name": "peer-srv.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.10"
+          },
+          {
+            "Name": "peer-ok.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.1"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "5353"
+  },
+  "FirewallRules": [
+    {
+      "PeerIP": "100.64.0.1",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "443",
+      "PolicyID": "cG9sLWdhdGVk"
+    },
+    {
+      "PeerIP": "100.64.0.1",
+      "Protocol": "TCP",
+      "Port": "443",
+      "PolicyID": "cG9sLWdhdGVk"
+    },
+    {
+      "PeerIP": "100.64.0.6",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "22",
+      "PolicyID": "cG9sLWFsdA=="
+    },
+    {
+      "PeerIP": "100.64.0.6",
+      "Protocol": "TCP",
+      "Port": "22",
+      "PolicyID": "cG9sLWFsdA=="
+    }
+  ],
+  "routesFirewallRulesIsEmpty": true,
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  },
+  "excludedPeers": [
+    {
+      "fqdn": "peer-pending.netbird.test",
+      "ip": "100.64.0.2",
+      "reason": "ExclusionReasonPendingApproval"
+    },
+    {
+      "fqdn": "peer-edr.netbird.test",
+      "ip": "100.64.0.3",
+      "reason": "ExclusionReasonEdrNonCompliant"
+    },
+    {
+      "fqdn": "peer-expired.netbird.test",
+      "ip": "100.64.0.4",
+      "reason": "ExclusionReasonLoginExpired"
+    },
+    {
+      "fqdn": "peer-old.netbird.test",
+      "ip": "100.64.0.5",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    }
+  ],
+  "excludedPeersTotal": 4
+}
