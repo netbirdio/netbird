@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -27,11 +29,12 @@ type TxMetrics interface {
 // Conn is a database connection the repositories run on: one gorm handle, the
 // pgx pool of a Postgres deployment and the engine they talk to.
 type Conn struct {
-	db        *gorm.DB
-	pool      *pgxpool.Pool
-	engine    Engine
-	txTimeout time.Duration
-	metrics   TxMetrics
+	db               *gorm.DB
+	pool             *pgxpool.Pool
+	engine           Engine
+	txTimeout        time.Duration
+	statementTimeout time.Duration
+	metrics          TxMetrics
 }
 
 // Option tunes a Conn as it is opened.
@@ -51,8 +54,8 @@ func WithMaxOpenConns(n int) Option {
 }
 
 // NewConn takes ownership of an open gorm handle and pool once it returns
-// without error, applying the connection limits and transaction timeout
-// configured through the environment and opts.
+// without error, applying the connection limits and timeouts configured
+// through the environment and opts.
 func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool, opts ...Option) (*Conn, error) {
 	sqlDB, err := gormDB.DB()
 	if err != nil {
@@ -64,13 +67,12 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 		opt(&options)
 	}
 
-	txTimeout := defaultTransactionTimeout
-	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
-		if parsed, err := time.ParseDuration(v); err == nil {
-			txTimeout = parsed
-		}
-	}
+	txTimeout := util.DurationFromEnv(transactionTimeoutEnv, defaultTransactionTimeout)
 	log.WithContext(ctx).Infof("Setting transaction timeout to %v", txTimeout)
+	statementTimeout := util.DurationFromEnv(statementTimeoutEnv, defaultStatementTimeout)
+	if engine == PostgresStoreEngine {
+		log.WithContext(ctx).Infof("Setting statement timeout to %v", statementTimeout)
+	}
 
 	conns := runtime.NumCPU()
 	configuredConns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
@@ -96,7 +98,7 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 	log.WithContext(ctx).Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
 		conns, conns, connMaxLifetime, connMaxIdleTime)
 
-	return &Conn{db: gormDB, pool: pool, engine: engine, txTimeout: txTimeout}, nil
+	return &Conn{db: gormDB, pool: pool, engine: engine, txTimeout: txTimeout, statementTimeout: statementTimeout}, nil
 }
 
 // DB returns the handle a query must run on: the transaction when tx is set,
