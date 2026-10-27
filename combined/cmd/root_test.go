@@ -132,3 +132,34 @@ func TestCreateNetworkServices(t *testing.T) {
 		assert.Nil(t, s.stunServer, "no local STUN server")
 	})
 }
+
+func TestCreateHealthcheckServer(t *testing.T) {
+	t.Run("runs with the local relay", func(t *testing.T) {
+		cfg := loadTestConfig(t, baseServerYAML+"  disableStun: true\n")
+		s := createNetworkServices(t, cfg)
+
+		require.NoError(t, s.createHealthcheckServer(cfg))
+		assert.NotNil(t, s.healthcheck, "healthcheck server checks the local relay")
+	})
+
+	// Without a local relay the healthcheck has nothing to probe. Wiring the nil
+	// relay into it used to panic on the first /health request.
+	cases := map[string]string{
+		"disableRelay": "  disableRelay: true\n",
+		"external relay": `
+  relays:
+    addresses: ["rels://relay.example.com:443"]
+  stuns:
+    - uri: "stun:relay.example.com:3478"
+`,
+	}
+	for name, extra := range cases {
+		t.Run(name+" skips the healthcheck", func(t *testing.T) {
+			cfg := loadTestConfig(t, baseServerYAML+extra)
+			s := createNetworkServices(t, cfg)
+
+			require.NoError(t, s.createHealthcheckServer(cfg))
+			assert.Nil(t, s.healthcheck, "no healthcheck server without a local relay")
+		})
+	}
+}

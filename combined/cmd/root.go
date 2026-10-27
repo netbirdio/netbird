@@ -351,7 +351,15 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 	return nil
 }
 
+// createHealthcheckServer skips the healthcheck without a local relay: it only
+// probes the relay, and a nil *relayServer.Server would reach it as a non-nil
+// ServiceChecker and panic on the first request.
 func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {
+	if s.relaySrv == nil {
+		log.Infof("Healthcheck server disabled: no local relay to check")
+		return nil
+	}
+
 	hCfg := healthcheck.Config{
 		ListenAddress:  cfg.Server.HealthcheckAddress,
 		ServiceChecker: s.relaySrv,
@@ -401,11 +409,13 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 		}
 	})
 
-	wg.Go(func() {
-		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("failed to start healthcheck server: %v", err)
-		}
-	})
+	if httpHealthcheck != nil {
+		wg.Go(func() {
+			if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalf("failed to start healthcheck server: %v", err)
+			}
+		})
+	}
 
 	if stunServer != nil {
 		wg.Go(func() {
@@ -422,8 +432,10 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, signalSrv *signalServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
-	if err := httpHealthcheck.Shutdown(ctx); err != nil {
-		errs = multierror.Append(errs, fmt.Errorf("failed to close healthcheck server: %w", err))
+	if httpHealthcheck != nil {
+		if err := httpHealthcheck.Shutdown(ctx); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("failed to close healthcheck server: %w", err))
+		}
 	}
 
 	if stunServer != nil {

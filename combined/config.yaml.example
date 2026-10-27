@@ -65,7 +65,8 @@ server:
   #   - uri: "stun:stun.example.com:3479"
 
   # External relay servers - disables local relay server, and local STUN
-  # too unless 'stuns' or 'keepEmbeddedRelay' is set
+  # too unless 'keepEmbeddedRelay' is set (without 'stuns') or
+  # 'keepEmbeddedStun' is set (with 'stuns')
   # relays:
   #   addresses:
   #     - "rels://relay.example.com:443"
@@ -83,7 +84,8 @@ server:
   # keepEmbeddedRelay: false
 
   # Turn STUN or relay off entirely: nothing runs locally and clients get none.
-  # Cannot be combined with 'stuns' / 'relays' or the keepEmbedded options.
+  # 'disableStun' cannot be combined with 'stuns' or 'keepEmbeddedStun', and
+  # 'disableRelay' cannot be combined with 'relays' or 'keepEmbeddedRelay'.
   # Without STUN and relay, peers connect only when a direct path exists.
   # disableStun: false
   # disableRelay: false
