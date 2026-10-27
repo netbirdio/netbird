@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -194,4 +196,34 @@ func TestManager_GetPeersPaginated_NoPermission_User_IsRestrictable_ViewBlocked(
 	assert.Equal(t, make([]*peer.Peer, 0), peers)
 	assert.Equal(t, 0, total)
 	assert.NoError(t, err)
+}
+
+func TestManager_DeletePeers_IncrementsNetworkSerial(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	txStore := store.NewMockStore(ctrl)
+	accountManager := account.NewMockManager(ctrl)
+	networkMapController := network_map.NewMockController(ctrl)
+
+	m := NewManager(mockStore, permissions.NewMockManager(ctrl)).(*managerImpl)
+	m.accountManager = accountManager
+	m.networkMapController = networkMapController
+
+	ctx := context.Background()
+	mockStore.EXPECT().GetAccountSettings(gomock.Any(), store.LockingStrengthNone, "test-account").Return(&types.Settings{}, nil)
+	networkMapController.EXPECT().GetDNSDomain(gomock.Any()).Return("netbird.selfhosted")
+	mockStore.EXPECT().ExecuteInTransaction(gomock.Any(), gomock.Any()).Times(2).
+		DoAndReturn(func(_ context.Context, fn func(store.Store) error) error { return fn(txStore) })
+
+	for _, id := range []string{"peer-1", "peer-2"} {
+		txStore.EXPECT().GetPeerByID(gomock.Any(), store.LockingStrengthNone, "test-account", id).Return(&peer.Peer{ID: id, Status: &peer.PeerStatus{}}, nil)
+		txStore.EXPECT().RemovePeerFromAllGroups(gomock.Any(), id).Return(nil)
+		txStore.EXPECT().GetPolicyRulesByResourceID(gomock.Any(), store.LockingStrengthNone, "test-account", id).Return(nil, nil)
+		txStore.EXPECT().DeletePeer(gomock.Any(), "test-account", id).Return(nil)
+	}
+	txStore.EXPECT().IncrementNetworkSerial(gomock.Any(), "test-account").Times(2).Return(nil)
+	accountManager.EXPECT().StoreEvent(gomock.Any(), "test-user", gomock.Any(), "test-account", gomock.Any(), gomock.Any()).Times(2)
+	accountManager.EXPECT().UpdateAccountPeers(gomock.Any(), "test-account", gomock.Any())
+
+	assert.NoError(t, m.DeletePeers(ctx, "test-account", []string{"peer-1", "peer-2"}, "test-user", false))
 }

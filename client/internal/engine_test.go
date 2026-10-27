@@ -14,10 +14,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -61,11 +60,11 @@ type MockWGIface struct {
 	SetFilterFunc              func(filter device.PacketFilter) error
 	GetFilterFunc              func() device.PacketFilter
 	GetDeviceFunc              func() *device.FilteredDevice
-	GetWGDeviceFunc            func() *wgdevice.Device
+	GetWGDeviceFunc            func() *wgbackend.Device
 	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
-	GetNetFunc                 func() *netstack.Net
+	GetNetFunc                 func() *wgbackend.NetstackNet
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
@@ -149,7 +148,7 @@ func (m *MockWGIface) GetDevice() *device.FilteredDevice {
 	return m.GetDeviceFunc()
 }
 
-func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
+func (m *MockWGIface) GetWGDevice() *wgbackend.Device {
 	return m.GetWGDeviceFunc()
 }
 
@@ -161,7 +160,7 @@ func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
 }
 
-func (m *MockWGIface) GetNet() *netstack.Net {
+func (m *MockWGIface) GetNet() *wgbackend.NetstackNet {
 	return m.GetNetFunc()
 }
 

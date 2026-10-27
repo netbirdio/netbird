@@ -175,6 +175,24 @@ func TestChainMatchesCAs(t *testing.T) {
 	assert.False(t, ChainMatchesCAs("not a pem", []string{ca.PEM}, now))
 }
 
+func TestAnyChainMatchesCAs(t *testing.T) {
+	ca := certtest.NewCA(t, "root")
+	otherCA := certtest.NewCA(t, "other-root")
+	chainPEM := EncodeChainPEM([]*x509.Certificate{ca.Issue(t, certtest.ECDSAKey(t), "device")})
+	otherPEM := EncodeChainPEM([]*x509.Certificate{otherCA.Issue(t, certtest.ECDSAKey(t), "device")})
+
+	assert.True(t, AnyChainMatchesCAs([]string{otherPEM, chainPEM}, []string{ca.PEM}, now))
+	assert.False(t, AnyChainMatchesCAs([]string{otherPEM}, []string{ca.PEM}, now))
+	assert.False(t, AnyChainMatchesCAs(nil, []string{ca.PEM}, now))
+	assert.False(t, AnyChainMatchesCAs([]string{chainPEM}, []string{"not a pem"}, now))
+
+	roots, err := ParseCAs([]string{ca.PEM})
+	require.NoError(t, err)
+	assert.True(t, AnyChainMatchesPool([]string{otherPEM, chainPEM}, roots, now))
+	assert.False(t, AnyChainMatchesPool([]string{otherPEM}, roots, now))
+	assert.False(t, AnyChainMatchesPool(nil, roots, now))
+}
+
 func TestChainPEM_RoundTrip(t *testing.T) {
 	ca := certtest.NewCA(t, "root")
 	leaf := ca.Issue(t, certtest.ECDSAKey(t), "device")

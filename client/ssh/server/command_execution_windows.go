@@ -267,7 +267,7 @@ func (s *Server) prepareCommandEnv(logger *log.Entry, localUser *user.User, sess
 	return env
 }
 
-func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window) bool {
+func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	if privilegeResult.User == nil {
 		logger.Errorf("no user in privilege result")
 		return false
@@ -276,7 +276,7 @@ func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privileg
 	shell := getUserShell(privilegeResult.User.Uid)
 	logger.Infof("starting interactive shell: %s", shell)
 
-	s.executeCommandWithPty(logger, session, nil, privilegeResult, ptyReq, nil)
+	s.executeCommandWithPty(logger, session, nil, privilegeResult, ptyReq, winCh)
 	return true
 }
 
@@ -376,7 +376,9 @@ func (s *Server) detectUtilLinuxLogin(context.Context) bool {
 }
 
 // executeCommandWithPty executes a command with PTY allocation on Windows using ConPty
-func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _ *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window) bool {
+func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _ *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+	discardWindowChanges(winCh)
+
 	localUser := privilegeResult.User
 	if localUser == nil {
 		logger.Errorf("no user in privilege result")
@@ -405,4 +407,19 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _
 
 	logger.Debug("ConPty execution completed")
 	return true
+}
+
+// discardWindowChanges drains the session's window-change channel. The ConPty is sized
+// once at start, and an undrained channel blocks the session's request loop on the
+// next resize.
+func discardWindowChanges(winCh <-chan ssh.Window) {
+	if winCh == nil {
+		return
+	}
+	go func() {
+		for range winCh {
+			// The ConPty keeps the size it was started with.
+			continue
+		}
+	}()
 }

@@ -899,6 +899,10 @@
         "message": "Add a post-quantum key exchange via Rosenpass on top of WireGuard®.",
         "description": "Helper text: adds a post-quantum key exchange via Rosenpass on top of WireGuard®. 'Rosenpass' and 'WireGuard®' are product names — do not translate; keep the ® symbol."
     },
+    "settings.security.rosenpass.deprecated": {
+        "message": "Deprecated: Rosenpass support may be removed in a future release.",
+        "description": "Notice shown under the quantum-resistance toggle: the Rosenpass feature is deprecated and may be removed later. 'Rosenpass' is a product name — do not translate."
+    },
     "settings.security.rosenpassPermissive.label": {
         "message": "Enable Permissive Mode",
         "description": "Toggle label: enable permissive mode (for quantum-resistance)."

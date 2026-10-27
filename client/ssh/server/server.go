@@ -20,9 +20,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/exp/maps"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -57,6 +57,10 @@ const (
 // directTCPIPDialTimeout bounds how long relayDirectTCPIP waits on a dial to
 // the forwarded destination before rejecting the SSH channel.
 const directTCPIPDialTimeout = 30 * time.Second
+
+// defaultHandshakeTimeout bounds how long a connection may take to complete the SSH
+// handshake and authentication before it is dropped.
+const defaultHandshakeTimeout = 60 * time.Second
 
 var (
 	ErrPrivilegedUserDisabled = errors.New(msgPrivilegedUserDisabled)
@@ -165,9 +169,10 @@ type Server struct {
 	allowRemotePortForwarding bool
 	allowRootLogin            bool
 	allowSFTP                 bool
+	handshakeTimeout          time.Duration
 	jwtEnabled                bool
 
-	netstackNet *netstack.Net
+	netstackNet *wgbackend.NetstackNet
 
 	wgAddress wgaddr.Address
 
@@ -227,6 +232,7 @@ func New(config *Config) *Server {
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
 		authorizer:             sshauth.NewAuthorizer(),
+		handshakeTimeout:       defaultHandshakeTimeout,
 	}
 
 	if config.Auth != nil {
@@ -445,7 +451,7 @@ func (s *Server) buildSessionInfo(state *sessionState) SessionInfo {
 }
 
 // SetNetstackNet sets the netstack network for userspace networking
-func (s *Server) SetNetstackNet(net *netstack.Net) {
+func (s *Server) SetNetstackNet(net *wgbackend.NetstackNet) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.netstackNet = net
@@ -884,15 +890,16 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 		},
 		HostSigners: []ssh.Signer{},
 		ChannelHandlers: map[string]ssh.ChannelHandler{
-			"session":      ssh.DefaultSessionHandler,
+			"session":      s.sessionChannelHandler,
 			"direct-tcpip": s.directTCPIPHandler,
 		},
 		RequestHandlers: map[string]ssh.RequestHandler{
 			"tcpip-forward":        s.tcpipForwardHandler,
 			"cancel-tcpip-forward": s.cancelTcpipForwardHandler,
 		},
-		ConnCallback: s.connectionValidator,
-		Version:      serverVersion,
+		ConnCallback:     s.connectionValidator,
+		HandshakeTimeout: s.handshakeTimeout,
+		Version:          serverVersion,
 	}
 
 	if s.jwtEnabled {
@@ -933,6 +940,14 @@ func (s *Server) removeRemoteForwardListener(key forwardKey) bool {
 
 func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {
 	logger := s.getRequestLogger(ctx)
+
+	release, ok := acquireConnSlot(ctx, directTCPIPCountKey{}, maxDirectTCPIPPerConn)
+	if !ok {
+		logger.Warnf("local port forwarding denied: too many forwarded connections")
+		_ = newChan.Reject(cryptossh.ResourceShortage, "too many forwarded connections")
+		return
+	}
+	defer release()
 
 	var payload struct {
 		Host           string
