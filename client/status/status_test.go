@@ -667,7 +667,7 @@ SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 Excluded peers: 3
-This peer is excluded: pending approval, posture check failed
+This peer can't connect to other peers: pending approval, posture check failed
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion, overview.WgPort)
 
 	assert.Equal(t, expectedDetail, detail)
@@ -695,7 +695,7 @@ SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 Excluded peers: 3
-This peer is excluded: pending approval, posture check failed
+This peer can't connect to other peers: pending approval, posture check failed
 `
 
 	assert.Equal(t, expectedString, shortVersion)
@@ -805,7 +805,16 @@ func TestExcludedPeersSummaryOmittedWhenNone(t *testing.T) {
 
 	assert.NotContains(t, in.GeneralSummary(false, false, false, false), "Excluded peers")
 	assert.NotContains(t, in.FullDetailSummary(), "Excluded peers")
-	assert.NotContains(t, in.GeneralSummary(false, false, false, false), "This peer is excluded")
+	assert.NotContains(t, in.GeneralSummary(false, false, false, false), "can't connect to")
+}
+
+func TestOwnExclusionPostureOnly(t *testing.T) {
+	in := overview
+	in.OwnExclusionReasons = []string{"posture_check_failed"}
+
+	summary := in.GeneralSummary(false, false, false, false)
+	assert.Contains(t, summary, "This peer failed a posture check and can't connect to some peers\n")
+	assert.NotContains(t, summary, "can't connect to other peers")
 }
 
 func TestExcludedPeersAnonymized(t *testing.T) {

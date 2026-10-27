@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -601,14 +602,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		excludedPeersString = fmt.Sprintf("Excluded peers: %d\n", o.ExcludedPeers.Total)
 	}
 
-	var ownExclusionString string
-	if len(o.OwnExclusionReasons) > 0 {
-		reasons := make([]string, 0, len(o.OwnExclusionReasons))
-		for _, reason := range o.OwnExclusionReasons {
-			reasons = append(reasons, exclusionReasonText(reason))
-		}
-		ownExclusionString = fmt.Sprintf("This peer is excluded: %s\n", strings.Join(reasons, ", "))
-	}
+	ownExclusionString := parseOwnExclusionReasons(o.OwnExclusionReasons)
 
 	var sessionExpiryString string
 	if o.SessionExpiresAt != nil && !o.SessionExpiresAt.IsZero() {
@@ -721,6 +715,21 @@ func exclusionReasonText(key string) string {
 		return text
 	}
 	return key
+}
+
+func parseOwnExclusionReasons(reasons []string) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	if !slices.ContainsFunc(reasons, func(r string) bool { return r != peer.ExclusionReasonPostureCheckFailed }) {
+		return "This peer failed a posture check and can't connect to some peers\n"
+	}
+
+	texts := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		texts = append(texts, exclusionReasonText(reason))
+	}
+	return fmt.Sprintf("This peer can't connect to other peers: %s\n", strings.Join(texts, ", "))
 }
 
 func parseExcludedPeers(excluded ExcludedPeersOutput) string {

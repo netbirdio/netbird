@@ -18,7 +18,12 @@ import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
 import { useDirection } from "@/hooks/useDirection";
 import { PeerFilters, type StatusFilter } from "./PeerFilters";
-import { ExcludedPeersList, exclusionReasonLabel } from "./ExcludedPeers";
+import {
+    ExcludedPeersBar,
+    ExcludedPeersDescription,
+    ExcludedPeersList,
+    exclusionReasonLabel,
+} from "./ExcludedPeers";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
 
@@ -62,6 +67,10 @@ export const Peers = () => {
     const excludedPeers = useMemo(() => status?.excludedPeers ?? [], [status?.excludedPeers]);
     const excludedTotal = status?.excludedPeersTotal ?? 0;
     const showExcluded = statusFilter === "excluded";
+
+    useEffect(() => {
+        scrollParent?.scrollTo({ top: 0 });
+    }, [scrollParent, statusFilter]);
 
     const counts = useMemo<Record<StatusFilter, number>>(() => {
         const online = peers.filter((p) => isOnline(p.connStatus)).length;
@@ -129,9 +138,13 @@ export const Peers = () => {
     const ownExclusionReasons = status?.ownExclusionReasons ?? [];
     const ownExclusionNotice = ownExclusionReasons.length > 0 && (
         <Notice className={"mx-6 mt-2.5"}>
-            {t("peers.ownExclusion", {
-                reasons: ownExclusionReasons.map((r) => exclusionReasonLabel(t, r)).join(", "),
-            })}
+            {ownExclusionReasons.every((r) => r === "posture_check_failed")
+                ? t("peers.ownExclusion.posture")
+                : t("peers.ownExclusion", {
+                      reasons: ownExclusionReasons
+                          .map((r) => exclusionReasonLabel(t, r))
+                          .join(", "),
+                  })}
         </Notice>
     );
 
@@ -162,6 +175,7 @@ export const Peers = () => {
                 <PeerFilters value={statusFilter} onChange={setStatusFilter} counts={counts} />
             </div>
             {ownExclusionNotice}
+            {showExcluded && <ExcludedPeersDescription />}
             {isEmpty ? (
                 <NoResults />
             ) : (
@@ -196,6 +210,12 @@ export const Peers = () => {
                         />
                     </ScrollArea.Scrollbar>
                 </ScrollArea.Root>
+            )}
+            {excludedTotal > 0 && !showExcluded && (
+                <ExcludedPeersBar
+                    count={excludedTotal}
+                    onView={() => setStatusFilter("excluded")}
+                />
             )}
         </div>
     );
