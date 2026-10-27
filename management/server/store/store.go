@@ -196,6 +196,11 @@ type Store interface {
 	// recorded by the database. Returns true when the update happened,
 	// false when a newer session has taken over.
 	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
+	// MarkPeersDisconnectedIfSameSession applies the semantics of
+	// MarkPeerDisconnectedIfSameSession to many peers in batched statements.
+	// Sessions with a zero SessionStartedAt are skipped. Returns the number
+	// of peers that were marked disconnected.
+	MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error)
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
@@ -460,6 +465,11 @@ func lookupDSNEnv(nbKey, legacyKey string) (string, bool) {
 	return os.LookupEnv(legacyKey)
 }
 
+// LookupPostgresDSN returns the DSN the main store opens a Postgres engine with.
+func LookupPostgresDSN() (string, bool) {
+	return lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
+}
+
 var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine}
 
 func getStoreEngineFromEnv() types.Engine {
@@ -530,7 +540,7 @@ func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn,
 		return db.OpenSqlite(ctx, dataDir)
 	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
+		dsn, ok := LookupPostgresDSN()
 		if !ok {
 			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 		}

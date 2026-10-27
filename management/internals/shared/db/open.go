@@ -101,17 +101,17 @@ func OpenSqliteFile(ctx context.Context, dataDir, storeFile string) (*Conn, erro
 }
 
 // OpenPostgres opens a Postgres database through gorm and a pgx pool sized by pool.
-func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, error) {
+func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig, opts ...Option) (*Conn, error) {
 	gormDB, err := gorm.Open(postgres.Open(dsn), GormConfig())
 	if err != nil {
 		return nil, err
 	}
-	pgxPool, err := newPgxPool(ctx, dsn, pool)
+	pgxPool, err := OpenPgxPool(ctx, dsn, pool)
 	if err != nil {
 		closeGorm(gormDB)
 		return nil, err
 	}
-	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool, opts...)
 	if err != nil {
 		pgxPool.Close()
 		closeGorm(gormDB)
@@ -120,7 +120,23 @@ func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, erro
 	return conn, nil
 }
 
-func newPgxPool(ctx context.Context, dsn string, cfg PoolConfig) (*pgxpool.Pool, error) {
+// OpenPostgresWithoutPool opens a Postgres database through gorm alone, for
+// repositories that never take the pgx read paths.
+func OpenPostgresWithoutPool(ctx context.Context, dsn string, opts ...Option) (*Conn, error) {
+	gormDB, err := gorm.Open(postgres.Open(dsn), GormConfig())
+	if err != nil {
+		return nil, err
+	}
+	conn, err := NewConn(ctx, gormDB, PostgresStoreEngine, nil, opts...)
+	if err != nil {
+		closeGorm(gormDB)
+		return nil, err
+	}
+	return conn, nil
+}
+
+// OpenPgxPool opens a pgx pool to dsn sized by cfg and verifies it with a ping.
+func OpenPgxPool(ctx context.Context, dsn string, cfg PoolConfig) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse database config: %w", err)

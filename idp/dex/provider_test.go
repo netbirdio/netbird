@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dexidp/dex/storage"
-	"github.com/dexidp/dex/storage/memory"
-	sqllib "github.com/dexidp/dex/storage/sql"
+	"github.com/netbirdio/dex/storage"
+	"github.com/netbirdio/dex/storage/memory"
+	sqllib "github.com/netbirdio/dex/storage/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

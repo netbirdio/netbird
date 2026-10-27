@@ -42,7 +42,7 @@ func TestNetworkMapStore_LoadsRouteCountries(t *testing.T) {
 		Enabled:     true,
 	}))
 
-	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(ctx, types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t))
+	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(ctx, types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t), nil, nil)
 	require.NoError(t, err)
 	sqliteStore, ok := nmdataStore.Store.(*networkmap_sqlite.SqliteStore)
 	require.True(t, ok, "network map store is %T, want *networkmap_sqlite.SqliteStore", nmdataStore.Store)
