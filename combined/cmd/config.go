@@ -71,6 +71,7 @@ type ServerConfig struct {
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
+	AccessLogStore          StoreConfig        `yaml:"accessLogStore"`
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 

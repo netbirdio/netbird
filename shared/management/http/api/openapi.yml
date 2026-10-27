@@ -9381,7 +9381,7 @@ paths:
           name: search
           schema:
             type: string
-          description: General search across request ID, host, path, source IP, user email, and user name
+          description: General search across request ID, host, path, and source IP
         - in: query
           name: source_ip
           schema:

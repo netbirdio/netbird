@@ -23,6 +23,8 @@ const (
 	PATChecksumLength = 6
 	// PATLength total number of characters used for the token
 	PATLength = 40
+	// PATLastUsedUpdateInterval is the minimum age of a token's LastUsed before it is written again
+	PATLastUsedUpdateInterval = time.Minute
 )
 
 // PersonalAccessToken holds all information about a PAT including a hashed version of it for verification
@@ -31,7 +33,7 @@ type PersonalAccessToken struct {
 	// User is a reference to Account that this object belongs
 	UserID         string `gorm:"index"`
 	Name           string
-	HashedToken    string
+	HashedToken    string `gorm:"index:idx_personal_access_tokens_hashed_token"`
 	ExpirationDate *time.Time
 	// scope could be added in future
 	CreatedBy string
