@@ -341,7 +341,12 @@ func pruneExpiredPeersFromLegacy(t *testing.T, legacy, updated *proto.NetworkMap
 		return
 	}
 
-	pruneExpiredFromLegacyMap(legacy, keys, ips)
+	resourceIDs := make(map[string]struct{}, len(account.NetworkResources))
+	for _, res := range account.NetworkResources {
+		resourceIDs[res.ID] = struct{}{}
+	}
+
+	pruneExpiredFromLegacyMap(legacy, keys, ips, resourceIDs)
 
 	for _, r := range updated.OfflinePeers {
 		_, expired := keys[r.WgPubKey]
@@ -351,9 +356,10 @@ func pruneExpiredPeersFromLegacy(t *testing.T, legacy, updated *proto.NetworkMap
 
 // pruneExpiredFromLegacyMap removes the peers with the given keys and IPs from a legacy map.
 // Route firewall rules only exist for the target's own routes, so they are narrowed by source
-// range; a rule left without sources disappears only where the new code never emits it, which
-// is the IPv6 counterpart of a dynamic or default route.
-func pruneExpiredFromLegacyMap(legacy *proto.NetworkMap, keys, ips map[string]struct{}) {
+// range. A rule left without sources disappears only where the new code never emits it: any
+// network-resource rule (route ID resourceID:peerID) and the IPv6 counterpart of a dynamic or
+// default route. An emptied classic-route IPv4 rule stays.
+func pruneExpiredFromLegacyMap(legacy *proto.NetworkMap, keys, ips, resourceIDs map[string]struct{}) {
 	legacy.RemotePeers = slices.DeleteFunc(legacy.RemotePeers, func(r *proto.RemotePeerConfig) bool {
 		_, drop := keys[r.WgPubKey]
 		return drop
@@ -392,8 +398,14 @@ func pruneExpiredFromLegacyMap(legacy *proto.NetworkMap, keys, ips map[string]st
 			_, drop := ips[prefix.Addr().String()]
 			return drop
 		})
-		counterpart := r.IsDynamic || strings.HasSuffix(r.RouteID, "-v6-default")
-		return allV6 && counterpart && len(r.SourceRanges) == 0
+		if before == 0 || len(r.SourceRanges) > 0 {
+			return false
+		}
+		resourceID, _, _ := strings.Cut(r.RouteID, ":")
+		if _, isResource := resourceIDs[resourceID]; isResource {
+			return true
+		}
+		return allV6 && (r.IsDynamic || strings.HasSuffix(r.RouteID, "-v6-default"))
 	})
 }
 
@@ -768,15 +780,18 @@ func TestPruneExpiredFromLegacyMap(t *testing.T) {
 			{RouteID: "r3", IsDynamic: true, SourceRanges: []string{"fd00::9/128"}},
 			{RouteID: "r4-v6-default", SourceRanges: []string{"fd00::9/128", "fd00::8/128"}},
 			{RouteID: "r5-v6-default", SourceRanges: []string{"fd00::9/128"}},
+			{RouteID: "res1:router-1", SourceRanges: []string{"100.64.0.9/32"}},
+			{RouteID: "res1:router-2", SourceRanges: []string{"100.64.0.9/32", "100.64.0.8/32"}},
 		},
 	}
 
-	pruneExpiredFromLegacyMap(legacy, keys, ips)
+	pruneExpiredFromLegacyMap(legacy, keys, ips, map[string]struct{}{"res1": {}})
 
 	require.Len(t, legacy.RemotePeers, 1)
 	require.Len(t, legacy.Routes, 1)
-	require.Len(t, legacy.RoutesFirewallRules, 3)
+	require.Len(t, legacy.RoutesFirewallRules, 4)
 	require.Equal(t, []string{"100.64.0.8/32"}, legacy.RoutesFirewallRules[0].SourceRanges)
 	require.Empty(t, legacy.RoutesFirewallRules[1].SourceRanges, "an IPv4 rule stays even without sources")
 	require.Equal(t, []string{"fd00::8/128"}, legacy.RoutesFirewallRules[2].SourceRanges)
+	require.Equal(t, "res1:router-2", legacy.RoutesFirewallRules[3].RouteID)
 }
