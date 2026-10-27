@@ -44,8 +44,8 @@ func TestResolveTarget_RefreshesActiveConfigForAnyHandle(t *testing.T) {
 			// The daemon's copy as it stood before the claim landed on disk.
 			s.config = &profilemanager.Config{}
 			s.clientRunning = true
-			_, running := s.SessionHolder()
-			require.False(t, running, "fixture is wrong: the stale copy already names an owner")
+			stale, _ := s.SessionHolder()
+			require.False(t, stale.Matches(owner), "fixture is wrong: the stale copy already names an owner")
 
 			target, err := s.ResolveTarget(owner, tc.handle)
 			require.NoError(t, err)

@@ -206,3 +206,32 @@ func TestAuthorizeBlamesAHeldSession(t *testing.T) {
 	assert.Contains(t, denial.Command, "netbird down",
 		"taking the connection down is the remedy this refusal points at")
 }
+
+// A live session on a profile that has no owner is held by the zero Principal.
+// An owner of the target profile must not be taken for its holder as we want
+// to fail close.
+func TestResolveLevelUnownedLiveSessionFailsClosed(t *testing.T) {
+	g := gateFor(t, stubState{
+		target:  Target{Path: "/profiles/mine.json", Owned: true},
+		running: true,
+	})
+
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"Up", &proto.UpRequest{})
+	require.Error(t, err, "a caller reached a live session nobody owns")
+
+	denial, ok := DenialFrom(err)
+	require.True(t, ok, "the refusal carries no explanation")
+	assert.Equal(t, ErrorReasonSessionHeld, denial.Reason,
+		"the caller owns the target, so the refusal is about the live session")
+}
+
+// With no session running there is nothing to hold, so the owner of the target
+// profile may act on it.
+func TestResolveLevelIdleDaemonGrantsSessionHolder(t *testing.T) {
+	g := gateFor(t, stubState{
+		target: Target{Path: "/profiles/mine.json", Owned: true},
+	})
+
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"Up", &proto.UpRequest{})
+	assert.NoError(t, err)
+}

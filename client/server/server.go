@@ -3113,8 +3113,14 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if !s.clientRunning || len(s.config.Owners) == 0 {
+	if !s.clientRunning {
 		return ipcauth.Principal{}, false
+	}
+
+	// A session with no ownership is held by the zero Principal, which matches
+	// nobody and fail close.
+	if len(s.config.Owners) == 0 {
+		return ipcauth.Principal{}, true
 	}
 
 	// The zero Principal matches nobody, so an unparseable owner locks the
