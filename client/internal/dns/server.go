@@ -117,6 +117,8 @@ type nsGroupProj struct {
 	// warningActive tracks whether we've already published a warning
 	// for the current streak, so recovery emits iff a warning did.
 	warningActive bool
+	// flushOnRecovery outlives unhealthySince, which Undecided clears once failures age out.
+	flushOnRecovery bool
 }
 
 // nsGroupVerdict is the outcome of evaluateNSGroupHealth.
@@ -284,7 +286,7 @@ func NewDefaultServerIos(
 	return ds
 }
 
-// newDefaultServer builds a DefaultServer on dnsService; Initialize later replaces the no-op host manager.
+// newDefaultServer builds a DefaultServer with a no-op host manager; Initialize keeps it if system DNS is disabled or under netstack.
 func newDefaultServer(
 	ctx context.Context,
 	wgInterface WGIface,
@@ -1145,9 +1147,9 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 // Enabled flag to record in NSGroupState.
 func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort) bool {
 	p.everHealthy = true
-	wasUnhealthy := !p.unhealthySince.IsZero() || p.warningActive
 	p.unhealthySince = time.Time{}
-	if wasUnhealthy {
+	if p.flushOnRecovery || p.warningActive {
+		p.flushOnRecovery = false
 		s.flushHostDNSCache()
 	}
 	if !p.warningActive {
@@ -1211,6 +1213,7 @@ func (s *DefaultServer) runHostDNSCacheFlush() {
 // warning when the emission rules fire, and returns the Enabled flag
 // to record in NSGroupState.
 func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPort, immediate bool, now time.Time, delay time.Duration) bool {
+	p.flushOnRecovery = true
 	streakStart := p.unhealthySince.IsZero()
 	if streakStart {
 		p.unhealthySince = now

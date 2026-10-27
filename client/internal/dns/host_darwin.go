@@ -5,6 +5,7 @@ package dns
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -482,18 +484,26 @@ func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	return primaryService, router, nil
 }
 
+// flushCommandTimeout bounds each flush command, since callers hold the DNS server lock.
+const flushCommandTimeout = 5 * time.Second
+
 func (s *systemConfigurator) flushDNSCache() error {
-	cmd := exec.Command(dscacheutilPath, "-flushcache")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := runWithTimeout(flushCommandTimeout, dscacheutilPath, "-flushcache"); err != nil {
 		return fmt.Errorf("flush DNS cache: %w, output: %s", err, out)
 	}
 
-	cmd = exec.Command("killall", "-HUP", "mDNSResponder")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := runWithTimeout(flushCommandTimeout, "killall", "-HUP", "mDNSResponder"); err != nil {
 		return fmt.Errorf("restart mDNSResponder: %w, output: %s", err, out)
 	}
 	log.Info("flushed DNS cache")
 	return nil
+}
+
+// runWithTimeout runs a command and kills it once timeout passes.
+func runWithTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
 func (s *systemConfigurator) restoreUncleanShutdownDNS() error {

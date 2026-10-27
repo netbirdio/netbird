@@ -2396,7 +2396,7 @@ func TestDNSLoopPrevention(t *testing.T) {
 // flushCountingHostManager reports each host cache flush on flushes.
 type flushCountingHostManager struct {
 	noopHostConfigurator
-	flushes  chan struct{}
+	flushes  chan time.Time
 	failNext atomic.Bool
 	server   *DefaultServer
 	// lockHeld reports, per flush, whether server.mux was held while flushing.
@@ -2410,7 +2410,7 @@ func (m *flushCountingHostManager) flushDNSCache() error {
 		m.server.mux.Unlock()
 	}
 	m.lockHeld <- held
-	m.flushes <- struct{}{}
+	m.flushes <- time.Now()
 	if m.failNext.Swap(false) {
 		return errors.New("flush failed")
 	}
@@ -2420,7 +2420,7 @@ func (m *flushCountingHostManager) flushDNSCache() error {
 // withFlushingHostManager installs a flushCountingHostManager as the server's host manager.
 func (f *projTestFixture) withFlushingHostManager() *flushCountingHostManager {
 	m := &flushCountingHostManager{
-		flushes:  make(chan struct{}, 10),
+		flushes:  make(chan time.Time, 10),
 		server:   f.server,
 		lockHeld: make(chan bool, 10),
 	}
@@ -2590,11 +2590,38 @@ func TestProjection_QueuedFlushWaitsForWindowAfterConcurrentFlush(t *testing.T) 
 	fx.server.mux.Lock()
 	fx.server.flushHostDNSCache()
 	time.Sleep(50 * time.Millisecond)
+	finished := time.Now()
 	fx.server.cacheFlushMu.Lock()
-	fx.server.lastCacheFlush = time.Now()
+	fx.server.lastCacheFlush = finished
 	fx.server.cacheFlushMu.Unlock()
 	fx.server.mux.Unlock()
 
-	hm.expectNoFlush(t, "queued flush waits for the window of the flush that just finished")
-	hm.expectFlush(t, "queued flush runs once the window ends")
+	select {
+	case at := <-hm.flushes:
+		assert.False(t, at.Before(finished.Add(fx.server.cacheFlushCoalesce)),
+			"queued flush ran %s after the previous one, inside the window", at.Sub(finished))
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued flush never ran")
+	}
+}
+
+// TestProjection_RecoveryAfterAgedOutFailureFlushes flushes even when an Undecided tick cleared the streak.
+func TestProjection_RecoveryAfterAgedOutFailureFlushes(t *testing.T) {
+	fx := newProjTestFixture(t)
+	fx.server.warningDelayBase = time.Hour
+	fx.selected = overlayMapForTest
+	hm := fx.withFlushingHostManager()
+
+	fx.setHealth(UpstreamHealth{LastFail: time.Now(), LastErr: "timeout"})
+	fx.tick()
+	fx.expectNoEvent("fail within grace")
+
+	fx.stub.health = map[netip.AddrPort]UpstreamHealth{}
+	fx.tick()
+	hm.expectNoFlush(t, "failure aged out, group undecided")
+
+	fx.active = overlayMapForTest
+	fx.setHealth(UpstreamHealth{LastOk: time.Now()})
+	fx.tick()
+	hm.expectFlush(t, "recovery after the failure aged out")
 }

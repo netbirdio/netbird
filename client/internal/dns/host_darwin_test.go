@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -606,4 +607,12 @@ func TestOriginalNameserversRouteAllTransition(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunWithTimeoutKillsHungCommand keeps a stuck flush command from holding the DNS server lock.
+func TestRunWithTimeoutKillsHungCommand(t *testing.T) {
+	start := time.Now()
+	_, err := runWithTimeout(100*time.Millisecond, "sleep", "5")
+	require.Error(t, err, "a command killed by the timeout must report an error")
+	assert.Less(t, time.Since(start), 2*time.Second, "command was not killed at the timeout")
 }
