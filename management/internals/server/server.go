@@ -41,9 +41,12 @@ const (
 
 	applicationName = "management"
 
-	grpcStopTimeout         = 3 * time.Second
-	flushDisconnectsTimeout = 10 * time.Second
-	shutdownCloseTimeout    = 5 * time.Second
+	// shutdownTimeout stays below the 10s that systemd (TimeoutStopSec) and Docker grant
+	// before killing the process.
+	shutdownTimeout = 9 * time.Second
+	grpcStopTimeout = 3 * time.Second
+	// shutdownCloseReserve is kept from the flush for closing the stores.
+	shutdownCloseReserve = 2 * time.Second
 )
 
 type Server interface {
@@ -301,10 +304,11 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 	}
 }
 
-// Stop attempts a graceful shutdown. Each phase has its own budget: stopping the services and
-// gRPC streams, writing the disconnects of the drained streams, and closing the stores.
+// Stop attempts a graceful shutdown within shutdownTimeout. Writing the disconnects of the
+// drained streams may use the budget left after stopping the services and gRPC streams,
+// except for shutdownCloseReserve, which stays for closing the stores.
 func (s *BaseServer) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownCloseTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	defer s.RunStopHandlers()
 	if s.domainCleanupStop != nil {
@@ -325,37 +329,36 @@ func (s *BaseServer) Stop() error {
 	}
 	s.ManagementGRPCServer().StartDraining()
 	s.stopGRPCServer()
-	flushCtx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), flushDisconnectsTimeout)
+	deadline, _ := ctx.Deadline()
+	flushCtx, cancelFlush := context.WithDeadline(ctx, deadline.Add(-shutdownCloseReserve))
 	s.ManagementGRPCServer().FlushDisconnects(flushCtx)
 	cancelFlush()
 
-	closeCtx, cancelClose := context.WithTimeout(context.Background(), shutdownCloseTimeout)
-	defer cancelClose()
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
-	runExtensionShutdownHooks(closeCtx, s.grpcExtensions)
-	_ = s.Store().Close(closeCtx)
-	_ = s.EventStore().Close(closeCtx)
+	runExtensionShutdownHooks(ctx, s.grpcExtensions)
+	_ = s.Store().Close(ctx)
+	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
 		s.update.StopWatch()
 	}
 	// Stop embedded IdP if configured
 	if embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager); ok {
-		_ = embeddedIdP.Stop(closeCtx)
+		_ = embeddedIdP.Stop(ctx)
 	}
 
 	select {
 	case err := <-s.Errors():
 		if err != nil {
-			log.WithContext(closeCtx).Infof("stopped Management Service: %v", err)
+			log.WithContext(ctx).Infof("stopped Management Service: %v", err)
 			return nil
 		}
-		log.WithContext(closeCtx).Infof("stopped Management Service")
+		log.WithContext(ctx).Infof("stopped Management Service")
 		return nil
-	case <-closeCtx.Done():
-		return closeCtx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

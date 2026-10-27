@@ -148,12 +148,16 @@ const markPeersDisconnectedChunkSize = 1000
 // MarkPeersDisconnectedIfSameSession is the batched form of
 // MarkPeerDisconnectedIfSameSession: one UPDATE per chunk of sessions, each
 // peer guarded by its own (account, peer, session) tuple. A failed chunk does
-// not stop the others; the count then covers the chunks that succeeded and
-// the error joins the failures.
+// not stop the others, only a done ctx does; the count then covers the chunks
+// that succeeded and the error joins the failures.
 func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error) {
 	var total int64
 	var errs []error
 	for start := 0; start < len(sessions); start += markPeersDisconnectedChunkSize {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", err))
+			break
+		}
 		end := min(start+markPeersDisconnectedChunkSize, len(sessions))
 		tuples := make([][]any, 0, end-start)
 		for _, session := range sessions[start:end] {
