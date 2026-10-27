@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -128,7 +129,7 @@ func TestSendPeerUpdates_HeartbeatOnlyOnInterval(t *testing.T) {
 		updateDebouncer := NewMockDebouncer(ctrl)
 		syncSender := NewMocksyncSender(ctrl)
 
-		var heartbeats int
+		var heartbeats atomic.Int32
 		pu := PeerUpdateHandler{
 			peerKey:        mustGenerateKey(t),
 			updates:        make(chan *network_map.UpdateMessage),
@@ -137,7 +138,7 @@ func TestSendPeerUpdates_HeartbeatOnlyOnInterval(t *testing.T) {
 			debouncer:      updateDebouncer,
 			srv:            syncSender,
 			cleanupFunc:    func() {},
-			heartbeat:      func() { heartbeats++ },
+			heartbeat:      func() { heartbeats.Add(1) },
 		}
 
 		msg := network_map.UpdateMessage{
@@ -161,15 +162,15 @@ func TestSendPeerUpdates_HeartbeatOnlyOnInterval(t *testing.T) {
 
 		pu.updates <- &msg
 		synctest.Wait()
-		assert.Zero(t, heartbeats, "an update must not write a heartbeat")
+		assert.Zero(t, heartbeats.Load(), "an update must not write a heartbeat")
 
 		time.Sleep(nbpeer.HeartbeatInterval)
 		synctest.Wait()
-		assert.Equal(t, 1, heartbeats, "one heartbeat per interval")
+		assert.Equal(t, int32(1), heartbeats.Load(), "one heartbeat per interval")
 
 		time.Sleep(nbpeer.HeartbeatInterval)
 		synctest.Wait()
-		assert.Equal(t, 2, heartbeats, "one heartbeat per interval")
+		assert.Equal(t, int32(2), heartbeats.Load(), "one heartbeat per interval")
 
 		cancel()
 		<-done

@@ -2,7 +2,13 @@ package grpc
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -10,10 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func PeerUpdateHandlerFactory(
@@ -77,6 +79,7 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 	defer pu.debouncer.Stop()
 
 	var heartbeat <-chan time.Time
+	var heartbeatRunning atomic.Bool
 	if pu.heartbeat != nil {
 		ticker := time.NewTicker(nbpeer.HeartbeatInterval)
 		defer ticker.Stop()
@@ -122,7 +125,13 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 			}
 
 		case <-heartbeat:
-			pu.heartbeat()
+			// A heartbeat that finishes after cleanup writes nothing: it is fenced on this stream's session.
+			if heartbeatRunning.CompareAndSwap(false, true) {
+				go func() {
+					defer heartbeatRunning.Store(false)
+					pu.heartbeat()
+				}()
+			}
 
 		// condition when client <-> server connection has been terminated
 		case <-pu.srv.Context().Done():
