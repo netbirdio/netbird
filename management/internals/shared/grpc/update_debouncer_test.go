@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -111,55 +112,45 @@ func TestUpdateDebouncer_LastUpdateAlwaysSent(t *testing.T) {
 	}
 }
 
-func TestUpdateDebouncer_TimerResetOnNewUpdate(t *testing.T) {
-	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
-	defer debouncer.Stop()
+func TestUpdateDebouncer_TimerNotExtendedByNewUpdates(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const interval = 50 * time.Millisecond
+		debouncer := NewUpdateDebouncer(interval)
+		defer debouncer.Stop()
 
-	update1 := &network_map.UpdateMessage{
-		Update:      &proto.SyncResponse{},
-		MessageType: network_map.MessageTypeNetworkMap,
-	}
-	update2 := &network_map.UpdateMessage{
-		Update:      &proto.SyncResponse{},
-		MessageType: network_map.MessageTypeNetworkMap,
-	}
-	update3 := &network_map.UpdateMessage{
-		Update:      &proto.SyncResponse{},
-		MessageType: network_map.MessageTypeNetworkMap,
-	}
-
-	// Send first update
-	debouncer.ProcessUpdate(update1)
-
-	// Wait a bit, but not the full debounce period
-	time.Sleep(30 * time.Millisecond)
-
-	// Send second update - should reset timer
-	debouncer.ProcessUpdate(update2)
-
-	// Wait a bit more
-	time.Sleep(30 * time.Millisecond)
-
-	// Send third update - should reset timer again
-	debouncer.ProcessUpdate(update3)
-
-	// Now wait for the timer (should fire after last update's reset)
-	select {
-	case <-debouncer.TimerChannel():
-		pendingUpdates := debouncer.GetPendingUpdates()
-		if len(pendingUpdates) != 1 {
-			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
+		start := time.Now()
+		if !debouncer.ProcessUpdate(&network_map.UpdateMessage{
+			Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: 0}},
+			MessageType: network_map.MessageTypeNetworkMap,
+		}) {
+			t.Fatal("First update should be sent immediately")
 		}
-		if pendingUpdates[0] != update3 {
-			t.Error("Should get the last update (update3)")
+
+		var last *network_map.UpdateMessage
+		ticker := time.NewTicker(interval / 3)
+		defer ticker.Stop()
+		for i := uint64(1); ; i++ {
+			select {
+			case <-ticker.C:
+				last = &network_map.UpdateMessage{
+					Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: i}},
+					MessageType: network_map.MessageTypeNetworkMap,
+				}
+				if debouncer.ProcessUpdate(last) {
+					t.Fatal("Update inside the window should not be sent immediately")
+				}
+			case <-debouncer.TimerChannel():
+				if elapsed := time.Since(start); elapsed != interval {
+					t.Errorf("Flush should happen one interval after the first update, got %v", elapsed)
+				}
+				pending := debouncer.GetPendingUpdates()
+				if len(pending) != 1 || pending[0] != last {
+					t.Errorf("Expected the latest queued update to be flushed, got %d updates", len(pending))
+				}
+				return
+			}
 		}
-		// Timer should be restarted since there was a pending update
-		if debouncer.TimerChannel() == nil {
-			t.Error("Timer should be restarted after sending pending update")
-		}
-	case <-time.After(150 * time.Millisecond):
-		t.Error("Timer should have fired")
-	}
+	})
 }
 
 func TestUpdateDebouncer_TimerRestartsAfterPendingUpdateSent(t *testing.T) {

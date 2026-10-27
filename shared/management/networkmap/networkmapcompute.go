@@ -189,10 +189,60 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
+	dropLoginExpiredPeers(components, peer.SupportsIPv6() && peer.IPv6.IsValid())
 	filterGroupPeers(&components.Groups, components.Peers)
 	nmd.collectPostureFailedPeers(components, sourceFailures)
 
 	return components
+}
+
+// dropLoginExpiredPeers removes every login-expired peer except the target from the
+// components, together with the routes and routers that point at it, so no consumer
+// of the components can reach it. Groups and posture failures are narrowed to the
+// remaining peers afterwards.
+func dropLoginExpiredPeers(c *types.NetworkMapComponents, includeIPv6 bool) {
+	expired := make(map[string]struct{})
+	for id, p := range c.Peers {
+		if id != c.PeerID && p != nil && c.IsLoginExpired(p) {
+			expired[id] = struct{}{}
+		}
+	}
+	for id, p := range c.RouterPeers {
+		if id != c.PeerID && p != nil && c.IsLoginExpired(p) {
+			expired[id] = struct{}{}
+		}
+	}
+	if len(expired) == 0 {
+		return
+	}
+
+	for id := range expired {
+		delete(c.Peers, id)
+		delete(c.RouterPeers, id)
+	}
+
+	for networkID, routers := range c.RoutersMap {
+		kept := make(map[string]*nmdata.NetworkRouter, len(routers))
+		for peerID, r := range routers {
+			if _, drop := expired[peerID]; !drop {
+				kept[peerID] = r
+			}
+		}
+		c.RoutersMap[networkID] = kept
+	}
+
+	routes := make([]*nmdata.Route, 0, len(c.Routes))
+	for _, r := range c.Routes {
+		if r != nil {
+			if _, drop := expired[r.Peer]; drop {
+				continue
+			}
+		}
+		routes = append(routes, r)
+	}
+	c.Routes = routes
+
+	c.AllDNSRecords = filterDNSRecordsByPeers(c.AllDNSRecords, c.Peers, includeIPv6)
 }
 
 func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
@@ -341,17 +391,15 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					}
 				}
 
-				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
-					switch {
-					case len(rule.AuthorizedGroups) > 0:
+				if rule.IsAccept() && rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
+					if len(rule.AuthorizedGroups) > 0 {
 						for groupID := range rule.AuthorizedGroups {
 							sshReqs.neededGroupIDs[groupID] = struct{}{}
 						}
-					case rule.AuthorizedUser != "":
-					default:
+					} else {
 						sshReqs.needAllowedUserIDs = true
 					}
-				} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+				} else if rule.IsAccept() && nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
 					sshReqs.needAllowedUserIDs = true
 				}
 			}

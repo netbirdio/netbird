@@ -1690,11 +1690,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		// drain any buffered updates from previous subtests
 		drainPeerUpdates(updMsg)
 
-		// deleting user with no linked peers should not update account peers and not send peer update
+		// deleting a user with no linked peers changes the allowed-user set and sends peer update
 		step(t, "deleting user with no linked peers", func(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
-				peerShouldNotReceiveUpdate(t, updMsg)
+				peerShouldReceiveUpdate(t, updMsg)
 				close(done)
 			}()
 
@@ -1703,8 +1703,8 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 			select {
 			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
 			}
 		})
 
@@ -1773,6 +1773,102 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 			}
 		})
 	})
+}
+
+// sshUserAuthorizations are the ways an SSH rule authorizes a single user: through
+// a group mapping the user, or by naming the user ID directly.
+var sshUserAuthorizations = map[string]func(rule *types.PolicyRule, sshUserID string){
+	"authorized group": func(rule *types.PolicyRule, _ string) {
+		rule.AuthorizedGroups = map[string][]string{"sshUsers": {"root"}}
+	},
+	"authorized user": func(rule *types.PolicyRule, sshUserID string) {
+		rule.AuthorizedUser = sshUserID
+	},
+}
+
+func setupSSHAuthorizedUserTest(t *testing.T, sshUser *types.User, authorize func(rule *types.PolicyRule, sshUserID string)) (*DefaultAccountManager, *types.Account, <-chan *network_map.UpdateMessage) {
+	t.Helper()
+	ctx := context.Background()
+
+	manager, updateManager, account, _, peer2, peer3 := setupNetworkMapTest(t)
+
+	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	for _, p := range policies {
+		require.NoError(t, manager.Store.DeletePolicy(ctx, account.Id, p.ID))
+	}
+
+	require.NoError(t, manager.CreateGroup(ctx, account.Id, userID, &types.Group{ID: "sshSources", Name: "sshSources", Peers: []string{peer3.ID}}))
+	require.NoError(t, manager.CreateGroup(ctx, account.Id, userID, &types.Group{ID: "sshDestinations", Name: "sshDestinations", Peers: []string{peer2.ID}}))
+	require.NoError(t, manager.CreateGroup(ctx, account.Id, userID, &types.Group{ID: "sshUsers", Name: "sshUsers"}))
+
+	rule := &types.PolicyRule{
+		Enabled:      true,
+		Sources:      []string{"sshSources"},
+		Destinations: []string{"sshDestinations"},
+		Protocol:     types.PolicyRuleProtocolNetbirdSSH,
+		Action:       types.PolicyTrafficActionAccept,
+	}
+	authorize(rule, sshUser.Id)
+	_, err = manager.SavePolicy(ctx, account.Id, userID, &types.Policy{Enabled: true, Rules: []*types.PolicyRule{rule}}, true)
+	require.NoError(t, err)
+
+	sshUser.AccountID = account.Id
+	sshUser.Role = types.UserRoleUser
+	sshUser.Issued = types.UserIssuedAPI
+	sshUser.AutoGroups = []string{"sshUsers"}
+	_, err = manager.SaveOrAddUser(ctx, account.Id, userID, sshUser, true)
+	require.NoError(t, err)
+
+	updMsg := updateManager.CreateChannel(ctx, peer2.ID)
+	t.Cleanup(func() {
+		updateManager.CloseChannel(ctx, peer2.ID)
+	})
+	settleAffectedUpdates(updMsg)
+
+	return manager, account, updMsg
+}
+
+func TestUser_Block_RefreshesSSHDestinationsAuthorizingUser(t *testing.T) {
+	for name, authorize := range sshUserAuthorizations {
+		t.Run(name, func(t *testing.T) {
+			runPeerUpdateTest(t, func(t *testing.T) {
+				sshUser := &types.User{Id: "sshUser"}
+				manager, account, destUpdates := setupSSHAuthorizedUserTest(t, sshUser, authorize)
+				ctx := context.Background()
+
+				key, err := wgtypes.GeneratePrivateKey()
+				require.NoError(t, err)
+				_, _, _, _, err = manager.AddPeer(ctx, "", "", sshUser.Id, &nbpeer.Peer{
+					Key:  key.PublicKey().String(),
+					Meta: nbpeer.PeerSystemMeta{Hostname: "ssh-user-peer"},
+				}, false)
+				require.NoError(t, err)
+				settleAffectedUpdates(destUpdates)
+
+				blocked := sshUser.Copy()
+				blocked.Blocked = true
+				_, err = manager.SaveOrAddUser(ctx, account.Id, userID, blocked, false)
+				require.NoError(t, err)
+
+				peerShouldReceiveUpdate(t, destUpdates)
+			})
+		})
+	}
+}
+
+func TestUser_Delete_WithoutPeers_RefreshesSSHDestinationsAuthorizingUser(t *testing.T) {
+	for name, authorize := range sshUserAuthorizations {
+		t.Run(name, func(t *testing.T) {
+			runPeerUpdateTest(t, func(t *testing.T) {
+				manager, account, destUpdates := setupSSHAuthorizedUserTest(t, &types.User{Id: "sshUser"}, authorize)
+
+				require.NoError(t, manager.DeleteUser(context.Background(), account.Id, userID, "sshUser"))
+
+				peerShouldReceiveUpdate(t, destUpdates)
+			})
+		})
+	}
 }
 
 func TestSaveOrAddUser_PreventAccountSwitch(t *testing.T) {

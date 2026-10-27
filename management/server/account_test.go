@@ -203,7 +203,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			accountSettings:      types.Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour},
 			peerID:               peerID1,
 			expectedPeers:        []string{},
-			expectedOfflinePeers: []string{peerID2},
+			expectedOfflinePeers: []string{},
 			peers: map[string]*nbpeer.Peer{
 				"peer-1": {
 					ID:       peerID1,

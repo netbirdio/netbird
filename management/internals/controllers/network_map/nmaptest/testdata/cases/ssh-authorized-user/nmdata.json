@@ -4,6 +4,7 @@
     "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
     "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
   },
+  "AllowedUserIDs": {"user-solo": {}},
   "Groups": {
     "grp-dev": {"Peers": ["peer-a"]},
     "grp-srv": {"Peers": ["peer-srv"]}

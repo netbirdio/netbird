@@ -128,7 +128,7 @@ func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peer *nmdata.Peer) 
 // either explicitly authorises SSH or covers the legacy TCP/22 path while the
 // peer itself has SSH enabled locally.
 func ruleEnablesSSHForPeer(c *types.NetworkMapComponents, rule *nmdata.PolicyRule, peer *nmdata.Peer) bool {
-	if rule == nil || !rule.Enabled {
+	if rule == nil || !rule.Enabled || !rule.IsAccept() {
 		return false
 	}
 	if !peerInDestinations(c, rule, peer.ID) {
