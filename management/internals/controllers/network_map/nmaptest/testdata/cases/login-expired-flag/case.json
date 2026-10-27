@@ -1,0 +1,5 @@
+{
+  "description": "A non-target routing peer carrying the persisted login-expired flag (account login expiration disabled) is pruned from the distribution group's map: peer-a receives neither the peer nor its copy of the HA route, its DNS record or its firewall rules, and only peer-r1's copy remains. Legacy mode is excluded: main ignores the persisted flag.",
+  "peers": ["peer-a", "peer-r1"],
+  "modes": ["full", "envelope"]
+}

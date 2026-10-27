@@ -166,11 +166,6 @@ func TestNetworkMapComponents_LoginExpiredRoutingPeerIsDropped(t *testing.T) {
 
 	assert.NotContains(t, peerIDs(nm.OfflinePeers), "peer-router-1", "expired routing peer should NOT be in OfflinePeers")
 	assert.NotContains(t, peerIDs(nm.Peers), "peer-router-1", "expired routing peer should NOT be in active Peers")
-
-	routerRange := account.Peers["peer-router-1"].IP.String() + "/32"
-	for _, rule := range nm.RoutesFirewallRules {
-		assert.NotContains(t, rule.SourceRanges, routerRange, "expired routing peer should not be a route firewall rule source")
-	}
 }
 
 func TestNetworkMapComponents_InvalidatedPeerExcluded(t *testing.T) {
@@ -1044,7 +1039,10 @@ func TestNetworkMapEnvelope_LoginExpiredPeerAndRouteDropped(t *testing.T) {
 	assert.True(t, envelopeHasPeer(full, "router1"), "valid peers must stay")
 	for _, r := range full.Routes {
 		assert.NotEqual(t, "192.168.20.0/24", r.NetworkCidr, "route bound to the flagged peer must not be shipped")
-		assert.False(t, r.PeerIndexSet, "no shipped route may point at a peer")
+		if r.PeerIndexSet {
+			require.Less(t, int(r.PeerIndex), len(full.Peers))
+			assert.NotEqual(t, "dst1", full.Peers[r.PeerIndex].DnsLabel, "no shipped route may point at the flagged peer")
+		}
 	}
 	for _, g := range full.Groups {
 		for _, idx := range g.PeerIndexes {

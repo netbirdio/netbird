@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -3699,6 +3700,36 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 	manager, updateManager, err := buildTestManager(t, store, nmdataStore)
 	require.NoError(t, err)
 	return manager, updateManager
+}
+
+func TestNetworkMapStore_LoginExpiredFlagDropsPeer(t *testing.T) {
+	manager, _ := createManagerWithNetworkMapStore(t)
+	ctx := context.Background()
+
+	account, err := createAccount(manager, "login_expired_flag", userID, "")
+	require.NoError(t, err)
+	account.Settings.PeerLoginExpirationEnabled = false
+	require.NoError(t, manager.Store.SaveAccountSettings(ctx, account.Id, account.Settings))
+
+	setupKey, err := manager.CreateSetupKey(ctx, account.Id, "expired-flag-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+	peer1 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
+	peer2 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
+
+	syncPeers := func() []string {
+		_, networkMap, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: peer1.Meta}, account.Id)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
+		for _, p := range slices.Concat(networkMap.Peers, networkMap.OfflinePeers) {
+			ids = append(ids, p.ID)
+		}
+		return ids
+	}
+	require.Contains(t, syncPeers(), peer2.ID, "the default policy connects the peers")
+
+	require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer2.ID, nbpeer.PeerStatus{LoginExpired: true}))
+
+	assert.NotContains(t, syncPeers(), peer2.ID, "a peer flagged login-expired must not reach the other peer's map")
 }
 
 func newSettingsMockManager(t testing.TB) *settings.MockManager {

@@ -33,6 +33,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"net/netip"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -226,6 +227,8 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 			ctx, peer, legacyNM, equivDNSName, settings, nil, &cache.DNSConfigCache{}, 0,
 		)
 
+		pruneExpiredPeersFromLegacy(t, legacyProto, storeProto, account, peerID)
+
 		canonicalize(legacyProto)
 		canonicalize(storeProto)
 		canonicalize(acctProto)
@@ -306,6 +309,92 @@ func envInt(name string, def int) int {
 		}
 	}
 	return def
+}
+
+// pruneExpiredPeersFromLegacy applies the one intentional divergence from main: this tree
+// removes every login-expired peer other than the target (flag or time based) from a peer's
+// map, while main lists it as an offline peer or, for the persisted flag, keeps it as a
+// regular one. The expired peers, their routes, firewall rules, route firewall sources and
+// DNS records are removed from the legacy result and the new result must not offer them as
+// offline peers either.
+func pruneExpiredPeersFromLegacy(t *testing.T, legacy, updated *proto.NetworkMap, account *types.Account, targetID string) {
+	settings := account.Settings
+	keys := make(map[string]struct{})
+	ips := make(map[string]struct{})
+	for id, p := range account.Peers {
+		if id == targetID {
+			continue
+		}
+		expired := p.Status != nil && p.Status.LoginExpired
+		if !expired && settings != nil && settings.PeerLoginExpirationEnabled {
+			expired, _ = p.LoginExpired(settings.PeerLoginExpiration)
+		}
+		if expired {
+			keys[p.Key] = struct{}{}
+			ips[p.IP.String()] = struct{}{}
+			if p.IPv6.IsValid() {
+				ips[p.IPv6.String()] = struct{}{}
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+
+	pruneExpiredFromLegacyMap(legacy, keys, ips)
+
+	for _, r := range updated.OfflinePeers {
+		_, expired := keys[r.WgPubKey]
+		require.False(t, expired, "account=%s peer=%s: expired peer %s offered as offline peer", account.Id, targetID, r.WgPubKey)
+	}
+}
+
+// pruneExpiredFromLegacyMap removes the peers with the given keys and IPs from a legacy map.
+// Route firewall rules only exist for the target's own routes, so they are narrowed by source
+// range; a rule left without sources disappears only where the new code never emits it, which
+// is the IPv6 counterpart of a dynamic or default route.
+func pruneExpiredFromLegacyMap(legacy *proto.NetworkMap, keys, ips map[string]struct{}) {
+	legacy.RemotePeers = slices.DeleteFunc(legacy.RemotePeers, func(r *proto.RemotePeerConfig) bool {
+		_, drop := keys[r.WgPubKey]
+		return drop
+	})
+	legacy.OfflinePeers = slices.DeleteFunc(legacy.OfflinePeers, func(r *proto.RemotePeerConfig) bool {
+		_, drop := keys[r.WgPubKey]
+		return drop
+	})
+	legacy.Routes = slices.DeleteFunc(legacy.Routes, func(r *proto.Route) bool {
+		_, drop := keys[r.Peer]
+		return drop
+	})
+	legacy.FirewallRules = slices.DeleteFunc(legacy.FirewallRules, func(r *proto.FirewallRule) bool {
+		_, drop := ips[r.PeerIP]
+		return drop
+	})
+	if legacy.DNSConfig != nil {
+		for _, z := range legacy.DNSConfig.CustomZones {
+			z.Records = slices.DeleteFunc(z.Records, func(r *proto.SimpleRecord) bool {
+				_, drop := ips[r.RData]
+				return drop
+			})
+		}
+	}
+	legacy.RoutesFirewallRules = slices.DeleteFunc(legacy.RoutesFirewallRules, func(r *proto.RouteFirewallRule) bool {
+		before := len(r.SourceRanges)
+		allV6 := before > 0
+		for _, sr := range r.SourceRanges {
+			allV6 = allV6 && strings.Contains(sr, ":")
+		}
+		r.SourceRanges = slices.DeleteFunc(r.SourceRanges, func(sr string) bool {
+			prefix, err := netip.ParsePrefix(sr)
+			if err != nil || prefix.Bits() != prefix.Addr().BitLen() {
+				return false
+			}
+			_, drop := ips[prefix.Addr().String()]
+			return drop
+		})
+		counterpart := r.IsDynamic || strings.HasSuffix(r.RouteID, "-v6-default")
+		return allV6 && counterpart && len(r.SourceRanges) == 0
+	})
 }
 
 // canonicalize sorts every repeated field by a stable key. Both paths iterate Go
@@ -665,4 +754,29 @@ func protoStr(m goproto.Message) string {
 		return s[:maxLen] + "...(truncated)"
 	}
 	return s
+}
+
+func TestPruneExpiredFromLegacyMap(t *testing.T) {
+	keys := map[string]struct{}{"key-x": {}}
+	ips := map[string]struct{}{"100.64.0.9": {}, "fd00::9": {}}
+	legacy := &proto.NetworkMap{
+		RemotePeers: []*proto.RemotePeerConfig{{WgPubKey: "key-x"}, {WgPubKey: "key-y"}},
+		Routes:      []*proto.Route{{Peer: "key-x"}, {Peer: "key-y"}},
+		RoutesFirewallRules: []*proto.RouteFirewallRule{
+			{RouteID: "r1", SourceRanges: []string{"100.64.0.9/32", "100.64.0.8/32"}},
+			{RouteID: "r2", SourceRanges: []string{"100.64.0.9/32"}},
+			{RouteID: "r3", IsDynamic: true, SourceRanges: []string{"fd00::9/128"}},
+			{RouteID: "r4-v6-default", SourceRanges: []string{"fd00::9/128", "fd00::8/128"}},
+			{RouteID: "r5-v6-default", SourceRanges: []string{"fd00::9/128"}},
+		},
+	}
+
+	pruneExpiredFromLegacyMap(legacy, keys, ips)
+
+	require.Len(t, legacy.RemotePeers, 1)
+	require.Len(t, legacy.Routes, 1)
+	require.Len(t, legacy.RoutesFirewallRules, 3)
+	require.Equal(t, []string{"100.64.0.8/32"}, legacy.RoutesFirewallRules[0].SourceRanges)
+	require.Empty(t, legacy.RoutesFirewallRules[1].SourceRanges, "an IPv4 rule stays even without sources")
+	require.Equal(t, []string{"fd00::8/128"}, legacy.RoutesFirewallRules[2].SourceRanges)
 }

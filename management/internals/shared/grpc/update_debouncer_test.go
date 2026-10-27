@@ -129,8 +129,11 @@ func TestUpdateDebouncer_TimerNotExtendedByNewUpdates(t *testing.T) {
 		var last *network_map.UpdateMessage
 		ticker := time.NewTicker(interval / 3)
 		defer ticker.Stop()
+		deadline := time.After(2 * interval)
 		for i := uint64(1); ; i++ {
 			select {
+			case <-deadline:
+				t.Fatal("Flush did not happen within two intervals")
 			case <-ticker.C:
 				last = &network_map.UpdateMessage{
 					Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: i}},
