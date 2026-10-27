@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -42,7 +43,12 @@ func sessionTimeouts() func(context.Context, *pgx.Conn) error {
 	}
 }
 
-// postgresMillis rounds up to 1ms, since a zero timeout disables it.
+// postgresMillis converts d to milliseconds for a Postgres timeout, rounding up
+// so a positive d never becomes 0 (disabled) and capping at the server maximum.
 func postgresMillis(d time.Duration) string {
-	return strconv.FormatInt(max(d.Milliseconds(), 1), 10)
+	ms := d.Milliseconds()
+	if d%time.Millisecond != 0 {
+		ms++
+	}
+	return strconv.FormatInt(min(ms, math.MaxInt32), 10)
 }

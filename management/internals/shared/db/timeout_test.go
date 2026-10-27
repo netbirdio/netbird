@@ -19,8 +19,15 @@ import (
 const queryCanceledCode = "57014"
 
 func TestPostgresMillis(t *testing.T) {
-	assert.Equal(t, "60000", postgresMillis(time.Minute))
-	assert.Equal(t, "1", postgresMillis(500*time.Microsecond), "a sub-millisecond timeout must not round down to disabled")
+	cases := map[time.Duration]string{
+		time.Minute:             "60000",
+		1500 * time.Microsecond: "2",
+		500 * time.Microsecond:  "1",
+		720 * time.Hour:         "2147483647",
+	}
+	for d, want := range cases {
+		assert.Equal(t, want, postgresMillis(d), "milliseconds for %v", d)
+	}
 }
 
 func TestSessionTimeouts_NothingToApply(t *testing.T) {
@@ -57,6 +64,14 @@ func TestOpenPostgres_ZeroStatementTimeoutKeepsServerSetting(t *testing.T) {
 
 	assert.Equal(t, "0", showSetting(t, conn.DB(nil), "statement_timeout"), "the server default should be left in place")
 	require.NoError(t, conn.DB(nil).Exec("SELECT pg_sleep(0.6)").Error)
+}
+
+func TestOpenPostgres_CapsTimeoutsAtServerMaximum(t *testing.T) {
+	t.Setenv(transactionTimeoutEnv, "720h")
+	conn := openPostgresTestConn(t)
+
+	assert.Equal(t, "2147483647ms", showSetting(t, conn.DB(nil), "idle_in_transaction_session_timeout"),
+		"a timeout above the server maximum should be capped instead of failing the connection")
 }
 
 func TestOpenPostgresWithoutPool_BoundsSessions(t *testing.T) {
