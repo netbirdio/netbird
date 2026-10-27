@@ -9,9 +9,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goproto "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	nbtypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
@@ -1424,29 +1426,6 @@ func TestGetPeerNetworkMapComponents_MultiRulePolicies(t *testing.T) {
 	})
 }
 
-// Characterization of legacy parity: once one resource policy grants the peer
-// access, the source peers of the resource's subsequent policies are collected
-// as if the peer were a router.
-func TestGetPeerNetworkMapComponents_NetworkResources_LaterPoliciesContributeSourcePeers(t *testing.T) {
-	target := newPeer(targetID, 1)
-	otherSrc := newPeer("peer-other-src", 2)
-	router := newPeer("peer-router", 3)
-	nmd := newNMD(target, otherSrc, router)
-	addGroup(nmd, "g-a", targetID)
-	addGroup(nmd, "g-b", otherSrc.ID)
-	addGroup(nmd, "g-resource")
-	res := &nmdata.NetworkResource{ID: "res-1", NetworkID: "net-1", Enabled: true}
-	nmd.NetworkResources = []*nmdata.NetworkResource{res}
-	rpA := newPolicy("rp-a", newRule([]string{"g-a"}, []string{"g-resource"}))
-	rpB := newPolicy("rp-b", newRule([]string{"g-b"}, []string{"g-resource"}))
-	nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {rpA, rpB}}
-	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {router.ID: {}}}
-
-	c := compute(nmd, targetID)
-
-	assert.Contains(t, c.Peers, otherSrc.ID)
-}
-
 func TestGetPeerNetworkMapComponents_StoreImmutableAndDeterministic(t *testing.T) {
 	zone := nmdata.CustomZone{
 		Domain:  "acme.netbird.cloud.",
@@ -1909,5 +1888,468 @@ func BenchmarkGetPeerNetworkMapComponents_ClientsBehindOneRouter(b *testing.B) {
 		for _, peerID := range peerIDs {
 			compute(nmd, peerID)
 		}
+	}
+}
+
+func excludedReasons(c *nbtypes.NetworkMapComponents) map[string]proto.ExclusionReason {
+	reasons := make(map[string]proto.ExclusionReason, len(c.ExcludedPeers))
+	for _, e := range c.ExcludedPeers {
+		reasons[e.Peer.ID] = e.Reason
+	}
+	return reasons
+}
+
+func TestGetPeerNetworkMapComponents_ExcludedPeers(t *testing.T) {
+	t.Run("login-expired source, destination and router listed", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		expSrc := newPeer("peer-exp-src", 2)
+		expSrc.StatusLoginExpired = true
+		expDst := newPeer("peer-exp-dst", 3)
+		expDst.StatusLoginExpired = true
+		expRouter := newPeer("peer-exp-router", 4)
+		expRouter.StatusLoginExpired = true
+		nmd := newNMD(target, expSrc, expDst, expRouter)
+		addGroup(nmd, "g-src", expSrc.ID)
+		addGroup(nmd, "g-dst", expDst.ID)
+		addGroup(nmd, "g-tgt", targetID)
+		addGroup(nmd, "g-resource")
+		nmd.Policies = []*nmdata.Policy{
+			newPolicy("p-in", newRule([]string{"g-src"}, []string{"g-tgt"})),
+			newPolicy("p-out", newRule([]string{"g-tgt"}, []string{"g-dst"})),
+		}
+		nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+		nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {newPolicy("rp-1", newRule([]string{"g-tgt"}, []string{"g-resource"}))}}
+		nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {expRouter.ID: {}}}
+
+		c := compute(nmd, targetID)
+
+		assert.Equal(t, map[string]proto.ExclusionReason{
+			expSrc.ID:    proto.ExclusionReason_ExclusionReasonLoginExpired,
+			expDst.ID:    proto.ExclusionReason_ExclusionReasonLoginExpired,
+			expRouter.ID: proto.ExclusionReason_ExclusionReasonLoginExpired,
+		}, excludedReasons(c))
+		assert.Equal(t, 3, c.ExcludedPeersTotal)
+	})
+
+	t.Run("unvalidated peers on both sides split into pending approval and EDR", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		pendingSrc := newPeer("peer-pending-src", 2)
+		pendingSrc.RequiresApproval = true
+		edrSrc := newPeer("peer-edr-src", 3)
+		pendingDst := newPeer("peer-pending-dst", 4)
+		pendingDst.RequiresApproval = true
+		edrDst := newPeer("peer-edr-dst", 5)
+		nmd := newNMD(target, pendingSrc, edrSrc, pendingDst, edrDst)
+		for _, id := range []string{pendingSrc.ID, edrSrc.ID, pendingDst.ID, edrDst.ID} {
+			delete(nmd.ValidatedPeers, id)
+		}
+		addGroup(nmd, "g-src", pendingSrc.ID, edrSrc.ID)
+		addGroup(nmd, "g-tgt", targetID)
+		nmd.Policies = []*nmdata.Policy{
+			newPolicy("p-in", newRule([]string{"g-src"}, []string{"g-tgt"})),
+		}
+		out := newRule([]string{"g-tgt"}, nil)
+		out.DestinationResource = nmdata.Resource{ID: pendingDst.ID, Type: string(nbtypes.ResourceTypePeer)}
+		nmd.Policies = append(nmd.Policies, newPolicy("p-out", out))
+		nmd.Routes = []*nmdata.Route{{ID: "r-1", Enabled: true, Peer: edrDst.ID, Groups: []string{"g-tgt"}}}
+
+		c := compute(nmd, targetID)
+
+		assert.Equal(t, map[string]proto.ExclusionReason{
+			pendingSrc.ID: proto.ExclusionReason_ExclusionReasonPendingApproval,
+			edrSrc.ID:     proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+			pendingDst.ID: proto.ExclusionReason_ExclusionReasonPendingApproval,
+			edrDst.ID:     proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+		}, excludedReasons(c))
+	})
+
+	t.Run("posture failure listed on the destination only", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", failing.ID)
+		addGroup(nmd, "g-dst", targetID)
+		p := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
+		p.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = []*nmdata.Policy{p}
+
+		dst := compute(nmd, targetID)
+		src := compute(nmd, failing.ID)
+
+		assert.Equal(t, map[string]proto.ExclusionReason{failing.ID: proto.ExclusionReason_ExclusionReasonPostureCheckFailed}, excludedReasons(dst))
+		assert.Nil(t, src.ExcludedPeers, "the failing source is not told whom it misses")
+		assert.Zero(t, src.ExcludedPeersTotal)
+	})
+
+	t.Run("router lists resource-policy sources failing posture or validation", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		ok := newPeer("peer-ok", 2)
+		failing := newPeer("peer-failing", 3)
+		failing.Meta.WtVersion = failingVersion
+		unvalidated := newPeer("peer-unvalidated", 4)
+		nmd := newNMD(target, ok, failing, unvalidated)
+		delete(nmd.ValidatedPeers, unvalidated.ID)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-clients", ok.ID, failing.ID, unvalidated.ID)
+		addGroup(nmd, "g-resource")
+		rp := newPolicy("rp-1", newRule([]string{"g-clients"}, []string{"g-resource"}))
+		rp.SourcePostureChecks = []string{"pc-1"}
+		nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+		nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {rp}}
+		nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {targetID: {}}}
+
+		c := compute(nmd, targetID)
+
+		assert.Equal(t, map[string]proto.ExclusionReason{
+			failing.ID:     proto.ExclusionReason_ExclusionReasonPostureCheckFailed,
+			unvalidated.ID: proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+		}, excludedReasons(c))
+	})
+
+	t.Run("peer connected via another policy is not listed", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", failing.ID)
+		addGroup(nmd, "g-dst", targetID)
+		checked := newPolicy("p-checked", newRule([]string{"g-src"}, []string{"g-dst"}))
+		checked.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = []*nmdata.Policy{checked, newPolicy("p-open", newRule([]string{"g-src"}, []string{"g-dst"}))}
+
+		c := compute(nmd, targetID)
+
+		assert.Contains(t, peerIDSet(c.Peers), failing.ID)
+		assert.Nil(t, c.ExcludedPeers)
+	})
+
+	t.Run("reason precedence", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		pendingExpired := newPeer("peer-pending-expired", 2)
+		pendingExpired.RequiresApproval = true
+		pendingExpired.StatusLoginExpired = true
+		expiredFailing := newPeer("peer-expired-failing", 3)
+		expiredFailing.StatusLoginExpired = true
+		expiredFailing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, pendingExpired, expiredFailing)
+		delete(nmd.ValidatedPeers, pendingExpired.ID)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", pendingExpired.ID, expiredFailing.ID)
+		addGroup(nmd, "g-dst", targetID)
+		p := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
+		p.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = []*nmdata.Policy{p}
+
+		c := compute(nmd, targetID)
+
+		assert.Equal(t, map[string]proto.ExclusionReason{
+			pendingExpired.ID: proto.ExclusionReason_ExclusionReasonPendingApproval,
+			expiredFailing.ID: proto.ExclusionReason_ExclusionReasonLoginExpired,
+		}, excludedReasons(c))
+	})
+
+	t.Run("nothing excluded leaves the list unset", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		peer := newPeer("peer-ok", 2)
+		nmd := newNMD(target, peer)
+		addGroup(nmd, "g-all", targetID, peer.ID).Name = nmdata.GroupAllName
+		nmd.Policies = []*nmdata.Policy{newPolicy("p-1", newRule([]string{"g-all"}, []string{"g-all"}))}
+
+		c := compute(nmd, targetID)
+
+		assert.Nil(t, c.ExcludedPeers)
+		assert.Zero(t, c.ExcludedPeersTotal)
+		assert.Nil(t, c.OwnExclusionReasons)
+	})
+
+	t.Run("capped and sorted by IP with the full total", func(t *testing.T) {
+		const pending = nbtypes.MaxExcludedPeers + 50
+		target := newPeer(targetID, 1)
+		peers := []*nmdata.Peer{target}
+		groupPeers := []string{targetID}
+		for i := range pending {
+			p := newPeer(fmt.Sprintf("peer-pending-%03d", i), 0)
+			p.IP = netip.AddrFrom4([4]byte{100, 64, 1, byte(pending - 1 - i)})
+			p.RequiresApproval = true
+			peers = append(peers, p)
+			groupPeers = append(groupPeers, p.ID)
+		}
+		nmd := newNMD(peers...)
+		for _, id := range groupPeers[1:] {
+			delete(nmd.ValidatedPeers, id)
+		}
+		addGroup(nmd, "g-all", groupPeers...).Name = nmdata.GroupAllName
+		nmd.Policies = []*nmdata.Policy{newPolicy("p-1", newRule([]string{"g-all"}, []string{"g-all"}))}
+
+		c := compute(nmd, targetID)
+
+		require.Len(t, c.ExcludedPeers, nbtypes.MaxExcludedPeers)
+		assert.Equal(t, pending, c.ExcludedPeersTotal)
+		for i, e := range c.ExcludedPeers {
+			assert.Equal(t, netip.AddrFrom4([4]byte{100, 64, 1, byte(i)}), e.Peer.IP)
+		}
+	})
+}
+
+func TestGetPeerNetworkMapComponents_OwnExclusionReasons(t *testing.T) {
+	posture := []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}
+	build := func(version string, checks bool) *networkmap.NetworkMapData {
+		target := newPeer(targetID, 1)
+		target.Meta.WtVersion = version
+		dst := newPeer("peer-dst", 2)
+		nmd := newNMD(target, dst)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", targetID)
+		addGroup(nmd, "g-dst", dst.ID)
+		p := newPolicy("p-1", newRule([]string{"g-src"}, []string{"g-dst"}))
+		if checks {
+			p.SourcePostureChecks = []string{"pc-1"}
+		}
+		nmd.Policies = []*nmdata.Policy{p}
+		return nmd
+	}
+
+	assert.Equal(t, posture, compute(build(failingVersion, true), targetID).OwnExclusionReasons, "failing source")
+	assert.Nil(t, compute(build(passingVersion, true), targetID).OwnExclusionReasons, "passing source")
+	assert.Nil(t, compute(build(failingVersion, false), targetID).OwnExclusionReasons, "policy without posture checks")
+	assert.Nil(t, compute(build(failingVersion, true), "peer-dst").OwnExclusionReasons, "destination is not checked")
+
+	t.Run("failing a resource policy as source", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		target.Meta.WtVersion = failingVersion
+		router := newPeer("peer-router", 2)
+		nmd := newNMD(target, router)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-src", targetID)
+		addGroup(nmd, "g-resource")
+		rp := newPolicy("rp-1", newRule([]string{"g-src"}, []string{"g-resource"}))
+		rp.SourcePostureChecks = []string{"pc-1"}
+		nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+		nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {rp}}
+		nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {router.ID: {}}}
+
+		assert.Equal(t, posture, compute(nmd, targetID).OwnExclusionReasons)
+	})
+
+	t.Run("unvalidated target keeps its reason on the empty components", func(t *testing.T) {
+		for _, requiresApproval := range []bool{true, false} {
+			nmd := build(passingVersion, true)
+			nmd.Peers[targetID].RequiresApproval = requiresApproval
+			delete(nmd.ValidatedPeers, targetID)
+
+			c := compute(nmd, targetID)
+
+			require.True(t, c.IsEmpty())
+			assert.Equal(t, []proto.ExclusionReason{nbtypes.ValidationExclusionReason(requiresApproval)}, c.OwnExclusionReasons)
+		}
+	})
+
+	t.Run("login-expired target with failing posture, sorted", func(t *testing.T) {
+		nmd := build(failingVersion, true)
+		nmd.Peers[targetID].StatusLoginExpired = true
+
+		assert.Equal(t, []proto.ExclusionReason{
+			proto.ExclusionReason_ExclusionReasonLoginExpired,
+			proto.ExclusionReason_ExclusionReasonPostureCheckFailed,
+		}, compute(nmd, targetID).OwnExclusionReasons)
+	})
+}
+
+func TestGetPeerNetworkMapComponents_ExcludedPeersStayOutOfComponents(t *testing.T) {
+	target := newPeer(targetID, 1)
+	ok := newPeer("peer-ok", 2)
+	pending := newPeer("peer-pending", 3)
+	pending.RequiresApproval = true
+	expired := newPeer("peer-expired", 4)
+	expired.StatusLoginExpired = true
+	router := newPeer("peer-router", 5)
+	nmd := newNMD(target, ok, pending, expired, router)
+	delete(nmd.ValidatedPeers, pending.ID)
+	delete(nmd.ValidatedPeers, router.ID)
+	addGroup(nmd, "g-all", targetID, ok.ID, pending.ID, expired.ID).Name = nmdata.GroupAllName
+	addGroup(nmd, "g-resource")
+	nmd.Policies = []*nmdata.Policy{newPolicy("p-1", newRule([]string{"g-all"}, []string{"g-all"}))}
+	nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+	nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {newPolicy("rp-1", newRule([]string{"g-all"}, []string{"g-resource"}))}}
+	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {router.ID: {}}}
+
+	c := compute(nmd, targetID)
+
+	assert.Equal(t, map[string]proto.ExclusionReason{
+		pending.ID: proto.ExclusionReason_ExclusionReasonPendingApproval,
+		expired.ID: proto.ExclusionReason_ExclusionReasonLoginExpired,
+		router.ID:  proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+	}, excludedReasons(c))
+	for _, e := range c.ExcludedPeers {
+		assert.NotContains(t, c.Peers, e.Peer.ID)
+		assert.NotContains(t, c.RouterPeers, e.Peer.ID)
+		assert.NotEqual(t, targetID, e.Peer.ID, "the target is never listed")
+	}
+}
+
+func TestGetPeerNetworkMapComponents_NonRouterSourceGetsNoSiblingPolicySources(t *testing.T) {
+	target := newPeer(targetID, 1)
+	otherSource := newPeer("peer-other-source", 2)
+	otherPending := newPeer("peer-other-pending", 3)
+	otherPending.RequiresApproval = true
+	router := newPeer("peer-router", 4)
+	nmd := newNMD(target, otherSource, otherPending, router)
+	delete(nmd.ValidatedPeers, otherPending.ID)
+	addGroup(nmd, "g-a", targetID)
+	addGroup(nmd, "g-b", otherSource.ID, otherPending.ID)
+	addGroup(nmd, "g-resource")
+	nmd.NetworkResources = []*nmdata.NetworkResource{{ID: "res-1", NetworkID: "net-1", Enabled: true}}
+	nmd.ResourcePolicies = map[string][]*nmdata.Policy{"res-1": {
+		newPolicy("rp-a", newRule([]string{"g-a"}, []string{"g-resource"})),
+		newPolicy("rp-b", newRule([]string{"g-b"}, []string{"g-resource"})),
+	}}
+	nmd.Routers = map[string]map[string]*nmdata.NetworkRouter{"net-1": {router.ID: {}}}
+
+	c := compute(nmd, targetID)
+
+	assert.ElementsMatch(t, []string{targetID, router.ID}, peerIDSet(c.Peers),
+		"policy B's sources are no peers of a non-router source of policy A")
+	assert.Nil(t, c.ExcludedPeers)
+	assert.Equal(t, []*nmdata.NetworkResource{nmd.NetworkResources[0]}, c.NetworkResources)
+
+	routerView := compute(nmd, router.ID)
+	assert.ElementsMatch(t, []string{router.ID, targetID, otherSource.ID}, peerIDSet(routerView.Peers))
+	assert.Equal(t, map[string]proto.ExclusionReason{otherPending.ID: proto.ExclusionReason_ExclusionReasonPendingApproval}, excludedReasons(routerView))
+}
+
+func TestGetPeerNetworkMapComponents_ExcludedPeersMergedUnderCap(t *testing.T) {
+	const pendingCount = nbtypes.MaxExcludedPeers
+	target := newPeer(targetID, 0)
+	target.IP = netip.AddrFrom4([4]byte{100, 64, 9, 9})
+	peers := []*nmdata.Peer{target}
+	members := []string{targetID}
+	for i := range pendingCount {
+		p := newPeer(fmt.Sprintf("peer-pending-%03d", i), 0)
+		p.IP = netip.AddrFrom4([4]byte{100, 64, 1, byte(2*i + 1)})
+		p.RequiresApproval = true
+		peers = append(peers, p)
+		members = append(members, p.ID)
+	}
+	for i := range 4 {
+		p := newPeer(fmt.Sprintf("peer-expired-%d", i), 0)
+		p.IP = netip.AddrFrom4([4]byte{100, 64, 1, byte(2 * i)})
+		p.StatusLoginExpired = true
+		peers = append(peers, p)
+		members = append(members, p.ID)
+	}
+	failing := newPeer("peer-failing", 0)
+	failing.IP = netip.AddrFrom4([4]byte{100, 64, 0, 200})
+	failing.Meta.WtVersion = failingVersion
+	peers = append(peers, failing)
+	nmd := newNMD(peers...)
+	for _, id := range members[1 : pendingCount+1] {
+		delete(nmd.ValidatedPeers, id)
+	}
+	addVersionCheck(nmd, "pc-1", postureMinVersion)
+	addGroup(nmd, "g-all", members...).Name = nmdata.GroupAllName
+	addGroup(nmd, "g-failing", failing.ID)
+	addGroup(nmd, "g-tgt", targetID)
+	gated := newPolicy("p-gated", newRule([]string{"g-failing"}, []string{"g-tgt"}))
+	gated.SourcePostureChecks = []string{"pc-1"}
+	nmd.Policies = []*nmdata.Policy{newPolicy("p-all", newRule([]string{"g-all"}, []string{"g-all"})), gated}
+
+	c := compute(nmd, targetID)
+
+	assert.Equal(t, pendingCount+5, c.ExcludedPeersTotal)
+	require.Len(t, c.ExcludedPeers, nbtypes.MaxExcludedPeers)
+	assert.Equal(t, failing.ID, c.ExcludedPeers[0].Peer.ID, "the lowest IP comes first whatever its reason")
+	for i := 1; i < len(c.ExcludedPeers); i++ {
+		assert.Negative(t, c.ExcludedPeers[i-1].Peer.IP.Compare(c.ExcludedPeers[i].Peer.IP), "sorted by IP at %d", i)
+	}
+	for i, want := range []string{"peer-expired-0", "peer-pending-000", "peer-expired-1", "peer-pending-001"} {
+		assert.Equal(t, want, c.ExcludedPeers[i+1].Peer.ID)
+	}
+}
+
+func TestGetPeerNetworkMapComponents_ExcludedPeersConcurrent(t *testing.T) {
+	nmd, validated := newPendingApprovalFixture(20, 150)
+	fresh, _ := newPendingApprovalFixture(20, 150)
+	want := compute(fresh, validated[0])
+
+	got := make([]*nbtypes.NetworkMapComponents, len(validated))
+	var wg sync.WaitGroup
+	for i, peerID := range validated {
+		wg.Go(func() {
+			got[i] = compute(nmd, peerID)
+		})
+	}
+	wg.Wait()
+
+	for i, c := range got {
+		assert.Equal(t, want.ExcludedPeersTotal, c.ExcludedPeersTotal, validated[i])
+		require.Len(t, c.ExcludedPeers, len(want.ExcludedPeers), validated[i])
+		for j := range c.ExcludedPeers {
+			assert.Equal(t, want.ExcludedPeers[j].Peer.ID, c.ExcludedPeers[j].Peer.ID)
+		}
+	}
+}
+
+func TestGetPeerNetworkMapComponents_PendingApprovalFixture(t *testing.T) {
+	nmd, validated := newPendingApprovalFixture(5, 150)
+
+	for _, peerID := range validated {
+		c := compute(nmd, peerID)
+
+		assert.ElementsMatch(t, validated, peerIDSet(c.Peers), peerID)
+		assert.Equal(t, 150, c.ExcludedPeersTotal, peerID)
+		require.Len(t, c.ExcludedPeers, nbtypes.MaxExcludedPeers, peerID)
+		for i, e := range c.ExcludedPeers {
+			assert.Equal(t, fmt.Sprintf("peer-%d", 5+i), e.Peer.ID)
+			assert.Equal(t, proto.ExclusionReason_ExclusionReasonPendingApproval, e.Reason)
+		}
+		assert.Nil(t, c.OwnExclusionReasons)
+	}
+}
+
+// newPendingApprovalFixture builds an account whose All group joins validated
+// peers and pendingCount peers awaiting approval under one All→All policy.
+func newPendingApprovalFixture(validatedCount, pendingCount int) (*networkmap.NetworkMapData, []string) {
+	peers := make([]*nmdata.Peer, 0, validatedCount+pendingCount)
+	allIDs := make([]string, 0, validatedCount+pendingCount)
+	for i := range validatedCount + pendingCount {
+		p := newPeer(fmt.Sprintf("peer-%d", i), 0)
+		p.IP = netip.AddrFrom4([4]byte{100, 64, byte(i >> 8), byte(i)})
+		p.RequiresApproval = i >= validatedCount
+		peers = append(peers, p)
+		allIDs = append(allIDs, p.ID)
+	}
+	nmd := newNMD(peers...)
+	for _, id := range allIDs[validatedCount:] {
+		delete(nmd.ValidatedPeers, id)
+	}
+	addGroup(nmd, "g-all", allIDs...).Name = nmdata.GroupAllName
+	nmd.Policies = []*nmdata.Policy{newPolicy("p-1", newRule([]string{"g-all"}, []string{"g-all"}))}
+	return nmd, allIDs[:validatedCount]
+}
+
+// BenchmarkGetPeerNetworkMapComponents_PendingApproval measures the components
+// calculation of every validated peer with and without peers awaiting approval and
+// reports the wire bytes the excluded peers add to one envelope.
+func BenchmarkGetPeerNetworkMapComponents_PendingApproval(b *testing.B) {
+	const validatedCount = 200
+	for _, pendingCount := range []int{0, 2000} {
+		b.Run(fmt.Sprintf("pending-%d", pendingCount), func(b *testing.B) {
+			nmd, validated := newPendingApprovalFixture(validatedCount, pendingCount)
+			c := compute(nmd, validated[0])
+			excluded := &proto.NetworkMapComponentsFull{
+				ExcludedPeers:      networkmap.ToProtocolExcludedPeers(c.ExcludedPeers, "netbird.cloud", false),
+				ExcludedPeersTotal: uint32(c.ExcludedPeersTotal),
+			}
+			b.ReportMetric(float64(goproto.Size(excluded)), "excluded_bytes/envelope")
+			b.ReportAllocs()
+			for b.Loop() {
+				for _, peerID := range validated {
+					compute(nmd, peerID)
+				}
+			}
+		})
 	}
 }

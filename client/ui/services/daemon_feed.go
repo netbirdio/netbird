@@ -90,6 +90,14 @@ type PeerStatus struct {
 	Networks                   []string `json:"networks"`
 }
 
+// ExcludedPeer is a peer that policy would connect to but that management excluded.
+type ExcludedPeer struct {
+	Fqdn   string `json:"fqdn"`
+	IP     string `json:"ip"`
+	IPv6   string `json:"ipv6"`
+	Reason string `json:"reason"`
+}
+
 // PeerLink is this peer's connection to its mgmt or signal server.
 type PeerLink struct {
 	URL       string `json:"url"`
@@ -115,6 +123,13 @@ type Status struct {
 	Local         LocalPeer     `json:"local"`
 	Peers         []PeerStatus  `json:"peers"`
 	Events        []SystemEvent `json:"events"`
+	// ExcludedPeers lists peers that policy would connect to but that
+	// management excluded; ExcludedPeersTotal is the untruncated count.
+	ExcludedPeers      []ExcludedPeer `json:"excludedPeers"`
+	ExcludedPeersTotal uint32         `json:"excludedPeersTotal"`
+	// OwnExclusionReasons lists why management excludes this peer from other
+	// peers' network maps.
+	OwnExclusionReasons []string `json:"ownExclusionReasons"`
 	// NetworksRevision bumps whenever the daemon's routed-networks set or their
 	// selected state changes, so consumers know when to re-fetch ListNetworks
 	// instead of polling every snapshot.
@@ -502,9 +517,11 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 	local := full.GetLocalPeerState()
 
 	st := Status{
-		Status:           resp.GetStatus(),
-		DaemonVersion:    resp.GetDaemonVersion(),
-		NetworksRevision: full.GetNetworksRevision(),
+		Status:              resp.GetStatus(),
+		DaemonVersion:       resp.GetDaemonVersion(),
+		NetworksRevision:    full.GetNetworksRevision(),
+		ExcludedPeersTotal:  full.GetExcludedPeersTotal(),
+		OwnExclusionReasons: append([]string{}, full.GetOwnExclusionReasons()...),
 		Management: PeerLink{
 			URL:       mgmt.GetURL(),
 			Connected: mgmt.GetConnected(),
@@ -544,6 +561,14 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 			LastHandshakeUnix:          p.GetLastWireguardHandshake().GetSeconds(),
 			RosenpassEnabled:           p.GetRosenpassEnabled(),
 			Networks:                   append([]string{}, p.GetNetworks()...),
+		})
+	}
+	for _, p := range full.GetExcludedPeers() {
+		st.ExcludedPeers = append(st.ExcludedPeers, ExcludedPeer{
+			Fqdn:   p.GetFqdn(),
+			IP:     p.GetIP(),
+			IPv6:   p.GetIpv6(),
+			Reason: p.GetReason(),
 		})
 	}
 	for _, e := range full.GetEvents() {

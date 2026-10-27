@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -18,6 +19,8 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -334,4 +337,40 @@ func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
 				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
 		})
 	}
+}
+
+func TestToSyncResponse_ExcludedPeers(t *testing.T) {
+	target := &nmdata.Peer{ID: "peer-a", IP: netip.MustParseAddr("100.64.0.1"), DNSLabel: "peera"}
+	excluded := &nmdata.Peer{ID: "peer-b", IP: netip.MustParseAddr("100.64.0.2"), IPv6: netip.MustParseAddr("fd00::2"), DNSLabel: "peerb"}
+	nm := &types.NetworkMap{
+		Network:             &nmdata.Network{},
+		ExcludedPeers:       []types.ExcludedPeer{{Peer: excluded, Reason: proto.ExclusionReason_ExclusionReasonEdrNonCompliant}},
+		ExcludedPeersTotal:  2,
+		OwnExclusionReasons: []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed},
+	}
+
+	resp := ToSyncResponse(context.Background(), nil, nil, nil, target, nil, nil, nm, "netbird.cloud", nil, &cache.DNSConfigCache{}, &nmdata.AccountSettingsInfo{}, nil, nil, 0)
+
+	require.Len(t, resp.NetworkMap.ExcludedPeers, 1)
+	got := resp.NetworkMap.ExcludedPeers[0]
+	assert.Equal(t, "peerb.netbird.cloud", got.Fqdn)
+	assert.Equal(t, "100.64.0.2", got.Ip)
+	assert.Empty(t, got.Ipv6, "the receiver has no IPv6 overlay")
+	assert.Equal(t, proto.ExclusionReason_ExclusionReasonEdrNonCompliant, got.Reason)
+	assert.EqualValues(t, 2, resp.NetworkMap.ExcludedPeersTotal)
+	assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}, resp.NetworkMap.OwnExclusionReasons)
+}
+
+func TestToSyncResponse_UnvalidatedTargetOwnExclusionReasons(t *testing.T) {
+	target := &nmdata.Peer{ID: "peer-a", IP: netip.MustParseAddr("100.64.0.1"), DNSLabel: "peera", RequiresApproval: true}
+	nm := &types.NetworkMap{
+		Network:             &nmdata.Network{Serial: 3},
+		OwnExclusionReasons: []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPendingApproval},
+	}
+
+	resp := ToSyncResponse(context.Background(), nil, nil, nil, target, nil, nil, nm, "netbird.cloud", nil, &cache.DNSConfigCache{}, &nmdata.AccountSettingsInfo{}, nil, nil, 0)
+
+	require.NotNil(t, resp.NetworkMap, "the client records own exclusion reasons only from a non-nil map")
+	assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPendingApproval}, resp.NetworkMap.OwnExclusionReasons)
+	assert.True(t, resp.NetworkMap.RemotePeersIsEmpty)
 }

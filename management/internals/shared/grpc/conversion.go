@@ -190,6 +190,9 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
 	response.NetworkMap.OfflinePeers = networkmap.AppendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6, localIsProxy)
+	response.NetworkMap.ExcludedPeers = networkmap.ToProtocolExcludedPeers(networkMap.ExcludedPeers, dnsName, includeIPv6)
+	response.NetworkMap.ExcludedPeersTotal = uint32(networkMap.ExcludedPeersTotal)
+	response.NetworkMap.OwnExclusionReasons = networkMap.OwnExclusionReasons
 
 	firewallRules := networkmap.ToProtocolFirewallRules(networkMap.FirewallRules, includeIPv6, useSourcePrefixes)
 	response.NetworkMap.FirewallRules = firewallRules

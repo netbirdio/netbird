@@ -24,6 +24,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/proto"
+	sharedtypes "github.com/netbirdio/netbird/shared/management/types"
 
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -1146,6 +1148,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	nmap, resPostureChecks, dnsFwdPort, err := am.networkMapController.GetValidatedPeerWithMap(ctx, peerNotValid, accountID, peer.ID)
 	if err != nil {
 		return nil, nil, nil, 0, err
+	}
+	if peerNotValid {
+		nmap.OwnExclusionReasons = []proto.ExclusionReason{sharedtypes.ValidationExclusionReason(peer.Status != nil && peer.Status.RequiresApproval)}
 	}
 
 	metaDiffAffectsPosture := metaDiffAffectsPosture(&metaDiff, resPostureChecks)

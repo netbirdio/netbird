@@ -1150,3 +1150,78 @@ func TestNetworkMapEnvelope_PeerGroupRouteWithExpiredMember(t *testing.T) {
 		}
 	}
 }
+
+func excludedPeerReasons(nm *types.NetworkMap) map[string]proto.ExclusionReason {
+	reasons := make(map[string]proto.ExclusionReason, len(nm.ExcludedPeers))
+	for _, e := range nm.ExcludedPeers {
+		reasons[e.Peer.ID] = e.Reason
+	}
+	return reasons
+}
+
+func TestNetworkMapComponents_ExcludedPeers(t *testing.T) {
+	t.Run("login-expired destination", func(t *testing.T) {
+		account := createComponentTestAccount()
+		account.Peers["peer-dst-1"].Status.LoginExpired = true
+
+		nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account))
+
+		assert.Equal(t, map[string]proto.ExclusionReason{"peer-dst-1": proto.ExclusionReason_ExclusionReasonLoginExpired}, excludedPeerReasons(nm))
+		assert.Equal(t, 1, nm.ExcludedPeersTotal)
+	})
+
+	t.Run("unvalidated destination awaiting approval", func(t *testing.T) {
+		account := createComponentTestAccount()
+		account.Peers["peer-dst-1"].Status.RequiresApproval = true
+
+		nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account, "peer-dst-1"))
+
+		assert.Equal(t, map[string]proto.ExclusionReason{"peer-dst-1": proto.ExclusionReason_ExclusionReasonPendingApproval}, excludedPeerReasons(nm))
+	})
+
+	t.Run("unvalidated target gets no list, only its own reason", func(t *testing.T) {
+		account := createComponentTestAccount()
+		account.Peers["peer-dst-1"].Status.LoginExpired = true
+		account.Peers["peer-src-1"].Status.RequiresApproval = true
+
+		nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account, "peer-src-1"))
+
+		assert.Nil(t, nm.ExcludedPeers)
+		assert.Zero(t, nm.ExcludedPeersTotal)
+		assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPendingApproval}, nm.OwnExclusionReasons)
+	})
+
+	t.Run("nothing excluded", func(t *testing.T) {
+		account := createComponentTestAccount()
+
+		nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account))
+
+		assert.Nil(t, nm.ExcludedPeers)
+		assert.Zero(t, nm.ExcludedPeersTotal)
+		assert.Nil(t, nm.OwnExclusionReasons)
+	})
+}
+
+func TestNetworkMapComponents_CalculateCarriesExclusions(t *testing.T) {
+	peer := &nmdata.Peer{ID: "peer-a", IP: netip.MustParseAddr("100.64.0.1")}
+	excluded := []types.ExcludedPeer{{
+		Peer:   &nmdata.Peer{ID: "peer-b", IP: netip.MustParseAddr("100.64.0.2")},
+		Reason: proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+	}}
+	c := &types.NetworkMapComponents{
+		PeerID:              peer.ID,
+		Network:             &nmdata.Network{},
+		AccountSettings:     &nmdata.AccountSettingsInfo{},
+		DNSSettings:         &nmdata.DNSSettings{},
+		Peers:               map[string]*nmdata.Peer{peer.ID: peer},
+		ExcludedPeers:       excluded,
+		ExcludedPeersTotal:  7,
+		OwnExclusionReasons: []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed},
+	}
+
+	nm := c.Calculate(context.Background())
+
+	assert.Equal(t, excluded, nm.ExcludedPeers)
+	assert.Equal(t, 7, nm.ExcludedPeersTotal)
+	assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}, nm.OwnExclusionReasons)
+}

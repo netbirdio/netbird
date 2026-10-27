@@ -85,5 +85,18 @@
   "routesFirewallRulesIsEmpty": true,
   "sshAuth": {
     "UserIDClaim": "sub"
-  }
+  },
+  "excludedPeers": [
+    {
+      "fqdn": "peer-lin-stopped.netbird.test",
+      "ip": "100.64.0.2",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    },
+    {
+      "fqdn": "peer-bsd.netbird.test",
+      "ip": "100.64.0.4",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    }
+  ],
+  "excludedPeersTotal": 2
 }

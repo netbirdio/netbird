@@ -3323,3 +3323,34 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		assert.Greater(t, networkSerial(t, manager, account.Id), afterDisconnect, "embedded proxy connect must bump")
 	})
 }
+
+type notValidPeerValidator struct {
+	MockIntegratedValidator
+}
+
+func (notValidPeerValidator) IsNotValidPeer(context.Context, string, *nbpeer.Peer, []string, *types.ExtraSettings) (bool, bool, error) {
+	return true, false, nil
+}
+
+func TestSyncPeer_NotValidPeerGetsOwnExclusionReason(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+	manager.integratedPeerValidator = notValidPeerValidator{}
+
+	for requiresApproval, want := range map[bool]proto.ExclusionReason{
+		true:  proto.ExclusionReason_ExclusionReasonPendingApproval,
+		false: proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+	} {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		current.Status.RequiresApproval = requiresApproval
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, current))
+
+		_, nmap, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: current.Meta}, account.Id)
+		require.NoError(t, err)
+
+		require.NotNil(t, nmap)
+		assert.Empty(t, nmap.Peers)
+		assert.Equal(t, []proto.ExclusionReason{want}, nmap.OwnExclusionReasons)
+	}
+}

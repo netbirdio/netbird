@@ -331,6 +331,69 @@ func TestStatus_GetPeerStates_IncludesOfflinePeers(t *testing.T) {
 	req.ElementsMatch([]string{"pk-online", "pk-offline"}, keys, "snapshot must carry both peers")
 }
 
+func TestStatus_ReplaceExcludedPeers(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	excluded := []ExcludedPeer{
+		{FQDN: "expired.netbird", IP: "100.64.0.30", Reason: ExclusionReasonLoginExpired},
+		{FQDN: "posture.netbird", IP: "100.64.0.31", IPv6: "fd00::31", Reason: ExclusionReasonPostureCheckFailed},
+	}
+
+	status.ReplaceExcludedPeers(excluded, 5)
+	excluded[0].FQDN = "mutated.netbird"
+
+	fullStatus := status.GetFullStatus()
+	assert.Equal(t, uint32(5), fullStatus.ExcludedPeersTotal)
+	require.Len(t, fullStatus.ExcludedPeers, 2)
+	assert.Equal(t, "expired.netbird", fullStatus.ExcludedPeers[0].FQDN, "recorder must not alias the caller's slice")
+	assert.Empty(t, fullStatus.Peers, "excluded peers must not appear as peers")
+
+	pb := fullStatus.ToProto()
+	assert.Equal(t, uint32(5), pb.GetExcludedPeersTotal())
+	require.Len(t, pb.GetExcludedPeers(), 2)
+	assert.Equal(t, "fd00::31", pb.GetExcludedPeers()[1].GetIpv6())
+	assert.Equal(t, ExclusionReasonPostureCheckFailed, pb.GetExcludedPeers()[1].GetReason())
+
+	id, ch := status.SubscribeToStateChanges()
+	defer status.UnsubscribeFromStateChanges(id)
+	status.FinishPeerListModifications()
+	assert.True(t, notified(ch), "a changed list must notify on the next batch flush")
+
+	status.ReplaceExcludedPeers([]ExcludedPeer{
+		{FQDN: "expired.netbird", IP: "100.64.0.30", Reason: ExclusionReasonLoginExpired},
+		{FQDN: "posture.netbird", IP: "100.64.0.31", IPv6: "fd00::31", Reason: ExclusionReasonPostureCheckFailed},
+	}, 5)
+	status.FinishPeerListModifications()
+	assert.False(t, notified(ch), "an unchanged list must not notify")
+
+	status.ReplaceExcludedPeers(nil, 0)
+	fullStatus = status.GetFullStatus()
+	assert.Empty(t, fullStatus.ExcludedPeers)
+	assert.Zero(t, fullStatus.ExcludedPeersTotal)
+}
+
+func TestStatus_UpdateOwnExclusionReasons(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	id, ch := status.SubscribeToStateChanges()
+	defer status.UnsubscribeFromStateChanges(id)
+
+	reasons := []string{ExclusionReasonPendingApproval, ExclusionReasonPostureCheckFailed}
+	status.UpdateOwnExclusionReasons(reasons)
+	reasons[0] = "mutated"
+	assert.Equal(t, []string{ExclusionReasonPendingApproval, ExclusionReasonPostureCheckFailed}, status.GetFullStatus().OwnExclusionReasons, "recorder must not alias the caller's slice")
+	assert.Equal(t, []string{ExclusionReasonPendingApproval, ExclusionReasonPostureCheckFailed}, status.GetFullStatus().ToProto().GetOwnExclusionReasons())
+	assert.True(t, notified(ch), "a change must wake state subscribers")
+
+	status.UpdateOwnExclusionReasons([]string{ExclusionReasonPendingApproval, ExclusionReasonPostureCheckFailed})
+	assert.False(t, notified(ch), "an unchanged list must not wake state subscribers")
+
+	status.UpdateOwnExclusionReasons(nil)
+	assert.Empty(t, status.GetFullStatus().OwnExclusionReasons)
+	assert.True(t, notified(ch), "clearing the list must wake state subscribers")
+
+	status.UpdateOwnExclusionReasons([]string{})
+	assert.False(t, notified(ch), "nil and empty are the same list")
+}
+
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	key := "abc"
 	fqdn := "peer-a.netbird.local"

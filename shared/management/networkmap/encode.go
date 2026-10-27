@@ -293,6 +293,27 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nmdata.Peer,
 	return dst
 }
 
+// ToProtocolExcludedPeers converts excluded peers to their proto form. The IPv6
+// address is set only when includeIPv6 is true and the excluded peer has one.
+func ToProtocolExcludedPeers(excluded []types.ExcludedPeer, dnsName string, includeIPv6 bool) []*proto.ExcludedPeer {
+	if len(excluded) == 0 {
+		return nil
+	}
+	result := make([]*proto.ExcludedPeer, 0, len(excluded))
+	for _, e := range excluded {
+		ep := &proto.ExcludedPeer{
+			Fqdn:   e.Peer.FQDN(dnsName),
+			Ip:     e.Peer.IP.String(),
+			Reason: e.Reason,
+		}
+		if includeIPv6 && e.Peer.IPv6.IsValid() {
+			ep.Ipv6 = e.Peer.IPv6.String()
+		}
+		result = append(result, ep)
+	}
+	return result
+}
+
 // lazyStateFor returns the per-peer lazy override for a remote peer. Connections
 // involving an ephemeral proxy peer on either endpoint default to lazy so shared
 // proxy infrastructure is not kept permanently connected to every peer. All

@@ -1411,6 +1411,12 @@ func anonymizeNetworkMap(networkMap *mgmProto.NetworkMap, anonymizer *anonymize.
 		anonymizeRemotePeer(p, anonymizer)
 	}
 
+	for _, p := range networkMap.ExcludedPeers {
+		p.Fqdn = anonymizer.AnonymizeDomain(p.Fqdn)
+		p.Ip = anonymizer.AnonymizeIPString(p.Ip)
+		p.Ipv6 = anonymizer.AnonymizeIPString(p.Ipv6)
+	}
+
 	for _, r := range networkMap.Routes {
 		anonymizeRoute(r, anonymizer)
 	}

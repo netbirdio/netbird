@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { CheckIcon, ChevronDown, ListFilter } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
@@ -6,10 +6,11 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/DropdownMenu";
 
-export type StatusFilter = "all" | "online" | "offline";
+export type StatusFilter = "all" | "online" | "offline" | "excluded";
 
 type Props = {
     value: StatusFilter;
@@ -26,6 +27,9 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
         { value: "online", label: t("peers.filter.online") },
         { value: "offline", label: t("peers.filter.offline") },
     ];
+    if (counts.excluded > 0 || value === "excluded") {
+        filters.push({ value: "excluded", label: t("peers.filter.excluded") });
+    }
     const active = filters.find((f) => f.value === value) ?? filters[0];
 
     const handleSelect = (v: StatusFilter) => {
@@ -58,24 +62,26 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                 {filters.map((f) => {
                     const checked = f.value === value;
                     return (
-                        <DropdownMenuItem
-                            key={f.value}
-                            onClick={() => handleSelect(f.value)}
-                            role={"menuitemradio"}
-                            aria-checked={checked}
-                            className={"gap-2"}
-                        >
-                            <span className={"flex-1 truncate"}>
-                                {f.label}{" "}
-                                <span className={"tabular-nums"}>({counts[f.value]})</span>
-                            </span>
-                            <span
-                                aria-hidden={"true"}
-                                className={"flex w-4 shrink-0 items-center justify-center"}
+                        <Fragment key={f.value}>
+                            {f.value === "excluded" && <DropdownMenuSeparator />}
+                            <DropdownMenuItem
+                                onClick={() => handleSelect(f.value)}
+                                role={"menuitemradio"}
+                                aria-checked={checked}
+                                className={"gap-2"}
                             >
-                                {checked && <CheckIcon size={14} className={"text-netbird"} />}
-                            </span>
-                        </DropdownMenuItem>
+                                <span className={"flex-1 truncate"}>
+                                    {f.label}{" "}
+                                    <span className={"tabular-nums"}>({counts[f.value]})</span>
+                                </span>
+                                <span
+                                    aria-hidden={"true"}
+                                    className={"flex w-4 shrink-0 items-center justify-center"}
+                                >
+                                    {checked && <CheckIcon size={14} className={"text-netbird"} />}
+                                </span>
+                            </DropdownMenuItem>
+                        </Fragment>
                     );
                 })}
             </DropdownMenuContent>

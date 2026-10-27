@@ -19,6 +19,9 @@ type admissionCache struct {
 
 	ruleFailuresOnce sync.Once
 	ruleFailures     map[string]map[string]struct{}
+
+	unvalidatedOnce sync.Once
+	unvalidated     *unvalidatedIndex
 }
 
 // policyAdmission holds the admissions of one policy: the union of its source sides,

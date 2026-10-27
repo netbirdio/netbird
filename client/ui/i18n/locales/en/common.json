@@ -1571,6 +1571,10 @@
         "message": "Offline",
         "description": "Peers filter option: Offline. Keep short."
     },
+    "peers.filter.excluded": {
+        "message": "Excluded",
+        "description": "Peers filter option: peers that access policies allow but that the management server excluded from this device's network map. Keep short."
+    },
     "peers.empty.title": {
         "message": "No peers available",
         "description": "Title of the empty state when no peers are available."
@@ -1674,6 +1678,38 @@
     "peers.details.rosenpass": {
         "message": "Rosenpass enabled",
         "description": "Peer detail indicating Rosenpass (quantum-resistance) is enabled. 'Rosenpass' — product name, do not translate."
+    },
+    "peers.excluded.description": {
+        "message": "Your access policies allow these peers, but they are currently excluded and cannot be reached.",
+        "description": "Explanation shown above the list of excluded peers."
+    },
+    "peers.excluded.more": {
+        "message": "and {count} more",
+        "description": "Shown below the excluded peers list when more peers are excluded than listed. {count} is the number of unlisted peers; keep {count}."
+    },
+    "peers.ownExclusion": {
+        "message": "Other peers can't connect to this device: {reasons}",
+        "description": "Notice above the peers list when the management server excludes this device. {reasons} is a comma-separated list of exclusion reasons (e.g. 'Pending approval'); keep {reasons}."
+    },
+    "peers.excluded.reason.loginExpired": {
+        "message": "Login expired",
+        "description": "Badge on an excluded peer: the peer's login has expired. Keep short."
+    },
+    "peers.excluded.reason.postureCheckFailed": {
+        "message": "Posture check failed",
+        "description": "Badge on an excluded peer: the peer failed a posture check. Keep short."
+    },
+    "peers.excluded.reason.pendingApproval": {
+        "message": "Pending approval",
+        "description": "Badge on an excluded peer: the peer waits for administrator approval. Keep short."
+    },
+    "peers.excluded.reason.edrNonCompliant": {
+        "message": "EDR non-compliant",
+        "description": "Badge on an excluded peer: the peer is not compliant with the endpoint detection and response (EDR) integration. 'EDR' — keep as-is. Keep short."
+    },
+    "peers.excluded.reason.unknown": {
+        "message": "Unknown",
+        "description": "Badge on an excluded peer when the exclusion reason is unknown. Keep short."
     },
     "networks.search.placeholder": {
         "message": "Search by network or domain",

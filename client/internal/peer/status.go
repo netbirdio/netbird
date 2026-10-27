@@ -185,6 +185,36 @@ type FullStatus struct {
 	NSGroupStates         []NSGroupState
 	LazyConnectionEnabled bool
 	Events                []*proto.SystemEvent
+	ExcludedPeers         []ExcludedPeer
+	ExcludedPeersTotal    uint32
+	OwnExclusionReasons   []string
+}
+
+// Exclusion reason keys reported for excluded peers and for this peer itself.
+const (
+	ExclusionReasonUnknown            = "unknown"
+	ExclusionReasonLoginExpired       = "login_expired"
+	ExclusionReasonPostureCheckFailed = "posture_check_failed"
+	ExclusionReasonPendingApproval    = "pending_approval"
+	ExclusionReasonEdrNonCompliant    = "edr_non_compliant"
+)
+
+// ExcludedPeer is a peer that policy would connect to but that management excluded.
+type ExcludedPeer struct {
+	FQDN   string
+	IP     string
+	IPv6   string
+	Reason string
+}
+
+// ToProto converts the excluded peer to its daemon proto representation.
+func (p ExcludedPeer) ToProto() *proto.ExcludedPeerState {
+	return &proto.ExcludedPeerState{
+		Fqdn:   p.FQDN,
+		IP:     p.IP,
+		Ipv6:   p.IPv6,
+		Reason: p.Reason,
+	}
 }
 
 // routerSnapshot is a router-state map stamped with a sequence number taken
@@ -277,6 +307,9 @@ type Status struct {
 	relayStates         []relay.ProbeResult
 	localPeer           LocalPeerState
 	offlinePeers        []State
+	excludedPeers       []ExcludedPeer
+	excludedPeersTotal  uint32
+	ownExclusionReasons []string
 	mgmAddress          string
 	signalAddress       string
 	notifier            *notifier
@@ -355,6 +388,33 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 
 	// todo we should set to true in case if the list changed only
 	d.peerListChangedForNotification = true
+}
+
+// ReplaceExcludedPeers replaces the excluded peers and their untruncated total.
+func (d *Status) ReplaceExcludedPeers(replacement []ExcludedPeer, total uint32) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	if d.excludedPeersTotal == total && slices.Equal(d.excludedPeers, replacement) {
+		return
+	}
+	d.excludedPeers = slices.Clone(replacement)
+	d.excludedPeersTotal = total
+	d.peerListChangedForNotification = true
+}
+
+// UpdateOwnExclusionReasons records why management excludes this peer from
+// other peers' network maps.
+func (d *Status) UpdateOwnExclusionReasons(reasons []string) {
+	d.mux.Lock()
+	changed := !slices.Equal(d.ownExclusionReasons, reasons)
+	if changed {
+		d.ownExclusionReasons = slices.Clone(reasons)
+	}
+	d.mux.Unlock()
+
+	if changed {
+		d.notifyStateChange()
+	}
 }
 
 // AddPeer adds peer to Daemon status map
@@ -1284,6 +1344,9 @@ func (d *Status) GetFullStatus() FullStatus {
 	}
 
 	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
+	fullStatus.ExcludedPeers = slices.Clone(d.excludedPeers)
+	fullStatus.ExcludedPeersTotal = d.excludedPeersTotal
+	fullStatus.OwnExclusionReasons = slices.Clone(d.ownExclusionReasons)
 	fullStatus.Events = d.GetEventHistory()
 	return fullStatus
 }
@@ -1708,6 +1771,12 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 		}
 		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
 	}
+
+	for _, excluded := range fs.ExcludedPeers {
+		pbFullStatus.ExcludedPeers = append(pbFullStatus.ExcludedPeers, excluded.ToProto())
+	}
+	pbFullStatus.ExcludedPeersTotal = fs.ExcludedPeersTotal
+	pbFullStatus.OwnExclusionReasons = fs.OwnExclusionReasons
 
 	pbFullStatus.Events = fs.Events
 

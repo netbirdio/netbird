@@ -89,5 +89,23 @@
   "routesFirewallRulesIsEmpty": true,
   "sshAuth": {
     "UserIDClaim": "sub"
-  }
+  },
+  "excludedPeers": [
+    {
+      "fqdn": "peer-us-bos.netbird.test",
+      "ip": "100.64.0.3",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    },
+    {
+      "fqdn": "peer-fr.netbird.test",
+      "ip": "100.64.0.4",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    },
+    {
+      "fqdn": "peer-nowhere.netbird.test",
+      "ip": "100.64.0.5",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    }
+  ],
+  "excludedPeersTotal": 3
 }

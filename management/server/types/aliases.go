@@ -16,6 +16,9 @@ type FirewallRule = sharedtypes.FirewallRule
 
 type NetworkMap = sharedtypes.NetworkMap
 
+// ExcludedPeer is an alias of sharedtypes.ExcludedPeer.
+type ExcludedPeer = sharedtypes.ExcludedPeer
+
 type PolicyTrafficActionType = sharedtypes.PolicyTrafficActionType
 type PolicyRuleProtocolType = sharedtypes.PolicyRuleProtocolType
 type RulePortRange = sharedtypes.RulePortRange

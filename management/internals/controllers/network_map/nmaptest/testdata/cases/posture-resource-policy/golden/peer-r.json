@@ -65,5 +65,13 @@
   ],
   "sshAuth": {
     "UserIDClaim": "sub"
-  }
+  },
+  "excludedPeers": [
+    {
+      "fqdn": "peer-bad.netbird.test",
+      "ip": "100.64.0.2",
+      "reason": "ExclusionReasonPostureCheckFailed"
+    }
+  ],
+  "excludedPeersTotal": 1
 }

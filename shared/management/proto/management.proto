@@ -477,6 +477,35 @@ message NetworkMap {
 
   // SSHAuth represents SSH authorization configuration
   SSHAuth sshAuth = 13;
+
+  // excludedPeers lists peers that policies would connect the receiver to but that the server excluded,
+  // sorted by IP and capped. Informational only; it never affects connectivity.
+  repeated ExcludedPeer excludedPeers = 14;
+
+  // excludedPeersTotal is the number of excluded peers before the cap was applied to excludedPeers.
+  uint32 excludedPeersTotal = 15;
+
+  // ownExclusionReasons lists, sorted and de-duplicated, why the server excludes the receiver itself
+  // from other peers' network maps.
+  repeated ExclusionReason ownExclusionReasons = 16;
+}
+
+// ExclusionReason is the reason the server excluded a peer from the receiver's network map.
+enum ExclusionReason {
+  ExclusionReasonUnknown = 0;
+  ExclusionReasonLoginExpired = 1;
+  ExclusionReasonPostureCheckFailed = 2;
+  ExclusionReasonPendingApproval = 3;
+  ExclusionReasonEdrNonCompliant = 4;
+}
+
+// ExcludedPeer identifies a peer excluded from the receiver's network map and why.
+message ExcludedPeer {
+  string fqdn = 1;
+  string ip = 2;
+  // ipv6 is set only when both the receiver and the excluded peer have an IPv6 overlay address.
+  string ipv6 = 3;
+  ExclusionReason reason = 4;
 }
 
 message SSHAuth {
@@ -949,6 +978,17 @@ message NetworkMapComponentsFull {
   // Reserved for future component additions (incremental_serial, parent_seq,
   // etc.) without forcing a renumber.
   reserved 26 to 50;
+
+  // Peers excluded from the receiving peer's map by the server, sorted by IP
+  // and capped. Informational only.
+  repeated ExcludedPeer excluded_peers = 51;
+
+  // Number of excluded peers before the cap was applied to excluded_peers.
+  uint32 excluded_peers_total = 52;
+
+  // Why the server excludes the receiving peer itself from other peers' maps,
+  // sorted and de-duplicated.
+  repeated ExclusionReason own_exclusion_reasons = 53;
 }
 
 // ProxyPatch is unused; the ingress port-forwarding feature was discontinued.
