@@ -19,7 +19,7 @@ type Debouncer interface {
 // - Coalesces rapid subsequent network map updates (only latest matters)
 // - Queues control/config updates (all must be delivered)
 // - Preserves the order of messages (important for control configs between network maps)
-// - Ensures pending updates are sent after a quiet period
+// - Flushes pending updates once per fixed interval, so delivery is never postponed by later updates
 type UpdateDebouncer struct {
 	debounceInterval time.Duration
 	timer            *time.Timer
@@ -54,7 +54,6 @@ func (d *UpdateDebouncer) ProcessUpdate(update *network_map.UpdateMessage) bool 
 		// Append to the queue (preserves order for control configs and non-consecutive network maps)
 		d.pendingUpdates = append(d.pendingUpdates, update)
 	}
-	d.resetTimer()
 	return false
 }
 
@@ -103,9 +102,4 @@ func (d *UpdateDebouncer) Stop() {
 func (d *UpdateDebouncer) startTimer() {
 	d.timer = time.NewTimer(d.debounceInterval)
 	d.timerC = d.timer.C
-}
-
-func (d *UpdateDebouncer) resetTimer() {
-	d.timer.Stop()
-	d.timer.Reset(d.debounceInterval)
 }

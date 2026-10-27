@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -162,6 +163,12 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 		newGroup.PublicID = oldGroup.PublicID
 
+		removed, err := removedGroupNetworkResources(ctx, transaction, accountID, oldGroup, newGroup)
+		if err != nil {
+			return err
+		}
+		change.Resources = append(change.Resources, removed...)
+
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
 		}
@@ -196,6 +203,27 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
+}
+
+// removedGroupNetworkResources returns the network resources oldGroup references and
+// newGroup no longer does. The post-write snapshot no longer maps the group to them,
+// so the resolver reaches their routers only through the change.
+func removedGroupNetworkResources(ctx context.Context, transaction store.Store, accountID string, oldGroup, newGroup *types.Group) ([]*resourceTypes.NetworkResource, error) {
+	var removed []*resourceTypes.NetworkResource
+	for _, res := range oldGroup.Resources {
+		if res.Type == types.ResourceTypePeer || slices.Contains(newGroup.Resources, res) {
+			continue
+		}
+		resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, res.ID)
+		if isNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		removed = append(removed, resource)
+	}
+	return removed, nil
 }
 
 // syncGroupMembership applies the peer membership delta for a group within a transaction.
@@ -357,6 +385,12 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 			return err
 		}
 		newGroup.PublicID = oldGroup.PublicID
+
+		removed, err := removedGroupNetworkResources(ctx, transaction, accountID, oldGroup, newGroup)
+		if err != nil {
+			return err
+		}
+		change.Resources = append(change.Resources, removed...)
 
 		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 

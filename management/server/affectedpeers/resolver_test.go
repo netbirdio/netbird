@@ -93,6 +93,7 @@ func TestChangeIsEmpty(t *testing.T) {
 	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
 	assert.False(t, Change{UserGroupIDs: []string{"g"}}.isEmpty())
 	assert.False(t, Change{AllowedUsersChanged: true}.isEmpty())
+	assert.False(t, Change{ChangedUserIDs: []string{"u"}}.isEmpty())
 }
 
 func TestPolicyReferencesPostureChecks(t *testing.T) {
@@ -117,4 +118,55 @@ func TestCollectPolicySources(t *testing.T) {
 	assert.Contains(t, groupSet, "g1")
 	assert.NotContains(t, groupSet, "g2", "destination groups must not be collected as sources")
 	assert.Contains(t, peerSet, "p1")
+}
+
+func TestRuleShipsAllowedUsers_OnlyAcceptRules(t *testing.T) {
+	tests := []struct {
+		name string
+		rule *types.PolicyRule
+		want bool
+	}{
+		{"accept netbird-ssh", &types.PolicyRule{Protocol: types.PolicyRuleProtocolNetbirdSSH, Action: types.PolicyTrafficActionAccept}, true},
+		{"drop netbird-ssh", &types.PolicyRule{Protocol: types.PolicyRuleProtocolNetbirdSSH, Action: types.PolicyTrafficActionDrop}, false},
+		{"accept all protocols", &types.PolicyRule{Protocol: types.PolicyRuleProtocolALL, Action: types.PolicyTrafficActionAccept}, true},
+		{"drop all protocols", &types.PolicyRule{Protocol: types.PolicyRuleProtocolALL, Action: types.PolicyTrafficActionDrop}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ruleShipsAllowedUsers(tt.rule))
+		})
+	}
+}
+
+func TestExpand_ChangedUserIDs_FoldsAuthorizedUserRuleDestinations(t *testing.T) {
+	sshRule := func(action types.PolicyTrafficActionType, authorizedUser, destination string) *types.PolicyRule {
+		return &types.PolicyRule{
+			Enabled:        true,
+			Sources:        []string{"src"},
+			Destinations:   []string{destination},
+			Protocol:       types.PolicyRuleProtocolNetbirdSSH,
+			Action:         action,
+			AuthorizedUser: authorizedUser,
+		}
+	}
+	snap := &Snapshot{
+		policies: []*types.Policy{{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				sshRule(types.PolicyTrafficActionAccept, "user-1", "dst-accept"),
+				sshRule(types.PolicyTrafficActionDrop, "user-1", "dst-drop"),
+				sshRule(types.PolicyTrafficActionAccept, "user-2", "dst-other-user"),
+			},
+		}},
+		groupPeers: map[string]map[string]struct{}{
+			"src":            {"peer-src": {}},
+			"dst-accept":     {"peer-accept": {}},
+			"dst-drop":       {"peer-drop": {}},
+			"dst-other-user": {"peer-other-user": {}},
+		},
+	}
+
+	affected := snap.Expand(context.Background(), "acc", Change{ChangedUserIDs: []string{"user-1"}})
+
+	assert.ElementsMatch(t, []string{"peer-accept"}, affected)
 }

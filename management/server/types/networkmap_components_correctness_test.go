@@ -267,7 +267,8 @@ func TestComponents_PeerVisibility(t *testing.T) {
 	account, validatedPeers := scalableTestAccount(100, 5)
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
-	assert.Equal(t, len(validatedPeers)-1-len(nm.OfflinePeers), len(nm.Peers), "peer should see all other validated non-expired peers")
+	assert.Empty(t, nm.OfflinePeers, "login-expired peers are dropped, not listed offline")
+	assert.Equal(t, len(validatedPeers)-2, len(nm.Peers), "peer should see all other validated non-expired peers")
 }
 
 func TestComponents_PeerDoesNotSeeItself(t *testing.T) {
@@ -332,16 +333,14 @@ func TestComponents_BidirectionalPolicy(t *testing.T) {
 // 2. PEER EXPIRATION & ACCOUNT SETTINGS
 // ──────────────────────────────────────────────────────────────────────────────
 
-func TestComponents_ExpiredPeerInOfflineList(t *testing.T) {
+func TestComponents_ExpiredPeerDropped(t *testing.T) {
 	account, validatedPeers := scalableTestAccount(100, 5)
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
 
-	offlineIDs := make(map[string]bool, len(nm.OfflinePeers))
 	for _, p := range nm.OfflinePeers {
-		offlineIDs[p.ID] = true
+		assert.NotEqual(t, "peer-98", p.ID, "expired peer should not be in OfflinePeers")
 	}
-	assert.True(t, offlineIDs["peer-98"], "expired peer should be in OfflinePeers")
 	for _, p := range nm.Peers {
 		assert.NotEqual(t, "peer-98", p.ID, "expired peer should not be in active Peers")
 	}
@@ -373,11 +372,9 @@ func TestComponents_LoginExpiration_PeerLevel(t *testing.T) {
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
 
-	offlineIDs := make(map[string]bool, len(nm.OfflinePeers))
 	for _, p := range nm.OfflinePeers {
-		offlineIDs[p.ID] = true
+		assert.NotEqual(t, "peer-5", p.ID, "login-expired peer should not be in OfflinePeers")
 	}
-	assert.True(t, offlineIDs["peer-5"], "login-expired peer should be in OfflinePeers")
 	for _, p := range nm.Peers {
 		assert.NotEqual(t, "peer-5", p.ID, "login-expired peer should not be in active Peers")
 	}

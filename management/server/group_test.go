@@ -1519,3 +1519,42 @@ func TestGroupsBatchAccountPeersUpdate(t *testing.T) {
 		})
 	})
 }
+
+func TestUpdateGroup_RemovingLastReferencedResource_RefreshesRoutingPeer(t *testing.T) {
+	updates := map[string]func(ctx context.Context, am *DefaultAccountManager, accountID string, group *types.Group) error{
+		"UpdateGroup": func(ctx context.Context, am *DefaultAccountManager, accountID string, group *types.Group) error {
+			return am.UpdateGroup(ctx, accountID, userID, group)
+		},
+		"UpdateGroups": func(ctx context.Context, am *DefaultAccountManager, accountID string, group *types.Group) error {
+			return am.UpdateGroups(ctx, accountID, userID, []*types.Group{group})
+		},
+	}
+	for name, update := range updates {
+		t.Run(name, func(t *testing.T) {
+			runPeerUpdateTest(t, func(t *testing.T) {
+				s := setupRouterScenario(t, true)
+				ctx := context.Background()
+
+				group := &types.Group{
+					ID:        "rs-resource-grp-extra",
+					Name:      "rs-resource-extra",
+					Resources: []types.Resource{{ID: s.resourceID, Type: types.ResourceTypeHost}},
+				}
+				require.NoError(t, s.manager.CreateGroup(ctx, s.accountID, userID, group))
+				_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, group.ID), true)
+				require.NoError(t, err)
+
+				routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+				t.Cleanup(func() {
+					s.updateManager.CloseChannel(ctx, s.routerPeerID)
+				})
+				settleAffectedUpdates(routerCh)
+
+				group.Resources = nil
+				require.NoError(t, update(ctx, s.manager, s.accountID, group))
+
+				peerShouldReceiveUpdate(t, routerCh)
+			})
+		})
+	}
+}
