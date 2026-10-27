@@ -674,8 +674,11 @@ func (conn *Conn) onRelayPeerReregistered(relayedConn *relayClient.Conn) {
 		// A connection that is already torn down was replaced, its signal says
 		// nothing about the connection being set up.
 		if ctx := relayedConn.Context(); ctx == nil || ctx.Err() == nil {
+			conn.Log.Debugf("remote peer registered on the relay again while the relayed connection is being set up, applying it once ready")
 			conn.relayReregisteredEarly = relayedConn
+			return
 		}
+		conn.Log.Debugf("ignoring a relay re-registration of a torn down connection")
 		return
 	}
 	conn.restartRelayHandshakeLocked()
@@ -696,6 +699,8 @@ func (conn *Conn) takeEarlyRelayReregistrationLocked(relayedConn *relayClient.Co
 // since it was set. Caller must hold conn.mu.
 func (conn *Conn) restartRelayHandshakeLocked() {
 	if conn.wgProxyRelay == nil || conn.currentConnPriority != conntype.Relay || !isController(conn.config) {
+		conn.Log.Debugf("remote peer registered on the relay again, not restarting the handshake: relayed endpoint in use=%t, controller=%t",
+			conn.wgProxyRelay != nil && conn.currentConnPriority == conntype.Relay, isController(conn.config))
 		return
 	}
 
