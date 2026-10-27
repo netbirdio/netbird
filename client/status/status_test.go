@@ -10,9 +10,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	protobuf "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -67,6 +69,21 @@ var resp = &proto.StatusResponse{
 				Latency:                    durationpb.New(time.Duration(10000000)),
 			},
 		},
+		ExcludedPeers: []*proto.ExcludedPeerState{
+			{
+				Fqdn:   "peer-3.awesome-domain.com",
+				IP:     "192.168.178.103",
+				Reason: "posture_check_failed",
+			},
+			{
+				Fqdn:   "peer-4.awesome-domain.com",
+				IP:     "192.168.178.104",
+				Ipv6:   "fd00::4",
+				Reason: "login_expired",
+			},
+		},
+		ExcludedPeersTotal:  3,
+		OwnExclusionReasons: []string{"pending_approval", "posture_check_failed"},
 		ManagementState: &proto.ManagementState{
 			URL:       "my-awesome-management.com:443",
 			Connected: true,
@@ -127,6 +144,23 @@ var resp = &proto.StatusResponse{
 }
 
 var overview = OutputOverview{
+	ExcludedPeers: ExcludedPeersOutput{
+		Total: 3,
+		Details: []ExcludedPeerOutput{
+			{
+				FQDN:   "peer-3.awesome-domain.com",
+				IP:     "192.168.178.103",
+				Reason: "posture_check_failed",
+			},
+			{
+				FQDN:   "peer-4.awesome-domain.com",
+				IP:     "192.168.178.104",
+				IPv6:   "fd00::4",
+				Reason: "login_expired",
+			},
+		},
+	},
+	OwnExclusionReasons: []string{"pending_approval", "posture_check_failed"},
 	Peers: PeersStateOutput{
 		Total:     2,
 		Connected: 2,
@@ -338,6 +372,26 @@ func TestParsingToJSON(t *testing.T) {
               }
             ]
           },
+          "excludedPeers": {
+            "total": 3,
+            "details": [
+              {
+                "fqdn": "peer-3.awesome-domain.com",
+                "netbirdIp": "192.168.178.103",
+                "reason": "posture_check_failed"
+              },
+              {
+                "fqdn": "peer-4.awesome-domain.com",
+                "netbirdIp": "192.168.178.104",
+                "netbirdIpv6": "fd00::4",
+                "reason": "login_expired"
+              }
+            ]
+          },
+          "ownExclusionReasons": [
+            "pending_approval",
+            "posture_check_failed"
+          ],
           "cliVersion": "development",
           "daemonVersion": "0.14.1",
           "daemonStatus": "Connected",
@@ -464,6 +518,19 @@ func TestParsingToYAML(t *testing.T) {
           latency: 10ms
           quantumResistance: false
           networks: []
+excludedPeers:
+    total: 3
+    details:
+        - fqdn: peer-3.awesome-domain.com
+          netbirdIp: 192.168.178.103
+          reason: posture_check_failed
+        - fqdn: peer-4.awesome-domain.com
+          netbirdIp: 192.168.178.104
+          netbirdIpv6: fd00::4
+          reason: login_expired
+ownExclusionReasons:
+    - pending_approval
+    - posture_check_failed
 cliVersion: development
 daemonVersion: 0.14.1
 daemonStatus: Connected
@@ -564,6 +631,18 @@ func TestParsingToDetail(t *testing.T) {
   Networks: -
   Latency: 10ms
 
+Excluded peers detail:
+ peer-3.awesome-domain.com:
+  NetBird IP: 192.168.178.103
+  Reason: posture check failed
+
+ peer-4.awesome-domain.com:
+  NetBird IP: 192.168.178.104
+  NetBird IPv6: fd00::4
+  Reason: login expired
+
+ and 1 more
+
 Events: No events recorded
 OS: %s/%s
 Daemon version: 0.14.1
@@ -587,6 +666,8 @@ Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
+Excluded peers: 3
+This peer can't connect to other peers: pending approval, posture check failed
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion, overview.WgPort)
 
 	assert.Equal(t, expectedDetail, detail)
@@ -613,6 +694,8 @@ Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
+Excluded peers: 3
+This peer can't connect to other peers: pending approval, posture check failed
 `
 
 	assert.Equal(t, expectedString, shortVersion)
@@ -701,4 +784,49 @@ func TestMapRelaysTransport(t *testing.T) {
 	require.Len(t, out.Details, 2)
 	assert.Equal(t, "quic", out.Details[0].Transport)
 	assert.Equal(t, "ws", out.Details[1].Transport)
+}
+
+func TestExcludedPeersIgnorePeerFilters(t *testing.T) {
+	converted := ConvertToStatusOutputOverview(resp.GetFullStatus(), ConvertOptions{
+		StatusFilter:         "idle",
+		PrefixNamesFilter:    []string{"peer-1"},
+		PrefixNamesFilterMap: map[string]struct{}{"peer-1": {}},
+		IPsFilter:            map[string]struct{}{"192.168.178.101": {}},
+		ConnectionTypeFilter: "P2P",
+	})
+
+	assert.Equal(t, overview.ExcludedPeers, converted.ExcludedPeers)
+}
+
+func TestExcludedPeersSummaryOmittedWhenNone(t *testing.T) {
+	in := overview
+	in.ExcludedPeers = ExcludedPeersOutput{}
+	in.OwnExclusionReasons = nil
+
+	assert.NotContains(t, in.GeneralSummary(false, false, false, false), "Excluded peers")
+	assert.NotContains(t, in.FullDetailSummary(), "Excluded peers")
+	assert.NotContains(t, in.GeneralSummary(false, false, false, false), "can't connect to")
+}
+
+func TestOwnExclusionPostureOnly(t *testing.T) {
+	in := overview
+	in.OwnExclusionReasons = []string{"posture_check_failed"}
+
+	summary := in.GeneralSummary(false, false, false, false)
+	assert.Contains(t, summary, "This peer failed a posture check and can't connect to some peers\n")
+	assert.NotContains(t, summary, "can't connect to other peers")
+}
+
+func TestExcludedPeersAnonymized(t *testing.T) {
+	fullStatus := protobuf.Clone(resp.GetFullStatus()).(*proto.FullStatus)
+	converted := ConvertToStatusOutputOverview(fullStatus, ConvertOptions{Anonymize: true, AnonymizeLevel: anonymize.LevelStrict})
+
+	require.Len(t, converted.ExcludedPeers.Details, 2)
+	for i, excluded := range converted.ExcludedPeers.Details {
+		original := overview.ExcludedPeers.Details[i]
+		assert.NotContains(t, excluded.FQDN, "awesome-domain.com", "FQDN must be anonymized")
+		assert.NotEqual(t, original.IP, excluded.IP, "IP must be anonymized")
+		assert.Equal(t, original.Reason, excluded.Reason)
+	}
+	assert.NotEqual(t, "fd00::4", converted.ExcludedPeers.Details[1].IPv6, "IPv6 must be anonymized")
 }

@@ -76,6 +76,9 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 	}
 	if full != nil {
 		protoNM.PeerConfig = full.PeerConfig
+		protoNM.ExcludedPeers = full.ExcludedPeers
+		protoNM.ExcludedPeersTotal = full.ExcludedPeersTotal
+		protoNM.OwnExclusionReasons = full.OwnExclusionReasons
 	}
 	protoNM.Routes = ToProtocolRoutes(typedNM.Routes)
 	protoNM.DNSConfig = ToProtocolDNSConfig(typedNM.DNSConfig, nil, dnsFwdPort)

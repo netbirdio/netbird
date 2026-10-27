@@ -10,6 +10,7 @@ import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { SearchInput } from "@/components/inputs/SearchInput";
 import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
+import { Notice } from "@/components/Notice";
 import { latencyColor, shortenDns } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
@@ -17,6 +18,12 @@ import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
 import { useDirection } from "@/hooks/useDirection";
 import { PeerFilters, type StatusFilter } from "./PeerFilters";
+import {
+    ExcludedPeersBar,
+    ExcludedPeersDescription,
+    ExcludedPeersList,
+    exclusionReasonLabel,
+} from "./ExcludedPeers";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
 
@@ -57,6 +64,13 @@ export const Peers = () => {
 
     const isConnected = status?.status === "Connected";
     const peers = useMemo(() => status?.peers ?? [], [status?.peers]);
+    const excludedPeers = useMemo(() => status?.excludedPeers ?? [], [status?.excludedPeers]);
+    const excludedTotal = status?.excludedPeersTotal ?? 0;
+    const showExcluded = statusFilter === "excluded";
+
+    useEffect(() => {
+        scrollParent?.scrollTo({ top: 0 });
+    }, [scrollParent, statusFilter]);
 
     const counts = useMemo<Record<StatusFilter, number>>(() => {
         const online = peers.filter((p) => isOnline(p.connStatus)).length;
@@ -64,8 +78,9 @@ export const Peers = () => {
             all: peers.length,
             online,
             offline: peers.length - online,
+            excluded: excludedTotal,
         };
-    }, [peers]);
+    }, [peers, excludedTotal]);
 
     // Stay in live-sort until every peer is stable. Right after Up the daemon
     // emits all peers as "Connecting"; committing then would lock that
@@ -111,13 +126,38 @@ export const Peers = () => {
         });
     }, [ordered, search, statusFilter]);
 
-    if (isConnected && peers.length === 0) {
+    const filteredExcluded = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return excludedPeers.filter(
+            (p) => !q || p.fqdn.toLowerCase().includes(q) || p.ip.includes(q),
+        );
+    }, [excludedPeers, search]);
+
+    const isEmpty = showExcluded ? filteredExcluded.length === 0 : filtered.length === 0;
+
+    const ownExclusionReasons = status?.ownExclusionReasons ?? [];
+    const ownExclusionNotice = ownExclusionReasons.length > 0 && (
+        <Notice className={"mx-6 mt-2.5"}>
+            {ownExclusionReasons.every((r) => r === "posture_check_failed")
+                ? t("peers.ownExclusion.posture")
+                : t("peers.ownExclusion", {
+                      reasons: ownExclusionReasons
+                          .map((r) => exclusionReasonLabel(t, r))
+                          .join(", "),
+                  })}
+        </Notice>
+    );
+
+    if (isConnected && peers.length === 0 && excludedTotal === 0) {
         return (
-            <EmptyState
-                icon={MonitorSmartphoneIcon}
-                title={t("peers.empty.title")}
-                description={t("peers.empty.description")}
-            />
+            <>
+                {ownExclusionNotice}
+                <EmptyState
+                    icon={MonitorSmartphoneIcon}
+                    title={t("peers.empty.title")}
+                    description={t("peers.empty.description")}
+                />
+            </>
         );
     }
 
@@ -134,7 +174,9 @@ export const Peers = () => {
                 </div>
                 <PeerFilters value={statusFilter} onChange={setStatusFilter} counts={counts} />
             </div>
-            {filtered.length === 0 ? (
+            {ownExclusionNotice}
+            {showExcluded && <ExcludedPeersDescription />}
+            {isEmpty ? (
                 <NoResults />
             ) : (
                 <ScrollArea.Root
@@ -143,7 +185,16 @@ export const Peers = () => {
                     className={"min-h-0 flex-1 overflow-hidden"}
                 >
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
-                        {scrollParent && <PeersList data={filtered} scrollParent={scrollParent} />}
+                        {showExcluded ? (
+                            <ExcludedPeersList
+                                peers={filteredExcluded}
+                                unlisted={excludedTotal - excludedPeers.length}
+                            />
+                        ) : (
+                            scrollParent && (
+                                <PeersList data={filtered} scrollParent={scrollParent} />
+                            )
+                        )}
                     </ScrollArea.Viewport>
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
@@ -159,6 +210,12 @@ export const Peers = () => {
                         />
                     </ScrollArea.Scrollbar>
                 </ScrollArea.Root>
+            )}
+            {excludedTotal > 0 && !showExcluded && (
+                <ExcludedPeersBar
+                    count={excludedTotal}
+                    onView={() => setStatusFilter("excluded")}
+                />
             )}
         </div>
     );

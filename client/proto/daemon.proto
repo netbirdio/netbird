@@ -404,6 +404,16 @@ message PeerState {
   string ipv6 = 20;
 }
 
+// ExcludedPeerState describes a peer that policy would connect to but that management excluded
+message ExcludedPeerState {
+  string fqdn = 1;
+  string IP = 2;
+  string ipv6 = 3;
+  // reason is one of login_expired, posture_check_failed, pending_approval,
+  // edr_non_compliant or unknown.
+  string reason = 4;
+}
+
 // LocalPeerState contains the latest state of the local peer
 message LocalPeerState {
   string IP = 1;
@@ -484,6 +494,15 @@ message FullStatus {
   // on it to know when to re-fetch ListNetworks via the push stream, instead
   // of polling on every status snapshot.
   uint64 networksRevision = 11;
+
+  // excludedPeers lists peers that policy would connect this peer to but that
+  // management excluded, capped server-side.
+  repeated ExcludedPeerState excludedPeers = 12;
+  // excludedPeersTotal is the untruncated number of excluded peers.
+  uint32 excludedPeersTotal = 13;
+  // ownExclusionReasons lists why management excludes this peer from other
+  // peers' network maps, using the ExcludedPeerState.reason keys.
+  repeated string ownExclusionReasons = 14;
 }
 
 // Networks

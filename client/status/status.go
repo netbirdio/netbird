@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -89,6 +90,20 @@ type PeersStateOutput struct {
 	Details   []PeerStateDetailOutput `json:"details" yaml:"details"`
 }
 
+// ExcludedPeerOutput is a peer that policy would connect to but that management excluded.
+type ExcludedPeerOutput struct {
+	FQDN   string `json:"fqdn" yaml:"fqdn"`
+	IP     string `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6   string `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
+	Reason string `json:"reason" yaml:"reason"`
+}
+
+// ExcludedPeersOutput holds the listed excluded peers and their untruncated total.
+type ExcludedPeersOutput struct {
+	Total   int                  `json:"total" yaml:"total"`
+	Details []ExcludedPeerOutput `json:"details" yaml:"details"`
+}
+
 type SignalStateOutput struct {
 	URL       string `json:"url" yaml:"url"`
 	Connected bool   `json:"connected" yaml:"connected"`
@@ -141,6 +156,8 @@ type SSHServerStateOutput struct {
 
 type OutputOverview struct {
 	Peers                 PeersStateOutput           `json:"peers" yaml:"peers"`
+	ExcludedPeers         ExcludedPeersOutput        `json:"excludedPeers" yaml:"excludedPeers"`
+	OwnExclusionReasons   []string                   `json:"ownExclusionReasons" yaml:"ownExclusionReasons"`
 	CliVersion            string                     `json:"cliVersion" yaml:"cliVersion"`
 	DaemonVersion         string                     `json:"daemonVersion" yaml:"daemonVersion"`
 	DaemonStatus          DaemonStatus               `json:"daemonStatus" yaml:"daemonStatus"`
@@ -190,6 +207,8 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 
 	overview := OutputOverview{
 		Peers:                 peersOverview,
+		ExcludedPeers:         mapExcludedPeers(pbFullStatus.GetExcludedPeers(), pbFullStatus.GetExcludedPeersTotal()),
+		OwnExclusionReasons:   append([]string{}, pbFullStatus.GetOwnExclusionReasons()...),
 		CliVersion:            version.NetbirdVersion(),
 		DaemonVersion:         opts.DaemonVersion,
 		DaemonStatus:          opts.DaemonStatus,
@@ -269,6 +288,22 @@ func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
 		})
 	}
 	return mappedNSGroups
+}
+
+func mapExcludedPeers(excludedPeers []*proto.ExcludedPeerState, total uint32) ExcludedPeersOutput {
+	details := make([]ExcludedPeerOutput, 0, len(excludedPeers))
+	for _, excluded := range excludedPeers {
+		details = append(details, ExcludedPeerOutput{
+			FQDN:   excluded.GetFqdn(),
+			IP:     excluded.GetIP(),
+			IPv6:   excluded.GetIpv6(),
+			Reason: excluded.GetReason(),
+		})
+	}
+	return ExcludedPeersOutput{
+		Total:   int(total),
+		Details: details,
+	}
 }
 
 func mapSSHServer(sshServerState *proto.SSHServerState) SSHServerStateOutput {
@@ -562,6 +597,13 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
+	var excludedPeersString string
+	if o.ExcludedPeers.Total > 0 {
+		excludedPeersString = fmt.Sprintf("Excluded peers: %d\n", o.ExcludedPeers.Total)
+	}
+
+	ownExclusionString := parseOwnExclusionReasons(o.OwnExclusionReasons)
+
 	var sessionExpiryString string
 	if o.SessionExpiresAt != nil && !o.SessionExpiresAt.IsZero() {
 		sessionExpiryString = fmt.Sprintf(
@@ -612,7 +654,9 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
-			"Peers count: %s\n",
+			"Peers count: %s\n"+
+			"%s"+
+			"%s",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		daemonVersion,
 		cliVersion,
@@ -632,6 +676,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		networks,
 		sessionExpiryString,
 		peersCountString,
+		excludedPeersString,
+		ownExclusionString,
 	)
 	return summary
 }
@@ -645,13 +691,66 @@ func (o *OutputOverview) FullDetailSummary() string {
 	return fmt.Sprintf(
 		"Peers detail:"+
 			"%s\n"+
+			"%s"+
 			"Events:"+
 			"%s\n"+
 			"%s",
 		parsedPeersString,
+		parseExcludedPeers(o.ExcludedPeers),
 		parsedEventsString,
 		summary,
 	)
+}
+
+var exclusionReasonTexts = map[string]string{
+	peer.ExclusionReasonUnknown:            "unknown",
+	peer.ExclusionReasonLoginExpired:       "login expired",
+	peer.ExclusionReasonPostureCheckFailed: "posture check failed",
+	peer.ExclusionReasonPendingApproval:    "pending approval",
+	peer.ExclusionReasonEdrNonCompliant:    "EDR non-compliant",
+}
+
+func exclusionReasonText(key string) string {
+	if text, ok := exclusionReasonTexts[key]; ok {
+		return text
+	}
+	return key
+}
+
+func parseOwnExclusionReasons(reasons []string) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	if !slices.ContainsFunc(reasons, func(r string) bool { return r != peer.ExclusionReasonPostureCheckFailed }) {
+		return "This peer failed a posture check and can't connect to some peers\n"
+	}
+
+	texts := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		texts = append(texts, exclusionReasonText(reason))
+	}
+	return fmt.Sprintf("This peer can't connect to other peers: %s\n", strings.Join(texts, ", "))
+}
+
+func parseExcludedPeers(excluded ExcludedPeersOutput) string {
+	if excluded.Total == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("Excluded peers detail:")
+	for _, p := range excluded.Details {
+		fmt.Fprintf(&b, "\n %s:\n  NetBird IP: %s\n", domain.Domain(p.FQDN).SafeString(), p.IP)
+		if p.IPv6 != "" {
+			fmt.Fprintf(&b, "  NetBird IPv6: %s\n", p.IPv6)
+		}
+		fmt.Fprintf(&b, "  Reason: %s\n", exclusionReasonText(p.Reason))
+	}
+	if more := excluded.Total - len(excluded.Details); more > 0 {
+		fmt.Fprintf(&b, "\n and %d more\n", more)
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
@@ -739,6 +838,12 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		}
 		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
 	}
+
+	for _, excluded := range fullStatus.ExcludedPeers {
+		pbFullStatus.ExcludedPeers = append(pbFullStatus.ExcludedPeers, excluded.ToProto())
+	}
+	pbFullStatus.ExcludedPeersTotal = fullStatus.ExcludedPeersTotal
+	pbFullStatus.OwnExclusionReasons = fullStatus.OwnExclusionReasons
 
 	pbFullStatus.Events = fullStatus.Events
 
@@ -995,6 +1100,12 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		peer := peer
 		anonymizePeerDetail(a, &peer)
 		overview.Peers.Details[i] = peer
+	}
+
+	for i, excluded := range overview.ExcludedPeers.Details {
+		overview.ExcludedPeers.Details[i].FQDN = a.AnonymizeDomain(excluded.FQDN)
+		overview.ExcludedPeers.Details[i].IP = a.AnonymizeIPString(excluded.IP)
+		overview.ExcludedPeers.Details[i].IPv6 = a.AnonymizeIPString(excluded.IPv6)
 	}
 
 	overview.ManagementState.URL = a.AnonymizeURI(overview.ManagementState.URL)

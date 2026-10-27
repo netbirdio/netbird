@@ -540,7 +540,7 @@ func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, 
 
 	components := nmData.GetPeerNetworkMapComponents(peerID, peersCustomZone)
 	if components.IsEmpty() {
-		return &types.NetworkMap{Network: components.Network}
+		return &types.NetworkMap{Network: components.Network, OwnExclusionReasons: components.OwnExclusionReasons}
 	}
 	nm := types.CalculateNetworkMapFromComponents(ctx, components)
 

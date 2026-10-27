@@ -1,0 +1,5 @@
+{
+  "description": "Every exclusion reason in one account. peer-srv lists the clients the server kept from it: peer-pending awaits approval, peer-edr is rejected by the integrated validator without needing approval, peer-expired carries the login-expired flag and peer-old fails the source posture check. peer-old-alt fails the same check but still reaches peer-srv through the unchecked pol-alt, so it is not listed. The excluded peers themselves are not told whom they miss, only why they are excluded: peer-old and peer-old-alt their failing posture check and peer-expired its expired login; the unvalidated peers are covered by unvalidated-target-own-reasons. Legacy mode is excluded: main ignores the persisted login-expired flag and reports neither exclusion list nor own reasons.",
+  "peers": ["peer-srv", "peer-old", "peer-old-alt", "peer-ok", "peer-expired"],
+  "modes": ["full", "envelope"]
+}

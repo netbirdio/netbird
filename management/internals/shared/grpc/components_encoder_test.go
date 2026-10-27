@@ -761,3 +761,52 @@ func emptyNetworkMapComponents() *types.NetworkMapComponents {
 		},
 	)
 }
+
+func TestEncodeNetworkMapEnvelope_ExcludedPeers(t *testing.T) {
+	excludedPeer := &nmdata.Peer{
+		ID:       "peer-excluded",
+		Key:      "must-not-ship",
+		IP:       netip.AddrFrom4([4]byte{100, 64, 0, 9}),
+		IPv6:     netip.MustParseAddr("fd00::9"),
+		DNSLabel: "excluded",
+	}
+	encode := func(targetIPv6 bool) *proto.NetworkMapComponentsFull {
+		c := newTestComponents()
+		if targetIPv6 {
+			c.Peers["peer-a"].IPv6 = netip.MustParseAddr("fd00::1")
+			c.Peers["peer-a"].Meta.Capabilities = []int32{nmdata.PeerCapabilityIPv6Overlay}
+		}
+		c.ExcludedPeers = []types.ExcludedPeer{{Peer: excludedPeer, Reason: proto.ExclusionReason_ExclusionReasonPendingApproval}}
+		c.ExcludedPeersTotal = 3
+		c.OwnExclusionReasons = []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}
+		return EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c, DNSDomain: "netbird.cloud"}).GetFull()
+	}
+
+	full := encode(false)
+	require.Len(t, full.ExcludedPeers, 1)
+	assert.Equal(t, "excluded.netbird.cloud", full.ExcludedPeers[0].Fqdn)
+	assert.Equal(t, "100.64.0.9", full.ExcludedPeers[0].Ip)
+	assert.Empty(t, full.ExcludedPeers[0].Ipv6, "IPv6 only when the receiver uses IPv6")
+	assert.Equal(t, proto.ExclusionReason_ExclusionReasonPendingApproval, full.ExcludedPeers[0].Reason)
+	assert.EqualValues(t, 3, full.ExcludedPeersTotal)
+	assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}, full.OwnExclusionReasons)
+	assert.Len(t, full.Peers, 3, "an excluded peer never enters the peer table")
+
+	assert.Equal(t, "fd00::9", encode(true).ExcludedPeers[0].Ipv6)
+}
+
+func TestEncodeNetworkMapEnvelope_EmptyComponentsCarryOwnExclusionReasons(t *testing.T) {
+	peer := &nmdata.Peer{ID: "peer-a", Key: testWgKeyA, IP: netip.AddrFrom4([4]byte{100, 64, 0, 1}), RequiresApproval: true}
+	c := types.EmptyNetworkMapComponents(&types.NetworkMapComponents{
+		PeerID:              peer.ID,
+		Network:             &nmdata.Network{Identifier: "x", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)}},
+		Peers:               map[string]*nmdata.Peer{peer.ID: peer},
+		OwnExclusionReasons: []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPendingApproval},
+	})
+
+	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Peer: peer, Components: c}).GetFull()
+
+	require.NotNil(t, full)
+	assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPendingApproval}, full.OwnExclusionReasons)
+	assert.Len(t, full.Peers, 1, "the receiving peer stays in the table so the client can decode the map")
+}

@@ -54,6 +54,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 			Network:                       nmd.Network,
 			Peers:                         map[string]*nmdata.Peer{peerID: peer},
 			ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
+			OwnExclusionReasons:           nmd.ownExclusionReasons(peer, false),
 		})
 	}
 
@@ -74,7 +75,8 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
 	}
 
-	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := nmd.getPeersGroupsPoliciesRoutes(peerID, peer.SSHEnabled)
+	var excluded exclusions
+	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := nmd.getPeersGroupsPoliciesRoutes(peerID, peer.SSHEnabled, &excluded)
 
 	if len(sshReqs.neededGroupIDs) > 0 {
 		components.GroupIDToUserIDs = filterGroupIDToUserIDs(nmd.GroupIDToUserIDs, sshReqs.neededGroupIDs)
@@ -116,25 +118,22 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 			continue
 		}
 
-		addSourcePeers := false
-
-		networkRoutingPeers, routerExists := nmd.Routers[resource.NetworkID]
-		if routerExists {
-			if _, ok := networkRoutingPeers[peerID]; ok {
-				addSourcePeers = true
-			}
-		}
+		networkRoutingPeers := nmd.Routers[resource.NetworkID]
+		_, isRouter := networkRoutingPeers[peerID]
+		addSourcePeers := isRouter
 
 		for _, policy := range policies {
 			if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
 				continue
 			}
-			if addSourcePeers {
+			if isRouter {
 				if _, seen := seenSourcePolicies[policy]; !seen {
 					seenSourcePolicies[policy] = struct{}{}
 					sources := nmd.resourcePolicySources(policy)
 					nmd.mergeSourcePeers(components, sources)
 					sourceFailures = append(sourceFailures, sources.failed)
+					nmd.collectUnvalidated(&excluded, policy.SourceGroups(), policy.Rules[0].SourceResource)
+					excluded.addPostureFailures(sources.failed)
 				}
 			} else {
 				peerInSources := false
@@ -157,6 +156,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 						components.PostureFailedPeers[pname] = make(map[string]struct{})
 					}
 					components.PostureFailedPeers[pname][peer.ID] = struct{}{}
+					excluded.postureChecksFailed = true
 					continue
 				}
 				addSourcePeers = true
@@ -195,6 +195,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 				// RouterPeers as well: the envelope encoder indexes that map into
 				// the wire peer table, from which the client restores every entry.
 				if _, validated := nmd.ValidatedPeers[peerIDKey]; !validated {
+					nmd.markUnvalidated(&excluded, peerIDKey)
 					continue
 				}
 				if _, exists := components.RouterPeers[peerIDKey]; !exists {
@@ -208,9 +209,11 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
-	dropLoginExpiredPeers(components)
+	expired := dropLoginExpiredPeers(components)
 	filterGroupPeers(&components.Groups, components.Peers)
 	nmd.collectPostureFailedPeers(components, sourceFailures)
+	nmd.setExcludedPeers(components, &excluded, expired)
+	components.OwnExclusionReasons = nmd.ownExclusionReasons(peer, excluded.postureChecksFailed)
 
 	return components
 }
@@ -218,11 +221,11 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 // dropLoginExpiredPeers removes every login-expired peer except the target from the
 // components, together with the routes and routers that point at it, so no consumer
 // of the components can reach it. Groups and posture failures are narrowed to the
-// remaining peers afterwards.
-func dropLoginExpiredPeers(c *types.NetworkMapComponents) {
+// remaining peers afterwards. It returns the IDs of the dropped peers.
+func dropLoginExpiredPeers(c *types.NetworkMapComponents) map[string]struct{} {
 	expired, expiredIPs := collectExpiredPeers(c)
 	if len(expired) == 0 {
-		return
+		return nil
 	}
 
 	for id := range expired {
@@ -249,6 +252,7 @@ func dropLoginExpiredPeers(c *types.NetworkMapComponents) {
 		}
 	}
 	c.AllDNSRecords = records
+	return expired
 }
 
 // collectExpiredPeers returns the IDs and IP strings of the login-expired peers other than the target.
@@ -297,6 +301,7 @@ func pruneRoutersMap(routersMap map[string]map[string]*nmdata.NetworkRouter, exp
 func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 	peerID string,
 	peerSSHEnabled bool,
+	excluded *exclusions,
 ) (map[string]*nmdata.Peer, map[string]*nmdata.Group, []*nmdata.Policy, []*nmdata.Route, sshRequirements) {
 	relevantPeerIDs := make(map[string]*nmdata.Peer, len(nmd.Peers)/4)
 	relevantGroupIDs := make(map[string]*nmdata.Group, len(nmd.Groups)/4)
@@ -361,6 +366,8 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 				if p := nmd.Peers[r.Peer]; p != nil {
 					relevantPeerIDs[r.Peer] = p
 				}
+			} else {
+				nmd.markUnvalidated(excluded, r.Peer)
 			}
 		}
 		for _, groupID := range r.PeerGroups {
@@ -373,6 +380,7 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					continue
 				}
 				if _, ok := nmd.ValidatedPeers[pid]; !ok {
+					nmd.markUnvalidated(excluded, pid)
 					continue
 				}
 				if p := nmd.Peers[pid]; p != nil {
@@ -427,6 +435,9 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 						relevantGroupIDs[dstGroupID] = g
 					}
 				}
+				nmd.collectUnvalidated(excluded, rule.Destinations, rule.DestinationResource)
+			} else {
+				excluded.notePostureFailure(sources.failed, peerID)
 			}
 
 			if peerInDestinations {
@@ -439,6 +450,8 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 						relevantGroupIDs[srcGroupID] = g
 					}
 				}
+				nmd.collectUnvalidated(excluded, rule.Sources, rule.SourceResource)
+				excluded.addPostureFailures(sources.failed)
 
 				sshReqs.collect(rule, peerSSHEnabled)
 			}

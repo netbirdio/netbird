@@ -61,11 +61,12 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 					Network:    toAccountNetwork(c.Network),
 					PeerConfig: in.PeerConfig,
 					// components.Peers may not contain the target peer
-					Peers:            []*proto.PeerCompact{toPeerCompact(in.Peer)},
-					DnsDomain:        in.DNSDomain,
-					DnsForwarderPort: in.DNSForwarderPort,
-					UserIdClaim:      in.UserIDClaim,
-					AccountSettings:  &proto.AccountSettingsCompact{},
+					Peers:               []*proto.PeerCompact{toPeerCompact(in.Peer)},
+					DnsDomain:           in.DNSDomain,
+					DnsForwarderPort:    in.DNSForwarderPort,
+					UserIdClaim:         in.UserIDClaim,
+					AccountSettings:     &proto.AccountSettingsCompact{},
+					OwnExclusionReasons: c.OwnExclusionReasons,
 				},
 			},
 		}
@@ -114,6 +115,9 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		GroupIdToUserIds:    enc.encodeGroupIDToUserIDs(c.GroupIDToUserIDs),
 		AllowedUserIds:      stringSetToSlice(c.AllowedUserIDs),
 		PostureFailedPeers:  enc.encodePostureFailedPeers(c.PostureFailedPeers),
+		ExcludedPeers:       networkmap.ToProtocolExcludedPeers(c.ExcludedPeers, in.DNSDomain, c.TargetIncludesIPv6()),
+		ExcludedPeersTotal:  uint32(c.ExcludedPeersTotal),
+		OwnExclusionReasons: c.OwnExclusionReasons,
 	}
 
 	return &proto.NetworkMapEnvelope{

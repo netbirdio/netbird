@@ -3,6 +3,7 @@ package types
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 const (
@@ -26,4 +27,11 @@ type NetworkMap struct {
 	// resolution regardless of the account-global setting, for reverse-proxy
 	// domain targets.
 	ForceRoutingPeerDNSResolution bool
+	// ExcludedPeers lists the peers the server excluded from this map, capped at
+	// MaxExcludedPeers; ExcludedPeersTotal is their number before the cap.
+	ExcludedPeers      []ExcludedPeer
+	ExcludedPeersTotal int
+	// OwnExclusionReasons lists, sorted and de-duplicated, why the server
+	// excludes the peer itself from other peers' maps.
+	OwnExclusionReasons []proto.ExclusionReason
 }

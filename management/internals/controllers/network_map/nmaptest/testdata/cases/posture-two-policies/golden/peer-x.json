@@ -60,5 +60,8 @@
   "routesFirewallRulesIsEmpty": true,
   "sshAuth": {
     "UserIDClaim": "sub"
-  }
+  },
+  "ownExclusionReasons": [
+    "ExclusionReasonPostureCheckFailed"
+  ]
 }

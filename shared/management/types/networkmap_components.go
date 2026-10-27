@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type NetworkMapComponents struct {
@@ -65,11 +66,42 @@ type NetworkMapComponents struct {
 	// management server keeps producing them.
 	SkipRouteFirewallRules bool
 
+	// ExcludedPeers lists, sorted by IP and capped at MaxExcludedPeers, the peers
+	// that policies would connect the peer to but that the server excluded.
+	// ExcludedPeersTotal is their number before the cap.
+	ExcludedPeers      []ExcludedPeer
+	ExcludedPeersTotal int
+
+	// OwnExclusionReasons lists, sorted and de-duplicated, why the server
+	// excludes the peer itself from other peers' maps.
+	OwnExclusionReasons []proto.ExclusionReason
+
 	routesByPeerOnce sync.Once
 	routesByPeerIdx  map[string][]routeIndexEntry
 
 	// true when returning an empty-like map (returned instead of nil)
 	empty bool
+}
+
+// MaxExcludedPeers caps the number of excluded peers reported to a peer.
+const MaxExcludedPeers = 100
+
+// ExcludedPeer is a peer that policies would connect the target peer to but that
+// the server excluded from its network map, including routing peers of routes the
+// target receives. It is informational only.
+type ExcludedPeer struct {
+	Peer   *nmdata.Peer
+	Reason proto.ExclusionReason
+}
+
+// ValidationExclusionReason returns why a peer the integrated validator did not
+// validate is excluded: pending approval when it requires approval, otherwise EDR
+// non-compliance.
+func ValidationExclusionReason(requiresApproval bool) proto.ExclusionReason {
+	if requiresApproval {
+		return proto.ExclusionReason_ExclusionReasonPendingApproval
+	}
+	return proto.ExclusionReason_ExclusionReasonEdrNonCompliant
 }
 
 type routeIndexEntry struct {
@@ -151,10 +183,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 
 	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
 
-	includeIPv6 := false
-	if p := c.GetPeerInfo(targetPeerID); p != nil {
-		includeIPv6 = p.SupportsIPv6() && p.IPv6.IsValid()
-	}
+	includeIPv6 := c.TargetIncludesIPv6()
 	routesUpdate := filterAndExpandRoutes(c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups), includeIPv6)
 
 	var routesFirewallRules []*RouteFirewallRule
@@ -210,7 +239,18 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		EnableSSH:           sshEnabled,
 
 		ForceRoutingPeerDNSResolution: c.ForceRoutingPeerDNSResolution,
+
+		ExcludedPeers:       c.ExcludedPeers,
+		ExcludedPeersTotal:  c.ExcludedPeersTotal,
+		OwnExclusionReasons: c.OwnExclusionReasons,
 	}
+}
+
+// TargetIncludesIPv6 reports whether the target peer supports IPv6 and has an
+// IPv6 overlay address, so IPv6 data of other peers is relevant to it.
+func (c *NetworkMapComponents) TargetIncludesIPv6() bool {
+	p := c.GetPeerInfo(c.PeerID)
+	return p != nil && p.SupportsIPv6() && p.IPv6.IsValid()
 }
 
 func (c *NetworkMapComponents) IsEmpty() bool {
@@ -486,17 +526,23 @@ func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nmdata.P
 // IsLoginExpired reports whether the peer is flagged as login-expired or its
 // login has run out under the account's expiration settings.
 func (c *NetworkMapComponents) IsLoginExpired(p *nmdata.Peer) bool {
+	return PeerLoginExpired(p, c.AccountSettings)
+}
+
+// PeerLoginExpired reports whether the peer is flagged as login-expired or its
+// login has run out under the given account expiration settings.
+func PeerLoginExpired(p *nmdata.Peer, settings *nmdata.AccountSettingsInfo) bool {
 	if p == nil {
 		return false
 	}
 	if p.StatusLoginExpired {
 		return true
 	}
-	if c.AccountSettings == nil {
+	if settings == nil {
 		return false
 	}
-	expired, _ := p.LoginExpired(c.AccountSettings.PeerLoginExpiration)
-	return c.AccountSettings.PeerLoginExpirationEnabled && expired
+	expired, _ := p.LoginExpired(settings.PeerLoginExpiration)
+	return settings.PeerLoginExpirationEnabled && expired
 }
 
 func (c *NetworkMapComponents) getPeerDNSManagementStatusFromGroups(peerGroups map[string]struct{}) bool {

@@ -313,6 +313,14 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 				},
 			},
 		},
+		ExcludedPeers: []*mgmProto.ExcludedPeer{
+			{
+				Fqdn:   "peer3.corp.example.com",
+				Ip:     "203.0.113.3",
+				Ipv6:   "2001:db8:1234::3",
+				Reason: mgmProto.ExclusionReason_ExclusionReasonPostureCheckFailed,
+			},
+		},
 		Routes: []*mgmProto.Route{
 			{
 				Network: "197.51.100.0/24",
@@ -401,6 +409,11 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 			}, allowedIP)
 		}
 	}
+
+	excludedPeer := networkMap.ExcludedPeers[0]
+	require.True(t, strings.HasSuffix(excludedPeer.Fqdn, ".domain"))
+	require.NotEqual(t, "203.0.113.3", excludedPeer.Ip)
+	require.NotEqual(t, "2001:db8:1234::3", excludedPeer.Ipv6)
 
 	// Test Routes anonymization
 	route := networkMap.Routes[0]

@@ -462,3 +462,87 @@ func buildRoutedResourceComponents(t *testing.T) (*types.NetworkMapComponents, s
 
 	return c, routerKey
 }
+
+func TestEnvelopeToNetworkMap_ExcludedPeersRoundTrip(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+	c.ExcludedPeers = []types.ExcludedPeer{
+		{Peer: &nmdata.Peer{ID: "peer-x", IP: netip.AddrFrom4([4]byte{100, 64, 0, 3}), DNSLabel: "peerX"}, Reason: proto.ExclusionReason_ExclusionReasonLoginExpired},
+		{Peer: &nmdata.Peer{ID: "peer-y", IP: netip.AddrFrom4([4]byte{100, 64, 0, 4}), DNSLabel: "peerY"}, Reason: proto.ExclusionReason_ExclusionReasonPostureCheckFailed},
+	}
+	c.ExcludedPeersTotal = 5
+	c.OwnExclusionReasons = []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{Components: c, DNSDomain: "netbird.cloud"})
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err)
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded))
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
+	require.NoError(t, err)
+
+	want := []*proto.ExcludedPeer{
+		{Fqdn: "peerX.netbird.cloud", Ip: "100.64.0.3", Reason: proto.ExclusionReason_ExclusionReasonLoginExpired},
+		{Fqdn: "peerY.netbird.cloud", Ip: "100.64.0.4", Reason: proto.ExclusionReason_ExclusionReasonPostureCheckFailed},
+	}
+	require.Len(t, result.NetworkMap.ExcludedPeers, len(want))
+	for i := range want {
+		assert.True(t, goproto.Equal(want[i], result.NetworkMap.ExcludedPeers[i]), "excluded peer %d", i)
+	}
+	assert.EqualValues(t, 5, result.NetworkMap.ExcludedPeersTotal)
+	assert.Equal(t, []proto.ExclusionReason{proto.ExclusionReason_ExclusionReasonPostureCheckFailed}, result.NetworkMap.OwnExclusionReasons)
+	assert.NotContains(t, result.Components.Peers, "peer-x", "an excluded peer never reaches the client's peer map")
+}
+
+func TestEnvelopeToNetworkMap_UnvalidatedTargetOwnExclusionReasons(t *testing.T) {
+	for requiresApproval, want := range map[bool]proto.ExclusionReason{
+		true:  proto.ExclusionReason_ExclusionReasonPendingApproval,
+		false: proto.ExclusionReason_ExclusionReasonEdrNonCompliant,
+	} {
+		target := newPeer(targetID, 1)
+		target.Key = randomWgKey(t)
+		target.RequiresApproval = requiresApproval
+		other := newPeer("peer-other", 2)
+		nmd := newNMD(target, other)
+		delete(nmd.ValidatedPeers, targetID)
+		addGroup(nmd, "g-all", targetID, other.ID).Name = nmdata.GroupAllName
+		nmd.Policies = []*nmdata.Policy{newPolicy("p-1", newRule([]string{"g-all"}, []string{"g-all"}))}
+
+		components := nmd.GetPeerNetworkMapComponents(targetID, nmdata.CustomZone{})
+		resp := mgmtgrpc.ToComponentSyncResponse(context.Background(), nil, nil, nil, target, nil, nil, components,
+			"netbird.cloud", nil, nmd.AccountSettings, nil, nil, 0)
+		wire, err := goproto.Marshal(resp.NetworkMapEnvelope)
+		require.NoError(t, err)
+		var decoded proto.NetworkMapEnvelope
+		require.NoError(t, goproto.Unmarshal(wire, &decoded))
+
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, target.Key, "netbird.cloud", false)
+		require.NoError(t, err)
+
+		require.NotNil(t, result.NetworkMap, "the client records own exclusion reasons only from a non-nil map")
+		assert.Equal(t, []proto.ExclusionReason{want}, result.NetworkMap.OwnExclusionReasons)
+		assert.Empty(t, result.NetworkMap.RemotePeers)
+	}
+}
+
+func TestEnvelopeToNetworkMap_ExcludedPeersStayOutOfPeerTable(t *testing.T) {
+	target := newPeer(targetID, 1)
+	target.Key = randomWgKey(t)
+	pending := newPeer("peer-pending", 2)
+	pending.Key = randomWgKey(t)
+	pending.RequiresApproval = true
+	expired := newPeer("peer-expired", 3)
+	expired.Key = randomWgKey(t)
+	expired.StatusLoginExpired = true
+	nmd := newNMD(target, pending, expired)
+	delete(nmd.ValidatedPeers, pending.ID)
+	addGroup(nmd, "g-all", targetID, pending.ID, expired.ID).Name = nmdata.GroupAllName
+	nmd.Policies = []*nmdata.Policy{newPolicy("p-1", newRule([]string{"g-all"}, []string{"g-all"}))}
+
+	components := nmd.GetPeerNetworkMapComponents(targetID, nmdata.CustomZone{})
+	full := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{Components: components, DNSDomain: "netbird.cloud"}).GetFull()
+
+	require.Len(t, full.ExcludedPeers, 2)
+	require.Len(t, full.Peers, 1, "only the target is in the wire peer table")
+	assert.Equal(t, target.IP.AsSlice(), full.Peers[0].Ip)
+}

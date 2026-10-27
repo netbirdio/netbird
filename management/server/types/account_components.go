@@ -70,7 +70,7 @@ func (a *Account) GetPeerNetworkMapFromComponents(
 	)
 
 	if components.IsEmpty() {
-		return &NetworkMap{Network: components.Network}
+		return &NetworkMap{Network: components.Network, OwnExclusionReasons: components.OwnExclusionReasons}
 	}
 
 	nm := CalculateNetworkMapFromComponents(ctx, components)

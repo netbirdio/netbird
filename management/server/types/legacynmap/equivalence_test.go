@@ -415,7 +415,8 @@ func pruneExpiredFromLegacyMap(legacy *proto.NetworkMap, keys, ips, resourceIDs 
 
 // canonicalize sorts every repeated field by a stable key. Both paths iterate Go
 // maps while building these slices, so order can differ even when the content is
-// identical; without this proto.Equal reports noise.
+// identical; without this proto.Equal reports noise. It drops the excluded peers
+// and the peer's own exclusion reasons, which the legacy path does not report.
 func canonicalize(nm *proto.NetworkMap) {
 	if nm == nil {
 		return
@@ -434,6 +435,9 @@ func canonicalize(nm *proto.NetworkMap) {
 	}
 	canonicalizeDNSConfig(nm.DNSConfig)
 	canonicalizeSSHAuth(nm.SshAuth)
+	nm.ExcludedPeers = nil
+	nm.ExcludedPeersTotal = 0
+	nm.OwnExclusionReasons = nil
 }
 
 func canonicalizeDNSConfig(d *proto.DNSConfig) {

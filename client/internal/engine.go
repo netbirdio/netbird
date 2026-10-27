@@ -486,6 +486,8 @@ func (e *Engine) stopLocked() {
 
 	log.Info("cleaning up status recorder states")
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
+	e.statusRecorder.ReplaceExcludedPeers(nil, 0)
+	e.statusRecorder.UpdateOwnExclusionReasons(nil)
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
 
@@ -1689,6 +1691,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	done = e.phase("offline_peers")
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
+	e.updateExcludedPeers(networkMap.GetExcludedPeers(), networkMap.GetExcludedPeersTotal())
+	e.updateOwnExclusionReasons(networkMap.GetOwnExclusionReasons())
 	done()
 
 	remotePeers, err := e.reconcilePeers(networkMap)
@@ -1906,6 +1910,42 @@ func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 		}
 	}
 	e.statusRecorder.ReplaceOfflinePeers(replacement)
+}
+
+func (e *Engine) updateExcludedPeers(excludedPeers []*mgmProto.ExcludedPeer, total uint32) {
+	replacement := make([]peer.ExcludedPeer, len(excludedPeers))
+	for i, excluded := range excludedPeers {
+		replacement[i] = peer.ExcludedPeer{
+			FQDN:   excluded.GetFqdn(),
+			IP:     excluded.GetIp(),
+			IPv6:   excluded.GetIpv6(),
+			Reason: exclusionReasonKey(excluded.GetReason()),
+		}
+	}
+	e.statusRecorder.ReplaceExcludedPeers(replacement, total)
+}
+
+func (e *Engine) updateOwnExclusionReasons(reasons []mgmProto.ExclusionReason) {
+	keys := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		keys = append(keys, exclusionReasonKey(reason))
+	}
+	e.statusRecorder.UpdateOwnExclusionReasons(keys)
+}
+
+func exclusionReasonKey(reason mgmProto.ExclusionReason) string {
+	switch reason {
+	case mgmProto.ExclusionReason_ExclusionReasonLoginExpired:
+		return peer.ExclusionReasonLoginExpired
+	case mgmProto.ExclusionReason_ExclusionReasonPostureCheckFailed:
+		return peer.ExclusionReasonPostureCheckFailed
+	case mgmProto.ExclusionReason_ExclusionReasonPendingApproval:
+		return peer.ExclusionReasonPendingApproval
+	case mgmProto.ExclusionReason_ExclusionReasonEdrNonCompliant:
+		return peer.ExclusionReasonEdrNonCompliant
+	default:
+		return peer.ExclusionReasonUnknown
+	}
 }
 
 // overlayAddrsFromAllowedIPs extracts the peer's v4 and v6 overlay addresses

@@ -275,6 +275,9 @@ func requireEnvelopeSafeKeys(t *testing.T, nmData *networkmap.NetworkMapData, ca
 // code does not produce what this case says it should, so it is reported as a
 // failure and not quietly absorbed.
 //
+// The legacy mode reports neither excluded peers nor the peer's own exclusion
+// reasons, so both are left out of its expectation.
+//
 // The full and legacy modes are compared verbatim, identifiers included, so the
 // expectation pins real ids and stays readable. The envelope mode has
 // identifiers erased on both sides first, because it currently rewrites them —
@@ -303,6 +306,11 @@ func compareGolden(t *testing.T, path string, got *proto.NetworkMap, mode Mode) 
 	want := &proto.NetworkMap{}
 	require.NoError(t, protojson.Unmarshal(raw, want), "parse expectation %s", path)
 	canonicalize(want)
+	if mode == ModeLegacy {
+		want.ExcludedPeers = nil
+		want.ExcludedPeersTotal = 0
+		want.OwnExclusionReasons = nil
+	}
 	if mode == ModeEnvelope {
 		normalizeIDSpace(want)
 		canonicalize(want)
