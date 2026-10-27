@@ -145,7 +145,7 @@ func TestCreateHealthcheckServer(t *testing.T) {
 	// Without a local relay the healthcheck has nothing to probe. Wiring the nil
 	// relay into it used to panic on the first /health request.
 	cases := map[string]string{
-		"disableRelay": "  disableRelay: true\n",
+		"disableRelay": "  disableRelay: true\n  disableStun: true\n",
 		"external relay": `
   relays:
     addresses: ["rels://relay.example.com:443"]
