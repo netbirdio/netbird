@@ -525,8 +525,9 @@ func (s *Server) StartDraining() {
 }
 
 // FlushDisconnects stops draining and marks the queued sessions disconnected in batched
-// writes. Streams ending afterwards write their own disconnect again.
-func (s *Server) FlushDisconnects(ctx context.Context) {
+// writes. Streams ending afterwards write their own disconnect again. It returns an error
+// when not every queued session could be written.
+func (s *Server) FlushDisconnects(ctx context.Context) error {
 	s.drainMu.Lock()
 	sessions := s.pendingDisconnects
 	s.pendingDisconnects = nil
@@ -534,7 +535,7 @@ func (s *Server) FlushDisconnects(ctx context.Context) {
 	s.drainMu.Unlock()
 
 	if len(sessions) == 0 {
-		return
+		return nil
 	}
 	err := s.accountManager.MarkPeersDisconnected(ctx, sessions)
 	if err != nil && ctx.Err() == nil {
@@ -543,8 +544,9 @@ func (s *Server) FlushDisconnects(ctx context.Context) {
 		err = s.accountManager.MarkPeersDisconnected(ctx, sessions)
 	}
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to mark %d peers disconnected on shutdown: %v", len(sessions), err)
+		return fmt.Errorf("mark %d peers disconnected on shutdown: %w", len(sessions), err)
 	}
+	return nil
 }
 
 func (s *Server) validateToken(ctx context.Context, peerKey, jwtToken string) (string, error) {

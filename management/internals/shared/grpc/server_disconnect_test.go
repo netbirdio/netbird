@@ -86,7 +86,7 @@ func TestCancelPeerRoutines_DrainingQueuesDisconnect(t *testing.T) {
 				s.StartDraining()
 			}
 			if tt.flushBefore {
-				s.FlushDisconnects(context.Background())
+				require.NoError(t, s.FlushDisconnects(context.Background()))
 			}
 
 			if tt.wantOwnWrite {
@@ -103,7 +103,7 @@ func TestCancelPeerRoutines_DrainingQueuesDisconnect(t *testing.T) {
 					{AccountID: "account-1", PeerID: peer.ID, SessionStartedAt: streamStart.UnixNano()},
 				}).Return(nil)
 			}
-			s.FlushDisconnects(context.Background())
+			require.NoError(t, s.FlushDisconnects(context.Background()))
 		})
 	}
 }
@@ -126,7 +126,7 @@ func TestFlushDisconnects_FailedBatchStopsDraining(t *testing.T) {
 	s.cancelPeerRoutines(context.Background(), "account-1", peer, first, nil)
 
 	accountManager.EXPECT().MarkPeersDisconnected(gomock.Any(), gomock.Any()).Return(errors.New("db down")).Times(2)
-	s.FlushDisconnects(context.Background())
+	require.Error(t, s.FlushDisconnects(context.Background()))
 
 	accountManager.EXPECT().OnPeerDisconnected(gomock.Any(), "account-1", peer.Key, second).Return(nil)
 	s.cancelPeerRoutines(context.Background(), "account-1", peer, second, nil)
@@ -153,7 +153,7 @@ func TestFlushDisconnects_RetriesFailedBatch(t *testing.T) {
 		accountManager.EXPECT().MarkPeersDisconnected(gomock.Any(), want).Return(errors.New("deadlock detected")),
 		accountManager.EXPECT().MarkPeersDisconnected(gomock.Any(), want).Return(nil),
 	)
-	s.FlushDisconnects(context.Background())
+	require.NoError(t, s.FlushDisconnects(context.Background()))
 }
 
 func TestCancelPeerRoutines_QueuesDisconnectBeforeWaitingForPeerLock(t *testing.T) {
@@ -189,7 +189,7 @@ func TestCancelPeerRoutines_QueuesDisconnectBeforeWaitingForPeerLock(t *testing.
 	accountManager.EXPECT().MarkPeersDisconnected(gomock.Any(), []types.PeerSession{
 		{AccountID: "account-1", PeerID: peer.ID, SessionStartedAt: streamStart.UnixNano()},
 	}).Return(nil)
-	s.FlushDisconnects(context.Background())
+	require.NoError(t, s.FlushDisconnects(context.Background()))
 
 	unlockOnce.Do(unlock)
 	<-done
