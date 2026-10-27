@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -40,6 +41,15 @@ const (
 	ContainerKeyBaseServer = "baseServer"
 
 	applicationName = "management"
+
+	// shutdownTimeout stays below the 10s that systemd (TimeoutStopSec) and Docker grant
+	// before killing the process.
+	shutdownTimeout = 9 * time.Second
+	grpcStopTimeout = 3 * time.Second
+	// shutdownCloseReserve is kept from the flush for closing the stores.
+	shutdownCloseReserve = 2 * time.Second
+	// shutdownIdPReserve is kept from the extension shutdown hooks for stopping the embedded IdP.
+	shutdownIdPReserve = 1 * time.Second
 )
 
 type Server interface {
@@ -297,9 +307,13 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 	}
 }
 
-// Stop attempts a graceful shutdown, waiting up to 5 seconds for active connections to finish
+// Stop attempts a graceful shutdown within shutdownTimeout. Writing the disconnects of the
+// drained streams may use the budget left after stopping the services and gRPC streams,
+// except for shutdownCloseReserve, which stays for closing the stores; the extension hooks
+// leave shutdownIdPReserve for stopping the embedded IdP. It returns an error when the
+// disconnects could not all be written or the shutdown ran out of time.
 func (s *BaseServer) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	defer s.RunStopHandlers()
 	if s.domainCleanupStop != nil {
@@ -318,12 +332,20 @@ func (s *BaseServer) Stop() error {
 	if s.certListener != nil {
 		_ = s.certListener.Close()
 	}
-	s.GRPCServer().Stop()
+	s.ManagementGRPCServer().StartDraining()
+	s.stopGRPCServer()
+	deadline, _ := ctx.Deadline()
+	flushCtx, cancelFlush := context.WithDeadline(ctx, deadline.Add(-shutdownCloseReserve))
+	flushErr := s.ManagementGRPCServer().FlushDisconnects(flushCtx)
+	cancelFlush()
+
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
-	runExtensionShutdownHooks(ctx, s.grpcExtensions)
+	hooksCtx, cancelHooks := context.WithDeadline(ctx, deadline.Add(-shutdownIdPReserve))
+	runExtensionShutdownHooks(hooksCtx, s.grpcExtensions)
+	cancelHooks()
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
@@ -338,12 +360,29 @@ func (s *BaseServer) Stop() error {
 	case err := <-s.Errors():
 		if err != nil {
 			log.WithContext(ctx).Infof("stopped Management Service: %v", err)
-			return nil
+			return flushErr
 		}
 		log.WithContext(ctx).Infof("stopped Management Service")
-		return nil
+		return flushErr
 	case <-ctx.Done():
-		return ctx.Err()
+		return errors.Join(flushErr, ctx.Err())
+	}
+}
+
+// stopGRPCServer stops the gRPC server, which waits for the stream handlers to finish
+// their teardown, but gives up waiting after grpcStopTimeout so a stuck handler cannot
+// block the shutdown.
+func (s *BaseServer) stopGRPCServer() {
+	stopped := make(chan struct{})
+	go func() {
+		s.GRPCServer().Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(grpcStopTimeout):
+		log.Warnf("gRPC server did not stop within %s, continuing shutdown", grpcStopTimeout)
 	}
 }
 

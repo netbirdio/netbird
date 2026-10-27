@@ -184,7 +184,6 @@ func RunCase(t *testing.T, c Case) {
 	nmData := c.Data
 	applyFixtureDefaults(nmData)
 	nmData.BuildPrivateServiceCandidates()
-	nmData.PrecomputePostureValidation()
 
 	dnsDomain := c.DNSDomain
 	if nmData.AccountSettings.DNSDomain != "" {
