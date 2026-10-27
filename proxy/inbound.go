@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/debug"
+	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	nbtcp "github.com/netbirdio/netbird/proxy/internal/tcp"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
@@ -141,7 +142,7 @@ func (m *inboundManager) bringUp(ctx context.Context, accountID types.AccountID,
 
 	router := nbtcp.NewRouter(m.logger, accountDialResolver(accountID, client), tlsListener.Addr(), nbtcp.WithPlainHTTP(plainListener.Addr()))
 
-	scopedHandler := withTunnelLookup(m.handler, accountTunnelLookup(client))
+	scopedHandler := withCapturedData(withTunnelLookup(m.handler, accountTunnelLookup(client)), accountID)
 
 	// markOverlayOrigin stamps every connection accepted by an inbound
 	// listener with a context value middlewares can read to skip
@@ -526,6 +527,20 @@ func withTunnelLookup(next http.Handler, lookup auth.TunnelLookupFunc) http.Hand
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := auth.WithTunnelLookup(r.Context(), lookup)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func withCapturedData(next http.Handler, accountID types.AccountID) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if d := proxy.CapturedDataFromContext(ctx); d != nil {
+			d.SetAccountID(accountID)
+		} else {
+			d := &proxy.CapturedData{}
+			d.SetAccountID(accountID)
+			ctx = proxy.WithCapturedData(ctx, d)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

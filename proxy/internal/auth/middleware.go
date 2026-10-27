@@ -135,12 +135,16 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 
 		config, exists := mw.getDomainConfig(host)
 		mw.logger.Debugf("checking authentication for host: %s, exists: %t", host, exists)
-
 		if !exists {
 			next.ServeHTTP(w, r)
 			return
 		}
 
+		// enforce account id for requests routed through the embedded client
+		capturedData := proxy.CapturedDataFromContext(r.Context())
+		if capturedData != nil && capturedData.GetAccountID() != "" && capturedData.GetAccountID() != config.AccountID {
+			return
+		}
 		// Set account and service IDs in captured data for access logging.
 		setCapturedIDs(r, config)
 
@@ -298,7 +302,6 @@ func (mw *Middleware) getDomainConfig(host string) (DomainConfig, bool) {
 
 func setCapturedIDs(r *http.Request, config DomainConfig) {
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetAccountID(config.AccountID)
 		cd.SetServiceID(config.ServiceID)
 	}
 }
