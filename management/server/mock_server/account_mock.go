@@ -39,10 +39,9 @@ type MockAccountManager struct {
 	GetAccountIDByUserIdFunc              func(ctx context.Context, userAuth auth.UserAuth) (string, error)
 	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, int, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
-	RefreshPeerLastSeenFunc               func(ctx context.Context, accountId, peerId string) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
@@ -134,6 +133,7 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
 	AllowSyncFunc                  func(string, uint64) bool
+	TrackCertificateChallengesFunc func(ctx context.Context, accountID, peerID string, streamStart time.Time)
 	UpdateAccountPeersFunc         func(ctx context.Context, accountID string, reason types.UpdateReason)
 	ExpandAndUpdateAffectedFunc    func(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change)
 	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string, reason types.UpdateReason)
@@ -206,6 +206,16 @@ func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userI
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdateGroups is not implemented")
 }
+
+// TrackCertificateChallenges mocks TrackCertificateChallenges of the account manager.
+func (am *MockAccountManager) TrackCertificateChallenges(ctx context.Context, accountID, peerID string, streamStart time.Time) {
+	if am.TrackCertificateChallengesFunc != nil {
+		am.TrackCertificateChallengesFunc(ctx, accountID, peerID, streamStart)
+	}
+}
+
+// UntrackCertificateChallenges mocks UntrackCertificateChallenges of the account manager.
+func (am *MockAccountManager) UntrackCertificateChallenges(string, string, time.Time) {}
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	if am.UpdateAccountPeersFunc != nil {
@@ -360,13 +370,6 @@ func (am *MockAccountManager) MarkPeerDisconnected(ctx context.Context, peerKey 
 		return am.MarkPeerDisconnectedFunc(ctx, peerKey, accountID, sessionStartedAt)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerDisconnected is not implemented")
-}
-
-func (am *MockAccountManager) RefreshPeerLastSeen(ctx context.Context, accountId, peerId string) error {
-	if am.RefreshPeerLastSeenFunc != nil {
-		return am.RefreshPeerLastSeenFunc(ctx, accountId, peerId)
-	}
-	return status.Errorf(codes.Unimplemented, "method RefreshPeerLastSeen is not implemented")
 }
 
 // DeleteAccount mock implementation of DeleteAccount from server.AccountManager interface
@@ -815,9 +818,10 @@ func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, user
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
-func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	if am.GetPeersFunc != nil {
-		return am.GetPeersFunc(ctx, accountID, userID, nameFilter, ipFilter)
+		peers, _, err := am.GetPeersFunc(ctx, accountID, userID, nameFilter, ipFilter, macFilter)
+		return peers, err
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }

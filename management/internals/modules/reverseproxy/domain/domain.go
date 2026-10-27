@@ -1,5 +1,13 @@
 package domain
 
+import "time"
+
+// ValidationTTL is the time available to validate a custom domain registration.
+const ValidationTTL = 48 * time.Hour
+
+// ID identifies a custom domain registration.
+type ID string
+
 type Type string
 
 const (
@@ -8,12 +16,13 @@ const (
 )
 
 type Domain struct {
-	ID            string `gorm:"unique;primaryKey;autoIncrement"`
-	Domain        string `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
-	AccountID     string `gorm:"index"`
-	TargetCluster string // The proxy cluster this domain should be validated against
-	Type          Type   `gorm:"-"`
-	Validated     bool
+	ID                  string `gorm:"unique;primaryKey;autoIncrement"`
+	Domain              string `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
+	AccountID           string `gorm:"index"`
+	TargetCluster       string // The proxy cluster this domain should be validated against
+	Type                Type   `gorm:"-"`
+	Validated           bool
+	ValidationExpiresAt *time.Time `gorm:"index"`
 	// SupportsCustomPorts is populated at query time for free domains from the
 	// proxy cluster capabilities. Not persisted.
 	SupportsCustomPorts *bool `gorm:"-"`
@@ -36,7 +45,12 @@ func (d *Domain) EventMeta() map[string]any {
 	}
 }
 
+// Copy returns a copy with an independent validation deadline.
 func (d *Domain) Copy() *Domain {
 	dCopy := *d
+	if d.ValidationExpiresAt != nil {
+		expiresAt := *d.ValidationExpiresAt
+		dCopy.ValidationExpiresAt = &expiresAt
+	}
 	return &dCopy
 }

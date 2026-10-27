@@ -9,25 +9,25 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	bindproxy "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/loopback"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/udp"
 )
 
 func seedProxies() ([]proxyInstance, error) {
 	pl := make([]proxyInstance, 0)
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		return nil, fmt.Errorf("failed to initialize ebpf proxy: %s", err)
+	loopbackProxy := loopback.NewProxy(51831, 1280)
+	if err := loopbackProxy.Listen(); err != nil {
+		return nil, fmt.Errorf("failed to initialize loopback proxy: %s", err)
 	}
 
-	pEbpf := proxyInstance{
-		name:    "ebpf kernel proxy",
-		proxy:   ebpf.NewProxyWrapper(ebpfProxy),
+	pLoopback := proxyInstance{
+		name:    "loopback kernel proxy",
+		proxy:   loopback.NewProxyWrapper(loopbackProxy),
 		wgPort:  51831,
-		closeFn: ebpfProxy.Free,
+		closeFn: loopbackProxy.Free,
 	}
-	pl = append(pl, pEbpf)
+	pl = append(pl, pLoopback)
 
 	pUDP := proxyInstance{
 		name:    "udp kernel proxy",
@@ -42,18 +42,18 @@ func seedProxies() ([]proxyInstance, error) {
 func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 	pl := make([]proxyInstance, 0)
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		return nil, fmt.Errorf("failed to initialize ebpf proxy: %s", err)
+	loopbackProxy := loopback.NewProxy(51831, 1280)
+	if err := loopbackProxy.Listen(); err != nil {
+		return nil, fmt.Errorf("failed to initialize loopback proxy: %s", err)
 	}
 
-	pEbpf := proxyInstance{
-		name:    "ebpf kernel proxy",
-		proxy:   ebpf.NewProxyWrapper(ebpfProxy),
+	pLoopback := proxyInstance{
+		name:    "loopback kernel proxy",
+		proxy:   loopback.NewProxyWrapper(loopbackProxy),
 		wgPort:  51831,
-		closeFn: ebpfProxy.Free,
+		closeFn: loopbackProxy.Free,
 	}
-	pl = append(pl, pEbpf)
+	pl = append(pl, pLoopback)
 
 	pUDP := proxyInstance{
 		name:    "udp kernel proxy",

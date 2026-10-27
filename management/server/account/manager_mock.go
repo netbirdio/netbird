@@ -982,18 +982,18 @@ func (mr *MockManagerMockRecorder) GetPeerNetwork(ctx, peerID any) *gomock.Call 
 }
 
 // GetPeers mocks base method.
-func (m *MockManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*peer.Peer, error) {
+func (m *MockManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*peer.Peer, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPeers", ctx, accountID, userID, nameFilter, ipFilter)
+	ret := m.ctrl.Call(m, "GetPeers", ctx, accountID, userID, nameFilter, ipFilter, macFilter)
 	ret0, _ := ret[0].([]*peer.Peer)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetPeers indicates an expected call of GetPeers.
-func (mr *MockManagerMockRecorder) GetPeers(ctx, accountID, userID, nameFilter, ipFilter any) *gomock.Call {
+func (mr *MockManagerMockRecorder) GetPeers(ctx, accountID, userID, nameFilter, ipFilter, macFilter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeers", reflect.TypeOf((*MockManager)(nil).GetPeers), ctx, accountID, userID, nameFilter, ipFilter)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeers", reflect.TypeOf((*MockManager)(nil).GetPeers), ctx, accountID, userID, nameFilter, ipFilter, macFilter)
 }
 
 // GetPolicy mocks base method.
@@ -1383,20 +1383,6 @@ func (mr *MockManagerMockRecorder) OnPeerDisconnected(ctx, accountID, peerPubKey
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeerDisconnected", reflect.TypeOf((*MockManager)(nil).OnPeerDisconnected), ctx, accountID, peerPubKey, streamStartTime)
 }
 
-// RefreshPeerLastSeen mocks base method.
-func (m *MockManager) RefreshPeerLastSeen(ctx context.Context, accountId, peerId string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RefreshPeerLastSeen", ctx, accountId, peerId)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RefreshPeerLastSeen indicates an expected call of RefreshPeerLastSeen.
-func (mr *MockManagerMockRecorder) RefreshPeerLastSeen(ctx, accountId, peerId any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshPeerLastSeen", reflect.TypeOf((*MockManager)(nil).RefreshPeerLastSeen), ctx, accountId, peerId)
-}
-
 // RegenerateUserInvite mocks base method.
 func (m *MockManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 	m.ctrl.T.Helper()
@@ -1644,6 +1630,30 @@ func (m *MockManager) SyncUserJWTGroups(ctx context.Context, userAuth auth.UserA
 func (mr *MockManagerMockRecorder) SyncUserJWTGroups(ctx, userAuth any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncUserJWTGroups", reflect.TypeOf((*MockManager)(nil).SyncUserJWTGroups), ctx, userAuth)
+}
+
+// TrackCertificateChallenges mocks base method.
+func (m *MockManager) TrackCertificateChallenges(ctx context.Context, accountID, peerID string, streamStart time.Time) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "TrackCertificateChallenges", ctx, accountID, peerID, streamStart)
+}
+
+// TrackCertificateChallenges indicates an expected call of TrackCertificateChallenges.
+func (mr *MockManagerMockRecorder) TrackCertificateChallenges(ctx, accountID, peerID, streamStart any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrackCertificateChallenges", reflect.TypeOf((*MockManager)(nil).TrackCertificateChallenges), ctx, accountID, peerID, streamStart)
+}
+
+// UntrackCertificateChallenges mocks base method.
+func (m *MockManager) UntrackCertificateChallenges(accountID, peerID string, streamStart time.Time) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UntrackCertificateChallenges", accountID, peerID, streamStart)
+}
+
+// UntrackCertificateChallenges indicates an expected call of UntrackCertificateChallenges.
+func (mr *MockManagerMockRecorder) UntrackCertificateChallenges(accountID, peerID, streamStart any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UntrackCertificateChallenges", reflect.TypeOf((*MockManager)(nil).UntrackCertificateChallenges), accountID, peerID, streamStart)
 }
 
 // UpdateAccountOnboarding mocks base method.

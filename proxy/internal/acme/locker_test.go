@@ -63,3 +63,33 @@ func TestNewCertLockerK8sFallsBackToFlock(t *testing.T) {
 	_, ok := locker.(*flockLocker)
 	assert.True(t, ok, "k8s-lease without SA should fall back to flockLocker")
 }
+
+func TestFlockLockerRejectsUnsafeDomain(t *testing.T) {
+	root := t.TempDir()
+	certDir := filepath.Join(root, "certs")
+	require.NoError(t, os.Mkdir(certDir, 0o700))
+	locker := newFlockLocker(certDir, nil)
+
+	for _, d := range []string{
+		"",
+		".",
+		"..",
+		"../escape",
+		"../../etc/cron.d/attacker",
+		"sub/dir.example.com",
+		`back\slash.example.com`,
+		"*.example.com",
+	} {
+		unlock, err := locker.Lock(context.Background(), d)
+		assert.Error(t, err, "domain %q", d)
+		assert.Nil(t, unlock, "domain %q", d)
+	}
+
+	assert.NoFileExists(t, filepath.Join(root, "escape.lock"))
+	certEntries, err := os.ReadDir(certDir)
+	require.NoError(t, err)
+	assert.Empty(t, certEntries)
+	rootEntries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Len(t, rootEntries, 1)
+}

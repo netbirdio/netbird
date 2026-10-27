@@ -1,7 +1,9 @@
 package ice
 
 import (
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
+
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
 type Config struct {
@@ -17,4 +19,8 @@ type Config struct {
 	UDPMuxSrflx ice.UniversalUDPMux
 
 	NATExternalIPs []string
+
+	// WGDetector is shared by every agent so that the WireGuard check the interface
+	// filter performs is not repeated for each of them.
+	WGDetector *stdnet.WGDetector
 }

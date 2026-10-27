@@ -68,6 +68,12 @@ function App() {
         if (res.type === "opaqueredirect" || res.status === 0) {
           setSubmitting("redirect");
           globalThis.location.reload();
+        } else if (res.status === 429) {
+          const seconds = Number(res.headers.get("Retry-After"));
+          const wait = Number.isFinite(seconds) && seconds > 0
+            ? ` Try again in ${Math.ceil(seconds)} seconds.`
+            : " Please try again later.";
+          handleAuthError(method, `Too many authentication attempts.${wait}`);
         } else {
           handleAuthError(method, "Authentication failed. Please try again.");
         }

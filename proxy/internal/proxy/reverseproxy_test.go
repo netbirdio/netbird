@@ -236,6 +236,17 @@ func TestRewriteFunc_SessionTokenQueryStripping(t *testing.T) {
 			"other query parameters must be preserved")
 	})
 
+	t.Run("strips nb_session_code query parameter", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/callback?nb_session_code=code123&other=keep", "1.2.3.4:5000")
+
+		rewrite(pr)
+
+		assert.Empty(t, pr.Out.URL.Query().Get("nb_session_code"),
+			"OIDC session code must be stripped from backend request")
+		assert.Equal(t, "keep", pr.Out.URL.Query().Get("other"),
+			"other query parameters must be preserved")
+	})
+
 	t.Run("preserves query when no session_token present", func(t *testing.T) {
 		pr := newProxyRequest(t, "http://example.com/api?foo=bar&baz=qux", "1.2.3.4:5000")
 
@@ -1052,6 +1063,17 @@ func TestClassifyProxyError(t *testing.T) {
 			wantTitle:  "Peer Not Connected",
 			wantCode:   http.StatusBadGateway,
 			wantStatus: web.ErrorStatus{Proxy: true, Destination: false},
+		},
+		{
+			name: "direct upstream blocked by dial guard",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: roundtrip.ErrDirectUpstreamBlocked,
+			},
+			wantTitle:  "Destination Not Allowed",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: false, Destination: false},
 		},
 		{
 			name:       "unknown error falls to default",

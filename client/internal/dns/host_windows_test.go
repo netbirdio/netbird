@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/client/internal/winregistry"
 )
 
 // TestNRPTEntriesCleanupOnConfigChange tests that old NRPT entries are properly cleaned up
@@ -404,4 +406,131 @@ func TestNRPTDomainBatching(t *testing.T) {
 			assert.False(t, exists, "No NRPT rule should exist at index %d", tc.expectedRuleCount)
 		})
 	}
+}
+
+// TestRemoveEmptyGPOPolicyStore verifies that cleanup takes the GPO policy
+// store itself with it once our rules are gone, since the store existing keeps
+// the local one from being applied, and that a store with somebody else's rule
+// in it is left alone.
+func TestRemoveEmptyGPOPolicyStore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	t.Cleanup(func() { cleanupRegistryKeys(t) })
+	cleanupRegistryKeys(t)
+
+	testIP := netip.MustParseAddr("100.64.0.1")
+	cfg := &registryConfigurator{gpo: true}
+
+	// a store holding a rule of ours is kept, because the rule is still applied
+	require.NoError(t, cfg.addDNSMatchPolicy([]string{".example.com"}, testIP))
+	exists, err := registryKeyExists(gpoDnsPolicyConfigMatchPath + "-0")
+	require.NoError(t, err)
+	require.True(t, exists, "Should write the rule to the GPO policy store")
+
+	require.NoError(t, removeEmptyGPOPolicyStore())
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should keep a policy store that still holds a rule")
+
+	// once the rules are gone the store goes with them
+	require.NoError(t, cfg.removeDNSMatchPolicies())
+	require.NoError(t, removeEmptyGPOPolicyStore())
+
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.False(t, exists, "Should remove the GPO policy store once it is empty")
+
+	// A store is not ours to remove while somebody else has a rule in it. The
+	// rule is written volatile like our own: the rules above created the parent
+	// chain volatile, and Windows refuses a stable subkey under a volatile
+	// parent.
+	foreignRule := GPODNSPolicyConfigRoot + `\{2A3B4C5D-6E7F-4041-8283-84858687888A}`
+	foreignKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, foreignRule, registry.SET_VALUE)
+	require.NoError(t, err, "Should create a foreign GPO rule")
+	foreignKey.Close()
+	t.Cleanup(func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, foreignRule)
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot)
+	})
+
+	require.NoError(t, cfg.removeDNSMatchPolicies())
+	require.NoError(t, removeEmptyGPOPolicyStore())
+
+	exists, err = registryKeyExists(foreignRule)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should not remove a foreign rule")
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should keep a policy store that still holds a foreign rule")
+}
+
+// TestDeleteInterfaceRegistryKeyPropertyTwice verifies that removing a value
+// that is already gone, or one on an interface key that is, reports success.
+// Teardown runs again after a failed cleanup, and the steps that follow this
+// one have to be reached on that second run.
+func TestDeleteInterfaceRegistryKeyPropertyTwice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
+	interfacePath := InterfaceConfigPath + `\` + testGUID
+	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create test interface registry key")
+	testKey.Close()
+	t.Cleanup(func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath)
+	})
+
+	cfg := &registryConfigurator{guid: testGUID}
+
+	require.NoError(t, cfg.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, "example.com"))
+	require.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey))
+	assert.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey),
+		"Should report success for a value that is already gone")
+
+	// and with the interface key itself gone, as it is once the adapter is
+	require.NoError(t, registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath))
+	assert.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey),
+		"Should report success when the interface key does not exist")
+}
+
+// TestUseGPOPolicyStoreClearsEmptyStore verifies that the store is cleared
+// before it is consulted, so an empty one left by an earlier run does not send
+// this run's rules to the group policy store. A store somebody else has a rule
+// in still decides where the rules go.
+func TestUseGPOPolicyStoreClearsEmptyStore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	t.Cleanup(func() { cleanupRegistryKeys(t) })
+	cleanupRegistryKeys(t)
+
+	// the leftover an earlier run used to keep, which the client read as
+	// "group policy configures the NRPT" for every run after it
+	emptyStore, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.SET_VALUE)
+	require.NoError(t, err, "Should create the GPO policy store")
+	emptyStore.Close()
+
+	assert.False(t, useGPOPolicyStore(), "An empty store should not decide where the rules go")
+	exists, err := registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.False(t, exists, "Should clear the empty store before consulting it")
+
+	foreignRule := GPODNSPolicyConfigRoot + `\{2A3B4C5D-6E7F-4041-8283-84858687888A}`
+	foreignKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, foreignRule, registry.SET_VALUE)
+	require.NoError(t, err, "Should create a foreign GPO rule")
+	foreignKey.Close()
+	t.Cleanup(func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, foreignRule)
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot)
+	})
+
+	assert.True(t, useGPOPolicyStore(), "A store holding a rule should decide where the rules go")
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should keep a store that holds a rule")
 }

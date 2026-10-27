@@ -46,3 +46,25 @@ updates:
       wireguard:
         patterns:
           - "golang.zx2c4.com/wireguard*"
+
+  # Base images of the source-build Dockerfiles, pinned by digest (Chainguard
+  # publishes only :latest for free). Dockerfile.release files feed goreleaser
+  # and keep the published images as they are, so their bases are left alone.
+  - package-ecosystem: "docker"
+    directories:
+      - "/upload-server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      base-images:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "gcr.io/distroless/base"
+      # Go minor and major versions move with the rest of the repository;
+      # patch releases and new digests of the pinned tag still come through.
+      - dependency-name: "golang"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"

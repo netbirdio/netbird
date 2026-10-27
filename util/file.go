@@ -162,7 +162,7 @@ func writeBytes(ctx context.Context, file string, configDir string, configFileNa
 		return fmt.Errorf("after temp file: %w", ctx.Err())
 	}
 
-	if err = os.Rename(tempFileName, file); err != nil {
+	if err = renameFile(tempFileName, file); err != nil {
 		return fmt.Errorf("move %s to %s: %w", tempFileName, file, err)
 	}
 
@@ -195,7 +195,7 @@ func openOrCreateFile(file string) (*os.File, error) {
 // ReadJson reads JSON config file and maps to a provided interface
 func ReadJson(file string, res interface{}) (interface{}, error) {
 
-	f, err := os.Open(file)
+	f, err := openRead(file)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func ListFiles(dir, pattern string) ([]string, error) {
 func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 	envVars := getEnvMap()
 
-	f, err := os.Open(file)
+	f, err := openRead(file)
 	if err != nil {
 		return nil, err
 	}

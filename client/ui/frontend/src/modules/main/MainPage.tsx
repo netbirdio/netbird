@@ -55,7 +55,7 @@ const MainBody = () => {
             >
                 <MainConnectionStatusSwitch />
                 {!features.disableNetworks && (
-                    <div className={"wails-no-draggable absolute bottom-5 left-5 right-5"}>
+                    <div className={"wails-no-draggable absolute inset-x-5 bottom-5"}>
                         <MainExitNodeSwitcher />
                     </div>
                 )}
@@ -79,7 +79,7 @@ const AdvancedAppRightPanel = () => {
         <AppRightPanel
             overlay={<PeerDetailPanel />}
             overlayOpen={selected !== null}
-            className={"m-5 ml-0"}
+            className={"m-5 ms-0"}
         >
             <div
                 ref={(el) => {

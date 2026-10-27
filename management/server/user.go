@@ -102,11 +102,11 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		createdBy, err := am.Store.GetAccountCreatedBy(ctx, store.LockingStrengthNone, accountID)
+		owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
-		inviterID = createdBy
+		inviterID = owner.Id
 	}
 
 	var idpUser *idp.UserData
@@ -238,9 +238,10 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(userAuth.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin)
-	if err != nil {
-		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
+	if userAuth.LastLogin.After(user.GetLastLogin()) {
+		if err := am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
+		}
 	}
 
 	if newLogin {
@@ -593,8 +594,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	var snaps []*affectedpeers.Snapshot
-	var changes []affectedpeers.Change
+	affected := make(affectedPeerSet)
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
@@ -629,6 +629,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
 
+		var itemSnap *affectedpeers.Snapshot
+		var itemChange affectedpeers.Change
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			change, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
@@ -647,8 +649,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				return err
 			}
 
-			snaps = append(snaps, snap)
-			changes = append(changes, change)
+			itemSnap, itemChange = snap, change
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
 			peersToExpire = append(peersToExpire, userPeersToExpire...)
@@ -662,10 +663,18 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 			globalErr = errors.Join(globalErr, err)
 			// continue when updating multiple users
+			continue
 		}
+		affected.add(itemSnap.Expand(ctx, accountID, itemChange))
 	}
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
+
+	if len(usersToSave) > 0 {
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("increment network serial: %w", err)
+		}
+	}
 
 	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
 	if err != nil {
@@ -690,10 +699,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return nil, fmt.Errorf("failed to increment network serial: %w", err)
-		}
-		go am.dispatchAffected(ctx, accountID, snaps, changes)
+		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
 	return updatedUsersInfo, globalErr
@@ -861,9 +867,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		allGroupChanges := slices.Concat(removedGroups, addedGroups)
 		change.LinkGroups = allGroupChanges
 
-		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
+		ipv6Changed, err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges)
+		if err != nil {
 			return change, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
+		change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
 	}
 
 	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
@@ -1420,6 +1428,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to delete user: %s %w", targetUserInfo.ID, err)
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -1446,6 +1458,25 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, accountID, activity.UserDeleted, meta)
 
 	return updateAccountPeers, nil
+}
+
+// pendingApprovalError refuses a user awaiting approval, naming the owner who
+// can approve them when their address resolves. Failing to resolve one is not a
+// reason to withhold the refusal, so the lookup is best effort.
+func (am *DefaultAccountManager) pendingApprovalError(ctx context.Context, accountID string) error {
+	owner, err := am.GetOwnerInfo(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("pending approval refusal: owner of account %s did not resolve: %v", accountID, err)
+		return status.NewUserPendingApprovalError()
+	}
+
+	masked := types.MaskEmail(owner.Email)
+	if masked == "" {
+		log.WithContext(ctx).Debugf("pending approval refusal: no address found for the owner of account %s", accountID)
+		return status.NewUserPendingApprovalError()
+	}
+
+	return status.NewUserPendingApprovalByOwnerError(masked)
 }
 
 // GetOwnerInfo retrieves the owner information for a given account ID.
@@ -1503,6 +1534,14 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	// A user pending approval is blocked too, and the dashboard needs to tell
+	// the two apart: one is a dead end, the other resolves by itself once the
+	// owner acts. Naming that owner needs the address the IdP holds, which is
+	// why this is answered here rather than in the permission gate.
+	if user.IsBlocked() && user.PendingApproval {
+		return nil, am.pendingApprovalError(ctx, user.AccountID)
 	}
 
 	if user.IsBlocked() {

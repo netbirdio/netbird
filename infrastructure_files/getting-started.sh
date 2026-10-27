@@ -87,6 +87,27 @@ check_jq() {
   return 0
 }
 
+check_traefik_image() {
+  local image="${TRAEFIK_IMAGE##*/}" major minor patch
+
+  # A version tag cannot establish which release a digest points to.
+  if [[ "$TRAEFIK_IMAGE" == *@* ||
+    ! "$image" =~ ^[^:@]+:v?([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?$ ]]; then
+    echo "Cannot verify TRAEFIK_IMAGE=$TRAEFIK_IMAGE." >&2
+    echo "Use a numeric Traefik version tag (v3.7.13 or newer) without a digest." >&2
+    return 1
+  fi
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[3]:-0}))
+  patch=$((10#${BASH_REMATCH[5]:-0}))
+  if (( major < 3 || (major == 3 && minor < 7) || (major == 3 && minor == 7 && patch < 13) )); then
+    echo "TRAEFIK_IMAGE=$TRAEFIK_IMAGE is incompatible with this configuration." >&2
+    echo "Use Traefik v3.7.13 or newer for aliasHeadersStrategy and its header-sanitization fix." >&2
+    return 1
+  fi
+  return 0
+}
+
 get_main_ip_address() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
@@ -153,6 +174,7 @@ check_domain_resolves() {
 #   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
 #   NETBIRD_BIND_LOCALHOST_ONLY       true/false (default true, types 2-5)
 #   NETBIRD_EXTERNAL_PROXY_NETWORK    docker network to join (types 2-4)
+#   NETBIRD_TRUSTED_PEERS             reverse proxy address management sees (default: built-in Traefik's IP, empty for types 1-5)
 #   NETBIRD_NON_INTERACTIVE           true forces unattended mode even with a TTY
 
 # tty_available succeeds only when we may prompt: never when the operator has
@@ -447,8 +469,8 @@ initialize_default_values() {
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
   NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
-  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.6"}
-  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.7.7"}
+  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.7.14"}
+  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.8.1"}
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
@@ -459,6 +481,8 @@ initialize_default_values() {
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
+  TRUSTED_PEERS=""             # Address the reverse proxy connects to management from
+
 
   # Traefik static IP within the internal bridge network
   TRAEFIK_IP="172.30.0.10"
@@ -519,6 +543,7 @@ apply_agent_network_preset() {
   REVERSE_PROXY_TYPE="0"
   ENABLE_PROXY="true"
   ENABLE_CROWDSEC="false"
+  TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
 
   TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
 
@@ -573,6 +598,21 @@ configure_reverse_proxy() {
     4) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
+
+  # Only the bundled Traefik has an address we know at render time. External proxies
+  # must supply the address their proxy reaches management from.
+  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
+  else
+    TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-}"
+    if [[ -z "$TRUSTED_PEERS" ]]; then
+      echo "" > /dev/stderr
+      echo "Warning: reverseProxy.trustedPeers is unset, so all IPv4 and IPv6 sources" > /dev/stderr
+      echo "are trusted to provide forwarded client-IP headers. Set NETBIRD_TRUSTED_PEERS" > /dev/stderr
+      echo "to your proxy's address (e.g. 172.20.0.5/32) and re-run." > /dev/stderr
+      echo "" > /dev/stderr
+    fi
+  fi
   return 0
 }
 
@@ -594,6 +634,7 @@ generate_configuration_files() {
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
     0)
+      check_traefik_image || return 1
       render_docker_compose_traefik_builtin > docker-compose.yml
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
@@ -893,11 +934,13 @@ services:
       # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=netbird"
+      - "--providers.docker.network=\${COMPOSE_PROJECT_NAME:-}_netbird"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
+      - "--entrypoints.web.http.aliasHeadersStrategy=delete"
+      - "--entrypoints.websecure.http.aliasHeadersStrategy=delete"
       # Disable timeouts for long-lived gRPC streams
       - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
@@ -1033,12 +1076,19 @@ server:
   reverseProxy:
     trustedHTTPProxies:
       - "$TRAEFIK_IP/32"
+$(render_trusted_peers)
 
   store:
     engine: "sqlite"
     encryptionKey: "$DATASTORE_ENCRYPTION_KEY"
 EOF
   return 0
+}
+
+render_trusted_peers() {
+  if [[ -n "$TRUSTED_PEERS" ]]; then
+    printf '    trustedPeers:\n      - "%s"' "$TRUSTED_PEERS"
+  fi
 }
 
 render_dashboard_env() {
@@ -1453,6 +1503,9 @@ location ~ ^/(relay|ws-proxy/) {
 # Native gRPC (signal + management)
 location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
     grpc_pass grpc://${server_addr};
+    # Overwrite rather than pass through: without this the client's own
+    # x-forwarded-for metadata reaches NetBird as the connection IP.
+    grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
@@ -1750,4 +1803,6 @@ print_post_setup_instructions() {
   return 0
 }
 
-init_environment
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  init_environment
+fi

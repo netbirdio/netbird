@@ -36,7 +36,10 @@ const (
 // address. The npipe scheme needs a context dialer because gRPC has no
 // named-pipe resolver; unix and tcp are handled by gRPC itself.
 func DialTarget(addr string) (string, []grpc.DialOption) {
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxRecvMsgSize())),
+	}
 
 	if name, ok := strings.CutPrefix(addr, pipeScheme); ok {
 		paths := PipePaths(name)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func authContext(accountID, userID string) context.Context {
@@ -263,6 +265,155 @@ func TestRevokeToken_ManagementWideToken(t *testing.T) {
 	h := &handler{
 		store:              mockStore,
 		permissionsManager: permsMgr,
+	}
+
+	req := httptest.NewRequest("DELETE", "/reverse-proxies/proxy-tokens/tok-1", nil)
+	req = req.WithContext(authContext("acc-123", "user-1"))
+	req = mux.SetURLVars(req, map[string]string{"tokenId": "tok-1"})
+	w := httptest.NewRecorder()
+
+	h.revokeToken(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+type revocationGuardFunc func(ctx context.Context, token *types.ProxyAccessToken) error
+
+func (f revocationGuardFunc) CheckProxyAccessTokenRevocation(ctx context.Context, token *types.ProxyAccessToken) error {
+	return f(ctx, token)
+}
+
+func TestRevokeToken_GuardRefuses(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	accountID := "acc-123"
+
+	// No RevokeProxyAccessToken expectation: a refused revocation must not
+	// reach the store.
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetProxyAccessTokenByID(gomock.Any(), store.LockingStrengthNone, "tok-1").Return(&types.ProxyAccessToken{
+		ID:        "tok-1",
+		AccountID: &accountID,
+	}, nil)
+
+	permsMgr := permissions.NewMockManager(ctrl)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
+
+	var checked *types.ProxyAccessToken
+	h := &handler{
+		store:              mockStore,
+		permissionsManager: permsMgr,
+		revocationGuard: revocationGuardFunc(func(_ context.Context, token *types.ProxyAccessToken) error {
+			checked = token
+			return status.Errorf(status.PreconditionFailed, "token is in use")
+		}),
+	}
+
+	req := httptest.NewRequest("DELETE", "/reverse-proxies/proxy-tokens/tok-1", nil)
+	req = req.WithContext(authContext(accountID, "user-1"))
+	req = mux.SetURLVars(req, map[string]string{"tokenId": "tok-1"})
+	w := httptest.NewRecorder()
+
+	h.revokeToken(w, req)
+	assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+	assert.Contains(t, w.Body.String(), "token is in use")
+	require.NotNil(t, checked)
+	assert.Equal(t, "tok-1", checked.ID)
+}
+
+func TestRevokeToken_GuardAllows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	accountID := "acc-123"
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetProxyAccessTokenByID(gomock.Any(), store.LockingStrengthNone, "tok-1").Return(&types.ProxyAccessToken{
+		ID:        "tok-1",
+		AccountID: &accountID,
+	}, nil)
+	mockStore.EXPECT().RevokeProxyAccessToken(gomock.Any(), "tok-1").Return(nil)
+
+	permsMgr := permissions.NewMockManager(ctrl)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
+
+	h := &handler{
+		store:              mockStore,
+		permissionsManager: permsMgr,
+		revocationGuard: revocationGuardFunc(func(context.Context, *types.ProxyAccessToken) error {
+			return nil
+		}),
+	}
+
+	req := httptest.NewRequest("DELETE", "/reverse-proxies/proxy-tokens/tok-1", nil)
+	req = req.WithContext(authContext(accountID, "user-1"))
+	req = mux.SetURLVars(req, map[string]string{"tokenId": "tok-1"})
+	w := httptest.NewRecorder()
+
+	h.revokeToken(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRevokeToken_GuardFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	accountID := "acc-123"
+
+	// No RevokeProxyAccessToken expectation: a guard that cannot decide must
+	// not let the revocation through.
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetProxyAccessTokenByID(gomock.Any(), store.LockingStrengthNone, "tok-1").Return(&types.ProxyAccessToken{
+		ID:        "tok-1",
+		AccountID: &accountID,
+	}, nil)
+
+	permsMgr := permissions.NewMockManager(ctrl)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
+
+	h := &handler{
+		store:              mockStore,
+		permissionsManager: permsMgr,
+		revocationGuard: revocationGuardFunc(func(context.Context, *types.ProxyAccessToken) error {
+			return errors.New("connection refused")
+		}),
+	}
+
+	req := httptest.NewRequest("DELETE", "/reverse-proxies/proxy-tokens/tok-1", nil)
+	req = req.WithContext(authContext(accountID, "user-1"))
+	req = mux.SetURLVars(req, map[string]string{"tokenId": "tok-1"})
+	w := httptest.NewRecorder()
+
+	h.revokeToken(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "internal server error")
+	assert.NotContains(t, w.Body.String(), "connection refused")
+}
+
+func TestRevokeToken_GuardNotConsultedForForeignToken(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	otherAccount := "acc-other"
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetProxyAccessTokenByID(gomock.Any(), store.LockingStrengthNone, "tok-1").Return(&types.ProxyAccessToken{
+		ID:        "tok-1",
+		AccountID: &otherAccount,
+	}, nil)
+
+	permsMgr := permissions.NewMockManager(ctrl)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
+
+	// A foreign token must read as not found, not reveal through the guard's
+	// answer that it belongs to some account's managed proxy.
+	h := &handler{
+		store:              mockStore,
+		permissionsManager: permsMgr,
+		revocationGuard: revocationGuardFunc(func(context.Context, *types.ProxyAccessToken) error {
+			t.Fatal("guard consulted for a token the caller does not own")
+			return nil
+		}),
 	}
 
 	req := httptest.NewRequest("DELETE", "/reverse-proxies/proxy-tokens/tok-1", nil)

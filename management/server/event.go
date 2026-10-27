@@ -61,23 +61,34 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 	return filtered, nil
 }
 
+// StoreEvent records an activity, waiting for expiration events before cleanup can stop.
 func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
-	if isEnabled() {
-		go func() {
-			_, err := am.eventStore.Save(ctx, &activity.Event{
-				Timestamp:   time.Now().UTC(),
-				Activity:    activityID.(activity.Activity),
-				InitiatorID: initiatorID,
-				TargetID:    targetID,
-				AccountID:   accountID,
-				Meta:        meta,
-			})
-			if err != nil {
-				// todo add metric
-				log.WithContext(ctx).Errorf("received an error while storing an activity event, error: %s", err)
-			}
-		}()
+	if !isEnabled() {
+		return
 	}
+	eventStore := am.eventStore
+	save := func(ctx context.Context) {
+		_, err := eventStore.Save(ctx, &activity.Event{
+			Timestamp:   time.Now().UTC(),
+			Activity:    activityID.(activity.Activity),
+			InitiatorID: initiatorID,
+			TargetID:    targetID,
+			AccountID:   accountID,
+			Meta:        meta,
+		})
+		if err != nil {
+			log.WithContext(ctx).Errorf("received an error while storing an activity event, error: %s", err)
+		}
+	}
+	if activityID == activity.CustomDomainValidationExpired {
+		// The domain is already deleted; shutdown must allow its audit write to finish.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		save(ctx)
+		return
+	}
+	// Request cancellation must not discard the audit record of a completed operation.
+	go save(context.WithoutCancel(ctx))
 }
 
 type eventUserInfo struct {

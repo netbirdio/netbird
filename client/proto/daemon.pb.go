@@ -2176,17 +2176,20 @@ func (x *SSHServerState) GetSessions() []*SSHSessionInfo {
 
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	ManagementState         *ManagementState       `protobuf:"bytes,1,opt,name=managementState,proto3" json:"managementState,omitempty"`
-	SignalState             *SignalState           `protobuf:"bytes,2,opt,name=signalState,proto3" json:"signalState,omitempty"`
-	LocalPeerState          *LocalPeerState        `protobuf:"bytes,3,opt,name=localPeerState,proto3" json:"localPeerState,omitempty"`
-	Peers                   []*PeerState           `protobuf:"bytes,4,rep,name=peers,proto3" json:"peers,omitempty"`
-	Relays                  []*RelayState          `protobuf:"bytes,5,rep,name=relays,proto3" json:"relays,omitempty"`
-	DnsServers              []*NSGroupState        `protobuf:"bytes,6,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
-	NumberOfForwardingRules int32                  `protobuf:"varint,8,opt,name=NumberOfForwardingRules,proto3" json:"NumberOfForwardingRules,omitempty"`
-	Events                  []*SystemEvent         `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
-	LazyConnectionEnabled   bool                   `protobuf:"varint,9,opt,name=lazyConnectionEnabled,proto3" json:"lazyConnectionEnabled,omitempty"`
-	SshServerState          *SSHServerState        `protobuf:"bytes,10,opt,name=sshServerState,proto3" json:"sshServerState,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ManagementState *ManagementState       `protobuf:"bytes,1,opt,name=managementState,proto3" json:"managementState,omitempty"`
+	SignalState     *SignalState           `protobuf:"bytes,2,opt,name=signalState,proto3" json:"signalState,omitempty"`
+	LocalPeerState  *LocalPeerState        `protobuf:"bytes,3,opt,name=localPeerState,proto3" json:"localPeerState,omitempty"`
+	Peers           []*PeerState           `protobuf:"bytes,4,rep,name=peers,proto3" json:"peers,omitempty"`
+	Relays          []*RelayState          `protobuf:"bytes,5,rep,name=relays,proto3" json:"relays,omitempty"`
+	DnsServers      []*NSGroupState        `protobuf:"bytes,6,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
+	// Unused; the ingress port-forwarding feature was discontinued.
+	//
+	// Deprecated: Marked as deprecated in daemon.proto.
+	NumberOfForwardingRules int32           `protobuf:"varint,8,opt,name=NumberOfForwardingRules,proto3" json:"NumberOfForwardingRules,omitempty"`
+	Events                  []*SystemEvent  `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
+	LazyConnectionEnabled   bool            `protobuf:"varint,9,opt,name=lazyConnectionEnabled,proto3" json:"lazyConnectionEnabled,omitempty"`
+	SshServerState          *SSHServerState `protobuf:"bytes,10,opt,name=sshServerState,proto3" json:"sshServerState,omitempty"`
 	// networksRevision bumps whenever the set of routed networks (route and
 	// exit-node candidates) or their selected state changes. The UI fingerprints
 	// on it to know when to re-fetch ListNetworks via the push stream, instead
@@ -2268,6 +2271,7 @@ func (x *FullStatus) GetDnsServers() []*NSGroupState {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in daemon.proto.
 func (x *FullStatus) GetNumberOfForwardingRules() int32 {
 	if x != nil {
 		return x.NumberOfForwardingRules
@@ -2600,7 +2604,10 @@ func (x *Network) GetResolvedIPs() map[string]*IPList {
 	return nil
 }
 
-// ForwardingRules
+// PortInfo, ForwardingRule and ForwardingRulesResponse are unused; the ingress
+// port-forwarding feature was discontinued.
+//
+// Deprecated: Marked as deprecated in daemon.proto.
 type PortInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to PortSelection:
@@ -2683,6 +2690,7 @@ func (*PortInfo_Port) isPortInfo_PortSelection() {}
 
 func (*PortInfo_Range_) isPortInfo_PortSelection() {}
 
+// Deprecated: Marked as deprecated in daemon.proto.
 type ForwardingRule struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Protocol           string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
@@ -2759,6 +2767,7 @@ func (x *ForwardingRule) GetTranslatedPort() *PortInfo {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in daemon.proto.
 type ForwardingRulesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Rules         []*ForwardingRule      `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
@@ -7303,7 +7312,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
-	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xdb\x04\n" +
+	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xdf\x04\n" +
 	"\n" +
 	"FullStatus\x12A\n" +
 	"\x0fmanagementState\x18\x01 \x01(\v2\x17.daemon.ManagementStateR\x0fmanagementState\x125\n" +
@@ -7312,8 +7321,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x05peers\x18\x04 \x03(\v2\x11.daemon.PeerStateR\x05peers\x12*\n" +
 	"\x06relays\x18\x05 \x03(\v2\x12.daemon.RelayStateR\x06relays\x125\n" +
 	"\vdns_servers\x18\x06 \x03(\v2\x14.daemon.NSGroupStateR\n" +
-	"dnsServers\x128\n" +
-	"\x17NumberOfForwardingRules\x18\b \x01(\x05R\x17NumberOfForwardingRules\x12+\n" +
+	"dnsServers\x12<\n" +
+	"\x17NumberOfForwardingRules\x18\b \x01(\x05B\x02\x18\x01R\x17NumberOfForwardingRules\x12+\n" +
 	"\x06events\x18\a \x03(\v2\x13.daemon.SystemEventR\x06events\x124\n" +
 	"\x15lazyConnectionEnabled\x18\t \x01(\bR\x15lazyConnectionEnabled\x12>\n" +
 	"\x0esshServerState\x18\n" +
@@ -7339,22 +7348,22 @@ const file_daemon_proto_rawDesc = "" +
 	"\vresolvedIPs\x18\x05 \x03(\v2 .daemon.Network.ResolvedIPsEntryR\vresolvedIPs\x1aN\n" +
 	"\x10ResolvedIPsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12$\n" +
-	"\x05value\x18\x02 \x01(\v2\x0e.daemon.IPListR\x05value:\x028\x01\"\x92\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x0e.daemon.IPListR\x05value:\x028\x01\"\x96\x01\n" +
 	"\bPortInfo\x12\x14\n" +
 	"\x04port\x18\x01 \x01(\rH\x00R\x04port\x12.\n" +
 	"\x05range\x18\x02 \x01(\v2\x16.daemon.PortInfo.RangeH\x00R\x05range\x1a/\n" +
 	"\x05Range\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\rR\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\rR\x03endB\x0f\n" +
-	"\rportSelection\"\x80\x02\n" +
+	"\x03end\x18\x02 \x01(\rR\x03end:\x02\x18\x01B\x0f\n" +
+	"\rportSelection\"\x84\x02\n" +
 	"\x0eForwardingRule\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12:\n" +
 	"\x0fdestinationPort\x18\x02 \x01(\v2\x10.daemon.PortInfoR\x0fdestinationPort\x12,\n" +
 	"\x11translatedAddress\x18\x03 \x01(\tR\x11translatedAddress\x12.\n" +
 	"\x12translatedHostname\x18\x04 \x01(\tR\x12translatedHostname\x128\n" +
-	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort\"G\n" +
+	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort:\x02\x18\x01\"K\n" +
 	"\x17ForwardingRulesResponse\x12,\n" +
-	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\x84\x02\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules:\x02\x18\x01\"\x84\x02\n" +
 	"\x12DebugBundleRequest\x12\x1c\n" +
 	"\tanonymize\x18\x01 \x01(\bR\tanonymize\x12\x1e\n" +
 	"\n" +
@@ -7705,7 +7714,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"EXPOSE_UDP\x10\x03\x12\x0e\n" +
 	"\n" +
-	"EXPOSE_TLS\x10\x042\xa3\x1c\n" +
+	"EXPOSE_TLS\x10\x042\xa6\x1c\n" +
 	"\rDaemonService\x126\n" +
 	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
 	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +
@@ -7716,8 +7725,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\tGetConfig\x12\x18.daemon.GetConfigRequest\x1a\x19.daemon.GetConfigResponse\"\x00\x12K\n" +
 	"\fListNetworks\x12\x1b.daemon.ListNetworksRequest\x1a\x1c.daemon.ListNetworksResponse\"\x00\x12Q\n" +
 	"\x0eSelectNetworks\x12\x1d.daemon.SelectNetworksRequest\x1a\x1e.daemon.SelectNetworksResponse\"\x00\x12S\n" +
-	"\x10DeselectNetworks\x12\x1d.daemon.SelectNetworksRequest\x1a\x1e.daemon.SelectNetworksResponse\"\x00\x12J\n" +
-	"\x0fForwardingRules\x12\x14.daemon.EmptyRequest\x1a\x1f.daemon.ForwardingRulesResponse\"\x00\x12H\n" +
+	"\x10DeselectNetworks\x12\x1d.daemon.SelectNetworksRequest\x1a\x1e.daemon.SelectNetworksResponse\"\x00\x12M\n" +
+	"\x0fForwardingRules\x12\x14.daemon.EmptyRequest\x1a\x1f.daemon.ForwardingRulesResponse\"\x03\x88\x02\x01\x12H\n" +
 	"\vDebugBundle\x12\x1a.daemon.DebugBundleRequest\x1a\x1b.daemon.DebugBundleResponse\"\x00\x12H\n" +
 	"\vGetLogLevel\x12\x1a.daemon.GetLogLevelRequest\x1a\x1b.daemon.GetLogLevelResponse\"\x00\x12H\n" +
 	"\vSetLogLevel\x12\x1a.daemon.SetLogLevelRequest\x1a\x1b.daemon.SetLogLevelResponse\"\x00\x12E\n" +

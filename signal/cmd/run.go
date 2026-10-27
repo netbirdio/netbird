@@ -36,7 +36,12 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-const legacyGRPCPort = 10000
+const (
+	legacyGRPCPort = 10000
+	// defaultLetsencryptListenAddress is where Let's Encrypt connects for
+	// TLS-ALPN-01 challenges unless public port 443 is forwarded elsewhere.
+	defaultLetsencryptListenAddress = ":443"
+)
 
 var (
 	signalPort               int
@@ -44,6 +49,7 @@ var (
 	signalLetsencryptDomain  string
 	signalLetsencryptEmail   string
 	signalLetsencryptDataDir string
+	signalLetsencryptListen  string
 	signalCertFile           string
 	signalCertKey            string
 
@@ -119,12 +125,23 @@ var (
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
+			defer srv.Stop()
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
 			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
 
-			if certManager != nil {
-				startServerWithCertManager(certManager, grpcRootHandler)
+			var certListener net.Listener
+			switch {
+			case certManager == nil:
+			case signalPort != 443 && signalLetsencryptListen == "":
+				// The main TLS listener uses the cert manager's TLS config, so it still
+				// answers TLS-ALPN-01 challenges when public port 443 is forwarded to it.
+				log.Infof("LetsEncrypt challenge server disabled, challenges are answered on port %d", signalPort)
+			default:
+				certListener, err = startServerWithCertManager(certManager, grpcRootHandler)
+				if err != nil {
+					return err
+				}
 			}
 
 			var compatListener net.Listener
@@ -167,7 +184,11 @@ var (
 
 			SetupCloseHandler()
 
-			<-stopCh
+			stopCode := <-stopCh
+			if certListener != nil {
+				_ = certListener.Close()
+				log.Infof("stopped LetsEncrypt challenge server")
+			}
 			if grpcListener != nil {
 				_ = grpcListener.Close()
 				log.Infof("stopped gRPC server")
@@ -190,6 +211,9 @@ var (
 
 			log.Infof("stopped Signal Service")
 
+			if stopCode != 0 {
+				return errors.New("signal service stopped after a server failure")
+			}
 			return nil
 		},
 	}
@@ -244,18 +268,24 @@ func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config
 	return []grpc.ServerOption{grpc.Creds(transportCredentials)}, certManager, tlsConfig, err
 }
 
-func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler http.Handler) {
-	// a call to certManager.Listener() always creates a new listener so we do it once
-	httpListener := certManager.Listener()
+func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler http.Handler) (net.Listener, error) {
 	if signalPort == 443 {
+		// a call to certManager.Listener() always creates a new listener so we do it once
+		httpListener := certManager.Listener()
 		// running gRPC and HTTP cert manager on the same port
 		serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler))
 		log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
-	} else {
-		// Start the HTTP cert manager server separately
-		serveHTTP(httpListener, certManager.HTTPHandler(nil))
-		log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
+		return httpListener, nil
 	}
+
+	httpListener, err := tls.Listen("tcp", signalLetsencryptListen, certManager.TLSConfig())
+	if err != nil {
+		return nil, fmt.Errorf("create LetsEncrypt challenge listener on %s: %w", signalLetsencryptListen, err)
+	}
+	// Start the HTTP cert manager server separately
+	serveHTTP(httpListener, certManager.HTTPHandler(nil))
+	log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
+	return httpListener, nil
 }
 
 func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
@@ -288,7 +318,8 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 			Handler: h2c.NewHandler(handler, &http2.Server{}),
 		}
 		err := h1s.Serve(httpListener)
-		if err != nil {
+		// Closing the listener on shutdown is not a failure.
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			notifyStop(fmt.Sprintf("failed running HTTP server %v", err))
 		}
 	}()
@@ -301,7 +332,7 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	}
 	go func() {
 		err := grpcServer.Serve(listener)
-		if err != nil {
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
 		}
 	}()
@@ -333,6 +364,7 @@ func init() {
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptDataDir, "letsencrypt-data-dir", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptDataDir, "ssl-dir", "", "server ssl directory location. *Required only for Let's Encrypt certificates. Deprecated: use --letsencrypt-data-dir")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	runCmd.PersistentFlags().StringVar(&signalLetsencryptListen, "letsencrypt-listen-address", defaultLetsencryptListenAddress, "address of the separate Let's Encrypt challenge listener, used when --port is not 443. Set it empty when public port 443 is forwarded to --port, which answers the challenges itself")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
 	runCmd.PersistentFlags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	runCmd.PersistentFlags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")

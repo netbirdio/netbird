@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"net/url"
+	"strings"
 )
 
 // Identity provider validation errors
@@ -99,7 +100,16 @@ func (idp *IdentityProvider) Validate() error {
 	}
 	if idp.Issuer != "" {
 		parsedURL, err := url.Parse(idp.Issuer)
-		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		if err != nil || parsedURL.Host == "" {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if parsedURL.Scheme != "https" {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if parsedURL.User != nil {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if strings.ContainsAny(idp.Issuer, "?#") {
 			return ErrIdentityProviderIssuerInvalid
 		}
 	}

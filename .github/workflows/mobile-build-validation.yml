@@ -1,0 +1,64 @@
+name: Mobile
+
+on:
+  push:
+    branches:
+      - main
+      - "release-*"
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  android_build:
+    name: "Android / Build"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [arm64, arm, amd64, "386"]
+    env:
+      CGO_ENABLED: 0
+      GOOS: android
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+      - name: Build Android bridge
+        run: go build ./client/android/...
+      - name: Vet Android bridge
+        if: matrix.goarch == 'arm64'
+        run: go vet ./client/android/...
+
+  ios_build:
+    name: "iOS / Build"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [arm64, amd64]
+    env:
+      CGO_ENABLED: 0
+      GOOS: ios
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+      # No `go vet` counterpart: every ios target requires external (cgo)
+      # linking, which needs an Xcode toolchain the runner does not have.
+      - name: Build iOS SDK
+        run: go build ./client/ios/...

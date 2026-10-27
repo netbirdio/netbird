@@ -63,7 +63,12 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		if !ok {
 			return nil, <-errChan
 		}
-		log.Infof("chosen home Relay server: %s", cr.Url)
+		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
+		if err != nil {
+			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
+			return cr.RelayClient, nil
+		}
+		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
 		return cr.RelayClient, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())

@@ -124,19 +124,9 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 		return nil, err
 	}
 
-	var useGPO bool
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
-	if err != nil {
-		log.Debugf("failed to open GPO DNS policy root: %v", err)
-	} else {
-		closer(k)
-		useGPO = true
-		log.Infof("detected GPO DNS policy configuration, using policy store")
-	}
-
 	configurator := &registryConfigurator{
 		guid: guid,
-		gpo:  useGPO,
+		gpo:  useGPOPolicyStore(),
 	}
 
 	origNameservers, err := configurator.captureOriginalNameservers()
@@ -576,14 +566,22 @@ func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value str
 	return nil
 }
 
+// deleteInterfaceRegistryKeyProperty removes a value from the interface key.
+// A value that is already gone, or an interface key that is, is not an error:
+// the caller asked for the value not to be there, and a cleanup that runs twice
+// has to reach its later steps on the second run as well.
 func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey string) error {
 	regKey, err := r.getInterfaceRegistryKey()
-	if err != nil {
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		log.Debugf("interface key of %s does not exist, nothing to delete %s from", r.guid, propertyKey)
+		return nil
+	case err != nil:
 		return fmt.Errorf("get interface registry key: %w", err)
 	}
 	defer closer(regKey)
 
-	if err := regKey.DeleteValue(propertyKey); err != nil {
+	if err := regKey.DeleteValue(propertyKey); err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return fmt.Errorf("delete registry key %s: %w", propertyKey, err)
 	}
 	return nil
@@ -612,7 +610,12 @@ func (r *registryConfigurator) restoreHostDNS() error {
 
 	go r.flushDNSCache()
 
-	return nil
+	// Last, and only on the way out, once no rule of ours is left: during a
+	// session the store is where the rules of this run live, and emptying it
+	// mid-session would have the next rule recreate it anyway. Propagated so a
+	// failure keeps the shutdown state for the next run to retry, rather than
+	// leaving the store to hold up every rule change from here on.
+	return removeEmptyGPOPolicyStore()
 }
 
 // removeDNSMatchPolicies deletes every NRPT rule this client may have created,
@@ -649,6 +652,73 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 
 func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	return r.restoreHostDNS()
+}
+
+// useGPOPolicyStore reports whether NRPT rules have to go into the group policy
+// store, and clears an empty one out of the way first.
+//
+// The order is the point. A store left empty by an earlier run would otherwise
+// decide this run too, sending its rules somewhere the resolver only reads when
+// the policy engine next applies DNS client policy. Removing it before the
+// choice is made leaves the local store authoritative for the whole session,
+// including the first one after an upgrade.
+func useGPOPolicyStore() bool {
+	if err := removeEmptyGPOPolicyStore(); err != nil {
+		// Nothing to retry against here: the worst case is the run going
+		// through the group policy store, which is where it would have gone
+		// before this check existed.
+		log.Warnf("%v", err)
+	}
+
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
+	if err != nil {
+		log.Debugf("failed to open GPO DNS policy root: %v", err)
+		return false
+	}
+	closer(k)
+
+	log.Infof("detected GPO DNS policy configuration, using policy store")
+	return true
+}
+
+// removeEmptyGPOPolicyStore deletes the group policy DnsPolicyConfig key once
+// nothing is left in it. The key survives the deletion of the last rule it
+// held, and the client treats its presence as "group policy configures the
+// NRPT", so an empty one left behind keeps every later run writing rules there.
+// Rules in that store reach the resolver only when the policy engine next
+// applies DNS client policy, and a rule this client writes belongs to no GPO,
+// so nothing schedules that application: both adding and removing a rule are
+// held up by a minute or more, and for a removal that is a catch-all rule
+// resolving every name over an interface that no longer exists. With the store
+// absent the local one is authoritative and a change applies at once.
+//
+// A store that still holds rules, values or subkeys of somebody else's is left
+// alone.
+func removeEmptyGPOPolicyStore() error {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		return nil
+	case err != nil:
+		return fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	info, err := k.Stat()
+	closer(k)
+	if err != nil {
+		return fmt.Errorf("stat HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	if info.SubKeyCount != 0 || info.ValueCount != 0 {
+		return nil
+	}
+
+	if err := registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot); err != nil {
+		return fmt.Errorf("delete empty HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	log.Infof("removed the empty GPO DNS policy store, leaving the local one authoritative")
+	return nil
 }
 
 // listNRPTRuleKeys returns the names of our NRPT rule keys under a policy store

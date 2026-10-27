@@ -35,6 +35,7 @@
             "ProcessIsRunning": false
           }
         ],
+        "Certificates": null,
         "Capabilities": [
           1,
           2
@@ -90,6 +91,7 @@
             "ProcessIsRunning": false
           }
         ],
+        "Certificates": null,
         "Capabilities": [
           1,
           2
@@ -145,6 +147,7 @@
             "ProcessIsRunning": false
           }
         ],
+        "Certificates": null,
         "Capabilities": [
           1,
           2
@@ -433,7 +436,8 @@
             "192.168.0.1/24"
           ]
         },
-        "ProcessCheck": null
+        "ProcessCheck": null,
+        "CertificateCheck": null
       }
     }
   },

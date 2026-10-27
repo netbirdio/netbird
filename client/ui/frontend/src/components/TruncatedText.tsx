@@ -6,9 +6,16 @@ type Props = {
     className?: string;
     tooltipContent?: ReactNode;
     delayDuration?: number;
+    dir?: "ltr" | "rtl" | "auto";
 };
 
-export const TruncatedText = ({ text, className, tooltipContent, delayDuration = 600 }: Props) => {
+export const TruncatedText = ({
+    text,
+    className,
+    tooltipContent,
+    delayDuration = 600,
+    dir = "auto",
+}: Props) => {
     const ref = useRef<HTMLSpanElement>(null);
     const [overflowing, setOverflowing] = useState(false);
 
@@ -19,7 +26,7 @@ export const TruncatedText = ({ text, className, tooltipContent, delayDuration =
     }, [text]);
 
     const span = (
-        <span ref={ref} className={className}>
+        <span ref={ref} dir={dir} className={className}>
             {text}
         </span>
     );

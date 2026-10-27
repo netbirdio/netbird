@@ -132,13 +132,7 @@ type ConnectionOptions struct {
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
 func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) (*Auth0Manager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
-
-	httpClient := &http.Client{
-		Timeout:   idpTimeout(),
-		Transport: httpTransport,
-	}
+	httpClient := newHTTPClient()
 
 	helper := JsonParser{}
 

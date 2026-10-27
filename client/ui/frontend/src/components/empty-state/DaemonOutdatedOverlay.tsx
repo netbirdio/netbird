@@ -41,7 +41,7 @@ export const DaemonOutdatedOverlay = () => {
     return (
         <div
             className={
-                "wails-draggable fixed inset-0 z-[100] flex cursor-default select-none items-center justify-center bg-nb-gray-950 backdrop-blur-sm"
+                "wails-draggable fixed inset-0 z-100 flex cursor-default items-center justify-center bg-nb-gray-950 backdrop-blur-xs select-none"
             }
         >
             <div className={"flex max-w-lg flex-col items-center gap-5 px-8 text-center"}>
@@ -65,7 +65,7 @@ export const DaemonOutdatedOverlay = () => {
                         {clientVersion === "development" ? (
                             <span>
                                 {t("settings.about.clientName")}{" "}
-                                <span className={"font-mono text-yellow-400"}>
+                                <span dir={"auto"} className={"font-mono text-yellow-400"}>
                                     {t("settings.about.development")}
                                 </span>
                             </span>
@@ -77,7 +77,7 @@ export const DaemonOutdatedOverlay = () => {
                         {guiVersion === "development" ? (
                             <span>
                                 {t("settings.about.guiName")}{" "}
-                                <span className={"font-mono text-yellow-400"}>
+                                <span dir={"auto"} className={"font-mono text-yellow-400"}>
                                     {t("settings.about.development")}
                                 </span>
                             </span>

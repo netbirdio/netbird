@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -14,6 +15,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -47,7 +49,7 @@ const (
 
 // GetPeers returns peers visible to the user within an account.
 // Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
@@ -59,7 +61,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	}
 
 	if allowed {
-		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter, macFilter)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -71,7 +73,9 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	peers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+
+	return peers, err
 }
 
 // MarkPeerConnected marks a peer as connected with optimistic-locked
@@ -99,7 +103,9 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	updated, err := am.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st store.Store) (bool, error) {
+		return st.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
 		return err
@@ -136,12 +142,29 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	return nil
 }
 
-func (am *DefaultAccountManager) RefreshPeerLastSeen(ctx context.Context, accountId, peerId string) error {
-	_, err := am.Store.RefreshPeerLastSeen(ctx, accountId, peerId, time.Now())
-	return err
+// writePeerStatus runs a peer status write. The connection state of an embedded
+// proxy peer is part of the network map, so for those peers an applied write also
+// increments the account network serial in the same transaction.
+func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func(store.Store) (bool, error)) (bool, error) {
+	if !peer.ProxyMeta.Embedded {
+		return write(am.Store)
+	}
+
+	var updated bool
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		if updated, err = write(transaction); err != nil || !updated {
+			return err
+		}
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+		return nil
+	})
+	return updated, err
 }
 
-// schedulePeerExpirations reschedules the account's login/inactivity expiration
+// schedulePeerExpirations arms the account's login/inactivity expiration
 // timers for an SSO peer that just connected.
 func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
 	if !peer.AddedWithSSOLogin() {
@@ -155,7 +178,7 @@ func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, ac
 		am.schedulePeerLoginExpiration(ctx, accountID)
 	}
 	if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
-		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		am.schedulePeerInactivityExpiration(ctx, accountID)
 	}
 	return nil
 }
@@ -180,7 +203,9 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		return err
 	}
 
-	updated, err := am.Store.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st store.Store) (bool, error) {
+		return st.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusError)
 		return err
@@ -293,19 +318,34 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			var newLabel string
 
 			newLabel, err = nbdns.GetParsedDomainLabel(update.Name)
-			if err != nil {
-				newLabel = ""
-			} else {
-				_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
-				if err == nil {
-					newLabel = ""
-				}
-			}
-
-			if newLabel == "" {
-				newLabel, err = getPeerIPDNSLabel(peer.IP, update.Name)
+			if settings.PeerHostnameCollisionRejected {
 				if err != nil {
-					return fmt.Errorf("failed to get free DNS label: %w", err)
+					return status.Errorf(status.InvalidArgument, "invalid peer name: %v", err)
+				}
+				if newLabel != peer.DNSLabel {
+					taken, err := peerLabelTaken(ctx, transaction, accountID, newLabel)
+					if err != nil {
+						return err
+					}
+					if taken {
+						return errPeerHostnameInUse(update.Name)
+					}
+				}
+			} else {
+				if err != nil {
+					newLabel = ""
+				} else {
+					_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
+					if err == nil {
+						newLabel = ""
+					}
+				}
+
+				if newLabel == "" {
+					newLabel, err = getPeerIPDNSLabel(peer.IP, update.Name)
+					if err != nil {
+						return fmt.Errorf("failed to get free DNS label: %w", err)
+					}
 				}
 			}
 			peer.Name = update.Name
@@ -335,12 +375,15 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return transaction.SavePeer(ctx, accountID, peer)
 	})
 	if err != nil {
+		if peerLabelChanged && isUniqueConstraintError(err) {
+			return nil, errPeerHostnameInUse(peer.Name)
+		}
 		return nil, err
 	}
 
@@ -601,7 +644,7 @@ func (am *DefaultAccountManager) deletePeerInTransaction(ctx context.Context, ac
 		}
 
 		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return nil
@@ -715,11 +758,11 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, encodedHashedKey string, peer *nbpeer.Peer, opEvent *activity.Event, config *peerAddAuthConfig) error {
 	sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
 	if err != nil {
-		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+		return err
 	}
 
 	if !sk.IsValid() {
-		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+		return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 	}
 
 	if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
@@ -837,6 +880,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		return nil, nil, nil, false, fmt.Errorf("failed getting network: %w", err)
 	}
 
+	hostLabel, err := nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
+	if err != nil {
+		return nil, nil, nil, false, status.Errorf(status.InvalidArgument, "invalid peer hostname: %v", err)
+	}
+	rejectLabelCollision := settings.PeerHostnameCollisionRejected
+	labelTaken := false
+
+	var insertErr error
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		netPrefix, err := netip.ParsePrefix(network.Net.String())
@@ -848,14 +899,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			return nil, nil, nil, false, fmt.Errorf("failed to get free IP: %w", err)
 		}
 
-		var freeLabel string
-		if ephemeral || attempt > 1 {
+		freeLabel := hostLabel
+		if !rejectLabelCollision && (ephemeral || labelTaken) {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
-			if err != nil {
-				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
-			}
-		} else {
-			freeLabel, err = nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
 			}
@@ -889,7 +935,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			}
 		}
 
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		insertErr = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
 				return err
@@ -920,12 +966,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			case addedBySetupKey:
 				sk, err := transaction.GetSetupKeyBySecret(ctx, store.LockingStrengthUpdate, encodedHashedKey)
 				if err != nil {
-					return fmt.Errorf("failed to get setup key: %w", err)
+					return err
 				}
 
 				// we validate at the end to not block the setup key for too long
 				if !sk.IsValid() {
-					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+					return status.Errorf(status.PermissionDenied, "couldn't add peer: setup key is invalid")
 				}
 
 				err = transaction.IncrementSetupKeyUsage(ctx, peerAddConfig.SetupKeyID)
@@ -936,7 +982,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 			err = transaction.IncrementNetworkSerial(ctx, accountID)
 			if err != nil {
-				return fmt.Errorf("failed to increment network serial: %w", err)
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 
 			if ephemeral {
@@ -947,16 +993,28 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			log.WithContext(ctx).Debugf("Peer %s added to account %s", newPeer.ID, accountID)
 			return nil
 		})
-		if err == nil {
+		if insertErr == nil {
 			break
 		}
 
-		if isUniqueConstraintError(err) {
-			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, err)
+		if isUniqueConstraintError(insertErr) {
+			if freeLabel == hostLabel {
+				labelTaken, err = peerLabelTaken(ctx, am.Store, accountID, hostLabel)
+				if err != nil {
+					return nil, nil, nil, false, err
+				}
+				if labelTaken && rejectLabelCollision {
+					return nil, nil, nil, false, errPeerHostnameInUse(peer.Meta.Hostname)
+				}
+			}
+			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, insertErr)
 			continue
 		}
 
-		return nil, nil, nil, false, fmt.Errorf("failed to add peer to database: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("failed to add peer to database: %w", insertErr)
+	}
+	if insertErr != nil {
+		return nil, nil, nil, false, fmt.Errorf("add peer after %d attempts: %w", maxAttempts, insertErr)
 	}
 	if newPeer == nil {
 		return nil, nil, nil, false, fmt.Errorf("new peer is nil")
@@ -988,6 +1046,24 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	}
 
 	return newPeer, network, postureChecks, enableSSH, nil
+}
+
+// peerLabelTaken reports whether a peer of the account already uses the DNS label.
+func peerLabelTaken(ctx context.Context, s store.Store, accountID, label string) (bool, error) {
+	_, err := s.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, label)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return false, nil
+	default:
+		return false, fmt.Errorf("check peer DNS label: %w", err)
+	}
+}
+
+// errPeerHostnameInUse is a PermissionDenied error because the client treats only that gRPC code as a permanent login failure instead of retrying.
+func errPeerHostnameInUse(hostname string) error {
+	return status.Errorf(status.PermissionDenied, "peer with hostname %q is already registered", hostname)
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
@@ -1046,6 +1122,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
+			}
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 		}
 		return nil
@@ -1221,6 +1300,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if shouldStorePeer {
 			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
+			}
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("increment network serial: %w", err)
 			}
 		}
 
@@ -1548,30 +1630,20 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // ExpandAndUpdateAffected expands a Snapshot (loaded INSIDE the now-committed
 // transaction) into the affected peers and dispatches the network-map refresh.
 // Pure in-memory work plus dispatch, so it runs AFTER commit — the fan-out walk
-// never holds the write lock, over the consistent in-tx snapshot. Exported so the
-// networks sub-package managers (which hold only account.Manager) share it.
+// never holds the write lock, over the consistent in-tx snapshot. The walk runs
+// before the dispatch goroutine starts, so the snapshot is released on return.
+// Exported so the networks sub-package managers (which hold only account.Manager)
+// share it.
 func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
-	go am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap}, []affectedpeers.Change{change})
+	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change))
 }
 
-// dispatchAffected expands one or more (snapshot, change) pairs — collected across
-// one or several transactions — unions their affected peers, and dispatches a
-// single network-map refresh. Each snapshot must already be loaded inside its
-// transaction; this runs AFTER commit (pure in-memory + dispatch). It is spawned
-// in a goroutine that outlives the request, so it detaches from the request
-// context's cancellation up front.
-func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
+// dispatchAffectedPeerIDs dispatches a single network-map refresh for already
+// expanded affected peer IDs. It may run in a goroutine that outlives the
+// request, so it detaches from the request context's cancellation up front.
+func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
 	ctx = context.WithoutCancel(ctx)
 
-	var lists [][]string
-	for i, snap := range snaps {
-		if snap == nil {
-			continue
-		}
-		lists = append(lists, snap.Expand(ctx, accountID, changes[i]))
-	}
-
-	affectedPeerIDs := unionStrings(lists...)
 	if len(affectedPeerIDs) == 0 {
 		log.WithContext(ctx).Tracef("no affected peers for account %s", accountID)
 		return
@@ -1581,21 +1653,19 @@ func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID
 	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 }
 
-// unionStrings concatenates the given string lists into one deduplicated slice,
-// preserving first-occurrence order.
-func unionStrings(lists ...[]string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, list := range lists {
-		for _, id := range list {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			out = append(out, id)
-		}
+// affectedPeerSet collects the affected peer IDs of several snapshot expansions,
+// deduplicating as they are added so it stays bounded by the account's peers
+// however many items a batch has.
+type affectedPeerSet map[string]struct{}
+
+func (s affectedPeerSet) add(peerIDs []string) {
+	for _, id := range peerIDs {
+		s[id] = struct{}{}
 	}
-	return out
+}
+
+func (s affectedPeerSet) ids() []string {
+	return maps.Keys(s)
 }
 
 // affectedPeerIDsFromNetworkMap returns the peer IDs referenced by a peer's
@@ -1666,6 +1736,9 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1709,6 +1782,9 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1844,15 +1920,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 // validatePeerDelete checks if the peer can be deleted.
 func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transaction store.Store, accountId, peerId string) error {
-	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
-	if err != nil {
-		return err
-	}
-
-	if linkedInIngressPorts {
-		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
-	}
-
 	linked, router := isPeerLinkedToNetworkRouter(ctx, transaction, accountId, peerId)
 	if linked {
 		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)

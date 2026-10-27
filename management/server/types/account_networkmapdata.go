@@ -198,6 +198,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 			KernelVersion:      p.Meta.KernelVersion,
 			NetworkAddresses:   networkAddresses,
 			Files:              files,
+			Certificates:       p.Meta.Certificates,
 			Capabilities:       p.Meta.Capabilities,
 			SyncMessageVersion: p.Meta.SyncMessageVersion,
 			Flags: nmdata.Flags{
@@ -213,8 +214,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	}
 }
 
-// TwinPeer converts a real peer to its slim nmdata twin. Exported for the
-// port-forwarding integration, which builds proxy NetworkMaps holding twins.
+// TwinPeer converts a real peer to its slim nmdata twin.
 func TwinPeer(p *nbpeer.Peer) *nmdata.Peer {
 	return twinPeer(p)
 }
@@ -452,6 +452,9 @@ func TwinPostureChecks(pc *posture.Checks) *nmdata.PostureChecks {
 			procs = append(procs, nmdata.Process{LinuxPath: p.LinuxPath, MacPath: p.MacPath, WindowsPath: p.WindowsPath})
 		}
 		out.Checks.ProcessCheck = &nmdata.ProcessCheck{Processes: procs}
+	}
+	if def.CertificateCheck != nil {
+		out.Checks.CertificateCheck = &nmdata.CertificateCheck{CACertificates: def.CertificateCheck.CACertificates}
 	}
 	return out
 }

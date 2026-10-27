@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -75,14 +76,69 @@ func TestMultiTransport_AppliesEnvOverridesToDirect(t *testing.T) {
 
 	mt := NewMultiTransport(&stubRoundTripper{body: "embedded"}, nil)
 
-	assert.Equal(t, 42, mt.direct.MaxIdleConns,
+	assert.Equal(t, 42, mt.direct.primary.MaxIdleConns,
 		"NB_PROXY_MAX_IDLE_CONNS must propagate to the direct transport")
-	assert.Equal(t, 11*time.Second, mt.direct.IdleConnTimeout,
+	assert.Equal(t, 11*time.Second, mt.direct.primary.IdleConnTimeout,
 		"NB_PROXY_IDLE_CONN_TIMEOUT must propagate to the direct transport")
-	assert.Equal(t, 7*time.Second, mt.direct.TLSHandshakeTimeout,
+	assert.Equal(t, 7*time.Second, mt.direct.primary.TLSHandshakeTimeout,
 		"NB_PROXY_TLS_HANDSHAKE_TIMEOUT must propagate to the direct transport")
-	assert.Equal(t, 42, mt.insecure.MaxIdleConns,
+	assert.Equal(t, 42, mt.insecure.primary.MaxIdleConns,
 		"env tuning must also apply to the insecure-skip-verify direct transport")
+}
+
+// TestMultiTransport_UpstreamHTTPVersion pins the protocol actually
+// negotiated with an HTTPS upstream that offers both h2 and http/1.1.
+// The request rides the insecure clone, so this also covers the version
+// surviving http.Transport.Clone.
+func TestMultiTransport_UpstreamHTTPVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       string
+		wantProto string
+	}{
+		{name: "unset negotiates h2", env: "", wantProto: "HTTP/2.0"},
+		{name: "auto negotiates h2", env: "auto", wantProto: "HTTP/2.0"},
+		{name: "1.1 pins http/1.1", env: "1.1", wantProto: "HTTP/1.1"},
+		{name: "2 negotiates h2", env: "2", wantProto: "HTTP/2.0"},
+		{name: "unsupported value keeps the default", env: "http3", wantProto: "HTTP/2.0"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// t.Setenv registers the restore for whatever the process
+			// inherited; unsetting afterwards lets the default row
+			// exercise a genuinely absent variable.
+			t.Setenv(EnvUpstreamHTTPVersion, tc.env)
+			if tc.env == "" {
+				require.NoError(t, os.Unsetenv(EnvUpstreamHTTPVersion))
+			}
+
+			// The test server's certificate isn't in any root pool, so the
+			// request rides the insecure branch via WithSkipTLSVerify.
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, r.Proto)
+			}))
+			srv.EnableHTTP2 = true
+			srv.StartTLS()
+			defer srv.Close()
+
+			mt := NewDirectOnly(nil)
+			ctx := WithSkipTLSVerify(WithDirectUpstream(context.Background()))
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+			require.NoError(t, err)
+
+			resp, err := mt.RoundTrip(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantProto, resp.Proto,
+				"client-side protocol must follow %s=%q", EnvUpstreamHTTPVersion, tc.env)
+			assert.Equal(t, tc.wantProto, string(body),
+				"the upstream must see the same protocol the client negotiated")
+		})
+	}
 }
 
 // TestMultiTransport_NilEmbeddedErrorsWhenWGPathRequested guards
