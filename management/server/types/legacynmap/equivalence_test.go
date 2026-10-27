@@ -407,6 +407,10 @@ func pruneExpiredFromLegacyMap(legacy *proto.NetworkMap, keys, ips, resourceIDs 
 		}
 		return allV6 && (r.IsDynamic || strings.HasSuffix(r.RouteID, "-v6-default"))
 	})
+
+	legacy.RemotePeersIsEmpty = len(legacy.RemotePeers) == 0
+	legacy.FirewallRulesIsEmpty = len(legacy.FirewallRules) == 0
+	legacy.RoutesFirewallRulesIsEmpty = len(legacy.RoutesFirewallRules) == 0
 }
 
 // canonicalize sorts every repeated field by a stable key. Both paths iterate Go
@@ -772,8 +776,9 @@ func TestPruneExpiredFromLegacyMap(t *testing.T) {
 	keys := map[string]struct{}{"key-x": {}}
 	ips := map[string]struct{}{"100.64.0.9": {}, "fd00::9": {}}
 	legacy := &proto.NetworkMap{
-		RemotePeers: []*proto.RemotePeerConfig{{WgPubKey: "key-x"}, {WgPubKey: "key-y"}},
-		Routes:      []*proto.Route{{Peer: "key-x"}, {Peer: "key-y"}},
+		RemotePeers:   []*proto.RemotePeerConfig{{WgPubKey: "key-x"}, {WgPubKey: "key-y"}},
+		FirewallRules: []*proto.FirewallRule{{PeerIP: "100.64.0.9"}},
+		Routes:        []*proto.Route{{Peer: "key-x"}, {Peer: "key-y"}},
 		RoutesFirewallRules: []*proto.RouteFirewallRule{
 			{RouteID: "r1", SourceRanges: []string{"100.64.0.9/32", "100.64.0.8/32"}},
 			{RouteID: "r2", SourceRanges: []string{"100.64.0.9/32"}},
@@ -789,6 +794,9 @@ func TestPruneExpiredFromLegacyMap(t *testing.T) {
 
 	require.Len(t, legacy.RemotePeers, 1)
 	require.Len(t, legacy.Routes, 1)
+	require.False(t, legacy.RemotePeersIsEmpty)
+	require.True(t, legacy.FirewallRulesIsEmpty)
+	require.False(t, legacy.RoutesFirewallRulesIsEmpty)
 	require.Len(t, legacy.RoutesFirewallRules, 4)
 	require.Equal(t, []string{"100.64.0.8/32"}, legacy.RoutesFirewallRules[0].SourceRanges)
 	require.Empty(t, legacy.RoutesFirewallRules[1].SourceRanges, "an IPv4 rule stays even without sources")

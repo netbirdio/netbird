@@ -270,7 +270,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 			}
 
 			if peerInDestinations && rule.IsAccept() && rule.Protocol == string(PolicyRuleProtocolNetbirdSSH) {
-				if c.isAuthorizedUserDenied(rule) {
+				if c.IsAuthorizedUserDenied(rule) {
 					continue
 				}
 				sshEnabled = true
@@ -323,8 +323,8 @@ func (c *NetworkMapComponents) getAllowedUserIDs() map[string]struct{} {
 	return make(map[string]struct{})
 }
 
-// isAuthorizedUserDenied reports whether a rule pinned to a single authorized user names a user that is not allowed.
-func (c *NetworkMapComponents) isAuthorizedUserDenied(rule *nmdata.PolicyRule) bool {
+// IsAuthorizedUserDenied reports whether a rule pinned to a single authorized user names a user that is not allowed.
+func (c *NetworkMapComponents) IsAuthorizedUserDenied(rule *nmdata.PolicyRule) bool {
 	if len(rule.AuthorizedGroups) > 0 || rule.AuthorizedUser == "" {
 		return false
 	}

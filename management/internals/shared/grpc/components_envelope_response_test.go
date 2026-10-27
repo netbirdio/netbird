@@ -172,6 +172,35 @@ func TestComputeSSHEnabledForPeer(t *testing.T) {
 	}
 }
 
+func TestComputeSSHEnabledForPeer_AuthorizedUser(t *testing.T) {
+	const targetPeerID = "target"
+	const targetGroupID = "g_dst"
+
+	mk := func(rule nmdata.PolicyRule, allowed map[string]struct{}) (*types.NetworkMapComponents, *nmdata.Peer) {
+		peer := &nmdata.Peer{ID: targetPeerID}
+		rule.Enabled, rule.Action, rule.Protocol = true, "accept", string(types.PolicyRuleProtocolNetbirdSSH)
+		rule.Destinations = []string{targetGroupID}
+		return &types.NetworkMapComponents{
+			Peers:          map[string]*nmdata.Peer{targetPeerID: peer},
+			Groups:         map[string]*nmdata.Group{targetGroupID: {Peers: []string{targetPeerID}}},
+			Policies:       []*nmdata.Policy{{ID: "p", Enabled: true, Rules: []*nmdata.PolicyRule{&rule}}},
+			AllowedUserIDs: allowed,
+		}, peer
+	}
+
+	c, peer := mk(nmdata.PolicyRule{AuthorizedUser: "u1"}, map[string]struct{}{"u1": {}})
+	assert.True(t, computeSSHEnabledForPeer(c, peer), "an allowed authorized user enables SSH")
+
+	c, peer = mk(nmdata.PolicyRule{AuthorizedUser: "u1"}, map[string]struct{}{"u2": {}})
+	assert.False(t, computeSSHEnabledForPeer(c, peer), "a blocked authorized user must not enable SSH")
+
+	c, peer = mk(nmdata.PolicyRule{AuthorizedUser: "u1"}, nil)
+	assert.False(t, computeSSHEnabledForPeer(c, peer), "a nil allowed set denies")
+
+	c, peer = mk(nmdata.PolicyRule{AuthorizedUser: "u1", AuthorizedGroups: map[string][]string{"g": {"root"}}}, nil)
+	assert.True(t, computeSSHEnabledForPeer(c, peer), "authorized groups take precedence over the user pin")
+}
+
 // TestComputeSSHEnabledForPeer_TargetMissingFromComponents covers the
 // belt-and-suspenders presence guard mirroring Calculate's
 // getAllPeersFromGroups invariant.

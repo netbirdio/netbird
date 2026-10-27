@@ -135,7 +135,7 @@ func ruleEnablesSSHForPeer(c *types.NetworkMapComponents, rule *nmdata.PolicyRul
 		return false
 	}
 	if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
-		return true
+		return !c.IsAuthorizedUserDenied(rule)
 	}
 	return peer.SSHEnabled && nmdata.PolicyRuleImpliesLegacySSH(rule)
 }
