@@ -9,10 +9,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
@@ -79,7 +79,7 @@ func (w *testWGIface) ToInterface() *net.Interface                { return nil }
 func (w *testWGIface) IsUserspaceBind() bool                      { return false }
 func (w *testWGIface) GetFilter() device.PacketFilter             { return nil }
 func (w *testWGIface) GetDevice() *device.FilteredDevice          { return nil }
-func (w *testWGIface) GetNet() *netstack.Net                      { return nil }
+func (w *testWGIface) GetNet() *wgbackend.NetstackNet             { return nil }
 func (w *testWGIface) GetInterfaceGUIDString() (string, error)    { return "", nil }
 
 func TestRoute_InstallsEveryPrefix(t *testing.T) {
