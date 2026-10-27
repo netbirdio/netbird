@@ -15,16 +15,14 @@ import (
 
 const (
 	transactionTimeoutEnv = "NB_STORE_TRANSACTION_TIMEOUT"
-	// statementTimeoutEnv bounds every Postgres statement; zero keeps the server setting.
-	statementTimeoutEnv     = "NB_STORE_STATEMENT_TIMEOUT"
-	defaultStatementTimeout = time.Minute
+	statementTimeoutEnv   = "NB_STORE_STATEMENT_TIMEOUT"
 )
 
 // sessionTimeouts sets the configured timeouts on each new Postgres session with
 // SET, since poolers such as PgBouncer reject them as startup parameters.
 func sessionTimeouts() func(context.Context, *pgx.Conn) error {
 	var settings []string
-	if d := util.DurationFromEnv(statementTimeoutEnv, defaultStatementTimeout); d > 0 {
+	if d := util.DurationFromEnv(statementTimeoutEnv, 0); d > 0 {
 		settings = append(settings, "SET statement_timeout = "+postgresMillis(d))
 	}
 	if d := util.DurationFromEnv(transactionTimeoutEnv, defaultTransactionTimeout); d > 0 {

@@ -29,12 +29,11 @@ type TxMetrics interface {
 // Conn is a database connection the repositories run on: one gorm handle, the
 // pgx pool of a Postgres deployment and the engine they talk to.
 type Conn struct {
-	db               *gorm.DB
-	pool             *pgxpool.Pool
-	engine           Engine
-	txTimeout        time.Duration
-	statementTimeout time.Duration
-	metrics          TxMetrics
+	db        *gorm.DB
+	pool      *pgxpool.Pool
+	engine    Engine
+	txTimeout time.Duration
+	metrics   TxMetrics
 }
 
 // Option tunes a Conn as it is opened.
@@ -54,8 +53,8 @@ func WithMaxOpenConns(n int) Option {
 }
 
 // NewConn takes ownership of an open gorm handle and pool once it returns
-// without error, applying the connection limits and timeouts configured
-// through the environment and opts.
+// without error, applying the connection limits and transaction timeout
+// configured through the environment and opts.
 func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool, opts ...Option) (*Conn, error) {
 	sqlDB, err := gormDB.DB()
 	if err != nil {
@@ -69,9 +68,8 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 
 	txTimeout := util.DurationFromEnv(transactionTimeoutEnv, defaultTransactionTimeout)
 	log.WithContext(ctx).Infof("Setting transaction timeout to %v", txTimeout)
-	statementTimeout := util.DurationFromEnv(statementTimeoutEnv, defaultStatementTimeout)
-	if engine == PostgresStoreEngine {
-		log.WithContext(ctx).Infof("Setting statement timeout to %v", statementTimeout)
+	if d := util.DurationFromEnv(statementTimeoutEnv, 0); engine == PostgresStoreEngine && d > 0 {
+		log.WithContext(ctx).Infof("Setting statement timeout to %v", d)
 	}
 
 	conns := runtime.NumCPU()
@@ -98,7 +96,7 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 	log.WithContext(ctx).Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
 		conns, conns, connMaxLifetime, connMaxIdleTime)
 
-	return &Conn{db: gormDB, pool: pool, engine: engine, txTimeout: txTimeout, statementTimeout: statementTimeout}, nil
+	return &Conn{db: gormDB, pool: pool, engine: engine, txTimeout: txTimeout}, nil
 }
 
 // DB returns the handle a query must run on: the transaction when tx is set,

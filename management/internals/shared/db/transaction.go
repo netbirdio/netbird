@@ -61,10 +61,8 @@ func (c *Conn) applyStatementTimeouts(tx *gorm.DB) error {
 	if c.engine != PostgresStoreEngine {
 		return nil
 	}
-	if c.statementTimeout > 0 {
-		if err := tx.Exec("SET LOCAL statement_timeout = " + postgresMillis(c.statementTimeout)).Error; err != nil {
-			return fmt.Errorf("failed to set statement timeout: %w", err)
-		}
+	if err := tx.Exec("SET LOCAL statement_timeout = '1min'").Error; err != nil {
+		return fmt.Errorf("failed to set statement timeout: %w", err)
 	}
 	if err := tx.Exec("SET LOCAL lock_timeout = '1min'").Error; err != nil {
 		return fmt.Errorf("failed to set lock timeout: %w", err)

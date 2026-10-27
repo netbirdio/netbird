@@ -49,21 +49,28 @@ func TestOpenPostgres_BoundsEverySession(t *testing.T) {
 	_, err := conn.Pool(nil).Exec(ctx, "SELECT pg_sleep(1)")
 	requireStatementTimeout(t, err)
 
-	err = conn.RunInTx(ctx, func(tx *Tx) error {
-		return conn.DB(tx).Exec("SELECT pg_sleep(1)").Error
-	})
-	requireStatementTimeout(t, err)
+	var inTx string
+	require.NoError(t, conn.RunInTx(ctx, func(tx *Tx) error {
+		return conn.DB(tx).Raw("SHOW statement_timeout").Scan(&inTx).Error
+	}))
+	assert.Equal(t, "1min", inTx, "transactions should keep their own 1 minute bound")
 
 	assert.Equal(t, "3min", showSetting(t, conn.DB(nil), "idle_in_transaction_session_timeout"),
 		"the idle transaction timeout should follow the transaction timeout")
 }
 
-func TestOpenPostgres_ZeroStatementTimeoutKeepsServerSetting(t *testing.T) {
-	t.Setenv(statementTimeoutEnv, "0")
-	conn := openPostgresTestConn(t)
+func TestOpenPostgres_NoStatementTimeoutKeepsServerSetting(t *testing.T) {
+	for name, value := range map[string]string{"unset": "", "zero": "0"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(statementTimeoutEnv, value)
+			if value == "" {
+				require.NoError(t, os.Unsetenv(statementTimeoutEnv))
+			}
+			conn := openPostgresTestConn(t)
 
-	assert.Equal(t, "0", showSetting(t, conn.DB(nil), "statement_timeout"), "the server default should be left in place")
-	require.NoError(t, conn.DB(nil).Exec("SELECT pg_sleep(0.6)").Error)
+			assert.Equal(t, "0", showSetting(t, conn.DB(nil), "statement_timeout"), "sessions should keep the server setting")
+		})
+	}
 }
 
 func TestOpenPostgres_CapsTimeoutsAtServerMaximum(t *testing.T) {
