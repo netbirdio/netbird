@@ -189,7 +189,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
-	dropLoginExpiredPeers(components, peer.SupportsIPv6() && peer.IPv6.IsValid())
+	dropLoginExpiredPeers(components)
 	filterGroupPeers(&components.Groups, components.Peers)
 	nmd.collectPostureFailedPeers(components, sourceFailures)
 
@@ -200,18 +200,23 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 // components, together with the routes and routers that point at it, so no consumer
 // of the components can reach it. Groups and posture failures are narrowed to the
 // remaining peers afterwards.
-func dropLoginExpiredPeers(c *types.NetworkMapComponents, includeIPv6 bool) {
+func dropLoginExpiredPeers(c *types.NetworkMapComponents) {
 	expired := make(map[string]struct{})
-	for id, p := range c.Peers {
-		if id != c.PeerID && p != nil && c.IsLoginExpired(p) {
+	expiredIPs := make(map[string]struct{})
+	collect := func(peers map[string]*nmdata.Peer) {
+		for id, p := range peers {
+			if id == c.PeerID || !c.IsLoginExpired(p) {
+				continue
+			}
 			expired[id] = struct{}{}
+			expiredIPs[p.IP.String()] = struct{}{}
+			if p.IPv6.IsValid() {
+				expiredIPs[p.IPv6.String()] = struct{}{}
+			}
 		}
 	}
-	for id, p := range c.RouterPeers {
-		if id != c.PeerID && p != nil && c.IsLoginExpired(p) {
-			expired[id] = struct{}{}
-		}
-	}
+	collect(c.Peers)
+	collect(c.RouterPeers)
 	if len(expired) == 0 {
 		return
 	}
@@ -222,6 +227,16 @@ func dropLoginExpiredPeers(c *types.NetworkMapComponents, includeIPv6 bool) {
 	}
 
 	for networkID, routers := range c.RoutersMap {
+		hasExpired := false
+		for peerID := range routers {
+			if _, drop := expired[peerID]; drop {
+				hasExpired = true
+				break
+			}
+		}
+		if !hasExpired {
+			continue
+		}
 		kept := make(map[string]*nmdata.NetworkRouter, len(routers))
 		for peerID, r := range routers {
 			if _, drop := expired[peerID]; !drop {
@@ -242,7 +257,13 @@ func dropLoginExpiredPeers(c *types.NetworkMapComponents, includeIPv6 bool) {
 	}
 	c.Routes = routes
 
-	c.AllDNSRecords = filterDNSRecordsByPeers(c.AllDNSRecords, c.Peers, includeIPv6)
+	var records []nmdata.SimpleRecord
+	for _, rec := range c.AllDNSRecords {
+		if _, drop := expiredIPs[rec.RData]; !drop {
+			records = append(records, rec)
+		}
+	}
+	c.AllDNSRecords = records
 }
 
 func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(

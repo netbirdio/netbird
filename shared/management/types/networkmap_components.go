@@ -479,6 +479,9 @@ func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nmdata.P
 // IsLoginExpired reports whether the peer is flagged as login-expired or its
 // login has run out under the account's expiration settings.
 func (c *NetworkMapComponents) IsLoginExpired(p *nmdata.Peer) bool {
+	if p == nil {
+		return false
+	}
 	if p.StatusLoginExpired {
 		return true
 	}
