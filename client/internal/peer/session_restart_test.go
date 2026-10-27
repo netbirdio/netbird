@@ -115,7 +115,7 @@ func TestWorkerRelayTracksRemoteSession(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := &WorkerRelay{}
+			w := &WorkerRelay{log: log.WithField("test", t.Name())}
 			for i := range tc.offers {
 				assert.Equal(t, tc.want[i], w.trackRemoteSession(&tc.offers[i]), "offer %d", i)
 			}
@@ -125,7 +125,7 @@ func TestWorkerRelayTracksRemoteSession(t *testing.T) {
 
 // Only the most recent replaced sessions are remembered, so the history stays bounded.
 func TestWorkerRelaySupersededSessionHistoryIsBounded(t *testing.T) {
-	w := &WorkerRelay{}
+	w := &WorkerRelay{log: log.WithField("test", t.Name())}
 	for i := 0; i <= maxSupersededSessionIDs+1; i++ {
 		id := ICESessionID(fmt.Sprintf("session-%02d", i))
 		w.trackRemoteSession(&OfferAnswer{SessionID: &id})

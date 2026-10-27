@@ -78,7 +78,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("ignoring a late offer of a superseded remote session")
 		return
 	case remoteSessionRestarted:
-		w.log.Infof("remote peer started a new session, dropping the relayed connection of its previous one")
+		w.log.Debugf("dropping the relayed connection of the remote's previous session")
 		w.dropRelayedConn()
 	}
 
@@ -132,6 +132,7 @@ func (w *WorkerRelay) trackRemoteSession(remoteOfferAnswer *OfferAnswer) remoteS
 		if w.remoteSessionID == "" {
 			return remoteSessionCurrent
 		}
+		w.log.Infof("remote peer started a new session: ICE offer after relay-only offers of session %s", w.remoteSessionID)
 		w.supersedeRemoteSession("")
 		return remoteSessionRestarted
 	}
@@ -149,6 +150,7 @@ func (w *WorkerRelay) trackRemoteSession(remoteOfferAnswer *OfferAnswer) remoteS
 		w.remoteSessionID = sid
 		return remoteSessionCurrent
 	default:
+		w.log.Infof("remote peer started a new session: relay-only session %s replaced %s", sid, w.remoteSessionID)
 		w.supersedeRemoteSession(sid)
 		return remoteSessionRestarted
 	}
