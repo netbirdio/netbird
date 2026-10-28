@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,12 @@ func TestMain(m *testing.M) {
 	// propagate exit codes.
 	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "exec" {
 		runTestExecutor()
+		return
+	}
+
+	// Likewise, the SFTP subsystem starts the test binary with "ssh sftp" args as the target user.
+	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "sftp" {
+		runTestSftpServer()
 		return
 	}
 
@@ -82,6 +89,26 @@ func runTestExecutor() {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitErr.ExitCode())
 		}
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+// runTestSftpServer emulates the netbird SFTP subprocess for tests: it serves SFTP on stdin/stdout.
+func runTestSftpServer() {
+	sftpServer, err := sftp.NewServer(struct {
+		io.Reader
+		io.WriteCloser
+	}{
+		Reader:      os.Stdin,
+		WriteCloser: os.Stdout,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sftp server creation failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := sftpServer.Serve(); err != nil && !errors.Is(err, io.EOF) {
+		fmt.Fprintf(os.Stderr, "sftp server error: %v\n", err)
 		os.Exit(1)
 	}
 	os.Exit(0)
