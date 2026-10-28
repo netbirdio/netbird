@@ -10,6 +10,8 @@ policy_module(netbird, 1.1.0)
 ## Allow the built-in SSH server to start user sessions. Shells started by
 ## the daemon run unconfined, because the daemon cannot set the SELinux
 ## context of the user it switches to.
+## Turning this off removes the shell and su transitions only. The login
+## transition stays, because its interface cannot be placed inside a boolean.
 ## </p>
 ## </desc>
 gen_tunable(netbird_ssh_sessions, true)
