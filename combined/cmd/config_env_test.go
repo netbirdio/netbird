@@ -171,6 +171,17 @@ func TestLoadConfigStoreEncryptionKeyEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfigNoPathSecretEnv(t *testing.T) {
+	unsetSecretEnvs(t)
+	t.Setenv(envRelayAuthSecret, "env-relay-auth-secret")
+	t.Setenv(envStoreEncryptionKey, "env-store-encryption-key")
+
+	cfg, err := LoadConfig("")
+	require.NoError(t, err)
+	assert.Equal(t, "env-relay-auth-secret", cfg.Server.AuthSecret, "server.authSecret")
+	assert.Equal(t, "env-store-encryption-key", cfg.Server.Store.EncryptionKey, "server.store.encryptionKey")
+}
+
 func TestApplyServerSecretEnvLogsNameNotValue(t *testing.T) {
 	unsetSecretEnvs(t)
 	secret := "relay-secret-must-not-appear"
