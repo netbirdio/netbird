@@ -235,7 +235,13 @@ func TestJWTCacheValidatesTokenClaims(t *testing.T) {
 		{
 			name:  "future iat",
 			ttl:   time.Hour,
-			claim: gojwt.MapClaims{"iat": now.Add(time.Minute).Unix()},
+			claim: gojwt.MapClaims{"iat": now.Add(5 * time.Minute).Unix()},
+		},
+		{
+			name:  "iat within tolerance",
+			ttl:   time.Hour,
+			claim: gojwt.MapClaims{"iat": now.Add(10 * time.Second).Unix()},
+			valid: true,
 		},
 		{
 			name:  "invalid iat",
