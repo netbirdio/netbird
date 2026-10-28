@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -64,13 +66,11 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 		opt(&options)
 	}
 
-	txTimeout := defaultTransactionTimeout
-	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
-		if parsed, err := time.ParseDuration(v); err == nil {
-			txTimeout = parsed
-		}
-	}
+	txTimeout := util.DurationFromEnv(transactionTimeoutEnv, defaultTransactionTimeout)
 	log.WithContext(ctx).Infof("Setting transaction timeout to %v", txTimeout)
+	if d := util.DurationFromEnv(statementTimeoutEnv, 0); engine == PostgresStoreEngine && d > 0 {
+		log.WithContext(ctx).Infof("Setting statement timeout to %v", d)
+	}
 
 	conns := runtime.NumCPU()
 	configuredConns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
