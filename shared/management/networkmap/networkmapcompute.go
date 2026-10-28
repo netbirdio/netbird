@@ -10,6 +10,25 @@ type sshRequirements struct {
 	needAllowedUserIDs bool
 }
 
+// collect records which SSH authorization data an accept rule makes necessary for the target peer.
+func (r *sshRequirements) collect(rule *nmdata.PolicyRule, peerSSHEnabled bool) {
+	if !rule.IsAccept() {
+		return
+	}
+	switch {
+	case rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH):
+		if len(rule.AuthorizedGroups) == 0 {
+			r.needAllowedUserIDs = true
+			return
+		}
+		for groupID := range rule.AuthorizedGroups {
+			r.neededGroupIDs[groupID] = struct{}{}
+		}
+	case nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled:
+		r.needAllowedUserIDs = true
+	}
+}
+
 // GetPeerNetworkMapComponents computes the peer's NetworkMapComponents from the
 // slim twin store. It mirrors the former Account.GetPeerNetworkMapComponents
 // exactly, operating on nmdata twins throughout — no Account reference and no
@@ -189,10 +208,90 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		}
 	}
 
+	dropLoginExpiredPeers(components)
 	filterGroupPeers(&components.Groups, components.Peers)
 	nmd.collectPostureFailedPeers(components, sourceFailures)
 
 	return components
+}
+
+// dropLoginExpiredPeers removes every login-expired peer except the target from the
+// components, together with the routes and routers that point at it, so no consumer
+// of the components can reach it. Groups and posture failures are narrowed to the
+// remaining peers afterwards.
+func dropLoginExpiredPeers(c *types.NetworkMapComponents) {
+	expired, expiredIPs := collectExpiredPeers(c)
+	if len(expired) == 0 {
+		return
+	}
+
+	for id := range expired {
+		delete(c.Peers, id)
+		delete(c.RouterPeers, id)
+	}
+	pruneRoutersMap(c.RoutersMap, expired)
+
+	routes := make([]*nmdata.Route, 0, len(c.Routes))
+	for _, r := range c.Routes {
+		if r != nil {
+			if _, drop := expired[r.Peer]; drop {
+				continue
+			}
+		}
+		routes = append(routes, r)
+	}
+	c.Routes = routes
+
+	var records []nmdata.SimpleRecord
+	for _, rec := range c.AllDNSRecords {
+		if _, drop := expiredIPs[rec.RData]; !drop {
+			records = append(records, rec)
+		}
+	}
+	c.AllDNSRecords = records
+}
+
+// collectExpiredPeers returns the IDs and IP strings of the login-expired peers other than the target.
+func collectExpiredPeers(c *types.NetworkMapComponents) (map[string]struct{}, map[string]struct{}) {
+	expired := make(map[string]struct{})
+	expiredIPs := make(map[string]struct{})
+	for _, peers := range []map[string]*nmdata.Peer{c.Peers, c.RouterPeers} {
+		for id, p := range peers {
+			if id == c.PeerID || !c.IsLoginExpired(p) {
+				continue
+			}
+			expired[id] = struct{}{}
+			expiredIPs[p.IP.String()] = struct{}{}
+			if p.IPv6.IsValid() {
+				expiredIPs[p.IPv6.String()] = struct{}{}
+			}
+		}
+	}
+	return expired, expiredIPs
+}
+
+// pruneRoutersMap replaces each network's router set that contains an expired peer with a filtered
+// copy, leaving the original (possibly shared) maps untouched.
+func pruneRoutersMap(routersMap map[string]map[string]*nmdata.NetworkRouter, expired map[string]struct{}) {
+	for networkID, routers := range routersMap {
+		hasExpired := false
+		for peerID := range routers {
+			if _, drop := expired[peerID]; drop {
+				hasExpired = true
+				break
+			}
+		}
+		if !hasExpired {
+			continue
+		}
+		kept := make(map[string]*nmdata.NetworkRouter, len(routers))
+		for peerID, r := range routers {
+			if _, drop := expired[peerID]; !drop {
+				kept[peerID] = r
+			}
+		}
+		routersMap[networkID] = kept
+	}
 }
 
 func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
@@ -341,19 +440,7 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					}
 				}
 
-				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
-					switch {
-					case len(rule.AuthorizedGroups) > 0:
-						for groupID := range rule.AuthorizedGroups {
-							sshReqs.neededGroupIDs[groupID] = struct{}{}
-						}
-					case rule.AuthorizedUser != "":
-					default:
-						sshReqs.needAllowedUserIDs = true
-					}
-				} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
-					sshReqs.needAllowedUserIDs = true
-				}
+				sshReqs.collect(rule, peerSSHEnabled)
 			}
 		}
 		if policyRelevant {

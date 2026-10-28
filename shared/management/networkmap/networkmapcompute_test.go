@@ -915,6 +915,14 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
 				r.AuthorizedUser = "root"
 			},
+			wantAllowed: true,
+		},
+		{
+			name: "drop netbird-ssh needs nothing",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+				r.Action = string(nbtypes.PolicyTrafficActionDrop)
+			},
 		},
 		{
 			name: "netbird-ssh default needs allowed users",
