@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os/user"
@@ -29,6 +31,32 @@ func TestServer_StartStop(t *testing.T) {
 
 	err = server.Stop()
 	assert.NoError(t, err)
+}
+
+func TestServer_StopClosesUnauthenticatedConnections(t *testing.T) {
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	server := New(&Config{HostKeyPEM: key})
+	serverAddr := StartTestServer(t, server)
+
+	conn, err := net.Dial("tcp", serverAddr)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// The server sends its version first, so reading it means the connection is being served.
+	_, err = bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+
+	require.NoError(t, server.Stop())
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = conn.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF, "connection still in the handshake must be closed by Stop")
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+	assert.Empty(t, server.openConns)
 }
 
 func TestSSHServerIntegration(t *testing.T) {

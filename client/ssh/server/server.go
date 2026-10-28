@@ -165,6 +165,10 @@ type Server struct {
 	// Populated at authentication time, stores JWT username and port forwards for status display.
 	connections map[connKey]*connState
 
+	// openConns tracks every accepted connection until it is closed.
+	// The SSH library only tracks a connection once it has authenticated, so Stop closes the others from here.
+	openConns map[*trackedConn]struct{}
+
 	allowLocalPortForwarding  bool
 	allowRemotePortForwarding bool
 	allowRootLogin            bool
@@ -229,6 +233,7 @@ func New(config *Config) *Server {
 		pendingAuthJWT:         make(map[authKey]string),
 		remoteForwardListeners: make(map[forwardKey]net.Listener),
 		connections:            make(map[connKey]*connState),
+		openConns:              make(map[*trackedConn]struct{}),
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
 		authorizer:             sshauth.NewAuthorizer(),
@@ -345,11 +350,20 @@ func (s *Server) Stop() error {
 	s.listener = nil
 	extraListeners := s.extraListeners
 	s.extraListeners = nil
+	openConns := maps.Keys(s.openConns)
 	s.mu.Unlock()
 
 	// Close outside the lock: session handlers need s.mu for unregisterSession.
 	if err := sshServer.Close(); err != nil {
 		log.Debugf("close SSH server: %v", err)
+	}
+
+	// sshServer.Close only closes authenticated connections. One still in the handshake
+	// would otherwise stay open and be able to log in to the stopped server.
+	for _, conn := range openConns {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Debugf("close SSH connection from %s: %v", conn.remoteAddr, err)
+		}
 	}
 
 	for _, ln := range extraListeners {
@@ -777,16 +791,39 @@ type trackedConn struct {
 func (c *trackedConn) Close() error {
 	err := c.Conn.Close()
 	c.onceClose.Do(func() {
-		c.server.handleConnectionClose(c.remoteAddr)
+		c.server.handleConnectionClose(c)
 	})
 	return err
 }
 
-func (s *Server) handleConnectionClose(remoteAddr string) {
+// trackConn wraps an accepted connection and registers it so that Stop can close it.
+// It returns nil if the server that accepted the connection has been stopped in the meantime.
+func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
+	tracked := &trackedConn{
+		Conn:       conn,
+		server:     s,
+		remoteAddr: conn.RemoteAddr().String(),
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	key := connKey(remoteAddr)
+	if s.sshServer == nil || ctx.Value(ssh.ContextKeyServer) != s.sshServer {
+		log.Debugf("SSH connection from %s rejected: server stopped", tracked.remoteAddr)
+		return nil
+	}
+
+	s.openConns[tracked] = struct{}{}
+	return tracked
+}
+
+func (s *Server) handleConnectionClose(conn *trackedConn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.openConns, conn)
+
+	key := connKey(conn.remoteAddr)
 	state, exists := s.connections[key]
 	if exists && len(state.portForwards) > 0 {
 		s.connLogger(state).Info("port forwarding connection closed")
@@ -828,13 +865,13 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) sessionKey {
 	return "unknown"
 }
 
-func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
+func (s *Server) connectionValidator(ctx ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()
 	wgAddr := s.wgAddress
 	s.mu.RUnlock()
 
 	if !wgAddr.Network.IsValid() || !wgAddr.IP.IsValid() {
-		return conn
+		return s.trackConn(ctx, conn)
 	}
 
 	remoteAddr := conn.RemoteAddr()
@@ -865,11 +902,7 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	}
 
 	log.Infof("SSH connection from NetBird peer %s allowed", tcpAddr)
-	return &trackedConn{
-		Conn:       conn,
-		server:     s,
-		remoteAddr: conn.RemoteAddr().String(),
-	}
+	return s.trackConn(ctx, conn)
 }
 
 func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
