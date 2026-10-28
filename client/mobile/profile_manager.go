@@ -201,6 +201,7 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 	}
 
 	config.PrivateKey = ""
+	config.AuthKey = ""
 	config.SSHKey = ""
 
 	if err := profilemanager.WriteOutConfig(configPath, config); err != nil {

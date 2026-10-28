@@ -1,12 +1,14 @@
 package profilemanager
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -160,6 +162,59 @@ func TestEnsureIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, generated, "a config that already has an identity keeps it")
 	require.Equal(t, key, cfg.PrivateKey)
+}
+
+// The auth key lives and dies with the WireGuard key: a new WireGuard identity
+// never inherits the signing key of the previous one.
+func TestEnsureIdentity_AuthKeyFollowsWireGuardKey(t *testing.T) {
+	cfg := newConfigSkeleton()
+	_, err := cfg.EnsureIdentity()
+	require.NoError(t, err)
+	require.NotEmpty(t, cfg.AuthKey, "a new identity must carry an auth key")
+	signer, err := cfg.AuthSigningKey()
+	require.NoError(t, err)
+	require.Len(t, signer, ed25519.PrivateKeySize)
+
+	authKey := cfg.AuthKey
+	_, err = cfg.EnsureIdentity()
+	require.NoError(t, err)
+	assert.Equal(t, authKey, cfg.AuthKey, "an existing identity keeps its auth key")
+
+	// What mobile logout leaves behind: the next login mints a new WireGuard key.
+	cfg.PrivateKey = ""
+	_, err = cfg.EnsureIdentity()
+	require.NoError(t, err)
+	assert.NotEqual(t, authKey, cfg.AuthKey, "a new WireGuard key must come with a new auth key")
+}
+
+// A profile written before the auth key existed gets one on upgrade and keeps
+// its WireGuard identity, so the peer does not re-register.
+func TestEnsureIdentity_UpgradeAddsAuthKey(t *testing.T) {
+	cfg := newConfigSkeleton()
+	_, err := cfg.EnsureIdentity()
+	require.NoError(t, err)
+	wgKey, sshKey := cfg.PrivateKey, cfg.SSHKey
+	cfg.AuthKey = ""
+
+	generated, err := cfg.EnsureIdentity()
+	require.NoError(t, err)
+	assert.True(t, generated, "the caller must persist the new auth key")
+	assert.NotEmpty(t, cfg.AuthKey, "an upgraded profile must get an auth key")
+	assert.Equal(t, wgKey, cfg.PrivateKey, "the WireGuard identity must survive the upgrade")
+	assert.Equal(t, sshKey, cfg.SSHKey, "the SSH key must survive the upgrade")
+}
+
+func TestAuthSigningKey_Malformed(t *testing.T) {
+	for name, key := range map[string]string{
+		"empty":      "",
+		"not base64": "%%%",
+		"wrong size": "AAAA",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Config{AuthKey: key}).AuthSigningKey()
+			assert.Error(t, err)
+		})
+	}
 }
 
 // One endpoint written several ways is one endpoint. A gate that compared
