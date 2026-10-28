@@ -1022,3 +1022,11 @@ func TestBundleOmitsNetworkMapWithoutSyncResponse(t *testing.T) {
 
 	require.NotContains(t, bundleEntries(t, g), "network_map.json")
 }
+
+func TestMaskSecrets_AuthToken(t *testing.T) {
+	g := &BundleGenerator{syncResponse: &mgmProto.SyncResponse{
+		NetbirdConfig: &mgmProto.NetbirdConfig{AuthToken: []byte("bound-token")},
+	}}
+	g.maskSecrets()
+	assert.Equal(t, []byte(maskedValue), g.syncResponse.NetbirdConfig.AuthToken, "the auth token must not reach the bundle")
+}
