@@ -3,7 +3,11 @@
 package winpty
 
 import (
+	"io"
+	"os"
+	"strconv"
 	"testing"
+	"unsafe"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -265,6 +269,105 @@ func TestWindowsHandleWriter(t *testing.T) {
 	require.NoError(t, err, "Should read back written data")
 	assert.Equal(t, uint32(len(testData)), bytesRead, "Should read back expected number of bytes")
 	assert.Equal(t, testData, buffer, "Should read back expected data")
+}
+
+const (
+	conPtyHelperHandleEnv = "NB_CONPTY_TEST_INHERITED_HANDLE"
+	// exit codes of the helper process started by TestCreateConPtyProcess_NoHandleInheritance
+	conPtyHelperExitNotInherited = 0
+	conPtyHelperExitInherited    = 3
+)
+
+// TestCreateConPtyProcess_NoHandleInheritance verifies that a ConPty child does not inherit
+// inheritable handles of this process. The daemon holds os/exec pipes (created inheritable by
+// os.Pipe) for other users' SSH and SFTP sessions; a shell started with bInheritHandles=TRUE and
+// no PROC_THREAD_ATTRIBUTE_HANDLE_LIST would receive all of them.
+func TestCreateConPtyProcess_NoHandleInheritance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping process tests in short mode")
+	}
+
+	// os.Pipe marks both handles inheritable on Windows, like the pipes os/exec creates
+	pipeRead, pipeWrite, err := os.Pipe()
+	require.NoError(t, err, "Should create pipe")
+	defer func() {
+		_ = pipeRead.Close()
+		_ = pipeWrite.Close()
+	}()
+
+	inputRead, inputWrite, outputRead, outputWrite, err := createConPtyPipes()
+	require.NoError(t, err, "Should create ConPty pipes successfully")
+
+	hPty, err := createConPty(80, 24, inputRead, outputWrite)
+	require.NoError(t, err, "Should create ConPty successfully")
+
+	siEx, err := setupConPtyStartupInfo(hPty)
+	require.NoError(t, err, "Should set up startup info")
+	defer func() {
+		_, _, _ = procDeleteProcThreadAttributeList.Call(uintptr(unsafe.Pointer(siEx.ProcThreadAttributeList)))
+	}()
+
+	// The child is this test binary running only the helper below; with no environment
+	// passed it inherits ours, including the handle value to probe.
+	executable, err := os.Executable()
+	require.NoError(t, err, "Should find test binary")
+	t.Setenv(conPtyHelperHandleEnv, strconv.FormatUint(uint64(pipeWrite.Fd()), 10))
+	commandLine := buildCommandLine([]string{executable, "-test.run=^TestConPtyHandleInheritanceHelper$"})
+
+	pi, err := createConPtyProcess(commandLine, windows.InvalidHandle, nil, "", siEx)
+	require.NoError(t, err, "Should create ConPty process")
+	defer closeProcessInfo(pi)
+
+	closeHandles(inputRead, outputWrite)
+
+	// Drain the pseudo console output so the child and conhost never block on a full pipe.
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		_, _ = io.Copy(io.Discard, &windowsHandleReader{handle: outputRead})
+	}()
+
+	event, err := windows.WaitForSingleObject(pi.Process, 30000)
+	require.NoError(t, err, "Should wait for ConPty process")
+	if event != windows.WAIT_OBJECT_0 {
+		_ = windows.TerminateProcess(pi.Process, 1)
+	}
+
+	var exitCode uint32
+	require.NoError(t, windows.GetExitCodeProcess(pi.Process, &exitCode), "Should get exit code")
+
+	if ret, _, err := procClosePseudoConsole.Call(uintptr(hPty)); ret == 0 {
+		t.Logf("ClosePseudoConsole failed: %v", err)
+	}
+	closeHandles(inputWrite)
+	<-drained
+	closeHandles(outputRead)
+
+	require.NotEqual(t, uint32(conPtyHelperExitInherited), exitCode, "ConPty child must not inherit the daemon's pipe handles")
+	require.Equal(t, uint32(conPtyHelperExitNotInherited), exitCode, "helper process should run to completion")
+}
+
+// TestConPtyHandleInheritanceHelper is the child of TestCreateConPtyProcess_NoHandleInheritance.
+// It exits with conPtyHelperExitInherited when the handle value named in the environment is a
+// live pipe handle in this process.
+func TestConPtyHandleInheritanceHelper(t *testing.T) {
+	value := os.Getenv(conPtyHelperHandleEnv)
+	if value == "" {
+		t.Skip("helper process only")
+	}
+
+	handleValue, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		os.Exit(4)
+	}
+
+	// GetFileType fails when the value is not a handle of this process. A handle value may also
+	// be reused for something else, so only a pipe counts as the parent's pipe.
+	fileType, err := windows.GetFileType(windows.Handle(handleValue))
+	if err == nil && fileType == windows.FILE_TYPE_PIPE {
+		os.Exit(conPtyHelperExitInherited)
+	}
+	os.Exit(conPtyHelperExitNotInherited)
 }
 
 // BenchmarkConPtyCreation benchmarks ConPty creation performance
