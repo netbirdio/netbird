@@ -159,7 +159,7 @@ func (s *Server) prepareCommandEnv(_ *log.Entry, localUser *user.User, session s
 // executeCommandWithPty executes a command with PTY allocation
 func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	termType := ptyReq.Term
-	if termType == "" {
+	if termType == "" || !acceptEnv("TERM="+termType) {
 		termType = "xterm-256color"
 	}
 	execCmd.Env = append(execCmd.Env, fmt.Sprintf("TERM=%s", termType))
