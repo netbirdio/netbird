@@ -214,14 +214,44 @@ func lookupUnderlayDefaults(vpnIntf string) ([]physicalDefault, error) {
 }
 
 // replaceScopedDefault installs the scoped default via nexthop. RTM_ADD
-// refuses a second scoped default on the same interface, so one already there
-// (ours with the old gateway, or macOS's own) is repointed in place instead.
+// refuses a second scoped default on the same interface: ours, left with the
+// old gateway, is repointed in place; macOS's own is reused untouched, as
+// engine start does, since macOS keeps it current.
 func (r *SysOps) replaceScopedDefault(unspec netip.Addr, nexthop Nexthop) error {
 	err := r.addScopedDefault(unspec, nexthop)
 	if !errors.Is(err, unix.EEXIST) {
 		return err
 	}
+	rib, err := retryFetchRIB()
+	if err != nil {
+		return fmt.Errorf("fetch routing table: %w", err)
+	}
+	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
+	if err != nil {
+		return fmt.Errorf("parse routing table: %w", err)
+	}
+	if !ownScopedDefault(msgs, unspec, nexthop.Intf.Index) {
+		log.Debugf("reusing the existing %s scoped default on %s", afOf(unspec), nexthop.Intf.Name)
+		return nil
+	}
 	return r.scopedRouteSocket(unix.RTM_CHANGE, unspec, nexthop)
+}
+
+// ownScopedDefault reports whether the scoped default of unspec's family on
+// the interface index is one NetBird installed.
+func ownScopedDefault(msgs []route.Message, unspec netip.Addr, index int) bool {
+	for _, msg := range msgs {
+		rtMsg, ok := msg.(*route.RouteMessage)
+		if !ok || rtMsg.Index != index || rtMsg.Flags&unix.RTF_IFSCOPE == 0 {
+			continue
+		}
+		info, err := MsgToRoute(rtMsg)
+		if err != nil || !info.Dst.IsValid() || info.Dst.Bits() != 0 || info.Dst.Addr().Is6() != unspec.Is6() {
+			continue
+		}
+		return rtMsg.Flags&routeProtoFlag != 0
+	}
+	return false
 }
 
 func hasDefaultFor(defaults []physicalDefault, unspec netip.Addr) bool {

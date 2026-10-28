@@ -4,6 +4,7 @@ package systemops
 
 import (
 	"net"
+	"net/netip"
 	"os/exec"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/route"
 	"golang.org/x/sys/unix"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
@@ -121,4 +123,61 @@ func createUtun(t *testing.T) string {
 	name, err := unix.GetsockoptString(fd, sysprotoControl, utunOptIfname)
 	require.NoError(t, err, "read the utun name")
 	return name
+}
+
+// macOS keeps its own scoped default on secondary interfaces. A refresh that
+// finds one on the physical default reuses it: it must neither repoint it nor
+// claim it, or the cleanup would delete a route NetBird did not install.
+func TestRefreshUnderlayLeavesForeignScopedDefault(t *testing.T) {
+	nbnet.Init()
+	require.True(t, nbnet.AdvancedRouting(), "advanced routing must be on")
+
+	nexthop, err := GetNextHop(netip.IPv4Unspecified())
+	require.NoError(t, err, "the host needs an IPv4 default")
+	require.NotNil(t, nexthop.Intf)
+	require.True(t, nexthop.IP.IsValid(), "the IPv4 default must go through a router")
+	ifName, gw := nexthop.Intf.Name, nexthop.IP.String()
+
+	out, err := exec.Command("route", "-n", "add", "-ifscope", ifName, "default", gw).CombinedOutput()
+	require.NoError(t, err, "add a scoped default as macOS would: %s", out)
+	t.Cleanup(func() { _ = exec.Command("route", "-n", "delete", "-ifscope", ifName, "default", gw).Run() })
+
+	r := New(nil, nil)
+	require.NoError(t, r.setupAdvancedRouting())
+	t.Cleanup(func() { _ = r.cleanupAdvancedRouting() })
+	require.False(t, ownedScopedDefaultOn(t, nexthop.Intf.Index), "engine start must reuse the foreign route")
+
+	require.NoError(t, r.RefreshUnderlay(true))
+	assert.False(t, ownedScopedDefaultOn(t, nexthop.Intf.Index), "a refresh must not claim the foreign route")
+
+	require.NoError(t, r.cleanupAdvancedRouting())
+	assert.True(t, scopedDefaultOn(t, nexthop.Intf.Index), "cleanup must leave the foreign route in place")
+}
+
+func ownedScopedDefaultOn(t *testing.T, index int) bool {
+	t.Helper()
+	return ownScopedDefault(fetchRoutes(t), netip.IPv4Unspecified(), index)
+}
+
+func scopedDefaultOn(t *testing.T, index int) bool {
+	t.Helper()
+	for _, msg := range fetchRoutes(t) {
+		rtMsg, ok := msg.(*route.RouteMessage)
+		if !ok || rtMsg.Index != index || rtMsg.Flags&unix.RTF_IFSCOPE == 0 {
+			continue
+		}
+		if info, err := MsgToRoute(rtMsg); err == nil && info.Dst.IsValid() && info.Dst.Bits() == 0 && info.Dst.Addr().Is4() {
+			return true
+		}
+	}
+	return false
+}
+
+func fetchRoutes(t *testing.T) []route.Message {
+	t.Helper()
+	rib, err := retryFetchRIB()
+	require.NoError(t, err)
+	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
+	require.NoError(t, err)
+	return msgs
 }

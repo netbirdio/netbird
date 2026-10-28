@@ -57,3 +57,20 @@ func TestUnderlayDefaultPicksThePhysicalDefault(t *testing.T) {
 	_, err = underlayDefault(msgs, netip.IPv6Unspecified(), "utun100", byIndex)
 	assert.ErrorIs(t, err, vars.ErrRouteNotFound, "no IPv6 default in the table")
 }
+
+// A refresh repoints only the scoped default NetBird installed: macOS keeps
+// its own on secondary interfaces, and those must be left untouched.
+func TestOwnScopedDefault(t *testing.T) {
+	up := unix.RTF_UP | unix.RTF_GATEWAY | unix.RTF_IFSCOPE
+	msgs := []route.Message{
+		routeMsg(4, up|routeProtoFlag, v4(0, 0, 0, 0), v4(192, 168, 1, 1), v4(0, 0, 0, 0)),
+		routeMsg(7, up, v4(0, 0, 0, 0), v4(10, 0, 0, 1), v4(0, 0, 0, 0)),
+		routeMsg(9, unix.RTF_UP|unix.RTF_GATEWAY|routeProtoFlag, v4(0, 0, 0, 0), v4(10, 1, 0, 1), v4(0, 0, 0, 0)),
+	}
+
+	assert.True(t, ownScopedDefault(msgs, netip.IPv4Unspecified(), 4), "NetBird's scoped default on en0")
+	assert.False(t, ownScopedDefault(msgs, netip.IPv4Unspecified(), 7), "macOS's own scoped default on en5")
+	assert.False(t, ownScopedDefault(msgs, netip.IPv6Unspecified(), 4), "no IPv6 scoped default on en0")
+	assert.False(t, ownScopedDefault(msgs, netip.IPv4Unspecified(), 9), "an unscoped default is not a scoped one")
+	assert.False(t, ownScopedDefault(msgs, netip.IPv4Unspecified(), 12), "no default on that interface")
+}
