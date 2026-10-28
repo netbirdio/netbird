@@ -70,6 +70,12 @@ func NewCapturedData(requestID string) *CapturedData {
 	return &CapturedData{requestID: requestID}
 }
 
+func (c *CapturedData) SetRequestID(requestID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.requestID = requestID
+}
+
 // GetRequestID returns the request ID.
 func (c *CapturedData) GetRequestID() string {
 	c.mu.RLock()
