@@ -16,8 +16,9 @@ gen_tunable(netbird_ssh_sessions, true)
 
 ## <desc>
 ## <p>
-## Allow netbird to bind any unreserved port, for SSH remote port forwarding
-## and the local metrics endpoint.
+## Allow netbird to bind any unreserved TCP port, for SSH remote port forwarding
+## and the local metrics endpoint. UDP ports are always allowed, since WireGuard and
+## ICE bind ports that cannot be listed in advance.
 ## </p>
 ## </desc>
 gen_tunable(netbird_bind_all_ports, false)
@@ -55,6 +56,11 @@ files_config_file(netbird_etc_t)
 type netbird_runtime_t;
 files_pid_file(netbird_runtime_t)
 
+# Control sockets of the userspace WireGuard device, kept apart from the daemon socket so
+# that access to one does not extend to the other.
+type netbird_wg_runtime_t;
+files_pid_file(netbird_wg_runtime_t)
+
 type netbird_tmp_t;
 files_tmp_file(netbird_tmp_t)
 
@@ -73,7 +79,12 @@ files_config_file(netbird_rt_tables_t)
 
 allow netbird_t self:capability { net_admin net_raw dac_override dac_read_search chown fowner fsetid kill setuid setgid sys_resource sys_chroot sys_ptrace };
 dontaudit netbird_t self:capability sys_admin;
-dontaudit netbird_t self:capability2 perfmon;
+optional_policy(`
+	gen_require(`
+		class capability2 perfmon;
+	')
+	dontaudit netbird_t self:capability2 perfmon;
+')
 allow netbird_t self:process { fork signal_perms setpgid setsched getsched getsession setrlimit setcap getcap };
 allow netbird_t self:fifo_file rw_fifo_file_perms;
 allow netbird_t self:unix_stream_socket { create_stream_socket_perms connectto };
@@ -130,8 +141,12 @@ logging_log_filetrans(netbird_t, netbird_var_log_t, { dir file })
 manage_dirs_pattern(netbird_t, netbird_runtime_t, netbird_runtime_t)
 manage_files_pattern(netbird_t, netbird_runtime_t, netbird_runtime_t)
 manage_sock_files_pattern(netbird_t, netbird_runtime_t, netbird_runtime_t)
-allow netbird_t netbird_runtime_t:sock_file watch;
 files_pid_filetrans(netbird_t, netbird_runtime_t, { dir file sock_file })
+
+manage_dirs_pattern(netbird_t, netbird_wg_runtime_t, netbird_wg_runtime_t)
+manage_files_pattern(netbird_t, netbird_wg_runtime_t, netbird_wg_runtime_t)
+manage_sock_files_pattern(netbird_t, netbird_wg_runtime_t, netbird_wg_runtime_t)
+files_pid_filetrans(netbird_t, netbird_wg_runtime_t, dir, "wireguard")
 
 # Debug bundle zip, created in the temp directory and handed back by path
 manage_files_pattern(netbird_t, netbird_tmp_t, netbird_tmp_t)
@@ -178,6 +193,21 @@ corenet_udp_bind_all_ports(netbird_t)
 corenet_tcp_bind_ssh_port(netbird_t)
 corenet_tcp_bind_generic_port(netbird_t)
 
+# inotify watches (resolv.conf repair, the daemon socket). Policy that predates the
+# watch permissions does not mediate them, so the block drops out there.
+optional_policy(`
+	gen_require(`
+		class dir watch;
+		class file { watch watch_reads };
+		class sock_file watch;
+	')
+	allow netbird_t etc_t:dir watch;
+	allow netbird_t net_conf_t:dir watch;
+	allow netbird_t net_conf_t:file { watch watch_reads };
+	allow netbird_t netbird_runtime_t:sock_file watch;
+	allow netbird_t netbird_wg_runtime_t:sock_file watch;
+')
+
 ########################################
 #
 # DNS
@@ -195,9 +225,7 @@ corenet_udp_bind_generic_port(netbird_t)
 # and restore it on shutdown. Backups live in /var/lib/netbird.
 sysnet_manage_config(netbird_t)
 sysnet_etc_filetrans_config(netbird_t, "resolv.conf.original.netbird")
-allow netbird_t etc_t:dir watch;
-allow netbird_t net_conf_t:dir { watch read };
-allow netbird_t net_conf_t:file { watch watch_reads };
+allow netbird_t net_conf_t:dir read;
 
 # Choosing a mode reads resolv.conf, nsswitch.conf and the resolver stub that
 # resolv.conf may link to
@@ -262,7 +290,11 @@ optional_policy(`
 	dbus_system_bus_client(netbird_t)
 ')
 optional_policy(`
-	systemd_chat_resolved(netbird_t)
+	ifdef(`systemd_chat_resolved',`
+		systemd_chat_resolved(netbird_t)
+	',`
+		systemd_dbus_chat_resolved(netbird_t)
+	')
 ')
 optional_policy(`
 	networkmanager_dbus_chat(netbird_t)
