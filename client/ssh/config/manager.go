@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -237,7 +238,14 @@ func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	return hostPatterns
 }
 
+// writeMu serializes config writes. They share one temporary file name, and managers are
+// created per call, so the lock cannot live on the Manager.
+var writeMu sync.Mutex
+
 func (m *Manager) writeSSHConfig(sshConfig string) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
 
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
