@@ -109,12 +109,18 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	var unchanged bool
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		existing, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get network: %w", err)
 		}
 		network.PublicID = existing.PublicID
+
+		if network.Equal(existing) {
+			unchanged = true
+			return nil
+		}
 
 		if err := transaction.SaveNetwork(ctx, network); err != nil {
 			return fmt.Errorf("failed to save network: %w", err)
@@ -123,6 +129,10 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if unchanged {
+		return network, nil
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkUpdated, network.EventMeta())

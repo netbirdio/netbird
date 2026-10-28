@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -324,4 +326,38 @@ func Test_UpdateNetworkPreservesPublicId(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, originalPublicId, got.PublicID, "PublicID must survive UpdateNetwork")
 	require.Equal(t, "seq-preserve-renamed", got.Name)
+}
+
+func Test_UpdateNetworkUnchangedSkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	userID := "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	var events int
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		},
+	}
+	permissionsManager := permissions.NewManager(s)
+	resourcesManager := resources.NewManager(s, permissionsManager, groups.NewManagerMock(), &am, nil)
+	manager := NewManager(s, permissionsManager, resourcesManager, routers.NewManagerMock(), &am)
+
+	network := &types.Network{
+		ID:          "testNetworkId",
+		AccountID:   "testAccountId",
+		Name:        "new-network",
+		Description: "new-description",
+	}
+
+	_, err = manager.UpdateNetwork(ctx, userID, network.Copy())
+	require.NoError(t, err)
+	require.Equal(t, 1, events, "real update must log an event")
+
+	_, err = manager.UpdateNetwork(ctx, userID, network.Copy())
+	require.NoError(t, err)
+	assert.Equal(t, 1, events, "unchanged update must not log an event")
 }
