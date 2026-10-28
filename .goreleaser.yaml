@@ -392,6 +392,42 @@ nfpms:
       - netbird-rpm-386
     provides:
       - "netbird(x86-32) = @RPM_EVR@"
+
+  # SELinux policy for the client. The module is compiled by
+  # release_files/selinux/build.sh before GoReleaser runs. The package carries no
+  # binary, so GoReleaser builds it as a single noarch meta package.
+  - id: netbird_selinux_rpm
+    maintainer: Netbird <dev@netbird.io>
+    description: SELinux policy for the NetBird client.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    package_name: netbird-selinux
+    meta: true
+    formats:
+      - rpm
+    dependencies:
+      - netbird
+      - selinux-policy-targeted
+    changelog: changelog.yml
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/netbird-selinux/LICENSE
+        type: license
+      - src: release_files/selinux/netbird.pp.bz2
+        dst: /usr/share/selinux/packages/netbird.pp.bz2
+      - src: release_files/selinux/netbird.if
+        dst: /usr/share/selinux/devel/include/contrib/netbird.if
+    scripts:
+      postinstall: "release_files/selinux/post_install.sh"
+      preremove: "release_files/selinux/pre_remove.sh"
+    rpm:
+      summary: SELinux policy for the NetBird client
+      group: Applications/Internet
+      packager: NetBird <dev@netbird.io>
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
 dockers_v2:
    - id: netbird
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
@@ -845,6 +881,26 @@ uploads:
       - netbird_rpm_386
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT
+
+  # The policy package is noarch. The yum repository is laid out per arch, so the same
+  # file goes to each arch the policy is useful on.
+  - name: yum-selinux-amd64
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_selinux_rpm
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/amd64
+    username: dev@wiretrustee.com
+    method: PUT
+
+  - name: yum-selinux-arm64
+    skip: "{{ .Env.SKIP_PUBLISH }}"
+    ids:
+      - netbird_selinux_rpm
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/arm64
     username: dev@wiretrustee.com
     method: PUT
 
