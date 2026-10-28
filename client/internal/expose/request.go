@@ -16,6 +16,7 @@ func NewRequest(req *daemonProto.ExposeServiceRequest) *Request {
 		Domain:     req.Domain,
 		NamePrefix: req.NamePrefix,
 		ListenPort: uint16(req.ListenPort),
+		TargetHost: req.TargetHost,
 	}
 }
 
@@ -29,6 +30,7 @@ func toClientExposeRequest(req Request) mgm.ExposeRequest {
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
 		ListenPort: req.ListenPort,
+		TargetHost: req.TargetHost,
 	}
 }
 

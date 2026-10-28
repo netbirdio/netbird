@@ -914,6 +914,98 @@ func TestCreateServiceFromPeer(t *testing.T) {
 	})
 }
 
+func TestCreateServiceFromPeer_TargetHost(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty host keeps existing peer target", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port: 8080,
+			Mode: "http",
+		})
+		require.NoError(t, err)
+
+		svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+		require.NoError(t, err)
+		require.Len(t, svc.Targets, 1)
+		assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType, "default target type is the exposing peer")
+		assert.Equal(t, testPeerID, svc.Targets[0].TargetId, "default target id is the exposing peer")
+		assert.Empty(t, svc.Targets[0].Host, "default host stays empty for lookup")
+		assert.Equal(t, uint16(8080), svc.Targets[0].Port)
+		require.NoError(t, svc.Validate(), "default expose target must pass service validation")
+
+		require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, svc))
+		assert.Equal(t, "100.64.0.1", svc.Targets[0].Host, "empty expose host is filled with the peer overlay IP")
+	})
+
+	t.Run("set host produces remote peer target", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "other-service",
+		})
+		require.NoError(t, err)
+
+		svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+		require.NoError(t, err)
+		require.Len(t, svc.Targets, 1)
+		assert.Equal(t, "other-service", svc.Targets[0].Host)
+		assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType)
+		assert.Equal(t, testPeerID, svc.Targets[0].TargetId)
+		assert.Equal(t, uint16(8080), svc.Targets[0].Port)
+		require.NoError(t, svc.Validate(), "remote host target must pass service validation")
+
+		require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, svc))
+		assert.Equal(t, "other-service", svc.Targets[0].Host, "ephemeral target host must survive lookup")
+	})
+
+	t.Run("invalid host rejected", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "http://other-service",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "scheme")
+	})
+
+	t.Run("loopback host rejected", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "127.0.0.1",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "loopback")
+	})
+}
+
+func TestReplaceHostByLookup_PreservesEphemeralTargetHost(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr := &Manager{store: store.NewMockStore(ctrl)}
+	svc := &rpservice.Service{
+		Source: rpservice.SourceEphemeral,
+		Targets: []*rpservice.Target{
+			{
+				TargetId:   testPeerID,
+				TargetType: rpservice.TargetTypePeer,
+				Host:       "other-service",
+				Port:       8080,
+			},
+		},
+	}
+
+	require.NoError(t, mgr.replaceHostByLookup(context.Background(), testAccountID, svc))
+	assert.Equal(t, "other-service", svc.Targets[0].Host, "ephemeral remote host must not be replaced with the peer IP")
+}
+
 func TestExposeServiceRequestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -969,6 +1061,31 @@ func TestExposeServiceRequestValidate(t *testing.T) {
 			name:    "valid name prefix",
 			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", NamePrefix: "my-service"},
 			wantErr: "",
+		},
+		{
+			name:    "valid target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "other-service"},
+			wantErr: "",
+		},
+		{
+			name:    "target host with scheme",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "http://other-service"},
+			wantErr: "scheme",
+		},
+		{
+			name:    "target host with port",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "other-service:8080"},
+			wantErr: "port",
+		},
+		{
+			name:    "loopback target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "127.0.0.1"},
+			wantErr: "loopback",
+		},
+		{
+			name:    "empty after trim target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "   "},
+			wantErr: "empty",
 		},
 	}
 

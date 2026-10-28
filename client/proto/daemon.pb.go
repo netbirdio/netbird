@@ -6538,6 +6538,7 @@ type ExposeServiceRequest struct {
 	Domain        string                 `protobuf:"bytes,6,opt,name=domain,proto3" json:"domain,omitempty"`
 	NamePrefix    string                 `protobuf:"bytes,7,opt,name=name_prefix,json=namePrefix,proto3" json:"name_prefix,omitempty"`
 	ListenPort    uint32                 `protobuf:"varint,8,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
+	TargetHost    string                 `protobuf:"bytes,9,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6626,6 +6627,13 @@ func (x *ExposeServiceRequest) GetListenPort() uint32 {
 		return x.ListenPort
 	}
 	return 0
+}
+
+func (x *ExposeServiceRequest) GetTargetHost() string {
+	if x != nil {
+		return x.TargetHost
+	}
+	return ""
 }
 
 type ExposeServiceEvent struct {
@@ -7659,7 +7667,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16InstallerResultRequest\"O\n" +
 	"\x17InstallerResultResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1a\n" +
-	"\berrorMsg\x18\x02 \x01(\tR\berrorMsg\"\x87\x02\n" +
+	"\berrorMsg\x18\x02 \x01(\tR\berrorMsg\"\xa8\x02\n" +
 	"\x14ExposeServiceRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x122\n" +
 	"\bprotocol\x18\x02 \x01(\x0e2\x16.daemon.ExposeProtocolR\bprotocol\x12\x10\n" +
@@ -7671,7 +7679,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\vname_prefix\x18\a \x01(\tR\n" +
 	"namePrefix\x12\x1f\n" +
 	"\vlisten_port\x18\b \x01(\rR\n" +
-	"listenPort\"Q\n" +
+	"listenPort\x12\x1f\n" +
+	"\vtarget_host\x18\t \x01(\tR\n" +
+	"targetHost\"Q\n" +
 	"\x12ExposeServiceEvent\x122\n" +
 	"\x05ready\x18\x01 \x01(\v2\x1a.daemon.ExposeServiceReadyH\x00R\x05readyB\a\n" +
 	"\x05event\"\x9e\x01\n" +

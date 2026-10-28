@@ -1148,8 +1148,48 @@ func TestExposeServiceRequest_ToService(t *testing.T) {
 		assert.Equal(t, "http", target.Protocol)
 		assert.Equal(t, "peer-1", target.TargetId)
 		assert.Equal(t, TargetTypePeer, target.TargetType)
+		assert.Empty(t, target.Host, "host stays empty when no target host is requested")
 		assert.True(t, target.Enabled)
 		assert.Equal(t, "account-1", target.AccountID)
+	})
+
+	t.Run("with target host", func(t *testing.T) {
+		req := &ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "other-service",
+		}
+
+		service := req.ToService("account-1", "peer-1", "mysvc")
+		require.Len(t, service.Targets, 1)
+
+		target := service.Targets[0]
+		assert.Equal(t, "other-service", target.Host)
+		assert.Equal(t, TargetTypePeer, target.TargetType)
+		assert.Equal(t, "peer-1", target.TargetId)
+		assert.Equal(t, uint16(8080), target.Port)
+		assert.Equal(t, "http", target.Protocol)
+
+		service.Domain = "mysvc.example.com"
+		require.NoError(t, service.Validate(), "peer target with a remote host must pass service validation")
+	})
+
+	t.Run("tcp with target host", func(t *testing.T) {
+		req := &ExposeServiceRequest{
+			Port:       5432,
+			Mode:       "tcp",
+			TargetHost: "10.0.0.29",
+		}
+
+		service := req.ToService("account-1", "peer-1", "db")
+		require.Len(t, service.Targets, 1)
+		assert.Equal(t, "10.0.0.29", service.Targets[0].Host)
+		assert.Equal(t, TargetTypePeer, service.Targets[0].TargetType)
+		assert.Equal(t, uint16(5432), service.Targets[0].Port)
+		assert.Equal(t, "tcp", service.Targets[0].Protocol)
+
+		service.Domain = "db.example.com"
+		require.NoError(t, service.Validate(), "L4 peer target with a remote host must pass service validation")
 	})
 
 	t.Run("with custom domain", func(t *testing.T) {

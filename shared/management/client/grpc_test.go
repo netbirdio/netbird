@@ -117,3 +117,25 @@ func TestInfoToMetaData_CarriesCertificateProofs(t *testing.T) {
 
 	assert.Empty(t, infoToMetaData(&system.Info{}).GetCertificateProofs(), "a device without proofs sends none")
 }
+
+func TestToProtoExposeServiceRequest_TargetHost(t *testing.T) {
+	protoReq, err := toProtoExposeServiceRequest(ExposeRequest{
+		Port:       8080,
+		Protocol:   int(mgmtProto.ExposeProtocol_EXPOSE_HTTP),
+		TargetHost: "other-service",
+		ListenPort: 15432,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "other-service", protoReq.GetTargetHost(), "target host should reach the management proto")
+	assert.Equal(t, uint32(8080), protoReq.GetPort(), "port should reach the management proto")
+	assert.Equal(t, uint32(15432), protoReq.GetListenPort(), "listen port should reach the management proto")
+}
+
+func TestToProtoExposeServiceRequest_EmptyTargetHost(t *testing.T) {
+	protoReq, err := toProtoExposeServiceRequest(ExposeRequest{
+		Port:     8080,
+		Protocol: int(mgmtProto.ExposeProtocol_EXPOSE_HTTP),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, protoReq.GetTargetHost(), "omitted target host should stay empty")
+}

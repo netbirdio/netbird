@@ -32,6 +32,7 @@ type Request struct {
 	Password   string
 	UserGroups []string
 	ListenPort uint16
+	TargetHost string
 }
 
 type ManagementClient interface {

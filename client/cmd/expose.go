@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"regexp"
@@ -31,6 +32,7 @@ var (
 	exposeNamePrefix   string
 	exposeProtocol     string
 	exposeExternalPort uint16
+	exposeTargetHost   string
 )
 
 var exposeCmd = &cobra.Command{
@@ -40,7 +42,8 @@ var exposeCmd = &cobra.Command{
 	Example: `  netbird expose --with-password safe-pass 8080
   netbird expose --protocol tcp 5432
   netbird expose --protocol tcp --with-external-port 5433 5432
-  netbird expose --protocol tls --with-custom-domain tls.example.com 4443`,
+  netbird expose --protocol tls --with-custom-domain tls.example.com 4443
+  netbird expose 8080 --with-target-host other-service`,
 	RunE: exposeFn,
 }
 
@@ -52,6 +55,7 @@ func init() {
 	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name (e.g. --with-name-prefix my-app)")
 	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use: http, https, tcp, udp, or tls (e.g. --protocol tcp)")
 	exposeCmd.Flags().Uint16Var(&exposeExternalPort, "with-external-port", 0, "Public-facing external port on the proxy cluster (defaults to the target port for L4)")
+	exposeCmd.Flags().StringVar(&exposeTargetHost, "with-target-host", "", "Expose a host this peer can reach instead of a local port (e.g. --with-target-host other-service)")
 }
 
 // isClusterProtocol returns true for L4/TLS protocols that reject HTTP-style auth flags.
@@ -131,6 +135,14 @@ func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
 		return 0, fmt.Errorf("user groups cannot be empty")
 	}
 
+	if cmd.Flags().Changed("with-target-host") || exposeTargetHost != "" {
+		host, err := expose.NormalizeTargetHost(exposeTargetHost)
+		if err != nil {
+			return 0, err
+		}
+		exposeTargetHost = host
+	}
+
 	return port, nil
 }
 
@@ -195,6 +207,7 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 		UserGroups: exposeUserGroups,
 		Domain:     exposeDomain,
 		NamePrefix: exposeNamePrefix,
+		TargetHost: exposeTargetHost,
 	}
 	if isClusterProtocol(exposeProtocol) {
 		req.ListenPort = uint32(resolveExternalPort(port))
@@ -259,6 +272,9 @@ func printExposeReady(cmd *cobra.Command, r *proto.ExposeServiceReady, port uint
 	}
 	cmd.Printf("  Protocol: %s\n", exposeProtocol)
 	cmd.Printf("  Internal: %d\n", port)
+	if exposeTargetHost != "" {
+		cmd.Printf("  Target:   -> %s\n", net.JoinHostPort(exposeTargetHost, strconv.FormatUint(port, 10)))
+	}
 	if isClusterProtocol(exposeProtocol) {
 		cmd.Printf("  External: %s\n", extractPort(r.ServiceUrl, resolveExternalPort(port)))
 	}

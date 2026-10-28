@@ -1555,6 +1555,7 @@ type ExposeServiceRequest struct {
 	Password       string
 	UserGroups     []string
 	ListenPort     uint16
+	TargetHost     string
 }
 
 // Validate checks all fields of the expose request.
@@ -1591,6 +1592,14 @@ func (r *ExposeServiceRequest) Validate() error {
 
 	if r.NamePrefix != "" && !validNamePrefix.MatchString(r.NamePrefix) {
 		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
+	}
+
+	if r.TargetHost != "" {
+		host, err := normalizeExposeTargetHost(r.TargetHost)
+		if err != nil {
+			return err
+		}
+		r.TargetHost = host
 	}
 
 	return nil
@@ -1633,6 +1642,7 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 	svc.Targets = []*Target{
 		{
 			AccountID:  accountID,
+			Host:       r.TargetHost,
 			Port:       r.Port,
 			Protocol:   targetProto,
 			TargetId:   peerID,

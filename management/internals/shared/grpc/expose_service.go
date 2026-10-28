@@ -62,6 +62,7 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		Password:       exposeReq.Password,
 		UserGroups:     exposeReq.UserGroups,
 		ListenPort:     uint16(exposeReq.ListenPort), //nolint:gosec // validated above
+		TargetHost:     exposeReq.TargetHost,
 	})
 	if err != nil {
 		return nil, mapExposeError(ctx, err)

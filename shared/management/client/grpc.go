@@ -85,6 +85,7 @@ type ExposeRequest struct {
 	Password   string
 	UserGroups []string
 	ListenPort uint16
+	TargetHost string
 }
 
 type ExposeResponse struct {
@@ -999,6 +1000,7 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
 		ListenPort: uint32(req.ListenPort),
+		TargetHost: req.TargetHost,
 	}, nil
 }
 

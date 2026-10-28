@@ -92,4 +92,25 @@ func TestNewRequest(t *testing.T) {
 	assert.Equal(t, []string{"group1", "group2"}, exposeReq.UserGroups, "user groups should match")
 	assert.Equal(t, "custom.example.com", exposeReq.Domain, "domain should match")
 	assert.Equal(t, "my-prefix", exposeReq.NamePrefix, "name prefix should match")
+	assert.Empty(t, exposeReq.TargetHost, "target host should be empty when omitted")
+}
+
+func TestNewRequest_CarriesTargetHost(t *testing.T) {
+	req := &daemonProto.ExposeServiceRequest{
+		Port:       8080,
+		Protocol:   daemonProto.ExposeProtocol_EXPOSE_TCP,
+		TargetHost: "other-service",
+		ListenPort: 15432,
+	}
+
+	exposeReq := NewRequest(req)
+	assert.Equal(t, "other-service", exposeReq.TargetHost, "daemon target host should be copied")
+	assert.Equal(t, uint16(8080), exposeReq.Port, "port should be copied")
+	assert.Equal(t, uint16(15432), exposeReq.ListenPort, "listen port should be copied")
+
+	mgmReq := toClientExposeRequest(*exposeReq)
+	assert.Equal(t, "other-service", mgmReq.TargetHost, "management client request should carry target host")
+	assert.Equal(t, uint16(8080), mgmReq.Port, "management client request should carry port")
+	assert.Equal(t, int(ProtocolTCP), mgmReq.Protocol, "management client request should carry protocol")
+	assert.Equal(t, uint16(15432), mgmReq.ListenPort, "management client request should carry listen port")
 }

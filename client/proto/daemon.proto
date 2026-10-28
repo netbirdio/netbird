@@ -1050,6 +1050,7 @@ message ExposeServiceRequest {
   string domain = 6;
   string name_prefix = 7;
   uint32 listen_port = 8;
+  string target_host = 9;
 }
 
 message ExposeServiceEvent {
