@@ -91,8 +91,6 @@ func (g *Group) Copy() *Group {
 	return group
 }
 
-// Equal reports whether g and other hold the same persisted state, ignoring the
-// order of peers and resources.
 func (g *Group) Equal(other *Group) bool {
 	if g == nil || other == nil {
 		return g == other
