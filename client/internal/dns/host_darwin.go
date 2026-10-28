@@ -505,10 +505,15 @@ func runWithTimeout(timeout time.Duration, name string, args ...string) ([]byte,
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return out, fmt.Errorf("%s timed out after %s: %w", name, timeout, ctx.Err())
+	return out, commandTimeoutError(err, ctx.Err(), name, timeout)
+}
+
+// commandTimeoutError names the timeout only for a failed run; a command can succeed just before the deadline.
+func commandTimeoutError(err, ctxErr error, name string, timeout time.Duration) error {
+	if err != nil && errors.Is(ctxErr, context.DeadlineExceeded) {
+		return fmt.Errorf("%s timed out after %s: %w", name, timeout, ctxErr)
 	}
-	return out, err
+	return err
 }
 
 func (s *systemConfigurator) restoreUncleanShutdownDNS() error {

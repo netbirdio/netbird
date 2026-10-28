@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os/exec"
@@ -616,4 +617,15 @@ func TestRunWithTimeoutKillsHungCommand(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded, "the error must say the command hit the timeout")
 	assert.Contains(t, err.Error(), "timed out after 100ms")
 	assert.Less(t, time.Since(start), 2*time.Second, "command was not killed at the timeout")
+}
+
+// TestCommandTimeoutErrorOnlyForFailedRuns keeps a command that succeeded just before the deadline a success.
+func TestCommandTimeoutErrorOnlyForFailedRuns(t *testing.T) {
+	failed := errors.New("signal: killed")
+
+	assert.NoError(t, commandTimeoutError(nil, context.DeadlineExceeded, "dscacheutil", 5*time.Second),
+		"a command that succeeded must not be reported as timed out")
+	assert.ErrorIs(t, commandTimeoutError(failed, context.DeadlineExceeded, "dscacheutil", 5*time.Second), context.DeadlineExceeded)
+	assert.Equal(t, failed, commandTimeoutError(failed, nil, "dscacheutil", 5*time.Second),
+		"a failure before the deadline keeps its own error")
 }
