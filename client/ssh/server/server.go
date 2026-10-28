@@ -801,8 +801,8 @@ func (c *trackedConn) Close() error {
 }
 
 // trackConn wraps an accepted connection and registers it so that Stop can close it.
-// It returns nil if ctx identifies a stopped or replaced SSH server; the caller
-// remains responsible for closing a rejected connection.
+// It returns nil if ctx identifies a stopped or replaced SSH server. The SSH server
+// closes the original connection when this callback returns nil.
 func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
 	tracked := &trackedConn{
 		Conn:       conn,
