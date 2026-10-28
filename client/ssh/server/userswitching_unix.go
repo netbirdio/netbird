@@ -243,7 +243,7 @@ func (s *Server) createDirectPtyCommand(session ssh.Session, localUser *user.Use
 // preparePtyEnv prepares environment variables for Pty execution
 func (s *Server) preparePtyEnv(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) []string {
 	termType := ptyReq.Term
-	if termType == "" {
+	if termType == "" || !acceptEnv("TERM="+termType) {
 		termType = "xterm-256color"
 	}
 
