@@ -24,15 +24,10 @@ static char *nbGetGtkThemeName(void) {
 
 // name may be NULL to keep the current theme name.
 //
-// On GTK 4.20+ any write to gtk-application-prefer-dark-theme resets the theme
-// provider, which unregisters the current theme's gtk.gresource and reloads the
-// theme without registering it again. Gresource-based themes such as Yaru then
-// fail to import their CSS and every window loses its styling. So the flag is
-// only written when its value actually changes, and around that write the
-// theme name is cleared and set again: the reset then reloads GTK's built-in
-// default theme, which has no gresource to lose, and setting the real name
-// afterwards loads it fresh and registers its gresource. Setting the same name
-// again without clearing it first does not reliably reload the theme.
+// On GTK 4.20+ writing gtk-application-prefer-dark-theme reloads the theme
+// without re-registering its gresource, so themes like Yaru lose their CSS.
+// Only write the flag when it changes, and clear the theme name around the
+// write so the real theme is loaded fresh afterwards.
 static void nbSetGtkTheme(const char *name, int dark) {
 	GtkSettings *settings = gtk_settings_get_default();
 	if (settings == NULL) {
