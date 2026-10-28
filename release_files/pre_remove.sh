@@ -13,6 +13,8 @@ fi
 # which is left in place while the daemon runs.
 remove_host_files() {
   rm -f /etc/ssh/ssh_config.d/99-netbird.conf /etc/ssh/ssh_config.d/99-netbird.conf.tmp
+  # Temporary files left by releases that used a random name.
+  rm -f /etc/ssh/ssh_config.d/99-netbird.conf.*.tmp
   rm -f /etc/iproute2/rt_tables.d/netbird.conf
   rmdir /etc/iproute2/rt_tables.d 2>/dev/null || true
   # Entry appended to the legacy rt_tables file by older releases.

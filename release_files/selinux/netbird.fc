@@ -23,4 +23,4 @@
 # netbird runtime files (daemon socket, userspace WireGuard sockets)
 /run/netbird(/.*)?				gen_context(system_u:object_r:netbird_runtime_t,s0)
 /run/netbird.*\.sock			-s	gen_context(system_u:object_r:netbird_runtime_t,s0)
-/run/wireguard(/.*)?				gen_context(system_u:object_r:netbird_runtime_t,s0)
+/run/wireguard(/.*)?				gen_context(system_u:object_r:netbird_wg_runtime_t,s0)

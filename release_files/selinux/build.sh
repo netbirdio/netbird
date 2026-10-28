@@ -8,7 +8,7 @@ set -eu
 
 src="$(cd "$(dirname "$0")" && pwd)"
 out="${1:-$src}"
-devel="${SELINUX_DEVEL:-/usr/share/selinux/devel}"
+devel="$(cd "${SELINUX_DEVEL:-/usr/share/selinux/devel}" && pwd)"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
