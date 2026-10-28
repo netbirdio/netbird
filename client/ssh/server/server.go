@@ -224,7 +224,7 @@ type SessionInfo struct {
 }
 
 // New creates an SSH server instance with the provided host key and optional JWT configuration
-// If jwtConfig is nil, JWT authentication is disabled
+// If config.JWT is nil, JWT authentication is disabled.
 func New(config *Config) *Server {
 	s := &Server{
 		mu:                     sync.RWMutex{},
@@ -338,7 +338,9 @@ func (s *Server) closeListener(ln net.Listener) {
 	}
 }
 
-// Stop closes the SSH server
+// Stop closes the SSH server, including connections still authenticating and
+// remote forwarding listeners, and clears session and connection state.
+// It does nothing if already stopped and always returns nil, even if closing fails.
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	sshServer := s.sshServer
@@ -788,6 +790,8 @@ type trackedConn struct {
 	onceClose  sync.Once
 }
 
+// Close closes the underlying connection and removes its server tracking once,
+// even if closing fails. It returns the underlying connection's close error.
 func (c *trackedConn) Close() error {
 	err := c.Conn.Close()
 	c.onceClose.Do(func() {
@@ -797,7 +801,8 @@ func (c *trackedConn) Close() error {
 }
 
 // trackConn wraps an accepted connection and registers it so that Stop can close it.
-// It returns nil if the server that accepted the connection has been stopped in the meantime.
+// It returns nil if ctx identifies a stopped or replaced SSH server; the caller
+// remains responsible for closing a rejected connection.
 func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
 	tracked := &trackedConn{
 		Conn:       conn,
@@ -817,6 +822,8 @@ func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
 	return tracked
 }
 
+// handleConnectionClose removes conn from shutdown tracking and removes the
+// connection status associated with its remote address.
 func (s *Server) handleConnectionClose(conn *trackedConn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -865,6 +872,10 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) sessionKey {
 	return "unknown"
 }
 
+// connectionValidator returns a tracked connection, or nil to reject it.
+// With a valid configured IPv4 address and network, only TCP peers in the NetBird
+// IPv4 or IPv6 subnet are allowed, excluding the server's own IPs. Otherwise,
+// network filtering is skipped. Stopped or replaced SSH servers are always rejected.
 func (s *Server) connectionValidator(ctx ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()
 	wgAddr := s.wgAddress
