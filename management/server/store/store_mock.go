@@ -3185,6 +3185,21 @@ func (mr *MockStoreMockRecorder) HasGatewayEndpointByOtherAccount(ctx, host, acc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasGatewayEndpointByOtherAccount", reflect.TypeOf((*MockStore)(nil).HasGatewayEndpointByOtherAccount), ctx, host, accountID)
 }
 
+// HeartbeatPeerSession mocks base method.
+func (m *MockStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HeartbeatPeerSession", ctx, accountID, peerID, sessionStartedAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HeartbeatPeerSession indicates an expected call of HeartbeatPeerSession.
+func (mr *MockStoreMockRecorder) HeartbeatPeerSession(ctx, accountID, peerID, sessionStartedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeartbeatPeerSession", reflect.TypeOf((*MockStore)(nil).HeartbeatPeerSession), ctx, accountID, peerID, sessionStartedAt)
+}
+
 // IncrementAgentNetworkConsumption mocks base method.
 func (m *MockStore) IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error {
 	m.ctrl.T.Helper()
