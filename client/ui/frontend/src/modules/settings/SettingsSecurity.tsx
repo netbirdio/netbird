@@ -42,7 +42,14 @@ export function SettingsSecurity() {
                                 if (!v) setField("rosenpassPermissive", false);
                             }}
                             label={t("settings.security.rosenpass.label")}
-                            helpText={t("settings.security.rosenpass.help")}
+                            helpText={
+                                <>
+                                    {t("settings.security.rosenpass.help")}
+                                    <span className={"mt-1 block"}>
+                                        {t("settings.security.rosenpass.deprecated")}
+                                    </span>
+                                </>
+                            }
                         />
                     )}
                     {!hideRosenpassPermissive && (

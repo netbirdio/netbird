@@ -269,6 +269,9 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			grpc.KeepaliveParams(kasp),
 			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
+			// Stop waits for the sync handlers, so their teardown has queued every
+			// disconnect before FlushDisconnects writes them.
+			grpc.WaitForHandlers(true),
 		}
 
 		// Append interceptors contributed by registered gRPC extensions. These
@@ -292,6 +295,21 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
+		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, s.ManagementGRPCServer())
+
+		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
+		log.Info("ProxyService registered on gRPC server")
+
+		// Register services contributed by external modules via the extension seam.
+		registerExtensions(gRPCAPIHandler, s.grpcExtensions)
+
+		return gRPCAPIHandler
+	})
+}
+
+// ManagementGRPCServer returns the management gRPC service, created once and served by GRPCServer.
+func (s *BaseServer) ManagementGRPCServer() *nbgrpc.Server {
+	return Create(s, func() *nbgrpc.Server {
 		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore())
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
@@ -301,15 +319,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		if serviceMgr != nil {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
-		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
-
-		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
-		log.Info("ProxyService registered on gRPC server")
-
-		// Register services contributed by external modules via the extension seam.
-		registerExtensions(gRPCAPIHandler, s.grpcExtensions)
-
-		return gRPCAPIHandler
+		return srv
 	})
 }
 

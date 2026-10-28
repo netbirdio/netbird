@@ -196,6 +196,11 @@ type Store interface {
 	// recorded by the database. Returns true when the update happened,
 	// false when a newer session has taken over.
 	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
+	// MarkPeersDisconnectedIfSameSession applies the semantics of
+	// MarkPeerDisconnectedIfSameSession to many peers in batched statements.
+	// Sessions with a zero SessionStartedAt are skipped. Returns the number
+	// of peers that were marked disconnected.
+	MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error)
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
