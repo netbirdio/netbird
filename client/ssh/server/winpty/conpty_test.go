@@ -273,8 +273,13 @@ func TestWindowsHandleWriter(t *testing.T) {
 
 const (
 	conPtyHelperHandleEnv = "NB_CONPTY_TEST_INHERITED_HANDLE"
-	// exit codes of the helper process started by TestCreateConPtyProcess_NoHandleInheritance
+	// exit codes of the helper process started by TestCreateConPtyProcess_NoHandleInheritance.
+	// conPtyHelperExitSkipped is distinct from conPtyHelperExitNotInherited so the parent can
+	// tell "probed and not inherited" apart from "never probed" (for example if the env var
+	// carrying the handle value failed to reach the child); either outcome exits 0 as a bare
+	// go test binary, so the exit code alone must disambiguate them.
 	conPtyHelperExitNotInherited = 0
+	conPtyHelperExitSkipped      = 2
 	conPtyHelperExitInherited    = 3
 )
 
@@ -331,6 +336,9 @@ func TestCreateConPtyProcess_NoHandleInheritance(t *testing.T) {
 	require.NoError(t, err, "Should wait for ConPty process")
 	if event != windows.WAIT_OBJECT_0 {
 		_ = windows.TerminateProcess(pi.Process, 1)
+		// Wait for the termination to actually land before reading the exit code or
+		// closing handles, or the process can briefly survive as a leaked child.
+		_, _ = windows.WaitForSingleObject(pi.Process, 5000)
 	}
 
 	var exitCode uint32
@@ -343,17 +351,19 @@ func TestCreateConPtyProcess_NoHandleInheritance(t *testing.T) {
 	<-drained
 	closeHandles(outputRead)
 
+	require.NotEqual(t, uint32(conPtyHelperExitSkipped), exitCode, "helper must probe the handle, not skip: the env var should have reached the child")
 	require.NotEqual(t, uint32(conPtyHelperExitInherited), exitCode, "ConPty child must not inherit the daemon's pipe handles")
 	require.Equal(t, uint32(conPtyHelperExitNotInherited), exitCode, "helper process should run to completion")
 }
 
 // TestConPtyHandleInheritanceHelper is the child of TestCreateConPtyProcess_NoHandleInheritance.
 // It exits with conPtyHelperExitInherited when the handle value named in the environment is a
-// live pipe handle in this process.
+// live pipe handle in this process, and with conPtyHelperExitSkipped when run on its own (no
+// handle value to probe), which the parent treats as a failure rather than a silent pass.
 func TestConPtyHandleInheritanceHelper(t *testing.T) {
 	value := os.Getenv(conPtyHelperHandleEnv)
 	if value == "" {
-		t.Skip("helper process only")
+		os.Exit(conPtyHelperExitSkipped)
 	}
 
 	handleValue, err := strconv.ParseUint(value, 10, 64)
