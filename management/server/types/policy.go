@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/netbirdio/netbird/management/server/util"
+)
+
 const (
 	// PolicyRuleFlowDirect allows traffic from source to destination
 	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
@@ -82,7 +86,7 @@ func (p *Policy) Equal(other *Policy) bool {
 		return false
 	}
 
-	if !stringSlicesEqualUnordered(p.SourcePostureChecks, other.SourcePostureChecks) {
+	if !util.ElementsMatch(p.SourcePostureChecks, other.SourcePostureChecks) {
 		return false
 	}
 
