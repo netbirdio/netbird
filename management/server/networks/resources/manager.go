@@ -224,6 +224,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
+	var unchanged bool
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
 		if err != nil {
@@ -258,6 +259,11 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			oldResource.GroupIDs = append(oldResource.GroupIDs, g.ID)
 		}
 
+		if resource.Equal(oldResource) {
+			unchanged = true
+			return nil
+		}
+
 		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
@@ -287,6 +293,10 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to update network resource: %w", err)
+	}
+
+	if unchanged {
+		return resource, nil
 	}
 
 	for _, event := range eventsToStore {

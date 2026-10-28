@@ -4,10 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"go.uber.org/mock/gomock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -445,4 +448,55 @@ func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
+}
+
+func Test_UpdateResourceUnchangedSkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	accountID := "testAccountId"
+	userID := "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	var events, fanOuts int
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		},
+		ExpandAndUpdateAffectedFunc: func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change) {
+			fanOuts++
+		},
+	}
+	serviceManager := reverseproxy.NewMockManager(gomock.NewController(t))
+	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil).AnyTimes()
+	manager := NewManager(s, permissions.NewManager(s), groups.NewManagerMock(), &am, serviceManager)
+
+	serial := func() uint64 {
+		network, err := s.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+		require.NoError(t, err)
+		return network.Serial
+	}
+
+	resource := &types.NetworkResource{
+		ID:          "testResourceId",
+		NetworkID:   "testNetworkId",
+		AccountID:   accountID,
+		Name:        "new-name",
+		Description: "new-description",
+		Address:     "1.2.3.0/24",
+		Enabled:     true,
+	}
+
+	_, err = manager.UpdateResource(ctx, userID, resource.Copy())
+	require.NoError(t, err)
+	require.Equal(t, 1, events, "real update must log an event")
+	require.Equal(t, 1, fanOuts, "real update must update affected peers")
+
+	serialBefore := serial()
+	_, err = manager.UpdateResource(ctx, userID, resource.Copy())
+	require.NoError(t, err)
+	assert.Equal(t, 1, events, "unchanged update must not log an event")
+	assert.Equal(t, 1, fanOuts, "unchanged update must not update affected peers")
+	assert.Equal(t, serialBefore, serial(), "unchanged update must not bump the network serial")
 }
