@@ -125,6 +125,8 @@ type connState struct {
 	remoteAddr   net.Addr
 	portForwards []string
 	jwtUsername  string
+	// conn is the network connection, closed when jwtUsername loses authorization.
+	conn net.Conn
 }
 
 // authKey uniquely identifies an authentication attempt by username and remote address.
@@ -137,6 +139,10 @@ type connKey string
 
 // preAuthConnKey is the context key under which the connection being authenticated is stored.
 type preAuthConnKey struct{}
+
+// netConnContextKey is the ssh.Context key under which connectionValidator leaves
+// the network connection for passwordHandler.
+type netConnContextKey struct{}
 
 func newAuthKey(username string, remoteAddr net.Addr) authKey {
 	return authKey(fmt.Sprintf("%s@%s", username, remoteAddr.String()))
@@ -510,15 +516,43 @@ func (s *Server) SetNetworkValidation(addr wgaddr.Address) {
 
 // UpdateSSHAuth updates the SSH fine-grained access control configuration
 // This should be called when network map updates include new SSH auth configuration
+// Connections of users the new configuration no longer authorizes are closed.
 func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Reset JWT validator/extractor to pick up new userIDClaim
 	s.jwtValidator = nil
 	s.jwtExtractor = nil
 
 	s.authorizer.Update(config)
+	revoked := s.revokedConnections()
+	s.mu.Unlock()
+
+	// Close outside the lock: trackedConn.Close needs s.mu for handleConnectionClose.
+	for _, conn := range revoked {
+		if err := conn.Close(); err != nil {
+			log.Debugf("close revoked SSH connection: %v", err)
+		}
+	}
+}
+
+// revokedConnections returns the established connections that would not pass
+// passwordHandler's authorization anymore. Authorization is checked once per
+// connection, so these have to go along with their sessions and port forwards.
+// Must be called with s.mu held.
+func (s *Server) revokedConnections() []net.Conn {
+	var revoked []net.Conn
+	for _, state := range s.connections {
+		// Connection not authorized by JWT (non-JWT auth path)
+		if state.conn == nil {
+			continue
+		}
+		if _, err := s.authorizer.Authorize(state.jwtUsername, state.username); err != nil {
+			s.connLogger(state).Warnf("SSH auth revoked, closing connection: %v", err)
+			revoked = append(revoked, state.conn)
+		}
+	}
+	return revoked
 }
 
 // JWTConfig returns the JWT authentication this server was built with, or nil
@@ -762,28 +796,36 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 
 	logger = logger.WithField("jwt_user", userAuth.UserId)
 
-	s.mu.RLock()
-	authorizer := s.authorizer
-	s.mu.RUnlock()
+	netConn, ok := ctx.Value(netConnContextKey{}).(net.Conn)
+	if !ok {
+		logger.Errorf("SSH auth denied: no network connection in context")
+		return false
+	}
 
-	msg, err := authorizer.Authorize(userAuth.UserId, osUsername)
+	key := newAuthKey(osUsername, remoteAddr)
+	remoteAddrStr := ctx.RemoteAddr().String()
+
+	// Authorize and register under one lock: a concurrent UpdateSSHAuth either
+	// is taken into account here or finds the connection registered.
+	s.mu.Lock()
+	msg, err := s.authorizer.Authorize(userAuth.UserId, osUsername)
+	if err == nil {
+		s.pendingAuthJWT[key] = userAuth.UserId
+		s.connections[connKey(remoteAddrStr)] = &connState{
+			username:    ctx.User(),
+			remoteAddr:  ctx.RemoteAddr(),
+			jwtUsername: userAuth.UserId,
+			conn:        netConn,
+		}
+	}
+	s.mu.Unlock()
+
 	if err != nil {
 		logger.Warnf("SSH auth denied: %v", err)
 		return false
 	}
 
 	logger.Infof("SSH auth %s", msg)
-
-	key := newAuthKey(osUsername, remoteAddr)
-	remoteAddrStr := ctx.RemoteAddr().String()
-	s.mu.Lock()
-	s.pendingAuthJWT[key] = userAuth.UserId
-	s.connections[connKey(remoteAddrStr)] = &connState{
-		username:    ctx.User(),
-		remoteAddr:  ctx.RemoteAddr(),
-		jwtUsername: userAuth.UserId,
-	}
-	s.mu.Unlock()
 
 	return true
 }
@@ -841,9 +883,10 @@ func (c *trackedConn) Close() error {
 	return err
 }
 
-// trackConn wraps an accepted connection and registers it so that Stop can close it.
-// It returns nil if ctx identifies a stopped or replaced SSH server. The SSH server
-// closes the original connection when this callback returns nil.
+// trackConn wraps an accepted connection, registers it so Stop can close it, and leaves it
+// in ctx so passwordHandler can record it on the connection state. It returns nil if ctx
+// identifies a stopped or replaced SSH server. The SSH server closes the original
+// connection when this callback returns nil.
 func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
 	tracked := &trackedConn{
 		Conn:       conn,
@@ -860,6 +903,7 @@ func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
 	}
 
 	s.openConns[tracked] = struct{}{}
+	ctx.SetValue(netConnContextKey{}, tracked)
 	return tracked
 }
 
