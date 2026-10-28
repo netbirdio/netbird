@@ -846,6 +846,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"PrivateKey":           "sensitive: WireGuard private key",
 		"PreSharedKey":         "sensitive: WireGuard pre-shared key",
 		"SSHKey":               "sensitive: SSH private key",
+		"AuthKey":              "sensitive: peer auth private key seed",
 		"ClientCertKeyPair":    "non-config: parsed cert pair, not serialized",
 		"Name":                 "non-config: profile name is not needed for debug purposes",
 		"policy":               "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
