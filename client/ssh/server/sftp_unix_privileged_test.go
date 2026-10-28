@@ -4,6 +4,7 @@ package server
 
 import (
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,6 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/client/ssh/testutil"
 )
 
 // TestSSHServer_SFTPRefusedForNologinAccount verifies that an account the host has closed to
@@ -33,6 +33,11 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 		t.Skip("no account without a login shell on this system")
 	}
 
+	// A control dialed as the invoking user (root, under the privileged harness) would need no
+	// user switching and take the direct in-process path, never the su/executor path this test
+	// means to exercise. Use a separate, non-root account with a real shell instead.
+	loginUser := createLoginTestUser(t)
+
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
@@ -41,8 +46,6 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 
 	server := New(&Config{HostKeyPEM: hostKey})
 	server.SetAllowSFTP(true)
-	// The control dials as the invoking user, which running under the privileged harness is root.
-	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {
@@ -62,9 +65,7 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 	}
 
 	t.Run("control_account_with_real_shell_is_served", func(t *testing.T) {
-		controlUser := testutil.GetTestUsername(t)
-
-		conn, err := dial(controlUser)
+		conn, err := dial(loginUser)
 		require.NoError(t, err, "SSH connection should succeed")
 		defer func() {
 			if err := conn.Close(); err != nil {
@@ -73,7 +74,7 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 		}()
 
 		sftpClient, err := sftp.NewClient(conn)
-		require.NoError(t, err, "SFTP must be served for %s, which has a real login shell", controlUser)
+		require.NoError(t, err, "SFTP must be served for %s, which has a real login shell", loginUser)
 		require.NoError(t, sftpClient.Close())
 	})
 
@@ -92,6 +93,51 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 		}
 		require.Error(t, err, "SFTP must be refused for %s, whose shell is not a login shell", nologinUser)
 	})
+}
+
+// createLoginTestUser returns a non-root account with a real login shell, creating a throwaway
+// one if needed so the su/executor privilege-drop path has somewhere to switch to. It supports
+// both shadow-utils (useradd/userdel) and busybox (adduser/deluser, Alpine's default), since the
+// privileged suite runs on both a glibc CI container and Alpine locally.
+func createLoginTestUser(t *testing.T) string {
+	t.Helper()
+
+	const username = "nb-sftp-control-test"
+
+	if _, err := user.Lookup(username); err == nil {
+		return username
+	}
+
+	shell := "/bin/sh"
+
+	if _, err := exec.LookPath("useradd"); err == nil {
+		out, err := exec.Command("useradd", "-M", "-s", shell, username).CombinedOutput()
+		if err != nil {
+			t.Skipf("create login test user with useradd: %v: %s", err, out)
+		}
+		t.Cleanup(func() {
+			if out, err := exec.Command("userdel", username).CombinedOutput(); err != nil {
+				t.Logf("remove login test user: %v: %s", err, out)
+			}
+		})
+		return username
+	}
+
+	if _, err := exec.LookPath("adduser"); err == nil {
+		out, err := exec.Command("adduser", "-D", "-H", "-s", shell, username).CombinedOutput()
+		if err != nil {
+			t.Skipf("create login test user with adduser: %v: %s", err, out)
+		}
+		t.Cleanup(func() {
+			if out, err := exec.Command("deluser", username).CombinedOutput(); err != nil {
+				t.Logf("remove login test user: %v: %s", err, out)
+			}
+		})
+		return username
+	}
+
+	t.Skip("no useradd or adduser available to create a login test user")
+	return ""
 }
 
 // findNologinUser returns a system account whose login shell refuses logins, or "".
