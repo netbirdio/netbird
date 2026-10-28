@@ -483,7 +483,7 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			result := isPrivilegedOrUnknown(tt.username)
+			result := isPrivilegedOrUnknown(&user.User{Username: tt.username, Uid: "1000"})
 			assert.Equal(t, tt.expected, result, tt.description)
 		})
 	}
