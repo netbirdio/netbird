@@ -44,6 +44,8 @@ func (c *jwtCache) currentGeneration() uint64 {
 // store keeps the token only while generation is still the current one, and
 // reports whether it did. See the generation field.
 func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Duration, generation uint64) bool {
+	const jwtCacheTimeoutTolerance = time.Minute
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -92,11 +94,15 @@ func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Durat
 		log.Debug("JWT token missing iat claim, not caching")
 		return false
 	}
-	tokenAge := now.Sub(iat.Time)
-	if tokenAge < 0 {
-		log.Debugf("JWT token has future iat claim, not caching: iat=%v, now=%v", iat.Time, now)
+	if iat.Time.After(now.Add(jwtCacheTimeoutTolerance)) {
+		log.Debugf("JWT token iat is too far in the future, not caching: iat=%v, now=%v", iat.Time, now)
 		return false
 	}
+	issuedAt := iat.Time
+	if issuedAt.After(now) {
+		issuedAt = now
+	}
+	tokenAge := now.Sub(issuedAt)
 
 	if tokenAge > maxAge {
 		log.Debugf("JWT token exceeded cache TTL by iat claim, not caching: age=%v, max=%v", tokenAge, maxAge)
@@ -106,7 +112,7 @@ func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Durat
 	tokenBytes := []byte(token)
 	c.enclave = memguard.NewEnclave(tokenBytes)
 	c.owner = &owner
-	c.issuedAt = iat.Time
+	c.issuedAt = issuedAt
 	cleanupAfter := maxAge - tokenAge
 	if exp != nil {
 		c.expiresAt = exp.Time
