@@ -130,20 +130,32 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr, lookup nexthopLookup
 	return true, nil
 }
 
-// refreshUnderlay reinstalls the scoped default and the cached egress
-// interface for the current physical default. setupAdvancedRouting already
-// clears the old cache and scoped defaults before installing new ones.
+// physicalDefault is the physical default next hop of one address family.
+type physicalDefault struct {
+	unspec  netip.Addr
+	nexthop Nexthop
+}
+
+// scopedKey identifies a scoped default by address family and interface.
+type scopedKey struct {
+	is6   bool
+	index int
+}
+
+// refreshUnderlay moves the scoped defaults and the cached egress interface
+// to the current physical default.
 //
 // Unlike engine start, a refresh runs with the NetBird routes in place: with
 // an exit node the plain lookup resolves 0/1 on the NetBird interface and
-// would bind NetBird's own traffic to the tunnel.
+// would bind NetBird's own traffic to the tunnel. For the same reason the
+// binding must never be empty here: a socket dialed meanwhile would follow
+// 0/1 into the tunnel. So the new routes and binding go in before the old
+// ones come out.
 func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
 	if !advancedRouting {
 		return nil
 	}
-	installed, err := r.setupAdvancedRoutingWith(func(unspec netip.Addr) (Nexthop, error) {
-		return GetUnderlayNextHop(unspec, nbnet.GetVPNInterfaceName())
-	})
+	defaults, err := lookupUnderlayDefaults(nbnet.GetVPNInterfaceName())
 	// Unlike engine start, a family left unbound here keeps sockets on the
 	// old network or sends them into the tunnel: any failure restarts.
 	if err != nil {
@@ -152,10 +164,80 @@ func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
 	// The refresh only runs on a change with a default in place. Finding none
 	// leaves NetBird's sockets unbound, following 0/1 into the tunnel: fail, so
 	// the engine falls back to a restart.
-	if installed == 0 {
+	if len(defaults) == 0 {
 		return errors.New("no physical default found to bind NetBird's traffic to")
 	}
+
+	keep := make(map[scopedKey]bool)
+	for _, d := range defaults {
+		if err := r.replaceScopedDefault(d.unspec, d.nexthop); err != nil {
+			return fmt.Errorf("install scoped default on %s: %w", d.nexthop.Intf.Name, err)
+		}
+		nbnet.SetBoundInterface(afNumOf(d.unspec), d.nexthop.Intf)
+		keep[scopedKey{is6: d.unspec.Is6(), index: d.nexthop.Intf.Index}] = true
+		log.Infof("moved the %s scoped default and binding to %s", afOf(d.unspec), d.nexthop.Intf.Name)
+	}
+	for _, unspec := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+		if !hasDefaultFor(defaults, unspec) {
+			nbnet.ClearBoundInterface(afNumOf(unspec))
+		}
+	}
+
+	// NetBird's sockets are already bound to the new interface: a leftover
+	// scoped default on the old one is unused, not worth a restart.
+	if err := r.flushScopedDefaultsExcept(func(dst netip.Prefix, index int) bool {
+		return keep[scopedKey{is6: dst.Addr().Is6(), index: index}]
+	}); err != nil {
+		log.Warnf("remove old scoped defaults: %v", err)
+	}
 	return nil
+}
+
+// lookupUnderlayDefaults resolves the physical default of each address family,
+// skipping the NetBird interface. A family without a default is left out.
+func lookupUnderlayDefaults(vpnIntf string) ([]physicalDefault, error) {
+	var defaults []physicalDefault
+	for _, unspec := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+		nexthop, err := GetUnderlayNextHop(unspec, vpnIntf)
+		if errors.Is(err, vars.ErrRouteNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get default nexthop for %s: %w", unspec, err)
+		}
+		if nexthop.Intf == nil {
+			return nil, fmt.Errorf("unusable default nexthop for %s (no interface)", unspec)
+		}
+		defaults = append(defaults, physicalDefault{unspec: unspec, nexthop: nexthop})
+	}
+	return defaults, nil
+}
+
+// replaceScopedDefault installs the scoped default via nexthop. RTM_ADD
+// refuses a second scoped default on the same interface, so one already there
+// (ours with the old gateway, or macOS's own) is repointed in place instead.
+func (r *SysOps) replaceScopedDefault(unspec netip.Addr, nexthop Nexthop) error {
+	err := r.addScopedDefault(unspec, nexthop)
+	if !errors.Is(err, unix.EEXIST) {
+		return err
+	}
+	return r.scopedRouteSocket(unix.RTM_CHANGE, unspec, nexthop)
+}
+
+func hasDefaultFor(defaults []physicalDefault, unspec netip.Addr) bool {
+	for _, d := range defaults {
+		if d.unspec == unspec {
+			return true
+		}
+	}
+	return false
+}
+
+func afNumOf(unspec netip.Addr) int {
+	if unspec.Is6() {
+		return unix.AF_INET6
+	}
+	return unix.AF_INET
 }
 
 func (r *SysOps) cleanupAdvancedRouting() error {
