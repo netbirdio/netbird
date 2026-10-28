@@ -2846,28 +2846,13 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 // to inform the user that the NetBird connection session has expired.
 func sendTerminalNotification() error {
 	message := "NetBird connection session expired\n\nPlease re-authenticate to connect to the network."
-	echoCmd := exec.Command("echo", message)
-	wallCmd := exec.Command("sudo", "wall")
+	wallCmd := exec.Command("wall")
+	wallCmd.Stdin = bytes.NewReader([]byte(message + "\n"))
 
-	echoCmdStdout, err := echoCmd.StdoutPipe()
-	if err != nil {
-		return err
+	if out, err := wallCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("run wall: %w: %s", err, bytes.TrimSpace(out))
 	}
-	wallCmd.Stdin = echoCmdStdout
-
-	if err := echoCmd.Start(); err != nil {
-		return err
-	}
-
-	if err := wallCmd.Start(); err != nil {
-		return err
-	}
-
-	if err := echoCmd.Wait(); err != nil {
-		return err
-	}
-
-	return wallCmd.Wait()
+	return nil
 }
 
 // afterLoginPreCheck is a seam for tests to run a concurrent config change
