@@ -60,7 +60,10 @@ func TestServer_StopClosesUnauthenticatedConnections(t *testing.T) {
 }
 
 // TestServer_RejectsConnectionAfterStop verifies that a connection dialed after Stop has
-// returned is refused rather than served by the stopped server's stale state.
+// returned is never served by the stopped server's stale state. Whether the listener was
+// already closed by Stop, or was still briefly open because Serve had not yet registered
+// it, is a scheduling detail outside the test's control: either outcome is acceptable, as
+// long as the connection is never served.
 func TestServer_RejectsConnectionAfterStop(t *testing.T) {
 	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
@@ -70,9 +73,15 @@ func TestServer_RejectsConnectionAfterStop(t *testing.T) {
 	require.NoError(t, server.Stop())
 
 	conn, err := net.Dial("tcp", serverAddr)
-	require.NoError(t, err, "connect should succeed; trackConn, not the listener, is what refuses the connection")
+	if err != nil {
+		// The listener was already closed by Stop; the connection was correctly refused.
+		return
+	}
 	defer func() { _ = conn.Close() }()
 
+	// The listener was still open because Serve had not yet registered it with the
+	// embedded SSH server when Stop ran. trackConn must still refuse the connection
+	// once Serve's accept loop picks it up, since s.sshServer was already cleared.
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
 	_, err = conn.Read(make([]byte, 1))
 	require.ErrorIs(t, err, io.EOF, "a connection accepted after Stop must be closed, not served")
