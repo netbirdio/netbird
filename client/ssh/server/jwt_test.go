@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gliderlabs/ssh"
 	"github.com/golang-jwt/jwt/v5"
 	cryptossh "golang.org/x/crypto/ssh"
 
@@ -750,4 +751,77 @@ func TestJWTMultipleAudiences(t *testing.T) {
 			}
 		})
 	}
+}
+
+// authRequestContext is the context passwordHandler sees: firstUser is what gliderlabs/ssh recorded
+// from the first auth request of the connection, currentUser is the name in the request being handled.
+type authRequestContext struct {
+	ssh.Context
+	firstUser   string
+	currentUser string
+}
+
+func (c authRequestContext) User() string { return c.firstUser }
+
+func (c authRequestContext) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(100, 64, 0, 2), Port: 12345}
+}
+
+func (c authRequestContext) Value(key any) any {
+	if key == (preAuthConnKey{}) {
+		return authRequestConn{user: c.currentUser}
+	}
+	return nil
+}
+
+type authRequestConn struct {
+	cryptossh.ConnMetadata
+	user string
+}
+
+func (c authRequestConn) User() string { return c.user }
+
+// TestJWTRejectsUserNameChange tests that a token authorized for one OS user is not accepted
+// once the client switches to another user name on the same connection.
+func TestJWTRejectsUserNameChange(t *testing.T) {
+	jwksServer, privateKey, jwksURL := setupJWKSServer(t)
+	defer jwksServer.Close()
+
+	const (
+		issuer   = "https://test-issuer.example.com"
+		audience = "test-audience"
+	)
+
+	server := New(&Config{
+		JWT: &JWTConfig{
+			Issuer:       issuer,
+			Audiences:    []string{audience},
+			KeysLocation: jwksURL,
+		},
+	})
+
+	testUserHash, err := sshuserhash.HashUserID("test-user")
+	require.NoError(t, err)
+
+	server.UpdateSSHAuth(&sshauth.Config{
+		UserIDClaim:     sshauth.DefaultUserIDClaim,
+		AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
+		MachineUsers: map[string][]uint32{
+			"alice": {0},
+			"bob":   {0},
+		},
+	})
+
+	token := generateValidJWT(t, privateKey, issuer, audience)
+
+	assert.True(t, server.passwordHandler(authRequestContext{firstUser: "alice", currentUser: "alice"}, token),
+		"mapped OS user should be accepted")
+	assert.False(t, server.passwordHandler(authRequestContext{firstUser: "root", currentUser: "root"}, token),
+		"unmapped OS user should be rejected")
+	assert.False(t, server.passwordHandler(authRequestContext{firstUser: "alice", currentUser: "root"}, token),
+		"change to an unmapped OS user after the first request should be rejected")
+	assert.False(t, server.passwordHandler(authRequestContext{firstUser: "alice", currentUser: "bob"}, token),
+		"change to another mapped OS user after the first request should be rejected")
+	assert.False(t, server.passwordHandler(authRequestContext{firstUser: "root", currentUser: "alice"}, token),
+		"change to a mapped OS user after the first request should be rejected")
 }

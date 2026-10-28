@@ -135,6 +135,9 @@ type authKey string
 // Used to track authenticated connections for status display and port forwarding.
 type connKey string
 
+// preAuthConnKey is the context key under which the connection being authenticated is stored.
+type preAuthConnKey struct{}
+
 func newAuthKey(username string, remoteAddr net.Addr) authKey {
 	return authKey(fmt.Sprintf("%s@%s", username, remoteAddr.String()))
 }
@@ -686,6 +689,19 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 	remoteAddr := ctx.RemoteAddr()
 	logger := s.getRequestLogger(ctx)
 
+	// ctx.User() is the name from the first auth request of the connection, while the session
+	// runs as the name from the request that succeeds. Like OpenSSH, refuse a change of user
+	// name between requests so the account that is authorized is the one the session runs as.
+	conn, ok := ctx.Value(preAuthConnKey{}).(cryptossh.ConnMetadata)
+	if !ok {
+		logger.Warn("SSH auth denied: connection being authenticated is unknown")
+		return false
+	}
+	if conn.User() != osUsername {
+		logger.Warnf("SSH auth denied: user name changed during authentication from %q to %q", osUsername, conn.User())
+		return false
+	}
+
 	if err := s.ensureJWTValidator(); err != nil {
 		logger.Errorf("JWT validator initialization failed: %v", err)
 		return false
@@ -904,6 +920,7 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 
 	if s.jwtEnabled {
 		server.PasswordHandler = s.passwordHandler
+		server.ServerConfigCallback = trackPreAuthConn
 	}
 
 	hostKeyPEM := ssh.HostKeyPEM(s.hostKeyPEM)
@@ -913,6 +930,16 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 
 	s.configurePortForwarding(server)
 	return server, nil
+}
+
+// trackPreAuthConn stores the connection being authenticated in its context, which gives
+// passwordHandler the user name of the auth request it is handling.
+func trackPreAuthConn(ctx ssh.Context) *cryptossh.ServerConfig {
+	return &cryptossh.ServerConfig{
+		PreAuthConnCallback: func(conn cryptossh.ServerPreAuthConn) {
+			ctx.SetValue(preAuthConnKey{}, conn)
+		},
+	}
 }
 
 func (s *Server) storeRemoteForwardListener(key forwardKey, ln net.Listener) {
