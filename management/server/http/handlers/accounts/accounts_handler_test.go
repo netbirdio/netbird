@@ -200,6 +200,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				SshJwtMaxTokenAge:               ir(600),
 			},
 			expectedArray: false,
