@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/tun"
+	"golang.org/x/sys/unix"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
@@ -26,11 +26,7 @@ func TestRefreshUnderlayKeepsSocketsBound(t *testing.T) {
 	nbnet.Init()
 	require.True(t, nbnet.AdvancedRouting(), "advanced routing must be on")
 
-	dev, err := tun.CreateTUN("utun", 1280)
-	require.NoError(t, err, "create the stand-in tunnel")
-	t.Cleanup(func() { _ = dev.Close() })
-	tunName, err := dev.Name()
-	require.NoError(t, err)
+	tunName := createUtun(t)
 	const tunAddr = "100.64.250.1"
 	out, err := exec.Command("ifconfig", tunName, "inet", tunAddr, tunAddr, "up").CombinedOutput()
 	require.NoError(t, err, "address the stand-in tunnel: %s", out)
@@ -79,6 +75,9 @@ func TestRefreshUnderlayKeepsSocketsBound(t *testing.T) {
 			}
 		}
 	}()
+	// Registered last, so it runs first: the refreshes stop before the tunnel
+	// and the routes they rely on are removed, even when the test fails early.
+	t.Cleanup(func() { <-refreshed })
 
 	var sockets, intoOverlay int
 	deadline := time.After(2 * time.Minute)
@@ -99,4 +98,27 @@ func TestRefreshUnderlayKeepsSocketsBound(t *testing.T) {
 	t.Logf("%d refreshes, %d sockets dialed meanwhile", rounds, sockets)
 	assert.Zero(t, refreshErrs.Load(), "refreshes on an unchanged network must succeed")
 	assert.Zero(t, intoOverlay, "sockets dialed during a refresh must stay on the physical interface")
+}
+
+const (
+	sysprotoControl = 2 // SYSPROTO_CONTROL
+	utunOptIfname   = 2 // UTUN_OPT_IFNAME
+)
+
+// createUtun opens a utun device through its kernel control socket, as
+// wireguard-go does, and returns its name. Closing the socket removes it.
+func createUtun(t *testing.T) string {
+	t.Helper()
+	fd, err := unix.Socket(unix.AF_SYSTEM, unix.SOCK_DGRAM, sysprotoControl)
+	require.NoError(t, err, "open the utun control socket")
+	t.Cleanup(func() { _ = unix.Close(fd) })
+
+	info := &unix.CtlInfo{}
+	copy(info.Name[:], "com.apple.net.utun_control")
+	require.NoError(t, unix.IoctlCtlInfo(fd, info), "look up the utun control")
+	require.NoError(t, unix.Connect(fd, &unix.SockaddrCtl{ID: info.Id, Unit: 0}), "create the utun")
+
+	name, err := unix.GetsockoptString(fd, sysprotoControl, utunOptIfname)
+	require.NoError(t, err, "read the utun name")
+	return name
 }
