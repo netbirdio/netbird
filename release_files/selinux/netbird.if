@@ -21,7 +21,8 @@ interface(`netbird_domtrans',`
 
 ########################################
 ## <summary>
-##	Read netbird configuration files.
+##	Read netbird configuration files. The files can hold the interface
+##	private key, so only grant this to domains that are trusted with it.
 ## </summary>
 ## <param name="domain">
 ## <summary>
@@ -56,6 +57,7 @@ interface(`netbird_read_tmp_files',`
 	')
 
 	files_search_tmp($1)
+	files_delete_tmp_dir_entry($1)
 	allow $1 netbird_tmp_t:file { read_file_perms unlink };
 ')
 
@@ -88,18 +90,12 @@ interface(`netbird_stream_connect',`
 ##	Domain allowed access.
 ## </summary>
 ## </param>
-## <param name="role">
-## <summary>
-##	Role allowed access.
-## </summary>
-## </param>
-## <rolecap/>
 #
 interface(`netbird_admin',`
 	gen_require(`
 		type netbird_t, netbird_etc_t;
 		type netbird_var_lib_t, netbird_var_log_t;
-		type netbird_runtime_t;
+		type netbird_runtime_t, netbird_wg_runtime_t;
 	')
 
 	allow $1 netbird_t:process { ptrace signal_perms };
@@ -116,4 +112,5 @@ interface(`netbird_admin',`
 
 	files_search_pids($1)
 	admin_pattern($1, netbird_runtime_t)
+	admin_pattern($1, netbird_wg_runtime_t)
 ')

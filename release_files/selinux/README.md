@@ -20,7 +20,9 @@ Fedora 44.
 Install the package. Its scriptlets load the module, relabel the files it covers
 and restart a running daemon. Removing the package unloads the module and
 relabels. A manual install can use `semodule -i netbird.pp.bz2` followed by
-`restorecon -R /usr/bin/netbird /var/lib/netbird /var/log/netbird /etc/netbird`.
+`restorecon -iR` on the paths listed in `post_install.sh` (the binary in `/usr/bin`,
+`/usr/sbin` or `/usr/local/bin`, the state, log and config directories, and the daemon,
+WireGuard and SSH config files).
 
 ## Booleans
 
@@ -28,7 +30,7 @@ relabels. A manual install can use `semodule -i netbird.pp.bz2` followed by
 | --- | --- | --- |
 | `netbird_ssh_sessions` | on | The built-in SSH server can start user sessions. Shells and `su` run as `unconfined_t`, since the daemon cannot set the context of the user it switches to. |
 | `netbird_debug_bundle` | on | Debug bundles can read the journal and list firewall state. |
-| `netbird_bind_all_ports` | off | Bind any unreserved port: SSH remote port forwarding and the local metrics endpoint (default `127.0.0.1:9191`). |
+| `netbird_bind_all_ports` | off | Bind any unreserved TCP port: SSH remote port forwarding and the local metrics endpoint (default `127.0.0.1:9191`). UDP ports are always allowed. |
 | `netbird_read_user_home` | off | Read files in user home directories. Needed to add the desktop UI log (`~/.config/netbird/gui-client.log`) to debug bundles. |
 
 Change them with `setsebool -P <name>=on`.

@@ -323,7 +323,7 @@ jobs:
             curl -sSL https://pkgs.netbird.io/yum/repodata/repomd.xml.key -o /tmp/rpm-pub.key
             rpm --import /tmp/rpm-pub.key
             echo "=== Verifying RPM signatures ==="
-            for rpm_file in /dist/*amd64*.rpm; do
+            for rpm_file in /dist/*amd64*.rpm /dist/*_all.rpm; do
               [ -f "$rpm_file" ] || continue
               echo "--- $(basename $rpm_file) ---"
               rpm -K "$rpm_file"
