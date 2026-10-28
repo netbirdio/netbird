@@ -175,7 +175,9 @@ func acceptEnvValue(varName, value string) bool {
 		return !strings.HasPrefix(zone, "/") && !strings.Contains(zone, "..")
 	case varName == "LANG", varName == "LANGUAGE", varName == "TERM", varName == "COLORTERM",
 		strings.HasPrefix(varName, "LC_"):
-		return !strings.ContainsAny(value, "/%")
+		// ".." is a path component on its own: it needs no neighboring "/" to traverse
+		// once concatenated into a locale, terminfo or message-catalog path.
+		return !strings.ContainsAny(value, "/%") && !strings.Contains(value, "..")
 	default:
 		return true
 	}

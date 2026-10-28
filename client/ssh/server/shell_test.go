@@ -39,6 +39,13 @@ func TestAcceptEnv(t *testing.T) {
 		{"TZ=:/etc/shadow", false},
 		{"TZ=../../../etc/shadow", false},
 		{"TZ=Europe/../../../../etc/shadow", false},
+
+		// a bare ".." is a path component on its own, with no "/" needed to traverse
+		{"LANG=..", false},
+		{"LANGUAGE=..", false},
+		{"TERM=..", false},
+		{"COLORTERM=..", false},
+		{"LC_ALL=..", false},
 	}
 
 	for _, tt := range tests {
