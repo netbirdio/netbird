@@ -146,6 +146,20 @@ func (mr *MockManagerMockRecorder) BuildUserInfosForAccount(ctx, accountID, init
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BuildUserInfosForAccount", reflect.TypeOf((*MockManager)(nil).BuildUserInfosForAccount), ctx, accountID, initiatorUserID, accountUsers)
 }
 
+// CheckPeerMaySync mocks base method.
+func (m *MockManager) CheckPeerMaySync(ctx context.Context, accountID, peerPubKey string, settings *types.Settings) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckPeerMaySync", ctx, accountID, peerPubKey, settings)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CheckPeerMaySync indicates an expected call of CheckPeerMaySync.
+func (mr *MockManagerMockRecorder) CheckPeerMaySync(ctx, accountID, peerPubKey, settings any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPeerMaySync", reflect.TypeOf((*MockManager)(nil).CheckPeerMaySync), ctx, accountID, peerPubKey, settings)
+}
+
 // CreateGroup mocks base method.
 func (m *MockManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
 	m.ctrl.T.Helper()
@@ -1369,6 +1383,20 @@ func (mr *MockManagerMockRecorder) MarkPeerDisconnected(ctx, peerKey, accountID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeerDisconnected), ctx, peerKey, accountID, sessionStartedAt)
 }
 
+// MarkPeersDisconnected mocks base method.
+func (m *MockManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPeersDisconnected", ctx, sessions)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkPeersDisconnected indicates an expected call of MarkPeersDisconnected.
+func (mr *MockManagerMockRecorder) MarkPeersDisconnected(ctx, sessions any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeersDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeersDisconnected), ctx, sessions)
+}
+
 // OnPeerDisconnected mocks base method.
 func (m *MockManager) OnPeerDisconnected(ctx context.Context, accountID, peerPubKey string, streamStartTime time.Time) error {
 	m.ctrl.T.Helper()
@@ -1569,9 +1597,9 @@ func (mr *MockManagerMockRecorder) StoreEvent(ctx, initiatorID, targetID, accoun
 }
 
 // SyncAndMarkPeer mocks base method.
-func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*peer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
+func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP, syncTime time.Time, settings *types.Settings) (*peer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncAndMarkPeer", ctx, accountID, peerPubKey, meta, realIP, syncTime)
+	ret := m.ctrl.Call(m, "SyncAndMarkPeer", ctx, accountID, peerPubKey, meta, realIP, syncTime, settings)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.NetworkMap)
 	ret2, _ := ret[2].([]*nmdata.PostureChecks)
@@ -1581,9 +1609,9 @@ func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey
 }
 
 // SyncAndMarkPeer indicates an expected call of SyncAndMarkPeer.
-func (mr *MockManagerMockRecorder) SyncAndMarkPeer(ctx, accountID, peerPubKey, meta, realIP, syncTime any) *gomock.Call {
+func (mr *MockManagerMockRecorder) SyncAndMarkPeer(ctx, accountID, peerPubKey, meta, realIP, syncTime, settings any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncAndMarkPeer", reflect.TypeOf((*MockManager)(nil).SyncAndMarkPeer), ctx, accountID, peerPubKey, meta, realIP, syncTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncAndMarkPeer", reflect.TypeOf((*MockManager)(nil).SyncAndMarkPeer), ctx, accountID, peerPubKey, meta, realIP, syncTime, settings)
 }
 
 // SyncPeer mocks base method.
