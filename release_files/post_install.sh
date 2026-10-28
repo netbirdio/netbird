@@ -21,10 +21,11 @@ restrict_env_file() {
 # The service install step creates the state and log directories as the installing
 # process, so relabel them to what the SELinux policy, when loaded, assigns.
 restore_selinux_contexts() {
-    if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && command -v restorecon >/dev/null 2>&1; then
-      if ! restorecon -iR /var/lib/netbird /var/log/netbird /etc/netbird; then
-        printf "\033[33m Could not restore SELinux contexts on the netbird directories\033[0m\n"
-      fi
+    command -v selinuxenabled >/dev/null 2>&1 || return 0
+    selinuxenabled || return 0
+    command -v restorecon >/dev/null 2>&1 || return 0
+    if ! restorecon -iR /var/lib/netbird /var/log/netbird /etc/netbird; then
+      printf "\033[33m Could not restore SELinux contexts on the netbird directories\033[0m\n"
     fi
     return 0
 }
