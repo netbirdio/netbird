@@ -434,7 +434,7 @@ func (s *Server) buildSessionInfo(state *sessionState) SessionInfo {
 
 	remoteAddr := session.RemoteAddr().String()
 	info := SessionInfo{
-		Username:      session.User(),
+		Username:      sessionUser(session),
 		RemoteAddress: remoteAddr,
 		Command:       cmd,
 		JWTUsername:   state.jwtUsername,
