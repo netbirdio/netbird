@@ -273,6 +273,11 @@ func TestWindowsHandleWriter(t *testing.T) {
 
 const (
 	conPtyHelperHandleEnv = "NB_CONPTY_TEST_INHERITED_HANDLE"
+	// conPtyHelperInvokedEnv marks that this process is the dedicated child started by
+	// TestCreateConPtyProcess_NoHandleInheritance, as opposed to TestConPtyHandleInheritanceHelper
+	// running as an ordinary test in a normal `go test` invocation. Only the child exits the
+	// process; a normal run must skip instead, or it would kill the whole test binary.
+	conPtyHelperInvokedEnv = "NB_CONPTY_TEST_HELPER_INVOKED"
 	// exit codes of the helper process started by TestCreateConPtyProcess_NoHandleInheritance.
 	// conPtyHelperExitSkipped is distinct from conPtyHelperExitNotInherited so the parent can
 	// tell "probed and not inherited" apart from "never probed" (for example if the env var
@@ -316,6 +321,7 @@ func TestCreateConPtyProcess_NoHandleInheritance(t *testing.T) {
 	// passed it inherits ours, including the handle value to probe.
 	executable, err := os.Executable()
 	require.NoError(t, err, "Should find test binary")
+	t.Setenv(conPtyHelperInvokedEnv, "1")
 	t.Setenv(conPtyHelperHandleEnv, strconv.FormatUint(uint64(pipeWrite.Fd()), 10))
 	commandLine := buildCommandLine([]string{executable, "-test.run=^TestConPtyHandleInheritanceHelper$"})
 
@@ -357,10 +363,17 @@ func TestCreateConPtyProcess_NoHandleInheritance(t *testing.T) {
 }
 
 // TestConPtyHandleInheritanceHelper is the child of TestCreateConPtyProcess_NoHandleInheritance.
-// It exits with conPtyHelperExitInherited when the handle value named in the environment is a
-// live pipe handle in this process, and with conPtyHelperExitSkipped when run on its own (no
-// handle value to probe), which the parent treats as a failure rather than a silent pass.
+// A normal `go test` run also matches and executes this test name, so it must skip rather than
+// exit the process unless conPtyHelperInvokedEnv marks it as the dedicated child invocation.
+// Once invoked as that child, it exits with conPtyHelperExitInherited when the handle value
+// named in the environment is a live pipe handle in this process, and with
+// conPtyHelperExitSkipped if the handle value itself failed to reach the child, which the
+// parent treats as a failure rather than a silent pass.
 func TestConPtyHandleInheritanceHelper(t *testing.T) {
+	if os.Getenv(conPtyHelperInvokedEnv) == "" {
+		t.Skip("helper process only, run as the child of TestCreateConPtyProcess_NoHandleInheritance")
+	}
+
 	value := os.Getenv(conPtyHelperHandleEnv)
 	if value == "" {
 		os.Exit(conPtyHelperExitSkipped)
