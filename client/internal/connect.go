@@ -348,7 +348,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
-			mgm.WithNetEvents(c.netMgr))
+			mgm.WithNetEvents(c.netMgr), c.config.ManagementAuthKeyOption())
 		if err != nil {
 			// On daemon shutdown / Down() the parent context is cancelled
 			// and the dial fails with "context canceled". Wrapping that
