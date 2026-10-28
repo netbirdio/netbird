@@ -494,6 +494,21 @@ func (config *Config) AuthSigningKey() (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
+// ManagementAuthKeyOption sends the auth public key on login. A profile without a usable auth
+// key logs in without one and keeps the legacy Signal and Relay credentials.
+func (config *Config) ManagementAuthKeyOption() mgm.Option {
+	if config == nil || config.AuthKey == "" {
+		log.Debugf("no peer auth key, logging in without it")
+		return mgm.WithAuthKey(nil)
+	}
+	key, err := config.AuthSigningKey()
+	if err != nil {
+		log.Warnf("peer auth key unusable, logging in without it: %v", err)
+		return mgm.WithAuthKey(nil)
+	}
+	return mgm.WithAuthKey(key.Public().(ed25519.PublicKey))
+}
+
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if config.Name != "" {
 		sanitized, err := sanitizeDisplayName(config.Name)

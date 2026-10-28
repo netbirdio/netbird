@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"os"
@@ -557,6 +559,60 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	assert.Equal(t, ValidKey, actualValidKey)
 	if !isEqual(expectedMeta, actualMeta) {
 		t.Errorf("expected and actual meta are not equal")
+	}
+}
+
+// Management can only issue Signal and Relay tokens bound to the peer when the peer sends its
+// auth key; a client built without the key must keep sending the request it always sent.
+func TestClient_LoginSendsAuthKey(t *testing.T) {
+	authPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		opts []Option
+		want []byte
+	}{
+		{"with auth key", []Option{WithAuthKey(authPub)}, authPub},
+		{"without auth key", nil, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+			t.Cleanup(s.GracefulStop)
+
+			testKey, err := wgtypes.GenerateKey()
+			require.NoError(t, err)
+			client, err := NewClient(context.Background(), lis.Addr().String(), testKey, false, tc.opts...)
+			require.NoError(t, err)
+
+			got := make(chan *mgmtProto.PeerKeys, 2)
+			mgmtMockServer.LoginFunc = func(ctx context.Context, msg *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
+				peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+				if err != nil {
+					return nil, status.Error(codes.InvalidArgument, err.Error())
+				}
+				req := &mgmtProto.LoginRequest{}
+				if err := encryption.DecryptMessage(peerKey, serverKey, msg.Body, req); err != nil {
+					return nil, status.Error(codes.InvalidArgument, err.Error())
+				}
+				got <- req.GetPeerKeys()
+				body, err := encryption.EncryptMessage(peerKey, serverKey, &mgmtProto.LoginResponse{})
+				if err != nil {
+					return nil, err
+				}
+				return &mgmtProto.EncryptedMessage{WgPubKey: serverKey.PublicKey().String(), Body: body}, nil
+			}
+
+			info := system.GetInfo(context.TODO())
+			_, err = client.Login(info, nil, nil)
+			require.NoError(t, err)
+			_, err = client.Register(ValidKey, "", info, nil, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, (<-got).GetAuthPubKey(), "login must carry the auth key it was configured with")
+			assert.Equal(t, tc.want, (<-got).GetAuthPubKey(), "register must carry the auth key it was configured with")
+		})
 	}
 }
 
