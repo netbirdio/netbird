@@ -173,6 +173,13 @@ func (r *SysOps) flushPlatformExtras() error {
 // flushScopedDefaults removes any scoped default routes tagged with routeProtoFlag.
 // Safe to call at startup to clear residual entries from a prior session.
 func (r *SysOps) flushScopedDefaults() error {
+	return r.flushScopedDefaultsExcept(func(netip.Prefix, int) bool { return false })
+}
+
+// flushScopedDefaultsExcept removes the scoped default routes tagged with
+// routeProtoFlag, except those keep reports for their destination and
+// interface index.
+func (r *SysOps) flushScopedDefaultsExcept(keep func(dst netip.Prefix, index int) bool) error {
 	rib, err := retryFetchRIB()
 	if err != nil {
 		return fmt.Errorf("fetch routing table: %w", err)
@@ -204,6 +211,9 @@ func (r *SysOps) flushScopedDefaults() error {
 			continue
 		}
 		if !info.Dst.IsValid() || info.Dst.Bits() != 0 {
+			continue
+		}
+		if keep(info.Dst, rtMsg.Index) {
 			continue
 		}
 
