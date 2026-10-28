@@ -825,6 +825,7 @@ func registerRoutingTableName(legacyPath, dropInPath string) error {
 	}
 
 	entry := fmt.Sprintf("%d\t%s\n", NetbirdVPNTableID, NetbirdVPNTableName)
+	// nolint:gosec // iproute2 reads the drop-in as any user
 	if err := os.WriteFile(dropInPath, []byte(entry), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", dropInPath, err)
 	}
