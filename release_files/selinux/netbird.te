@@ -1,0 +1,358 @@
+policy_module(netbird, 1.1.0)
+
+########################################
+#
+# Declarations
+#
+
+## <desc>
+## <p>
+## Allow the built-in SSH server to start user sessions. Shells started by
+## the daemon run unconfined, because the daemon cannot set the SELinux
+## context of the user it switches to.
+## </p>
+## </desc>
+gen_tunable(netbird_ssh_sessions, true)
+
+## <desc>
+## <p>
+## Allow netbird to bind any unreserved port, for SSH remote port forwarding
+## and the local metrics endpoint.
+## </p>
+## </desc>
+gen_tunable(netbird_bind_all_ports, false)
+
+## <desc>
+## <p>
+## Allow netbird to read the systemd journal and list firewall state when
+## building a debug bundle.
+## </p>
+## </desc>
+gen_tunable(netbird_debug_bundle, true)
+
+## <desc>
+## <p>
+## Allow netbird to read files in user home directories. The desktop UI log
+## (~/.config/netbird/gui-client.log) is added to debug bundles through this
+## access. Without it the bundle is built without the UI log.
+## </p>
+## </desc>
+gen_tunable(netbird_read_user_home, false)
+
+type netbird_t;
+type netbird_exec_t;
+init_daemon_domain(netbird_t, netbird_exec_t)
+
+type netbird_var_lib_t;
+files_type(netbird_var_lib_t)
+
+type netbird_var_log_t;
+logging_log_file(netbird_var_log_t)
+
+type netbird_etc_t;
+files_config_file(netbird_etc_t)
+
+type netbird_runtime_t;
+files_pid_file(netbird_runtime_t)
+
+type netbird_tmp_t;
+files_tmp_file(netbird_tmp_t)
+
+# /etc/ssh/ssh_config.d/99-netbird.conf and its temporary file
+type netbird_ssh_conf_t;
+files_config_file(netbird_ssh_conf_t)
+
+# /etc/iproute2/rt_tables.d/netbird.conf
+type netbird_rt_tables_t;
+files_config_file(netbird_rt_tables_t)
+
+########################################
+#
+# netbird local policy
+#
+
+allow netbird_t self:capability { net_admin net_raw dac_override dac_read_search chown fowner fsetid kill setuid setgid sys_resource sys_chroot sys_ptrace };
+dontaudit netbird_t self:capability sys_admin;
+dontaudit netbird_t self:capability2 perfmon;
+allow netbird_t self:process { fork signal_perms setpgid setsched getsched getsession setrlimit setcap getcap };
+allow netbird_t self:fifo_file rw_fifo_file_perms;
+allow netbird_t self:unix_stream_socket { create_stream_socket_perms connectto };
+allow netbird_t self:unix_dgram_socket create_socket_perms;
+allow netbird_t self:netlink_route_socket { create_netlink_socket_perms nlmsg_read nlmsg_write };
+allow netbird_t self:netlink_generic_socket { bind create getattr getopt read setopt write };
+allow netbird_t self:netlink_netfilter_socket create_socket_perms;
+allow netbird_t self:netlink_kobject_uevent_socket create_socket_perms;
+allow netbird_t self:tcp_socket create_stream_socket_perms;
+allow netbird_t self:udp_socket create_socket_perms;
+allow netbird_t self:rawip_socket create_socket_perms;
+allow netbird_t self:icmp_socket create_socket_perms;
+allow netbird_t self:packet_socket create_socket_perms;
+allow netbird_t self:tun_socket create_socket_perms;
+allow netbird_t self:key_socket create_socket_perms;
+
+# The daemon re-executes itself for SSH privilege dropping and SFTP
+can_exec(netbird_t, netbird_exec_t)
+
+# The kernel WireGuard module is loaded on demand through the kernel
+kernel_request_load_module(netbird_t)
+
+########################################
+#
+# Files
+#
+
+# Configuration
+allow netbird_t netbird_etc_t:dir list_dir_perms;
+allow netbird_t netbird_etc_t:file read_file_perms;
+allow netbird_t netbird_etc_t:lnk_file read_lnk_file_perms;
+
+# State
+manage_dirs_pattern(netbird_t, netbird_var_lib_t, netbird_var_lib_t)
+manage_files_pattern(netbird_t, netbird_var_lib_t, netbird_var_lib_t)
+manage_lnk_files_pattern(netbird_t, netbird_var_lib_t, netbird_var_lib_t)
+files_var_lib_filetrans(netbird_t, netbird_var_lib_t, { dir file })
+
+# Logs. Log rotation renames and compresses files, so the daemon needs full
+# management of its own log files.
+manage_dirs_pattern(netbird_t, netbird_var_log_t, netbird_var_log_t)
+manage_files_pattern(netbird_t, netbird_var_log_t, netbird_var_log_t)
+
+# The unit sends the daemon's stdout and stderr to files in the log directory,
+# which systemd opens before it executes the daemon.
+gen_require(`
+	type init_t;
+')
+manage_files_pattern(init_t, netbird_var_log_t, netbird_var_log_t)
+allow init_t netbird_var_log_t:dir search_dir_perms;
+logging_log_filetrans(netbird_t, netbird_var_log_t, { dir file })
+
+# Daemon socket, and the userspace WireGuard control socket
+manage_dirs_pattern(netbird_t, netbird_runtime_t, netbird_runtime_t)
+manage_files_pattern(netbird_t, netbird_runtime_t, netbird_runtime_t)
+manage_sock_files_pattern(netbird_t, netbird_runtime_t, netbird_runtime_t)
+allow netbird_t netbird_runtime_t:sock_file watch;
+files_pid_filetrans(netbird_t, netbird_runtime_t, { dir file sock_file })
+
+# Debug bundle zip, created in the temp directory and handed back by path
+manage_files_pattern(netbird_t, netbird_tmp_t, netbird_tmp_t)
+files_tmp_filetrans(netbird_t, netbird_tmp_t, file)
+
+# SSH client configuration that points ssh at NetBird peers. The daemon
+# writes through a fixed temporary name so the file never lands with the
+# generic etc_t label, which /etc/sudoers and /etc/pam.d also carry.
+manage_files_pattern(netbird_t, netbird_ssh_conf_t, netbird_ssh_conf_t)
+files_etc_filetrans(netbird_t, netbird_ssh_conf_t, file, "99-netbird.conf")
+files_etc_filetrans(netbird_t, netbird_ssh_conf_t, file, "99-netbird.conf.tmp")
+
+# Routing table name for policy routing. The drop-in directory is missing on
+# distributions that keep the stock table list under /usr/share/iproute2, so
+# the daemon creates it, labeled by name.
+manage_dirs_pattern(netbird_t, netbird_rt_tables_t, netbird_rt_tables_t)
+manage_files_pattern(netbird_t, netbird_rt_tables_t, netbird_rt_tables_t)
+files_etc_filetrans(netbird_t, netbird_rt_tables_t, dir, "rt_tables.d")
+files_etc_filetrans(netbird_t, netbird_rt_tables_t, file, "netbird.conf")
+
+files_read_etc_files(netbird_t)
+files_read_etc_runtime_files(netbird_t)
+files_read_usr_files(netbird_t)
+miscfiles_read_localization(netbird_t)
+miscfiles_read_generic_certs(netbird_t)
+
+########################################
+#
+# Network
+#
+
+corenet_rw_tun_tap_dev(netbird_t)
+corenet_all_recvfrom_unlabeled(netbird_t)
+corenet_all_recvfrom_netlabel(netbird_t)
+corenet_tcp_sendrecv_generic_if(netbird_t)
+corenet_udp_sendrecv_generic_if(netbird_t)
+corenet_tcp_sendrecv_generic_node(netbird_t)
+corenet_udp_sendrecv_generic_node(netbird_t)
+corenet_tcp_connect_all_ports(netbird_t)
+corenet_tcp_bind_generic_node(netbird_t)
+corenet_udp_bind_generic_node(netbird_t)
+corenet_raw_bind_generic_node(netbird_t)
+corenet_udp_bind_all_ports(netbird_t)
+corenet_tcp_bind_ssh_port(netbird_t)
+corenet_tcp_bind_generic_port(netbird_t)
+
+########################################
+#
+# DNS
+#
+
+# Resolver listener on port 53, and on a custom port when 53 is taken
+gen_require(`
+	type dns_port_t, net_conf_t;
+')
+allow netbird_t dns_port_t:tcp_socket name_bind;
+allow netbird_t dns_port_t:udp_socket name_bind;
+corenet_udp_bind_generic_port(netbird_t)
+
+# File mode: rewrite /etc/resolv.conf, keep it pointing at NetBird (inotify)
+# and restore it on shutdown. Backups live in /var/lib/netbird.
+sysnet_manage_config(netbird_t)
+sysnet_etc_filetrans_config(netbird_t, "resolv.conf.original.netbird")
+allow netbird_t etc_t:dir watch;
+allow netbird_t net_conf_t:dir { watch read };
+allow netbird_t net_conf_t:file { watch watch_reads };
+
+# Choosing a mode reads resolv.conf, nsswitch.conf and the resolver stub that
+# resolv.conf may link to
+sysnet_read_config(netbird_t)
+optional_policy(`
+	systemd_resolved_read_pid(netbird_t)
+')
+optional_policy(`
+	networkmanager_read_pid_files(netbird_t)
+')
+
+sysnet_dns_name_resolve(netbird_t)
+sysnet_exec_ifconfig(netbird_t)
+
+# Interface, routing and firewall state
+kernel_read_system_state(netbird_t)
+kernel_read_network_state(netbird_t)
+kernel_rw_net_sysctls(netbird_t)
+dev_read_sysfs(netbird_t)
+dev_read_rand(netbird_t)
+dev_read_urand(netbird_t)
+
+# Firewall management through iptables, nft and firewall-cmd
+iptables_domtrans(netbird_t)
+allow netbird_t iptables_t:process { noatsecure rlimitinh siginh };
+
+# Reachability probes
+optional_policy(`
+	netutils_exec_ping(netbird_t)
+')
+
+########################################
+#
+# System integration
+#
+
+corecmd_exec_bin(netbird_t)
+corecmd_exec_shell(netbird_t)
+
+# User and group lookups for SSH and posture checks, through nsswitch (files,
+# SSSD, systemd-userdbd)
+auth_use_nsswitch(netbird_t)
+
+init_read_state(netbird_t)
+init_stream_connect(netbird_t)
+init_read_utmp(netbird_t)
+logging_send_syslog_msg(netbird_t)
+
+# Posture checks read process state and stat arbitrary paths
+domain_read_all_domains_state(netbird_t)
+files_getattr_all_files(netbird_t)
+files_getattr_all_dirs(netbird_t)
+fs_getattr_all_fs(netbird_t)
+
+# Hardware identity and attestation
+optional_policy(`
+	dev_rw_tpm(netbird_t)
+')
+
+# Host DNS managers
+optional_policy(`
+	dbus_system_bus_client(netbird_t)
+')
+optional_policy(`
+	systemd_chat_resolved(netbird_t)
+')
+optional_policy(`
+	networkmanager_dbus_chat(netbird_t)
+')
+optional_policy(`
+	firewalld_dbus_chat(netbird_t)
+')
+
+# Notify logged in users when the session expires
+term_write_all_terms(netbird_t)
+allow netbird_t systemd_logind_sessions_t:dir list_dir_perms;
+allow netbird_t systemd_logind_sessions_t:file read_file_perms;
+
+########################################
+#
+# Debug bundle
+#
+
+# The bundle is uploaded with a GET for the presigned URL and a PUT of the
+# zip over HTTPS; connect, DNS and CA certificates are granted above.
+gen_require(`
+	type journalctl_exec_t, syslogd_var_run_t, systemd_logind_sessions_t;
+')
+tunable_policy(`netbird_debug_bundle',`
+	logging_read_all_logs(netbird_t)
+	allow netbird_t journalctl_exec_t:file { getattr open read execute map };
+	allow netbird_t syslogd_var_run_t:dir list_dir_perms;
+	allow netbird_t syslogd_var_run_t:file read_file_perms;
+')
+optional_policy(`
+	tunable_policy(`netbird_debug_bundle',`
+		iptables_exec(netbird_t)
+	')
+')
+gen_require(`
+	type user_home_dir_t, user_home_t, config_home_t;
+')
+tunable_policy(`netbird_read_user_home',`
+	allow netbird_t user_home_dir_t:dir search_dir_perms;
+	allow netbird_t { user_home_t config_home_t }:dir list_dir_perms;
+	allow netbird_t { user_home_t config_home_t }:file read_file_perms;
+')
+
+########################################
+#
+# Built-in SSH server
+#
+
+term_use_generic_ptys(netbird_t)
+term_use_ptmx(netbird_t)
+logging_send_audit_msgs(netbird_t)
+
+tunable_policy(`netbird_bind_all_ports',`
+	corenet_tcp_bind_all_unreserved_ports(netbird_t)
+')
+
+# Shells and login start in the target user's domain. Without the boolean
+# they would inherit netbird_t, which is not a usable user session.
+gen_require(`
+	type unconfined_t, shell_exec_t, su_exec_t, devpts_t;
+	class passwd rootok;
+')
+tunable_policy(`netbird_ssh_sessions',`
+	allow netbird_t self:capability audit_write;
+	allow netbird_t self:passwd rootok;
+	allow netbird_t unconfined_t:process { transition noatsecure siginh rlimitinh signal sigkill };
+	allow netbird_t su_exec_t:file { getattr open read execute map };
+	allow unconfined_t shell_exec_t:file entrypoint;
+	allow unconfined_t su_exec_t:file entrypoint;
+	allow unconfined_t netbird_t:fd use;
+	allow unconfined_t netbird_t:process sigchld;
+	type_transition netbird_t shell_exec_t:process unconfined_t;
+	type_transition netbird_t su_exec_t:process unconfined_t;
+')
+# The pty is handed to the session user
+allow netbird_t devpts_t:chr_file setattr;
+
+# login -f starts the session in the user's own domain. The interface carries
+# a range_transition, which cannot sit inside a boolean.
+optional_policy(`
+	locallogin_domtrans(netbird_t)
+	gen_require(`
+		type local_login_t;
+	')
+	allow netbird_t local_login_t:process { noatsecure siginh rlimitinh };
+')
+
+# Interface details from udev, read when listing network devices
+gen_require(`
+	type udev_var_run_t;
+')
+allow netbird_t udev_var_run_t:dir list_dir_perms;
+allow netbird_t udev_var_run_t:file read_file_perms;
