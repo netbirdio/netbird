@@ -1095,6 +1095,11 @@ EOF
 }
 
 render_compose_server() {
+  local backend_paths='PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`)'
+  # API and OAuth2 must not fall back to an uninspected router when AppSec fails.
+  if [[ "${NETBIRD_CROWDSEC_APPSEC:-}" != "yes" ]]; then
+    backend_paths+=' || PathPrefix(`/api`) || PathPrefix(`/oauth2`)'
+  fi
   cat <<'EOF'
   netbird-server:
     <<: *default
@@ -1122,8 +1127,10 @@ render_compose_server() {
       - traefik.http.routers.netbird-grpc.middlewares=nb-security@docker
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       - traefik.http.routers.netbird-grpc.priority=100
-      # Relay WebSocket, management API, and the embedded IdP
-      - traefik.http.routers.netbird-backend.rule=Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))
+      # HTTP backend router
+EOF
+  printf '      - traefik.http.routers.netbird-backend.rule=Host(`${NETBIRD_DOMAIN}`) && (%s)\n' "$backend_paths"
+  cat <<'EOF'
       - traefik.http.routers.netbird-backend.entrypoints=websecure
       - traefik.http.routers.netbird-backend.tls=true
       - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt

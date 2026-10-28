@@ -963,6 +963,11 @@ render_docker_compose_traefik_builtin() {
   local traefik_appsec_labels=""
   local dashboard_appsec_middleware=""
   local dashboard_api_router=""
+  local backend_paths='PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`)'
+  # API and OAuth2 must not fall back to an uninspected router when AppSec fails.
+  if [[ "$ENABLE_CROWDSEC_APPSEC" != "true" ]]; then
+    backend_paths+=' || PathPrefix(`/api`) || PathPrefix(`/oauth2`)'
+  fi
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
@@ -1192,8 +1197,8 @@ ${dashboard_appsec_middleware}      - traefik.http.routers.netbird-dashboard.pri
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       - traefik.http.routers.netbird-grpc.priority=100
-      # Backend router (relay, WebSocket, API, OAuth2)
-      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/relay\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      # HTTP backend router
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && ($backend_paths)
       - traefik.http.routers.netbird-backend.entrypoints=websecure
       - traefik.http.routers.netbird-backend.tls=true
       - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt

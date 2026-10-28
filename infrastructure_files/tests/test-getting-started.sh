@@ -190,12 +190,17 @@ assert_appsec_enabled() {
     echo "AppSec: API router is not protected" >&2
     exit 1
   fi
-  # A path missing from this rule falls through to the uninspected backend
-  # router at priority 100.
-  local api_rule
+  local api_rule backend_rule
   api_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-dashboard-api\.rule=//p' <<< "$server")
   if [[ "$api_rule" != 'Host(`netbird.test`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
     echo "AppSec: API router has an unexpected rule: $api_rule" >&2
+    exit 1
+  fi
+  # A missing AppSec middleware disables the protected routers. The backend
+  # must not match API or OAuth2 requests while those routers are unavailable.
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' <<< "$server")
+  if [[ "$backend_rule" != 'Host(`netbird.test`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`))' ]]; then
+    echo "AppSec: backend router has an unexpected rule: $backend_rule" >&2
     exit 1
   fi
   if ! grep -Fq 'netbird-dashboard-api.service=netbird-server' <<< "$server"; then
@@ -218,8 +223,8 @@ assert_appsec_enabled() {
 }
 
 assert_appsec_disabled() {
-  local case_dir="$test_dir/appsec-off"
-  render_proxy_stack "$case_dir" true ""
+  local case_dir="$test_dir/appsec-off-${1:-default}"
+  render_proxy_stack "$case_dir" true "${1:-}"
   if [[ -e "$case_dir/.env" || -e "$case_dir/crowdsec/acquis.d/appsec.yaml" ]]; then
     echo "AppSec off: generated AppSec files" >&2
     exit 1
@@ -230,6 +235,12 @@ assert_appsec_disabled() {
   fi
   if ! grep -Fq 'COLLECTIONS: crowdsecurity/linux' "$case_dir/docker-compose.yml"; then
     echo "AppSec off: missing the base CrowdSec collection" >&2
+    exit 1
+  fi
+  local backend_rule
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' "$case_dir/docker-compose.yml")
+  if [[ "$backend_rule" != 'Host(`netbird.test`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec off: backend router has an unexpected rule: $backend_rule" >&2
     exit 1
   fi
   cases=$((cases + 1))
@@ -305,6 +316,7 @@ assert_reinitialize_rotates_only_appsec_key() {
 
 assert_appsec_enabled
 assert_appsec_disabled
+assert_appsec_disabled false
 assert_appsec_requires_crowdsec
 assert_appsec_rejects_invalid_value
 assert_reinitialize_rotates_only_appsec_key

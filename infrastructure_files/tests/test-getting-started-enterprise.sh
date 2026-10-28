@@ -137,10 +137,17 @@ assert_enterprise_appsec() {
     echo "AppSec: dashboard router is not protected" >&2
     exit 1
   fi
-  local api_rule
+  local api_rule backend_rule
   api_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-dashboard-api\.rule=//p' <<< "$server")
   if [[ "$api_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
     echo "AppSec: API router has an unexpected rule: $api_rule" >&2
+    exit 1
+  fi
+  # A missing AppSec middleware disables the protected routers. The backend
+  # must not match API or OAuth2 requests while those routers are unavailable.
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' <<< "$server")
+  if [[ "$backend_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`))' ]]; then
+    echo "AppSec: backend router has an unexpected rule: $backend_rule" >&2
     exit 1
   fi
   for line in \
@@ -200,6 +207,12 @@ assert_enterprise_crowdsec_only() {
   fi
   if ! grep -Fq 'middlewares=nb-security@docker' <<< "$rendered"; then
     echo "AppSec off: dashboard lost nb-security" >&2
+    exit 1
+  fi
+  local backend_rule
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' <<< "$rendered")
+  if [[ "$backend_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec off: backend router has an unexpected rule: $backend_rule" >&2
     exit 1
   fi
   cases=$((cases + 1))
