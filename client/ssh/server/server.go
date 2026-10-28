@@ -1078,6 +1078,19 @@ func (s *Server) removeRemoteForwardListener(key forwardKey) bool {
 	return true
 }
 
+// removeRemoteForwardListenerIfCurrent deletes the map entry for key, but only when it still
+// holds ln. The forward's accept-loop goroutine calls this on exit (connection closed or
+// revoked, with no explicit cancel-tcpip-forward); the guard keeps it from deleting a fresh
+// listener that a later tcpip-forward request may already have stored for the same key.
+func (s *Server) removeRemoteForwardListenerIfCurrent(key forwardKey, ln net.Listener) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if current, exists := s.remoteForwardListeners[key]; exists && current == ln {
+		delete(s.remoteForwardListeners, key)
+	}
+}
+
 func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {
 	logger := s.getRequestLogger(ctx)
 

@@ -942,8 +942,10 @@ func TestJWTAuthRevocation(t *testing.T) {
 				t.Fatal("connection of a user who lost authorization should be closed")
 			}
 
-			_, sessions := server.GetStatus()
-			assert.Empty(t, sessions, "closed connection should not be tracked anymore")
+			require.Eventually(t, func() bool {
+				_, sessions := server.GetStatus()
+				return len(sessions) == 0
+			}, time.Second, 10*time.Millisecond, "closed connection should not be tracked anymore")
 		})
 	}
 }
