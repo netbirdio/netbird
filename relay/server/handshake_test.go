@@ -221,7 +221,7 @@ func TestRelay_AuthRejectsInvalidFirstFrame(t *testing.T) {
 	require.NoError(t, err)
 	validV1, err := messages.MarshalAuthMsg(peerID, []byte("token"))
 	require.NoError(t, err)
-	transportFirst, err := messages.MarshalTransportMsg(peerID, []byte("payload"))
+	transportFirst, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, peerID, []byte("payload"))
 	require.NoError(t, err)
 
 	versionZero := append([]byte(nil), validV1...)

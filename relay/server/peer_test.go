@@ -72,7 +72,7 @@ func TestPeer_ForwardsTransportWithSenderAndDestinationVersion(t *testing.T) {
 	bob, bobID := acceptPeer(t, relay, "bob")
 
 	payload := []byte("hello bob")
-	transport, err := messages.MarshalTransportMsg(bobID, payload)
+	transport, err := messages.MarshalTransportMsg(messages.CurrentProtocolVersion, bobID, payload)
 	require.NoError(t, err)
 	alice.deliver(t, transport)
 
