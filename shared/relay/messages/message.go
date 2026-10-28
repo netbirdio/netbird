@@ -81,7 +81,7 @@ type MsgType byte
 // ProtocolVersion is the relay wire protocol version carried in the first byte of every frame.
 type ProtocolVersion uint8
 
-// Encoder marshals server-originated messages with the protocol version selected for one connection.
+// Encoder marshals messages with the protocol version selected for one connection.
 type Encoder struct {
 	version ProtocolVersion
 }
@@ -169,6 +169,16 @@ func (e Encoder) PeersWentOffline(ids []PeerID) ([][]byte, error) {
 	return marshalPeerIDs(e.version, ids, byte(MsgTypePeersWentOffline))
 }
 
+// SubPeerState creates the messages subscribing to the online state of the peers.
+func (e Encoder) SubPeerState(ids []PeerID) ([][]byte, error) {
+	return marshalPeerIDs(e.version, ids, byte(MsgTypeSubscribePeerState))
+}
+
+// UnsubPeerState creates the messages unsubscribing from the online state of the peers.
+func (e Encoder) UnsubPeerState(ids []PeerID) ([][]byte, error) {
+	return marshalPeerIDs(e.version, ids, byte(MsgTypeUnsubscribePeerState))
+}
+
 // ReadVersion returns the protocol version carried in the frame header. Zero is invalid.
 func ReadVersion(msg []byte) (ProtocolVersion, error) {
 	if len(msg) < sizeOfProtoHeader {
@@ -199,6 +209,19 @@ func ValidateVersion(msg []byte) (int, error) {
 		return 0, fmt.Errorf("%d: %w", version, ErrUnsupportedVersion)
 	}
 	return int(version), nil
+}
+
+// ValidateSelectedVersion returns the version the relay selected in its auth response, which
+// must not exceed the version the client advertised.
+func ValidateSelectedVersion(msg []byte, advertised ProtocolVersion) (ProtocolVersion, error) {
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return 0, err
+	}
+	if version > advertised {
+		return 0, fmt.Errorf("%d above advertised %d: %w", version, advertised, ErrUnsupportedVersion)
+	}
+	return version, nil
 }
 
 // ValidateConnectionVersion checks that the frame carries the version selected for the connection.
@@ -357,13 +380,13 @@ func MarshalCloseMsg() []byte {
 	return NewEncoder(CurrentProtocolVersion).CloseMsg()
 }
 
-// MarshalTransportMsg creates a transport message.
+// MarshalTransportMsg creates a transport message stamped with the protocol version of the connection.
 // The transport message is used to exchange data between peers. The message contains the data to be exchanged and the
 // destination peer hashed ID.
-func MarshalTransportMsg(peerID PeerID, payload []byte) ([]byte, error) {
+func MarshalTransportMsg(version ProtocolVersion, peerID PeerID, payload []byte) ([]byte, error) {
 	// todo validate size
 	msg := make([]byte, headerTotalSizeTransport+len(payload))
-	msg[0] = byte(CurrentProtocolVersion)
+	msg[0] = byte(version)
 	msg[1] = byte(MsgTypeTransport)
 	copy(msg[sizeOfProtoHeader:], peerID[:])
 	copy(msg[sizeOfProtoHeader+peerIDSize:], payload)

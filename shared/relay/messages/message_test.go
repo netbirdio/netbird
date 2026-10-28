@@ -69,7 +69,7 @@ func TestMarshalAuthResponse(t *testing.T) {
 func TestMarshalTransportMsg(t *testing.T) {
 	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
 	payload := []byte("payload")
-	msg, err := MarshalTransportMsg(peerID, payload)
+	msg, err := MarshalTransportMsg(CurrentProtocolVersion, peerID, payload)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestUpdateTransportMsgRewritesVersionAndSender(t *testing.T) {
 	dst := HashID("dst")
 	sender := HashID("sender")
 	payload := []byte("payload")
-	msg, err := MarshalTransportMsg(dst, payload)
+	msg, err := MarshalTransportMsg(CurrentProtocolVersion, dst, payload)
 	require.NoError(t, err)
 
 	require.NoError(t, UpdateTransportMsg(msg, ProtocolVersion(2), sender))
@@ -364,4 +364,46 @@ func TestUpdateTransportMsgRewritesVersionAndSender(t *testing.T) {
 	assert.Equal(t, payload, gotPayload, "the payload must be preserved")
 
 	assert.ErrorIs(t, UpdateTransportMsg(msg[:headerTotalSizeTransport-1], ProtocolV1, sender), ErrInvalidMessageLength)
+}
+
+// A client that advertised a version must speak whatever the relay selected up to it, and
+// refuse a relay that claims a version the client never offered.
+func TestValidateSelectedVersion(t *testing.T) {
+	resp, err := NewEncoder(1).AuthResponse("rels://relay.example.com")
+	require.NoError(t, err)
+	v, err := ValidateSelectedVersion(resp, 2)
+	require.NoError(t, err)
+	assert.Equal(t, ProtocolVersion(1), v, "a v1 relay answering a v2 client selects v1")
+
+	resp, err = NewEncoder(2).AuthResponse("rels://relay.example.com")
+	require.NoError(t, err)
+	_, err = ValidateSelectedVersion(resp, 1)
+	assert.ErrorIs(t, err, ErrUnsupportedVersion, "a version above the advertised one must be refused")
+}
+
+func TestEncoder_ClientFramesCarrySelectedVersion(t *testing.T) {
+	enc := NewEncoder(2)
+	id := HashID("peer")
+
+	transport, err := MarshalTransportMsg(enc.Version(), id, []byte("payload"))
+	require.NoError(t, err)
+	gotID, payload, err := UnmarshalTransportMsg(transport)
+	require.NoError(t, err)
+	assert.Equal(t, id, *gotID, "transport must carry the destination")
+	assert.Equal(t, []byte("payload"), payload, "transport must carry the payload")
+
+	sub, err := enc.SubPeerState([]PeerID{id})
+	require.NoError(t, err)
+	unsub, err := enc.UnsubPeerState([]PeerID{id})
+	require.NoError(t, err)
+
+	for name, msg := range map[string][]byte{
+		"transport":   transport,
+		"subscribe":   sub[0],
+		"unsubscribe": unsub[0],
+		"close":       enc.CloseMsg(),
+		"healthcheck": enc.Healthcheck(),
+	} {
+		assert.NoErrorf(t, ValidateConnectionVersion(msg, 2), "%s must carry the selected version", name)
+	}
 }

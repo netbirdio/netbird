@@ -44,12 +44,12 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	require.NoError(t, legacy.Write(ctx, websocket.MessageBinary, legacyAuth))
 	assert.Equal(t, want, readFrame(t, ctx, legacy), "a v1 client must receive the response it gets today")
 
-	toLegacy, err := messages.MarshalTransportMsg(legacyID, []byte("from future"))
+	toLegacy, err := messages.MarshalTransportMsg(messages.ProtocolV1, legacyID, []byte("from future"))
 	require.NoError(t, err)
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, toLegacy))
 	assertTransportFrame(t, readFrame(t, ctx, legacy), futureID, "from future")
 
-	toFuture, err := messages.MarshalTransportMsg(futureID, []byte("from legacy"))
+	toFuture, err := messages.MarshalTransportMsg(messages.ProtocolV1, futureID, []byte("from legacy"))
 	require.NoError(t, err)
 	require.NoError(t, legacy.Write(ctx, websocket.MessageBinary, toFuture))
 	assertTransportFrame(t, readFrame(t, ctx, future), legacyID, "from legacy")
@@ -57,7 +57,7 @@ func TestServer_FutureClientOverWebSocket(t *testing.T) {
 	// After the response the connection is v1. A frame with another version is dropped and the
 	// connection stays usable, which the transport message right after it proves.
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, []byte{2, byte(messages.MsgTypeHealthCheck)}))
-	toLegacyAgain, err := messages.MarshalTransportMsg(legacyID, []byte("after the dropped frame"))
+	toLegacyAgain, err := messages.MarshalTransportMsg(messages.ProtocolV1, legacyID, []byte("after the dropped frame"))
 	require.NoError(t, err)
 	require.NoError(t, future.Write(ctx, websocket.MessageBinary, toLegacyAgain))
 	assertTransportFrame(t, readFrame(t, ctx, legacy), futureID, "after the dropped frame")

@@ -173,6 +173,9 @@ type Client struct {
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
 
+	// encoder stamps the protocol version the relay selected for the current connection.
+	encoder messages.Encoder
+
 	bufPool *sync.Pool
 
 	relayConn        net.Conn
@@ -279,7 +282,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.instanceURL = instanceURL
 	c.muInstanceURL.Unlock()
 
-	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
+	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.encoder, c.closeConnsByPeerID)
 
 	c.log = c.log.WithField("relay", instanceURL.String())
 	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
@@ -291,7 +294,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
 
 	c.wgReadLoop.Add(1)
-	go c.readLoop(hc, c.relayConn, internallyStoppedFlag)
+	go c.readLoop(hc, c.relayConn, c.encoder, internallyStoppedFlag)
 
 	return nil
 }
@@ -441,7 +444,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	c.relayConn = conn
 	c.datagramFallbackTriggered.Store(false)
 
-	instanceURL, err := c.handShake(ctx)
+	instanceURL, version, err := c.handShake(ctx)
 	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
@@ -449,6 +452,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 		}
 		return nil, err
 	}
+	c.encoder = messages.NewEncoder(version)
 
 	return instanceURL, nil
 }
@@ -502,50 +506,51 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 	return u.String(), origHost, nil
 }
 
-func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
+func (c *Client) handShake(ctx context.Context) (*RelayAddr, messages.ProtocolVersion, error) {
+	advertised := messages.CurrentProtocolVersion
 	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
 	_, err = c.relayConn.Write(msg)
 	if err != nil {
 		c.log.Errorf("failed to send auth message: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(ctx, buf)
 	if err != nil {
 		c.log.Errorf("failed to read auth response: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
-	_, err = messages.ValidateVersion(buf[:n])
+	version, err := messages.ValidateSelectedVersion(buf[:n], advertised)
 	if err != nil {
-		return nil, fmt.Errorf("validate version: %w", err)
+		return nil, 0, fmt.Errorf("validate version: %w", err)
 	}
 
 	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
-		return nil, err
+		return nil, 0, err
 	}
 
 	if msgType != messages.MsgTypeAuthResponse {
 		c.log.Errorf("unexpected message type: %s", msgType)
-		return nil, fmt.Errorf("unexpected message type")
+		return nil, 0, fmt.Errorf("unexpected message type")
 	}
 
 	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return &RelayAddr{addr: addr}, nil
+	return &RelayAddr{addr: addr}, version, nil
 }
 
-func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag) {
+func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, encoder messages.Encoder, internallyStoppedFlag *internalStopFlag) {
 	var (
 		errExit error
 		n       int
@@ -567,7 +572,7 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 
 		buf = buf[:n]
 
-		_, err := messages.ValidateVersion(buf)
+		err := messages.ValidateConnectionVersion(buf, encoder.Version())
 		if err != nil {
 			c.log.Errorf("failed to validate protocol version: %s", err)
 			c.bufPool.Put(bufPtr)
@@ -581,7 +586,7 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf, bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf, bufPtr, hc, encoder, internallyStoppedFlag) {
 			break
 		}
 	}
@@ -594,10 +599,10 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 	c.notifyDisconnected()
 }
 
-func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, encoder messages.Encoder, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		c.handleHealthCheck(hc, internallyStoppedFlag)
+		c.handleHealthCheck(hc, encoder, internallyStoppedFlag)
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
@@ -618,8 +623,8 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	return true
 }
 
-func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) {
-	msg := messages.MarshalHealthcheck()
+func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, encoder messages.Encoder, internallyStoppedFlag *internalStopFlag) {
+	msg := encoder.Healthcheck()
 	_, wErr := c.relayConn.Write(msg)
 	if wErr != nil {
 		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
@@ -675,6 +680,7 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, payload []byte) (int, error) {
 	c.mu.Lock()
 	current, ok := c.conns[dstID]
+	conn, encoder := c.relayConn, c.encoder
 	c.mu.Unlock()
 	if !ok {
 		return 0, net.ErrClosed
@@ -685,14 +691,13 @@ func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, pay
 	}
 
 	// todo: use buffer pool instead of create new transport msg.
-	msg, err := messages.MarshalTransportMsg(dstID, payload)
+	msg, err := messages.MarshalTransportMsg(encoder.Version(), dstID, payload)
 	if err != nil {
 		c.log.Errorf("failed to marshal transport message: %s", err)
 		return 0, err
 	}
 
 	// the write always return with 0 length because the underling does not support the size feedback.
-	conn := c.relayConn
 	_, err = conn.Write(msg)
 	if err != nil {
 		if errors.Is(err, netErr.ErrDatagramTooLarge) {
@@ -872,7 +877,7 @@ func (c *Client) notifyDisconnected() {
 }
 
 func (c *Client) writeCloseMsg() {
-	msg := messages.MarshalCloseMsg()
+	msg := c.encoder.CloseMsg()
 	_, err := c.relayConn.Write(msg)
 	if err != nil {
 		c.log.Errorf("failed to send close message: %s", err)
