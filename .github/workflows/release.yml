@@ -245,6 +245,15 @@ jobs:
       - name: Fill the RPM ISA provide version
         # nfpm cannot emit rpmbuild's ISA provide and GoReleaser cannot template it.
         run: bash release_files/rpm-provides.sh
+      - name: Build the SELinux policy module
+        # Compiled on EL9, the oldest policy the netbird-selinux package targets; newer
+        # policy loads it. GoReleaser packages the result (see .goreleaser.yaml).
+        run: |
+          docker run --rm -v "$PWD/release_files/selinux:/src" almalinux:9 bash -c '
+            dnf install -y -q selinux-policy-devel make bzip2 &&
+            /src/build.sh /src
+          '
+          test -s release_files/selinux/netbird.pp.bz2
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -304,6 +313,7 @@ jobs:
           NFPM_NETBIRD_RPM_ARM64_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           NFPM_NETBIRD_RPM_ARM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           NFPM_NETBIRD_RPM_386_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          NFPM_NETBIRD_SELINUX_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
           SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures

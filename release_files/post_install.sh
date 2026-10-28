@@ -18,11 +18,21 @@ restrict_env_file() {
     return 0
 }
 
+# The service install step creates the state and log directories as the installing
+# process, so relabel them to what the SELinux policy, when loaded, assigns.
+restore_selinux_contexts() {
+    if command -v restorecon >/dev/null 2>&1; then
+      restorecon -R /var/lib/netbird /var/log/netbird /etc/netbird 2>/dev/null || true
+    fi
+    return 0
+}
+
 cleanInstall() {
     printf "\033[32m Post Install of a clean install\033[0m\n"
     restrict_env_file
     # Step 3 (clean install), enable the service in the proper way for this platform
     /usr/bin/netbird service install
+    restore_selinux_contexts
     /usr/bin/netbird service start
 }
 
@@ -40,6 +50,7 @@ upgrade() {
     # will trow an error until everyone upgrade
     /usr/bin/netbird service uninstall 2> /dev/null || true
     /usr/bin/netbird service install
+    restore_selinux_contexts
     /usr/bin/netbird service start
 }
 

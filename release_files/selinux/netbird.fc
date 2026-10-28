@@ -1,0 +1,26 @@
+# netbird executable
+/usr/bin/netbird			--	gen_context(system_u:object_r:netbird_exec_t,s0)
+/usr/sbin/netbird			--	gen_context(system_u:object_r:netbird_exec_t,s0)
+/usr/local/bin/netbird			--	gen_context(system_u:object_r:netbird_exec_t,s0)
+
+# netbird configuration
+/etc/netbird(/.*)?				gen_context(system_u:object_r:netbird_etc_t,s0)
+
+# ssh client configuration written by the daemon
+/etc/ssh/ssh_config\.d/99-netbird\.conf(\.tmp)?	--	gen_context(system_u:object_r:netbird_ssh_conf_t,s0)
+
+# routing table name drop-in
+/etc/iproute2/rt_tables\.d		-d	gen_context(system_u:object_r:netbird_rt_tables_t,s0)
+/etc/iproute2/rt_tables\.d/netbird\.conf	--	gen_context(system_u:object_r:netbird_rt_tables_t,s0)
+
+# netbird state files
+/var/lib/netbird(/.*)?				gen_context(system_u:object_r:netbird_var_lib_t,s0)
+
+# netbird log files
+/var/log/netbird(/.*)?				gen_context(system_u:object_r:netbird_var_log_t,s0)
+/var/log/netbird\.(out|err)\.log	--	gen_context(system_u:object_r:netbird_var_log_t,s0)
+
+# netbird runtime files (daemon socket, userspace WireGuard sockets)
+/run/netbird(/.*)?				gen_context(system_u:object_r:netbird_runtime_t,s0)
+/run/netbird.*\.sock			-s	gen_context(system_u:object_r:netbird_runtime_t,s0)
+/run/wireguard(/.*)?				gen_context(system_u:object_r:netbird_runtime_t,s0)
