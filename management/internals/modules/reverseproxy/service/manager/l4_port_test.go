@@ -693,6 +693,7 @@ func TestCreateServiceFromPeer_TCP_TargetHost(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, svc.Targets, 1)
 	assert.Equal(t, "10.0.0.29", svc.Targets[0].Host)
+	assert.True(t, svc.Targets[0].HostPinned, "supplied L4 target host is pinned")
 	assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType)
 	assert.Equal(t, testPeerID, svc.Targets[0].TargetId)
 	assert.Equal(t, uint16(5432), svc.Targets[0].Port)

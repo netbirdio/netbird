@@ -73,6 +73,7 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		ServiceUrl:       created.ServiceURL,
 		Domain:           created.Domain,
 		PortAutoAssigned: created.PortAutoAssigned,
+		TargetHost:       created.TargetHost,
 	})
 }
 

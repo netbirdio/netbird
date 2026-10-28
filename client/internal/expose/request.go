@@ -40,5 +40,6 @@ func fromClientExposeResponse(response *mgm.ExposeResponse) *Response {
 		Domain:           response.Domain,
 		ServiceURL:       response.ServiceURL,
 		PortAutoAssigned: response.PortAutoAssigned,
+		TargetHost:       response.TargetHost,
 	}
 }

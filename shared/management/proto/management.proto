@@ -817,6 +817,7 @@ message ExposeServiceResponse {
   string service_url = 2;
   string domain = 3;
   bool port_auto_assigned = 4;
+  string target_host = 5;
 }
 
 message RenewExposeRequest {

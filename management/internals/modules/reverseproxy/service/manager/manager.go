@@ -188,9 +188,7 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 	for _, target := range s.Targets {
 		switch target.TargetType {
 		case service.TargetTypePeer:
-			// Ephemeral expose can pin Host to an address the peer reaches.
-			// Lookup would otherwise overwrite it with the peer overlay IP.
-			if s.Source == service.SourceEphemeral && target.Host != "" {
+			if target.HostPinned {
 				continue
 			}
 			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
@@ -1366,6 +1364,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		ServiceURL:       serviceURL,
 		Domain:           svc.Domain,
 		PortAutoAssigned: svc.PortAutoAssigned,
+		TargetHost:       req.TargetHost,
 	}, nil
 }
 

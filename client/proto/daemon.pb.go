@@ -6708,6 +6708,7 @@ type ExposeServiceReady struct {
 	ServiceUrl       string                 `protobuf:"bytes,2,opt,name=service_url,json=serviceUrl,proto3" json:"service_url,omitempty"`
 	Domain           string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
 	PortAutoAssigned bool                   `protobuf:"varint,4,opt,name=port_auto_assigned,json=portAutoAssigned,proto3" json:"port_auto_assigned,omitempty"`
+	TargetHost       string                 `protobuf:"bytes,5,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -6768,6 +6769,13 @@ func (x *ExposeServiceReady) GetPortAutoAssigned() bool {
 		return x.PortAutoAssigned
 	}
 	return false
+}
+
+func (x *ExposeServiceReady) GetTargetHost() string {
+	if x != nil {
+		return x.TargetHost
+	}
+	return ""
 }
 
 type StartCaptureRequest struct {
@@ -7684,13 +7692,15 @@ const file_daemon_proto_rawDesc = "" +
 	"targetHost\"Q\n" +
 	"\x12ExposeServiceEvent\x122\n" +
 	"\x05ready\x18\x01 \x01(\v2\x1a.daemon.ExposeServiceReadyH\x00R\x05readyB\a\n" +
-	"\x05event\"\x9e\x01\n" +
+	"\x05event\"\xbf\x01\n" +
 	"\x12ExposeServiceReady\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1f\n" +
 	"\vservice_url\x18\x02 \x01(\tR\n" +
 	"serviceUrl\x12\x16\n" +
 	"\x06domain\x18\x03 \x01(\tR\x06domain\x12,\n" +
-	"\x12port_auto_assigned\x18\x04 \x01(\bR\x10portAutoAssigned\"\xd9\x01\n" +
+	"\x12port_auto_assigned\x18\x04 \x01(\bR\x10portAutoAssigned\x12\x1f\n" +
+	"\vtarget_host\x18\x05 \x01(\tR\n" +
+	"targetHost\"\xd9\x01\n" +
 	"\x13StartCaptureRequest\x12\x1f\n" +
 	"\vtext_output\x18\x01 \x01(\bR\n" +
 	"textOutput\x12\x19\n" +

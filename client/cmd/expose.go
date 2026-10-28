@@ -257,7 +257,24 @@ func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServ
 	if !ok {
 		return fmt.Errorf("unexpected expose event: %T", event.Event)
 	}
+	if err := confirmAppliedTargetHost(exposeTargetHost, ready.Ready); err != nil {
+		return err
+	}
 	printExposeReady(cmd, ready.Ready, port)
+	return nil
+}
+
+func confirmAppliedTargetHost(requested string, ready *proto.ExposeServiceReady) error {
+	if requested == "" {
+		return nil
+	}
+	applied := ready.GetTargetHost()
+	if applied == "" {
+		return fmt.Errorf("target host %q was not applied; upgrade the daemon and management server", requested)
+	}
+	if applied != requested {
+		return fmt.Errorf("applied target host %q does not match requested %q", applied, requested)
+	}
 	return nil
 }
 
@@ -272,8 +289,8 @@ func printExposeReady(cmd *cobra.Command, r *proto.ExposeServiceReady, port uint
 	}
 	cmd.Printf("  Protocol: %s\n", exposeProtocol)
 	cmd.Printf("  Internal: %d\n", port)
-	if exposeTargetHost != "" {
-		cmd.Printf("  Target:   -> %s\n", net.JoinHostPort(exposeTargetHost, strconv.FormatUint(port, 10)))
+	if r.GetTargetHost() != "" {
+		cmd.Printf("  Target:   -> %s\n", net.JoinHostPort(r.GetTargetHost(), strconv.FormatUint(port, 10)))
 	}
 	if isClusterProtocol(exposeProtocol) {
 		cmd.Printf("  External: %s\n", extractPort(r.ServiceUrl, resolveExternalPort(port)))

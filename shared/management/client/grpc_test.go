@@ -139,3 +139,13 @@ func TestToProtoExposeServiceRequest_EmptyTargetHost(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, protoReq.GetTargetHost(), "omitted target host should stay empty")
 }
+
+func TestFromProtoExposeResponse_TargetHost(t *testing.T) {
+	resp := fromProtoExposeResponse(&mgmtProto.ExposeServiceResponse{
+		ServiceName: "svc",
+		ServiceUrl:  "https://svc.example.com",
+		Domain:      "svc.example.com",
+		TargetHost:  "other-service",
+	})
+	assert.Equal(t, "other-service", resp.TargetHost, "applied target host should reach the client")
+}

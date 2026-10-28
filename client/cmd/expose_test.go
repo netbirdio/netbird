@@ -186,6 +186,38 @@ func TestValidateExposeFlags(t *testing.T) {
 			wantErr:    "loopback",
 		},
 		{
+			name:       "localhost trailing dot",
+			port:       "8080",
+			protocol:   "http",
+			targetHost: "localhost.",
+			setHost:    true,
+			wantErr:    "loopback",
+		},
+		{
+			name:       "localhost subdomain",
+			port:       "8080",
+			protocol:   "http",
+			targetHost: "foo.localhost",
+			setHost:    true,
+			wantErr:    "loopback",
+		},
+		{
+			name:       "colon hostname",
+			port:       "8080",
+			protocol:   "http",
+			targetHost: "foo:bar:baz",
+			setHost:    true,
+			wantErr:    "not a valid hostname",
+		},
+		{
+			name:       "unbalanced brackets",
+			port:       "8080",
+			protocol:   "http",
+			targetHost: "[2001:db8::1",
+			setHost:    true,
+			wantErr:    "unbalanced brackets",
+		},
+		{
 			name:       "mapped loopback",
 			port:       "8080",
 			protocol:   "http",
@@ -237,11 +269,51 @@ func TestPrintExposeReadyTargetHost(t *testing.T) {
 		ServiceName: "svc",
 		ServiceUrl:  "https://svc.example.com",
 		Domain:      "svc.example.com",
+		TargetHost:  "other-service",
 	}, 8080)
 
 	out := buf.String()
 	assert.Contains(t, out, "-> other-service:8080", "ready output should mention the remote target")
 	assert.Contains(t, out, "Internal: 8080", "local port line should remain")
+}
+
+func TestPrintExposeReadyIgnoresUnconfirmedLocalFlag(t *testing.T) {
+	t.Cleanup(resetExposeFlagVars)
+
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	exposeProtocol = "http"
+	exposeTargetHost = "other-service"
+	exposeExternalPort = 0
+
+	printExposeReady(cmd, &proto.ExposeServiceReady{
+		ServiceName: "svc",
+		ServiceUrl:  "https://svc.example.com",
+		Domain:      "svc.example.com",
+	}, 8080)
+
+	assert.NotContains(t, buf.String(), "Target:", "ready output must not print a target the server did not confirm")
+}
+
+func TestConfirmAppliedTargetHost(t *testing.T) {
+	t.Run("omitted request is ok", func(t *testing.T) {
+		assert.NoError(t, confirmAppliedTargetHost("", &proto.ExposeServiceReady{}))
+	})
+	t.Run("matching applied host", func(t *testing.T) {
+		assert.NoError(t, confirmAppliedTargetHost("other-service", &proto.ExposeServiceReady{TargetHost: "other-service"}))
+	})
+	t.Run("missing applied host", func(t *testing.T) {
+		err := confirmAppliedTargetHost("other-service", &proto.ExposeServiceReady{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "was not applied")
+	})
+	t.Run("mismatched applied host", func(t *testing.T) {
+		err := confirmAppliedTargetHost("other-service", &proto.ExposeServiceReady{TargetHost: "else"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not match")
+	})
 }
 
 func TestPrintExposeReadyWithoutTargetHost(t *testing.T) {

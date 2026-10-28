@@ -19,6 +19,7 @@ type Response struct {
 	ServiceURL       string
 	Domain           string
 	PortAutoAssigned bool
+	TargetHost       string
 }
 
 // Request holds the parameters for exposing a local service via the management server.

@@ -17,7 +17,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-const targetSelectColumns = `id, account_id, service_id, path, host, port, protocol,
+const targetSelectColumns = `id, account_id, service_id, path, host, host_pinned, port, protocol,
 	target_id, target_type, enabled, access_action, proxy_protocol,
 	skip_tls_verify, request_timeout, session_idle_timeout, path_rewrite, custom_headers,
 	direct_upstream, middlewares, capture_max_request_bytes, capture_max_response_bytes,
@@ -39,7 +39,7 @@ func scanTarget(row pgx.CollectableRow) (*rpservice.Target, error) {
 	var path sql.NullString
 	var accessAction sql.NullString
 	var pathRewrite sql.NullString
-	var proxyProtocol, skipTLSVerify, directUpstream, agentNetwork, disableAccessLog sql.NullBool
+	var proxyProtocol, skipTLSVerify, directUpstream, agentNetwork, disableAccessLog, hostPinned sql.NullBool
 	var requestTimeout, sessionIdleTimeout, captureMaxRequestBytes, captureMaxResponseBytes sql.NullInt64
 	var customHeaders, middlewares, captureContentTypes []byte
 	err := row.Scan(
@@ -48,6 +48,7 @@ func scanTarget(row pgx.CollectableRow) (*rpservice.Target, error) {
 		&t.ServiceID,
 		&path,
 		&t.Host,
+		&hostPinned,
 		&t.Port,
 		&t.Protocol,
 		&t.TargetId,
@@ -80,6 +81,7 @@ func scanTarget(row pgx.CollectableRow) (*rpservice.Target, error) {
 		t.AccessAction = rpservice.TargetAccessActionInherit
 	}
 
+	t.HostPinned = hostPinned.Bool
 	t.ProxyProtocol = proxyProtocol.Bool
 	t.Options.SkipTLSVerify = skipTLSVerify.Bool
 	t.Options.RequestTimeout = time.Duration(requestTimeout.Int64)

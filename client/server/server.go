@@ -2350,6 +2350,7 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 				ServiceUrl:       result.ServiceURL,
 				Domain:           result.Domain,
 				PortAutoAssigned: result.PortAutoAssigned,
+				TargetHost:       result.TargetHost,
 			},
 		},
 	}); err != nil {

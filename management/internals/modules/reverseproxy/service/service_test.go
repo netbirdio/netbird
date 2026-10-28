@@ -1149,6 +1149,7 @@ func TestExposeServiceRequest_ToService(t *testing.T) {
 		assert.Equal(t, "peer-1", target.TargetId)
 		assert.Equal(t, TargetTypePeer, target.TargetType)
 		assert.Empty(t, target.Host, "host stays empty when no target host is requested")
+		assert.False(t, target.HostPinned, "default expose does not pin the host")
 		assert.True(t, target.Enabled)
 		assert.Equal(t, "account-1", target.AccountID)
 	})
@@ -1165,6 +1166,7 @@ func TestExposeServiceRequest_ToService(t *testing.T) {
 
 		target := service.Targets[0]
 		assert.Equal(t, "other-service", target.Host)
+		assert.True(t, target.HostPinned, "supplied target host is pinned")
 		assert.Equal(t, TargetTypePeer, target.TargetType)
 		assert.Equal(t, "peer-1", target.TargetId)
 		assert.Equal(t, uint16(8080), target.Port)
