@@ -424,7 +424,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// with the global Netbird config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.netMgr)
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.authKey(), c.netMgr)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -785,7 +785,7 @@ func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, netMgr *netevents.Manager) (*signal.GrpcClient, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, authKey ed25519.PrivateKey, netMgr *netevents.Manager) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
@@ -794,11 +794,12 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 	}
 
 	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled,
-		signal.WithNetEvents(netMgr))
+		signal.WithNetEvents(netMgr), signal.WithAuthKey(authKey))
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
 	}
+	signalClient.UpdateAuthToken(wtConfig.GetAuthToken())
 
 	return signalClient, nil
 }

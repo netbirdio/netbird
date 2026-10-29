@@ -1165,6 +1165,8 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 		log.Warnf("Failed to update DNS server config: %v", err)
 	}
 
+	e.signal.UpdateAuthToken(wCfg.GetAuthToken())
+
 	// todo update signal
 
 	return nil

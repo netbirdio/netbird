@@ -1641,3 +1641,33 @@ func TestEngine_SyncResponsePersistence(t *testing.T) {
 	_, err = e.GetLatestSyncResponse()
 	require.Error(t, err)
 }
+
+func TestEngine_UpdateNetbirdConfigHandsAuthTokenToSignal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	var got [][]byte
+	signalClient := &signal.MockClient{UpdateAuthTokenFunc: func(token []byte) { got = append(got, token) }}
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun105",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   signalClient,
+		MgmClient:      &mgmt.MockClient{},
+		RelayManager:   relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU),
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	require.NoError(t, engine.updateNetbirdConfig(&mgmtProto.NetbirdConfig{AuthToken: []byte("auth token")}))
+	// Management stops issuing the auth token: Signal must stop receiving the stale one.
+	require.NoError(t, engine.updateNetbirdConfig(&mgmtProto.NetbirdConfig{}))
+
+	require.Len(t, got, 2, "every NetbirdConfig must update the Signal auth token")
+	assert.Equal(t, []byte("auth token"), got[0], "Signal must receive the auth token Management sent")
+	assert.Empty(t, got[1], "a NetbirdConfig without auth token must clear it")
+}
