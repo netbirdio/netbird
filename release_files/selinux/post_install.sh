@@ -25,7 +25,10 @@ fi
 active=0
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet netbird; then
   active=1
-  systemctl stop netbird || echo "netbird-selinux: stopping netbird failed" >&2
+  if ! systemctl stop netbird; then
+    echo "netbird-selinux: stopping netbird failed, it keeps its old domain until the next restart" >&2
+    exit 0
+  fi
 fi
 
 if command -v restorecon >/dev/null 2>&1; then

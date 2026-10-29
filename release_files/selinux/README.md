@@ -19,7 +19,7 @@ Fedora 44.
 
 Install the package. Its scriptlets load the module, relabel the files it covers
 and restart a running daemon. Removing the package unloads the module and
-relabels. A manual install can use `semodule -i netbird.pp.bz2` followed by
+relabels. A manual install can use `semodule -X 200 -i netbird.pp.bz2` followed by
 `restorecon -iR` on the paths listed in `post_install.sh` (the binary in `/usr/bin`,
 `/usr/sbin` or `/usr/local/bin`, the state, log and config directories, and the daemon,
 WireGuard and SSH config files).
