@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -87,13 +88,23 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		sTimeout = parsed
 	}
 
+	var flushAfterRegister bool
+	if raw := os.Getenv("NB_SIGNAL_FLUSH_AFTER_REGISTER"); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			log.Warnf("invalid NB_SIGNAL_FLUSH_AFTER_REGISTER value %q, ignoring (expected a boolean)", raw)
+		} else {
+			flushAfterRegister = parsed
+		}
+	}
+
 	s := &Server{
 		dispatcher:         d,
 		registry:           peer.NewRegistry(appMetrics),
 		metrics:            appMetrics,
 		successHeader:      metadata.Pairs(proto.HeaderRegistered, "1"),
 		sendTimeout:        sTimeout,
-		flushAfterRegister: os.Getenv("NB_SIGNAL_FLUSH_AFTER_REGISTER") == "true",
+		flushAfterRegister: flushAfterRegister,
 	}
 
 	stopProfiling := profiling.Start(applicationName)
@@ -146,10 +157,15 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 		// sent it. Sending an immediate placeholder message right behind the
 		// header forces the proxy to flush both together. The key is
 		// deliberately not a valid WireGuard key, so the client fails to parse/
-		// decrypt it and silently drops it (see shared/signal/client/worker.go) -
-		// harmless beyond one debug log line on the client. Opt-in via
-		// NB_SIGNAL_FLUSH_AFTER_REGISTER since most deployments don't need it.
-		if err := stream.Send(&proto.EncryptedMessage{Key: "signal-server-flush", RemoteKey: p.Id}); err != nil {
+		// decrypt it and drops it (see shared/signal/client/worker.go); it costs
+		// one error-level "failed to decrypt message" log line on the client per
+		// connection, which is the accepted trade-off for an opt-in mitigation.
+		// Sent via p.Send (not stream.Send directly) so it serializes with any
+		// message forwardMessageToPeer is concurrently relaying to this same
+		// peer - gRPC forbids concurrent SendMsg calls on one ServerStream.
+		// Opt-in via NB_SIGNAL_FLUSH_AFTER_REGISTER since most deployments
+		// don't need it.
+		if err := p.Send(&proto.EncryptedMessage{Key: "signal-server-flush", RemoteKey: p.Id}); err != nil {
 			log.Debugf("failed to send post-registration flush frame to peer [%s]: %v", p.Id, err)
 		}
 	}

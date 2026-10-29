@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -39,6 +40,13 @@ func (s *concurrencyCheckStream) Send(*proto.EncryptedMessage) error {
 }
 
 func (s *concurrencyCheckStream) Context() context.Context { return s.ctx }
+
+func (s *concurrencyCheckStream) SendHeader(metadata.MD) error { return nil }
+
+func (s *concurrencyCheckStream) Recv() (*proto.EncryptedMessage, error) {
+	<-s.ctx.Done()
+	return nil, s.ctx.Err()
+}
 
 // TestForwardMessageToPeerSerializesSend verifies that concurrent forwards to the
 // same peer never call Stream.Send concurrently, which would violate the gRPC
