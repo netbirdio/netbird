@@ -604,7 +604,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	if err != nil {
 		cancel()
 		if s, ok := nbstatus.FromError(err); ok && s.Type() == nbstatus.PermissionDenied {
-			return nil, nil, status.Errorf(codes.PermissionDenied, "%w", err)
+			return nil, nil, status.Errorf(codes.PermissionDenied, "failed to register proxy, permission denied: %v", err)
 		}
 		if accountID != nil {
 			return nil, nil, status.Errorf(codes.Internal, "failed to register BYOP proxy: %v", err)

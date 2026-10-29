@@ -51,13 +51,17 @@ func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
 func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	tx := s.db
 
+	if p.ID == "" {
+		return status.Errorf(status.InvalidArgument, "ID is a required field on proxy create/update")
+	}
+
 	if p.AccountID == nil {
 		tx = tx.Where("account_id is null")
 	} else {
 		tx = tx.Where("account_id = ?", *p.AccountID)
 	}
 
-	result := tx.Updates(p)
+	result := tx.Select("*").Updates(p)
 	if result.Error != nil {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
