@@ -1138,6 +1138,9 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 		return nil
 	}
 
+	// Before the steps that can fail, so a bad TURN or flow entry does not keep a stale token.
+	e.signal.UpdateAuthToken(wCfg.GetAuthToken())
+
 	if err := e.updateTURNs(wCfg.GetTurns()); err != nil {
 		return fmt.Errorf("update TURNs: %w", err)
 	}
