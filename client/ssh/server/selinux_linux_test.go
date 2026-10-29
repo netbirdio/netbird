@@ -175,3 +175,23 @@ func TestIsConfined(t *testing.T) {
 	empty := newTestLookup(t, "", testDefaultContexts, nil, nil)
 	assert.True(t, empty.isConfined("vma", nil), "a user that cannot be mapped is treated as confined")
 }
+
+func TestReadEnforcing(t *testing.T) {
+	dir := t.TempDir()
+	write := func(content string) string {
+		path := filepath.Join(dir, "enforce")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+		return path
+	}
+
+	assert.True(t, readEnforcing(write("1")), "enforcing")
+	assert.False(t, readEnforcing(write("0")), "permissive")
+	assert.True(t, readEnforcing(filepath.Join(dir, "missing")), "an unreadable state counts as enforcing")
+}
+
+func TestHasPolicy(t *testing.T) {
+	l := newTestLookup(t, "__default__:unconfined_u:s0\n", testDefaultContexts, nil, nil)
+	assert.True(t, l.hasPolicy(), "seusers present")
+
+	assert.False(t, (&selinuxLookup{rootDir: t.TempDir()}).hasPolicy(), "a host without policy files, such as a container, has none")
+}

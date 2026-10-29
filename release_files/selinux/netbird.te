@@ -445,6 +445,19 @@ domain_obj_id_change_exemption(netbird_ssh_t)
 # The pty a session inherits from the daemon
 allow netbird_ssh_t netbird_devpts_t:chr_file rw_chr_file_perms;
 
+# The working directory is changed to the home directory before the shell starts
+userdom_search_user_home_dirs(netbird_ssh_t)
+
+# The exec transition passes the environment and limits on to the helper
+allow netbird_t netbird_ssh_t:process { noatsecure siginh rlimitinh };
+
+gen_require(`
+	type systemd_systemctl_exec_t, systemd_unit_file_t, sysfs_t, user_tmp_t;
+')
+# The command line starts up with probes for the service and its socket, which the
+# helper has no use for
+dontaudit netbird_ssh_t { systemd_systemctl_exec_t systemd_unit_file_t sysfs_t netbird_runtime_t user_tmp_t }:{ file dir sock_file } { getattr read };
+
 tunable_policy(`netbird_ssh_sessions',`
 	# Confined users, which are not administrators, as sshd allows by default
 	userdom_spec_domtrans_unpriv_users(netbird_ssh_t)
@@ -457,6 +470,12 @@ tunable_policy(`netbird_ssh_sessions',`
 	allow unconfined_t netbird_ssh_t:fifo_file rw_file_perms;
 	allow unconfined_t netbird_ssh_t:process sigchld;
 	allow netbird_t unpriv_userdomain:process { signal sigkill };
+	allow netbird_ssh_t unpriv_userdomain:process { noatsecure siginh rlimitinh };
+
+	dontaudit unpriv_userdomain netbird_runtime_t:sock_file getattr;
+
+	# The SFTP server runs the daemon binary again in the user context
+	allow { unpriv_userdomain unconfined_t } netbird_exec_t:file { entrypoint read open getattr map execute };
 ')
 
 # Interface details from udev, read when listing network devices

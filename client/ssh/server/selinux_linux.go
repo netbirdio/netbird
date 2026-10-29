@@ -9,10 +9,13 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/netbirdio/netbird/client/internal/getent"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -55,12 +58,26 @@ func selinuxEnabled() bool {
 }
 
 // sessionExecContext returns the context a session of username has to start in, or an
-// empty string when SELinux is disabled and nothing has to be set.
+// empty string when there is nothing to set: SELinux is disabled, the host has no policy
+// files (a container on an SELinux host), or the lookup failed while SELinux is permissive,
+// where sshd also lets the login continue. While enforcing, a failed lookup is an error.
 func sessionExecContext(username string, groups []string) (string, error) {
 	if !selinuxEnabled() {
 		return "", nil
 	}
-	return newSELinuxLookup().defaultContext(username, groups)
+
+	l := newSELinuxLookup()
+	if !l.hasPolicy() {
+		log.Debugf("SELinux is enabled but %s has no policy files, not setting a session context", l.rootDir)
+		return "", nil
+	}
+
+	ctx, err := l.defaultContext(username, groups)
+	if err != nil && !selinuxEnforcing() {
+		log.Warnf("resolve SELinux session context of %s, continuing as SELinux is permissive: %v", username, err)
+		return "", nil
+	}
+	return ctx, err
 }
 
 // needsSessionContext reports whether sessions of username must be started through the
@@ -69,7 +86,11 @@ func sessionExecContext(username string, groups []string) (string, error) {
 // where the daemon's own transition gives the same result. A user that cannot be mapped is
 // treated as needing the helper, which refuses the session if the context cannot be resolved.
 func needsSessionContext(username string, groups []string) bool {
-	return selinuxEnabled() && newSELinuxLookup().isConfined(username, groups)
+	if !selinuxEnabled() {
+		return false
+	}
+	l := newSELinuxLookup()
+	return l.hasPolicy() && l.isConfined(username, groups)
 }
 
 // isConfined reports whether username maps to a SELinux user other than the unconfined one,
@@ -95,6 +116,52 @@ func localGroupNames(u *user.User) []string {
 	return names
 }
 
+// ExecInSessionContext drops privileges and replaces the current process with argv, started
+// in the SELinux context of the target user. It reports false without doing anything when
+// there is no context to set, and returns only if the context cannot be resolved or the exec
+// fails. Serving in process after the drop would leave the session in the helper's own
+// domain, which has none of the user's file access.
+func (pd *PrivilegeDropper) ExecInSessionContext(config ExecutorConfig, argv []string) (bool, error) {
+	// The exec attribute is per thread; the process is replaced, so the lock is not released.
+	runtime.LockOSThread()
+
+	sessionContext, err := sessionExecContext(config.Username, groupNames(config.Groups))
+	if err != nil {
+		return false, fmt.Errorf("resolve session context: %w", err)
+	}
+	if sessionContext == "" {
+		runtime.UnlockOSThread()
+		return false, nil
+	}
+
+	if err := pd.DropPrivileges(config.UID, config.GID, config.Groups); err != nil {
+		return false, fmt.Errorf("drop privileges: %w", err)
+	}
+	if err := setExecContext(sessionContext); err != nil {
+		return false, fmt.Errorf("set session context: %w", err)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return false, fmt.Errorf("find executable: %w", err)
+	}
+	return true, syscall.Exec(exe, argv, os.Environ())
+}
+
+// selinuxEnforcing reports whether SELinux denies, rather than only logs. An enforce file
+// that cannot be read counts as enforcing, so a failure never loosens the check.
+func selinuxEnforcing() bool {
+	return readEnforcing(selinuxEnforcePath)
+}
+
+func readEnforcing(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(string(data)) != "0"
+}
+
 // setExecContext sets the context the next exec of the calling thread starts in. The
 // attribute is per thread, so the caller must stay on one locked OS thread from this call
 // to the fork that starts the session.
@@ -115,6 +182,12 @@ func writeExecContext(path, ctx string) error {
 		return fmt.Errorf("close exec context attribute: %w", err)
 	}
 	return nil
+}
+
+// hasPolicy reports whether the policy files that map users to SELinux users exist.
+func (l *selinuxLookup) hasPolicy() bool {
+	_, err := os.Stat(filepath.Join(l.policyDir(), "seusers"))
+	return err == nil
 }
 
 func (l *selinuxLookup) policyDir() string {

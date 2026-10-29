@@ -11,3 +11,8 @@ func sessionExecContext(string, []string) (string, error) {
 func setExecContext(string) error {
 	return nil
 }
+
+// ExecInSessionContext never re-executes on platforms without SELinux.
+func (pd *PrivilegeDropper) ExecInSessionContext(ExecutorConfig, []string) (bool, error) {
+	return false, nil
+}
