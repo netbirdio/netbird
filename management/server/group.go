@@ -147,7 +147,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 		newGroup.AccountID = accountID
 
-		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
 		}
@@ -363,7 +363,7 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 
 		newGroup.AccountID = accountID
 
-		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return err
 		}
