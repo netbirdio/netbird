@@ -344,6 +344,10 @@ nfpms:
     # rejects packages that declare no dependencies at all.
     dependencies:
       - ca-certificates
+    # Pulls the SELinux policy in on hosts that run SELinux. A weak dependency keeps the
+    # client installable without it.
+    recommends:
+      - netbird-selinux
     # Generated in CI by chglog from git tags; Red Hat certification requires an
     # RPM changelog (RPM Version Handling subtest).
     changelog: changelog.yml
