@@ -2,8 +2,9 @@
 
 Confines the NetBird daemon (`netbird_t`) on hosts that run SELinux in enforcing
 mode. It ships as the separate `netbird-selinux` package, which depends on
-`netbird` and `selinux-policy-targeted`. Without it the daemon runs in
-`unconfined_service_t`, as it did before.
+`netbird` and `selinux-policy-targeted`. The client RPM recommends it, so dnf
+installs it along with the client unless weak dependencies are turned off.
+Without it the daemon runs in `unconfined_service_t`, as it did before.
 
 ## Building
 
