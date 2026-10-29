@@ -968,6 +968,7 @@ func TestSqlStore_MarkPeersDisconnectedIfSameSession(t *testing.T) {
 		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
 			"peer_status_connected":          true,
 			"peer_status_session_started_at": session,
+			"peer_status_last_seen":          time.Now().UTC(),
 		}).Error)
 	}
 
@@ -1020,6 +1021,7 @@ func TestSqlStore_MarkPeersDisconnectedIfSameSessionContinuesAfterFailedChunk(t 
 		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
 			"peer_status_connected":          true,
 			"peer_status_session_started_at": session,
+			"peer_status_last_seen":          time.Now().UTC(),
 		}).Error)
 	}
 
