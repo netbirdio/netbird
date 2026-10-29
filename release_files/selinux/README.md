@@ -52,12 +52,9 @@ To make only the daemon permissive while collecting denials, run
 - `netbird_ssh_sessions` only gates the shell and `su` transitions. The `login`
   transition is always allowed because its interface cannot sit inside a boolean.
 - Sessions of users mapped to a confined SELinux user get the context SELinux assigns
-  them, with the role and level of their default login. The `user/role` login syntax of
-  sshd is not supported. Users mapped to an administrator SELinux user such as
-  `sysadm_u` are refused, as sshd does unless `ssh_sysadm_login` is on.
-- Commands of confined users and SFTP are started by the `netbird_ssh_t` helper rather than
-  through `su`, so they have no PAM session: no `loginuid` for audit and no logind session.
-  Interactive sessions go through `login` and have both.
-- When SELinux is permissive, a session whose context cannot be resolved is started anyway
-  and a warning is logged. When it is enforcing, the session is refused. Hosts that have
-  the SELinux file system but no policy files, such as containers, are left alone.
+  them at login. Users mapped to an administrator SELinux user such as `sysadm_u` are
+  refused, as with sshd unless `ssh_sysadm_login` is on.
+- When SELinux is permissive, a session whose context cannot be resolved is started
+  anyway and a warning is logged. When it is enforcing, the session is refused. Hosts
+  that have the SELinux file system but no policy files, such as containers, are left
+  alone.
