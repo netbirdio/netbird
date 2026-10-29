@@ -64,6 +64,8 @@ type Server struct {
 	successHeader metadata.MD
 
 	sendTimeout time.Duration
+
+	flushAfterRegister bool
 }
 
 // NewServer creates a new Signal server
@@ -86,11 +88,12 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 	}
 
 	s := &Server{
-		dispatcher:    d,
-		registry:      peer.NewRegistry(appMetrics),
-		metrics:       appMetrics,
-		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
-		sendTimeout:   sTimeout,
+		dispatcher:         d,
+		registry:           peer.NewRegistry(appMetrics),
+		metrics:            appMetrics,
+		successHeader:      metadata.Pairs(proto.HeaderRegistered, "1"),
+		sendTimeout:        sTimeout,
+		flushAfterRegister: os.Getenv("NB_SIGNAL_FLUSH_AFTER_REGISTER") == "true",
 	}
 
 	stopProfiling := profiling.Start(applicationName)
@@ -131,6 +134,24 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedHeader)))
 		return err
+	}
+
+	if s.flushAfterRegister {
+		// Some reverse proxies / load balancers buffer the HEADERS frame above
+		// until a DATA frame follows it on the same stream - reproduced with an
+		// AWS ALB gRPC target group. ConnectStream is otherwise a pure
+		// server-push stream that can go silent for minutes after registration,
+		// so on such a proxy the registration header can be held indefinitely,
+		// leaving the client waiting forever even though the server already
+		// sent it. Sending an immediate placeholder message right behind the
+		// header forces the proxy to flush both together. The key is
+		// deliberately not a valid WireGuard key, so the client fails to parse/
+		// decrypt it and silently drops it (see shared/signal/client/worker.go) -
+		// harmless beyond one debug log line on the client. Opt-in via
+		// NB_SIGNAL_FLUSH_AFTER_REGISTER since most deployments don't need it.
+		if err := stream.Send(&proto.EncryptedMessage{Key: "signal-server-flush", RemoteKey: p.Id}); err != nil {
+			log.Debugf("failed to send post-registration flush frame to peer [%s]: %v", p.Id, err)
+		}
 	}
 
 	log.Debugf("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
