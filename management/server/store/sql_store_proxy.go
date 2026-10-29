@@ -71,7 +71,7 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
 		}
 
-		return status.Errorf(status.Internal, "failed to save proxy")
+		return fmt.Errorf("%w, %w", status.Errorf(status.Internal, "failed to save proxy"), result.Error)
 	}
 	if result.RowsAffected != 0 {
 		return nil
@@ -86,7 +86,7 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
 			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
 		}
-		return status.Errorf(status.Internal, "failed to save proxy")
+		return fmt.Errorf("%w, %w", status.Errorf(status.Internal, "failed to save proxy"), result.Error)
 	}
 
 	return nil
