@@ -48,10 +48,16 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		// Create a mutable struct to capture data from downstream handlers.
 		// We pass a pointer in the context - the pointer itself flows down immutably,
 		// but the struct it points to can be mutated by inner handlers.
-		capturedData := proxy.NewCapturedData(requestID)
-		capturedData.SetClientIP(sourceIp)
 
-		ctx := proxy.WithCapturedData(r.Context(), capturedData)
+		ctx := r.Context()
+
+		capturedData := proxy.CapturedDataFromContext(r.Context())
+		if capturedData == nil {
+			capturedData = &proxy.CapturedData{}
+			ctx = proxy.WithCapturedData(ctx, capturedData)
+		}
+		capturedData.SetRequestID(requestID)
+		capturedData.SetClientIP(sourceIp)
 
 		start := time.Now()
 		next.ServeHTTP(sw, r.WithContext(ctx))

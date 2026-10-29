@@ -226,6 +226,30 @@ func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID st
 	return result.RowsAffected > 0, nil
 }
 
+// HeartbeatPeerSession stamps LastSeen with the database clock and marks the peer
+// connected, but only while sessionStartedAt still owns the peer and its login has not
+// expired. Setting Connected again undoes a save of a peer that was read as disconnected
+// while its heartbeats were delayed; the session match keeps an ended or replaced
+// session from coming back, and the login check keeps an expired peer disconnected
+// until it logs in again.
+func (s *SqlStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+	if sessionStartedAt == 0 {
+		return false, nil
+	}
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("peer_status_session_started_at = ? AND peer_status_login_expired = ?", sessionStartedAt, false).
+		Updates(map[string]any{
+			"peer_status_connected": true,
+			"peer_status_last_seen": gorm.Expr("CURRENT_TIMESTAMP"),
+		})
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "heartbeat peer session: %v", result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
 	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
 	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
@@ -296,7 +320,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 				p.Status.SessionStartedAt = peerStatusSessionStartedAt.Int64
 			}
 			if peerStatusConnected.Valid {
-				p.Status.Connected = peerStatusConnected.Bool
+				p.Status.Connected = nbpeer.IsConnected(peerStatusConnected.Bool, p.Status.LastSeen)
 			}
 			if peerStatusLoginExpired.Valid {
 				p.Status.LoginExpired = peerStatusLoginExpired.Bool
@@ -643,7 +667,12 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		db = db.Where("user_id=?", f.UserId)
 	}
 	if f.Connected != nil {
-		db = db.Where("peer_status_connected=?", *f.Connected)
+		lastSeenAfter := time.Now().UTC().Add(-nbpeer.StaleAfter)
+		if *f.Connected {
+			db = db.Where("peer_status_connected = ? AND peer_status_last_seen >= ?", true, lastSeenAfter)
+		} else {
+			db = db.Where("(peer_status_connected = ? OR peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", false, lastSeenAfter)
+		}
 	}
 	if f.ApprovalRequired != nil {
 		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequired)
