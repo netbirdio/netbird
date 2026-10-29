@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -107,7 +108,10 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 // binary's containing temp directories, which the toolchain creates with mode 0700. Without
 // this, su can resolve and exec the binary as root (the account running the test) but gets
 // "exit status 126" for any other account, since reaching a file needs execute permission on
-// every directory in its path, regardless of the file's own mode.
+// every directory in its path, regardless of the file's own mode. Restores each directory's
+// original mode afterward, and leaves alone any directory that already grants traverse (e.g.
+// a shared /tmp with the sticky bit and 0777 permissions), so no host directory is modified
+// beyond the lifetime of this test.
 func allowOtherExecTraverse(t *testing.T) {
 	t.Helper()
 
@@ -120,8 +124,22 @@ func allowOtherExecTraverse(t *testing.T) {
 		if err != nil {
 			return
 		}
-		if err := os.Chmod(dir, info.Mode().Perm()|0o001); err != nil {
-			t.Logf("grant traverse permission on %s: %v", dir, err)
+
+		if info.Mode().Perm()&0o001 != 0 {
+			dir = filepath.Dir(dir)
+			continue
+		}
+
+		originalMode := info.Mode()
+		target := dir
+		if err := os.Chmod(target, originalMode|0o001); err != nil {
+			t.Logf("grant traverse permission on %s: %v", target, err)
+		} else {
+			t.Cleanup(func() {
+				if err := os.Chmod(target, originalMode); err != nil {
+					t.Logf("restore permissions on %s: %v", target, err)
+				}
+			})
 		}
 		dir = filepath.Dir(dir)
 	}
@@ -138,6 +156,27 @@ func createLoginTestUser(t *testing.T) string {
 
 	shell := "/bin/sh"
 
+	// FreeBSD's own adduser(8) is an interactive Perl wizard, unrelated to Linux's non-interactive
+	// adduser(8) (busybox) checked below; calling it with Linux flags hangs waiting on stdin. Use
+	// FreeBSD's non-interactive pw(8) instead, and check this before the generic useradd/adduser
+	// detection so FreeBSD's adduser binary is never reached.
+	if runtime.GOOS == "freebsd" {
+		if _, err := exec.LookPath("pw"); err == nil {
+			out, err := exec.Command("pw", "useradd", username, "-m", "-s", shell).CombinedOutput()
+			if err != nil {
+				t.Skipf("create login test user with pw useradd: %v: %s", err, out)
+			}
+			t.Cleanup(func() {
+				if out, err := exec.Command("pw", "userdel", username, "-r").CombinedOutput(); err != nil {
+					t.Logf("remove login test user: %v: %s", err, out)
+				}
+			})
+			return username
+		}
+		t.Skip("pw not available to create a login test user")
+		return ""
+	}
+
 	if _, err := exec.LookPath("useradd"); err == nil {
 		out, err := exec.Command("useradd", "-m", "-s", shell, username).CombinedOutput()
 		if err != nil {
@@ -151,6 +190,7 @@ func createLoginTestUser(t *testing.T) string {
 		return username
 	}
 
+	// Alpine's busybox adduser, non-interactive with -D.
 	if _, err := exec.LookPath("adduser"); err == nil {
 		out, err := exec.Command("adduser", "-D", "-s", shell, username).CombinedOutput()
 		if err != nil {
@@ -164,7 +204,7 @@ func createLoginTestUser(t *testing.T) string {
 		return username
 	}
 
-	t.Skip("no useradd or adduser available to create a login test user")
+	t.Skip("no useradd, adduser, or pw available to create a login test user")
 	return ""
 }
 
