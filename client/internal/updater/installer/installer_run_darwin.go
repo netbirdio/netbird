@@ -20,8 +20,6 @@ const (
 	updaterBinary = "updater"
 	uiBinary      = "/Applications/NetBird.app"
 
-	defaultTempDir = "/var/lib/netbird/tmp-install"
-
 	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
 )
 

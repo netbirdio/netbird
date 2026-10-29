@@ -21,10 +21,11 @@ import (
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -2309,7 +2310,7 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	s.mutex.Lock()
 	if !s.clientRunning {
 		s.mutex.Unlock()
-		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run '%s' first", ipcauth.CLICommand("up"))
 	}
 	connectClient := s.connectClient
 	s.mutex.Unlock()

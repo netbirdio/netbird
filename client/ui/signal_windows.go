@@ -9,12 +9,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 const (
-	quickActionsTriggerEventName = `Global\NetBirdQuickActionsTriggerEvent`
-	waitTimeout                  = 5 * time.Second
-	desiredAccesses              = windows.SYNCHRONIZE | windows.EVENT_MODIFY_STATE
+	waitTimeout     = 5 * time.Second
+	desiredAccesses = windows.SYNCHRONIZE | windows.EVENT_MODIFY_STATE
 
 	// WAIT_TIMEOUT return code; not exposed by golang.org/x/sys/windows.
 	waitTimeoutCode uint32 = 0x00000102
@@ -22,6 +23,7 @@ const (
 
 // listenForShowSignal shows the main window when an external process pulses the named event.
 func listenForShowSignal(ctx context.Context, tray *Tray) {
+	quickActionsTriggerEventName := instance.Current().QuickActionsEvent()
 	namePtr, err := windows.UTF16PtrFromString(quickActionsTriggerEventName)
 	if err != nil {
 		log.Errorf("trigger event name: %v", err)

@@ -54,8 +54,8 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 
 	operation := func() error {
 		var errv4, errv6 error
-		nexthop4, errv4 = systemops.GetNextHop(netip.IPv4Unspecified())
-		nexthop6, errv6 = systemops.GetNextHop(netip.IPv6Unspecified())
+		nexthop4, errv4 = systemops.GetUplinkNextHop(netip.IPv4Unspecified())
+		nexthop6, errv6 = systemops.GetUplinkNextHop(netip.IPv6Unspecified())
 
 		if errv4 != nil && errv6 != nil {
 			return errors.New("failed to get default next hops")

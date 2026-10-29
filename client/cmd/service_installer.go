@@ -15,6 +15,7 @@ import (
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -74,6 +75,19 @@ func buildServiceArguments() []string {
 	return args
 }
 
+// withInstanceArguments puts a named installation's name and role right after
+// "service run". They are not service params: the installation is chosen on the
+// command line, and its service.json lives in its own state directory.
+func withInstanceArguments(inst instance.Instance, args []string) []string {
+	if inst.IsDefault() || len(args) < 2 {
+		return args
+	}
+	out := make([]string, 0, len(args)+4)
+	out = append(out, args[:2]...)
+	out = append(out, "--"+instanceFlag, string(inst.Name()), "--"+instanceRoleFlag, string(inst.Role()))
+	return append(out, args[2:]...)
+}
+
 // Configure platform-specific service settings
 func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 	if runtime.GOOS == "linux" {
@@ -119,7 +133,7 @@ func createServiceConfigForInstall() (*service.Config, error) {
 		return nil, fmt.Errorf("create service config: %w", err)
 	}
 
-	svcConfig.Arguments = buildServiceArguments()
+	svcConfig.Arguments = withInstanceArguments(instance.Current(), buildServiceArguments())
 	if err = configurePlatformSpecificSettings(svcConfig); err != nil {
 		return nil, fmt.Errorf("configure platform-specific settings: %w", err)
 	}
@@ -137,6 +151,10 @@ var installCmd = &cobra.Command{
 
 		if err := loadAndApplyServiceParams(cmd); err != nil {
 			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
+		}
+
+		if err := checkNamedServiceFree(); err != nil {
+			return err
 		}
 
 		svcConfig, err := createServiceConfigForInstall()
@@ -185,6 +203,8 @@ var uninstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		removeLeftoverAdapter(s)
 
 		if err := s.Uninstall(); err != nil {
 			return fmt.Errorf("uninstall service: %w", err)

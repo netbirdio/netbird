@@ -244,6 +244,18 @@
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
 
+    <policy name="DisableNamedInstallations"
+            class="Machine"
+            displayName="$(string.DisableNamedInstallations_Name)"
+            explainText="$(string.DisableNamedInstallations_Help)"
+            key="Software\Policies\NetBird"
+            valueName="DisableNamedInstallations">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
     <policy name="DisableAdvancedView"
             class="Machine"
             displayName="$(string.DisableAdvancedView_Name)"

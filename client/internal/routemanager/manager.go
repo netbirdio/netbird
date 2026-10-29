@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -113,6 +114,7 @@ type DefaultManager struct {
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
 	dnsForwarderPort    atomic.Uint32
+	secondary           secondaryState
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -562,6 +564,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	if err := m.updateSystemRoutes(networks); err != nil {
 		log.Errorf("failed to update system routes during selection: %v", err)
 	}
+	m.warnIdenticalRoutes(networks)
 
 	m.stopObsoleteClients(networks)
 
@@ -657,6 +660,8 @@ func (m *DefaultManager) ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]
 	newClientRoutesIDMap := make(route.HAMap)
 	newServerRoutesMap := make(map[route.ID]*route.Route)
 	ownNetworkIDs := make(map[route.HAUniqueID]bool)
+	inst := instance.Current()
+	ignoredExitNodes := make(map[route.NetID]struct{})
 
 	for _, newRoute := range newRoutes {
 		haID := newRoute.GetHAUniqueID()
@@ -672,9 +677,14 @@ func (m *DefaultManager) ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]
 			if !isRouteSupported(newRoute) {
 				continue
 			}
+			if isRefusedExitRoute(inst, newRoute) {
+				ignoredExitNodes[newRoute.NetID] = struct{}{}
+				continue
+			}
 			newClientRoutesIDMap[haID] = append(newClientRoutesIDMap[haID], newRoute)
 		}
 	}
+	m.secondary.setIgnoredExitNodes(ignoredExitNodes)
 
 	return newServerRoutesMap, newClientRoutesIDMap
 }

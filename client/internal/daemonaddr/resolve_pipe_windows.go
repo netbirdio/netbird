@@ -9,6 +9,8 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 // probeTimeout bounds each transport probe. Both are local, so a daemon that is
@@ -32,22 +34,27 @@ const probeTimeout = 300 * time.Millisecond
 // --daemon-addr npipe://netbird explicitly is indistinguishable from the default
 // here, so it is treated the same way.
 func ResolveDaemonAddr(addr string) string {
-	if addr != WindowsPipeAddr {
+	inst := instance.Current()
+	if addr != inst.DaemonAddr() {
 		return addr
 	}
 
-	for _, path := range PipePaths("netbird") {
+	for _, path := range PipePaths(pipeName(addr)) {
 		if pipeAvailable(path) {
 			return addr
 		}
 	}
 
-	if tcpAvailable(legacyWindowsAddr) {
+	legacy := inst.LegacyTCPDaemonAddr()
+	if legacy == "" {
+		return addr
+	}
+	if tcpAvailable(legacy) {
 		log.Warnf("the daemon is not serving %s, but something is listening on the legacy %s. "+
 			"Restart the NetBird service so it serves the pipe. That address is not used automatically: "+
 			"any local user can bind it and it carries no caller identity, so pass --daemon-addr %s "+
 			"explicitly if you accept that",
-			WindowsPipeAddr, legacyWindowsAddr, legacyWindowsAddr)
+			addr, legacy, legacy)
 	}
 
 	return addr
@@ -79,4 +86,10 @@ func tcpAvailable(addr string) bool {
 		log.Debugf("close daemon TCP probe: %v", err)
 	}
 	return true
+}
+
+// pipeName returns the npipe address name of a daemon address, such as
+// "netbird" for "npipe://netbird".
+func pipeName(addr string) string {
+	return strings.TrimPrefix(addr, pipeScheme)
 }

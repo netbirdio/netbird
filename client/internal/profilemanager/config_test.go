@@ -13,6 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/util"
@@ -161,7 +162,7 @@ func TestNewProfileDefaults(t *testing.T) {
 	assert.Equal(t, DefaultManagementURL, config.ManagementURL.String(), "ManagementURL should have default")
 	assert.NotEmpty(t, config.PrivateKey, "PrivateKey should be generated")
 	assert.NotEmpty(t, config.SSHKey, "SSHKey should be generated")
-	assert.Equal(t, iface.WgInterfaceDefault, config.WgIface, "WgIface should have default")
+	assert.Equal(t, instance.Current().InterfaceName(), config.WgIface, "WgIface should have default")
 	assert.Equal(t, iface.DefaultWgPort, config.WgPort, "WgPort should default to 51820")
 	assert.Equal(t, uint16(iface.DefaultMTU), config.MTU, "MTU should have default")
 	assert.Equal(t, dynamic.DefaultInterval, config.DNSRouteInterval, "DNSRouteInterval should have default")

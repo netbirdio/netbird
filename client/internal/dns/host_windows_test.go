@@ -60,7 +60,7 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	// Verify 3 NRPT rules exist
 	assert.Equal(t, 3, countNRPTRuleKeys(t), "Should create 3 NRPT rules for 125 domains")
 	for i := 0; i < 3; i++ {
-		exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i))
+		exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath(), i))
 		require.NoError(t, err)
 		assert.True(t, exists, "NRPT rule %d should exist after first config", i)
 	}
@@ -85,13 +85,13 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	// Verify first 2 NRPT rules exist
 	assert.Equal(t, 2, countNRPTRuleKeys(t), "Should create 2 NRPT rules for 75 domains")
 	for i := 0; i < 2; i++ {
-		exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i))
+		exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath(), i))
 		require.NoError(t, err)
 		assert.True(t, exists, "NRPT rule %d should exist after second config", i)
 	}
 
 	// Verify rule 2 is cleaned up
-	exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, 2))
+	exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath(), 2))
 	require.NoError(t, err)
 	assert.False(t, exists, "NRPT rule 2 should NOT exist after reducing to 75 domains")
 }
@@ -129,7 +129,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 		RouteAll: true,
 		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
 	}
-	firstRule := fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath)
+	firstRule := fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath())
 
 	// The root namespace is not a rule of its own: it rides in the match rule,
 	// which is the point of it not being a special case.
@@ -152,7 +152,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 
 	// .local is carved back out: RFC 6762 reserves it for mDNS, so it needs a
 	// rule of its own — it is the one rule with a different server list.
-	ek, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigExemptLocalPath, registry.QUERY_VALUE)
+	ek, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigExemptLocalPath(), registry.QUERY_VALUE)
 	require.NoError(t, err, "exemption rule should exist once the root namespace is claimed")
 
 	exemptNames, _, err := ek.GetStringsValue(dnsPolicyConfigNameKey)
@@ -172,7 +172,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	names = ruleNamespaces(t, firstRule)
 	assert.NotContains(t, names, nrptCatchAllNamespace, "clearing RouteAll should drop the root namespace")
 
-	exists, err := registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	exists, err := registryKeyExists(dnsPolicyConfigExemptLocalPath())
 	require.NoError(t, err)
 	assert.False(t, exists, "exemption rule should go with the namespace it carves out of")
 
@@ -226,11 +226,11 @@ func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
 	require.NoError(t, cfg.applyDNSConfig(config, nil))
 
 	// RouteAll with no match domains and the switch set leaves nothing to write.
-	exists, err := registryKeyExists(fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath))
+	exists, err := registryKeyExists(fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath()))
 	require.NoError(t, err)
 	assert.False(t, exists, "no rule should be written when the legacy env var is set")
 
-	exists, err = registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	exists, err = registryKeyExists(dnsPolicyConfigExemptLocalPath())
 	require.NoError(t, err)
 	assert.False(t, exists, "no exemption without a claimed root namespace")
 }
@@ -271,7 +271,7 @@ func TestNRPTCleanupWithoutRuleCount(t *testing.T) {
 	require.NoError(t, previousRun.addDNSMatchPolicy(domains, testIP))
 
 	// the unsuffixed key an older version would have written
-	require.NoError(t, previousRun.configureDNSPolicy(dnsPolicyConfigMatchPath, []string{".legacy.example.com"}, testIP))
+	require.NoError(t, previousRun.configureDNSPolicy(dnsPolicyConfigMatchPath(), []string{".legacy.example.com"}, testIP))
 
 	// a policy owned by someone else, which cleanup must not touch
 	foreignPath := DNSPolicyConfigRoot + `\DnsPolicyConfigTestForeign`
@@ -395,13 +395,13 @@ func TestNRPTDomainBatching(t *testing.T) {
 
 			// Verify all expected rules exist
 			for i := 0; i < tc.expectedRuleCount; i++ {
-				exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i))
+				exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath(), i))
 				require.NoError(t, err)
 				assert.True(t, exists, "NRPT rule %d should exist", i)
 			}
 
 			// Verify no extra rules were created
-			exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, tc.expectedRuleCount))
+			exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath(), tc.expectedRuleCount))
 			require.NoError(t, err)
 			assert.False(t, exists, "No NRPT rule should exist at index %d", tc.expectedRuleCount)
 		})
@@ -425,7 +425,7 @@ func TestRemoveEmptyGPOPolicyStore(t *testing.T) {
 
 	// a store holding a rule of ours is kept, because the rule is still applied
 	require.NoError(t, cfg.addDNSMatchPolicy([]string{".example.com"}, testIP))
-	exists, err := registryKeyExists(gpoDnsPolicyConfigMatchPath + "-0")
+	exists, err := registryKeyExists(gpoDnsPolicyConfigMatchPath() + "-0")
 	require.NoError(t, err)
 	require.True(t, exists, "Should write the rule to the GPO policy store")
 

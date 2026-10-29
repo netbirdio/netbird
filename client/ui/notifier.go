@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
@@ -24,6 +25,9 @@ var errNotificationsUnavailable = errors.New("notifications unavailable")
 type Notifier struct {
 	inner     *notifications.NotificationService
 	available atomic.Bool
+	// logo is the dotted logo of a named installation with a colour, shown on
+	// every notification; empty keeps the plain application logo.
+	logo string
 }
 
 func newNotifier() *Notifier {
@@ -74,7 +78,7 @@ func (n *Notifier) SendNotification(options notifications.NotificationOptions) e
 		log.Debugf("notifications disabled, dropping %q", options.ID)
 		return nil
 	}
-	return n.inner.SendNotification(options)
+	return n.inner.SendNotification(n.withLogo(options))
 }
 
 func (n *Notifier) SendNotificationWithActions(options notifications.NotificationOptions) error {
@@ -82,7 +86,25 @@ func (n *Notifier) SendNotificationWithActions(options notifications.Notificatio
 		log.Debugf("notifications disabled, dropping %q", options.ID)
 		return nil
 	}
-	return n.inner.SendNotificationWithActions(options)
+	return n.inner.SendNotificationWithActions(n.withLogo(options))
+}
+
+// logoAttachmentType places an image as a Windows notification's logo.
+const logoAttachmentType = "appLogoOverride"
+
+// withLogo adds the installation's logo unless the notification brings its own.
+func (n *Notifier) withLogo(options notifications.NotificationOptions) notifications.NotificationOptions {
+	if n.logo == "" {
+		return options
+	}
+	for _, a := range options.Attachments {
+		if a.Type == logoAttachmentType {
+			return options
+		}
+	}
+	options.Attachments = append(slices.Clip(options.Attachments),
+		notifications.NotificationAttachment{Path: n.logo, Type: logoAttachmentType})
+	return options
 }
 
 func (n *Notifier) RegisterNotificationCategory(category notifications.NotificationCategory) error {

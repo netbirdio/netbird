@@ -19,6 +19,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -293,8 +294,9 @@ func writeKubeconfig(kubeconfigPath string, kc kubernetesCluster) error {
 			"insecure-skip-tls-verify": true,
 		},
 	})
+	kubeUser := instance.Current().KubeUser()
 	cfg["users"] = appendWithName(cfg["users"], map[string]any{
-		"name": "netbird",
+		"name": kubeUser,
 		"user": map[string]any{
 			"token": "none",
 		},
@@ -303,7 +305,7 @@ func writeKubeconfig(kubeconfigPath string, kc kubernetesCluster) error {
 		"name": kc.name,
 		"context": map[string]any{
 			"cluster":   kc.name,
-			"user":      "netbird",
+			"user":      kubeUser,
 			"namespace": "default",
 		},
 	})

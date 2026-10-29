@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import { DownloadIcon, NotepadText } from "lucide-react";
@@ -15,15 +15,23 @@ function openUrl(url: string) {
     });
 }
 
-function openInstallerDownload() {
-    UpdateSvc.DownloadURL()
-        .then(openUrl)
-        .catch(() => openUrl(GITHUB_RELEASES));
+// useInstallerUrl resolves the installer download link. It is empty for a
+// named installation, which the upstream installer cannot update, so no
+// download is offered there.
+function useInstallerUrl(): string | null {
+    const [url, setUrl] = useState<string | null>(null);
+    useEffect(() => {
+        UpdateSvc.DownloadURL()
+            .then(setUrl)
+            .catch(() => setUrl(GITHUB_RELEASES));
+    }, []);
+    return url;
 }
 
 export function UpdateVersionCard() {
     const { t } = useTranslation();
     const { updateVersion, enforced, triggerUpdate } = useClientVersion();
+    const installerUrl = useInstallerUrl();
 
     if (updateVersion) {
         const titleKey = enforced
@@ -43,12 +51,12 @@ export function UpdateVersionCard() {
                     <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
                         {t("update.card.installNow")}
                     </Button>
-                ) : (
-                    <Button variant={"primary"} size={"xs"} onClick={openInstallerDownload}>
+                ) : installerUrl ? (
+                    <Button variant={"primary"} size={"xs"} onClick={() => openUrl(installerUrl)}>
                         <DownloadIcon size={14} />
                         {t("update.card.getInstaller")}
                     </Button>
-                )}
+                ) : null}
             </Card>
         );
     }

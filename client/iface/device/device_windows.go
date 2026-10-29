@@ -13,9 +13,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgbackend"
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
-
-const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
 
 type TunDevice struct {
 	name    string
@@ -44,11 +43,41 @@ func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu
 }
 
 func getGUID() (windows.GUID, error) {
-	guidString := defaultWindowsGUIDSTring
+	guidString := instance.Current().AdapterGUID()
 	if CustomWindowsGUIDString != "" {
 		guidString = CustomWindowsGUIDString
 	}
 	return windows.GUIDFromString(guidString)
+}
+
+// setRoleMetric gives a secondary installation's adapter a fixed interface
+// metric above any automatic one, so the primary wins every route both have,
+// including the on-link overlay route. A primary keeps the automatic metric.
+func setRoleMetric(row *winipcfg.MibIPInterfaceRow) {
+	metric, ok := instance.Current().InterfaceMetric()
+	if !ok {
+		return
+	}
+	row.UseAutomaticMetric = false
+	row.Metric = metric
+}
+
+// setRoleMetricV6Only sets the metric of a secondary's IPv6 interface when the
+// overlay has no IPv6 address, so routes another installation adds there still
+// lose. It is best effort: without IPv6 there is nothing to route.
+func setRoleMetricV6Only(luid winipcfg.LUID) {
+	if _, ok := instance.Current().InterfaceMetric(); !ok {
+		return
+	}
+	row, err := luid.IPInterface(windows.AF_INET6)
+	if err != nil {
+		log.Debugf("no IPv6 interface to set the metric on: %v", err)
+		return
+	}
+	setRoleMetric(row)
+	if err := row.Set(); err != nil {
+		log.Debugf("set IPv6 interface metric: %v", err)
+	}
 }
 
 func (t *TunDevice) Create() (WGConfigurer, error) {
@@ -81,6 +110,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	}
 
 	nbiface.NLMTU = uint32(t.mtu)
+	setRoleMetric(nbiface)
 
 	err = nbiface.Set()
 	if err != nil {
@@ -95,11 +125,14 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 			t.address.ClearIPv6()
 		} else {
 			nbiface6.NLMTU = uint32(t.mtu)
+			setRoleMetric(nbiface6)
 			if err := nbiface6.Set(); err != nil {
 				log.Warnf("failed to set IPv6 interface MTU, continuing v4-only: %v", err)
 				t.address.ClearIPv6()
 			}
 		}
+	} else {
+		setRoleMetricV6Only(luid)
 	}
 	err = t.assignAddr()
 	if err != nil {

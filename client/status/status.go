@@ -58,6 +58,10 @@ type ConvertOptions struct {
 	IPsFilter            map[string]struct{}
 	ConnectionTypeFilter string
 	ProfileName          string
+	// InstallationName and InstallationRole identify a named installation;
+	// both are empty for the default installation, whose output is unchanged.
+	InstallationName string
+	InstallationRole string
 	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. Zero when the peer is not SSO-tracked or login
 	// expiration is disabled. Sourced from StatusResponse.SessionExpiresAt.
@@ -160,6 +164,8 @@ type OutputOverview struct {
 	Events                []SystemEventOutput        `json:"events" yaml:"events"`
 	LazyConnectionEnabled bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName           string                     `json:"profileName" yaml:"profileName"`
+	Installation          string                     `json:"installation,omitempty" yaml:"installation,omitempty"`
+	InstallationRole      string                     `json:"installationRole,omitempty" yaml:"installationRole,omitempty"`
 	SSHServerState        SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
 	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. nil when the peer is not SSO-tracked or login
@@ -209,6 +215,8 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		Events:                mapEvents(pbFullStatus.GetEvents()),
 		LazyConnectionEnabled: pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:           opts.ProfileName,
+		Installation:          opts.InstallationName,
+		InstallationRole:      opts.InstallationRole,
 		SSHServerState:        sshServerOverview,
 	}
 	if !opts.SessionExpiresAt.IsZero() {
@@ -593,10 +601,16 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		wgPortString = fmt.Sprintf("%d", o.WgPort)
 	}
 
+	installationLine := ""
+	if o.Installation != "" {
+		installationLine = fmt.Sprintf("Installation: %s (%s)\n", o.Installation, o.InstallationRole)
+	}
+
 	summary := fmt.Sprintf(
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
 			"CLI version: %s\n"+
+			"%s"+
 			"Profile: %s\n"+
 			"Management: %s\n"+
 			"Signal: %s\n"+
@@ -616,6 +630,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		daemonVersion,
 		cliVersion,
+		installationLine,
 		o.ProfileName,
 		managementConnString,
 		signalConnString,

@@ -21,6 +21,9 @@ import (
 // the valid IDs to the routing table; the unknown ones are reported in the
 // returned error.
 func (m *DefaultManager) SelectRoutes(ids []route.NetID, appendRoute bool) error {
+	if err := m.secondary.checkSelection(ids); err != nil {
+		return err
+	}
 	err := m.selectRoutes(ids, appendRoute)
 	// Apply regardless of err: selectRoutes already selects the valid part of a
 	// partial request, and skipping this on error would leave those routes

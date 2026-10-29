@@ -20,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -54,7 +55,7 @@ var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEn
 }
 
 var DefaultInterfaceBlacklist = []string{
-	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
+	instance.Current().InterfaceName(), "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
 
@@ -253,7 +254,7 @@ func getConfigDir() (string, error) {
 		return "", err
 	}
 
-	configDir := filepath.Join(base, "netbird")
+	configDir := filepath.Join(base, instance.Current().UserDirName())
 	// Under sudo this is the invoking user's directory and strictly read-only:
 	// anything root creates in it would be root-owned and break the user's own
 	// runs. Reads of a missing directory fall through to defaults.
@@ -323,7 +324,7 @@ func newConfigSkeleton() *Config {
 		// Remote jobs are an explicit opt-in and default off, including for
 		// legacy configs (a nil value materializes to false at connect time).
 		RemoteJobsAllowed: util.False(),
-		WgPort:            iface.DefaultWgPort,
+		WgPort:            int(instance.Current().WireGuardPort()),
 	}
 }
 
@@ -520,7 +521,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.WgIface = *input.InterfaceName
 		updated = true
 	} else if config.WgIface == "" {
-		config.WgIface = iface.WgInterfaceDefault
+		config.WgIface = instance.Current().InterfaceName()
 		log.Infof("using default Wireguard interface %s", config.WgIface)
 		updated = true
 	}

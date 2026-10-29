@@ -28,6 +28,7 @@ import { useSettings } from "@/contexts/SettingsContext.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { UpdateVersionCard } from "@/modules/auto-update/UpdateVersionCard";
 import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
+import { InstallationDetailsCard } from "@/modules/settings/InstallationDetailsCard";
 
 function openUrl(url: string) {
     Browser.OpenURL(url).catch(() => {
@@ -133,6 +134,8 @@ export function SettingsAbout() {
                     )}
                 </p>
             </div>
+
+            <InstallationDetailsCard />
 
             <UpdateVersionCard />
 

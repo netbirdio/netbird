@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -34,8 +33,6 @@ const (
 )
 
 var (
-	defaultTempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
-
 	// for the cleanup
 	binaryExtensions = []string{"msi", "exe"}
 )
