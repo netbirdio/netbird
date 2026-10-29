@@ -1151,7 +1151,7 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 	stunTurn = append(stunTurn, e.TURNs...)
 	e.stunTurn.Store(stunTurn)
 
-	if err := e.handleRelayUpdate(wCfg.GetRelay()); err != nil {
+	if err := e.handleRelayUpdate(wCfg.GetRelay(), wCfg.GetAuthToken()); err != nil {
 		return err
 	}
 
@@ -1190,15 +1190,21 @@ func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
 	log.Debugf("sync response persisted with serial %d", update.GetNetworkMap().GetSerial())
 }
 
-func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
+func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig, authToken []byte) error {
 	if update != nil {
 		// when we receive token we expect valid address list too
-		c := &auth.Token{
-			Payload:   update.GetTokenPayload(),
-			Signature: update.GetTokenSignature(),
-		}
-		if err := e.relayManager.UpdateToken(c); err != nil {
-			return fmt.Errorf("update relay token: %w", err)
+		if len(authToken) > 0 {
+			if err := e.relayManager.UpdateAuthToken(authToken); err != nil {
+				return fmt.Errorf("update relay auth token: %w", err)
+			}
+		} else {
+			c := &auth.Token{
+				Payload:   update.GetTokenPayload(),
+				Signature: update.GetTokenSignature(),
+			}
+			if err := e.relayManager.UpdateToken(c); err != nil {
+				return fmt.Errorf("update relay token: %w", err)
+			}
 		}
 
 		urls := update.Urls

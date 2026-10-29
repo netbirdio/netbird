@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -462,10 +463,14 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
-			relayClient.WithNetEvents(c.netMgr))
+			relayClient.WithNetEvents(c.netMgr), relayClient.WithAuthKey(c.authKey()))
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
-			if token != nil {
+			if authToken := loginResp.GetNetbirdConfig().GetAuthToken(); len(authToken) > 0 {
+				if err := relayManager.UpdateAuthToken(authToken); err != nil {
+					return wrapErr(err)
+				}
+			} else if token != nil {
 				if err := relayManager.UpdateToken(token); err != nil {
 					log.Errorf("failed to update token: %s", err)
 					return wrapErr(err)
@@ -565,6 +570,17 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		return err
 	}
 	return nil
+}
+
+// authKey returns the key signing the Signal and Relay proofs, or nil when the profile has no
+// usable one, in which case Management sends no auth token either.
+func (c *ConnectClient) authKey() ed25519.PrivateKey {
+	key, err := c.config.AuthSigningKey()
+	if err != nil {
+		log.Debugf("no usable peer auth key: %v", err)
+		return nil
+	}
+	return key
 }
 
 func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
