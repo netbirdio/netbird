@@ -86,8 +86,8 @@ func TestSaveProxy_EnforcesAccountIDMatch(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.description, func(t *testing.T) {
-				copy := tt.proxy
-				err := store.SaveProxy(ctx, &copy)
+				proxycopy := tt.proxy
+				err := store.SaveProxy(ctx, &proxycopy)
 				if tt.err != nil {
 					statusError, isStError := status.FromError(err)
 					assert.True(t, isStError)
