@@ -28,7 +28,7 @@ WireGuard and SSH config files).
 
 | Boolean | Default | Effect |
 | --- | --- | --- |
-| `netbird_ssh_sessions` | on | The built-in SSH server can start user sessions. Shells and `su` run as `unconfined_t`, since the daemon cannot set the context of the user it switches to. |
+| `netbird_ssh_sessions` | on | The built-in SSH server can start user sessions. Shells and `su` run as `unconfined_t`, since the daemon cannot set the context of the user it switches to, and the daemon gets `sys_admin`, which `setsid -c` needs to hand the terminal to `login`. Turning it off removes the shell, `su` and `sys_admin` rules, but not the `login` transition. |
 | `netbird_debug_bundle` | on | Debug bundles can read the journal and list firewall state. |
 | `netbird_bind_all_ports` | off | Bind any unreserved TCP port: SSH remote port forwarding and the local metrics endpoint (default `127.0.0.1:9191`). UDP ports are always allowed. |
 | `netbird_read_user_home` | off | Read files in user home directories. Needed to add the desktop UI log (`~/.config/netbird/gui-client.log`) to debug bundles. |

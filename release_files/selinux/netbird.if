@@ -1,3 +1,6 @@
+# Based on the SELinux module by Jonathan Billings (Red Hat),
+# https://github.com/jbillingredhat/netbird (branch selinux).
+
 ## <summary>NetBird mesh network client</summary>
 
 ########################################
