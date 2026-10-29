@@ -27,9 +27,12 @@ if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet netbird; 
   active=1
 fi
 
+# A daemon that cannot be stopped keeps its old domain, but its files are still relabeled
+# so the next restart comes up confined. Its socket stays where it is.
+stopped=1
 if [ "$active" = 1 ] && ! systemctl stop netbird; then
+  stopped=0
   echo "netbird-selinux: stopping netbird failed, it keeps its old domain until the next restart" >&2
-  exit 0
 fi
 
 if command -v restorecon >/dev/null 2>&1; then
@@ -42,9 +45,11 @@ fi
 
 # A socket left by a daemon that ran before the module was loaded carries the generic
 # runtime label, and the confined daemon cannot replace it. The daemon recreates it.
-rm -f /run/netbird*.sock
+if [ "$stopped" = 1 ]; then
+  rm -f /run/netbird*.sock
+fi
 
-if [ "$active" = 1 ]; then
+if [ "$active" = 1 ] && [ "$stopped" = 1 ]; then
   systemctl start netbird || echo "netbird-selinux: starting netbird failed" >&2
 fi
 exit 0
