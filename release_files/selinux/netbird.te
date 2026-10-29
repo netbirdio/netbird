@@ -79,9 +79,10 @@ type netbird_rt_tables_t;
 files_config_file(netbird_rt_tables_t)
 
 # Pseudo terminals created for SSH sessions. A dedicated type lets login use them without
-# giving it access to every generic pty.
+# giving it access to every generic pty, and as a login pty type it is relabeled to the
+# user's own pty type once login switches to a confined user.
 type netbird_devpts_t;
-term_pty(netbird_devpts_t)
+term_login_pty(netbird_devpts_t)
 
 ########################################
 #
