@@ -84,15 +84,15 @@ func TestExpand_NilSnapshot(t *testing.T) {
 }
 
 func TestChangeIsEmpty(t *testing.T) {
-	assert.True(t, Change{}.isEmpty())
-	assert.False(t, Change{ChangedGroupIDs: []string{"g"}}.isEmpty())
-	assert.False(t, Change{ChangedPeerIDs: []string{"p"}}.isEmpty())
-	assert.False(t, Change{Policies: []*types.Policy{{}}}.isEmpty())
-	assert.False(t, Change{Resources: []*resourceTypes.NetworkResource{{ID: "r"}}}.isEmpty())
-	assert.False(t, Change{Networks: []*networkTypes.Network{{ID: "n"}}}.isEmpty())
-	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
-	assert.False(t, Change{UserGroupIDs: []string{"g"}}.isEmpty())
-	assert.False(t, Change{AllowedUsersChanged: true}.isEmpty())
+	assert.True(t, Change{}.IsEmpty())
+	assert.False(t, Change{ChangedGroupIDs: []string{"g"}}.IsEmpty())
+	assert.False(t, Change{ChangedPeerIDs: []string{"p"}}.IsEmpty())
+	assert.False(t, Change{Policies: []*types.Policy{{}}}.IsEmpty())
+	assert.False(t, Change{Resources: []*resourceTypes.NetworkResource{{ID: "r"}}}.IsEmpty())
+	assert.False(t, Change{Networks: []*networkTypes.Network{{ID: "n"}}}.IsEmpty())
+	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.IsEmpty())
+	assert.False(t, Change{UserGroupIDs: []string{"g"}}.IsEmpty())
+	assert.False(t, Change{AllowedUsersChanged: true}.IsEmpty())
 }
 
 func TestPolicyReferencesPostureChecks(t *testing.T) {

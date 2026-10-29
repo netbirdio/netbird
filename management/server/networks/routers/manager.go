@@ -174,7 +174,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, err
 	}
 
-	if snap == nil {
+	if change.IsEmpty() {
 		return router, nil
 	}
 
