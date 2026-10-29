@@ -13,11 +13,11 @@ func (s *ShutdownState) Name() string {
 }
 
 func (s *ShutdownState) Cleanup() error {
-	sysops := NewSysOps(nil, nil)
-	sysops.refCounter = refcounter.New[netip.Prefix, struct{}, Nexthop](nil, sysops.removeFromRouteTable)
-	sysops.refCounter.LoadData((*ExclusionCounter)(s))
+	sysOps := New(nil, nil)
+	sysOps.refCounter = refcounter.New[netip.Prefix, struct{}, Nexthop](nil, sysOps.removeFromRouteTable)
+	sysOps.refCounter.LoadData((*ExclusionCounter)(s))
 
-	return sysops.refCounter.Flush()
+	return sysOps.refCounter.Flush()
 }
 
 func (s *ShutdownState) MarshalJSON() ([]byte, error) {

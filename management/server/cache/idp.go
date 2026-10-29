@@ -18,6 +18,7 @@ const (
 	DefaultIDPCacheExpirationMax   = 7 * 24 * time.Hour // 7 days
 	DefaultIDPCacheExpirationMin   = 3 * 24 * time.Hour // 3 days
 	DefaultIDPCacheCleanupInterval = 30 * time.Minute
+	DefaultIDPCacheOpenConn        = 100
 )
 
 // UserDataCache is an interface that wraps the basic Get, Set and Delete methods for idp.UserData objects.
@@ -25,6 +26,8 @@ type UserDataCache interface {
 	Get(ctx context.Context, key string) (*idp.UserData, error)
 	Set(ctx context.Context, key string, value *idp.UserData, expiration time.Duration) error
 	Delete(ctx context.Context, key string) error
+	GetUsers(ctx context.Context, key string) ([]*idp.UserData, error)
+	SetUsers(ctx context.Context, key string, users []*idp.UserData, expiration time.Duration) error
 }
 
 // UserDataCacheImpl is a struct that implements the UserDataCache interface.
@@ -50,6 +53,29 @@ func (u *UserDataCacheImpl) Delete(ctx context.Context, key string) error {
 	return u.cache.Delete(ctx, key)
 }
 
+func (u *UserDataCacheImpl) GetUsers(ctx context.Context, key string) ([]*idp.UserData, error) {
+	var users []*idp.UserData
+	v, err := u.cache.Get(ctx, key, &users)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v := v.(type) {
+	case []*idp.UserData:
+		return v, nil
+	case *[]*idp.UserData:
+		return *v, nil
+	case []byte:
+		return unmarshalUserData(v)
+	}
+
+	return nil, fmt.Errorf("unexpected type: %T", v)
+}
+
+func (u *UserDataCacheImpl) SetUsers(ctx context.Context, key string, users []*idp.UserData, expiration time.Duration) error {
+	return u.cache.Set(ctx, key, users, store.WithExpiration(expiration))
+}
+
 // NewUserDataCache creates a new UserDataCacheImpl object.
 func NewUserDataCache(store store.StoreInterface) *UserDataCacheImpl {
 	simpleCache := cache.New[any](store)
@@ -62,7 +88,8 @@ func NewUserDataCache(store store.StoreInterface) *UserDataCacheImpl {
 
 // AccountUserDataCache wraps the basic Get, Set and Delete methods for []*idp.UserData objects.
 type AccountUserDataCache struct {
-	cache Marshaler
+	cache    Marshaler
+	loadable *cache.LoadableCache[any]
 }
 
 func (a *AccountUserDataCache) Get(ctx context.Context, key string) ([]*idp.UserData, error) {
@@ -101,13 +128,18 @@ func (a *AccountUserDataCache) Delete(ctx context.Context, key string) error {
 	return a.cache.Delete(ctx, key)
 }
 
+// Close stops the goroutine that stores loaded values. The cache must not be used afterwards.
+func (a *AccountUserDataCache) Close() error {
+	return a.loadable.Close()
+}
+
 // NewAccountUserDataCache creates a new AccountUserDataCache object.
 func NewAccountUserDataCache(loadableFunc cache.LoadFunction[any], store store.StoreInterface) *AccountUserDataCache {
 	simpleCache := cache.New[any](store)
 	loadable := cache.NewLoadable[any](loadableFunc, simpleCache)
 	if store.GetType() == redis.RedisType {
 		m := marshaler.New(loadable)
-		return &AccountUserDataCache{cache: m}
+		return &AccountUserDataCache{cache: m, loadable: loadable}
 	}
-	return &AccountUserDataCache{cache: &marshalerWraper{loadable}}
+	return &AccountUserDataCache{cache: &marshalerWraper{loadable}, loadable: loadable}
 }

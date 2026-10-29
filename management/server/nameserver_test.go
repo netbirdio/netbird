@@ -6,13 +6,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -785,7 +791,20 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	peersManager := peers.NewManager(store, permissionsManager)
+
+	ctx := context.Background()
+
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nil)
+
+	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
@@ -854,7 +873,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	userID := testUserID
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
@@ -876,11 +895,11 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 		return nil, err
 	}
 
-	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
 	if err != nil {
 		return nil, err
 	}
@@ -888,80 +907,51 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	return account, nil
 }
 
+// TestValidateDomain tests nameserver-specific domain validation.
+// Core domain validation is tested in shared/management/domain/validate_test.go.
+// This test only covers nameserver-specific behavior: wildcard rejection and unicode support.
 func TestValidateDomain(t *testing.T) {
 	testCases := []struct {
 		name    string
 		domain  string
 		errFunc require.ErrorAssertionFunc
 	}{
+		// Nameserver-specific: wildcards not allowed
 		{
-			name:    "Valid domain name with multiple labels",
-			domain:  "123.example.com",
+			name:    "Wildcard prefix rejected",
+			domain:  "*.example.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Wildcard in middle rejected",
+			domain:  "a.*.example.com",
+			errFunc: require.Error,
+		},
+		// Nameserver-specific: unicode converted to punycode
+		{
+			name:    "Unicode domain converted to punycode",
+			domain:  "münchen.de",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with hyphen",
-			domain:  "test-example.com",
+			name:    "Unicode domain all labels",
+			domain:  "中国.中国",
+			errFunc: require.NoError,
+		},
+		// Basic validation still works (delegates to shared validation)
+		{
+			name:    "Valid multi-label domain",
+			domain:  "example.com",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with only one label",
-			domain:  "example",
+			name:    "Valid single label",
+			domain:  "internal",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with trailing dot",
-			domain:  "example.",
-			errFunc: require.NoError,
-		},
-		{
-			name:    "Invalid wildcard domain name",
-			domain:  "*.example",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with leading dot",
-			domain:  ".com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with dot only",
-			domain:  ".",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with a label exceeding 63 characters",
-			domain:  "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name starting with a hyphen",
+			name:    "Invalid leading hyphen",
 			domain:  "-example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name ending with a hyphen",
-			domain:  "example.com-",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with unicode",
-			domain:  "example?,.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with space before top-level domain",
-			domain:  "space .example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with trailing space",
-			domain:  "example.com ",
 			errFunc: require.Error,
 		},
 	}
@@ -975,147 +965,151 @@ func TestValidateDomain(t *testing.T) {
 }
 
 func TestNameServerAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	var newNameServerGroupA *nbdns.NameServerGroup
-	var newNameServerGroupB *nbdns.NameServerGroup
+		var newNameServerGroupA *nbdns.NameServerGroup
+		var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{},
-	})
-	assert.NoError(t, err)
-
-	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
-		ID:    "groupB",
-		Name:  "GroupB",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	assert.NoError(t, err)
-
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	// Creating a nameserver group with a distribution group no peers should not update account peers
-	// and not send peer update
-	t.Run("creating nameserver group with distribution group no peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		newNameServerGroupA, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "nsGroupA", "nsGroupA", []nbdns.NameServer{{
-				IP:     netip.MustParseAddr("1.1.1.1"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			}},
-			[]string{"groupA"},
-			true, []string{}, true, userID, false,
-		)
+		err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{},
+		})
 		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// saving a nameserver group with a distribution group with no peers should not update account peers
-	// and not send peer update
-	t.Run("saving nameserver group with distribution group no peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupA)
+		err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
 		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 
-	// Creating a nameserver group with a distribution group no peers should update account peers and send peer update
-	t.Run("creating nameserver group with distribution group has peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+		// Creating a nameserver group with a distribution group no peers should not update account peers
+		// and not send peer update
+		step(t, "creating nameserver group with distribution group no peers", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
 
-		newNameServerGroupB, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "nsGroupB", "nsGroupB", []nbdns.NameServer{{
-				IP:     netip.MustParseAddr("1.1.1.1"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			}},
-			[]string{"groupB"},
-			true, []string{}, true, userID, false,
-		)
-		assert.NoError(t, err)
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+			newNameServerGroupA, err = manager.CreateNameServerGroup(
+				context.Background(), account.Id, "nsGroupA", "nsGroupA", []nbdns.NameServer{{
+					IP:     netip.MustParseAddr("1.1.1.1"),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				}},
+				[]string{"groupA"},
+				true, []string{}, true, userID, false,
+			)
+			assert.NoError(t, err)
 
-	// saving a nameserver group with a distribution group with peers should update account peers and send peer update
-	t.Run("saving nameserver group with distribution group has peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
-		newNameServerGroupB.NameServers = []nbdns.NameServer{
-			{
-				IP:     netip.MustParseAddr("1.1.1.2"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			},
-			{
-				IP:     netip.MustParseAddr("8.8.8.8"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			},
-		}
-		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
-		assert.NoError(t, err)
+		// saving a nameserver group with a distribution group with no peers should not update account peers
+		// and not send peer update
+		step(t, "saving nameserver group with distribution group no peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+			err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupA)
+			assert.NoError(t, err)
 
-	// Deleting a nameserver group should update account peers and send peer update
-	t.Run("deleting nameserver group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
-		err = manager.DeleteNameServerGroup(context.Background(), account.Id, newNameServerGroupB.ID, userID)
-		assert.NoError(t, err)
+		// Creating a nameserver group with a distribution group no peers should update account peers and send peer update
+		step(t, "creating nameserver group with distribution group has peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
+			newNameServerGroupB, err = manager.CreateNameServerGroup(
+				context.Background(), account.Id, "nsGroupB", "nsGroupB", []nbdns.NameServer{{
+					IP:     netip.MustParseAddr("1.1.1.1"),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				}},
+				[]string{"groupB"},
+				true, []string{}, true, userID, false,
+			)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// saving a nameserver group with a distribution group with peers should update account peers and send peer update
+		step(t, "saving nameserver group with distribution group has peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			newNameServerGroupB.NameServers = []nbdns.NameServer{
+				{
+					IP:     netip.MustParseAddr("1.1.1.2"),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				},
+				{
+					IP:     netip.MustParseAddr("8.8.8.8"),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				},
+			}
+			err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Deleting a nameserver group should update account peers and send peer update
+		step(t, "deleting nameserver group", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err = manager.DeleteNameServerGroup(context.Background(), account.Id, newNameServerGroupB.ID, userID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 	})
 }

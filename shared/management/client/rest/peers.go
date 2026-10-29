@@ -106,3 +106,81 @@ func (a *PeersAPI) ListAccessiblePeers(ctx context.Context, peerID string) ([]ap
 	ret, err := parseResponse[[]api.Peer](resp)
 	return ret, err
 }
+
+// CreateTemporaryAccess create temporary access for a peer
+// See more: https://docs.netbird.io/api/resources/peers#create-temporary-access
+func (a *PeersAPI) CreateTemporaryAccess(ctx context.Context, peerID string, request api.PostApiPeersPeerIdTemporaryAccessJSONRequestBody) (*api.PeerTemporaryAccessResponse, error) {
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/peers/"+peerID+"/temporary-access", bytes.NewReader(requestBytes), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.PeerTemporaryAccessResponse](resp)
+	return &ret, err
+}
+
+// PeerJobsAPI APIs for Peer Jobs, do not use directly
+type PeerJobsAPI struct {
+	c      *Client
+	peerID string
+}
+
+// Jobs APIs for peer jobs
+func (a *PeersAPI) Jobs(peerID string) *PeerJobsAPI {
+	return &PeerJobsAPI{
+		c:      a.c,
+		peerID: peerID,
+	}
+}
+
+// List list all jobs for a peer
+// See more: https://docs.netbird.io/api/resources/peers#list-all-peer-jobs
+func (a *PeerJobsAPI) List(ctx context.Context) ([]api.JobResponse, error) {
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers/"+a.peerID+"/jobs", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[[]api.JobResponse](resp)
+	return ret, err
+}
+
+// Get get job info
+// See more: https://docs.netbird.io/api/resources/peers#retrieve-a-peer-job
+func (a *PeerJobsAPI) Get(ctx context.Context, jobID string) (*api.JobResponse, error) {
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers/"+a.peerID+"/jobs/"+jobID, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.JobResponse](resp)
+	return &ret, err
+}
+
+// Create create new job for a peer
+// See more: https://docs.netbird.io/api/resources/peers#create-a-peer-job
+func (a *PeerJobsAPI) Create(ctx context.Context, request api.PostApiPeersPeerIdJobsJSONRequestBody) (*api.JobResponse, error) {
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/peers/"+a.peerID+"/jobs", bytes.NewReader(requestBytes), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.JobResponse](resp)
+	return &ret, err
+}

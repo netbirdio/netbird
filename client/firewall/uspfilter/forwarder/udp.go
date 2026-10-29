@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
-	"net/netip"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,7 +50,7 @@ type idleConn struct {
 	conn *udpPacketConn
 }
 
-func newUDPForwarder(mtu int, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *udpForwarder {
+func newUDPForwarder(mtu uint16, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *udpForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &udpForwarder{
 		logger:     logger,
@@ -124,17 +125,19 @@ func (f *udpForwarder) cleanup() {
 				delete(f.conns, idle.id)
 				f.Unlock()
 
-				f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				if f.logger.Enabled(nblog.LevelTrace) {
+					f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				}
 			}
 		}
 	}
 }
 
 // handleUDP is called by the UDP forwarder for new packets
-func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
+func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 	if f.ctx.Err() != nil {
 		f.logger.Trace("forwarder: context done, dropping UDP packet")
-		return
+		return false
 	}
 
 	id := r.ID()
@@ -143,8 +146,10 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	_, exists := f.udpForwarder.conns[id]
 	f.udpForwarder.RUnlock()
 	if exists {
-		f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
-		return
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
+		}
+		return true
 	}
 
 	flowID := uuid.New()
@@ -157,12 +162,12 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		}
 	}()
 
-	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
+	dstAddr := net.JoinHostPort(f.determineDialAddr(id.LocalAddress).String(), strconv.Itoa(int(id.LocalPort)))
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
 		f.logger.Debug2("forwarder: UDP dial error for %v: %v", epID(id), err)
 		// TODO: Send ICMP error message
-		return
+		return false
 	}
 
 	// Create wait queue for blocking syscalls
@@ -173,10 +178,10 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
-		return
+		return false
 	}
 
-	inConn := gonet.NewUDPConn(f.stack, &wq, ep)
+	inConn := gonet.NewUDPConn(&wq, ep)
 	connCtx, connCancel := context.WithCancel(f.ctx)
 
 	pConn := &udpPacketConn{
@@ -199,15 +204,18 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
-		return
+		return true
 	}
 	f.udpForwarder.conns[id] = pConn
 	f.udpForwarder.Unlock()
 
 	success = true
-	f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
+	}
 
 	go f.proxyUDP(connCtx, pConn, id, ep)
+	return true
 }
 
 func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack.TransportEndpointID, ep tcpip.Endpoint) {
@@ -263,7 +271,9 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		txPackets = udpStats.PacketsReceived.Value()
 	}
 
-	f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	}
 
 	f.udpForwarder.Lock()
 	delete(f.udpForwarder.conns, id)
@@ -274,15 +284,14 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 
 // sendUDPEvent stores flow events for UDP connections
 func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
-	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
-	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
+	srcIp := addrToNetipAddr(id.RemoteAddress)
+	dstIp := addrToNetipAddr(id.LocalAddress)
 
 	fields := nftypes.EventFields{
-		FlowID:    flowID,
-		Type:      typ,
-		Direction: nftypes.Ingress,
-		Protocol:  nftypes.UDP,
-		// TODO: handle ipv6
+		FlowID:     flowID,
+		Type:       typ,
+		Direction:  nftypes.Ingress,
+		Protocol:   nftypes.UDP,
 		SourceIP:   srcIp,
 		DestIP:     dstIp,
 		SourcePort: id.RemotePort,
@@ -348,7 +357,7 @@ func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bu
 }
 
 func isClosedError(err error) bool {
-	return errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled)
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF)
 }
 
 func isTimeout(err error) bool {

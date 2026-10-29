@@ -1,0 +1,46 @@
+{
+  "Network": {"Serial": 31},
+  "Peers": {
+    "peer-de": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}, "Location": {"CountryCode": "DE", "CityName": "Berlin"}},
+    "peer-us-ny": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}, "Location": {"CountryCode": "US", "CityName": "New York"}},
+    "peer-us-bos": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}, "Location": {"CountryCode": "US", "CityName": "Boston"}},
+    "peer-fr": {"IP": "100.64.0.4", "Meta": {"WtVersion": "0.60.0"}, "Location": {"CountryCode": "FR", "CityName": "Paris"}},
+    "peer-nowhere": {"IP": "100.64.0.5", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-de", "peer-us-ny", "peer-us-bos", "peer-fr", "peer-nowhere"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "PostureChecks": {
+    "chk-geo": {
+      "Checks": {
+        "GeoLocationCheck": {
+          "Action": "allow",
+          "Locations": [
+            {"CountryCode": "DE"},
+            {"CountryCode": "US", "CityName": "New York"}
+          ]
+        }
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-geo",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-geo"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

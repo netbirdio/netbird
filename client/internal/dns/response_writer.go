@@ -7,14 +7,15 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 type responseWriter struct {
 	local  net.Addr
 	remote net.Addr
 	packet gopacket.Packet
-	device tun.Device
+	device wgbackend.TUN
 }
 
 // LocalAddr returns the net.Addr of the server
@@ -103,4 +104,24 @@ func (r *responseWriter) TsigTimersOnly(bool) {
 // Hijack lets the caller take over the connection.
 // After a call to Hijack(), the DNS package will not do anything with the connection.
 func (r *responseWriter) Hijack() {
+}
+
+// remoteAddrFromPacket extracts the source IP:port from a decoded packet for logging.
+func remoteAddrFromPacket(packet gopacket.Packet) *net.UDPAddr {
+	var srcIP net.IP
+	if ipv4 := packet.Layer(layers.LayerTypeIPv4); ipv4 != nil {
+		srcIP = ipv4.(*layers.IPv4).SrcIP
+	} else if ipv6 := packet.Layer(layers.LayerTypeIPv6); ipv6 != nil {
+		srcIP = ipv6.(*layers.IPv6).SrcIP
+	}
+
+	var srcPort int
+	if udp := packet.Layer(layers.LayerTypeUDP); udp != nil {
+		srcPort = int(udp.(*layers.UDP).SrcPort)
+	}
+
+	if srcIP == nil {
+		return nil
+	}
+	return &net.UDPAddr{IP: srcIP, Port: srcPort}
 }

@@ -6,15 +6,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
@@ -27,8 +25,8 @@ type TunDevice struct {
 	mtu     uint16
 	iceBind *bind.ICEBind
 
-	device          *device.Device
-	nativeTunDevice *tun.NativeTun
+	device          *wgbackend.Device
+	nativeTunDevice *wgbackend.NativeTUN
 	filteredDevice  *FilteredDevice
 	udpMux          *udpmux.UniversalUDPMuxDefault
 	configurer      WGConfigurer
@@ -60,18 +58,18 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, err
 	}
 	log.Info("create tun interface")
-	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, int(t.mtu))
+	tunDevice, err := wgbackend.CreateTUNWithRequestedGUID(t.name, &guid, int(t.mtu))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
-	t.nativeTunDevice = tunDevice.(*tun.NativeTun)
+	t.nativeTunDevice = tunDevice.(*wgbackend.NativeTUN)
 	t.filteredDevice = newDeviceFilter(tunDevice)
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	t.device = device.NewDevice(
+	t.device = wgbackend.NewDevice(
 		t.filteredDevice,
 		t.iceBind,
-		device.NewLogger(wgLogLevel(), "[netbird] "),
+		wgbackend.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
@@ -87,7 +85,21 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	err = nbiface.Set()
 	if err != nil {
 		t.device.Close()
-		return nil, fmt.Errorf("got error when getting setting the interface mtu: %s", err)
+		return nil, fmt.Errorf("set IPv4 interface MTU: %s", err)
+	}
+
+	if t.address.HasIPv6() {
+		nbiface6, err := luid.IPInterface(windows.AF_INET6)
+		if err != nil {
+			log.Warnf("failed to get IPv6 interface for MTU, continuing v4-only: %v", err)
+			t.address.ClearIPv6()
+		} else {
+			nbiface6.NLMTU = uint32(t.mtu)
+			if err := nbiface6.Set(); err != nil {
+				log.Warnf("failed to set IPv6 interface MTU, continuing v4-only: %v", err)
+				t.address.ClearIPv6()
+			}
+		}
 	}
 	err = t.assignAddr()
 	if err != nil {
@@ -158,7 +170,7 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 }
 
 // Device returns the wireguard device
-func (t *TunDevice) Device() *device.Device {
+func (t *TunDevice) Device() *wgbackend.Device {
 	return t.device
 }
 
@@ -178,10 +190,28 @@ func (t *TunDevice) GetInterfaceGUIDString() (string, error) {
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (t *TunDevice) assignAddr() error {
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
-	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
-	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})
+
+	v4Prefix := t.address.Prefix()
+	if t.address.HasIPv6() {
+		v6Prefix := t.address.IPv6Prefix()
+		log.Debugf("adding addresses %s, %s to interface: %s", v4Prefix, v6Prefix, t.name)
+		if err := luid.SetIPAddresses([]netip.Prefix{v4Prefix, v6Prefix}); err != nil {
+			log.Warnf("failed to assign dual-stack addresses, retrying v4-only: %v", err)
+			t.address.ClearIPv6()
+			return luid.SetIPAddresses([]netip.Prefix{v4Prefix})
+		}
+		return nil
+	}
+
+	log.Debugf("adding address %s to interface: %s", v4Prefix, t.name)
+	return luid.SetIPAddresses([]netip.Prefix{v4Prefix})
 }
 
-func (t *TunDevice) GetNet() *netstack.Net {
+func (t *TunDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
+}
+
+// GetICEBind returns the ICEBind instance
+func (t *TunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
 }

@@ -2,17 +2,21 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -218,7 +222,20 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	// return empty extra settings for expected calls to UpdateAccountPeers
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
 	permissionsManager := permissions.NewManager(store)
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	peersManager := peers.NewManager(store, permissionsManager)
+
+	ctx := context.Background()
+
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.test", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nil)
+
+	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
 }
 
 func createDNSStore(t *testing.T) (store.Store, error) {
@@ -268,7 +285,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain, false)
+	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain, "", "", false)
 
 	account.Users[dnsRegularUserID] = &types.User{
 		Id:   dnsRegularUserID,
@@ -280,11 +297,11 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 		return nil, err
 	}
 
-	savedPeer1, _, _, err := am.AddPeer(context.Background(), "", "", dnsAdminUserID, peer1, false)
+	savedPeer1, _, _, _, err := am.AddPeer(context.Background(), "", "", dnsAdminUserID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", "", dnsAdminUserID, peer2, false)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", dnsAdminUserID, peer2, false)
 	if err != nil {
 		return nil, err
 	}
@@ -344,403 +361,168 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 	return am.Store.GetAccount(context.Background(), account.Id)
 }
 
-func generateTestData(size int) nbdns.Config {
-	config := nbdns.Config{
-		ServiceEnable:    true,
-		CustomZones:      make([]nbdns.CustomZone, size),
-		NameServerGroups: make([]*nbdns.NameServerGroup, size),
-	}
-
-	for i := 0; i < size; i++ {
-		config.CustomZones[i] = nbdns.CustomZone{
-			Domain: fmt.Sprintf("domain%d.com", i),
-			Records: []nbdns.SimpleRecord{
-				{
-					Name:  fmt.Sprintf("record%d", i),
-					Type:  1,
-					Class: "IN",
-					TTL:   3600,
-					RData: "192.168.1.1",
-				},
-			},
-		}
-
-		config.NameServerGroups[i] = &nbdns.NameServerGroup{
-			ID:                   fmt.Sprintf("group%d", i),
-			Primary:              i == 0,
-			Domains:              []string{fmt.Sprintf("domain%d.com", i)},
-			SearchDomainsEnabled: true,
-			NameServers: []nbdns.NameServer{
-				{
-					IP:     netip.MustParseAddr("8.8.8.8"),
-					Port:   53,
-					NSType: 1,
-				},
-			},
-		}
-	}
-
-	return config
-}
-
-func BenchmarkToProtocolDNSConfig(b *testing.B) {
-	sizes := []int{10, 100, 1000}
-
-	for _, size := range sizes {
-		testData := generateTestData(size)
-
-		b.Run(fmt.Sprintf("WithCache-Size%d", size), func(b *testing.B) {
-			cache := &DNSConfigCache{}
-
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache, dnsForwarderPort)
-			}
-		})
-
-		b.Run(fmt.Sprintf("WithoutCache-Size%d", size), func(b *testing.B) {
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				cache := &DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache, dnsForwarderPort)
-			}
-		})
-	}
-}
-
-func TestToProtocolDNSConfigWithCache(t *testing.T) {
-	var cache DNSConfigCache
-
-	// Create two different configs
-	config1 := nbdns.Config{
-		ServiceEnable: true,
-		CustomZones: []nbdns.CustomZone{
-			{
-				Domain: "example.com",
-				Records: []nbdns.SimpleRecord{
-					{Name: "www", Type: 1, Class: "IN", TTL: 300, RData: "192.168.1.1"},
-				},
-			},
-		},
-		NameServerGroups: []*nbdns.NameServerGroup{
-			{
-				ID:   "group1",
-				Name: "Group 1",
-				NameServers: []nbdns.NameServer{
-					{IP: netip.MustParseAddr("8.8.8.8"), Port: 53},
-				},
-			},
-		},
-	}
-
-	config2 := nbdns.Config{
-		ServiceEnable: true,
-		CustomZones: []nbdns.CustomZone{
-			{
-				Domain: "example.org",
-				Records: []nbdns.SimpleRecord{
-					{Name: "mail", Type: 1, Class: "IN", TTL: 300, RData: "192.168.1.2"},
-				},
-			},
-		},
-		NameServerGroups: []*nbdns.NameServerGroup{
-			{
-				ID:   "group2",
-				Name: "Group 2",
-				NameServers: []nbdns.NameServer{
-					{IP: netip.MustParseAddr("8.8.4.4"), Port: 53},
-				},
-			},
-		},
-	}
-
-	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache, dnsForwarderPort)
-
-	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache, dnsForwarderPort)
-
-	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache, dnsForwarderPort)
-
-	// Verify that result1 and result3 are identical
-	if !reflect.DeepEqual(result1, result3) {
-		t.Errorf("Results are not identical when run with the same input. Expected %v, got %v", result1, result3)
-	}
-
-	// Verify that result2 is different from result1 and result3
-	if reflect.DeepEqual(result1, result2) || reflect.DeepEqual(result2, result3) {
-		t.Errorf("Results should be different for different inputs")
-	}
-
-	if _, exists := cache.GetNameServerGroup("group1"); !exists {
-		t.Errorf("Cache should contain name server group 'group1'")
-	}
-
-	if _, exists := cache.GetNameServerGroup("group2"); !exists {
-		t.Errorf("Cache should contain name server group 'group2'")
-	}
-}
-
-func TestComputeForwarderPort(t *testing.T) {
-	// Test with empty peers list
-	peers := []*nbpeer.Peer{}
-	result := computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
-		t.Errorf("Expected %d for empty peers list, got %d", oldForwarderPort, result)
-	}
-
-	// Test with peers that have old versions
-	peers = []*nbpeer.Peer{
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.57.0",
-			},
-		},
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.26.0",
-			},
-		},
-	}
-	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
-		t.Errorf("Expected %d for peers with old versions, got %d", oldForwarderPort, result)
-	}
-
-	// Test with peers that have new versions
-	peers = []*nbpeer.Peer{
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.59.0",
-			},
-		},
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.59.0",
-			},
-		},
-	}
-	result = computeForwarderPort(peers, "v0.59.0")
-	if result != dnsForwarderPort {
-		t.Errorf("Expected %d for peers with new versions, got %d", dnsForwarderPort, result)
-	}
-
-	// Test with peers that have mixed versions
-	peers = []*nbpeer.Peer{
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.59.0",
-			},
-		},
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.57.0",
-			},
-		},
-	}
-	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
-		t.Errorf("Expected %d for peers with mixed versions, got %d", oldForwarderPort, result)
-	}
-
-	// Test with peers that have empty version
-	peers = []*nbpeer.Peer{
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "",
-			},
-		},
-	}
-	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
-		t.Errorf("Expected %d for peers with empty version, got %d", oldForwarderPort, result)
-	}
-
-	peers = []*nbpeer.Peer{
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "development",
-			},
-		},
-	}
-	result = computeForwarderPort(peers, "v0.59.0")
-	if result == oldForwarderPort {
-		t.Errorf("Expected %d for peers with dev version, got %d", dnsForwarderPort, result)
-	}
-
-	// Test with peers that have unknown version string
-	peers = []*nbpeer.Peer{
-		{
-			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "unknown",
-			},
-		},
-	}
-	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
-		t.Errorf("Expected %d for peers with unknown version, got %d", oldForwarderPort, result)
-	}
-}
-
 func TestDNSAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{},
-		},
-	})
-	assert.NoError(t, err)
-
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	// Saving DNS settings with groups that have no peers should not trigger updates to account peers or send peer updates
-	t.Run("saving dns setting with unused groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
-			DisabledManagementGroups: []string{"groupA"},
+		err := manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
+			{
+				ID:    "groupA",
+				Name:  "GroupA",
+				Peers: []string{},
+			},
+			{
+				ID:    "groupB",
+				Name:  "GroupB",
+				Peers: []string{},
+			},
 		})
 		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Creating DNS settings with groups that have no peers should not update account peers or send peer update
-	t.Run("creating dns setting with unused groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group", "ns-group", []nbdns.NameServer{{
-				IP:     netip.MustParseAddr(peer1.IP.String()),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			}},
-			[]string{"groupB"},
-			true, []string{}, true, userID, false,
-		)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Creating DNS settings with groups that have peers should update account peers and send peer update
-	t.Run("creating dns setting with used groups", func(t *testing.T) {
-		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
 		})
-		assert.NoError(t, err)
 
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+		// Saving DNS settings with groups that have no peers should not trigger updates to account peers or send peer updates
+		step(t, "saving dns setting with unused groups", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
 
-		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group-1", "ns-group-1", []nbdns.NameServer{{
-				IP:     netip.MustParseAddr(peer1.IP.String()),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			}},
-			[]string{"groupA"},
-			true, []string{}, true, userID, false,
-		)
-		assert.NoError(t, err)
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+			err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
+				DisabledManagementGroups: []string{"groupA"},
+			})
+			assert.NoError(t, err)
 
-	// Saving DNS settings with groups that have peers should update account peers and send peer update
-	t.Run("saving dns setting with used groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
-			DisabledManagementGroups: []string{"groupA", "groupB"},
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
 		})
-		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+		// Creating DNS settings with groups that have no peers should not update account peers or send peer update
+		step(t, "creating dns setting with unused groups", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	// Removing group with no peers from DNS settings  should not trigger updates to account peers or send peer updates
-	t.Run("removing group with no peers from dns settings", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			_, err = manager.CreateNameServerGroup(
+				context.Background(), account.Id, "ns-group", "ns-group", []nbdns.NameServer{{
+					IP:     netip.MustParseAddr(peer1.IP.String()),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				}},
+				[]string{"groupB"},
+				true, []string{}, true, userID, false,
+			)
+			assert.NoError(t, err)
 
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
-			DisabledManagementGroups: []string{"groupA"},
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
 		})
-		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+		// Creating DNS settings with groups that have peers should update account peers and send peer update
+		step(t, "creating dns setting with used groups", func(t *testing.T) {
+			err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
+				ID:    "groupA",
+				Name:  "GroupA",
+				Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+			})
+			assert.NoError(t, err)
 
-	// Removing group with peers from DNS settings should trigger updates to account peers and send peer updates
-	t.Run("removing group with peers from dns settings", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
-			DisabledManagementGroups: []string{},
+			_, err = manager.CreateNameServerGroup(
+				context.Background(), account.Id, "ns-group-1", "ns-group-1", []nbdns.NameServer{{
+					IP:     netip.MustParseAddr(peer1.IP.String()),
+					NSType: nbdns.UDPNameServerType,
+					Port:   nbdns.DefaultDNSPort,
+				}},
+				[]string{"groupA"},
+				true, []string{}, true, userID, false,
+			)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
 		})
-		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
+		// Saving DNS settings with groups that have peers should update account peers and send peer update
+		step(t, "saving dns setting with used groups", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
+				DisabledManagementGroups: []string{"groupA", "groupB"},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
+
+		// Removing group with no peers from DNS settings  should not trigger updates to account peers or send peer updates
+		step(t, "removing group with no peers from dns settings", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
+				DisabledManagementGroups: []string{"groupA"},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// Removing group with peers from DNS settings should trigger updates to account peers and send peer updates
+		step(t, "removing group with peers from dns settings", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
+				DisabledManagementGroups: []string{},
+			})
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 	})
 }

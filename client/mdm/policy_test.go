@@ -1,0 +1,186 @@
+package mdm
+
+import (
+	"runtime"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestPolicy_NilSafe(t *testing.T) {
+	var p *Policy
+	assert.True(t, p.IsEmpty())
+	assert.False(t, p.HasKey(KeyManagementURL))
+	assert.Empty(t, p.ManagedKeys())
+
+	_, ok := p.GetString(KeyManagementURL)
+	assert.False(t, ok)
+	_, ok = p.GetBool(KeyDisableProfiles)
+	assert.False(t, ok)
+	_, ok = p.GetStringSlice(KeySplitTunnelApps)
+	assert.False(t, ok)
+}
+
+func TestPolicy_Empty(t *testing.T) {
+	p := NewPolicy(nil)
+	require.NotNil(t, p)
+	assert.True(t, p.IsEmpty())
+	assert.False(t, p.HasKey(KeyManagementURL))
+	assert.Empty(t, p.ManagedKeys())
+}
+
+func TestPolicy_HasKey(t *testing.T) {
+	p := NewPolicy(map[string]any{
+		KeyManagementURL:   "https://corp.example.com",
+		KeyDisableProfiles: true,
+	})
+	assert.False(t, p.IsEmpty())
+	assert.True(t, p.HasKey(KeyManagementURL))
+	assert.True(t, p.HasKey(KeyDisableProfiles))
+	assert.False(t, p.HasKey(KeyPreSharedKey))
+}
+
+func TestPolicy_ManagedKeysSorted(t *testing.T) {
+	p := NewPolicy(map[string]any{
+		KeyDisableProfiles: true,
+		KeyManagementURL:   "https://x",
+		KeyAllowServerSSH:  false,
+	})
+	got := p.ManagedKeys()
+	assert.Equal(t, []string{KeyAllowServerSSH, KeyDisableProfiles, KeyManagementURL}, got)
+}
+
+func TestPolicy_GetString(t *testing.T) {
+	p := NewPolicy(map[string]any{
+		KeyManagementURL:   "https://corp.example.com",
+		KeyDisableProfiles: true, // wrong type for GetString
+		KeyPreSharedKey:    "",   // empty rejected
+	})
+	v, ok := p.GetString(KeyManagementURL)
+	assert.True(t, ok)
+	assert.Equal(t, "https://corp.example.com", v)
+
+	_, ok = p.GetString(KeyDisableProfiles)
+	assert.False(t, ok, "non-string value must not be reported as string")
+
+	_, ok = p.GetString(KeyPreSharedKey)
+	assert.False(t, ok, "empty string treated as unset")
+
+	_, ok = p.GetString("nonexistent")
+	assert.False(t, ok)
+}
+
+func TestPolicy_GetBool(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  any
+		want bool
+		ok   bool
+	}{
+		{"native true", true, true, true},
+		{"native false", false, false, true},
+		{"string true", "true", true, true},
+		{"string false", "false", false, true},
+		{"string 1", "1", true, true},
+		{"string 0", "0", false, true},
+		{"string yes", "yes", true, true},
+		{"string no", "no", false, true},
+		{"string on", "on", true, true},
+		{"string off", "off", false, true},
+		{"mixed case On", "On", true, true},
+		{"upper TRUE", "TRUE", true, true},
+		{"padded yes", "  yes  ", true, true},
+		{"int nonzero", 1, true, true},
+		{"int zero", 0, false, true},
+		{"int64 nonzero", int64(2), true, true},
+		{"int64 zero", int64(0), false, true},
+		{"string garbage", "maybe", false, false},
+		{"float nonzero", 1.0, true, true},
+		{"float zero", 0.0, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := NewPolicy(map[string]any{KeyDisableProfiles: c.raw})
+			got, ok := p.GetBool(KeyDisableProfiles)
+			assert.Equal(t, c.ok, ok)
+			if c.ok {
+				assert.Equal(t, c.want, got)
+			}
+		})
+	}
+
+	_, ok := NewPolicy(nil).GetBool(KeyDisableProfiles)
+	assert.False(t, ok)
+}
+
+func TestPolicy_GetStringSlice(t *testing.T) {
+	t.Run("native string slice", func(t *testing.T) {
+		p := NewPolicy(map[string]any{
+			KeySplitTunnelApps: []string{"com.a", "com.b"},
+		})
+		got, ok := p.GetStringSlice(KeySplitTunnelApps)
+		assert.True(t, ok)
+		assert.Equal(t, []string{"com.a", "com.b"}, got)
+	})
+
+	t.Run("any slice of strings", func(t *testing.T) {
+		p := NewPolicy(map[string]any{
+			KeySplitTunnelApps: []any{"com.a", "com.b"},
+		})
+		got, ok := p.GetStringSlice(KeySplitTunnelApps)
+		assert.True(t, ok)
+		assert.Equal(t, []string{"com.a", "com.b"}, got)
+	})
+
+	t.Run("single string lifts to one-element slice", func(t *testing.T) {
+		p := NewPolicy(map[string]any{
+			KeySplitTunnelApps: "com.a",
+		})
+		got, ok := p.GetStringSlice(KeySplitTunnelApps)
+		assert.True(t, ok)
+		assert.Equal(t, []string{"com.a"}, got)
+	})
+
+	t.Run("mixed any slice rejected", func(t *testing.T) {
+		p := NewPolicy(map[string]any{
+			KeySplitTunnelApps: []any{"com.a", 1},
+		})
+		_, ok := p.GetStringSlice(KeySplitTunnelApps)
+		assert.False(t, ok)
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		p := NewPolicy(nil)
+		_, ok := p.GetStringSlice(KeySplitTunnelApps)
+		assert.False(t, ok)
+	})
+}
+
+// encoding/json decodes every JSON number into float64, so the mobile
+// loaders never see int.
+func TestJSONLoader_BoolFromNumber(t *testing.T) {
+	p := NewJSONLoader(func() string { return `{"blockInbound":1,"disableProfiles":0}` }).Load()
+
+	got, ok := p.GetBool(KeyBlockInbound)
+	assert.True(t, ok)
+	assert.True(t, got)
+
+	got, ok = p.GetBool(KeyDisableProfiles)
+	assert.True(t, ok)
+	assert.False(t, got)
+}
+
+func TestLoader_NilFetcherReturnsEmpty(t *testing.T) {
+	// Loader.Load with no fetcher (desktop construction) must degrade
+	// gracefully and never return nil; on linux loadPlatform is a stub
+	// returning (nil, nil), and Load is expected to translate that
+	// into a non-nil empty Policy.
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("a nil fetcher reads the OS-managed policy on this platform")
+	}
+	p := NewLoader(nil).Load()
+	require.NotNil(t, p)
+	assert.True(t, p.IsEmpty())
+	assert.Empty(t, p.ManagedKeys())
+}

@@ -11,6 +11,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // UpdateIntegratedValidator updates the integrated validator groups for a specified account.
@@ -88,7 +89,7 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error) {
 	var err error
 	var groups []*types.Group
 	var peers []*nbpeer.Peer
@@ -96,20 +97,30 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 
 	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
+	validPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, types.TwinGroups(groups), types.TwinPeers(peers), settings.Extra)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	invalidPeers, err := am.integratedPeerValidator.GetInvalidPeers(ctx, accountID, settings.Extra)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return validPeers, invalidPeers, nil
 }
 
 type MockIntegratedValidator struct {
@@ -117,7 +128,7 @@ type MockIntegratedValidator struct {
 	ValidatePeerFunc func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error)
 }
 
-func (a MockIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *types.ExtraSettings, oldExtraSettings *types.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+func (a MockIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *types.ExtraSettings, oldExtraSettings *types.ExtraSettings, userID string, accountID string) error {
 	return nil
 }
 
@@ -128,7 +139,7 @@ func (a MockIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.
 	return update, false, nil
 }
 
-func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
+func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*nmdata.Group, peers []*nmdata.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
@@ -136,7 +147,11 @@ func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID 
 	return validatedPeers, nil
 }
 
-func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) *nbpeer.Peer {
+func (a MockIntegratedValidator) GetInvalidPeers(_ context.Context, accountID string, extraSettings *types.ExtraSettings) (map[string]string, error) {
+	return make(map[string]string), nil
+}
+
+func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings, temporary bool) *nbpeer.Peer {
 	return peer
 }
 
@@ -149,6 +164,10 @@ func (MockIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extra
 }
 
 func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string, peerIDs []string)) {
+	// just a dummy
+}
+
+func (MockIntegratedValidator) SetPeerValidationChangeListener(func(accountID string, peerIDs []string)) {
 	// just a dummy
 }
 

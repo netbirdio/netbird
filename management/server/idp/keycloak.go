@@ -59,13 +59,8 @@ type keycloakProfile struct {
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
 func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
+	httpClient := newHTTPClient()
 
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httpTransport,
-	}
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

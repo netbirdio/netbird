@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
 	log "github.com/sirupsen/logrus"
 
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	candidatesMonitorPeriod   = 5 * time.Minute
-	candidateGatheringTimeout = 5 * time.Second
+	defaultCandidatesMonitorPeriod = 5 * time.Minute
+	candidateGatheringTimeout      = 5 * time.Second
 )
 
 type ICEMonitor struct {
@@ -25,16 +25,19 @@ type ICEMonitor struct {
 
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 	iceConfig     icemaker.Config
+	tickerPeriod  time.Duration
 
 	currentCandidatesAddress []string
 	candidatesMu             sync.Mutex
 }
 
-func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config) *ICEMonitor {
+func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config, period time.Duration) *ICEMonitor {
+	log.Debugf("prepare ICE monitor with period: %s", period)
 	cm := &ICEMonitor{
 		ReconnectCh:   make(chan struct{}, 1),
 		iFaceDiscover: iFaceDiscover,
 		iceConfig:     config,
+		tickerPeriod:  period,
 	}
 	return cm
 }
@@ -46,7 +49,12 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 		return
 	}
 
-	ticker := time.NewTicker(candidatesMonitorPeriod)
+	// Initial check to populate the candidates for later comparison
+	if _, err := cm.handleCandidateTick(ctx, ufrag, pwd); err != nil {
+		log.Warnf("Failed to check initial ICE candidates: %v", err)
+	}
+
+	ticker := time.NewTicker(cm.tickerPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -70,7 +78,7 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 func (cm *ICEMonitor) handleCandidateTick(ctx context.Context, ufrag string, pwd string) (bool, error) {
 	log.Debugf("Gathering ICE candidates")
 
-	agent, err := icemaker.NewAgent(cm.iFaceDiscover, cm.iceConfig, candidateTypesP2P(), ufrag, pwd)
+	agent, err := icemaker.NewAgent(ctx, cm.iFaceDiscover, cm.iceConfig, candidateTypesP2P(), ufrag, pwd)
 	if err != nil {
 		return false, fmt.Errorf("create ICE agent: %w", err)
 	}

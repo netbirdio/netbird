@@ -2,6 +2,10 @@ package client
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -12,6 +16,16 @@ import (
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 )
+
+// newManagerTestServerConfig creates a new server config for manager testing with the given address
+func newManagerTestServerConfig(address string) server.Config {
+	return server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: address,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	}
+}
 
 func TestEmptyURL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -27,15 +41,10 @@ func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
 	lstCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52101",
 	}
 
-	srv1, err := server.NewServer(server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: lstCfg1.Address,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	})
+	srv1, err := server.NewServer(newManagerTestServerConfig(lstCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -59,14 +68,9 @@ func TestForeignConn(t *testing.T) {
 	}
 
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:2234",
+		Address: "localhost:52102",
 	}
-	srv2, err := server.NewServer(server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: srvCfg2.Address,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	})
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -100,15 +104,15 @@ func TestForeignConn(t *testing.T) {
 	if err := clientBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	bobsSrvAddr, err := clientBob.RelayInstanceAddress()
+	bobsSrvAddr, _, err := clientBob.RelayInstanceAddress()
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, "bob")
+	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, "bob", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, "alice")
+	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, "alice", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -144,9 +148,9 @@ func TestForeginConnClose(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52201",
 	}
-	srv1, err := server.NewServer(serverCfg)
+	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -170,9 +174,9 @@ func TestForeginConnClose(t *testing.T) {
 	}
 
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:2234",
+		Address: "localhost:52202",
 	}
-	srv2, err := server.NewServer(serverCfg)
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -208,7 +212,7 @@ func TestForeginConnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "bob")
+	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "bob", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -225,9 +229,9 @@ func TestForeignAutoClose(t *testing.T) {
 	keepUnusedServerTime = 2 * time.Second
 
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52301",
 	}
-	srv1, err := server.NewServer(serverCfg)
+	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -252,9 +256,9 @@ func TestForeignAutoClose(t *testing.T) {
 	}
 
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:2234",
+		Address: "localhost:52302",
 	}
-	srv2, err := server.NewServer(serverCfg)
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -289,35 +293,29 @@ func TestForeignAutoClose(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	// Set up a disconnect listener to track when foreign server disconnects
 	foreignServerURL := toURL(srvCfg2)[0]
-	disconnected := make(chan struct{})
-	onDisconnect := func() {
-		select {
-		case disconnected <- struct{}{}:
-		default:
-		}
-	}
 
 	t.Log("open connection to another peer")
-	if _, err = mgr.OpenConn(ctx, foreignServerURL, "anotherpeer"); err == nil {
+	if _, err = mgr.OpenConn(ctx, foreignServerURL, "anotherpeer", netip.Addr{}); err == nil {
 		t.Fatalf("should have failed to open connection to another peer")
 	}
 
-	// Add the disconnect listener after the connection attempt
-	if err := mgr.AddCloseListener(foreignServerURL, onDisconnect); err != nil {
-		t.Logf("failed to add close listener (expected if connection failed): %s", err)
-	}
-
-	// Wait for cleanup to happen
 	timeout := relayCleanupInterval + keepUnusedServerTime + 2*time.Second
 	t.Logf("waiting for relay cleanup: %s", timeout)
-
-	select {
-	case <-disconnected:
-		t.Log("foreign relay connection cleaned up successfully")
-	case <-time.After(timeout):
-		t.Log("timeout waiting for cleanup - this might be expected if connection never established")
+	deadline := time.After(timeout)
+	for {
+		mgr.relayClientsMutex.RLock()
+		_, tracked := mgr.relayClients[foreignServerURL]
+		mgr.relayClientsMutex.RUnlock()
+		if !tracked {
+			t.Log("foreign relay connection cleaned up successfully")
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("foreign relay was not cleaned up")
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
 
 	t.Logf("closing manager")
@@ -327,9 +325,9 @@ func TestAutoReconnect(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52401",
 	}
-	srv, err := server.NewServer(serverCfg)
+	srv, err := server.NewServer(newManagerTestServerConfig(srvCfg.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -360,16 +358,17 @@ func TestAutoReconnect(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU)
+	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU,
+		WithMaxBackoffInterval(2*time.Second))
 	err = clientAlice.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	ra, err := clientAlice.RelayInstanceAddress()
+	ra, _, err := clientAlice.RelayInstanceAddress()
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
 	}
-	conn, err := clientAlice.OpenConn(ctx, ra, "bob")
+	conn, err := clientAlice.OpenConn(ctx, ra, "bob", netip.Addr{})
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -384,37 +383,50 @@ func TestAutoReconnect(t *testing.T) {
 	}
 
 	log.Infof("waiting for reconnection")
-	time.Sleep(reconnectingTimeout + 1*time.Second)
+	if err := waitForReady(ctx, clientAlice, 15*time.Second); err != nil {
+		t.Fatalf("manager did not reconnect: %s", err)
+	}
 
 	log.Infof("reopent the connection")
-	_, err = clientAlice.OpenConn(ctx, ra, "bob")
+	_, err = clientAlice.OpenConn(ctx, ra, "bob", netip.Addr{})
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}
 }
 
-func TestNotifierDoubleAdd(t *testing.T) {
+func waitForReady(ctx context.Context, m *Manager, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if m.Ready() {
+			return nil
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return fmt.Errorf("manager not ready within %s", timeout)
+}
+
+func toURL(address server.ListenerConfig) []string {
+	return []string{"rel://" + address.Address}
+}
+
+func TestConnContextCancelledOnServerDisconnect(t *testing.T) {
 	ctx := context.Background()
 
-	listenerCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
-	}
-	srv, err := server.NewServer(server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: listenerCfg1.Address,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	})
+	srvCfg := server.ListenerConfig{Address: "localhost:52601"}
+	srv, err := server.NewServer(newManagerTestServerConfig(srvCfg.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
 	errChan := make(chan error, 1)
 	go func() {
-		if err := srv.Listen(listenerCfg1); err != nil {
+		if err := srv.Listen(srvCfg); err != nil {
 			errChan <- err
 		}
 	}()
-
 	defer func() {
 		if err := srv.Shutdown(ctx); err != nil {
 			t.Errorf("failed to close server: %s", err)
@@ -425,46 +437,106 @@ func TestNotifierDoubleAdd(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	clientBob := NewManager(mCtx, toURL(listenerCfg1), "bob", iface.DefaultMTU)
-	if err = clientBob.Serve(); err != nil {
+	mgrBob := NewManager(mCtx, toURL(srvCfg), "bob", iface.DefaultMTU)
+	if err := mgrBob.Serve(); err != nil {
+		t.Fatalf("failed to serve bob manager: %s", err)
+	}
+
+	mgr := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU)
+	if err := mgr.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	clientAlice := NewManager(mCtx, toURL(listenerCfg1), "alice", iface.DefaultMTU)
-	if err = clientAlice.Serve(); err != nil {
-		t.Fatalf("failed to serve manager: %s", err)
-	}
-
-	conn1, err := clientAlice.OpenConn(ctx, clientAlice.ServerURLs()[0], "bob")
+	ra, _, err := mgr.RelayInstanceAddress()
 	if err != nil {
-		t.Fatalf("failed to bind channel: %s", err)
+		t.Fatalf("failed to get relay address: %s", err)
 	}
 
-	fnCloseListener := OnServerCloseListener(func() {
-		log.Infof("close listener")
-	})
-
-	err = clientAlice.AddCloseListener(clientAlice.ServerURLs()[0], fnCloseListener)
+	relayedConn, err := mgr.OpenConn(ctx, ra, "bob", netip.Addr{})
 	if err != nil {
-		t.Fatalf("failed to add close listener: %s", err)
+		t.Fatalf("failed to open conn: %s", err)
 	}
 
-	err = clientAlice.AddCloseListener(clientAlice.ServerURLs()[0], fnCloseListener)
-	if err != nil {
-		t.Fatalf("failed to add close listener: %s", err)
+	select {
+	case <-relayedConn.Context().Done():
+		t.Fatal("conn context cancelled while the relay is still up")
+	default:
 	}
 
-	err = conn1.Close()
-	if err != nil {
-		t.Errorf("failed to close connection: %s", err)
+	_ = mgr.relayClient.relayConn.Close()
+
+	select {
+	case <-relayedConn.Context().Done():
+	case <-time.After(15 * time.Second):
+		t.Fatal("conn context was not cancelled after the relay connection dropped")
 	}
 
+	if cause := context.Cause(relayedConn.Context()); !errors.Is(cause, ErrServerDisconnected) {
+		t.Errorf("unexpected cancellation cause: %v, want %v", cause, ErrServerDisconnected)
+	}
 }
 
-func toURL(address server.ListenerConfig) []string {
-	return []string{"rel://" + address.Address}
+func TestConnContextCauseOnLocalClose(t *testing.T) {
+	ctx := context.Background()
+
+	srvCfg := server.ListenerConfig{Address: "localhost:52602"}
+	srv, err := server.NewServer(newManagerTestServerConfig(srvCfg.Address))
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.Listen(srvCfg); err != nil {
+			errChan <- err
+		}
+	}()
+	defer func() {
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
+	mCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	mgrBob := NewManager(mCtx, toURL(srvCfg), "bob", iface.DefaultMTU)
+	if err := mgrBob.Serve(); err != nil {
+		t.Fatalf("failed to serve bob manager: %s", err)
+	}
+
+	mgr := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU)
+	if err := mgr.Serve(); err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
+
+	ra, _, err := mgr.RelayInstanceAddress()
+	if err != nil {
+		t.Fatalf("failed to get relay address: %s", err)
+	}
+
+	relayedConn, err := mgr.OpenConn(ctx, ra, "bob", netip.Addr{})
+	if err != nil {
+		t.Fatalf("failed to open conn: %s", err)
+	}
+
+	if err := relayedConn.Close(); err != nil {
+		t.Fatalf("failed to close conn: %s", err)
+	}
+
+	select {
+	case <-relayedConn.Context().Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("conn context was not cancelled after a local close")
+	}
+
+	if cause := context.Cause(relayedConn.Context()); !errors.Is(cause, net.ErrClosed) {
+		t.Errorf("unexpected cancellation cause after a local close: %v, want %v", cause, net.ErrClosed)
+	}
 }

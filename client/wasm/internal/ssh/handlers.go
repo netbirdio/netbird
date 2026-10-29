@@ -13,7 +13,7 @@ import (
 func CreateJSInterface(client *Client) js.Value {
 	jsInterface := js.Global().Get("Object").Call("create", js.Null())
 
-	jsInterface.Set("write", js.FuncOf(func(this js.Value, args []js.Value) any {
+	writeFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) < 1 {
 			return js.ValueOf(false)
 		}
@@ -32,9 +32,10 @@ func CreateJSInterface(client *Client) js.Value {
 
 		_, err := client.Write(bytes)
 		return js.ValueOf(err == nil)
-	}))
+	})
+	jsInterface.Set("write", writeFunc)
 
-	jsInterface.Set("resize", js.FuncOf(func(this js.Value, args []js.Value) any {
+	resizeFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) < 2 {
 			return js.ValueOf(false)
 		}
@@ -42,14 +43,26 @@ func CreateJSInterface(client *Client) js.Value {
 		rows := args[1].Int()
 		err := client.Resize(cols, rows)
 		return js.ValueOf(err == nil)
-	}))
+	})
+	jsInterface.Set("resize", resizeFunc)
 
-	jsInterface.Set("close", js.FuncOf(func(this js.Value, args []js.Value) any {
+	closeFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
 		client.Close()
 		return js.Undefined()
-	}))
+	})
+	jsInterface.Set("close", closeFunc)
 
-	go readLoop(client, jsInterface)
+	go func() {
+		readLoop(client, jsInterface)
+		// Detach before releasing so late JS calls surface as TypeError instead
+		// of silent "call to released function".
+		jsInterface.Set("write", js.Undefined())
+		jsInterface.Set("resize", js.Undefined())
+		jsInterface.Set("close", js.Undefined())
+		writeFunc.Release()
+		resizeFunc.Release()
+		closeFunc.Release()
+	}()
 
 	return jsInterface
 }

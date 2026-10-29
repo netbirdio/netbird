@@ -10,22 +10,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -176,7 +181,6 @@ func startServer(
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
@@ -199,39 +203,58 @@ func startServer(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(str)
+	peersManager := peers.NewManager(str, permissionsManager)
+	jobManager := job.NewJobManager(nil, str, peersManager)
+
+	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatalf("failed creating cache store: %v", err)
+	}
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := server.NewAccountRequestBuffer(ctx, str)
+	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager)), config, nil)
+
 	accountManager, err := server.BuildManager(
 		context.Background(),
+		nil,
 		str,
-		peersUpdateManager,
+		networkMapController,
+		jobManager,
 		nil,
 		"",
-		"netbird.selfhosted",
 		eventStore,
 		nil,
 		false,
 		server.MockIntegratedValidator{},
 		metrics,
-		port_forwarding.NewControllerMock(),
 		settingsMockManager,
 		permissionsManager,
-		false)
+		false,
+		cacheStore)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
 	}
 
 	groupsManager := groups.NewManager(str, permissionsManager, accountManager)
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
-	mgmtServer, err := server.NewServer(
-		context.Background(),
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		t.Fatalf("failed creating secrets manager: %v", err)
+	}
+	mgmtServer, err := nbgrpc.NewServer(
 		config,
 		accountManager,
 		settingsMockManager,
-		peersUpdateManager,
+		jobManager,
 		secretsManager,
 		nil,
-		&manager.EphemeralManager{},
 		nil,
 		server.MockIntegratedValidator{},
+		networkMapController,
+		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)
@@ -594,6 +617,7 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 
 	initialPeers := 10
 	additionalPeers := 10
+	expectedPeerCount := initialPeers + additionalPeers - 1 // -1 because peer doesn't see itself
 
 	var peers []wgtypes.Key
 	for i := 0; i < initialPeers; i++ {
@@ -602,8 +626,19 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 		peers = append(peers, key)
 	}
 
+	// Track the maximum peer count each peer has seen
+	type peerState struct {
+		mu           sync.Mutex
+		maxPeerCount int
+		done         bool
+	}
+	peerStates := make(map[string]*peerState)
+	for _, pk := range peers {
+		peerStates[pk.PublicKey().String()] = &peerState{}
+	}
+
 	var wg sync.WaitGroup
-	wg.Add(initialPeers + initialPeers*additionalPeers)
+	wg.Add(initialPeers) // One completion per initial peer
 
 	var syncClients []mgmtProto.ManagementService_SyncClient
 	for _, pk := range peers {
@@ -627,6 +662,9 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 		syncClients = append(syncClients, s)
 
 		go func(pk wgtypes.Key, syncStream mgmtProto.ManagementService_SyncClient) {
+			pubKey := pk.PublicKey().String()
+			state := peerStates[pubKey]
+
 			for {
 				encMsg := &mgmtProto.EncryptedMessage{}
 				err := syncStream.RecvMsg(encMsg)
@@ -635,19 +673,28 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 				}
 				decryptedBytes, decErr := encryption.Decrypt(encMsg.Body, ts.serverPubKey, pk)
 				if decErr != nil {
-					t.Errorf("failed to decrypt SyncResponse for peer %s: %v", pk.PublicKey().String(), decErr)
+					t.Errorf("failed to decrypt SyncResponse for peer %s: %v", pubKey, decErr)
 					return
 				}
 				resp := &mgmtProto.SyncResponse{}
 				umErr := pb.Unmarshal(decryptedBytes, resp)
 				if umErr != nil {
-					t.Errorf("failed to unmarshal SyncResponse for peer %s: %v", pk.PublicKey().String(), umErr)
+					t.Errorf("failed to unmarshal SyncResponse for peer %s: %v", pubKey, umErr)
 					return
 				}
-				// We only count if there's a new peer update
-				if len(resp.GetRemotePeers()) > 0 {
+
+				// Track the maximum peer count seen (due to debouncing, updates are coalesced)
+				peerCount := len(resp.GetRemotePeers())
+				state.mu.Lock()
+				if peerCount > state.maxPeerCount {
+					state.maxPeerCount = peerCount
+				}
+				// Signal completion when this peer has seen all expected peers
+				if !state.done && state.maxPeerCount >= expectedPeerCount {
+					state.done = true
 					wg.Done()
 				}
+				state.mu.Unlock()
 			}
 		}(pk, s)
 	}
@@ -661,7 +708,30 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 		time.Sleep(time.Duration(n) * time.Millisecond)
 	}
 
-	wg.Wait()
+	// Wait for debouncer to flush final updates (debounce interval is 1000ms)
+	time.Sleep(1500 * time.Millisecond)
+
+	// Wait with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success - all peers received expected peer count
+	case <-time.After(5 * time.Second):
+		// Timeout - report which peers didn't receive all updates
+		t.Error("Timeout waiting for all peers to receive updates")
+		for pubKey, state := range peerStates {
+			state.mu.Lock()
+			if state.maxPeerCount < expectedPeerCount {
+				t.Errorf("Peer %s only saw %d peers, expected %d", pubKey, state.maxPeerCount, expectedPeerCount)
+			}
+			state.mu.Unlock()
+		}
+	}
 
 	for _, sc := range syncClients {
 		err := sc.CloseSend()

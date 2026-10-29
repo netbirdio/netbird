@@ -48,7 +48,7 @@ func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	return c.PacketConn.WriteTo(b, addr)
 }
 
-// Close overrides the net.PacketConn Close method to execute all registered hooks before closing the connection.
+// Close overrides the net.PacketConn Close method to execute all registered hooks after closing the connection.
 func (c *PacketConn) Close() error {
 	defer c.seenAddrs.Clear()
 	return closeConn(c.ID, c.PacketConn)
@@ -69,7 +69,7 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	return c.UDPConn.WriteTo(b, addr)
 }
 
-// Close overrides the net.UDPConn Close method to execute all registered hooks before closing the connection.
+// Close overrides the net.UDPConn Close method to execute all registered hooks after closing the connection.
 func (c *UDPConn) Close() error {
 	defer c.seenAddrs.Clear()
 	return closeConn(c.ID, c.UDPConn)

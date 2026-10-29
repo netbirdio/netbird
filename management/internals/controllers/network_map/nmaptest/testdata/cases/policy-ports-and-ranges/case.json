@@ -1,0 +1,4 @@
+{
+  "description": "One-way udp/514 plus bidirectional tcp port-range 1000-2000 between the same groups; a disabled policy and a policy whose only rule is disabled must leave no trace.",
+  "peers": ["peer-a", "peer-srv"]
+}

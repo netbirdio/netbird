@@ -13,14 +13,15 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/templates"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
@@ -33,22 +34,74 @@ const (
 	defaultPKCETimeoutSeconds = 300
 )
 
+// PKCEAuthProviderConfig has all attributes needed to initiate PKCE authorization flow
+type PKCEAuthProviderConfig struct {
+	// ClientID An IDP application client id
+	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
+	// Audience An Audience for to authorization validation
+	Audience string
+	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
+	TokenEndpoint string
+	// AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code
+	AuthorizationEndpoint string
+	// Scopes provides the scopes to be included in the token request
+	Scope string
+	// RedirectURL handles authorization code from IDP manager
+	RedirectURLs []string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
+	// ClientCertPair is used for mTLS authentication to the IDP
+	ClientCertPair *tls.Certificate
+	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
+	DisablePromptLogin bool
+	// LoginFlag is used to configure the PKCE flow login behavior
+	LoginFlag common.LoginFlag
+	// LoginHint is used to pre-fill the email/username field during authentication
+	LoginHint string
+}
+
+// validatePKCEConfig validates PKCE provider configuration
+func validatePKCEConfig(config *PKCEAuthProviderConfig) error {
+	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
+
+	if config.ClientID == "" {
+		return fmt.Errorf(errorMsgFormat, "Client ID")
+	}
+	if config.TokenEndpoint == "" {
+		return fmt.Errorf(errorMsgFormat, "Token Endpoint")
+	}
+	if config.AuthorizationEndpoint == "" {
+		return fmt.Errorf(errorMsgFormat, "Authorization Auth Endpoint")
+	}
+	if config.Scope == "" {
+		return fmt.Errorf(errorMsgFormat, "PKCE Auth Scopes")
+	}
+	if config.RedirectURLs == nil {
+		return fmt.Errorf(errorMsgFormat, "PKCE Redirect URLs")
+	}
+	return nil
+}
+
 // PKCEAuthorizationFlow implements the OAuthFlow interface for
 // the Authorization Code Flow with PKCE.
 type PKCEAuthorizationFlow struct {
-	providerConfig internal.PKCEAuthProviderConfig
-	state          string
-	codeVerifier   string
-	oAuthConfig    *oauth2.Config
+	providerConfig     PKCEAuthProviderConfig
+	state              string
+	codeVerifier       string
+	oAuthConfig        *oauth2.Config
+	forceAccountPrompt bool
 }
 
 // NewPKCEAuthorizationFlow returns new PKCE authorization code flow.
-func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
+func NewPKCEAuthorizationFlow(config PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
 	var availableRedirectURL string
 
-	// find the first available redirect URL
+	excludedRanges := getSystemExcludedPortRanges()
+
 	for _, redirectURL := range config.RedirectURLs {
-		if !isRedirectURLPortUsed(redirectURL) {
+		if !isRedirectURLPortUsed(redirectURL, excludedRanges) {
 			availableRedirectURL = redirectURL
 			break
 		}
@@ -101,13 +154,21 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
+	forceAccountPrompt := p.forceAccountPrompt
+	p.forceAccountPrompt = false
+
 	if !p.providerConfig.DisablePromptLogin {
-		if p.providerConfig.LoginFlag.IsPromptLogin() {
+		switch {
+		case forceAccountPrompt:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
-		}
-		if p.providerConfig.LoginFlag.IsMaxAge0Login() {
+		case p.providerConfig.LoginFlag == common.LoginFlagPromptLogin:
+			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
+		case p.providerConfig.LoginFlag == common.LoginFlagMaxAge0:
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
+	}
+	if p.providerConfig.LoginHint != "" {
+		params = append(params, oauth2.SetAuthURLParam("login_hint", p.providerConfig.LoginHint))
 	}
 
 	authURL := p.oAuthConfig.AuthCodeURL(state, params...)
@@ -118,10 +179,37 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 	}, nil
 }
 
+// SetLoginHint sets the login hint for the PKCE authorization flow
+func (p *PKCEAuthorizationFlow) SetLoginHint(hint string) {
+	p.providerConfig.LoginHint = hint
+}
+
+// ForceAccountPrompt makes the next authorization request ask the IdP to
+// re-authenticate instead of answering from the session it already holds. Used
+// to retry a login that came back for an account other than the one hinted.
+//
+// The next RequestAuthInfo consumes the flag, so a flow that outlives its retry
+// goes back to the configured behaviour instead of re-authenticating forever.
+//
+// DisablePromptLogin still wins: it is set for IdPs that break on prompt=login,
+// where retrying with it would replace a wrong-account login with one that
+// cannot complete at all.
+func (p *PKCEAuthorizationFlow) ForceAccountPrompt() {
+	p.forceAccountPrompt = true
+}
+
 // WaitToken waits for the OAuth token in the PKCE Authorization Flow.
 // It starts an HTTP server to receive the OAuth token callback and waits for the token or an error.
 // Once the token is received, it is converted to TokenInfo and validated before returning.
-func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (TokenInfo, error) {
+// The method creates a timeout context internally based on info.ExpiresIn.
+func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo) (TokenInfo, error) {
+	// Create timeout context based on flow expiration
+	timeout := time.Duration(info.ExpiresIn) * time.Second
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	log.Infof("pkce flow: waiting for authorization callback on %s, timeout %s", p.oAuthConfig.RedirectURL, timeout)
+
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
@@ -132,7 +220,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 
 	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -143,8 +231,8 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 	go p.startServer(server, tokenChan, errChan)
 
 	select {
-	case <-ctx.Done():
-		return TokenInfo{}, ctx.Err()
+	case <-waitCtx.Done():
+		return TokenInfo{}, waitCtx.Err()
 	case token := <-tokenChan:
 		return p.parseOAuthToken(token)
 	case err := <-errChan:
@@ -155,6 +243,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		log.Infof("pkce flow: received authorization callback from IdP")
 		cert := p.providerConfig.ClientCertPair
 		if cert != nil {
 			tr := &http.Transport{
@@ -189,24 +278,34 @@ func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token,
 
 	if authError := query.Get(queryError); authError != "" {
 		authErrorDesc := query.Get(queryErrorDesc)
-		return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
+		if authErrorDesc != "" {
+			return nil, fmt.Errorf("authentication failed: %s", authErrorDesc)
+		}
+		return nil, fmt.Errorf("authentication failed: %s", authError)
 	}
 
 	// Prevent timing attacks on the state
 	if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
-		return nil, fmt.Errorf("invalid state")
+		return nil, fmt.Errorf("authentication failed: Invalid state")
 	}
 
 	code := query.Get(queryCode)
 	if code == "" {
-		return nil, fmt.Errorf("missing code")
+		return nil, fmt.Errorf("authentication failed: missing code")
 	}
 
-	return p.oAuthConfig.Exchange(
+	exchangeStart := time.Now()
+	token, err := p.oAuthConfig.Exchange(
 		req.Context(),
 		code,
 		oauth2.SetAuthURLParam("code_verifier", p.codeVerifier),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("pkce flow: authorization code exchanged for token in %s", time.Since(exchangeStart).Round(time.Millisecond))
+	return token, nil
 }
 
 func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo, error) {
@@ -227,48 +326,52 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 		audience = p.providerConfig.ClientID
 	}
 
-	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), audience); err != nil {
-		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
+	if err := validateTokenAudience(tokenInfo.GetTokenToUse(), audience); err != nil {
+		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %w", err)
 	}
 
-	email, err := parseEmailFromIDToken(tokenInfo.IDToken)
+	email, fromEmailClaim, err := parseEmailFromIDToken(tokenInfo.IDToken)
 	if err != nil {
 		log.Warnf("failed to parse email from ID token: %v", err)
 	} else {
 		tokenInfo.Email = email
+		if fromEmailClaim {
+			tokenInfo.EmailClaim = email
+		}
 	}
 
 	return tokenInfo, nil
 }
 
-func parseEmailFromIDToken(token string) (string, error) {
+// parseEmailFromIDToken extracts the email (or name) claim from an ID token
+// without verifying its signature. The value is best-effort: it prefills the
+// login hint and is displayed. Account matching (see MatchesAccount) only uses
+// it when it came from the email claim, which fromEmailClaim reports. It never
+// grants anything — the authoritative identity is established server-side from
+// the signature-verified token.
+func parseEmailFromIDToken(token string) (value string, fromEmailClaim bool, err error) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid token format")
+		return "", false, fmt.Errorf("invalid token format")
 	}
 
 	data, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("failed to decode payload: %w", err)
+		return "", false, fmt.Errorf("failed to decode payload: %w", err)
 	}
 	var claims map[string]interface{}
 	if err := json.Unmarshal(data, &claims); err != nil {
-		return "", fmt.Errorf("json unmarshal error: %w", err)
+		return "", false, fmt.Errorf("json unmarshal error: %w", err)
 	}
 
-	var email string
-	if emailValue, ok := claims["email"].(string); ok {
-		email = emailValue
-	} else {
-		val, ok := claims["name"].(string)
-		if ok {
-			email = val
-		} else {
-			return "", fmt.Errorf("email or name field not found in token payload")
-		}
+	if email, ok := claims["email"].(string); ok {
+		return email, true, nil
+	}
+	if name, ok := claims["name"].(string); ok {
+		return name, false, nil
 	}
 
-	return email, nil
+	return "", false, fmt.Errorf("email or name field not found in token payload")
 }
 
 func createCodeChallenge(codeVerifier string) string {
@@ -276,15 +379,28 @@ func createCodeChallenge(codeVerifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sha2[:])
 }
 
-// isRedirectURLPortUsed checks if the port used in the redirect URL is in use.
-func isRedirectURLPortUsed(redirectURL string) bool {
+// isRedirectURLPortUsed checks if the port used in the redirect URL is in use or excluded on Windows.
+func isRedirectURLPortUsed(redirectURL string, excludedRanges []excludedPortRange) bool {
 	parsedURL, err := url.Parse(redirectURL)
 	if err != nil {
 		log.Errorf("failed to parse redirect URL: %v", err)
 		return true
 	}
 
-	addr := fmt.Sprintf(":%s", parsedURL.Port())
+	port := parsedURL.Port()
+
+	if isPortInExcludedRange(port, excludedRanges) {
+		log.Warnf("port %s is in Windows excluded port range, skipping", port)
+		return true
+	}
+
+	// FreeBSD 15 disables connecting to INADDR_ANY (0.0.0.0) as a localhost
+	// alias by default, ensure explicit ip for localhost.
+	host := parsedURL.Hostname()
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, port)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
 		return false
@@ -296,6 +412,33 @@ func isRedirectURLPortUsed(redirectURL string) bool {
 	}()
 
 	return true
+}
+
+// excludedPortRange represents a range of excluded ports.
+type excludedPortRange struct {
+	start int
+	end   int
+}
+
+// isPortInExcludedRange checks if the given port is in any of the excluded ranges.
+func isPortInExcludedRange(port string, excludedRanges []excludedPortRange) bool {
+	if len(excludedRanges) == 0 {
+		return false
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		log.Debugf("invalid port number %s: %v", port, err)
+		return false
+	}
+
+	for _, r := range excludedRanges {
+		if portNum >= r.start && portNum <= r.end {
+			return true
+		}
+	}
+
+	return false
 }
 
 func renderPKCEFlowTmpl(w http.ResponseWriter, authError error) {

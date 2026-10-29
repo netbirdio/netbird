@@ -1,0 +1,4 @@
+{
+  "description": "Classic route with access control groups: instead of the wide-open default permit, peer-r's route firewall rule must be narrowed to the policy that targets the ACL group — protocol and port from that rule, SourceRanges limited to the two source peers. peer-a still receives the route itself.",
+  "peers": ["peer-a", "peer-r"]
+}

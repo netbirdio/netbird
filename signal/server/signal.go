@@ -17,6 +17,8 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
+	"github.com/netbirdio/netbird/shared/lifecycle"
+	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -43,6 +45,8 @@ const (
 	labelRegistrationNotFound = "not_found"
 
 	sendTimeout = 10 * time.Second
+
+	applicationName = "signal"
 )
 
 var (
@@ -51,6 +55,7 @@ var (
 
 // Server an instance of a Signal server
 type Server struct {
+	lifecycle.StopHandlers
 	registry *peer.Registry
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
@@ -62,8 +67,8 @@ type Server struct {
 }
 
 // NewServer creates a new Signal server
-func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
-	appMetrics, err := metrics.NewAppMetrics(meter)
+func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string) (*Server, error) {
+	appMetrics, err := metrics.NewAppMetrics(meter, metricsPrefix...)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
@@ -88,7 +93,15 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 		sendTimeout:   sTimeout,
 	}
 
+	stopProfiling := profiling.Start(applicationName)
+	s.OnStop(stopProfiling)
+
 	return s, nil
+}
+
+// Stop runs the handlers registered with OnStop.
+func (s *Server) Stop() {
+	s.RunStopHandlers()
 }
 
 // Send forwards a message to the signal peer
@@ -179,7 +192,7 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 	sendResultChan := make(chan error, 1)
 	go func() {
 		select {
-		case sendResultChan <- dstPeer.Stream.Send(msg):
+		case sendResultChan <- dstPeer.Send(msg):
 			return
 		case <-dstPeer.Stream.Context().Done():
 			return

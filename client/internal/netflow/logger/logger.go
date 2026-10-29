@@ -10,10 +10,10 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/dns"
 )
 
 type rcvChan chan *types.EventFields
@@ -24,16 +24,18 @@ type Logger struct {
 	cancel             context.CancelFunc
 	statusRecorder     *peer.Status
 	wgIfaceNet         netip.Prefix
+	wgIfaceNetV6       netip.Prefix
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
-	Store              types.Store
+	Store              types.AggregatingStore
 }
 
-func New(statusRecorder *peer.Status, wgIfaceIPNet netip.Prefix) *Logger {
+func New(statusRecorder *peer.Status, wgIfaceIPNet, wgIfaceIPNetV6 netip.Prefix) *Logger {
 	return &Logger{
 		statusRecorder: statusRecorder,
 		wgIfaceNet:     wgIfaceIPNet,
-		Store:          store.NewMemoryStore(),
+		wgIfaceNetV6:   wgIfaceIPNetV6,
+		Store:          store.NewAggregatingMemoryStore(),
 	}
 }
 
@@ -88,11 +90,11 @@ func (l *Logger) startReceiver() {
 			var isSrcExitNode bool
 			var isDestExitNode bool
 
-			if !l.wgIfaceNet.Contains(event.SourceIP) {
+			if !l.isOverlayIP(event.SourceIP) {
 				event.SourceResourceID, isSrcExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
 			}
 
-			if !l.wgIfaceNet.Contains(event.DestIP) {
+			if !l.isOverlayIP(event.DestIP) {
 				event.DestResourceID, isDestExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
 			}
 
@@ -123,6 +125,10 @@ func (l *Logger) stop() {
 	l.mux.Unlock()
 }
 
+func (l *Logger) ResetAggregationWindow() types.FlowEventAggregator {
+	return l.Store.ResetAggregationWindow()
+}
+
 func (l *Logger) GetEvents() []*types.Event {
 	return l.Store.GetEvents()
 }
@@ -136,9 +142,14 @@ func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
 	l.exitNodeCollection.Store(exitNodeCollection)
 }
 
+func (l *Logger) isOverlayIP(ip netip.Addr) bool {
+	return l.wgIfaceNet.Contains(ip) || (l.wgIfaceNetV6.IsValid() && l.wgIfaceNetV6.Contains(ip))
+}
+
 func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
 	// check dns collection
-	if !l.dnsCollection.Load() && event.Protocol == types.UDP && (event.DestPort == 53 || event.DestPort == uint16(dnsfwd.ListenPort())) {
+	if !l.dnsCollection.Load() && event.Protocol == types.UDP &&
+		(event.DestPort == 53 || event.DestPort == dns.ForwarderClientPort || event.DestPort == dns.ForwarderServerPort) {
 		return false
 	}
 

@@ -2,24 +2,21 @@ package server
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/rs/xid"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -36,7 +33,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	if !create {
 		operation = operations.Update
 	}
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -44,9 +41,10 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	var updateAccountPeers bool
 	var isUpdate = postureChecks.ID != ""
 	var action = activity.PostureCheckCreated
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{PostureCheckIDs: []string{postureChecks.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validatePostureChecks(ctx, transaction, accountID, postureChecks); err != nil {
@@ -54,12 +52,15 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
-			updateAccountPeers, err = arePostureCheckChangesAffectPeers(ctx, transaction, accountID, postureChecks.ID)
+			existing, err := transaction.GetPostureChecksByID(ctx, store.LockingStrengthNone, accountID, postureChecks.ID)
 			if err != nil {
 				return err
 			}
+			postureChecks.PublicID = existing.PublicID
 
 			action = activity.PostureCheckUpdated
+		} else {
+			postureChecks.PublicID = xid.New().String()
 		}
 
 		postureChecks.AccountID = accountID
@@ -68,6 +69,11 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
+			// Editing a posture check does not change which policies reference it,
+			// so loading after the save is fine.
+			if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+				return err
+			}
 			return transaction.IncrementNetworkSerial(ctx, accountID)
 		}
 
@@ -79,16 +85,14 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return postureChecks, nil
 }
 
 // DeletePostureChecks deletes a posture check by ID.
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -125,7 +129,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 // ListPostureChecks returns a list of posture checks.
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -136,54 +140,10 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 	return am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthNone, accountID)
 }
 
-// getPeerPostureChecks returns the posture checks applied for a given peer.
-func (am *DefaultAccountManager) getPeerPostureChecks(account *types.Account, peerID string) ([]*posture.Checks, error) {
-	peerPostureChecks := make(map[string]*posture.Checks)
-
-	if len(account.PostureChecks) == 0 {
-		return nil, nil
-	}
-
-	for _, policy := range account.Policies {
-		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
-			continue
-		}
-
-		if err := addPolicyPostureChecks(account, peerID, policy, peerPostureChecks); err != nil {
-			return nil, err
-		}
-	}
-
-	return maps.Values(peerPostureChecks), nil
-}
-
-// arePostureCheckChangesAffectPeers checks if the changes in posture checks are affecting peers.
-func arePostureCheckChangesAffectPeers(ctx context.Context, transaction store.Store, accountID, postureCheckID string) (bool, error) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return false, err
-	}
-
-	for _, policy := range policies {
-		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
-			hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, accountID, policy.RuleGroups())
-			if err != nil {
-				return false, err
-			}
-
-			if hasPeers {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
-}
-
 // validatePostureChecks validates the posture checks.
 func validatePostureChecks(ctx context.Context, transaction store.Store, accountID string, postureChecks *posture.Checks) error {
 	if err := postureChecks.Validate(); err != nil {
-		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
+		return status.Errorf(status.InvalidArgument, "%v", err.Error()) //nolint
 	}
 
 	// If the posture check already has an ID, verify its existence in the store.
@@ -209,50 +169,6 @@ func validatePostureChecks(ctx context.Context, transaction store.Store, account
 	postureChecks.ID = xid.New().String()
 
 	return nil
-}
-
-// addPolicyPostureChecks adds posture checks from a policy to the peer posture checks map if the peer is in the policy's source groups.
-func addPolicyPostureChecks(account *types.Account, peerID string, policy *types.Policy, peerPostureChecks map[string]*posture.Checks) error {
-	isInGroup, err := isPeerInPolicySourceGroups(account, peerID, policy)
-	if err != nil {
-		return err
-	}
-
-	if !isInGroup {
-		return nil
-	}
-
-	for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-		postureCheck := account.GetPostureChecks(sourcePostureCheckID)
-		if postureCheck == nil {
-			return errors.New("failed to add policy posture checks: posture checks not found")
-		}
-		peerPostureChecks[sourcePostureCheckID] = postureCheck
-	}
-
-	return nil
-}
-
-// isPeerInPolicySourceGroups checks if a peer is present in any of the policy rule source groups.
-func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
-	for _, rule := range policy.Rules {
-		if !rule.Enabled {
-			continue
-		}
-
-		for _, sourceGroup := range rule.Sources {
-			group := account.GetGroup(sourceGroup)
-			if group == nil {
-				return false, fmt.Errorf("failed to check peer in policy source group: group not found")
-			}
-
-			if slices.Contains(group.Peers, peerID) {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
 }
 
 // isPostureCheckLinkedToPolicy checks whether the posture check is linked to any account policy.

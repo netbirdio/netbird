@@ -12,21 +12,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/server/job"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -260,8 +268,8 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	// expired peers come separately.
-	if len(networkMap.GetOfflinePeers()) != 1 {
-		t.Fatal("expecting SyncResponse to have NetworkMap with 1 offline peer")
+	if len(networkMap.GetOfflinePeers()) != 2 {
+		t.Fatal("expecting SyncResponse to have NetworkMap with 2 offline peer")
 	}
 
 	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="
@@ -321,99 +329,6 @@ func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServ
 	return loginResp, nil
 }
 
-func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
-	testingServerKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Errorf("unable to generate server wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
-	}
-
-	testingClientKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Errorf("unable to generate client wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
-	}
-
-	testCases := []struct {
-		name                   string
-		inputFlow              *config.DeviceAuthorizationFlow
-		expectedFlow           *mgmtProto.DeviceAuthorizationFlow
-		expectedErrFunc        require.ErrorAssertionFunc
-		expectedErrMSG         string
-		expectedComparisonFunc require.ComparisonAssertionFunc
-		expectedComparisonMSG  string
-	}{
-		{
-			name:            "Testing No Device Flow Config",
-			inputFlow:       nil,
-			expectedErrFunc: require.Error,
-			expectedErrMSG:  "should return error",
-		},
-		{
-			name: "Testing Invalid Device Flow Provider Config",
-			inputFlow: &config.DeviceAuthorizationFlow{
-				Provider: "NoNe",
-				ProviderConfig: config.ProviderConfig{
-					ClientID: "test",
-				},
-			},
-			expectedErrFunc: require.Error,
-			expectedErrMSG:  "should return error",
-		},
-		{
-			name: "Testing Full Device Flow Config",
-			inputFlow: &config.DeviceAuthorizationFlow{
-				Provider: "hosted",
-				ProviderConfig: config.ProviderConfig{
-					ClientID: "test",
-				},
-			},
-			expectedFlow: &mgmtProto.DeviceAuthorizationFlow{
-				Provider: 0,
-				ProviderConfig: &mgmtProto.ProviderConfig{
-					ClientID: "test",
-				},
-			},
-			expectedErrFunc:        require.NoError,
-			expectedErrMSG:         "should not return error",
-			expectedComparisonFunc: require.Equal,
-			expectedComparisonMSG:  "should match",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			mgmtServer := &GRPCServer{
-				wgKey: testingServerKey,
-				config: &config.Config{
-					DeviceAuthorizationFlow: testCase.inputFlow,
-				},
-			}
-
-			message := &mgmtProto.DeviceAuthorizationFlowRequest{}
-
-			encryptedMSG, err := encryption.EncryptMessage(testingClientKey.PublicKey(), mgmtServer.wgKey, message)
-			require.NoError(t, err, "should be able to encrypt message")
-
-			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
-				context.TODO(),
-				&mgmtProto.EncryptedMessage{
-					WgPubKey: testingClientKey.PublicKey().String(),
-					Body:     encryptedMSG,
-				},
-			)
-			testCase.expectedErrFunc(t, err, testCase.expectedErrMSG)
-			if testCase.expectedComparisonFunc != nil {
-				flowInfoResp := &mgmtProto.DeviceAuthorizationFlow{}
-
-				err = encryption.DecryptMessage(mgmtServer.wgKey.PublicKey(), testingClientKey, resp.Body, flowInfoResp)
-				require.NoError(t, err, "should be able to decrypt")
-
-				testCase.expectedComparisonFunc(t, testCase.expectedFlow.Provider, flowInfoResp.Provider, testCase.expectedComparisonMSG)
-				testCase.expectedComparisonFunc(t, testCase.expectedFlow.ProviderConfig.ClientID, flowInfoResp.ProviderConfig.ClientID, testCase.expectedComparisonMSG)
-			}
-		})
-	}
-}
-
 func startManagementForTest(t *testing.T, testFile string, config *config.Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -427,7 +342,6 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		t.Fatal(err)
 	}
 
-	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
@@ -450,19 +364,35 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		AnyTimes()
 	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
+	peersManager := peers.NewManager(store, permissionsManager)
+	jobManager := job.NewJobManager(nil, store, peersManager)
 
-	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	ephemeralMgr := manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager))
+
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		cleanup()
+		return nil, nil, "", cleanup, err
+	}
+
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeralMgr, config, nil)
+	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
+		eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
 
 	if err != nil {
 		cleanup()
 		return nil, nil, "", cleanup, err
 	}
 
-	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		cleanup()
+		return nil, nil, "", cleanup, err
+	}
 
-	ephemeralMgr := manager.NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -500,10 +430,6 @@ func Test_SyncStatusRace(t *testing.T) {
 	if os.Getenv("CI") == "true" {
 		if os.Getenv("NETBIRD_STORE_ENGINE") == "postgres" {
 			t.Skip("Skipping on CI and Postgres store")
-		}
-
-		if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-			t.Skip("Skipping on CI and MySQL store")
 		}
 	}
 	for i := 0; i < 500; i++ {
@@ -764,13 +690,42 @@ func Test_LoginPerformance(t *testing.T) {
 						peerLogin := types.PeerLogin{
 							WireGuardPubKey: key.String(),
 							SSHKey:          "random",
-							Meta:            extractPeerMeta(context.Background(), meta),
-							SetupKey:        setupKey.Key,
-							ConnectionIP:    net.IP{1, 1, 1, 1},
+							Meta: nbpeer.PeerSystemMeta{
+								Hostname:           meta.GetHostname(),
+								GoOS:               meta.GetGoOS(),
+								Kernel:             meta.GetKernel(),
+								Platform:           meta.GetPlatform(),
+								OS:                 meta.GetOS(),
+								OSVersion:          meta.GetOSVersion(),
+								WtVersion:          meta.GetNetbirdVersion(),
+								UIVersion:          meta.GetUiVersion(),
+								KernelVersion:      meta.GetKernelVersion(),
+								SystemSerialNumber: meta.GetSysSerialNumber(),
+								SystemProductName:  meta.GetSysProductName(),
+								SystemManufacturer: meta.GetSysManufacturer(),
+								Environment: nbpeer.Environment{
+									Cloud:    meta.GetEnvironment().GetCloud(),
+									Platform: meta.GetEnvironment().GetPlatform(),
+								},
+								Flags: nbpeer.Flags{
+									RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
+									RosenpassPermissive:   meta.GetFlags().GetRosenpassPermissive(),
+									ServerSSHAllowed:      meta.GetFlags().GetServerSSHAllowed(),
+									DisableClientRoutes:   meta.GetFlags().GetDisableClientRoutes(),
+									DisableServerRoutes:   meta.GetFlags().GetDisableServerRoutes(),
+									DisableDNS:            meta.GetFlags().GetDisableDNS(),
+									DisableFirewall:       meta.GetFlags().GetDisableFirewall(),
+									BlockLANAccess:        meta.GetFlags().GetBlockLANAccess(),
+									BlockInbound:          meta.GetFlags().GetBlockInbound(),
+									LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
+								},
+							},
+							SetupKey:     setupKey.Key,
+							ConnectionIP: net.IP{1, 1, 1, 1},
 						}
 
 						login := func() error {
-							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							_, _, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {
 								t.Logf("failed to login peer: %v", err)
 								return err
@@ -788,7 +743,7 @@ func Test_LoginPerformance(t *testing.T) {
 
 						go func(peerLogin types.PeerLogin, counterStart *int32) {
 							defer wgPeer.Done()
-							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							_, _, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {
 								t.Logf("failed to login peer: %v", err)
 								return
@@ -870,4 +825,131 @@ func testLoginPerformance(t *testing.T, loginCalls []func() error) {
 	}
 	tAvg := tSum / time.Duration(len(durations))
 	t.Logf("Min: %v, Max: %v, Avg: %v", tMin, tMax, tAvg)
+}
+
+type expireOnConnectStore struct {
+	store.Store
+	once sync.Once
+	err  error
+}
+
+func (s *expireOnConnectStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error) {
+	updated, err := s.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peerID, newSessionStartedAt)
+	if err != nil {
+		return updated, err
+	}
+
+	s.once.Do(func() {
+		peer, getErr := s.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if getErr != nil {
+			s.err = getErr
+			return
+		}
+		peer.Status.LoginExpired = true
+		s.err = s.Store.SavePeerStatus(ctx, accountID, peerID, *peer.Status)
+	})
+	return updated, err
+}
+
+func Test_SyncRejectsPeerExpiredWhileConnecting(t *testing.T) {
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Datadir: t.TempDir(),
+	})
+	defer cleanup()
+	require.NoError(t, err)
+	defer mgmtServer.GracefulStop()
+
+	client, clientConn, err := createRawClient(mgmtAddr)
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err)
+
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	decorated := &expireOnConnectStore{Store: am.Store}
+	am.Store = decorated
+
+	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
+		WgPubKey: key.PublicKey().String(),
+		Body:     message,
+	})
+	require.NoError(t, err)
+
+	resp := &mgmtProto.EncryptedMessage{}
+	for err == nil {
+		err = sync.RecvMsg(resp)
+	}
+	require.Equal(t, codes.PermissionDenied, status.Code(err), "sync stream ended with: %v", err)
+	require.NoError(t, decorated.err)
+
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+	require.NoError(t, err)
+	require.True(t, peer.Status.LoginExpired)
+	require.Eventually(t, func() bool {
+		peer, err = am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		return err == nil && !peer.Status.Connected
+	}, 5*time.Second, 50*time.Millisecond)
+}
+
+type settingsCountingStore struct {
+	store.Store
+	reads atomic.Int32
+}
+
+func (s *settingsCountingStore) GetAccountSettings(ctx context.Context, lockStrength store.LockingStrength, accountID string) (*types.Settings, error) {
+	s.reads.Add(1)
+	return s.Store.GetAccountSettings(ctx, lockStrength, accountID)
+}
+
+func Test_LoginAndSyncReuseRequestSettings(t *testing.T) {
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Datadir: t.TempDir(),
+	})
+	defer cleanup()
+	require.NoError(t, err)
+	defer mgmtServer.GracefulStop()
+
+	client, clientConn, err := createRawClient(mgmtAddr)
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err)
+
+	counting := &settingsCountingStore{Store: am.Store}
+	am.Store = counting
+
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err)
+	require.Zero(t, counting.reads.Load(), "login must not read settings through the account manager")
+
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{WgPubKey: key.PublicKey().String(), Body: message})
+	require.NoError(t, err)
+	require.NoError(t, sync.RecvMsg(&mgmtProto.EncryptedMessage{}))
+
+	require.Eventually(t, func() bool {
+		peer, err := counting.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, key.PublicKey().String())
+		return err == nil && peer.Status.Connected
+	}, 5*time.Second, 50*time.Millisecond)
+	require.Zero(t, counting.reads.Load(), "sync must not read settings through the account manager")
 }

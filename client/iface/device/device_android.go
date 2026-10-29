@@ -3,46 +3,48 @@
 package device
 
 import (
+	"fmt"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
 type WGTunDevice struct {
-	address    wgaddr.Address
-	port       int
-	key        string
-	mtu        uint16
-	iceBind    *bind.ICEBind
+	address wgaddr.Address
+	port    int
+	key     string
+	mtu     uint16
+	iceBind *bind.ICEBind
+	// todo: review if we can eliminate the TunAdapter
 	tunAdapter TunAdapter
 	disableDNS bool
 
 	name           string
-	device         *device.Device
+	device         *wgbackend.Device
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	renewableTun   *RenewableTUN
 }
 
 func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
 	return &WGTunDevice{
-		address:    address,
-		port:       port,
-		key:        key,
-		mtu:        mtu,
-		iceBind:    iceBind,
-		tunAdapter: tunAdapter,
-		disableDNS: disableDNS,
+		address:      address,
+		port:         port,
+		key:          key,
+		mtu:          mtu,
+		iceBind:      iceBind,
+		tunAdapter:   tunAdapter,
+		disableDNS:   disableDNS,
+		renewableTun: NewRenewableTUN(),
 	}
 }
 
@@ -59,23 +61,31 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		searchDomainsToString = ""
 	}
 
-	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), int(t.mtu), dns, searchDomainsToString, routesString)
+	ipv6Host := ""
+	if t.address.HasIPv6() {
+		ipv6Host = t.address.IPv6HostPrefix().String()
+	}
+
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.HostPrefix().String(), ipv6Host, int(t.mtu), dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	unmonitoredTUN, name, err := wgbackend.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
 	}
+
+	t.renewableTun.AddDevice(unmonitoredTUN)
+
 	t.name = name
-	t.filteredDevice = newDeviceFilter(tunDevice)
+	t.filteredDevice = newDeviceFilter(t.renewableTun)
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
+	t.device = wgbackend.NewDevice(t.filteredDevice, t.iceBind, wgbackend.NewLogger(wgLogLevel(), "[netbird] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
@@ -104,6 +114,23 @@ func (t *WGTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
+func (t *WGTunDevice) RenewTun(fd int) error {
+	if t.device == nil {
+		return fmt.Errorf("device not initialized")
+	}
+
+	unmonitoredTUN, _, err := wgbackend.CreateUnmonitoredTUNFromFD(fd)
+	if err != nil {
+		_ = unix.Close(fd)
+		log.Errorf("failed to renew Android interface: %s", err)
+		return err
+	}
+
+	t.renewableTun.AddDevice(unmonitoredTUN)
+
+	return nil
+}
+
 func (t *WGTunDevice) UpdateAddr(addr wgaddr.Address) error {
 	// todo implement
 	return nil
@@ -126,7 +153,7 @@ func (t *WGTunDevice) Close() error {
 	return nil
 }
 
-func (t *WGTunDevice) Device() *device.Device {
+func (t *WGTunDevice) Device() *wgbackend.Device {
 	return t.device
 }
 
@@ -146,8 +173,13 @@ func (t *WGTunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
-func (t *WGTunDevice) GetNet() *netstack.Net {
+func (t *WGTunDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
+}
+
+// GetICEBind returns the ICEBind instance
+func (t *WGTunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
 }
 
 func routesToString(routes []string) string {

@@ -6,11 +6,14 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/asn1"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"syscall/js"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -19,18 +22,34 @@ const (
 	RDCleanPathVersion     = 3390
 	RDCleanPathProxyHost   = "rdcleanpath.proxy.local"
 	RDCleanPathProxyScheme = "ws"
+
+	rdpDialTimeout = 30 * time.Second
+
+	GeneralErrorCode = 1
+	WSAETimedOut     = 10060
+	WSAEConnRefused  = 10061
+	WSAEConnAborted  = 10053
+	WSAEConnReset    = 10054
+	WSAEGenericError = 10050
 )
 
 type RDCleanPathPDU struct {
-	Version           int64    `asn1:"tag:0,explicit"`
-	Error             []byte   `asn1:"tag:1,explicit,optional"`
-	Destination       string   `asn1:"utf8,tag:2,explicit,optional"`
-	ProxyAuth         string   `asn1:"utf8,tag:3,explicit,optional"`
-	ServerAuth        string   `asn1:"utf8,tag:4,explicit,optional"`
-	PreconnectionBlob string   `asn1:"utf8,tag:5,explicit,optional"`
-	X224ConnectionPDU []byte   `asn1:"tag:6,explicit,optional"`
-	ServerCertChain   [][]byte `asn1:"tag:7,explicit,optional"`
-	ServerAddr        string   `asn1:"utf8,tag:9,explicit,optional"`
+	Version           int64          `asn1:"tag:0,explicit"`
+	Error             RDCleanPathErr `asn1:"tag:1,explicit,optional"`
+	Destination       string         `asn1:"utf8,tag:2,explicit,optional"`
+	ProxyAuth         string         `asn1:"utf8,tag:3,explicit,optional"`
+	ServerAuth        string         `asn1:"utf8,tag:4,explicit,optional"`
+	PreconnectionBlob string         `asn1:"utf8,tag:5,explicit,optional"`
+	X224ConnectionPDU []byte         `asn1:"tag:6,explicit,optional"`
+	ServerCertChain   [][]byte       `asn1:"tag:7,explicit,optional"`
+	ServerAddr        string         `asn1:"utf8,tag:9,explicit,optional"`
+}
+
+type RDCleanPathErr struct {
+	ErrorCode      int16 `asn1:"tag:0,explicit"`
+	HTTPStatusCode int16 `asn1:"tag:1,explicit,optional"`
+	WSALastError   int16 `asn1:"tag:2,explicit,optional"`
+	TLSAlertCode   int8  `asn1:"tag:3,explicit,optional"`
 }
 
 type RDCleanPathProxy struct {
@@ -39,6 +58,8 @@ type RDCleanPathProxy struct {
 	}
 	activeConnections map[string]*proxyConnection
 	destinations      map[string]string
+	pendingHandlers   map[string]js.Func
+	nextID            atomic.Uint64
 	mu                sync.Mutex
 }
 
@@ -48,8 +69,15 @@ type proxyConnection struct {
 	rdpConn     net.Conn
 	tlsConn     *tls.Conn
 	wsHandlers  js.Value
-	ctx         context.Context
-	cancel      context.CancelFunc
+	// Go-side callbacks exposed to JS. js.FuncOf pins the Go closure in a
+	// global handle map and MUST be released, otherwise every connection
+	// leaks the Go memory the closure captures.
+	wsHandlerFn  js.Func
+	onMessageFn  js.Func
+	onCloseFn    js.Func
+	cleanupOnce  sync.Once
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NewRDCleanPathProxy creates a new RDCleanPath proxy
@@ -62,15 +90,19 @@ func NewRDCleanPathProxy(client interface {
 	}
 }
 
-// CreateProxy creates a new proxy endpoint for the given destination
+// CreateProxy creates a new proxy endpoint for the given destination.
+// The registered handler fn and its destinations/pendingHandlers entries are
+// only released once a connection is established and cleanupConnection runs.
+// If a caller invokes CreateProxy but never connects to the returned URL,
+// those entries stay pinned for the lifetime of the page.
 func (p *RDCleanPathProxy) CreateProxy(hostname, port string) js.Value {
-	destination := fmt.Sprintf("%s:%s", hostname, port)
+	destination := net.JoinHostPort(hostname, port)
 
 	return js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, args []js.Value) any {
 		resolve := args[0]
 
 		go func() {
-			proxyID := fmt.Sprintf("proxy_%d", len(p.activeConnections))
+			proxyID := fmt.Sprintf("proxy_%d", p.nextID.Add(1))
 
 			p.mu.Lock()
 			if p.destinations == nil {
@@ -82,7 +114,7 @@ func (p *RDCleanPathProxy) CreateProxy(hostname, port string) js.Value {
 			proxyURL := fmt.Sprintf("%s://%s/%s", RDCleanPathProxyScheme, RDCleanPathProxyHost, proxyID)
 
 			// Register the WebSocket handler for this specific proxy
-			js.Global().Set(fmt.Sprintf("handleRDCleanPathWebSocket_%s", proxyID), js.FuncOf(func(_ js.Value, args []js.Value) any {
+			handlerFn := js.FuncOf(func(_ js.Value, args []js.Value) any {
 				if len(args) < 1 {
 					return js.ValueOf("error: requires WebSocket argument")
 				}
@@ -90,7 +122,14 @@ func (p *RDCleanPathProxy) CreateProxy(hostname, port string) js.Value {
 				ws := args[0]
 				p.HandleWebSocketConnection(ws, proxyID)
 				return nil
-			}))
+			})
+			p.mu.Lock()
+			if p.pendingHandlers == nil {
+				p.pendingHandlers = make(map[string]js.Func)
+			}
+			p.pendingHandlers[proxyID] = handlerFn
+			p.mu.Unlock()
+			js.Global().Set(fmt.Sprintf("handleRDCleanPathWebSocket_%s", proxyID), handlerFn)
 
 			log.Infof("Created RDCleanPath proxy endpoint: %s for destination: %s", proxyURL, destination)
 			resolve.Invoke(proxyURL)
@@ -124,6 +163,10 @@ func (p *RDCleanPathProxy) HandleWebSocketConnection(ws js.Value, proxyID string
 
 	p.mu.Lock()
 	p.activeConnections[proxyID] = conn
+	if fn, ok := p.pendingHandlers[proxyID]; ok {
+		conn.wsHandlerFn = fn
+		delete(p.pendingHandlers, proxyID)
+	}
 	p.mu.Unlock()
 
 	p.setupWebSocketHandlers(ws, conn)
@@ -132,7 +175,7 @@ func (p *RDCleanPathProxy) HandleWebSocketConnection(ws js.Value, proxyID string
 }
 
 func (p *RDCleanPathProxy) setupWebSocketHandlers(ws js.Value, conn *proxyConnection) {
-	ws.Set("onGoMessage", js.FuncOf(func(this js.Value, args []js.Value) any {
+	conn.onMessageFn = js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) < 1 {
 			return nil
 		}
@@ -140,13 +183,15 @@ func (p *RDCleanPathProxy) setupWebSocketHandlers(ws js.Value, conn *proxyConnec
 		data := args[0]
 		go p.handleWebSocketMessage(conn, data)
 		return nil
-	}))
+	})
+	ws.Set("onGoMessage", conn.onMessageFn)
 
-	ws.Set("onGoClose", js.FuncOf(func(_ js.Value, args []js.Value) any {
+	conn.onCloseFn = js.FuncOf(func(_ js.Value, args []js.Value) any {
 		log.Debug("WebSocket closed by JavaScript")
 		conn.cancel()
 		return nil
-	}))
+	})
+	ws.Set("onGoClose", conn.onCloseFn)
 }
 
 func (p *RDCleanPathProxy) handleWebSocketMessage(conn *proxyConnection, data js.Value) {
@@ -210,9 +255,13 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 	destination := conn.destination
 	log.Infof("Direct RDP mode: Connecting to %s via NetBird", destination)
 
-	rdpConn, err := p.nbClient.Dial(conn.ctx, "tcp", destination)
+	ctx, cancel := context.WithTimeout(conn.ctx, rdpDialTimeout)
+	defer cancel()
+
+	rdpConn, err := p.nbClient.Dial(ctx, "tcp", destination)
 	if err != nil {
 		log.Errorf("Failed to connect to %s: %v", destination, err)
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 	conn.rdpConn = rdpConn
@@ -220,6 +269,7 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 	_, err = rdpConn.Write(firstPacket)
 	if err != nil {
 		log.Errorf("Failed to write first packet: %v", err)
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 
@@ -227,6 +277,7 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 	n, err := rdpConn.Read(response)
 	if err != nil {
 		log.Errorf("Failed to read X.224 response: %v", err)
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 
@@ -237,25 +288,49 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 }
 
 func (p *RDCleanPathProxy) cleanupConnection(conn *proxyConnection) {
-	log.Debugf("Cleaning up connection %s", conn.id)
-	conn.cancel()
-	if conn.tlsConn != nil {
-		log.Debug("Closing TLS connection")
-		if err := conn.tlsConn.Close(); err != nil {
-			log.Debugf("Error closing TLS connection: %v", err)
+	conn.cleanupOnce.Do(func() {
+		log.Debugf("Cleaning up connection %s", conn.id)
+		conn.cancel()
+		if conn.tlsConn != nil {
+			log.Debug("Closing TLS connection")
+			if err := conn.tlsConn.Close(); err != nil {
+				log.Debugf("Error closing TLS connection: %v", err)
+			}
+			conn.tlsConn = nil
 		}
-		conn.tlsConn = nil
-	}
-	if conn.rdpConn != nil {
-		log.Debug("Closing TCP connection")
-		if err := conn.rdpConn.Close(); err != nil {
-			log.Debugf("Error closing TCP connection: %v", err)
+		if conn.rdpConn != nil {
+			log.Debug("Closing TCP connection")
+			if err := conn.rdpConn.Close(); err != nil {
+				log.Debugf("Error closing TCP connection: %v", err)
+			}
+			conn.rdpConn = nil
 		}
-		conn.rdpConn = nil
-	}
-	p.mu.Lock()
-	delete(p.activeConnections, conn.id)
-	p.mu.Unlock()
+		js.Global().Delete(fmt.Sprintf("handleRDCleanPathWebSocket_%s", conn.id))
+
+		// Detach before releasing so late JS calls surface as TypeError instead
+		// of silent "call to released function".
+		if conn.wsHandlers.Truthy() {
+			conn.wsHandlers.Set("onGoMessage", js.Undefined())
+			conn.wsHandlers.Set("onGoClose", js.Undefined())
+		}
+
+		// wsHandlerFn may be zero-value if the pending handler lookup missed.
+		if conn.wsHandlerFn.Truthy() {
+			conn.wsHandlerFn.Release()
+		}
+		if conn.onMessageFn.Truthy() {
+			conn.onMessageFn.Release()
+		}
+		if conn.onCloseFn.Truthy() {
+			conn.onCloseFn.Release()
+		}
+
+		p.mu.Lock()
+		delete(p.activeConnections, conn.id)
+		delete(p.destinations, conn.id)
+		delete(p.pendingHandlers, conn.id)
+		p.mu.Unlock()
+	})
 }
 
 func (p *RDCleanPathProxy) sendToWebSocket(conn *proxyConnection, data []byte) {
@@ -267,5 +342,54 @@ func (p *RDCleanPathProxy) sendToWebSocket(conn *proxyConnection, data []byte) {
 		uint8Array := js.Global().Get("Uint8Array").New(len(data))
 		js.CopyBytesToJS(uint8Array, data)
 		conn.wsHandlers.Call("send", uint8Array.Get("buffer"))
+	}
+}
+
+func (p *RDCleanPathProxy) sendRDCleanPathError(conn *proxyConnection, pdu RDCleanPathPDU) {
+	data, err := asn1.Marshal(pdu)
+	if err != nil {
+		log.Errorf("Failed to marshal error PDU: %v", err)
+		return
+	}
+	p.sendToWebSocket(conn, data)
+}
+
+func errorToWSACode(err error) int16 {
+	if err == nil {
+		return WSAEGenericError
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return WSAETimedOut
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return WSAETimedOut
+	}
+	if errors.Is(err, context.Canceled) {
+		return WSAEConnAborted
+	}
+	if errors.Is(err, io.EOF) {
+		return WSAEConnReset
+	}
+	return WSAEGenericError
+}
+
+func newWSAError(err error) RDCleanPathPDU {
+	return RDCleanPathPDU{
+		Version: RDCleanPathVersion,
+		Error: RDCleanPathErr{
+			ErrorCode:    GeneralErrorCode,
+			WSALastError: errorToWSACode(err),
+		},
+	}
+}
+
+func newHTTPError(statusCode int16) RDCleanPathPDU {
+	return RDCleanPathPDU{
+		Version: RDCleanPathVersion,
+		Error: RDCleanPathErr{
+			ErrorCode:      GeneralErrorCode,
+			HTTPStatusCode: statusCode,
+		},
 	}
 }

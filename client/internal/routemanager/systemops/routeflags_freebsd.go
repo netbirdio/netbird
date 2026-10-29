@@ -4,17 +4,18 @@ package systemops
 
 import (
 	"strings"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // filterRoutesByFlags returns true if the route message should be ignored based on its flags.
 func filterRoutesByFlags(routeMessageFlags int) bool {
-	if routeMessageFlags&syscall.RTF_UP == 0 {
+	if routeMessageFlags&unix.RTF_UP == 0 {
 		return true
 	}
 
-	// NOTE: syscall.RTF_WASCLONED deprecated in FreeBSD 8.0
-	if routeMessageFlags&(syscall.RTF_REJECT|syscall.RTF_BLACKHOLE) != 0 {
+	// NOTE: RTF_WASCLONED deprecated in FreeBSD 8.0
+	if routeMessageFlags&(unix.RTF_REJECT|unix.RTF_BLACKHOLE) != 0 {
 		return true
 	}
 
@@ -25,37 +26,46 @@ func filterRoutesByFlags(routeMessageFlags int) bool {
 func formatBSDFlags(flags int) string {
 	var flagStrs []string
 
-	if flags&syscall.RTF_UP != 0 {
+	if flags&unix.RTF_UP != 0 {
 		flagStrs = append(flagStrs, "U")
 	}
-	if flags&syscall.RTF_GATEWAY != 0 {
+	if flags&unix.RTF_GATEWAY != 0 {
 		flagStrs = append(flagStrs, "G")
 	}
-	if flags&syscall.RTF_HOST != 0 {
+	if flags&unix.RTF_HOST != 0 {
 		flagStrs = append(flagStrs, "H")
 	}
-	if flags&syscall.RTF_REJECT != 0 {
+	if flags&unix.RTF_REJECT != 0 {
 		flagStrs = append(flagStrs, "R")
 	}
-	if flags&syscall.RTF_DYNAMIC != 0 {
+	if flags&unix.RTF_DYNAMIC != 0 {
 		flagStrs = append(flagStrs, "D")
 	}
-	if flags&syscall.RTF_MODIFIED != 0 {
+	if flags&unix.RTF_MODIFIED != 0 {
 		flagStrs = append(flagStrs, "M")
 	}
-	if flags&syscall.RTF_STATIC != 0 {
+	if flags&unix.RTF_STATIC != 0 {
 		flagStrs = append(flagStrs, "S")
 	}
-	if flags&syscall.RTF_LLINFO != 0 {
+	if flags&unix.RTF_LLINFO != 0 {
 		flagStrs = append(flagStrs, "L")
 	}
-	if flags&syscall.RTF_LOCAL != 0 {
+	if flags&unix.RTF_LOCAL != 0 {
 		flagStrs = append(flagStrs, "l")
 	}
-	if flags&syscall.RTF_BLACKHOLE != 0 {
+	if flags&unix.RTF_BLACKHOLE != 0 {
 		flagStrs = append(flagStrs, "B")
 	}
 	// Note: RTF_CLONING and RTF_WASCLONED deprecated in FreeBSD 8.0
+	if flags&unix.RTF_PROTO1 != 0 {
+		flagStrs = append(flagStrs, "1")
+	}
+	if flags&unix.RTF_PROTO2 != 0 {
+		flagStrs = append(flagStrs, "2")
+	}
+	if flags&unix.RTF_PROTO3 != 0 {
+		flagStrs = append(flagStrs, "3")
+	}
 
 	if len(flagStrs) == 0 {
 		return "-"

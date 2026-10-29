@@ -10,16 +10,15 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
-	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
 )
@@ -55,13 +54,12 @@ type wgProxyFactory interface {
 
 type WGIFaceOpts struct {
 	IFaceName    string
-	Address      string
+	Address      wgaddr.Address
 	WGPort       int
 	WGPrivKey    string
 	MTU          uint16
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
-	FilterFn     udpmux.FilterFn
 	DisableDNS   bool
 }
 
@@ -78,6 +76,17 @@ type WGIface struct {
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
+}
+
+// GetBind returns the EndpointManager userspace bind mode.
+func (w *WGIface) GetBind() device.EndpointManager {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.tun == nil {
+		return nil
+	}
+	return w.tun.GetICEBind()
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
@@ -122,16 +131,11 @@ func (w *WGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 }
 
 // UpdateAddr updates address of the interface
-func (w *WGIface) UpdateAddr(newAddr string) error {
+func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := wgaddr.ParseWGAddress(newAddr)
-	if err != nil {
-		return err
-	}
-
-	return w.tun.UpdateAddr(addr)
+	return w.tun.UpdateAddr(newAddr)
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
@@ -146,6 +150,17 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+}
+
+func (w *WGIface) RemoveEndpointAddress(peerKey string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	log.Debugf("Removing endpoint address: %s", peerKey)
+	return w.configurer.RemoveEndpointAddress(peerKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
@@ -187,7 +202,6 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error 
 // Close closes the tunnel interface
 func (w *WGIface) Close() error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	var result *multierror.Error
 
@@ -195,8 +209,20 @@ func (w *WGIface) Close() error {
 		result = multierror.Append(result, fmt.Errorf("failed to free WireGuard proxy: %w", err))
 	}
 
-	if err := w.tun.Close(); err != nil {
+	// Release w.mu before calling w.tun.Close(): the underlying
+	// wireguard-go device.Close() waits for its send/receive goroutines
+	// to drain. Some of those goroutines re-enter WGIface methods that
+	// take w.mu (e.g. the packet filter DNS hook calls GetDevice()), so
+	// holding the mutex here would deadlock the shutdown path.
+	tun := w.tun
+	w.mu.Unlock()
+
+	if err := tun.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
+	}
+
+	if nbnetstack.IsEnabled() {
+		return errors.FormatErrorOrNil(result)
 	}
 
 	if err := w.waitUntilRemoved(); err != nil {
@@ -243,7 +269,7 @@ func (w *WGIface) GetDevice() *device.FilteredDevice {
 }
 
 // GetWGDevice returns the WireGuard device
-func (w *WGIface) GetWGDevice() *wgdevice.Device {
+func (w *WGIface) GetWGDevice() *wgbackend.Device {
 	return w.tun.Device()
 }
 
@@ -275,6 +301,19 @@ func (w *WGIface) FullStats() (*configurer.Stats, error) {
 	return w.configurer.FullStats()
 }
 
+// SetPresharedKey sets or updates the preshared key for a peer.
+// If updateOnly is true, only updates existing peer; if false, creates or updates.
+func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	return w.configurer.SetPresharedKey(peerKey, psk, updateOnly)
+}
+
 func (w *WGIface) waitUntilRemoved() error {
 	maxWaitTime := 5 * time.Second
 	timeout := time.NewTimer(maxWaitTime)
@@ -303,7 +342,7 @@ func (w *WGIface) waitUntilRemoved() error {
 }
 
 // GetNet returns the netstack.Net for the netstack device
-func (w *WGIface) GetNet() *netstack.Net {
+func (w *WGIface) GetNet() *wgbackend.NetstackNet {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

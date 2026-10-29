@@ -14,10 +14,9 @@ import (
 )
 
 type Notifier struct {
+	mu              sync.Mutex
 	currentPrefixes []string
-
-	listener    listener.NetworkChangeListener
-	listenerMux sync.Mutex
+	listener        listener.NetworkChangeListener
 }
 
 func NewNotifier() *Notifier {
@@ -25,13 +24,13 @@ func NewNotifier() *Notifier {
 }
 
 func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
-	n.listenerMux.Lock()
-	defer n.listenerMux.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.listener = listener
 }
 
-func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
-	// iOS doesn't care about initial routes
+func (n *Notifier) NotifyRouteChange() {
+	// Not used on iOS
 }
 
 func (n *Notifier) OnNewRoutes(route.HAMap) {
@@ -39,42 +38,27 @@ func (n *Notifier) OnNewRoutes(route.HAMap) {
 }
 
 func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
-	newNets := make([]string, 0)
+	newNets := make([]string, 0, len(prefixes))
 	for _, prefix := range prefixes {
 		newNets = append(newNets, prefix.String())
 	}
 
 	sort.Strings(newNets)
 
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	if slices.Equal(n.currentPrefixes, newNets) {
 		return
 	}
-
 	n.currentPrefixes = newNets
-	n.notify()
+	if n.listener != nil {
+		n.listener.OnNetworkChanged(strings.Join(n.currentPrefixes, ","))
+	}
 }
 
-func (n *Notifier) notify() {
-	n.listenerMux.Lock()
-	defer n.listenerMux.Unlock()
-	if n.listener == nil {
-		return
-	}
-
-	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(n.currentPrefixes), ","))
-	}(n.listener)
+func (n *Notifier) Close() {
 }
 
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return nil
-}
-
-func (n *Notifier) addIPv6RangeIfNeeded(inputRanges []string) []string {
-	for _, r := range inputRanges {
-		if r == "0.0.0.0/0" {
-			return append(slices.Clone(inputRanges), "::/0")
-		}
-	}
-	return inputRanges
 }

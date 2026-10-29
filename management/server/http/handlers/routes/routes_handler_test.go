@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -493,7 +494,7 @@ func TestRoutesHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: testAccountID,

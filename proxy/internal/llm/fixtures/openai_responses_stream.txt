@@ -1,0 +1,24 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_abc","object":"response","model":"gpt-5.5","usage":null}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_abc","usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","item_id":"msg_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"Hello"}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":", world!"}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":"Hello, world!"}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_abc","object":"response","model":"gpt-5.5","usage":{"input_tokens":123,"input_tokens_details":{"cached_tokens":40},"output_tokens":45,"output_tokens_details":{"reasoning_tokens":12},"total_tokens":168}}}
+

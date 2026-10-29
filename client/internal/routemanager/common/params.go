@@ -1,6 +1,7 @@
 package common
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/netbirdio/netbird/client/firewall/manager"
@@ -25,4 +26,5 @@ type HandlerParams struct {
 	UseNewDNSRoute       bool
 	Firewall             manager.Manager
 	FakeIPManager        *fakeip.Manager
+	ForwarderPort        *atomic.Uint32
 }

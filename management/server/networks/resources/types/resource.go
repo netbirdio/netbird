@@ -4,15 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"regexp"
 
 	"github.com/rs/xid"
 
-	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
+	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -33,6 +32,7 @@ type NetworkResource struct {
 	ID          string `gorm:"primaryKey"`
 	NetworkID   string `gorm:"index"`
 	AccountID   string `gorm:"index"`
+	PublicID    string `json:"-" gorm:"index"`
 	Name        string
 	Description string
 	Type        NetworkResourceType
@@ -97,6 +97,7 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		ID:          n.ID,
 		AccountID:   n.AccountID,
 		NetworkID:   n.NetworkID,
+		PublicID:    n.PublicID,
 		Name:        n.Name,
 		Description: n.Description,
 		Type:        n.Type,
@@ -166,8 +167,7 @@ func GetResourceType(address string) (NetworkResourceType, string, netip.Prefix,
 		return Host, "", netip.PrefixFrom(ip, ip.BitLen()), nil
 	}
 
-	domainRegex := regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
-	if domainRegex.MatchString(address) {
+	if _, err := nbDomain.ValidateDomains([]string{address}); err == nil {
 		return Domain, address, netip.Prefix{}, nil
 	}
 

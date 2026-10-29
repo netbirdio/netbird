@@ -93,5 +93,11 @@ var NetworkAdmin = RolePermissions{
 			operations.Update: false,
 			operations.Delete: false,
 		},
+		modules.IdentityProviders: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
+		},
 	},
 }

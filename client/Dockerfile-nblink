@@ -1,0 +1,34 @@
+# nblink runs unprivileged: no TUN device, no capabilities, no host networking.
+#
+# The image is built for platforms that assign an arbitrary UID at run time, so
+# it must not depend on a passwd entry and its state directory has to be
+# writable by the root group rather than by one named user.
+FROM alpine:3.22 AS build
+
+# Group 0 owns the state directory so a container started as any UID in that
+# group can still persist its identity. Mode 770 rather than g=u, because the
+# directory holds the peer's keys and nothing outside owner and group should
+# read them, including when the path is bind-mounted from a host.
+RUN mkdir -p /tmp/state/nblink \
+    && chgrp -R 0 /tmp/state/nblink \
+    && chmod -R 770 /tmp/state/nblink
+
+FROM gcr.io/distroless/static-debian13:nonroot
+
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/nblink /usr/local/bin/nblink
+# COPY of a directory copies its contents and creates the target with mode
+# 755, which group 0 cannot write. Copying the parent makes nblink/ itself the
+# copied entry, so its mode survives.
+COPY --from=build --chown=65532:0 /tmp/state/ /var/lib/
+
+# Numeric so the runtime can substitute its own UID without a passwd lookup.
+USER 65532:0
+
+# No NB_STATE_DIR by default: state stays in memory, so the image runs on a
+# read-only root filesystem without a volume. Set NB_STATE_DIR=/var/lib/nblink
+# and mount a volume there to keep the peer identity; a volume mounted over
+# the directory starts out with its group-0 ownership.
+ENV NB_LOG_LEVEL=info
+
+ENTRYPOINT ["/usr/local/bin/nblink"]

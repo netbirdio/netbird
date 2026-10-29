@@ -1,0 +1,16 @@
+{{ template "header.html" . }}
+
+<div class="nb-card">
+    <div style="text-align:center;margin-bottom:24px">
+        <svg height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" fill="none" r="45" stroke="#f87171" stroke-width="3"/>
+            <path d="M30 30 L70 70 M30 70 L70 30" fill="none" stroke="#f87171" stroke-width="3"/>
+        </svg>
+    </div>
+    <h1 class="nb-heading">{{ .ErrType }}</h1>
+    <div class="nb-error">
+        {{ .ErrMsg }}
+    </div>
+</div>
+
+{{ template "footer.html" . }}

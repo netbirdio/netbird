@@ -10,10 +10,10 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // handler is a handler that returns a list of setup keys of the account
@@ -61,6 +61,19 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 	if !(types.SetupKeyType(req.Type) == types.SetupKeyReusable ||
 		types.SetupKeyType(req.Type) == types.SetupKeyOneOff) {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown setup key type %s", req.Type), w)
+		return
+	}
+
+	// A one-off key can be used once, and GenerateSetupKey pins its usage limit
+	// at 1 whatever the request says. Silently overriding a caller that asked
+	// for a different number leaves them holding a key that does not do what
+	// they configured, and no way to find out except by using it. Only values
+	// above 1 are refused: usage_limit is a required field with no null, so 0
+	// cannot be told apart from a caller that has nothing to say about it.
+	if types.SetupKeyType(req.Type) == types.SetupKeyOneOff && req.UsageLimit > 1 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument,
+			"usage_limit %d is not valid for a one-off setup key, which can be used once; use type reusable for a key that can be used more than once",
+			req.UsageLimit), w)
 		return
 	}
 

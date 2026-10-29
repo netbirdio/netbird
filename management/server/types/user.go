@@ -6,17 +6,20 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
-	UserRoleOwner        UserRole = "owner"
-	UserRoleAdmin        UserRole = "admin"
-	UserRoleUser         UserRole = "user"
-	UserRoleUnknown      UserRole = "unknown"
-	UserRoleBillingAdmin UserRole = "billing_admin"
-	UserRoleAuditor      UserRole = "auditor"
-	UserRoleNetworkAdmin UserRole = "network_admin"
+	UserRoleOwner             UserRole = "owner"
+	UserRoleAdmin             UserRole = "admin"
+	UserRoleUser              UserRole = "user"
+	UserRoleUnknown           UserRole = "unknown"
+	UserRoleBillingAdmin      UserRole = "billing_admin"
+	UserRoleAuditor           UserRole = "auditor"
+	UserRoleNetworkAdmin      UserRole = "network_admin"
+	UserRoleAgentNetworkAdmin UserRole = "agent_network_admin"
+	UserRoleUsageViewer       UserRole = "usage_viewer"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -41,6 +44,10 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleAuditor
 	case "network_admin":
 		return UserRoleNetworkAdmin
+	case "agent_network_admin":
+		return UserRoleAgentNetworkAdmin
+	case "usage_viewer":
+		return UserRoleUsageViewer
 	default:
 		return UserRoleUnknown
 	}
@@ -65,7 +72,11 @@ type UserInfo struct {
 	LastLogin            time.Time                                  `json:"last_login"`
 	Issued               string                                     `json:"issued"`
 	PendingApproval      bool                                       `json:"pending_approval"`
+	Password             string                                     `json:"password"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
+	// IdPID is the identity provider ID (connector ID) extracted from the Dex-encoded user ID.
+	// This field is only populated when the user ID can be decoded from Dex's format.
+	IdPID string `json:"idp_id,omitempty"`
 }
 
 // User represents a user of the system
@@ -96,6 +107,9 @@ type User struct {
 	Issued string `gorm:"default:api"`
 
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
+
+	Name  string `gorm:"default:''"`
+	Email string `gorm:"default:''"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -132,7 +146,7 @@ func (u *User) IsRegularUser() bool {
 
 // IsRestrictable checks whether a user is in a restrictable role.
 func (u *User) IsRestrictable() bool {
-	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin
+	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin || u.Role == UserRoleUsageViewer
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -143,10 +157,16 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	if userData == nil {
+
+		name := u.Name
+		if u.IsServiceUser {
+			name = u.ServiceUserName
+		}
+
 		return &UserInfo{
 			ID:              u.Id,
-			Email:           "",
-			Name:            u.ServiceUserName,
+			Email:           u.Email,
+			Name:            name,
 			Role:            string(u.Role),
 			AutoGroups:      u.AutoGroups,
 			Status:          string(UserStatusActive),
@@ -178,6 +198,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		LastLogin:       u.GetLastLogin(),
 		Issued:          u.Issued,
 		PendingApproval: u.PendingApproval,
+		Password:        userData.Password,
 	}, nil
 }
 
@@ -204,11 +225,13 @@ func (u *User) Copy() *User {
 		CreatedAt:            u.CreatedAt,
 		Issued:               u.Issued,
 		IntegrationReference: u.IntegrationReference,
+		Email:                u.Email,
+		Name:                 u.Name,
 	}
 }
 
 // NewUser creates a new user
-func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string) *User {
+func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string, email string, name string) *User {
 	return &User{
 		Id:              id,
 		Role:            role,
@@ -218,20 +241,89 @@ func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, se
 		AutoGroups:      autoGroups,
 		Issued:          issued,
 		CreatedAt:       time.Now().UTC(),
+		Name:            name,
+		Email:           email,
 	}
 }
 
 // NewRegularUser creates a new user with role UserRoleUser
-func NewRegularUser(id string) *User {
-	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI)
+func NewRegularUser(id, email, name string) *User {
+	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI, email, name)
 }
 
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
-	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI)
+	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI, "", "")
 }
 
 // NewOwnerUser creates a new user with role UserRoleOwner
-func NewOwnerUser(id string) *User {
-	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI)
+func NewOwnerUser(id string, email string, name string) *User {
+	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI, email, name)
+}
+
+// EncryptSensitiveData encrypts the user's sensitive fields (Email and Name) in place.
+func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	if enc == nil {
+		return nil
+	}
+
+	var err error
+	if u.Email != "" {
+		u.Email, err = enc.Encrypt(u.Email)
+		if err != nil {
+			return fmt.Errorf("encrypt email: %w", err)
+		}
+	}
+
+	if u.Name != "" {
+		u.Name, err = enc.Encrypt(u.Name)
+		if err != nil {
+			return fmt.Errorf("encrypt name: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func MaskEmail(email string) string {
+	local, domain, found := strings.Cut(email, "@")
+	if !found || local == "" || domain == "" {
+		return ""
+	}
+
+	// Runes, not bytes, so a non-ASCII local part is not cut mid-character.
+	runes := []rune(local)
+
+	// Keeping the first two and the last needs a local part of at least four to
+	// hide anything at all: at three or fewer those are the whole of it, and the
+	// address would be recoverable in full from what is meant to conceal it.
+	if len(runes) < 4 {
+		return "****@" + domain
+	}
+
+	return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
+}
+
+// DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.
+func (u *User) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	if enc == nil {
+		return nil
+	}
+
+	var err error
+	if u.Email != "" {
+		u.Email, err = enc.Decrypt(u.Email)
+		if err != nil {
+			return fmt.Errorf("decrypt email: %w", err)
+		}
+	}
+
+	if u.Name != "" {
+		u.Name, err = enc.Decrypt(u.Name)
+		if err != nil {
+			return fmt.Errorf("decrypt name: %w", err)
+		}
+	}
+
+	return nil
 }

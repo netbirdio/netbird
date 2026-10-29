@@ -29,14 +29,14 @@ func TestUpDaemon(t *testing.T) {
 	}
 
 	sm := profilemanager.ServiceManager{}
-	err = sm.AddProfile("test1", currUser.Username)
+	created, err := sm.AddProfile("test1", currUser.Username)
 	if err != nil {
 		t.Fatalf("failed to add profile: %v", err)
 		return
 	}
 
 	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "test1",
+		ID:       created.ID,
 		Username: currUser.Username,
 	})
 	if err != nil {

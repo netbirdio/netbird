@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -193,7 +194,7 @@ func TestNameserversHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				AccountId: testNSGroupAccountID,
 				Domain:    "hotmail.com",
@@ -229,6 +230,40 @@ func TestNameserversHandlers(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 			assert.Equal(t, tc.expectedNSGroup, got)
+		})
+	}
+}
+
+func TestToServerNSList_IPv6(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []api.Nameserver
+		expectIP netip.Addr
+	}{
+		{
+			name: "IPv4",
+			input: []api.Nameserver{
+				{Ip: "1.1.1.1", NsType: "udp", Port: 53},
+			},
+			expectIP: netip.MustParseAddr("1.1.1.1"),
+		},
+		{
+			name: "IPv6",
+			input: []api.Nameserver{
+				{Ip: "2001:4860:4860::8888", NsType: "udp", Port: 53},
+			},
+			expectIP: netip.MustParseAddr("2001:4860:4860::8888"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := toServerNSList(tc.input)
+			assert.NoError(t, err)
+			if assert.Len(t, result, 1) {
+				assert.Equal(t, tc.expectIP, result[0].IP)
+				assert.Equal(t, 53, result[0].Port)
+			}
 		})
 	}
 }

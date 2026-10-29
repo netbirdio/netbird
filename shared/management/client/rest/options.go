@@ -42,3 +42,10 @@ func WithAuthHeader(value string) option {
 		c.authHeader = value
 	}
 }
+
+// WithUserAgent sets a custom User-Agent header for HTTP requests
+func WithUserAgent(userAgent string) option {
+	return func(c *Client) {
+		c.userAgent = userAgent
+	}
+}

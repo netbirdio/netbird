@@ -3,24 +3,24 @@ package device
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type Bind interface {
-	conn.Bind
+	wgbackend.Bind
 	GetICEMux() (*udpmux.UniversalUDPMuxDefault, error)
 	ActivityRecorder() *bind.ActivityRecorder
+	EndpointManager
 }
 
 type TunNetstackDevice struct {
@@ -32,13 +32,13 @@ type TunNetstackDevice struct {
 	listenAddress string
 	bind          Bind
 
-	device         *device.Device
+	device         *wgbackend.Device
 	filteredDevice *FilteredDevice
 	nsTun          *nbnetstack.NetStackTun
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 
-	net *netstack.Net
+	net *wgbackend.NetstackNet
 }
 
 func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, bind Bind, listenAddress string) *TunNetstackDevice {
@@ -62,8 +62,12 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("last ip: %w", err)
 	}
 
-	log.Debugf("netstack using address: %s", t.address.IP)
-	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, int(t.mtu))
+	addresses := []netip.Addr{t.address.IP}
+	if t.address.HasIPv6() {
+		addresses = append(addresses, t.address.IPv6)
+	}
+	log.Debugf("netstack using addresses: %v", addresses)
+	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, addresses, dnsAddr, int(t.mtu))
 	log.Debugf("netstack using dns address: %s", dnsAddr)
 	tunIface, net, err := t.nsTun.Create()
 	if err != nil {
@@ -72,16 +76,18 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 	t.filteredDevice = newDeviceFilter(tunIface)
 	t.net = net
 
-	t.device = device.NewDevice(
+	t.device = wgbackend.NewDevice(
 		t.filteredDevice,
 		t.bind,
-		device.NewLogger(wgLogLevel(), "[netbird] "),
+		wgbackend.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.bind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurerNoUAPI(t.device, t.name, t.bind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
-		_ = tunIface.Close()
+		if cErr := tunIface.Close(); cErr != nil {
+			log.Debugf("failed to close tun device: %v", cErr)
+		}
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 
@@ -148,10 +154,15 @@ func (t *TunNetstackDevice) FilteredDevice() *FilteredDevice {
 }
 
 // Device returns the wireguard device
-func (t *TunNetstackDevice) Device() *device.Device {
+func (t *TunNetstackDevice) Device() *wgbackend.Device {
 	return t.device
 }
 
-func (t *TunNetstackDevice) GetNet() *netstack.Net {
+func (t *TunNetstackDevice) GetNet() *wgbackend.NetstackNet {
 	return t.net
+}
+
+// GetICEBind returns the bind instance
+func (t *TunNetstackDevice) GetICEBind() EndpointManager {
+	return t.bind
 }

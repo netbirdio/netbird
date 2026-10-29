@@ -15,16 +15,17 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,13 +94,13 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,13 +199,13 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 }
 
 func TestGetSetupKeys(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,82 +397,88 @@ func TestSetupKey_Copy(t *testing.T) {
 }
 
 func TestSetupKeyAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	assert.NoError(t, err)
-
-	policy := &types.Policy{
-		Enabled: true,
-		Rules: []*types.PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"groupA"},
-				Destinations:  []string{"group"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
-			},
-		},
-	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
-	require.NoError(t, err)
-
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	var setupKey *types.SetupKey
-
-	// Creating setup key should not update account peers and not send peer update
-	t.Run("creating setup key", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		setupKey, err = manager.CreateSetupKey(context.Background(), account.Id, "key1", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+		err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
 		assert.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		policy := &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"group"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
 		}
-	})
-
-	// Saving setup key should not update account peers and not send peer update
-	t.Run("saving setup key", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.SaveSetupKey(context.Background(), account.Id, setupKey, userID)
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
+
+		// The setup policy above dispatches affected-peer updates asynchronously; drain
+		// any in-flight ones so the assertions only observe the setup-key operations.
+		settleAffectedUpdates(updMsg)
+
+		var setupKey *types.SetupKey
+
+		// Creating setup key should not update account peers and not send peer update
+		step(t, "creating setup key", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			setupKey, err = manager.CreateSetupKey(context.Background(), account.Id, "key1", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// Saving setup key should not update account peers and not send peer update
+		step(t, "saving setup key", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
+			_, err = manager.SaveSetupKey(context.Background(), account.Id, setupKey, userID)
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 	})
 }
 
 func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}

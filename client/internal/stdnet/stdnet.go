@@ -4,17 +4,28 @@
 package stdnet
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
+
+	"github.com/netbirdio/netbird/client/iface/netstack"
 )
 
-const updateInterval = 30 * time.Second
+const (
+	updateInterval    = 30 * time.Second
+	dnsResolveTimeout = 30 * time.Second
+)
+
+var errNoSuitableAddress = errors.New("no suitable address found")
 
 // Net is an implementation of the net.Net interface
 // based on functions of the standard net package.
@@ -28,12 +39,19 @@ type Net struct {
 
 	// mu is shared between interfaces and lastUpdate
 	mu sync.Mutex
+
+	// ctx is the context for network operations that supports cancellation
+	ctx context.Context
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
-func NewNetWithDiscover(iFaceDiscover ExternalIFaceDiscover, disallowList []string) (*Net, error) {
+func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover, disallowList []string, detector *WGDetector) *Net {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	n := &Net{
-		interfaceFilter: InterfaceFilter(disallowList),
+		interfaceFilter: InterfaceFilter(disallowList, detector),
+		ctx:             ctx,
 	}
 	// current ExternalIFaceDiscover implement in android-client https://github.dev/netbirdio/android-client
 	// so in android cli use pionDiscover
@@ -42,40 +60,65 @@ func NewNetWithDiscover(iFaceDiscover ExternalIFaceDiscover, disallowList []stri
 	} else {
 		n.iFaceDiscover = newMobileIFaceDiscover(iFaceDiscover)
 	}
-	return n, n.UpdateInterfaces()
+	return n
 }
 
 // NewNet creates a new StdNet instance.
-func NewNet(disallowList []string) (*Net, error) {
-	n := &Net{
+func NewNet(ctx context.Context, disallowList []string, detector *WGDetector) *Net {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &Net{
 		iFaceDiscover:   pionDiscover{},
-		interfaceFilter: InterfaceFilter(disallowList),
+		interfaceFilter: InterfaceFilter(disallowList, detector),
+		ctx:             ctx,
 	}
-	return n, n.UpdateInterfaces()
 }
 
-// UpdateInterfaces updates the internal list of network interfaces
-// and associated addresses filtering them by name.
-// The interfaces are discovered by an external iFaceDiscover function or by a default discoverer if the external one
-// wasn't specified.
-func (n *Net) UpdateInterfaces() (err error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	return n.updateInterfaces()
-}
-
-func (n *Net) updateInterfaces() (err error) {
-	allIfaces, err := n.iFaceDiscover.iFaces()
+// resolveAddr performs DNS resolution with context support and timeout.
+func (n *Net) resolveAddr(network, address string) (netip.AddrPort, error) {
+	host, portStr, err := net.SplitHostPort(address)
 	if err != nil {
-		return err
+		return netip.AddrPort{}, err
 	}
 
-	n.interfaces = n.filterInterfaces(allIfaces)
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("invalid port: %w", err)
+	}
+	if port < 0 || port > 65535 {
+		return netip.AddrPort{}, fmt.Errorf("invalid port: %d", port)
+	}
 
-	n.lastUpdate = time.Now()
+	ipNet := "ip"
+	switch network {
+	case "tcp4", "udp4":
+		ipNet = "ip4"
+	case "tcp6", "udp6":
+		ipNet = "ip6"
+	}
 
-	return nil
+	if host == "" {
+		addr := netip.IPv4Unspecified()
+		if ipNet == "ip6" {
+			addr = netip.IPv6Unspecified()
+		}
+		return netip.AddrPortFrom(addr, uint16(port)), nil
+	}
+
+	ctx, cancel := context.WithTimeout(n.ctx, dnsResolveTimeout)
+	defer cancel()
+
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, ipNet, host)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+
+	if len(addrs) == 0 {
+		return netip.AddrPort{}, errNoSuitableAddress
+	}
+
+	return netip.AddrPortFrom(addrs[0], uint16(port)), nil
 }
 
 // Interfaces returns a slice of interfaces which are available on the
@@ -84,15 +127,12 @@ func (n *Net) Interfaces() ([]*transport.Interface, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if time.Since(n.lastUpdate) < updateInterval {
-		return slices.Clone(n.interfaces), nil
+	iFaces, err := n.freshInterfacesLocked()
+	if err != nil {
+		return nil, err
 	}
 
-	if err := n.updateInterfaces(); err != nil {
-		return nil, fmt.Errorf("update interfaces: %w", err)
-	}
-
-	return slices.Clone(n.interfaces), nil
+	return slices.Clone(iFaces), nil
 }
 
 // InterfaceByIndex returns the interface specified by index.
@@ -103,7 +143,13 @@ func (n *Net) Interfaces() ([]*transport.Interface, error) {
 func (n *Net) InterfaceByIndex(index int) (*transport.Interface, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	for _, ifc := range n.interfaces {
+
+	iFaces, err := n.freshInterfacesLocked()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ifc := range iFaces {
 		if ifc.Index == index {
 			return ifc, nil
 		}
@@ -116,13 +162,44 @@ func (n *Net) InterfaceByIndex(index int) (*transport.Interface, error) {
 func (n *Net) InterfaceByName(name string) (*transport.Interface, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	for _, ifc := range n.interfaces {
+
+	iFaces, err := n.freshInterfacesLocked()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ifc := range iFaces {
 		if ifc.Name == name {
 			return ifc, nil
 		}
 	}
 
 	return nil, fmt.Errorf("%w: %s", transport.ErrInterfaceNotFound, name)
+}
+
+func (n *Net) freshInterfacesLocked() ([]*transport.Interface, error) {
+	if time.Since(n.lastUpdate) < updateInterval {
+		return n.interfaces, nil
+	}
+
+	if err := n.updateInterfacesLocked(); err != nil {
+		return nil, fmt.Errorf("update interfaces: %w", err)
+	}
+
+	return n.interfaces, nil
+}
+
+func (n *Net) updateInterfacesLocked() error {
+	allIFaces, err := n.iFaceDiscover.iFaces()
+	if err != nil {
+		return err
+	}
+
+	n.interfaces = n.filterInterfaces(allIFaces)
+
+	n.lastUpdate = time.Now()
+
+	return nil
 }
 
 func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.Interface {
@@ -136,4 +213,40 @@ func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.I
 		}
 	}
 	return result
+}
+
+// ResolveUDPAddr resolves UDP addresses with context support and timeout.
+func (n *Net) ResolveUDPAddr(network, address string) (*net.UDPAddr, error) {
+	switch network {
+	case "udp", "udp4", "udp6":
+	case "":
+		network = "udp"
+	default:
+		return nil, &net.OpError{Op: "resolve", Net: network, Err: net.UnknownNetworkError(network)}
+	}
+
+	addrPort, err := n.resolveAddr(network, address)
+	if err != nil {
+		return nil, &net.OpError{Op: "resolve", Net: network, Addr: &net.UDPAddr{IP: nil}, Err: err}
+	}
+
+	return net.UDPAddrFromAddrPort(addrPort), nil
+}
+
+// ResolveTCPAddr resolves TCP addresses with context support and timeout.
+func (n *Net) ResolveTCPAddr(network, address string) (*net.TCPAddr, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+	case "":
+		network = "tcp"
+	default:
+		return nil, &net.OpError{Op: "resolve", Net: network, Err: net.UnknownNetworkError(network)}
+	}
+
+	addrPort, err := n.resolveAddr(network, address)
+	if err != nil {
+		return nil, &net.OpError{Op: "resolve", Net: network, Addr: &net.TCPAddr{IP: nil}, Err: err}
+	}
+
+	return net.TCPAddrFromAddrPort(addrPort), nil
 }

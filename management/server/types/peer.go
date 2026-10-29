@@ -12,9 +12,15 @@ type PeerSync struct {
 	WireGuardPubKey string
 	// Meta is the system information passed by peer, must be always present
 	Meta nbpeer.PeerSystemMeta
+	// RealIP is the peer's connection IP, used to refresh its geo location.
+	// May be nil when the request has no associated connection IP.
+	RealIP net.IP
 	// UpdateAccountPeers indicate updating account peers,
 	// which occurs when the peer's metadata is updated
 	UpdateAccountPeers bool
+	// Settings are the account settings the caller already read for this request.
+	// When nil they are loaded from the store.
+	Settings *Settings
 }
 
 // PeerLogin used as a data object between the gRPC API and Manager on Login request.
@@ -34,4 +40,14 @@ type PeerLogin struct {
 
 	// ExtraDNSLabels is a list of extra DNS labels that the peer wants to use
 	ExtraDNSLabels []string
+	// Settings are the account settings the caller already read for this request.
+	// When nil they are loaded from the store.
+	Settings *Settings
+}
+
+// PeerSession identifies the sync session a peer is currently owned by.
+type PeerSession struct {
+	AccountID        string
+	PeerID           string
+	SessionStartedAt int64
 }

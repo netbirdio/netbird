@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package rest_test
 
@@ -169,7 +168,7 @@ func TestAccounts_Integration_Update(t *testing.T) {
 	})
 }
 
-// Account deletion on MySQL and PostgreSQL databases causes unknown errors
+// Account deletion on PostgreSQL databases causes unknown errors
 // func TestAccounts_Integration_Delete(t *testing.T) {
 // 	withBlackBoxServer(t, func(c *rest.Client) {
 // 		accounts, err := c.Accounts.List(context.Background())

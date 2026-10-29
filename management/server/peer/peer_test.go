@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/netip"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,6 +140,47 @@ func TestFlags_IsEqual(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.expect, tt.f1.isEqual(tt.f2))
+		})
+	}
+}
+
+func TestPeerCapabilities(t *testing.T) {
+	tests := []struct {
+		name         string
+		capabilities []int32
+		ipv6         bool
+		srcPrefixes  bool
+	}{
+		{"no capabilities", nil, false, false},
+		{"only source prefixes", []int32{PeerCapabilitySourcePrefixes}, false, true},
+		{"only ipv6", []int32{PeerCapabilityIPv6Overlay}, true, false},
+		{"both", []int32{PeerCapabilitySourcePrefixes, PeerCapabilityIPv6Overlay}, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Peer{Meta: PeerSystemMeta{Capabilities: tt.capabilities}}
+			assert.Equal(t, tt.ipv6, p.SupportsIPv6())
+			assert.Equal(t, tt.srcPrefixes, p.SupportsSourcePrefixes())
+		})
+	}
+}
+
+func TestIsConnected(t *testing.T) {
+	tests := []struct {
+		name      string
+		connected bool
+		lastSeen  time.Time
+		want      bool
+	}{
+		{name: "connected and recently seen", connected: true, lastSeen: time.Now().Add(-time.Minute), want: true},
+		{name: "connected but not seen for longer than StaleAfter", connected: true, lastSeen: time.Now().Add(-StaleAfter - time.Minute)},
+		{name: "connected but never seen", connected: true},
+		{name: "disconnected and recently seen", lastSeen: time.Now()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsConnected(tt.connected, tt.lastSeen))
 		})
 	}
 }

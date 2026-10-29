@@ -1,0 +1,37 @@
+{
+  "Network": {"Serial": 10},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "GroupIDToUserIDs": {
+    "grp-admins": ["user-x", "user-y"],
+    "grp-oncall": ["user-z"]
+  },
+  "Policies": [
+    {
+      "ID": "pol-ssh",
+      "PublicID": "pol-ssh-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "netbird-ssh",
+          "PortRanges": [{"Start": 22022, "End": 22022}],
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-srv"],
+          "AuthorizedGroups": {
+            "grp-admins": ["root"],
+            "grp-oncall": []
+          }
+        }
+      ]
+    }
+  ]
+}

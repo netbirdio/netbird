@@ -1,4 +1,4 @@
-//go:build !android
+//go:build !android && privileged
 
 package iptables
 
@@ -14,6 +14,7 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/iface"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
@@ -30,7 +31,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager, err := newRouter(iptablesClient, ifaceMock)
+	manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "should return a valid iptables manager")
 	require.NoError(t, manager.init(nil))
 
@@ -38,7 +39,6 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		assert.NoError(t, manager.Reset(), "shouldn't return error")
 	}()
 
-	// Now 5 rules:
 	// 1. established rule forward in
 	// 2. estbalished rule forward out
 	// 3. jump rule to POST nat chain
@@ -48,14 +48,16 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	// 7. static return masquerade rule
 	// 8. mangle prerouting mark rule
 	// 9. mangle postrouting mark rule
-	require.Len(t, manager.rules, 9, "should have created rules map")
+	// 10. jump rule to MSS clamping chain
+	// 11. MSS clamping rule for outbound traffic
+	require.Len(t, manager.rules, 11, "should have created rules map")
 
-	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, "-j", chainRTNAT)
-	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
+	exists, err := manager.iptablesClient.Exists(tableNat, chainPostrouting, "-j", chainRTNAT)
+	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPostrouting)
 	require.True(t, exists, "postrouting jump rule should exist")
 
-	exists, err = manager.iptablesClient.Exists(tableMangle, chainPREROUTING, "-j", chainRTPRE)
-	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPREROUTING)
+	exists, err = manager.iptablesClient.Exists(tableMangle, chainPrerouting, "-j", chainRTPre)
+	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPrerouting)
 	require.True(t, exists, "prerouting jump rule should exist")
 
 	pair := firewall.RouterPair{
@@ -82,7 +84,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 			require.NoError(t, err, "failed to init iptables client")
 
-			manager, err := newRouter(iptablesClient, ifaceMock)
+			manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 
@@ -93,7 +95,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			err = manager.AddNatRule(testCase.InputPair)
 			require.NoError(t, err, "marking rule should be inserted")
 
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
+			natRuleKey := testCase.InputPair.GenKey(firewall.NatFormat)
 			markingRule := []string{
 				"-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -104,8 +106,8 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
-			exists, err := iptablesClient.Exists(tableMangle, chainRTPRE, markingRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			exists, err := iptablesClient.Exists(tableMangle, chainRTPre, markingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPre)
 			if testCase.InputPair.Masquerade {
 				require.True(t, exists, "marking rule should be created")
 				foundRule, found := manager.rules[natRuleKey]
@@ -119,7 +121,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 
 			// Check inverse rule
 			inversePair := firewall.GetInversePair(testCase.InputPair)
-			inverseRuleKey := firewall.GenKey(firewall.NatFormat, inversePair)
+			inverseRuleKey := inversePair.GenKey(firewall.NatFormat)
 			inverseMarkingRule := []string{
 				"!", "-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -130,8 +132,8 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 			}
 
-			exists, err = iptablesClient.Exists(tableMangle, chainRTPRE, inverseMarkingRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			exists, err = iptablesClient.Exists(tableMangle, chainRTPre, inverseMarkingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPre)
 			if testCase.InputPair.Masquerade {
 				require.True(t, exists, "inverse marking rule should be created")
 				foundRule, found := manager.rules[inverseRuleKey]
@@ -155,7 +157,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager, err := newRouter(iptablesClient, ifaceMock)
+			manager, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 			defer func() {
@@ -168,7 +170,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 			err = manager.RemoveNatRule(testCase.InputPair)
 			require.NoError(t, err, "shouldn't return error")
 
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
+			natRuleKey := testCase.InputPair.GenKey(firewall.NatFormat)
 			markingRule := []string{
 				"-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -179,8 +181,8 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
-			exists, err := iptablesClient.Exists(tableMangle, chainRTPRE, markingRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			exists, err := iptablesClient.Exists(tableMangle, chainRTPre, markingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPre)
 			require.False(t, exists, "marking rule should not exist")
 
 			_, found := manager.rules[natRuleKey]
@@ -188,7 +190,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 
 			// Check inverse rule removal
 			inversePair := firewall.GetInversePair(testCase.InputPair)
-			inverseRuleKey := firewall.GenKey(firewall.NatFormat, inversePair)
+			inverseRuleKey := inversePair.GenKey(firewall.NatFormat)
 			inverseMarkingRule := []string{
 				"!", "-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -199,8 +201,8 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
 			}
 
-			exists, err = iptablesClient.Exists(tableMangle, chainRTPRE, inverseMarkingRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			exists, err = iptablesClient.Exists(tableMangle, chainRTPre, inverseMarkingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPre)
 			require.False(t, exists, "inverse marking rule should not exist")
 
 			_, found = manager.rules[inverseRuleKey]
@@ -217,13 +219,13 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "Failed to create iptables client")
 
-	r, err := newRouter(iptablesClient, ifaceMock)
-	require.NoError(t, err, "Failed to create router manager")
+	r, err := newFamily(iptablesClient, ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "Failed to create family manager")
 	require.NoError(t, r.init(nil))
 
 	defer func() {
 		err := r.Reset()
-		require.NoError(t, err, "Failed to reset router")
+		require.NoError(t, err, "Failed to reset family")
 	}()
 
 	tests := []struct {
@@ -332,62 +334,30 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, firewall.Network{Prefix: tt.destination}, tt.proto, tt.sPort, tt.dPort, tt.action)
-			require.NoError(t, err, "AddRouteFiltering failed")
+			ruleKey, err := r.AddFilterRule(nil, tt.sources, firewall.Network{Prefix: tt.destination}, tt.proto, tt.sPort, tt.dPort, tt.action)
+			require.NoError(t, err, "AddFilterRule failed")
 
-			// Check if the rule is in the internal map
-			rule, ok := r.rules[ruleKey.ID()]
-			assert.True(t, ok, "Rule not found in internal map")
+			stored, ok := r.filters[ruleKey.ID()]
+			require.True(t, ok, "rule not stored in filters")
+			t.Logf("Internal rule: %v", stored.specs)
 
-			// Log the internal rule
-			t.Logf("Internal rule: %v", rule)
-
-			// Check if the rule exists in iptables
-			exists, err := iptablesClient.Exists(tableFilter, chainRTFWDIN, rule...)
+			exists, err := iptablesClient.Exists(tableFilter, chainRTFwdIn, stored.specs...)
 			assert.NoError(t, err, "Failed to check rule existence")
 			assert.True(t, exists, "Rule not found in iptables")
 
-			var source firewall.Network
-			if len(tt.sources) > 1 {
-				source.Set = firewall.NewPrefixSet(tt.sources)
-			} else if len(tt.sources) > 0 {
-				source.Prefix = tt.sources[0]
-			}
-			// Verify rule content
-			params := routeFilteringRuleParams{
-				Source:      source,
-				Destination: firewall.Network{Prefix: tt.destination},
-				Proto:       tt.proto,
-				SPort:       tt.sPort,
-				DPort:       tt.dPort,
-				Action:      tt.action,
-			}
-
-			expectedRule, err := r.genRouteRuleSpec(params, nil)
-			require.NoError(t, err, "Failed to generate expected rule spec")
-
 			if tt.expectSet {
 				setName := firewall.NewPrefixSet(tt.sources).HashedName()
-				expectedRule, err = r.genRouteRuleSpec(params, nil)
-				require.NoError(t, err, "Failed to generate expected rule spec with set")
-
-				// Check if the set was created
 				_, exists := r.ipsetCounter.Get(setName)
 				assert.True(t, exists, "IPSet not created")
+				assert.NotEmpty(t, findSets(stored.specs), "Rule should reference an ipset")
 			}
 
-			assert.Equal(t, expectedRule, rule, "Rule content mismatch")
-
-			// Clean up
-			err = r.DeleteRouteRule(ruleKey)
-			require.NoError(t, err, "Failed to delete rule")
+			require.NoError(t, r.DeleteFilterRule(ruleKey), "Failed to delete rule")
 		})
 	}
 }
 
 func TestFindSetNameInRule(t *testing.T) {
-	r := &router{}
-
 	testCases := []struct {
 		name     string
 		rule     []string
@@ -428,7 +398,7 @@ func TestFindSetNameInRule(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := r.findSets(tc.rule)
+			result := findSets(tc.rule)
 
 			if len(result) != len(tc.expected) {
 				t.Errorf("Expected %d sets, got %d. Sets found: %v", len(tc.expected), len(result), result)

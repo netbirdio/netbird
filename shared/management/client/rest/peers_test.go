@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package rest_test
 
@@ -25,6 +24,16 @@ var (
 		ConnectionIp:     "127.0.0.1",
 		DnsLabel:         "test",
 		Id:               "Test",
+	}
+
+	testPeerTemporaryAccess = api.PeerTemporaryAccessResponse{
+		Id:   "Test",
+		Name: "test-peer",
+	}
+
+	testJobResponse = api.JobResponse{
+		Id:     "job-1",
+		Status: "pending",
 	}
 )
 
@@ -175,6 +184,124 @@ func TestPeers_ListAccessiblePeers_Err(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, "No", err.Error())
 		assert.Empty(t, ret)
+	})
+}
+
+func TestPeers_CreateTemporaryAccess_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/temporary-access", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "POST", r.Method)
+			retBytes, _ := json.Marshal(testPeerTemporaryAccess)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.CreateTemporaryAccess(context.Background(), "Test", api.PostApiPeersPeerIdTemporaryAccessJSONRequestBody{})
+		require.NoError(t, err)
+		assert.Equal(t, testPeerTemporaryAccess, *ret)
+	})
+}
+
+func TestPeers_CreateTemporaryAccess_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/temporary-access", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.CreateTemporaryAccess(context.Background(), "Test", api.PostApiPeersPeerIdTemporaryAccessJSONRequestBody{})
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Nil(t, ret)
+	})
+}
+
+func TestPeerJobs_List_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/jobs", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal([]api.JobResponse{testJobResponse})
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.Jobs("Test").List(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, ret, 1)
+		assert.Equal(t, testJobResponse.Id, ret[0].Id)
+		assert.Equal(t, testJobResponse.Status, ret[0].Status)
+	})
+}
+
+func TestPeerJobs_List_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/jobs", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.Jobs("Test").List(context.Background())
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Empty(t, ret)
+	})
+}
+
+func TestPeerJobs_Get_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/jobs/job-1", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(testJobResponse)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.Jobs("Test").Get(context.Background(), "job-1")
+		require.NoError(t, err)
+		assert.Equal(t, testJobResponse.Id, ret.Id)
+		assert.Equal(t, testJobResponse.Status, ret.Status)
+	})
+}
+
+func TestPeerJobs_Get_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/jobs/job-1", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.Jobs("Test").Get(context.Background(), "job-1")
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Empty(t, ret)
+	})
+}
+
+func TestPeerJobs_Create_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/jobs", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "POST", r.Method)
+			retBytes, _ := json.Marshal(testJobResponse)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.Jobs("Test").Create(context.Background(), api.PostApiPeersPeerIdJobsJSONRequestBody{})
+		require.NoError(t, err)
+		assert.Equal(t, testJobResponse.Id, ret.Id)
+		assert.Equal(t, testJobResponse.Status, ret.Status)
+	})
+}
+
+func TestPeerJobs_Create_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/peers/Test/jobs", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Peers.Jobs("Test").Create(context.Background(), api.PostApiPeersPeerIdJobsJSONRequestBody{})
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Nil(t, ret)
 	})
 }
 

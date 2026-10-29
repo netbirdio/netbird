@@ -1,0 +1,52 @@
+package db
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/netbirdio/netbird/util"
+)
+
+const (
+	transactionTimeoutEnv = "NB_STORE_TRANSACTION_TIMEOUT"
+	statementTimeoutEnv   = "NB_STORE_STATEMENT_TIMEOUT"
+)
+
+// sessionTimeouts sets the configured timeouts on each new Postgres session with
+// SET, since poolers such as PgBouncer reject them as startup parameters.
+func sessionTimeouts() func(context.Context, *pgx.Conn) error {
+	var settings []string
+	if d := util.DurationFromEnv(statementTimeoutEnv, 0); d > 0 {
+		settings = append(settings, "SET statement_timeout = "+postgresMillis(d))
+	}
+	if d := util.DurationFromEnv(transactionTimeoutEnv, defaultTransactionTimeout); d > 0 {
+		settings = append(settings, "SET idle_in_transaction_session_timeout = "+postgresMillis(d))
+	}
+	query := strings.Join(settings, "; ")
+
+	return func(ctx context.Context, conn *pgx.Conn) error {
+		if query == "" {
+			return nil
+		}
+		if _, err := conn.Exec(ctx, query); err != nil {
+			return fmt.Errorf("set session timeouts: %w", err)
+		}
+		return nil
+	}
+}
+
+// postgresMillis converts d to milliseconds for a Postgres timeout, rounding up
+// so a positive d never becomes 0 (disabled) and capping at the server maximum.
+func postgresMillis(d time.Duration) string {
+	ms := d.Milliseconds()
+	if d%time.Millisecond != 0 {
+		ms++
+	}
+	return strconv.FormatInt(min(ms, math.MaxInt32), 10)
+}

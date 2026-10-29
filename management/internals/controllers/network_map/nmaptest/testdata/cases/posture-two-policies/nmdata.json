@@ -1,0 +1,55 @@
+{
+  "Network": {"Serial": 36},
+  "Peers": {
+    "peer-x": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.40.0"}, "Location": {"CountryCode": "DE", "CityName": "Berlin"}},
+    "peer-srv-a": {"IP": "100.64.0.11", "Meta": {"WtVersion": "1.0.0"}},
+    "peer-srv-b": {"IP": "100.64.0.12", "Meta": {"WtVersion": "1.0.0"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-x"]},
+    "grp-srv-a": {"Peers": ["peer-srv-a"]},
+    "grp-srv-b": {"Peers": ["peer-srv-b"]}
+  },
+  "PostureChecks": {
+    "chk-version": {"Checks": {"NBVersionCheck": {"MinVersion": "0.45.0"}}},
+    "chk-geo": {
+      "Checks": {
+        "GeoLocationCheck": {"Action": "allow", "Locations": [{"CountryCode": "DE"}]}
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-strict",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-version"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv-a"]
+        }
+      ]
+    },
+    {
+      "ID": "pol-lenient",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-geo"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["8443"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv-b"]
+        }
+      ]
+    }
+  ]
+}

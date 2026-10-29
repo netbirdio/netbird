@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -21,6 +21,8 @@ const (
 	httpRequestCounterPrefix  = "management.http.request.counter"
 	httpResponseCounterPrefix = "management.http.response.counter"
 	httpRequestDurationPrefix = "management.http.request.duration.ms"
+
+	RequestIDHeader = "X-Request-Id"
 )
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
@@ -169,9 +171,13 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		//nolint
 		ctx := context.WithValue(r.Context(), hook.ExecutionContextKey, hook.HTTPSource)
 
-		reqID := uuid.New().String()
+		reqID := xid.New().String()
 		//nolint
 		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.UserAgentKey, r.UserAgent())
+
+		rw.Header().Set(RequestIDHeader, reqID)
 
 		log.WithContext(ctx).Tracef("HTTP request %v: %v %v", reqID, r.Method, r.URL)
 
@@ -183,7 +189,22 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
-		h.ServeHTTP(w, r.WithContext(ctx))
+		handlerDone := make(chan struct{})
+		context.AfterFunc(ctx, func() {
+			select {
+			case <-handlerDone:
+			default:
+				log.Debugf("HTTP request context canceled mid-flight: %v %v (reqID=%s, after %v, cause: %v)",
+					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(ctx))
+			}
+		})
+
+		// Hold on to req so auth's in-place ctx update is visible after ServeHTTP.
+		req := r.WithContext(ctx)
+		h.ServeHTTP(w, req)
+		close(handlerDone)
+
+		ctx = req.Context()
 
 		if w.Status() > 399 {
 			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
