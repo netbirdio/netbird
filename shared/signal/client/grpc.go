@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io"
@@ -104,6 +105,8 @@ type GrpcClient struct {
 
 	registrationTimeout       time.Duration
 	registrationProbeInterval time.Duration
+
+	auth authCredentials
 }
 
 // Option configures optional GrpcClient behavior.
@@ -112,6 +115,11 @@ type Option func(*GrpcClient)
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
 	return func(c *GrpcClient) { c.netMgr = events }
+}
+
+// WithAuthKey sets the key that signs the proof presented with the auth token.
+func WithAuthKey(key ed25519.PrivateKey) Option {
+	return func(c *GrpcClient) { c.auth.key = key }
 }
 
 // NewClient creates a new Signal client
@@ -126,6 +134,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		connStateCallbackLock:     sync.RWMutex{},
 		registrationTimeout:       defaultRegistrationTimeout,
 		registrationProbeInterval: defaultRegistrationProbeInterval,
+		auth:                      authCredentials{hostname: signalHostname(addr)},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -177,6 +186,12 @@ func (c *GrpcClient) Close() error {
 	c.sharedKeys.Close()
 
 	return c.signalConn.Close()
+}
+
+// UpdateAuthToken sets the auth token presented on every Signal call from now on. An empty token
+// stops presenting one, as Management does when it issues no auth token.
+func (c *GrpcClient) UpdateAuthToken(token []byte) {
+	c.auth.update(token)
 }
 
 // SetConnStateListener set the ConnStateNotifier
@@ -330,6 +345,13 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
+	authPairs, err := c.auth.metadataPairs(time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("auth credentials: %w", err)
+	}
+	for i := 0; i < len(authPairs); i += 2 {
+		md.Append(authPairs[i], authPairs[i+1])
+	}
 	metaCtx := metadata.NewOutgoingContext(ctx, md)
 	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
@@ -534,6 +556,14 @@ func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 	encryptedMessage, err := c.encryptMessage(msg)
 	if err != nil {
 		return err
+	}
+
+	authPairs, err := c.auth.metadataPairs(time.Now())
+	if err != nil {
+		return fmt.Errorf("auth credentials: %w", err)
+	}
+	if len(authPairs) > 0 {
+		parentCtx = metadata.AppendToOutgoingContext(parentCtx, authPairs...)
 	}
 
 	attemptTimeout := client.ConnectTimeout

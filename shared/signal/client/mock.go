@@ -16,6 +16,14 @@ type MockClient struct {
 	SendToStreamFunc             func(msg *proto.EncryptedMessage) error
 	SendFunc                     func(msg *proto.Message) error
 	SetOnReconnectedListenerFunc func(f func())
+	UpdateAuthTokenFunc          func(token []byte)
+}
+
+// UpdateAuthToken calls UpdateAuthTokenFunc when set.
+func (sm *MockClient) UpdateAuthToken(token []byte) {
+	if sm.UpdateAuthTokenFunc != nil {
+		sm.UpdateAuthTokenFunc(token)
+	}
 }
 
 // SetOnReconnectedListener sets the function to be called when the client reconnects.
