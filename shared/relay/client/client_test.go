@@ -1,18 +1,25 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"net"
 	"os"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/relay/server"
@@ -763,4 +770,114 @@ func waitForServerToStart(errChan chan error) error {
 		return nil
 	}
 	return nil
+}
+
+func TestClient_AuthMsgWithAuthTokenCarriesProof(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	token := []byte("opaque auth token")
+	store := &hmac.TokenStore{}
+	require.NoError(t, store.UpdateAuthToken(token))
+
+	c := NewClient("rels://Relay.Example.com:443", store, "alice", iface.DefaultMTU)
+	c.authKey = priv
+
+	msg, advertised, err := c.authMsg()
+	require.NoError(t, err)
+	assert.Equal(t, messages.ProtocolV2, advertised, "the auth token must be presented with protocol v2")
+
+	peerID, gotToken, err := messages.UnmarshalAuthMsg(msg)
+	require.NoError(t, err)
+	assert.Equal(t, messages.HashID("alice"), *peerID, "the envelope must carry the peer ID")
+	assert.Equal(t, token, gotToken, "the envelope must carry the auth token unchanged")
+
+	// What a relay verifier reads from the extension area must verify for its own hostname.
+	ext := msg[bytes.Index(msg, token)+len(token):]
+	proof, err := peerauth.UnmarshalRelayExtension(ext)
+	require.NoError(t, err)
+	assert.NoError(t, peerauth.VerifyProof(pub, peerauth.ServiceRelay, token, proof, []string{"relay.example.com"}, time.Now(), peerauth.DefaultSkew))
+	assert.Error(t, peerauth.VerifyProof(pub, peerauth.ServiceSignal, token, proof, nil, time.Now(), peerauth.DefaultSkew),
+		"a relay proof must not verify as a Signal proof")
+}
+
+func TestClient_AuthMsgWithLegacyTokenIsUnchanged(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	store := &hmac.TokenStore{}
+	require.NoError(t, store.UpdateToken(&hmac.Token{Payload: "payload", Signature: "c2ln"}))
+
+	c := NewClient("rels://relay.example.com:443", store, "alice", iface.DefaultMTU)
+	c.authKey = priv
+
+	msg, advertised, err := c.authMsg()
+	require.NoError(t, err)
+	want, err := messages.MarshalAuthMsg(messages.HashID("alice"), store.TokenBinary())
+	require.NoError(t, err)
+	assert.Equal(t, messages.CurrentProtocolVersion, advertised, "a legacy token must keep the legacy protocol version")
+	assert.Equal(t, want, msg, "a legacy token must produce the auth message of today")
+}
+
+func TestClient_AuthTokenWithoutAuthKeyFails(t *testing.T) {
+	store := &hmac.TokenStore{}
+	require.NoError(t, store.UpdateAuthToken([]byte("opaque auth token")))
+	c := NewClient("rels://relay.example.com:443", store, "alice", iface.DefaultMTU)
+
+	_, _, err := c.authMsg()
+	assert.Error(t, err, "an auth token cannot be presented without the key that signs its proof")
+}
+
+// A relay that does not verify proofs yet selects v1 for a client advertising v2: the client must
+// follow that selection and exchange data with a legacy client.
+func TestClient_AuthTokenClientTalksToLegacyClient(t *testing.T) {
+	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:51101"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
+	srv, err := server.NewServer(serverCfg)
+	require.NoError(t, err)
+	go func() {
+		_ = srv.Listen(server.ListenerConfig{Address: serverListenAddr})
+	}()
+	t.Cleanup(func() {
+		_ = srv.Shutdown(ctx)
+	})
+	require.Eventually(t, func() bool {
+		conn, err := net.Dial("tcp", serverListenAddr)
+		if err != nil {
+			return false
+		}
+		_ = conn.Close()
+		return true
+	}, 5*time.Second, 20*time.Millisecond, "relay must start listening")
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	aliceStore := &hmac.TokenStore{}
+	require.NoError(t, aliceStore.UpdateAuthToken([]byte("opaque auth token")))
+	clientAlice := NewClient(serverCfg.ExposedAddress, aliceStore, "alice", iface.DefaultMTU)
+	clientAlice.authKey = priv
+	require.NoError(t, clientAlice.Connect(ctx))
+	t.Cleanup(func() { _ = clientAlice.Close() })
+
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
+	require.NoError(t, clientBob.Connect(ctx))
+	t.Cleanup(func() { _ = clientBob.Close() })
+
+	connAliceToBob, err := clientAlice.OpenConn(ctx, "bob")
+	require.NoError(t, err)
+	connBobToAlice, err := clientBob.OpenConn(ctx, "alice")
+	require.NoError(t, err)
+
+	payload := []byte("hello bob, I am alice")
+	_, err = connAliceToBob.Write(payload)
+	require.NoError(t, err)
+	buf := make([]byte, 65535)
+	n, err := connBobToAlice.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, payload, buf[:n], "bob must receive alice's data")
+
+	_, err = connBobToAlice.Write([]byte("hi alice"))
+	require.NoError(t, err)
+	n, err = connAliceToBob.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hi alice"), buf[:n], "alice must receive bob's data")
 }

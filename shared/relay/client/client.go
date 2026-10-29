@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/netevents/sweep"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
@@ -172,6 +174,8 @@ type Client struct {
 	serverIP       netip.Addr
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
+	// authKey signs the proof presented with the auth token. Shared via the manager.
+	authKey ed25519.PrivateKey
 
 	// encoder stamps the protocol version the relay selected for the current connection.
 	encoder messages.Encoder
@@ -507,8 +511,7 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 }
 
 func (c *Client) handShake(ctx context.Context) (*RelayAddr, messages.ProtocolVersion, error) {
-	advertised := messages.CurrentProtocolVersion
-	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
+	msg, advertised, err := c.authMsg()
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
 		return nil, 0, err
@@ -548,6 +551,34 @@ func (c *Client) handShake(ctx context.Context) (*RelayAddr, messages.ProtocolVe
 	}
 
 	return &RelayAddr{addr: addr}, version, nil
+}
+
+// authMsg builds the auth envelope with a proof when the store holds the auth token, otherwise
+// the legacy auth message, and returns the version it advertises.
+func (c *Client) authMsg() ([]byte, messages.ProtocolVersion, error) {
+	token, isAuthToken := c.authTokenStore.Credentials()
+	if !isAuthToken {
+		msg, err := messages.MarshalAuthMsg(c.hashedID, token)
+		return msg, messages.CurrentProtocolVersion, err
+	}
+	if c.authKey == nil {
+		return nil, 0, errors.New("auth token without auth key")
+	}
+
+	u, err := url.Parse(c.connectionURL)
+	if err != nil {
+		return nil, 0, fmt.Errorf("parse relay URL: %w", err)
+	}
+	proof, err := peerauth.SignProof(c.authKey, peerauth.ServiceRelay, token, u.Hostname(), time.Now())
+	if err != nil {
+		return nil, 0, fmt.Errorf("sign proof: %w", err)
+	}
+	ext, err := peerauth.MarshalRelayExtension(proof)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal proof: %w", err)
+	}
+	msg, err := messages.MarshalAuthEnvelope(messages.ProtocolV2, c.hashedID, token, ext)
+	return msg, messages.ProtocolV2, err
 }
 
 func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, encoder messages.Encoder, internallyStoppedFlag *internalStopFlag) {
