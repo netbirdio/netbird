@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+	go_sqlite "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
@@ -47,12 +49,50 @@ func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
 
 // SaveProxy saves or updates a proxy in the database
 func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
-	result := s.db.Save(p)
+	tx := s.db
+
+	if p.AccountID == nil {
+		tx = tx.Where("account_id is null")
+	} else {
+		tx = tx.Where("account_id = ?", *p.AccountID)
+	}
+
+	result := tx.Updates(p)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to save proxy: %v", result.Error)
+		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
+		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
+
+		// constaint violation errors in sqlite and postgres
+		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
+			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
+		}
+
 		return status.Errorf(status.Internal, "failed to save proxy")
 	}
+	if result.RowsAffected != 0 {
+		return nil
+	}
+
+	result = tx.Create(p)
+	if result.Error != nil {
+		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
+		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
+
+		// constaint violation errors in sqlite and postgres
+		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
+			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
+		}
+		return status.Errorf(status.Internal, "failed to save proxy")
+	}
+
 	return nil
+}
+
+func valOrNull(v *string) string {
+	if v == nil {
+		return "null"
+	}
+	return *v
 }
 
 // DisconnectProxy marks a proxy as disconnected only if the session ID matches.

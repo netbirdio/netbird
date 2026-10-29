@@ -578,7 +578,6 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	}
 
 	sessionID := uuid.NewString()
-	s.supersedePriorConnection(params.proxyID, sessionID)
 
 	connCtx, cancel := context.WithCancel(ctx)
 	connSeed.proxyID = params.proxyID
@@ -604,12 +603,17 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, params.version, accountID, caps)
 	if err != nil {
 		cancel()
+		if s, ok := nbstatus.FromError(err); ok && s.Type() == nbstatus.PermissionDenied {
+			return nil, nil, status.Errorf(codes.PermissionDenied, "%w", err)
+		}
 		if accountID != nil {
 			return nil, nil, status.Errorf(codes.Internal, "failed to register BYOP proxy: %v", err)
 		}
 		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", params.proxyID, err)
 		return nil, nil, status.Errorf(codes.Internal, "register proxy in database: %v", err)
 	}
+
+	s.supersedePriorConnection(params.proxyID, sessionID)
 
 	s.connectedProxies.Store(params.proxyID, connSeed)
 	if err := s.proxyController.RegisterProxyToCluster(ctx, params.address, params.proxyID); err != nil {
