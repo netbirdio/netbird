@@ -25,19 +25,19 @@ fi
 active=0
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet netbird; then
   active=1
-  if ! systemctl stop netbird; then
-    echo "netbird-selinux: stopping netbird failed, it keeps its old domain until the next restart" >&2
-    exit 0
-  fi
+fi
+
+if [ "$active" = 1 ] && ! systemctl stop netbird; then
+  echo "netbird-selinux: stopping netbird failed, it keeps its old domain until the next restart" >&2
+  exit 0
 fi
 
 if command -v restorecon >/dev/null 2>&1; then
-  if ! restorecon -iR /usr/bin/netbird /usr/sbin/netbird /usr/local/bin/netbird \
+  restorecon -iR /usr/bin/netbird /usr/sbin/netbird /usr/local/bin/netbird \
     /etc/netbird /var/lib/netbird /var/log/netbird /var/log/netbird.out.log \
     /var/log/netbird.err.log /etc/ssh/ssh_config.d/99-netbird.conf \
-    /etc/iproute2/rt_tables.d/netbird.conf /run/netbird /run/wireguard; then
+    /etc/iproute2/rt_tables.d/netbird.conf /run/netbird /run/wireguard ||
     echo "netbird-selinux: relabeling failed, netbird may start without confinement" >&2
-  fi
 fi
 
 # A socket left by a daemon that ran before the module was loaded carries the generic
