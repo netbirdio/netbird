@@ -1,3 +1,6 @@
+# Based on the SELinux module by Jonathan Billings (Red Hat),
+# https://github.com/jbillingredhat/netbird (branch selinux).
+
 policy_module(netbird, 1.1.0)
 
 ########################################
@@ -10,8 +13,9 @@ policy_module(netbird, 1.1.0)
 ## Allow the built-in SSH server to start user sessions. Shells started by
 ## the daemon run unconfined, because the daemon cannot set the SELinux
 ## context of the user it switches to.
-## Turning this off removes the shell and su transitions only. The login
-## transition stays, because its interface cannot be placed inside a boolean.
+## It also grants sys_admin, which setsid -c needs to hand the terminal to login.
+## Turning it off removes the shell, su and sys_admin rules. The login transition
+## stays, because its interface cannot be placed inside a boolean.
 ## </p>
 ## </desc>
 gen_tunable(netbird_ssh_sessions, true)
@@ -74,19 +78,17 @@ files_config_file(netbird_ssh_conf_t)
 type netbird_rt_tables_t;
 files_config_file(netbird_rt_tables_t)
 
+# Pseudo terminals created for SSH sessions. A dedicated type lets login use them without
+# giving it access to every generic pty.
+type netbird_devpts_t;
+term_pty(netbird_devpts_t)
+
 ########################################
 #
 # netbird local policy
 #
 
 allow netbird_t self:capability { net_admin net_raw dac_override dac_read_search chown fowner fsetid kill setuid setgid sys_resource sys_chroot sys_ptrace };
-dontaudit netbird_t self:capability sys_admin;
-optional_policy(`
-	gen_require(`
-		class capability2 perfmon;
-	')
-	dontaudit netbird_t self:capability2 perfmon;
-')
 allow netbird_t self:process { fork signal_perms setpgid setsched getsched getsession setrlimit setcap getcap };
 allow netbird_t self:fifo_file rw_fifo_file_perms;
 allow netbird_t self:unix_stream_socket { create_stream_socket_perms connectto };
@@ -161,12 +163,9 @@ manage_files_pattern(netbird_t, netbird_ssh_conf_t, netbird_ssh_conf_t)
 files_etc_filetrans(netbird_t, netbird_ssh_conf_t, file, "99-netbird.conf")
 files_etc_filetrans(netbird_t, netbird_ssh_conf_t, file, "99-netbird.conf.tmp")
 
-# Routing table name for policy routing. The drop-in directory is missing on
-# distributions that keep the stock table list under /usr/share/iproute2, so
-# the daemon creates it, labeled by name.
-manage_dirs_pattern(netbird_t, netbird_rt_tables_t, netbird_rt_tables_t)
+# Routing table name for policy routing. Only the netbird drop-in gets the type; the
+# directory is shared with admin drop-ins and is created by the package.
 manage_files_pattern(netbird_t, netbird_rt_tables_t, netbird_rt_tables_t)
-files_etc_filetrans(netbird_t, netbird_rt_tables_t, dir, "rt_tables.d")
 files_etc_filetrans(netbird_t, netbird_rt_tables_t, file, "netbird.conf")
 
 files_read_etc_files(netbird_t)
@@ -347,6 +346,8 @@ tunable_policy(`netbird_read_user_home',`
 
 term_use_generic_ptys(netbird_t)
 term_use_ptmx(netbird_t)
+term_create_pty(netbird_t, netbird_devpts_t)
+allow netbird_t netbird_devpts_t:chr_file { rw_chr_file_perms setattr_chr_file_perms };
 logging_send_audit_msgs(netbird_t)
 
 tunable_policy(`netbird_bind_all_ports',`
@@ -360,7 +361,8 @@ gen_require(`
 	class passwd rootok;
 ')
 tunable_policy(`netbird_ssh_sessions',`
-	allow netbird_t self:capability audit_write;
+	# setsid -c takes the pty as the controlling terminal before login runs
+	allow netbird_t self:capability { audit_write sys_admin };
 	allow netbird_t self:passwd rootok;
 	allow netbird_t unconfined_t:process { transition noatsecure siginh rlimitinh signal sigkill };
 	allow netbird_t su_exec_t:file { getattr open read execute map };
@@ -382,6 +384,7 @@ optional_policy(`
 		type local_login_t;
 	')
 	allow netbird_t local_login_t:process { noatsecure siginh rlimitinh };
+	allow local_login_t netbird_devpts_t:chr_file { rw_chr_file_perms setattr_chr_file_perms };
 ')
 
 # Interface details from udev, read when listing network devices

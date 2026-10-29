@@ -407,8 +407,9 @@ nfpms:
     formats:
       - rpm
     dependencies:
-      - netbird
+      - netbird >= @RPM_EVR@
       - selinux-policy-targeted
+      - policycoreutils
     changelog: changelog.yml
     contents:
       - src: LICENSE
