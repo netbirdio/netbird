@@ -10,9 +10,9 @@ policy_module(netbird, 1.1.0)
 
 ## <desc>
 ## <p>
-## Allow the built-in SSH server to start user sessions. Shells started by
-## the daemon run unconfined, because the daemon cannot set the SELinux
-## context of the user it switches to.
+## Allow the built-in SSH server to start user sessions. Users mapped to a
+## confined SELinux user get that user's context, the way sshd does it. Users
+## mapped to unconfined_u run unconfined.
 ## It also grants sys_admin, which setsid -c needs to hand the terminal to login.
 ## Turning it off removes the shell, su and sys_admin rules. The login transition
 ## stays, because its interface cannot be placed inside a boolean.
@@ -351,6 +351,12 @@ term_create_pty(netbird_t, netbird_devpts_t)
 allow netbird_t netbird_devpts_t:chr_file { rw_chr_file_perms setattr_chr_file_perms };
 logging_send_audit_msgs(netbird_t)
 
+# Which SELinux user a login name maps to decides whether su or the session helper starts
+# the session
+selinux_get_fs_mount(netbird_t)
+selinux_get_enforce_mode(netbird_t)
+seutil_read_config(netbird_t)
+
 tunable_policy(`netbird_bind_all_ports',`
 	corenet_tcp_bind_all_unreserved_ports(netbird_t)
 ')
@@ -359,6 +365,7 @@ tunable_policy(`netbird_bind_all_ports',`
 # they would inherit netbird_t, which is not a usable user session.
 gen_require(`
 	type unconfined_t, shell_exec_t, su_exec_t, devpts_t;
+	attribute unpriv_userdomain;
 	class passwd rootok;
 ')
 tunable_policy(`netbird_ssh_sessions',`
@@ -386,6 +393,70 @@ optional_policy(`
 	')
 	allow netbird_t local_login_t:process { noatsecure siginh rlimitinh };
 	allow local_login_t netbird_devpts_t:chr_file { rw_chr_file_perms setattr_chr_file_perms };
+')
+
+########################################
+#
+# SSH session helper
+#
+# The daemon runs its own binary as "netbird ssh exec" to drop privileges and start the
+# user's shell. The helper has a domain of its own because starting a session in the user's
+# SELinux context takes the identity and role change exemptions that login programs hold,
+# which the network-facing daemon does not carry.
+#
+
+type netbird_ssh_t;
+domain_type(netbird_ssh_t)
+domain_entry_file(netbird_ssh_t, netbird_exec_t)
+role system_r types netbird_ssh_t;
+
+allow netbird_t netbird_ssh_t:process transition;
+type_transition netbird_t netbird_exec_t:process netbird_ssh_t;
+allow netbird_ssh_t netbird_t:fd use;
+allow netbird_ssh_t netbird_t:fifo_file rw_file_perms;
+allow netbird_ssh_t netbird_t:unix_stream_socket rw_stream_socket_perms;
+allow netbird_ssh_t netbird_t:process sigchld;
+allow netbird_t netbird_ssh_t:process { signal sigkill signull };
+
+allow netbird_ssh_t self:process { fork sigchld signal sigkill signull setpgid getsched setsched setexec };
+allow netbird_ssh_t self:capability { setuid setgid };
+allow netbird_ssh_t self:fifo_file rw_fifo_file_perms;
+allow netbird_ssh_t self:unix_stream_socket create_stream_socket_perms;
+
+libs_use_ld_so(netbird_ssh_t)
+libs_use_shared_libs(netbird_ssh_t)
+miscfiles_read_localization(netbird_ssh_t)
+files_read_etc_files(netbird_ssh_t)
+corecmd_exec_bin(netbird_ssh_t)
+corecmd_exec_shell(netbird_ssh_t)
+auth_use_nsswitch(netbird_ssh_t)
+kernel_read_system_state(netbird_ssh_t)
+
+# The user's context is looked up from the policy the way sshd does it, and the session
+# is started in it.
+selinux_get_fs_mount(netbird_ssh_t)
+selinux_compute_user_contexts(netbird_ssh_t)
+seutil_read_config(netbird_ssh_t)
+seutil_read_default_contexts(netbird_ssh_t)
+domain_subj_id_change_exemption(netbird_ssh_t)
+domain_role_change_exemption(netbird_ssh_t)
+domain_obj_id_change_exemption(netbird_ssh_t)
+
+# The pty a session inherits from the daemon
+allow netbird_ssh_t netbird_devpts_t:chr_file rw_chr_file_perms;
+
+tunable_policy(`netbird_ssh_sessions',`
+	# Confined users, which are not administrators, as sshd allows by default
+	userdom_spec_domtrans_unpriv_users(netbird_ssh_t)
+	allow unpriv_userdomain netbird_t:fd use;
+	allow unpriv_userdomain netbird_t:fifo_file rw_file_perms;
+	allow unpriv_userdomain netbird_t:unix_stream_socket rw_stream_socket_perms;
+
+	allow netbird_ssh_t unconfined_t:process { transition noatsecure siginh rlimitinh signal sigkill };
+	allow unconfined_t netbird_ssh_t:fd use;
+	allow unconfined_t netbird_ssh_t:fifo_file rw_file_perms;
+	allow unconfined_t netbird_ssh_t:process sigchld;
+	allow netbird_t unpriv_userdomain:process { signal sigkill };
 ')
 
 # Interface details from udev, read when listing network devices
