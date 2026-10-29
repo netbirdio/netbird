@@ -3,6 +3,12 @@ package internal
 import (
 	"net"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // probeFreePort asks the OS for a free UDP port and immediately releases it.
@@ -79,4 +85,13 @@ func Test_freePort(t *testing.T) {
 			t.Errorf("got the same port %v, want a different port", busyPort)
 		}
 	})
+}
+
+func TestManagementClock(t *testing.T) {
+	// An older Management sends no time: proofs fall back to the local clock.
+	local := managementClock(&mgmProto.LoginResponse{})
+	assert.WithinDuration(t, time.Now(), local.Now(), time.Second, "without Management time the local clock must be used")
+
+	aligned := managementClock(&mgmProto.LoginResponse{ManagementTime: timestamppb.New(time.Now().Add(time.Hour))})
+	assert.WithinDuration(t, time.Now().Add(time.Hour), aligned.Now(), time.Second, "proofs must be signed on Management time")
 }

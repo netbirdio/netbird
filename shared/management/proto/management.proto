@@ -293,6 +293,10 @@ message LoginResponse {
   //   set, seconds=0 nanos=0   → explicit "expiry disabled" / non-SSO peer
   //   set, valid timestamp     → new absolute UTC deadline
   google.protobuf.Timestamp sessionExpiresAt = 4;
+
+  // managementTime is Management's clock when it answered. The peer signs its Signal and Relay
+  // proofs on this time, so a wrong local clock does not get them refused.
+  google.protobuf.Timestamp managementTime = 5;
 }
 
 // ExtendAuthSessionRequest carries a fresh JWT to refresh the peer's session deadline.

@@ -130,7 +130,10 @@ func TestClient_PresentsAuthTokenOnStreamAndSend(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	client, err := NewClient(ctx, addr, key, false, WithAuthKey(priv))
+	// The local clock is an hour behind Management: proofs must still carry Management time.
+	var clock peerauth.Clock
+	clock.SetManagementTime(time.Now().Add(time.Hour))
+	client, err := NewClient(ctx, addr, key, false, WithAuthKey(priv), WithAuthClock(&clock))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	token := []byte("opaque auth token")
@@ -167,7 +170,7 @@ func TestClient_PresentsAuthTokenOnStreamAndSend(t *testing.T) {
 		gotToken, proof, err := peerauth.FromMetadata(md)
 		require.NoError(t, err, "%s must carry the credentials", name)
 		assert.Equal(t, token, gotToken, "%s must carry the auth token unchanged", name)
-		assert.NoError(t, peerauth.VerifyProof(pub, peerauth.ServiceSignal, gotToken, proof, []string{"127.0.0.1"}, time.Now(), peerauth.DefaultSkew),
-			"%s proof must verify for the dialed hostname", name)
+		assert.NoError(t, peerauth.VerifyProof(pub, peerauth.ServiceSignal, gotToken, proof, []string{"127.0.0.1"}, time.Now().Add(time.Hour), peerauth.DefaultSkew),
+			"%s proof must verify for the dialed hostname on Management time", name)
 	}
 }

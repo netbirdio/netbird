@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
@@ -98,7 +99,8 @@ type GrpcClient struct {
 
 	registrationTimeout time.Duration
 
-	auth authCredentials
+	auth      authCredentials
+	authClock *peerauth.Clock
 }
 
 // Option configures optional GrpcClient behavior.
@@ -112,6 +114,11 @@ func WithNetEvents(events *netevents.Manager) Option {
 // WithAuthKey sets the key that signs the proof presented with the auth token.
 func WithAuthKey(key ed25519.PrivateKey) Option {
 	return func(c *GrpcClient) { c.auth.key = key }
+}
+
+// WithAuthClock sets the time the proofs are signed on.
+func WithAuthClock(clock *peerauth.Clock) Option {
+	return func(c *GrpcClient) { c.authClock = clock }
 }
 
 // NewClient creates a new Signal client
@@ -336,7 +343,7 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
-	authPairs, err := c.auth.metadataPairs(time.Now())
+	authPairs, err := c.auth.metadataPairs(c.authClock.Now())
 	if err != nil {
 		return nil, fmt.Errorf("auth credentials: %w", err)
 	}
@@ -519,7 +526,7 @@ func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 		return err
 	}
 
-	authPairs, err := c.auth.metadataPairs(time.Now())
+	authPairs, err := c.auth.metadataPairs(c.authClock.Now())
 	if err != nil {
 		return fmt.Errorf("auth credentials: %w", err)
 	}

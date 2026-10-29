@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/shared/peerauth"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 )
 
@@ -33,6 +34,7 @@ type ServerPicker struct {
 	TransportFallback *transportFallback
 	NetEvents         NetEvents
 	AuthKey           ed25519.PrivateKey
+	AuthClock         *peerauth.Clock
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
@@ -83,6 +85,7 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 	relayClient.SetTransportFallback(sp.TransportFallback)
 	relayClient.netEvents = sp.NetEvents
 	relayClient.authKey = sp.AuthKey
+	relayClient.authClock = sp.AuthClock
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

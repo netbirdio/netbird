@@ -47,6 +47,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
@@ -398,6 +399,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
 
+		authClock := managementClock(loginResp)
+
 		if metricsConfig := loginResp.GetNetbirdConfig().GetMetrics(); metricsConfig != nil {
 			c.clientMetrics.UpdatePushFromMgm(c.ctx, metricsConfig.GetEnabled())
 		}
@@ -424,7 +427,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// with the global Netbird config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.authKey(), c.netMgr)
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.authKey(), authClock, c.netMgr)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -463,7 +466,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
-			relayClient.WithNetEvents(c.netMgr), relayClient.WithAuthKey(c.authKey()))
+			relayClient.WithNetEvents(c.netMgr), relayClient.WithAuthKey(c.authKey()), relayClient.WithAuthClock(authClock))
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if authToken := loginResp.GetNetbirdConfig().GetAuthToken(); len(authToken) > 0 {
@@ -581,6 +584,16 @@ func (c *ConnectClient) authKey() ed25519.PrivateKey {
 		return nil
 	}
 	return key
+}
+
+// managementClock returns the clock the Signal and Relay proofs are signed on, aligned to the
+// Management time of the login answer when Management sends it.
+func managementClock(loginResp *mgmProto.LoginResponse) *peerauth.Clock {
+	clock := &peerauth.Clock{}
+	if t := loginResp.GetManagementTime(); t.IsValid() {
+		clock.SetManagementTime(t.AsTime())
+	}
+	return clock
 }
 
 func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
@@ -785,7 +798,7 @@ func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, authKey ed25519.PrivateKey, netMgr *netevents.Manager) (*signal.GrpcClient, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, authKey ed25519.PrivateKey, authClock *peerauth.Clock, netMgr *netevents.Manager) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
@@ -794,7 +807,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 	}
 
 	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled,
-		signal.WithNetEvents(netMgr), signal.WithAuthKey(authKey))
+		signal.WithNetEvents(netMgr), signal.WithAuthKey(authKey), signal.WithAuthClock(authClock))
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)

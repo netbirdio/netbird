@@ -800,6 +800,30 @@ func TestClient_AuthMsgWithAuthTokenCarriesProof(t *testing.T) {
 		"a relay proof must not verify as a Signal proof")
 }
 
+func TestClient_AuthMsgIsSignedOnManagementTime(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	token := []byte("opaque auth token")
+	store := &hmac.TokenStore{}
+	require.NoError(t, store.UpdateAuthToken(token))
+
+	// The local clock is an hour behind Management.
+	var clock peerauth.Clock
+	clock.SetManagementTime(time.Now().Add(time.Hour))
+	c := NewClient("rels://relay.example.com:443", store, "alice", iface.DefaultMTU)
+	c.authKey = priv
+	c.authClock = &clock
+
+	msg, _, err := c.authMsg()
+	require.NoError(t, err)
+	proof, err := peerauth.UnmarshalRelayExtension(msg[bytes.Index(msg, token)+len(token):])
+	require.NoError(t, err)
+	assert.NoError(t, peerauth.VerifyProof(pub, peerauth.ServiceRelay, token, proof, nil, time.Now().Add(time.Hour), peerauth.DefaultSkew),
+		"a relay on Management time must accept the proof")
+	assert.ErrorIs(t, peerauth.VerifyProof(pub, peerauth.ServiceRelay, token, proof, nil, time.Now(), peerauth.DefaultSkew), peerauth.ErrStaleProof,
+		"the proof must not be signed on the local clock")
+}
+
 func TestClient_AuthMsgWithLegacyTokenIsUnchanged(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)

@@ -176,6 +176,8 @@ type Client struct {
 	hashedID       messages.PeerID
 	// authKey signs the proof presented with the auth token. Shared via the manager.
 	authKey ed25519.PrivateKey
+	// authClock is the time the proof is signed on. Shared via the manager.
+	authClock *peerauth.Clock
 
 	// encoder stamps the protocol version the relay selected for the current connection.
 	encoder messages.Encoder
@@ -569,7 +571,7 @@ func (c *Client) authMsg() ([]byte, messages.ProtocolVersion, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("parse relay URL: %w", err)
 	}
-	proof, err := peerauth.SignProof(c.authKey, peerauth.ServiceRelay, token, u.Hostname(), time.Now())
+	proof, err := peerauth.SignProof(c.authKey, peerauth.ServiceRelay, token, u.Hostname(), c.authClock.Now())
 	if err != nil {
 		return nil, 0, fmt.Errorf("sign proof: %w", err)
 	}

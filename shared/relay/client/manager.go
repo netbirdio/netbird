@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/shared/peerauth"
 	relayAuth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 )
 
@@ -66,6 +67,11 @@ func WithAuthKey(key ed25519.PrivateKey) ManagerOption {
 	return func(m *Manager) { m.authKey = key }
 }
 
+// WithAuthClock sets the time the proofs are signed on.
+func WithAuthClock(clock *peerauth.Clock) ManagerOption {
+	return func(m *Manager) { m.authClock = clock }
+}
+
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events NetEvents) ManagerOption {
 	return func(m *Manager) { m.netEvents = events }
@@ -99,6 +105,7 @@ type Manager struct {
 	maxBackoffInterval time.Duration
 	netEvents          NetEvents
 	authKey            ed25519.PrivateKey
+	authClock          *peerauth.Clock
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -136,6 +143,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	}
 	m.serverPicker.NetEvents = m.netEvents
 	m.serverPicker.AuthKey = m.authKey
+	m.serverPicker.AuthClock = m.authClock
 	m.serverPicker.ServerURLs.Store(serverURLs)
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netEvents)
 	return m
@@ -339,6 +347,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	relayClient.SetTransportFallback(m.transportFallback)
 	relayClient.netEvents = m.netEvents
 	relayClient.authKey = m.authKey
+	relayClient.authClock = m.authClock
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.Lock()
