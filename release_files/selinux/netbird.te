@@ -175,6 +175,20 @@ files_etc_filetrans(netbird_t, netbird_ssh_conf_t, file, "99-netbird.conf.tmp")
 manage_files_pattern(netbird_t, netbird_rt_tables_t, netbird_rt_tables_t)
 files_etc_filetrans(netbird_t, netbird_rt_tables_t, file, "netbird.conf")
 
+# The ip command resolves table names from the drop-in, also when network scripts run it
+optional_policy(`
+	gen_require(`
+		type ifconfig_t;
+	')
+	allow ifconfig_t netbird_rt_tables_t:file read_file_perms;
+')
+optional_policy(`
+	gen_require(`
+		type NetworkManager_t;
+	')
+	allow NetworkManager_t netbird_rt_tables_t:file read_file_perms;
+')
+
 files_read_etc_files(netbird_t)
 files_read_etc_runtime_files(netbird_t)
 files_read_usr_files(netbird_t)
