@@ -276,10 +276,28 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 
 	go func() {
 		if err := sshServer.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
-			log.Errorf("SSH server error: %v", err)
+			s.logServeError("SSH server error", sshServer, err)
 		}
 	}()
 	return nil
+}
+
+// logServeError logs an error returned by a gliderlabs/ssh Server's Serve call. Closing our
+// own listener explicitly as a Stop safeguard can race gliderlabs/ssh's own bookkeeping (it
+// resets its shutdown signal when a listener registers as the first one), so Serve can return
+// a raw "closed network connection" error instead of ssh.ErrServerClosed even on an intentional
+// stop. Log at Debug when srv is no longer the server's current one (Stop or a new Start already
+// ran), and at Error only when Serve failed while still expected to be running.
+func (s *Server) logServeError(msg string, srv *ssh.Server, err error) {
+	s.mu.RLock()
+	stopped := s.sshServer != srv
+	s.mu.RUnlock()
+
+	if stopped {
+		log.Debugf("%s: %v", msg, err)
+		return
+	}
+	log.Errorf("%s: %v", msg, err)
 }
 
 // AddListener starts serving SSH on an additional address (e.g. IPv6).
@@ -305,7 +323,7 @@ func (s *Server) AddListener(ctx context.Context, addr netip.AddrPort) error {
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
-			log.Errorf("SSH server error on %s: %v", addrDesc, err)
+			s.logServeError(fmt.Sprintf("SSH server error on %s", addrDesc), srv, err)
 		}
 	}()
 	return nil
@@ -349,6 +367,7 @@ func (s *Server) Stop() error {
 		return nil
 	}
 	s.sshServer = nil
+	listener := s.listener
 	s.listener = nil
 	extraListeners := s.extraListeners
 	s.extraListeners = nil
@@ -359,6 +378,12 @@ func (s *Server) Stop() error {
 	if err := sshServer.Close(); err != nil {
 		log.Debugf("close SSH server: %v", err)
 	}
+
+	// sshServer.Close only closes listeners its Serve goroutine has already registered via
+	// trackListener. A fast Start/Stop flap can race that registration, leaving the listener
+	// open even though sshServer.Close returned; close it explicitly as a safeguard, the same
+	// way extraListeners are.
+	s.closeListener(listener)
 
 	// sshServer.Close only closes authenticated connections. One still in the handshake
 	// would otherwise stay open and be able to log in to the stopped server.
