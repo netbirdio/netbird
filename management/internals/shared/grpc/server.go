@@ -57,6 +57,8 @@ const (
 	envConcurrentSyncs = "NB_MAX_CONCURRENT_SYNCS"
 
 	defaultSyncLim = 1000
+
+	peerHeartbeatTimeout = 5 * time.Second
 )
 
 // Server an instance of a Management gRPC API server
@@ -368,7 +370,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	s.syncSem.Add(-1)
 
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
-		trackChallenge,
+		trackChallenge, func() { s.heartbeatPeerSession(ctx, accountID, peer.ID, syncStart) },
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
@@ -460,6 +462,17 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 	}
 	log.WithContext(ctx).Debugf("sent a job to peer: %s", peerKey.String())
 	return nil
+}
+
+// heartbeatPeerSession records that the peer of a live sync stream is still connected.
+// A failed heartbeat keeps the stream open: the peer only reads as disconnected after
+// nbpeer.StaleAfter without one, and reads as connected again once a heartbeat lands.
+func (s *Server) heartbeatPeerSession(ctx context.Context, accountID, peerID string, streamStartTime time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, peerHeartbeatTimeout)
+	defer cancel()
+	if _, err := s.accountManager.GetStore().HeartbeatPeerSession(ctx, accountID, peerID, streamStartTime.UnixNano()); err != nil && !errors.Is(ctx.Err(), context.Canceled) {
+		log.WithContext(ctx).Warnf("heartbeat of peer %s: %v", peerID, err)
+	}
 }
 
 // cancelPeerRoutines tears down the stream under the peer lock. While draining, the

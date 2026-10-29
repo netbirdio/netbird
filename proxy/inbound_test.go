@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/internal/auth"
+	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	nbtcp "github.com/netbirdio/netbird/proxy/internal/tcp"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -277,6 +278,19 @@ func TestWithTunnelLookup_NilLookupIsNoop(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://svc.example/", nil)
 	handler.ServeHTTP(httptest.NewRecorder(), r)
 	assert.True(t, called, "wrapper without lookup must still invoke next")
+}
+
+func TestWithTunnelLookup_TracksAccountID(t *testing.T) {
+	var called bool
+	inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		called = true
+		assert.Equal(t, types.AccountID("test-account-id"), proxy.CapturedDataFromContext(r.Context()).GetAccountID())
+	})
+
+	handler := withCapturedData(inner, "test-account-id")
+	r := httptest.NewRequest(http.MethodGet, "https://svc.example/", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), r)
+	assert.True(t, called)
 }
 
 // fakeListener satisfies net.Listener for snapshot tests without binding
