@@ -19,7 +19,11 @@
 /var/log/netbird(/.*)?				gen_context(system_u:object_r:netbird_var_log_t,s0)
 /var/log/netbird\.(out|err)\.log	--	gen_context(system_u:object_r:netbird_var_log_t,s0)
 
-# netbird runtime files (daemon socket, userspace WireGuard sockets)
+# netbird runtime files (daemon socket, userspace WireGuard sockets). EL8 and EL9 map
+# /run to /var/run before matching, so every /run entry has a /var/run twin there.
 /run/netbird(/.*)?				gen_context(system_u:object_r:netbird_runtime_t,s0)
+/var/run/netbird(/.*)?				gen_context(system_u:object_r:netbird_runtime_t,s0)
 /run/netbird.*\.sock			-s	gen_context(system_u:object_r:netbird_runtime_t,s0)
+/var/run/netbird.*\.sock			-s	gen_context(system_u:object_r:netbird_runtime_t,s0)
 /run/wireguard(/.*)?				gen_context(system_u:object_r:netbird_wg_runtime_t,s0)
+/var/run/wireguard(/.*)?				gen_context(system_u:object_r:netbird_wg_runtime_t,s0)
