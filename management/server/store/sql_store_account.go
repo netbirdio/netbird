@@ -75,7 +75,12 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 		if result.Error != nil {
 			return result.Error
 		}
-		return nil
+
+		peers := make([]*nbpeer.Peer, 0, len(account.PeersG))
+		for i := range account.PeersG {
+			peers = append(peers, &account.PeersG[i])
+		}
+		return createPeerConnections(tx, peers...)
 	})
 
 	took := time.Since(start)
@@ -165,6 +170,11 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 
 		if err := deleteAgentNetworkAccountConfig(tx, account.Id); err != nil {
 			return err
+		}
+
+		result = tx.Delete(&nbpeer.Connection{}, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
 		}
 
 		result = tx.Select(clause.Associations).Delete(account)
@@ -361,6 +371,11 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.SetupKeys[key.Key] = &key
 	}
 	account.SetupKeysG = nil
+
+	if err := s.attachAccountPeerConnections(ctx, accountID, account.PeersG); err != nil {
+		log.WithContext(ctx).Errorf("error when getting peer connections of account %s from the store: %s", accountID, err)
+		return nil, status.NewGetAccountFromStoreError(err)
+	}
 
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {

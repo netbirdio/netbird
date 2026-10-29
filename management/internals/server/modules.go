@@ -89,6 +89,7 @@ func (s *BaseServer) PeersManager() peers.Manager {
 			manager.SetNetworkMapController(s.NetworkMapController())
 			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
 			manager.SetAccountManager(s.AccountManager())
+			manager.SetPeerLiveness(s.PeerLiveness())
 		})
 		return manager
 	})
@@ -103,6 +104,7 @@ func (s *BaseServer) AccountManager() account.Manager {
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
+			accountManager.SetPeerLiveness(s.PeerLiveness())
 			accountManager.AddAccountDeletionHook(s.AgentNetworkManager().RemoveAccountGateway)
 		})
 

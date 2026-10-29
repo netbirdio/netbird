@@ -599,6 +599,38 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+// BackfillPeerConnections seeds the peer_connections table from the deprecated
+// peers.peer_status_last_seen column. It only runs while that column still exists and the
+// table is empty, so it covers the upgrade from the release that kept liveness on the peers
+// table and is a no-op afterwards.
+func BackfillPeerConnections(ctx context.Context, db *gorm.DB) error {
+	if !db.Migrator().HasColumn("peers", "peer_status_last_seen") {
+		log.WithContext(ctx).Debug("peers table has no peer_status_last_seen column, no backfill needed")
+		return nil
+	}
+
+	var existing []int
+	if err := db.Raw("SELECT 1 FROM peer_connections LIMIT 1").Scan(&existing).Error; err != nil {
+		return fmt.Errorf("check peer_connections: %w", err)
+	}
+	if len(existing) > 0 {
+		log.WithContext(ctx).Debug("peer_connections is not empty, no backfill needed")
+		return nil
+	}
+
+	result := db.Exec(
+		`INSERT INTO peer_connections (peer_id, account_id, instance_id, session_started_at, last_seen)
+		SELECT id, account_id, NULL, 0, peer_status_last_seen FROM peers WHERE account_id IS NOT NULL
+		ON CONFLICT (peer_id) DO NOTHING`,
+	)
+	if result.Error != nil {
+		return fmt.Errorf("backfill peer_connections: %w", result.Error)
+	}
+
+	log.WithContext(ctx).Infof("Backfilled %d rows into peer_connections", result.RowsAffected)
+	return nil
+}
+
 func BackfillPublicIDs[T any](ctx context.Context, db *gorm.DB) error {
 	var model T
 

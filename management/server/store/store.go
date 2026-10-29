@@ -173,39 +173,53 @@ type Store interface {
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
-	// MarkPeerConnectedIfNewerSession sets the peer to connected with the
-	// given session token, but only when the stored SessionStartedAt is
-	// strictly less than newSessionStartedAt (the sentinel zero counts as
-	// "older"). LastSeen is recorded by the database at the moment the
-	// row is updated — never by the caller — so it always reflects the
-	// real write time even under lock contention.
-	// Returns true when the update happened, false when this stream lost
-	// the race against a newer session.
-	MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error)
-	// RefreshPeerLastSeen records that a peer was just seen, stamping the
-	// database clock like the other status writers. Connected and
-	// SessionStartedAt are left alone, so this never interferes with the
-	// session-ownership protocol MarkPeerConnectedIfNewerSession implements.
-	// The write only lands when the stored LastSeen is older than
-	// staleBefore, which keeps a caller's throttle atomic under concurrent
+	// RefreshPeerLastSeen stamps the LastSeen of the peer's connection record with
+	// the database clock. The write only lands when the stored LastSeen is older
+	// than staleBefore, which keeps a caller's throttle atomic under concurrent
 	// requests for the same peer. Returns true when the update happened.
 	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
-	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
-	// resets SessionStartedAt to zero, but only when the stored
-	// SessionStartedAt equals the given sessionStartedAt. LastSeen is
-	// recorded by the database. Returns true when the update happened,
-	// false when a newer session has taken over.
-	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
-	// HeartbeatPeerSession stamps LastSeen with the database clock and marks the
-	// peer connected, but only while the stored SessionStartedAt equals
-	// sessionStartedAt and the peer's login has not expired. Returns true when
-	// the update happened.
-	HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
-	// MarkPeersDisconnectedIfSameSession applies the semantics of
-	// MarkPeerDisconnectedIfSameSession to many peers in batched statements.
-	// Sessions with a zero SessionStartedAt are skipped. Returns the number
-	// of peers that were marked disconnected.
-	MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error)
+	// RegisterInstance records a management instance as alive, stamping StartedAt
+	// and LastSeen with the database clock.
+	RegisterInstance(ctx context.Context, id, hostname string) error
+	// HeartbeatInstance stamps the instance's LastSeen with the database clock.
+	// It returns false when the row is missing or already older than
+	// nbpeer.StaleAfter, in which case the instance must register under a new ID.
+	HeartbeatInstance(ctx context.Context, id string) (bool, error)
+	// ListStaleInstances returns the instances whose LastSeen is older than
+	// nbpeer.StaleAfter by the database clock, followed by the instance IDs that
+	// hold connections but have no instance row, with a zero LastSeen.
+	ListStaleInstances(ctx context.Context) ([]nbpeer.ManagementInstance, error)
+	// SweepInstanceChunk releases up to limit connections of a stale instance and
+	// raises the affected peers' LastSeen to lastSeen without ever moving it
+	// backwards; a zero lastSeen raises it to the database clock. Connections that
+	// moved to another instance meanwhile, and instances that are not stale, are
+	// left alone. It returns the number of connections released; zero means the
+	// instance is drained.
+	SweepInstanceChunk(ctx context.Context, instanceID string, lastSeen time.Time, limit int) (int, error)
+	// DeleteInstanceIfStale removes the instance row when it is still older than
+	// nbpeer.StaleAfter. It returns true when the row was deleted.
+	DeleteInstanceIfStale(ctx context.Context, id string) (bool, error)
+	// ReleaseInstance releases the connections the instance holds, stamping their
+	// LastSeen with the database clock, then deletes its instance row.
+	ReleaseInstance(ctx context.Context, id string) error
+	// ConnectPeer makes the instance the holder of the peer's connection when
+	// session is strictly newer than the stored one, stamping LastSeen with the
+	// database clock. It returns false when a newer session already holds the peer or
+	// the peer no longer exists.
+	ConnectPeer(ctx context.Context, accountID, peerID, instanceID string, session int64) (bool, error)
+	// DisconnectPeer releases the peer's connection when an instance still holds it
+	// under session, stamping LastSeen with the database clock. It returns false when
+	// a newer session has replaced it or no instance holds the peer.
+	DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error)
+	// ReleasePeerConnection releases the peer's connection whatever its session,
+	// stamping LastSeen with the database clock only when an instance held it. The
+	// stored session advances so that a re-registration of the released session no
+	// longer matches.
+	ReleasePeerConnection(ctx context.Context, peerID string) error
+	// ReRegisterPeers re-points the connections of sessions at the instance,
+	// overwriting a connection only with a session that is the same or newer. Peers
+	// that no longer exist are skipped.
+	ReRegisterPeers(ctx context.Context, instanceID string, sessions []types.PeerSession) error
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
@@ -624,9 +638,6 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 			return migration.MigrateNewField[types.User](ctx, db, "email", "")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateNewField[nbpeer.Peer](ctx, db, "peer_status_session_started_at", int64(0))
-		},
-		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
 		},
 		func(db *gorm.DB) error {
@@ -714,6 +725,9 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPeerConnections(ctx, db)
 		},
 	}
 }

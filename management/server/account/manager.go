@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -127,7 +128,6 @@ type Manager interface {
 	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time, settings *types.Settings) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error
 	CheckPeerMaySync(ctx context.Context, accountID, peerPubKey string, settings *types.Settings) error
-	MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
@@ -153,4 +153,5 @@ type Manager interface {
 	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
 	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 	SetServiceManager(serviceManager service.Manager)
+	SetPeerLiveness(controller peerliveness.Controller)
 }

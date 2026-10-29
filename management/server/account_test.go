@@ -34,6 +34,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
+	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -1696,6 +1698,104 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
+type deletionRecorder struct {
+	peerliveness.Controller
+	mu                sync.Mutex
+	deletedPeers      []string
+	forgottenAccounts []string
+}
+
+func (r *deletionRecorder) ForgetPeer(peerID string) {
+	r.mu.Lock()
+	r.deletedPeers = append(r.deletedPeers, peerID)
+	r.mu.Unlock()
+	r.Controller.ForgetPeer(peerID)
+}
+
+func (r *deletionRecorder) ForgetAccount(accountID string) {
+	r.mu.Lock()
+	r.forgottenAccounts = append(r.forgottenAccounts, accountID)
+	r.mu.Unlock()
+	r.Controller.ForgetAccount(accountID)
+}
+
+func TestAccountManager_DeletePeer_ForgetsPeerConnection(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	recorder := &deletionRecorder{Controller: manager.peerLiveness}
+	manager.SetPeerLiveness(recorder)
+
+	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
+	require.NoError(t, err)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peerKey := key.PublicKey().String()
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{Key: peerKey, Meta: nbpeer.PeerSystemMeta{Hostname: peerKey}}, false)
+	require.NoError(t, err)
+	require.NoError(t, manager.MarkPeerConnected(context.Background(), peerKey, account.Id, time.Now().UTC().UnixNano(), nil))
+
+	require.NoError(t, manager.DeletePeer(context.Background(), account.Id, peer.ID, userID))
+
+	assert.Equal(t, []string{peer.ID}, recorder.deletedPeers)
+	var remaining int64
+	require.NoError(t, manager.Store.(*store.SqlStore).GetDB().Model(&nbpeer.Connection{}).Where("peer_id = ?", peer.ID).Count(&remaining).Error)
+	assert.Zero(t, remaining, "the connection record goes with the peer")
+}
+
+func TestDeletePeers_ForgetsPeerConnectionOnlyAfterCommit(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	recorder := &deletionRecorder{Controller: manager.peerLiveness}
+	manager.SetPeerLiveness(recorder)
+
+	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
+	require.NoError(t, err)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer, _, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{Key: key.PublicKey().String(), Meta: nbpeer.PeerSystemMeta{Hostname: "forget"}}, false)
+	require.NoError(t, err)
+	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+
+	var afterCommit []func()
+	err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
+		afterCommit, err = deletePeers(context.Background(), manager, transaction, account.Id, userID, []*nbpeer.Peer{peer}, settings)
+		require.NoError(t, err)
+		return errors.New("rollback")
+	})
+	require.Error(t, err)
+	assert.Empty(t, recorder.deletedPeers, "a rolled back deletion must not forget the peer")
+
+	err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
+		afterCommit, err = deletePeers(context.Background(), manager, transaction, account.Id, userID, []*nbpeer.Peer{peer}, settings)
+		return err
+	})
+	require.NoError(t, err)
+	assert.Empty(t, recorder.deletedPeers, "the peer is forgotten once the callbacks run")
+	for _, fn := range afterCommit {
+		fn()
+	}
+	assert.Equal(t, []string{peer.ID}, recorder.deletedPeers)
+}
+
+func TestAccountManager_DeleteAccount_ForgetsLivenessRegistry(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	recorder := &deletionRecorder{Controller: manager.peerLiveness}
+	manager.SetPeerLiveness(recorder)
+
+	account, err := createAccount(manager, "test_account", userID, "")
+	require.NoError(t, err)
+
+	require.NoError(t, manager.DeleteAccount(context.Background(), account.Id, userID))
+
+	assert.Equal(t, []string{account.Id}, recorder.forgottenAccounts)
+}
+
 func getEvent(t *testing.T, accountID string, manager nbAccount.Manager, eventType activity.Activity) *activity.Event {
 	t.Helper()
 	for {
@@ -2195,6 +2295,35 @@ func TestDefaultAccountManager_ExpireAndUpdatePeers_SkipsPeerThatLoggedInAgain(t
 	assert.False(t, updateManager.HasChannel(stalePeer.ID), "the expired peer's update channel must be closed")
 }
 
+func TestDefaultAccountManager_ExpirePeerIfStillDue_ReleasesConnection(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	ctx := context.Background()
+
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+	_, key := addExpiringPeers(t, manager)
+	setPeerLogin(t, manager, accountID, key, false, time.Now().UTC().Add(-2*time.Hour))
+
+	session := time.Now().UnixNano()
+	require.NoError(t, manager.MarkPeerConnected(ctx, key, accountID, session, nil))
+	peer, err := manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+	require.NoError(t, err)
+	require.True(t, peer.Status.Connected, "the peer reads as connected after its stream registered")
+
+	settings := &types.Settings{PeerLoginExpiration: time.Hour, PeerLoginExpirationEnabled: true}
+	expired, err := manager.expirePeerIfStillDue(ctx, accountID, peer.ID, settings, peerExpirationSessionExpired)
+	require.NoError(t, err)
+	require.NotNil(t, expired, "the peer is due for expiration")
+
+	peer, err = manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+	require.NoError(t, err)
+	assert.True(t, peer.Status.LoginExpired)
+	assert.False(t, peer.Status.Connected, "login expiry releases the connection")
+	assert.Equal(t, session+1, peer.Status.SessionStartedAt, "the released session can no longer be re-registered")
+	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "a held connection is stamped on release")
+}
+
 // addExpiringPeers registers two SSO peers with login expiration enabled and returns their public keys.
 func addExpiringPeers(t *testing.T, manager *DefaultAccountManager) (string, string) {
 	t.Helper()
@@ -2217,9 +2346,15 @@ func setPeerLogin(t *testing.T, manager *DefaultAccountManager, accountID, peerK
 	t.Helper()
 	peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerKey)
 	require.NoError(t, err)
-	peer.Status.Connected = connected
 	peer.LastLogin = &lastLogin
 	require.NoError(t, manager.Store.SavePeer(context.Background(), accountID, peer))
+	if !connected {
+		require.NoError(t, manager.Store.ReleasePeerConnection(context.Background(), peer.ID))
+		return
+	}
+	require.NoError(t, manager.Store.RegisterInstance(context.Background(), "test-instance", "test-host"))
+	_, err = manager.Store.ConnectPeer(context.Background(), accountID, peer.ID, "test-instance", time.Now().UnixNano())
+	require.NoError(t, err)
 }
 
 func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
@@ -2418,7 +2553,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 		peer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
 		require.NoError(t, err)
 		require.False(t, peer.Status.Connected, "peer should be disconnected")
-		require.Equal(t, int64(0), peer.Status.SessionStartedAt, "SessionStartedAt should be reset to 0")
+		require.Equal(t, streamStartTime.UnixNano(), peer.Status.SessionStartedAt, "SessionStartedAt stays as the fence of the ended session")
 	})
 
 	t.Run("skip disconnect when stored session is newer (zombie stream protection)", func(t *testing.T) {
@@ -3719,6 +3854,17 @@ func newSettingsMockManager(t testing.TB) *settings.MockManager {
 	return settingsMockManager
 }
 
+// startPeerLiveness gives the manager a started peer liveness controller over its store
+// and releases it when the test ends.
+func startPeerLiveness(t testing.TB, am *DefaultAccountManager) {
+	t.Helper()
+
+	liveness := peerlivenesscontroller.NewController(am.Store)
+	require.NoError(t, liveness.Start(context.Background()))
+	t.Cleanup(func() { _ = liveness.Release(context.Background()) })
+	am.SetPeerLiveness(liveness)
+}
+
 func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb.NetworkMapDBStoreImpl) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
 	t.Helper()
 
@@ -3772,6 +3918,7 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 		return nil, nil, err
 	}
 	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyController, proxyManager, nil))
+	startPeerLiveness(t, manager)
 
 	return manager, updateManager, nil
 }

@@ -64,29 +64,34 @@ func TestConvertToNmdataPeers_RejectsMalformedCertificates(t *testing.T) {
 }
 
 // TestConvertToNmdataPeers_StaleEmbeddedProxyIsNotACandidate: a management instance that
-// stops without marking its peers disconnected leaves the connected flag set. An embedded
-// proxy peer in that state must not become a private service DNS target, or clients
-// resolve the service to a tunnel IP that no longer answers.
+// stops without releasing its peers leaves their connection rows behind. An embedded
+// proxy peer connected through such an instance must not become a private service DNS
+// target, or clients resolve the service to a tunnel IP that no longer answers.
 func TestConvertToNmdataPeers_StaleEmbeddedProxyIsNotACandidate(t *testing.T) {
-	embedded := func(id string, lastSeen time.Time) Peer {
+	embedded := func(id string, session sql.NullInt64, instanceLastSeen time.Time) Peer {
 		return Peer{
-			ID:                  id,
-			PeerStatusConnected: sql.NullBool{Bool: true, Valid: true},
-			PeerStatusLastSeen:  sql.NullTime{Time: lastSeen, Valid: true},
-			ProxyMetaEmbedded:   sql.NullBool{Bool: true, Valid: true},
-			ProxyMetaCluster:    sql.NullString{String: "cluster", Valid: true},
+			ID:                   id,
+			PeerSessionStartedAt: session,
+			InstanceLastSeen:     sql.NullTime{Time: instanceLastSeen, Valid: !instanceLastSeen.IsZero()},
+			ProxyMetaEmbedded:    sql.NullBool{Bool: true, Valid: true},
+			ProxyMetaCluster:     sql.NullString{String: "cluster", Valid: true},
 		}
 	}
+	session := sql.NullInt64{Int64: 1, Valid: true}
 
 	peers, clusterToPeers, err := ConvertToNmdataPeers([]Peer{
-		embedded("live", time.Now().Add(-time.Minute)),
-		embedded("stale", time.Now().Add(-nbpeer.StaleAfter-time.Minute)),
+		embedded("live", session, time.Now().Add(-time.Minute)),
+		embedded("stale", session, time.Now().Add(-nbpeer.StaleAfter-time.Minute)),
+		embedded("no-instance", session, time.Time{}),
+		embedded("no-row", sql.NullInt64{}, time.Time{}),
 	})
 
 	require.NoError(t, err)
-	require.Len(t, peers, 2)
+	require.Len(t, peers, 4)
 	assert.True(t, peers[0].Connected)
-	assert.False(t, peers[1].Connected, "a peer not seen for longer than StaleAfter must read as disconnected")
+	assert.False(t, peers[1].Connected, "a peer on an instance silent for longer than StaleAfter must read as disconnected")
+	assert.False(t, peers[2].Connected, "a peer on a missing instance must read as disconnected")
+	assert.False(t, peers[3].Connected, "a peer without a connection row must read as disconnected")
 	require.Len(t, clusterToPeers["cluster"], 1)
 	assert.Equal(t, "live", clusterToPeers["cluster"][0].ID)
 }

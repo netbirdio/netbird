@@ -20,12 +20,18 @@ func TestGetPeers(t *testing.T) {
 
 	// shouldn't be returned in the index, as it's not connected
 	execQuery(t, ctx,
-		`insert into peers (id,account_id,"key",ssh_key,proxy_meta_embedded,peer_status_connected)
-		 values('peer-4','account-1','key-4','ssh-key-4',true,false)`)
+		`insert into peers (id,account_id,"key",ssh_key,proxy_meta_embedded)
+		 values('peer-4','account-1','key-4','ssh-key-4',true)`)
+	execQuery(t, ctx,
+		`insert into peer_connections (peer_id,account_id,session_started_at)
+		 values('peer-4','account-1',1)`)
 	// shouldn't be returned in the index as it doesn't have cluster set
 	execQuery(t, ctx,
-		`insert into peers (id,account_id,"key",ssh_key,proxy_meta_embedded,peer_status_connected)
-		 values('peer-5','account-1','key-5','ssh-key-5',false,true)`)
+		`insert into peers (id,account_id,"key",ssh_key,proxy_meta_embedded)
+		 values('peer-5','account-1','key-5','ssh-key-5',false)`)
+	execQuery(t, ctx,
+		`insert into peer_connections (peer_id,account_id,instance_id,session_started_at)
+		 values('peer-5','account-1','instance-1',1)`)
 
 	peer1 := nmdata.Peer{
 		ID:                     "peer-id-1",

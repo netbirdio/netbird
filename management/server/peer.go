@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -78,15 +79,14 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	return peers, err
 }
 
-// MarkPeerConnected marks a peer as connected with optimistic-locked
-// fencing on PeerStatus.SessionStartedAt. The sessionStartedAt argument
-// is the start time of the gRPC sync stream that owns this update,
-// expressed as Unix nanoseconds — only the call whose token is greater
-// than what's stored wins. LastSeen is written by the database itself;
-// we never pass it down.
+// MarkPeerConnected records the peer's connection on this management instance with
+// optimistic-locked fencing on the session. The sessionStartedAt argument is the start
+// time of the gRPC sync stream that owns this update, expressed as Unix nanoseconds —
+// only the call whose token is greater than the stored one wins. LastSeen is written by
+// the database itself; we never pass it down.
 //
-// Disconnects use MarkPeerDisconnected and require the session to match
-// exactly; see PeerStatus.SessionStartedAt for the protocol.
+// Disconnects use MarkPeerDisconnected and require the session to match exactly; see
+// PeerStatus.SessionStartedAt for the protocol.
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error {
 	return am.markPeerConnected(ctx, peerPubKey, accountID, sessionStartedAt, nmap, nil)
 }
@@ -109,8 +109,8 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st store.Store) (bool, error) {
-		return st.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st peerliveness.Store) (bool, error) {
+		return am.peerLiveness.Connect(ctx, st, accountID, peer.ID, sessionStartedAt)
 	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
@@ -142,26 +142,36 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 	return nil
 }
 
-// writePeerStatus runs a peer status write. The connection state of an embedded
-// proxy peer is part of the network map, so for those peers an applied write also
-// increments the account network serial in the same transaction.
-func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func(store.Store) (bool, error)) (bool, error) {
+// writePeerStatus runs a peer connection write. The connection state of an embedded
+// proxy peer is part of the network map, so for those peers an applied write is paired
+// with an increment of the account network serial in one transaction. The serial is
+// incremented first and the write is the transaction's last statement, because the
+// controller updates its registry once the write returns and a later failure would
+// leave the registry ahead of the database. A write that does not apply rolls the
+// increment back.
+func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func(peerliveness.Store) (bool, error)) (bool, error) {
 	if !peer.ProxyMeta.Embedded {
 		return write(am.Store)
 	}
 
-	var updated bool
+	errNotApplied := errors.New("peer connection write not applied")
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		var err error
-		if updated, err = write(transaction); err != nil || !updated {
+		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
+		}
+		updated, err := write(transaction)
+		if err != nil {
 			return err
 		}
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("increment network serial: %w", err)
+		if !updated {
+			return errNotApplied
 		}
 		return nil
 	})
-	return updated, err
+	if errors.Is(err, errNotApplied) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // schedulePeerExpirations arms the account's login/inactivity expiration
@@ -203,8 +213,8 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		return err
 	}
 
-	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st store.Store) (bool, error) {
-		return st.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st peerliveness.Store) (bool, error) {
+		return am.peerLiveness.Disconnect(ctx, st, peer.ID, sessionStartedAt)
 	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusError)
@@ -1968,7 +1978,8 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 }
 
 // deletePeers deletes all specified peers and sends updates to the remote peers.
-// Returns a slice of functions to save events after successful peer deletion.
+// Returns a slice of functions to run after the deleting transaction committed: they save
+// the events and drop the peers' liveness registry entries.
 func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer, settings *types.Settings) ([]func(), error) {
 	var peerDeletedEvents []func()
 
@@ -2002,6 +2013,9 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {
 			return nil, err
 		}
+		peerDeletedEvents = append(peerDeletedEvents, func() {
+			am.peerLiveness.ForgetPeer(peer.ID)
+		})
 		if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
 			peerDeletedEvents = append(peerDeletedEvents, func() {
 				am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))

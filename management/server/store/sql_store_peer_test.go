@@ -2,21 +2,18 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"reflect"
 	"sort"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -120,6 +117,7 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 
 	// save new status of existing peer
+	storedLastSeen := time.Now().UTC().Add(-time.Hour)
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
 		ID:     "testpeer",
@@ -127,12 +125,14 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status: &nbpeer.PeerStatus{LastSeen: storedLastSeen},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
+	newStatus.LoginExpired = true
+	newStatus.RequiresApproval = true
 	err = store.SavePeerStatus(context.Background(), account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
@@ -140,13 +140,12 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	actual := account.Peers["testpeer"].Status
-	assert.Equal(t, newStatus.Connected, actual.Connected)
-	assert.Equal(t, newStatus.LoginExpired, actual.LoginExpired)
-	assert.Equal(t, newStatus.RequiresApproval, actual.RequiresApproval)
-	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
+	assert.True(t, actual.LoginExpired)
+	assert.True(t, actual.RequiresApproval)
+	assert.WithinDurationf(t, storedLastSeen, actual.LastSeen.UTC(), time.Millisecond, "LastSeen is not written by SavePeerStatus")
 
-	newStatus.Connected = true
-
+	newStatus.LoginExpired = false
+	newStatus.RequiresApproval = false
 	err = store.SavePeerStatus(context.Background(), account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
@@ -154,10 +153,8 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	actual = account.Peers["testpeer"].Status
-	assert.Equal(t, newStatus.Connected, actual.Connected)
-	assert.Equal(t, newStatus.LoginExpired, actual.LoginExpired)
-	assert.Equal(t, newStatus.RequiresApproval, actual.RequiresApproval)
-	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
+	assert.False(t, actual.LoginExpired)
+	assert.False(t, actual.RequiresApproval)
 }
 
 func TestSqlite_GetTakenIPs(t *testing.T) {
@@ -444,6 +441,11 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), peer)
 	require.NoError(t, err, "failed to add peer to account")
 
+	require.NoError(t, store.RegisterInstance(context.Background(), "instance-1", "host"))
+	applied, err := store.ConnectPeer(context.Background(), accountID, peer.ID, "instance-1", 1)
+	require.NoError(t, err)
+	require.True(t, applied)
+
 	storedPeer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, accountID, peer.ID)
 	require.NoError(t, err, "failed to get peer")
 
@@ -462,9 +464,10 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 	assert.WithinDurationf(t, peer.CreatedAt, storedPeer.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
 	assert.Equal(t, peer.Ephemeral, storedPeer.Ephemeral)
 	assert.Equal(t, peer.Status.Connected, storedPeer.Status.Connected)
+	assert.Equal(t, int64(1), storedPeer.Status.SessionStartedAt)
 	assert.Equal(t, peer.Status.LoginExpired, storedPeer.Status.LoginExpired)
 	assert.Equal(t, peer.Status.RequiresApproval, storedPeer.Status.RequiresApproval)
-	assert.WithinDurationf(t, peer.Status.LastSeen, storedPeer.Status.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
+	assert.WithinDurationf(t, time.Now().UTC(), storedPeer.Status.LastSeen.UTC(), time.Minute, "LastSeen should follow the connection")
 }
 
 func TestSqlStore_GetAccountPeers(t *testing.T) {
@@ -946,147 +949,909 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 	})
 }
 
-func TestSqlStore_MarkPeersDisconnectedIfSameSession(t *testing.T) {
-	ctx := context.Background()
-	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	require.NoError(t, err)
+const peerConnectionAccountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
-	sqlStore := store.(*SqlStore)
-
-	sessionOf := map[string]int64{"peer-a": 101, "peer-b": 102, "peer-c": 103, "peer-d": 104}
-	for id, session := range sessionOf {
-		require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+func addPeerConnectionTestPeers(t *testing.T, store Store, ids ...string) {
+	t.Helper()
+	for i, id := range ids {
+		require.NoError(t, store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
 			ID:        id,
-			AccountID: accountID,
+			AccountID: peerConnectionAccountID,
 			Key:       "key-" + id,
 			DNSLabel:  id,
-			IP:        netip.AddrFrom4([4]byte{10, 9, 0, byte(session)}),
-			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::9:%d", session)),
+			IP:        netip.AddrFrom4([4]byte{10, 9, 2, byte(i + 1)}),
+			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::9:2:%d", i+1)),
+			Status:    &nbpeer.PeerStatus{},
 		}))
-		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
-			"peer_status_connected":          true,
-			"peer_status_session_started_at": session,
-			"peer_status_last_seen":          time.Now().UTC(),
-		}).Error)
-	}
-
-	sessions := []types.PeerSession{{AccountID: accountID, PeerID: "peer-a", SessionStartedAt: 101}}
-	for i := 0; i < markPeersDisconnectedChunkSize+5; i++ {
-		sessions = append(sessions, types.PeerSession{AccountID: accountID, PeerID: fmt.Sprintf("missing-%d", i), SessionStartedAt: 1})
-	}
-	sessions = append(sessions,
-		types.PeerSession{AccountID: accountID, PeerID: "peer-b", SessionStartedAt: 102},
-		types.PeerSession{AccountID: accountID, PeerID: "peer-c", SessionStartedAt: 103},
-		types.PeerSession{AccountID: accountID, PeerID: "peer-d", SessionStartedAt: 999},
-		types.PeerSession{AccountID: accountID, PeerID: "peer-d", SessionStartedAt: 0},
-	)
-
-	marked, err := store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
-	require.NoError(t, err)
-	assert.Equal(t, int64(3), marked)
-
-	for id, wantConnected := range map[string]bool{"peer-a": false, "peer-b": false, "peer-c": false, "peer-d": true} {
-		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, id)
-		require.NoError(t, err)
-		assert.Equal(t, wantConnected, peer.Status.Connected, id)
-		wantSession := int64(0)
-		if wantConnected {
-			wantSession = sessionOf[id]
-		}
-		assert.Equal(t, wantSession, peer.Status.SessionStartedAt, id)
+		setPeerLastSeen(t, store, id, time.Now().UTC().Add(-2*time.Hour))
 	}
 }
 
-func TestSqlStore_MarkPeersDisconnectedIfSameSessionContinuesAfterFailedChunk(t *testing.T) {
-	ctx := context.Background()
-	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	require.NoError(t, err)
-
-	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
-	sqlStore := store.(*SqlStore)
-
-	sessionOf := map[string]int64{"peer-a": 101, "peer-b": 102, "peer-c": 103}
-	for id, session := range sessionOf {
-		require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+func addBulkPeers(t *testing.T, store Store, prefix string, count int) {
+	t.Helper()
+	peers := make([]*nbpeer.Peer, 0, count)
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("%s%d", prefix, i)
+		peers = append(peers, &nbpeer.Peer{
 			ID:        id,
-			AccountID: accountID,
+			AccountID: peerConnectionAccountID,
 			Key:       "key-" + id,
 			DNSLabel:  id,
-			IP:        netip.AddrFrom4([4]byte{10, 9, 0, byte(session)}),
-			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::9:%d", session)),
-		}))
-		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
-			"peer_status_connected":          true,
-			"peer_status_session_started_at": session,
-			"peer_status_last_seen":          time.Now().UTC(),
-		}).Error)
+			IP:        netip.AddrFrom4([4]byte{10, 8, byte(i >> 8), byte(i)}),
+			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::8:%x", i)),
+			Status:    &nbpeer.PeerStatus{},
+		})
 	}
-
-	sessions := []types.PeerSession{{AccountID: accountID, PeerID: "peer-a", SessionStartedAt: 101}}
-	for i := 0; i < markPeersDisconnectedChunkSize-1; i++ {
-		sessions = append(sessions, types.PeerSession{AccountID: accountID, PeerID: fmt.Sprintf("missing-%d", i), SessionStartedAt: 1})
-	}
-	sessions = append(sessions,
-		types.PeerSession{AccountID: accountID, PeerID: "peer-b", SessionStartedAt: 102},
-		types.PeerSession{AccountID: accountID, PeerID: "peer-c", SessionStartedAt: 103},
-	)
-
-	chunkErr := errors.New("deadlock detected")
-	var updates atomic.Int32
-	require.NoError(t, sqlStore.db.Callback().Update().Before("gorm:update").Register("test:fail_first_chunk", func(db *gorm.DB) {
-		if updates.Add(1) == 1 {
-			_ = db.AddError(chunkErr)
-		}
-	}))
-
-	marked, err := store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, chunkErr.Error())
-	assert.Equal(t, int64(2), marked, "only the second chunk is counted")
-	assert.Equal(t, int32(2), updates.Load(), "the second chunk must still run")
-
-	for id, wantConnected := range map[string]bool{"peer-a": true, "peer-b": false, "peer-c": false} {
-		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, id)
-		require.NoError(t, err)
-		assert.Equal(t, wantConnected, peer.Status.Connected, id)
-	}
-
-	cancelled, cancel := context.WithCancel(ctx)
-	cancel()
-	updates.Store(1)
-	marked, err = store.MarkPeersDisconnectedIfSameSession(cancelled, sessions)
-	assert.Zero(t, marked)
-	assert.ErrorContains(t, err, context.Canceled.Error())
-	assert.Equal(t, int32(1), updates.Load(), "no chunk runs once the context is done")
-	assert.Equal(t, 1, strings.Count(err.Error(), context.Canceled.Error()), "a done context is reported once")
+	require.NoError(t, store.(*SqlStore).db.CreateInBatches(peers, 200).Error)
 }
 
-func TestSqlStore_MarkPeerConnectedKeepsLoginExpired(t *testing.T) {
+func setPeerLastSeen(t *testing.T, store Store, peerID string, lastSeen any) {
+	t.Helper()
+	require.NoError(t, store.(*SqlStore).db.Model(&nbpeer.Connection{}).Where("peer_id = ?", peerID).
+		Update("last_seen", lastSeen).Error)
+}
+
+// peerLastSeen reads the stored column of the connection record, not the effective LastSeen
+// of the loaded peer. It returns the zero time when the column is NULL.
+func peerLastSeen(t *testing.T, store Store, peerID string) time.Time {
+	t.Helper()
+	var lastSeen sql.NullTime
+	require.NoError(t, store.(*SqlStore).db.Model(&nbpeer.Connection{}).Where("peer_id = ?", peerID).
+		Select("last_seen").Row().Scan(&lastSeen))
+	return lastSeen.Time.UTC()
+}
+
+func ageInstance(t *testing.T, store Store, id string, age time.Duration) time.Time {
+	t.Helper()
+	lastSeen := time.Now().UTC().Add(-age)
+	require.NoError(t, store.(*SqlStore).db.Model(&nbpeer.ManagementInstance{}).Where("id = ?", id).
+		Update("last_seen", lastSeen).Error)
+	return lastSeen
+}
+
+func getPeerConnection(t *testing.T, store Store, peerID string) *nbpeer.Connection {
+	t.Helper()
+	var rows []nbpeer.Connection
+	require.NoError(t, store.(*SqlStore).db.Where("peer_id = ?", peerID).Find(&rows).Error)
+	if len(rows) == 0 {
+		return nil
+	}
+	return &rows[0]
+}
+
+// instanceOf returns the instance holding the connection, empty when none does.
+func instanceOf(conn *nbpeer.Connection) string {
+	if conn == nil || conn.InstanceID == nil {
+		return ""
+	}
+	return *conn.InstanceID
+}
+
+func countPeerConnections(t *testing.T, store Store, instanceID string) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, store.(*SqlStore).db.Model(&nbpeer.Connection{}).Where("instance_id = ?", instanceID).Count(&count).Error)
+	return count
+}
+
+// peersRow reads the whole stored row of a peer, whatever columns the schema has.
+func peersRow(t *testing.T, store Store, peerID string) map[string]any {
+	t.Helper()
+	row := map[string]any{}
+	require.NoError(t, store.(*SqlStore).db.Table("peers").Where("id = ?", peerID).Take(&row).Error)
+	return row
+}
+
+func TestSqlStore_AddPeerToAccountCreatesConnection(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		registered := time.Now().UTC().Add(-time.Hour)
+		newPeer := func(id string, status *nbpeer.PeerStatus) *nbpeer.Peer {
+			return &nbpeer.Peer{
+				ID: id, AccountID: peerConnectionAccountID, Key: "key-" + id, DNSLabel: id, Status: status,
+				IP:   netip.AddrFrom4([4]byte{10, 9, 3, byte(len(id))}),
+				IPv6: netip.MustParseAddr(fmt.Sprintf("fd00::9:3:%d", len(id))),
+			}
+		}
+
+		require.NoError(t, store.AddPeerToAccount(ctx, newPeer("p1", &nbpeer.PeerStatus{LastSeen: registered})))
+		conn := getPeerConnection(t, store, "p1")
+		require.NotNil(t, conn, "a new peer gets its connection record")
+		assert.Equal(t, peerConnectionAccountID, conn.AccountID)
+		assert.Empty(t, instanceOf(conn))
+		assert.Zero(t, conn.SessionStartedAt)
+		assert.WithinDuration(t, registered, peerLastSeen(t, store, "p1"), time.Second, "last seen is the registration time")
+
+		require.NoError(t, store.AddPeerToAccount(ctx, newPeer("p22", nil)))
+		require.NotNil(t, getPeerConnection(t, store, "p22"))
+		assert.True(t, peerLastSeen(t, store, "p22").IsZero(), "a peer without a status was never seen")
+
+		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, peerConnectionAccountID, "p1")
+		require.NoError(t, err)
+		assert.False(t, peer.Status.Connected)
+		assert.WithinDuration(t, registered, peer.Status.LastSeen.UTC(), time.Second)
+
+		require.Error(t, store.AddPeerToAccount(ctx, newPeer("p1", nil)), "a duplicate peer is rejected")
+	})
+}
+
+func TestSqlStore_ConnectPeerFencing(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+		old := time.Now().UTC().Add(-2 * time.Hour)
+
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		assert.True(t, applied, "first connect applies")
+		conn := getPeerConnection(t, store, "peer-a")
+		assert.Equal(t, "inst-1", instanceOf(conn))
+		assert.Equal(t, int64(100), conn.SessionStartedAt)
+		assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "peer-a"), time.Minute, "an applied connect stamps last seen")
+
+		for name, session := range map[string]int64{"equal session": 100, "older session": 50} {
+			setPeerLastSeen(t, store, "peer-a", old)
+			applied, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-2", session)
+			require.NoError(t, err, name)
+			assert.False(t, applied, name)
+			assert.Equal(t, "inst-1", instanceOf(getPeerConnection(t, store, "peer-a")), name)
+			assert.Equal(t, int64(100), getPeerConnection(t, store, "peer-a").SessionStartedAt, name)
+			assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-a"), time.Second, "%s must not stamp last seen", name)
+		}
+
+		applied, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-2", 200)
+		require.NoError(t, err)
+		assert.True(t, applied, "a newer session takes the peer over")
+		conn = getPeerConnection(t, store, "peer-a")
+		assert.Equal(t, "inst-2", instanceOf(conn))
+		assert.Equal(t, int64(200), conn.SessionStartedAt)
+		assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "peer-a"), time.Minute)
+
+		applied, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-new", "inst-2", 1)
+		require.NoError(t, err)
+		assert.False(t, applied, "a peer that does not exist cannot be connected")
+		assert.Nil(t, getPeerConnection(t, store, "peer-new"), "and gets no orphan record")
+
+		require.NoError(t, store.(*SqlStore).db.Delete(&nbpeer.Connection{}, "peer_id = ?", "peer-a").Error)
+		applied, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-3", 1)
+		require.NoError(t, err)
+		assert.True(t, applied, "an existing peer without a record gets one")
+		assert.Equal(t, "inst-3", instanceOf(getPeerConnection(t, store, "peer-a")))
+	})
+}
+
+func TestSqlStore_ConnectPeerAfterRelease(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+
+		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		released, err := store.DisconnectPeer(ctx, "peer-a", 100)
+		require.NoError(t, err)
+		require.True(t, released)
+
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		assert.False(t, applied, "the released session cannot come back")
+		applied, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-2", 101)
+		require.NoError(t, err)
+		assert.True(t, applied, "a newer session connects the released peer")
+		assert.Equal(t, "inst-2", instanceOf(getPeerConnection(t, store, "peer-a")))
+	})
+}
+
+func TestSqlStore_DisconnectPeerFencing(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+		old := time.Now().UTC().Add(-2 * time.Hour)
+
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		require.True(t, applied)
+		setPeerLastSeen(t, store, "peer-a", old)
+
+		released, err := store.DisconnectPeer(ctx, "peer-a", 99)
+		require.NoError(t, err)
+		assert.False(t, released, "a session that does not hold the connection cannot release it")
+		assert.Equal(t, "inst-1", instanceOf(getPeerConnection(t, store, "peer-a")))
+		assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-a"), time.Second)
+
+		released, err = store.DisconnectPeer(ctx, "peer-a", 100)
+		require.NoError(t, err)
+		assert.True(t, released)
+		conn := getPeerConnection(t, store, "peer-a")
+		require.NotNil(t, conn, "the record stays")
+		assert.Empty(t, instanceOf(conn))
+		assert.Equal(t, int64(100), conn.SessionStartedAt, "the session token stays as the fence")
+		assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "peer-a"), time.Minute, "a disconnect stamps last seen")
+
+		setPeerLastSeen(t, store, "peer-a", old)
+		released, err = store.DisconnectPeer(ctx, "peer-a", 100)
+		require.NoError(t, err)
+		assert.False(t, released, "a second disconnect finds no holder")
+		assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-a"), time.Second, "and leaves last seen alone")
+
+		released, err = store.DisconnectPeer(ctx, "peer-gone", 100)
+		require.NoError(t, err)
+		assert.False(t, released, "a peer that no longer exists is not an error")
+	})
+}
+
+func TestSqlStore_ReleasePeerConnection(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b", "peer-c")
+		for _, id := range []string{"peer-a", "peer-b"} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, id, "inst-1", 100)
+			require.NoError(t, err)
+		}
+		old := time.Now().UTC().Add(-2 * time.Hour)
+		for _, id := range []string{"peer-a", "peer-b", "peer-c"} {
+			setPeerLastSeen(t, store, id, old)
+		}
+
+		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-a"))
+		conn := getPeerConnection(t, store, "peer-a")
+		require.NotNil(t, conn, "the record stays")
+		assert.Empty(t, instanceOf(conn), "the session is released whatever its token")
+		assert.Equal(t, int64(101), conn.SessionStartedAt, "the released session no longer matches its own token")
+		assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "peer-a"), time.Minute, "a held connection is stamped")
+		assert.Equal(t, "inst-1", instanceOf(getPeerConnection(t, store, "peer-b")))
+
+		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-c"))
+		assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-c"), time.Second, "a peer no instance held keeps its last seen")
+		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-gone"), "releasing a missing record is not an error")
+	})
+}
+
+func TestSqlStore_RegisterAndHeartbeatInstance(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		getInstance := func(id string) *nbpeer.ManagementInstance {
+			var rows []nbpeer.ManagementInstance
+			require.NoError(t, store.(*SqlStore).db.Where("id = ?", id).Find(&rows).Error)
+			if len(rows) == 0 {
+				return nil
+			}
+			return &rows[0]
+		}
+
+		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "host-a"))
+		got := getInstance("inst-1")
+		require.NotNil(t, got)
+		assert.Equal(t, "host-a", got.Hostname)
+		assert.WithinDuration(t, time.Now().UTC(), got.StartedAt.UTC(), time.Minute)
+		assert.WithinDuration(t, time.Now().UTC(), got.LastSeen.UTC(), time.Minute)
+
+		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "host-b"))
+		assert.Equal(t, "host-b", getInstance("inst-1").Hostname, "registering an existing id updates it")
+
+		ageInstance(t, store, "inst-1", time.Minute)
+		alive, err := store.HeartbeatInstance(ctx, "inst-1")
+		require.NoError(t, err)
+		assert.True(t, alive, "a fresh row heartbeats")
+		assert.WithinDuration(t, time.Now().UTC(), getInstance("inst-1").LastSeen.UTC(), 10*time.Second)
+
+		stale := ageInstance(t, store, "inst-1", nbpeer.StaleAfter+time.Minute)
+		alive, err = store.HeartbeatInstance(ctx, "inst-1")
+		require.NoError(t, err)
+		assert.False(t, alive, "a stale row must not be revived")
+		assert.WithinDuration(t, stale, getInstance("inst-1").LastSeen.UTC(), time.Second)
+
+		alive, err = store.HeartbeatInstance(ctx, "inst-missing")
+		require.NoError(t, err)
+		assert.False(t, alive, "a missing row cannot heartbeat")
+	})
+}
+
+func TestSqlStore_SweepInstanceChunk(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b", "peer-c", "peer-d")
+		require.NoError(t, store.RegisterInstance(ctx, "inst-dead", "dead"))
+		require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
+		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.StaleAfter+time.Minute)
+
+		for peerID, instanceID := range map[string]string{"peer-a": "inst-dead", "peer-b": "inst-dead", "peer-c": "inst-dead", "peer-d": "inst-live"} {
+			applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, instanceID, 100)
+			require.NoError(t, err)
+			require.True(t, applied)
+		}
+		old := time.Now().UTC().Add(-2 * time.Hour)
+		newer := time.Now().UTC().Add(-time.Minute)
+		setPeerLastSeen(t, store, "peer-a", old)
+		setPeerLastSeen(t, store, "peer-b", newer)
+		setPeerLastSeen(t, store, "peer-c", nil)
+		setPeerLastSeen(t, store, "peer-d", old)
+
+		stale, err := store.ListStaleInstances(ctx)
+		require.NoError(t, err)
+		require.Len(t, stale, 1, "only the aged instance is stale")
+		assert.Equal(t, "inst-dead", stale[0].ID)
+		assert.WithinDuration(t, deadSeen, stale[0].LastSeen.UTC(), time.Second)
+
+		swept, err := store.SweepInstanceChunk(ctx, "inst-live", deadSeen, 10)
+		require.NoError(t, err)
+		assert.Zero(t, swept, "a fresh instance is never swept")
+		assert.Equal(t, "inst-live", instanceOf(getPeerConnection(t, store, "peer-d")))
+		assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-d"), time.Second)
+
+		swept, err = store.SweepInstanceChunk(ctx, "inst-dead", deadSeen, 2)
+		require.NoError(t, err)
+		assert.Equal(t, 2, swept, "a chunk is bounded by the limit")
+		assert.Equal(t, int64(1), countPeerConnections(t, store, "inst-dead"))
+
+		swept, err = store.SweepInstanceChunk(ctx, "inst-dead", deadSeen, 2)
+		require.NoError(t, err)
+		assert.Equal(t, 1, swept)
+		assert.Zero(t, countPeerConnections(t, store, "inst-dead"))
+		for _, id := range []string{"peer-a", "peer-b", "peer-c"} {
+			conn := getPeerConnection(t, store, id)
+			require.NotNil(t, conn, "%s keeps its record", id)
+			assert.Empty(t, instanceOf(conn), id)
+			assert.Equal(t, int64(100), conn.SessionStartedAt, id)
+		}
+
+		assert.WithinDuration(t, deadSeen, peerLastSeen(t, store, "peer-a"), time.Second, "last seen rises to the instance's last heartbeat")
+		assert.WithinDuration(t, newer, peerLastSeen(t, store, "peer-b"), time.Second, "last seen never moves backwards")
+		assert.WithinDuration(t, deadSeen, peerLastSeen(t, store, "peer-c"), time.Second, "an unset last seen is filled")
+
+		swept, err = store.SweepInstanceChunk(ctx, "inst-dead", deadSeen, 2)
+		require.NoError(t, err)
+		assert.Zero(t, swept, "a second sweep is a no-op")
+		assert.WithinDuration(t, deadSeen, peerLastSeen(t, store, "peer-a"), time.Second)
+
+		deleted, err := store.DeleteInstanceIfStale(ctx, "inst-live")
+		require.NoError(t, err)
+		assert.False(t, deleted, "a fresh instance row stays")
+		deleted, err = store.DeleteInstanceIfStale(ctx, "inst-dead")
+		require.NoError(t, err)
+		assert.True(t, deleted)
+		stale, err = store.ListStaleInstances(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, stale)
+	})
+}
+
+func TestSqlStore_SweepOrphanedInstance(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b", "peer-c", "peer-d")
+		require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
+		for peerID, instanceID := range map[string]string{"peer-a": "inst-ghost", "peer-b": "inst-ghost", "peer-c": "inst-live", "peer-d": "inst-ghost"} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, instanceID, 100)
+			require.NoError(t, err)
+		}
+		old := time.Now().UTC().Add(-2 * time.Hour)
+		setPeerLastSeen(t, store, "peer-a", old)
+		setPeerLastSeen(t, store, "peer-b", nil)
+		future := time.Now().UTC().Add(time.Hour)
+		setPeerLastSeen(t, store, "peer-d", future)
+
+		stale, err := store.ListStaleInstances(ctx)
+		require.NoError(t, err)
+		require.Len(t, stale, 1, "an instance ID with connections and no instance row is listed once")
+		assert.Equal(t, "inst-ghost", stale[0].ID)
+		assert.True(t, stale[0].LastSeen.IsZero())
+
+		swept, err := store.SweepInstanceChunk(ctx, "inst-ghost", stale[0].LastSeen, 10)
+		require.NoError(t, err)
+		assert.Equal(t, 3, swept)
+		assert.Zero(t, countPeerConnections(t, store, "inst-ghost"))
+		assert.Equal(t, "inst-live", instanceOf(getPeerConnection(t, store, "peer-c")))
+
+		now := time.Now().UTC()
+		assert.WithinDuration(t, now, peerLastSeen(t, store, "peer-a"), time.Minute, "an orphan's peers are stamped with the database clock")
+		assert.WithinDuration(t, now, peerLastSeen(t, store, "peer-b"), time.Minute, "an unset last seen is filled")
+		assert.WithinDuration(t, future, peerLastSeen(t, store, "peer-d"), time.Second, "last seen never moves backwards")
+
+		stale, err = store.ListStaleInstances(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, stale)
+	})
+}
+
+func TestSqlStore_ListStaleInstancesOrphans(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		peerIDs := []string{"peer-a", "peer-b", "peer-c", "peer-d", "peer-e", "peer-f", "peer-g"}
+		addPeerConnectionTestPeers(t, store, peerIDs...)
+		require.NoError(t, store.RegisterInstance(ctx, "inst-b", "live"))
+
+		stale, err := store.ListStaleInstances(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, stale, "records without an instance are not orphans")
+
+		holders := map[string]string{
+			"peer-a": "inst-a", "peer-b": "inst-b", "peer-c": "inst-a", "peer-d": "inst-c", "peer-e": "inst-d", "peer-f": "inst-d",
+		}
+		for peerID, instanceID := range holders {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, instanceID, 100)
+			require.NoError(t, err)
+		}
+
+		stale, err = store.ListStaleInstances(ctx)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(stale))
+		for _, instance := range stale {
+			assert.True(t, instance.LastSeen.IsZero(), instance.ID)
+			ids = append(ids, instance.ID)
+		}
+		assert.ElementsMatch(t, []string{"inst-a", "inst-c", "inst-d"}, ids, "each orphan is listed once and the live instance is not")
+	})
+}
+
+func TestSqlStore_SweepInstanceChunkKeepsRowsThatMoved(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b")
+		require.NoError(t, store.RegisterInstance(ctx, "inst-dead", "dead"))
+		require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
+		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.StaleAfter+time.Minute)
+		for _, id := range []string{"peer-a", "peer-b"} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, id, "inst-dead", 100)
+			require.NoError(t, err)
+		}
+
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-live", 200)
+		require.NoError(t, err)
+		require.True(t, applied)
+
+		swept, err := store.SweepInstanceChunk(ctx, "inst-dead", deadSeen, 10)
+		require.NoError(t, err)
+		assert.Equal(t, 1, swept)
+		moved := getPeerConnection(t, store, "peer-a")
+		require.NotNil(t, moved)
+		assert.Equal(t, "inst-live", instanceOf(moved), "a connection that moved to a live instance survives")
+		assert.Empty(t, instanceOf(getPeerConnection(t, store, "peer-b")))
+		assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "peer-a"), time.Minute, "the swept instance does not touch a moved peer's last seen")
+	})
+}
+
+func TestSqlStore_ReleaseInstance(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b", "peer-c")
+		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
+		require.NoError(t, store.RegisterInstance(ctx, "inst-2", "two"))
+		for peerID, instanceID := range map[string]string{"peer-a": "inst-1", "peer-b": "inst-1", "peer-c": "inst-2"} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, instanceID, 100)
+			require.NoError(t, err)
+		}
+		old := time.Now().UTC().Add(-2 * time.Hour)
+		for _, id := range []string{"peer-a", "peer-b", "peer-c"} {
+			setPeerLastSeen(t, store, id, old)
+		}
+
+		require.NoError(t, store.ReleaseInstance(ctx, "inst-1"))
+
+		assert.Zero(t, countPeerConnections(t, store, "inst-1"))
+		assert.Equal(t, int64(1), countPeerConnections(t, store, "inst-2"))
+		for _, id := range []string{"peer-a", "peer-b"} {
+			conn := getPeerConnection(t, store, id)
+			require.NotNil(t, conn, "%s keeps its record", id)
+			assert.Empty(t, instanceOf(conn), id)
+			assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, id), time.Minute, id)
+		}
+		assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-c"), time.Second, "peers of other instances are untouched")
+
+		var ids []string
+		require.NoError(t, store.(*SqlStore).db.Model(&nbpeer.ManagementInstance{}).Order("id").Pluck("id", &ids).Error)
+		assert.Equal(t, []string{"inst-2"}, ids)
+	})
+}
+
+func TestSqlStore_ReRegisterPeers(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b", "peer-c")
+		require.NoError(t, store.(*SqlStore).db.Delete(&nbpeer.Connection{}, "peer_id = ?", "peer-c").Error)
+		addBulkPeers(t, store, "bulk-", peerConnectionChunkSize+5)
+		for peerID, session := range map[string]int64{"peer-a": 100, "peer-b": 200} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, "inst-old", session)
+			require.NoError(t, err)
+		}
+		released, err := store.DisconnectPeer(ctx, "peer-a", 100)
+		require.NoError(t, err)
+		require.True(t, released)
+
+		sessions := []types.PeerSession{
+			{AccountID: peerConnectionAccountID, PeerID: "peer-a", SessionStartedAt: 100},
+			{AccountID: peerConnectionAccountID, PeerID: "peer-b", SessionStartedAt: 150},
+			{AccountID: peerConnectionAccountID, PeerID: "peer-c", SessionStartedAt: 300},
+			{AccountID: peerConnectionAccountID, PeerID: "peer-gone", SessionStartedAt: 300},
+		}
+		for i := 0; i < peerConnectionChunkSize+5; i++ {
+			sessions = append(sessions, types.PeerSession{AccountID: peerConnectionAccountID, PeerID: fmt.Sprintf("bulk-%d", i), SessionStartedAt: 1})
+		}
+
+		require.NoError(t, store.ReRegisterPeers(ctx, "inst-new", sessions))
+
+		a := getPeerConnection(t, store, "peer-a")
+		assert.Equal(t, "inst-new", instanceOf(a), "an equal session is re-pointed")
+		assert.Equal(t, int64(100), a.SessionStartedAt)
+		b := getPeerConnection(t, store, "peer-b")
+		assert.Equal(t, "inst-old", instanceOf(b), "an older session never overwrites a newer record")
+		assert.Equal(t, int64(200), b.SessionStartedAt)
+		c := getPeerConnection(t, store, "peer-c")
+		require.NotNil(t, c, "a missing record of an existing peer is inserted")
+		assert.Equal(t, "inst-new", instanceOf(c))
+		assert.Equal(t, int64(300), c.SessionStartedAt)
+		assert.Nil(t, getPeerConnection(t, store, "peer-gone"), "a peer that does not exist gets no record")
+		assert.Equal(t, int64(2+peerConnectionChunkSize+5), countPeerConnections(t, store, "inst-new"), "every chunk is written")
+
+		require.NoError(t, store.ReRegisterPeers(ctx, "inst-new", nil))
+	})
+}
+
+func TestSqlStore_ReRegisterPeersReclaimsSweptButNotReleased(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-swept", "peer-expired", "peer-expired-newer")
+		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
+		lastSeen := ageInstance(t, store, "inst-1", nbpeer.StaleAfter+time.Minute)
+		for _, id := range []string{"peer-swept", "peer-expired", "peer-expired-newer"} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, id, "inst-1", 100)
+			require.NoError(t, err)
+		}
+
+		swept, err := store.SweepInstanceChunk(ctx, "inst-1", lastSeen, 10)
+		require.NoError(t, err)
+		require.Equal(t, 3, swept)
+		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-expired"))
+		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-expired-newer"))
+
+		require.NoError(t, store.ReRegisterPeers(ctx, "inst-2", []types.PeerSession{
+			{AccountID: peerConnectionAccountID, PeerID: "peer-swept", SessionStartedAt: 100},
+			{AccountID: peerConnectionAccountID, PeerID: "peer-expired", SessionStartedAt: 100},
+		}))
+		assert.Equal(t, "inst-2", instanceOf(getPeerConnection(t, store, "peer-swept")), "a swept connection is reclaimed by its own session")
+		assert.Empty(t, instanceOf(getPeerConnection(t, store, "peer-expired")), "a released connection is not reclaimed by the released session")
+
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-expired-newer", "inst-2", 100+1_000_000)
+		require.NoError(t, err)
+		assert.True(t, applied, "a later session still claims a released peer")
+	})
+}
+
+func TestSqlStore_LivenessWritesLeavePeersRowAlone(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b")
+		before := peersRow(t, store, "peer-a")
+		require.NotEmpty(t, before)
+		beforeOther := peersRow(t, store, "peer-b")
+		unchanged := func(step string) {
+			t.Helper()
+			assert.Equal(t, before, peersRow(t, store, "peer-a"), "%s must not write the peers row", step)
+			assert.Equal(t, beforeOther, peersRow(t, store, "peer-b"), "%s must not write the peers row", step)
+		}
+
+		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
+		require.NoError(t, store.RegisterInstance(ctx, "inst-dead", "dead"))
+		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.StaleAfter+time.Minute)
+
+		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		unchanged("ConnectPeer")
+		_, err = store.DisconnectPeer(ctx, "peer-a", 100)
+		require.NoError(t, err)
+		unchanged("DisconnectPeer")
+		_, err = store.RefreshPeerLastSeen(ctx, peerConnectionAccountID, "peer-a", time.Now().UTC().Add(time.Hour))
+		require.NoError(t, err)
+		unchanged("RefreshPeerLastSeen")
+		_, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-dead", 200)
+		require.NoError(t, err)
+		_, err = store.SweepInstanceChunk(ctx, "inst-dead", deadSeen, 10)
+		require.NoError(t, err)
+		unchanged("SweepInstanceChunk")
+		_, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 300)
+		require.NoError(t, err)
+		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-a"))
+		unchanged("ReleasePeerConnection")
+		require.NoError(t, store.ReRegisterPeers(ctx, "inst-1", []types.PeerSession{{AccountID: peerConnectionAccountID, PeerID: "peer-a", SessionStartedAt: 300}}))
+		unchanged("ReRegisterPeers")
+		require.NoError(t, store.ReleaseInstance(ctx, "inst-1"))
+		unchanged("ReleaseInstance")
+	})
+}
+
+func TestSqlStore_DeletePeerRemovesConnection(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b")
+		for _, id := range []string{"peer-a", "peer-b"} {
+			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, id, "inst-1", 100)
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, store.DeletePeer(ctx, peerConnectionAccountID, "peer-a"))
+
+		assert.Nil(t, getPeerConnection(t, store, "peer-a"))
+		assert.NotNil(t, getPeerConnection(t, store, "peer-b"))
+		assert.Error(t, store.DeletePeer(ctx, peerConnectionAccountID, "peer-a"), "a missing peer is still reported")
+	})
+}
+
+func TestSqlStore_DeletePeerWithWrongAccountKeepsConnection(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+
+		require.Error(t, store.DeletePeer(ctx, "other-account", "peer-a"))
+
+		conn := getPeerConnection(t, store, "peer-a")
+		require.NotNil(t, conn, "a delete scoped to another account keeps the record")
+		assert.Equal(t, "inst-1", instanceOf(conn))
+		_, err = store.GetPeerByID(ctx, LockingStrengthNone, peerConnectionAccountID, "peer-a")
+		require.NoError(t, err)
+	})
+}
+
+func TestSqlStore_DeleteAccountRemovesConnections(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		require.NoError(t, store.(*SqlStore).db.Exec("INSERT INTO accounts (id) VALUES ('other-account')").Error)
+		require.NoError(t, store.(*SqlStore).db.Create(&nbpeer.Peer{ID: "other-peer", AccountID: "other-account", Status: &nbpeer.PeerStatus{}}).Error)
+		_, err = store.ConnectPeer(ctx, "other-account", "other-peer", "inst-1", 100)
+		require.NoError(t, err)
+
+		account, err := store.GetAccount(ctx, peerConnectionAccountID)
+		require.NoError(t, err)
+		require.NoError(t, store.DeleteAccount(ctx, account))
+
+		assert.Nil(t, getPeerConnection(t, store, "peer-a"))
+		assert.NotNil(t, getPeerConnection(t, store, "other-peer"), "other accounts keep their rows")
+	})
+}
+
+var peerConnectionStateIDs = []string{"peer-a", "peer-b", "peer-c", "peer-d", "peer-e"}
+
+// seedPeerConnectionStates creates peers in five connection states and returns the
+// expected effective LastSeen of each: a is held by a live instance, b by a stale one, c
+// by none, d by an instance that is gone and e has no connection record at all.
+func seedPeerConnectionStates(t *testing.T, store Store) map[string]time.Time {
+	t.Helper()
 	ctx := context.Background()
-	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
+	addPeerConnectionTestPeers(t, store, peerConnectionStateIDs...)
+	require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
+	require.NoError(t, store.RegisterInstance(ctx, "inst-stale", "stale"))
+	liveSeen := ageInstance(t, store, "inst-live", time.Minute)
+	staleSeen := ageInstance(t, store, "inst-stale", nbpeer.StaleAfter+time.Minute)
+
+	for peerID, session := range map[string]int64{"peer-a": 100, "peer-b": 200} {
+		instance := map[string]string{"peer-a": "inst-live", "peer-b": "inst-stale"}[peerID]
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, instance, session)
+		require.NoError(t, err)
+		require.True(t, applied)
+	}
+	_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-d", "inst-gone", 300)
+	require.NoError(t, err)
+	_, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-c", "inst-live", 400)
+	require.NoError(t, err)
+	released, err := store.DisconnectPeer(ctx, "peer-c", 400)
+	require.NoError(t, err)
+	require.True(t, released)
+
+	own := time.Now().UTC().Add(-2 * time.Hour)
+	for _, id := range []string{"peer-a", "peer-b", "peer-c", "peer-d"} {
+		setPeerLastSeen(t, store, id, own)
+	}
+	require.NoError(t, store.(*SqlStore).db.Delete(&nbpeer.Connection{}, "peer_id = ?", "peer-e").Error)
+	return map[string]time.Time{"peer-a": liveSeen, "peer-b": staleSeen, "peer-c": own, "peer-d": own, "peer-e": {}}
+}
+
+var peerConnectionStateWant = map[string]struct {
+	connected bool
+	session   int64
+}{
+	"peer-a": {connected: true, session: 100},
+	"peer-b": {session: 200},
+	"peer-c": {session: 400},
+	"peer-d": {session: 300},
+	"peer-e": {},
+}
+
+func assertPeerConnectionState(t *testing.T, name string, wantLen int, peers []*nbpeer.Peer, lastSeen map[string]time.Time) {
+	t.Helper()
+	got := 0
+	for _, peer := range peers {
+		want, ok := peerConnectionStateWant[peer.ID]
+		if !ok {
+			continue
+		}
+		got++
+		require.NotNil(t, peer.Status, "%s %s", name, peer.ID)
+		assert.Equal(t, want.connected, peer.Status.Connected, "%s %s connected", name, peer.ID)
+		assert.Equal(t, want.session, peer.Status.SessionStartedAt, "%s %s session", name, peer.ID)
+		assert.WithinDuration(t, lastSeen[peer.ID], peer.Status.LastSeen.UTC(), time.Second, "%s %s last seen", name, peer.ID)
+	}
+	assert.Equal(t, wantLen, got, "%s returns the seeded peers", name)
+}
+
+func TestSqlStore_PeerStatusFromConnections(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		lastSeen := seedPeerConnectionStates(t, store)
+		sqlStore := store.(*SqlStore)
+		ids := peerConnectionStateIDs
+
+		for i, id := range ids {
+			byID, err := store.GetPeerByID(ctx, LockingStrengthNone, peerConnectionAccountID, id)
+			require.NoError(t, err)
+			byKey, err := store.GetPeerByPeerPubKey(ctx, LockingStrengthNone, "key-"+id)
+			require.NoError(t, err)
+			byIP, err := store.GetPeerByIP(ctx, LockingStrengthNone, peerConnectionAccountID, net.IPv4(10, 9, 2, byte(i+1)))
+			require.NoError(t, err)
+			assertPeerConnectionState(t, "GetPeerByID", 1, []*nbpeer.Peer{byID}, lastSeen)
+			assertPeerConnectionState(t, "GetPeerByPeerPubKey", 1, []*nbpeer.Peer{byKey}, lastSeen)
+			assertPeerConnectionState(t, "GetPeerByIP", 1, []*nbpeer.Peer{byIP}, lastSeen)
+		}
+
+		byIDs, err := store.GetPeersByIDs(ctx, LockingStrengthNone, peerConnectionAccountID, ids)
+		require.NoError(t, err)
+		list := make([]*nbpeer.Peer, 0, len(byIDs))
+		for _, peer := range byIDs {
+			list = append(list, peer)
+		}
+		assertPeerConnectionState(t, "GetPeersByIDs", 5, list, lastSeen)
+
+		all, err := store.GetAccountPeers(ctx, LockingStrengthNone, peerConnectionAccountID, "", "", "")
+		require.NoError(t, err)
+		assertPeerConnectionState(t, "GetAccountPeers", 5, all, lastSeen)
+
+		paginated, _, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, peerConnectionAccountID, PaginationState{}, PeerFilters{}, PeerSorting{})
+		require.NoError(t, err)
+		assertPeerConnectionState(t, "GetAccountPeersPaginated", 5, paginated, lastSeen)
+
+		account, err := sqlStore.getAccountGorm(ctx, peerConnectionAccountID)
+		require.NoError(t, err)
+		accountPeers := make([]*nbpeer.Peer, 0, len(account.Peers))
+		for _, peer := range account.Peers {
+			accountPeers = append(accountPeers, peer)
+		}
+		assertPeerConnectionState(t, "getAccountGorm", 5, accountPeers, lastSeen)
+
+		if sqlStore.pgxPool() != nil {
+			account, err = sqlStore.getAccountPgx(ctx, peerConnectionAccountID)
+			require.NoError(t, err)
+			accountPeers = accountPeers[:0]
+			for _, peer := range account.Peers {
+				accountPeers = append(accountPeers, peer)
+			}
+			assertPeerConnectionState(t, "getAccountPgx", 5, accountPeers, lastSeen)
+		}
+	})
+}
+
+func TestSqlStore_PeerStatusFromConnectionsExpirationAndEphemeralLoaders(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		lastSeen := seedPeerConnectionStates(t, store)
+		sqlStore := store.(*SqlStore)
+		for _, id := range peerConnectionStateIDs {
+			require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
+				"login_expiration_enabled":      true,
+				"inactivity_expiration_enabled": true,
+				"ephemeral":                     true,
+				"user_id":                       "user-with-peers",
+			}).Error)
+		}
+
+		withExpiration, err := store.GetAccountPeersWithExpiration(ctx, LockingStrengthNone, peerConnectionAccountID)
+		require.NoError(t, err)
+		assertPeerConnectionState(t, "GetAccountPeersWithExpiration", 5, withExpiration, lastSeen)
+
+		withInactivity, err := store.GetAccountPeersWithInactivity(ctx, LockingStrengthNone, peerConnectionAccountID)
+		require.NoError(t, err)
+		assertPeerConnectionState(t, "GetAccountPeersWithInactivity", 5, withInactivity, lastSeen)
+
+		ephemeral, err := store.GetAllEphemeralPeers(ctx, LockingStrengthNone)
+		require.NoError(t, err)
+		assertPeerConnectionState(t, "GetAllEphemeralPeers", 5, ephemeral, lastSeen)
+
+		userPeers, err := store.GetUserPeers(ctx, LockingStrengthNone, peerConnectionAccountID, "user-with-peers")
+		require.NoError(t, err)
+		assertPeerConnectionState(t, "GetUserPeers", 5, userPeers, lastSeen)
+	})
+}
+
+func TestSqlStore_PeersFilterAndSortByConnection(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		seedPeerConnectionStates(t, store)
+		recent := time.Now().UTC().Add(-30 * time.Second)
+		setPeerLastSeen(t, store, "peer-d", recent)
+
+		names := func(peers []*nbpeer.Peer) []string {
+			ids := make([]string, 0, len(peers))
+			for _, p := range peers {
+				ids = append(ids, p.ID)
+			}
+			return ids
+		}
+
+		connected, count, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, peerConnectionAccountID, PaginationState{}, PeerFilters{Connected: new(true)}, PeerSorting{})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"peer-a"}, names(connected), "only a peer held by a live instance is connected")
+		assert.Equal(t, 1, count)
+
+		disconnected, count, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, peerConnectionAccountID, PaginationState{}, PeerFilters{Connected: new(false)}, PeerSorting{})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"peer-b", "peer-c", "peer-d", "peer-e"}, names(disconnected),
+			"stale instance, no holder, missing instance and no record are disconnected")
+		assert.Equal(t, 4, count)
+
+		sorted := []string{"peer-a", "peer-b", "peer-c", "peer-d"}
+		ascending, _, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, peerConnectionAccountID, PaginationState{}, PeerFilters{PeersIds: sorted},
+			PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByLastSeen}}})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"peer-c", "peer-b", "peer-a", "peer-d"}, names(ascending),
+			"sorted by the later of the record's and its instance's last seen")
+
+		descending, _, err := store.GetAccountPeersPaginated(ctx, LockingStrengthNone, peerConnectionAccountID, PaginationState{Page: 1, PageSize: 2}, PeerFilters{PeersIds: sorted},
+			PeerSorting{Fields: []PeerSortingKey{{Field: PeerSortByLastSeen, Order: DescOrderBy}}})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"peer-d", "peer-a"}, names(descending))
+	})
+}
+
+func TestSqlStore_SavePeerLeavesConnectionAlone(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
+		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 5)
+		require.NoError(t, err)
+		stored := time.Now().UTC().Add(-3 * time.Hour)
+		setPeerLastSeen(t, store, "peer-a", stored)
+		before := peersRow(t, store, "peer-a")
+
+		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, peerConnectionAccountID, "peer-a")
+		require.NoError(t, err)
+		peer.Name = "renamed"
+		peer.Status = &nbpeer.PeerStatus{Connected: false, SessionStartedAt: 0, LastSeen: time.Now().UTC(), LoginExpired: true}
+		require.NoError(t, store.SavePeer(ctx, peerConnectionAccountID, peer))
+
+		conn := getPeerConnection(t, store, "peer-a")
+		assert.Equal(t, "inst-1", instanceOf(conn))
+		assert.Equal(t, int64(5), conn.SessionStartedAt)
+		assert.WithinDuration(t, stored, peerLastSeen(t, store, "peer-a"), time.Second)
+
+		after := peersRow(t, store, "peer-a")
+		for column, value := range before {
+			if column == "name" || column == "peer_status_login_expired" || column == "peer_status_requires_approval" {
+				continue
+			}
+			assert.Equal(t, value, after[column], "SavePeer must not change column %s", column)
+		}
+		reloaded, err := store.GetPeerByID(ctx, LockingStrengthNone, peerConnectionAccountID, "peer-a")
+		require.NoError(t, err)
+		assert.Equal(t, "renamed", reloaded.Name)
+		assert.True(t, reloaded.Status.LoginExpired, "the other status columns are still saved")
+		assert.True(t, reloaded.Status.Connected, "the connection state comes from the connection record")
+	})
+}
+
+func TestSqlStore_LegacyPeerLastSeenBackfilled(t *testing.T) {
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	require.NoError(t, err)
 
-	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
-	require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
-		ID:        "expired-peer",
-		AccountID: accountID,
-		Key:       "key-expired-peer",
-		DNSLabel:  "expired-peer",
-		IP:        netip.AddrFrom4([4]byte{10, 9, 1, 1}),
-		IPv6:      netip.MustParseAddr("fd00::9:101"),
-		Status:    &nbpeer.PeerStatus{LoginExpired: true},
-	}))
+	conn := getPeerConnection(t, store, "ct286bi7qv930dsrrug0")
+	require.NotNil(t, conn, "a peer of the legacy schema gets a connection record on startup")
+	assert.Equal(t, peerConnectionAccountID, conn.AccountID)
+	assert.Empty(t, instanceOf(conn))
 
-	updated, err := store.MarkPeerConnectedIfNewerSession(ctx, accountID, "expired-peer", 1)
+	peer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, peerConnectionAccountID, "ct286bi7qv930dsrrug0")
 	require.NoError(t, err)
-	require.True(t, updated)
-
-	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, "expired-peer")
-	require.NoError(t, err)
-	assert.True(t, peer.Status.Connected)
-	assert.True(t, peer.Status.LoginExpired, "connecting must not clear a login expiry")
+	assert.False(t, peer.Status.Connected)
+	assert.True(t, time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).Equal(peer.Status.LastSeen.UTC()), "LastSeen = %v", peer.Status.LastSeen)
 }

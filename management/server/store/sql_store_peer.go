@@ -59,11 +59,7 @@ func (s *SqlStore) SavePeerStatus(ctx context.Context, accountID, peerID string,
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
 
-	fieldsToUpdate := []string{
-		"peer_status_last_seen", "peer_status_session_started_at",
-		"peer_status_connected", "peer_status_login_expired",
-		"peer_status_requires_approval",
-	}
+	fieldsToUpdate := []string{"peer_status_login_expired", "peer_status_requires_approval"}
 	result := s.db.Model(&nbpeer.Peer{}).
 		Select(fieldsToUpdate).
 		Where(accountAndIDQueryCondition, accountID, peerID).
@@ -79,113 +75,6 @@ func (s *SqlStore) SavePeerStatus(ctx context.Context, accountID, peerID string,
 	return nil
 }
 
-// MarkPeerConnectedIfNewerSession is an atomic optimistic-locked update.
-// The peer is marked connected with the given session token only when
-// the stored SessionStartedAt is strictly smaller than the incoming
-// one — equivalently, when no newer stream has already taken ownership.
-// The sentinel zero (set on peer creation or after a disconnect) counts
-// as the smallest possible token. This is the write half of the
-// fencing protocol described on PeerStatus.SessionStartedAt.
-//
-// The post-write side effects in the caller — geo lookup,
-// schedulePeerLoginExpiration, checkAndSchedulePeerInactivityExpiration,
-// OnPeersUpdated — all run AFTER this method returns and are deliberately
-// outside the database write so they cannot extend the row-lock window.
-//
-// LastSeen is set to the database's clock (CURRENT_TIMESTAMP) at the
-// moment the row is written. The caller never supplies LastSeen because
-// the value would otherwise drift under lock contention — a Go-side
-// time.Now() taken before the write can land minutes later than the
-// actual UPDATE under load, which previously caused real ordering bugs.
-func (s *SqlStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error) {
-	result := s.db.WithContext(ctx).
-		Model(&nbpeer.Peer{}).
-		Where(accountAndIDQueryCondition, accountID, peerID).
-		Where("peer_status_session_started_at < ?", newSessionStartedAt).
-		Updates(map[string]any{
-			"peer_status_connected":          true,
-			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
-			"peer_status_session_started_at": newSessionStartedAt,
-		})
-	if result.Error != nil {
-		return false, status.Errorf(status.Internal, "mark peer connected: %v", result.Error)
-	}
-	return result.RowsAffected > 0, nil
-}
-
-// MarkPeerDisconnectedIfSameSession is an atomic optimistic-locked update.
-// The peer is marked disconnected only when the stored SessionStartedAt
-// matches the incoming token — meaning the stream that owns the current
-// session is the one ending. If a newer stream has already replaced the
-// session, the update is skipped. LastSeen is set to CURRENT_TIMESTAMP at
-// write time; see MarkPeerConnectedIfNewerSession for the rationale.
-//
-// A zero sessionStartedAt is rejected at the call site; the underlying
-// WHERE on equality would otherwise match every never-connected peer.
-func (s *SqlStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
-	if sessionStartedAt == 0 {
-		return false, nil
-	}
-	result := s.db.WithContext(ctx).
-		Model(&nbpeer.Peer{}).
-		Where(accountAndIDQueryCondition, accountID, peerID).
-		Where("peer_status_session_started_at = ?", sessionStartedAt).
-		Updates(map[string]any{
-			"peer_status_connected":          false,
-			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
-			"peer_status_session_started_at": int64(0),
-		})
-	if result.Error != nil {
-		return false, status.Errorf(status.Internal, "mark peer disconnected: %v", result.Error)
-	}
-	return result.RowsAffected > 0, nil
-}
-
-// markPeersDisconnectedChunkSize bounds the sessions per statement so the
-// bound parameter count stays below the database limits.
-const markPeersDisconnectedChunkSize = 1000
-
-// MarkPeersDisconnectedIfSameSession is the batched form of
-// MarkPeerDisconnectedIfSameSession: one UPDATE per chunk of sessions, each
-// peer guarded by its own (account, peer, session) tuple. A failed chunk does
-// not stop the others, only a done ctx does; the count then covers the chunks
-// that succeeded and the error joins the failures.
-func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error) {
-	var total int64
-	var errs []error
-	for start := 0; start < len(sessions); start += markPeersDisconnectedChunkSize {
-		if err := ctx.Err(); err != nil {
-			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", err))
-			break
-		}
-		end := min(start+markPeersDisconnectedChunkSize, len(sessions))
-		tuples := make([][]any, 0, end-start)
-		for _, session := range sessions[start:end] {
-			if session.SessionStartedAt == 0 {
-				continue
-			}
-			tuples = append(tuples, []any{session.AccountID, session.PeerID, session.SessionStartedAt})
-		}
-		if len(tuples) == 0 {
-			continue
-		}
-		result := s.db.WithContext(ctx).
-			Model(&nbpeer.Peer{}).
-			Where("(account_id, id, peer_status_session_started_at) IN ?", tuples).
-			Updates(map[string]any{
-				"peer_status_connected":          false,
-				"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
-				"peer_status_session_started_at": int64(0),
-			})
-		if result.Error != nil {
-			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", result.Error))
-			continue
-		}
-		total += result.RowsAffected
-	}
-	return total, errors.Join(errs...)
-}
-
 // ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
 func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (int, error) {
 	result := s.db.Model(&nbpeer.Peer{}).
@@ -198,27 +87,24 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 	return int(result.RowsAffected), nil
 }
 
-// RefreshPeerLastSeen updates only peer_status_last_seen. Every other status
-// column is left untouched: peer_status_connected and
-// peer_status_session_started_at belong to the sync stream that owns the
-// session, and a blind write here would corrupt the fencing
-// MarkPeerConnectedIfNewerSession relies on.
+// RefreshPeerLastSeen stamps the LastSeen of the peer's connection record with the
+// database clock. Which instance holds the connection and its session are left
+// untouched.
 //
-// LastSeen comes from the database clock for the same reason it does there: a
-// Go-side timestamp is taken before the write and can land after a connect that
-// used CURRENT_TIMESTAMP, dragging the column backwards.
+// LastSeen comes from the database clock: a Go-side timestamp is taken before the
+// write and can land after a connect that used CURRENT_TIMESTAMP, dragging the
+// column backwards.
 //
 // staleBefore carries the caller's throttle into the same statement, so
 // concurrent requests for one peer collapse into a single write instead of
-// each racing on its own stale read. The column is nullable — Status is an
-// embedded pointer, so a peer stored without one leaves it NULL — and NULL
-// loses every comparison, hence the explicit branch for a peer never seen.
+// each racing on its own stale read. The column is nullable, and NULL loses
+// every comparison, hence the explicit branch for a peer never seen.
 func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
-	result := s.db.WithContext(ctx).
-		Model(&nbpeer.Peer{}).
-		Where(accountAndIDQueryCondition, accountID, peerID).
-		Where("(peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", staleBefore).
-		Update("peer_status_last_seen", gorm.Expr("CURRENT_TIMESTAMP"))
+	result := s.db.WithContext(ctx).Exec(
+		`UPDATE peer_connections SET last_seen = CURRENT_TIMESTAMP
+		WHERE account_id = ? AND peer_id = ? AND (last_seen IS NULL OR last_seen < ?)`,
+		accountID, peerID, staleBefore,
+	)
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
 	}
@@ -226,39 +112,20 @@ func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID st
 	return result.RowsAffected > 0, nil
 }
 
-// HeartbeatPeerSession stamps LastSeen with the database clock and marks the peer
-// connected, but only while sessionStartedAt still owns the peer and its login has not
-// expired. Setting Connected again undoes a save of a peer that was read as disconnected
-// while its heartbeats were delayed; the session match keeps an ended or replaced
-// session from coming back, and the login check keeps an expired peer disconnected
-// until it logs in again.
-func (s *SqlStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
-	if sessionStartedAt == 0 {
-		return false, nil
-	}
-	result := s.db.WithContext(ctx).
-		Model(&nbpeer.Peer{}).
-		Where(accountAndIDQueryCondition, accountID, peerID).
-		Where("peer_status_session_started_at = ? AND peer_status_login_expired = ?", sessionStartedAt, false).
-		Updates(map[string]any{
-			"peer_status_connected": true,
-			"peer_status_last_seen": gorm.Expr("CURRENT_TIMESTAMP"),
-		})
-	if result.Error != nil {
-		return false, status.Errorf(status.Internal, "heartbeat peer session: %v", result.Error)
-	}
-	return result.RowsAffected > 0, nil
-}
-
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
-	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
-	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
-	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version,
-	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
-	meta_environment, meta_flags, meta_files, meta_certificates, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
-	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
-	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6, meta_sync_message_version
-	FROM peers WHERE account_id = $1`
+	const query = `SELECT peers.id, peers.account_id, peers.key, peers.ip, peers.name, peers.dns_label, peers.user_id, peers.ssh_key,
+	peers.ssh_enabled, peers.login_expiration_enabled, peers.inactivity_expiration_enabled, peers.last_login, peers.created_at,
+	peers.ephemeral, peers.extra_dns_labels, peers.allow_extra_dns_labels, peers.meta_hostname, peers.meta_go_os, peers.meta_kernel,
+	peers.meta_core, peers.meta_platform, peers.meta_os, peers.meta_os_version, peers.meta_wt_version, peers.meta_ui_version,
+	peers.meta_kernel_version, peers.meta_network_addresses, peers.meta_system_serial_number, peers.meta_system_product_name,
+	peers.meta_system_manufacturer, peers.meta_environment, peers.meta_flags, peers.meta_files, peers.meta_certificates,
+	peers.meta_capabilities, pc.last_seen, pc.session_started_at, mi.last_seen, peers.peer_status_login_expired,
+	peers.peer_status_requires_approval, peers.location_connection_ip, peers.location_country_code, peers.location_city_name,
+	peers.location_geo_name_id, peers.proxy_meta_embedded, peers.proxy_meta_cluster, peers.ipv6, peers.meta_sync_message_version
+	FROM peers
+	LEFT JOIN peer_connections pc ON pc.peer_id = peers.id
+	LEFT JOIN management_instances mi ON mi.id = pc.instance_id
+	WHERE peers.account_id = $1`
 	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -270,9 +137,10 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 		var (
 			lastLogin, createdAt                                                                            sql.NullTime
 			sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
-			peerStatusLastSeen                                                                              sql.NullTime
-			peerStatusSessionStartedAt                                                                      sql.NullInt64
-			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded          sql.NullBool
+			peerLastSeen                                                                                    sql.NullTime
+			sessionStartedAt                                                                                sql.NullInt64
+			instanceLastSeen                                                                                sql.NullTime
+			peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded                               sql.NullBool
 			ip, extraDNS, netAddr, env, flags, files, certificates, capabilities, connIP, ipv6              []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
@@ -287,7 +155,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&allowExtraDNSLabels, &metaHostname, &metaGoOS, &metaKernel, &metaCore, &metaPlatform,
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &certificates, &capabilities,
-			&peerStatusLastSeen, &peerStatusSessionStartedAt, &peerStatusConnected, &peerStatusLoginExpired,
+			&peerLastSeen, &sessionStartedAt, &instanceLastSeen, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
 			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
 
@@ -313,15 +181,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if allowExtraDNSLabels.Valid {
 				p.AllowExtraDNSLabels = allowExtraDNSLabels.Bool
 			}
-			if peerStatusLastSeen.Valid {
-				p.Status.LastSeen = peerStatusLastSeen.Time
-			}
-			if peerStatusSessionStartedAt.Valid {
-				p.Status.SessionStartedAt = peerStatusSessionStartedAt.Int64
-			}
-			if peerStatusConnected.Valid {
-				p.Status.Connected = nbpeer.IsConnected(peerStatusConnected.Bool, p.Status.LastSeen)
-			}
+			p.Status.ApplyConnection(sessionStartedAt, peerLastSeen, instanceLastSeen)
 			if peerStatusLoginExpired.Valid {
 				p.Status.LoginExpired = peerStatusLoginExpired.Bool
 			}
@@ -560,6 +420,10 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 		return nil, status.Errorf(status.Internal, "issue getting peer from store: %s", result.Error)
 	}
 
+	if err := s.attachPeerConnections(ctx, &peer); err != nil {
+		return nil, status.Errorf(status.Internal, "issue getting peer from store: %s", err)
+	}
+
 	return &peer, nil
 }
 
@@ -587,6 +451,11 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+	}
+
 	return peers, nil
 }
 
@@ -597,18 +466,23 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 	{
 		tx := s.db
 		if lockStrength != LockingStrengthNone {
-			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength), Table: clause.Table{Name: "peers"}})
 		}
 		query := tx.Where("peers.account_id=?", accountID)
 		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
-		query = filters.AsConditions(query)
+		query = filters.AsConditions(query, s.conn.Engine())
 		query = pagination.AsScope(query)
 		query = sorting.AsOrderBy(ctx, query)
 
-		if err := query.Distinct().Find(&peers).Error; err != nil {
+		if err := query.Find(&peers).Error; err != nil {
 			log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 			return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
 		}
+	}
+
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
 	// total number of records
@@ -620,7 +494,7 @@ func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength Lo
 		}
 		query := tx.Where("peers.account_id=?", accountID)
 		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
-		query = filters.AsConditions(query)
+		query = filters.AsConditions(query, s.conn.Engine())
 
 		if err := query.Table("peers").Select("count(distinct(peers.id))").Count(&peerCount).Error; err != nil {
 			log.WithContext(ctx).Errorf("failed to get total number of peers from the store: %s", err)
@@ -659,20 +533,20 @@ type PeerFilters struct {
 	PeersIds         []string
 }
 
-func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
+func (f *PeerFilters) AsConditions(db *gorm.DB, engine types.Engine) *gorm.DB {
 	if len(f.GroupIds) > 0 {
-		db = db.Joins("join group_peers on peers.id=group_peers.peer_id and peers.account_id=group_peers.account_id").Where("group_peers.group_id in (?)", f.GroupIds)
+		db = db.Where("peers.id IN (SELECT group_peers.peer_id FROM group_peers WHERE group_peers.account_id = peers.account_id AND group_peers.group_id IN (?))", f.GroupIds)
 	}
 	if f.UserId != "" {
-		db = db.Where("user_id=?", f.UserId)
+		db = db.Where("peers.user_id=?", f.UserId)
 	}
 	if f.Connected != nil {
-		lastSeenAfter := time.Now().UTC().Add(-nbpeer.StaleAfter)
-		if *f.Connected {
-			db = db.Where("peer_status_connected = ? AND peer_status_last_seen >= ?", true, lastSeenAfter)
-		} else {
-			db = db.Where("(peer_status_connected = ? OR peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", false, lastSeenAfter)
+		threshold, arg := staleThresholdFor(engine)
+		exists := "EXISTS"
+		if !*f.Connected {
+			exists = "NOT EXISTS"
 		}
+		db = db.Where(exists+" (SELECT 1 FROM peer_connections pc JOIN management_instances mi ON mi.id = pc.instance_id WHERE pc.peer_id = peers.id AND mi.last_seen >= "+threshold+")", arg)
 	}
 	if f.ApprovalRequired != nil {
 		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequired)
@@ -700,11 +574,15 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		}
 	}
 	if len(f.PeersIds) > 0 {
-		db = db.Where("id in (?)", f.PeersIds)
+		db = db.Where("peers.id in (?)", f.PeersIds)
 	}
 
 	return db
 }
+
+// effectiveLastSeenSQL orders peers by the later of their connection record's LastSeen and the
+// LastSeen of the instance holding it, matching nbpeer.PeerStatus.ApplyConnection.
+const effectiveLastSeenSQL = `CASE WHEN sort_mi.last_seen IS NOT NULL AND (sort_pc.last_seen IS NULL OR sort_mi.last_seen > sort_pc.last_seen) THEN sort_mi.last_seen ELSE sort_pc.last_seen END`
 
 type PeerSortByField int
 
@@ -732,13 +610,19 @@ type PeerSorting struct {
 
 func (s *PeerSorting) AsOrderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
 	order := make([]clause.OrderByColumn, 0)
+	joinedInstances := false
 
 	for _, key := range s.Fields {
 		switch key.Field {
 		case PeerSortByName:
 			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: key.Order == DescOrderBy})
 		case PeerSortByLastSeen:
-			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: key.Order == DescOrderBy})
+			if !joinedInstances {
+				db = db.Joins("LEFT JOIN peer_connections sort_pc ON sort_pc.peer_id = peers.id").
+					Joins("LEFT JOIN management_instances sort_mi ON sort_mi.id = sort_pc.instance_id")
+				joinedInstances = true
+			}
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: effectiveLastSeenSQL, Raw: true}, Desc: key.Order == DescOrderBy})
 		case PeerSortByVersion:
 			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "meta_wt_version"}, Desc: key.Order == DescOrderBy})
 		default:
@@ -772,11 +656,23 @@ func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrengt
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+	}
+
 	return peers, nil
 }
 
+// AddPeerToAccount stores a new peer together with its connection record.
 func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
-	if err := s.db.Create(peer).Error; err != nil {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
+		if err := tx.Create(peer).Error; err != nil {
+			return err
+		}
+		return createPeerConnections(tx, peer)
+	})
+	if err != nil {
 		return status.Errorf(status.Internal, "issue adding peer to account: %s", err)
 	}
 
@@ -800,6 +696,11 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 
+	if err := s.attachPeerConnections(ctx, peer); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peer from store")
+	}
+
 	return peer, nil
 }
 
@@ -814,6 +715,11 @@ func (s *SqlStore) GetPeersByIDs(ctx context.Context, lockStrength LockingStreng
 	result := tx.Find(&peers, accountAndIDsQueryCondition, accountID, peerIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get peers by ID's from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers by ID's from the store")
+	}
+
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers by ID's from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers by ID's from the store")
 	}
 
@@ -841,6 +747,11 @@ func (s *SqlStore) GetAccountPeersWithExpiration(ctx context.Context, lockStreng
 		return nil, status.Errorf(status.Internal, "failed to get peers with expiration from store")
 	}
 
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with expiration from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers with expiration from store")
+	}
+
 	return peers, nil
 }
 
@@ -857,6 +768,11 @@ func (s *SqlStore) GetAccountPeersWithInactivity(ctx context.Context, lockStreng
 		Find(&peers, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with inactivity from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers with inactivity from store")
+	}
+
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with inactivity from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers with inactivity from store")
 	}
 
@@ -883,18 +799,34 @@ func (s *SqlStore) GetAllEphemeralPeers(ctx context.Context, lockStrength Lockin
 		return nil, fmt.Errorf("failed to retrieve ephemeral peers")
 	}
 
+	if err := s.attachPeerConnections(ctx, allEphemeralPeers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to retrieve ephemeral peers: %s", err)
+		return nil, fmt.Errorf("failed to retrieve ephemeral peers")
+	}
+
 	return allEphemeralPeers, nil
 }
 
 // DeletePeer removes a peer from the store.
 func (s *SqlStore) DeletePeer(ctx context.Context, accountID string, peerID string) error {
-	result := s.db.Delete(&nbpeer.Peer{}, accountAndIDQueryCondition, accountID, peerID)
-	if err := result.Error; err != nil {
+	var deleted int64
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
+		result := tx.Delete(&nbpeer.Peer{}, accountAndIDQueryCondition, accountID, peerID)
+		if result.Error != nil {
+			return result.Error
+		}
+		deleted = result.RowsAffected
+		if deleted == 0 {
+			return nil
+		}
+		return tx.Delete(&nbpeer.Connection{}, accountAndPeerIDQueryCondition, accountID, peerID).Error
+	})
+	if err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer from the store: %s", err)
 		return status.Errorf(status.Internal, "failed to delete peer from store")
 	}
 
-	if result.RowsAffected == 0 {
+	if deleted == 0 {
 		return status.NewPeerNotFoundError(peerID)
 	}
 
@@ -924,6 +856,11 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "peer with ip %s not found", ip.String())
 		}
+		return nil, status.Errorf(status.Internal, "failed to get peer from store")
+	}
+
+	if err := s.attachPeerConnections(ctx, &peer); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 

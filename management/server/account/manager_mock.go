@@ -17,6 +17,7 @@ import (
 	time "time"
 
 	dns "github.com/netbirdio/netbird/dns"
+	peerliveness "github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	activity "github.com/netbirdio/netbird/management/server/activity"
 	affectedpeers "github.com/netbirdio/netbird/management/server/affectedpeers"
@@ -1383,20 +1384,6 @@ func (mr *MockManagerMockRecorder) MarkPeerDisconnected(ctx, peerKey, accountID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeerDisconnected), ctx, peerKey, accountID, sessionStartedAt)
 }
 
-// MarkPeersDisconnected mocks base method.
-func (m *MockManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeersDisconnected", ctx, sessions)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkPeersDisconnected indicates an expected call of MarkPeersDisconnected.
-func (mr *MockManagerMockRecorder) MarkPeersDisconnected(ctx, sessions any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeersDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeersDisconnected), ctx, sessions)
-}
-
 // OnPeerDisconnected mocks base method.
 func (m *MockManager) OnPeerDisconnected(ctx context.Context, accountID, peerPubKey string, streamStartTime time.Time) error {
 	m.ctrl.T.Helper()
@@ -1570,6 +1557,18 @@ func (m *MockManager) SaveUser(ctx context.Context, accountID, initiatorUserID s
 func (mr *MockManagerMockRecorder) SaveUser(ctx, accountID, initiatorUserID, update any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveUser", reflect.TypeOf((*MockManager)(nil).SaveUser), ctx, accountID, initiatorUserID, update)
+}
+
+// SetPeerLiveness mocks base method.
+func (m *MockManager) SetPeerLiveness(controller peerliveness.Controller) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPeerLiveness", controller)
+}
+
+// SetPeerLiveness indicates an expected call of SetPeerLiveness.
+func (mr *MockManagerMockRecorder) SetPeerLiveness(controller any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPeerLiveness", reflect.TypeOf((*MockManager)(nil).SetPeerLiveness), controller)
 }
 
 // SetServiceManager mocks base method.

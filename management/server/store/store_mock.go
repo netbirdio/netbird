@@ -201,6 +201,21 @@ func (mr *MockStoreMockRecorder) CompletePeerJob(ctx, job any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompletePeerJob", reflect.TypeOf((*MockStore)(nil).CompletePeerJob), ctx, job)
 }
 
+// ConnectPeer mocks base method.
+func (m *MockStore) ConnectPeer(ctx context.Context, accountID, peerID, instanceID string, session int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConnectPeer", ctx, accountID, peerID, instanceID, session)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConnectPeer indicates an expected call of ConnectPeer.
+func (mr *MockStoreMockRecorder) ConnectPeer(ctx, accountID, peerID, instanceID, session any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConnectPeer", reflect.TypeOf((*MockStore)(nil).ConnectPeer), ctx, accountID, peerID, instanceID, session)
+}
+
 // CountAccountsByPrivateDomain mocks base method.
 func (m *MockStore) CountAccountsByPrivateDomain(ctx context.Context, arg1 string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -613,6 +628,21 @@ func (mr *MockStoreMockRecorder) DeleteHashedPAT2TokenIDIndex(hashedToken any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteHashedPAT2TokenIDIndex", reflect.TypeOf((*MockStore)(nil).DeleteHashedPAT2TokenIDIndex), hashedToken)
 }
 
+// DeleteInstanceIfStale mocks base method.
+func (m *MockStore) DeleteInstanceIfStale(ctx context.Context, id string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteInstanceIfStale", ctx, id)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteInstanceIfStale indicates an expected call of DeleteInstanceIfStale.
+func (mr *MockStoreMockRecorder) DeleteInstanceIfStale(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInstanceIfStale", reflect.TypeOf((*MockStore)(nil).DeleteInstanceIfStale), ctx, id)
+}
+
 // DeleteNameServerGroup mocks base method.
 func (m *MockStore) DeleteNameServerGroup(ctx context.Context, accountID, nameServerGroupID string) error {
 	m.ctrl.T.Helper()
@@ -893,6 +923,21 @@ func (m *MockStore) DisconnectAllProxies(ctx context.Context) (int64, error) {
 func (mr *MockStoreMockRecorder) DisconnectAllProxies(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectAllProxies", reflect.TypeOf((*MockStore)(nil).DisconnectAllProxies), ctx)
+}
+
+// DisconnectPeer mocks base method.
+func (m *MockStore) DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisconnectPeer", ctx, peerID, session)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DisconnectPeer indicates an expected call of DisconnectPeer.
+func (mr *MockStoreMockRecorder) DisconnectPeer(ctx, peerID, session any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectPeer", reflect.TypeOf((*MockStore)(nil).DisconnectPeer), ctx, peerID, session)
 }
 
 // DisconnectProxy mocks base method.
@@ -3185,19 +3230,19 @@ func (mr *MockStoreMockRecorder) HasGatewayEndpointByOtherAccount(ctx, host, acc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasGatewayEndpointByOtherAccount", reflect.TypeOf((*MockStore)(nil).HasGatewayEndpointByOtherAccount), ctx, host, accountID)
 }
 
-// HeartbeatPeerSession mocks base method.
-func (m *MockStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+// HeartbeatInstance mocks base method.
+func (m *MockStore) HeartbeatInstance(ctx context.Context, id string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HeartbeatPeerSession", ctx, accountID, peerID, sessionStartedAt)
+	ret := m.ctrl.Call(m, "HeartbeatInstance", ctx, id)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// HeartbeatPeerSession indicates an expected call of HeartbeatPeerSession.
-func (mr *MockStoreMockRecorder) HeartbeatPeerSession(ctx, accountID, peerID, sessionStartedAt any) *gomock.Call {
+// HeartbeatInstance indicates an expected call of HeartbeatInstance.
+func (mr *MockStoreMockRecorder) HeartbeatInstance(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeartbeatPeerSession", reflect.TypeOf((*MockStore)(nil).HeartbeatPeerSession), ctx, accountID, peerID, sessionStartedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeartbeatInstance", reflect.TypeOf((*MockStore)(nil).HeartbeatInstance), ctx, id)
 }
 
 // IncrementAgentNetworkConsumption mocks base method.
@@ -3347,6 +3392,21 @@ func (mr *MockStoreMockRecorder) ListFreeDomains(ctx, accountID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreeDomains", reflect.TypeOf((*MockStore)(nil).ListFreeDomains), ctx, accountID)
 }
 
+// ListStaleInstances mocks base method.
+func (m *MockStore) ListStaleInstances(ctx context.Context) ([]peer.ManagementInstance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStaleInstances", ctx)
+	ret0, _ := ret[0].([]peer.ManagementInstance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStaleInstances indicates an expected call of ListStaleInstances.
+func (mr *MockStoreMockRecorder) ListStaleInstances(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStaleInstances", reflect.TypeOf((*MockStore)(nil).ListStaleInstances), ctx)
+}
+
 // LockCustomDomains mocks base method.
 func (m *MockStore) LockCustomDomains(ctx context.Context, accountID string, serviceDomain domain0.Domain) ([]*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -3404,51 +3464,6 @@ func (mr *MockStoreMockRecorder) MarkPATUsed(ctx, patID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPATUsed", reflect.TypeOf((*MockStore)(nil).MarkPATUsed), ctx, patID)
 }
 
-// MarkPeerConnectedIfNewerSession mocks base method.
-func (m *MockStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeerConnectedIfNewerSession", ctx, accountID, peerID, newSessionStartedAt)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MarkPeerConnectedIfNewerSession indicates an expected call of MarkPeerConnectedIfNewerSession.
-func (mr *MockStoreMockRecorder) MarkPeerConnectedIfNewerSession(ctx, accountID, peerID, newSessionStartedAt any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerConnectedIfNewerSession", reflect.TypeOf((*MockStore)(nil).MarkPeerConnectedIfNewerSession), ctx, accountID, peerID, newSessionStartedAt)
-}
-
-// MarkPeerDisconnectedIfSameSession mocks base method.
-func (m *MockStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeerDisconnectedIfSameSession", ctx, accountID, peerID, sessionStartedAt)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MarkPeerDisconnectedIfSameSession indicates an expected call of MarkPeerDisconnectedIfSameSession.
-func (mr *MockStoreMockRecorder) MarkPeerDisconnectedIfSameSession(ctx, accountID, peerID, sessionStartedAt any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnectedIfSameSession", reflect.TypeOf((*MockStore)(nil).MarkPeerDisconnectedIfSameSession), ctx, accountID, peerID, sessionStartedAt)
-}
-
-// MarkPeersDisconnectedIfSameSession mocks base method.
-func (m *MockStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types3.PeerSession) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeersDisconnectedIfSameSession", ctx, sessions)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MarkPeersDisconnectedIfSameSession indicates an expected call of MarkPeersDisconnectedIfSameSession.
-func (mr *MockStoreMockRecorder) MarkPeersDisconnectedIfSameSession(ctx, sessions any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeersDisconnectedIfSameSession", reflect.TypeOf((*MockStore)(nil).MarkPeersDisconnectedIfSameSession), ctx, sessions)
-}
-
 // MarkPendingJobsAsFailed mocks base method.
 func (m *MockStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error {
 	m.ctrl.T.Helper()
@@ -3477,6 +3492,20 @@ func (mr *MockStoreMockRecorder) MarkProxyAccessTokenUsed(ctx, tokenID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkProxyAccessTokenUsed", reflect.TypeOf((*MockStore)(nil).MarkProxyAccessTokenUsed), ctx, tokenID)
 }
 
+// ReRegisterPeers mocks base method.
+func (m *MockStore) ReRegisterPeers(ctx context.Context, instanceID string, sessions []types3.PeerSession) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReRegisterPeers", ctx, instanceID, sessions)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReRegisterPeers indicates an expected call of ReRegisterPeers.
+func (mr *MockStoreMockRecorder) ReRegisterPeers(ctx, instanceID, sessions any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReRegisterPeers", reflect.TypeOf((*MockStore)(nil).ReRegisterPeers), ctx, instanceID, sessions)
+}
+
 // RefreshPeerLastSeen mocks base method.
 func (m *MockStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
 	m.ctrl.T.Helper()
@@ -3490,6 +3519,48 @@ func (m *MockStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID s
 func (mr *MockStoreMockRecorder) RefreshPeerLastSeen(ctx, accountID, peerID, staleBefore any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshPeerLastSeen", reflect.TypeOf((*MockStore)(nil).RefreshPeerLastSeen), ctx, accountID, peerID, staleBefore)
+}
+
+// RegisterInstance mocks base method.
+func (m *MockStore) RegisterInstance(ctx context.Context, id, hostname string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterInstance", ctx, id, hostname)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RegisterInstance indicates an expected call of RegisterInstance.
+func (mr *MockStoreMockRecorder) RegisterInstance(ctx, id, hostname any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterInstance", reflect.TypeOf((*MockStore)(nil).RegisterInstance), ctx, id, hostname)
+}
+
+// ReleaseInstance mocks base method.
+func (m *MockStore) ReleaseInstance(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseInstance", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleaseInstance indicates an expected call of ReleaseInstance.
+func (mr *MockStoreMockRecorder) ReleaseInstance(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseInstance", reflect.TypeOf((*MockStore)(nil).ReleaseInstance), ctx, id)
+}
+
+// ReleasePeerConnection mocks base method.
+func (m *MockStore) ReleasePeerConnection(ctx context.Context, peerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleasePeerConnection", ctx, peerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleasePeerConnection indicates an expected call of ReleasePeerConnection.
+func (mr *MockStoreMockRecorder) ReleasePeerConnection(ctx, peerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePeerConnection", reflect.TypeOf((*MockStore)(nil).ReleasePeerConnection), ctx, peerID)
 }
 
 // RemovePeerFromAllGroups mocks base method.
@@ -3936,6 +4007,21 @@ func (m *MockStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
 func (mr *MockStoreMockRecorder) SetFieldEncrypt(enc any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFieldEncrypt", reflect.TypeOf((*MockStore)(nil).SetFieldEncrypt), enc)
+}
+
+// SweepInstanceChunk mocks base method.
+func (m *MockStore) SweepInstanceChunk(ctx context.Context, instanceID string, lastSeen time.Time, limit int) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SweepInstanceChunk", ctx, instanceID, lastSeen, limit)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SweepInstanceChunk indicates an expected call of SweepInstanceChunk.
+func (mr *MockStoreMockRecorder) SweepInstanceChunk(ctx, instanceID, lastSeen, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SweepInstanceChunk", reflect.TypeOf((*MockStore)(nil).SweepInstanceChunk), ctx, instanceID, lastSeen, limit)
 }
 
 // UpdateAccountDomainAttributes mocks base method.

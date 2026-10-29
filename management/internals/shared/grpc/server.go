@@ -57,8 +57,6 @@ const (
 	envConcurrentSyncs = "NB_MAX_CONCURRENT_SYNCS"
 
 	defaultSyncLim = 1000
-
-	peerHeartbeatTimeout = 5 * time.Second
 )
 
 // Server an instance of a Management gRPC API server
@@ -92,11 +90,9 @@ type Server struct {
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
 
-	// drainMu guards draining and pendingDisconnects. While draining, ending sync streams
-	// queue their disconnect for FlushDisconnects instead of writing it.
-	drainMu            sync.Mutex
-	draining           bool
-	pendingDisconnects []types.PeerSession
+	// draining makes ending sync streams of regular peers skip their disconnect write;
+	// the liveness controller's Release retires all of this instance's connections.
+	draining atomic.Bool
 }
 
 // NewServer creates a new Management server
@@ -338,7 +334,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil, false)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
 		return err
 	}
 
@@ -346,14 +342,14 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil, false)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
 		return err
 	}
 
 	if err = s.accountManager.CheckPeerMaySync(ctx, accountID, peerKey.String(), settings); err != nil {
 		log.WithContext(ctx).Debugf("peer %s may no longer sync after connecting: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, updates, false)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, updates)
 		return mapError(ctx, err)
 	}
 
@@ -370,7 +366,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	s.syncSem.Add(-1)
 
 	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, s.challenger,
-		trackChallenge, func() { s.heartbeatPeerSession(ctx, accountID, peer.ID, syncStart) },
+		trackChallenge,
 		srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart, updates) }).
 		WithMetrics(s.appMetrics).HandleUpdates(ctx)
 }
@@ -464,35 +460,20 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 	return nil
 }
 
-// heartbeatPeerSession records that the peer of a live sync stream is still connected.
-// A failed heartbeat keeps the stream open: the peer only reads as disconnected after
-// nbpeer.StaleAfter without one, and reads as connected again once a heartbeat lands.
-func (s *Server) heartbeatPeerSession(ctx context.Context, accountID, peerID string, streamStartTime time.Time) {
-	ctx, cancel := context.WithTimeout(ctx, peerHeartbeatTimeout)
-	defer cancel()
-	if _, err := s.accountManager.GetStore().HeartbeatPeerSession(ctx, accountID, peerID, streamStartTime.UnixNano()); err != nil && !errors.Is(ctx.Err(), context.Canceled) {
-		log.WithContext(ctx).Warnf("heartbeat of peer %s: %v", peerID, err)
-	}
-}
-
-// cancelPeerRoutines tears down the stream under the peer lock. While draining, the
-// disconnect is queued before waiting for the lock, so the shutdown flush covers the
-// stream even when the lock is held past the gRPC stop timeout.
+// cancelPeerRoutines tears down the stream under the peer lock.
 func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
 	uncanceledCTX := context.WithoutCancel(ctx)
-	disconnectQueued := s.queueDisconnect(accountID, peer, streamStartTime)
 	unlock := s.acquirePeerLockByUID(uncanceledCTX, peer.Key)
 	defer unlock()
 
-	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime, session, disconnectQueued)
+	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime, session)
 }
 
 // cancelPeerRoutinesWithoutLock tears down the stream of the session identified by streamStartTime
 // and its updates channel. A nil session means the stream failed before it registered a channel;
-// the controller then closes any channel still registered. disconnectQueued tells that the
-// caller already queued the disconnect for the shutdown flush.
-func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage, disconnectQueued bool) {
-	if !disconnectQueued && !s.queueDisconnect(accountID, peer, streamStartTime) {
+// the controller then closes any channel still registered.
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time, session chan *network_map.UpdateMessage) {
+	if !s.skipDisconnectWrite(peer) {
 		err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key, streamStartTime)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
@@ -508,58 +489,16 @@ func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID st
 	log.WithContext(ctx).Debugf("peer %s has been disconnected", peer.Key)
 }
 
-// queueDisconnect queues the disconnect of the stream for FlushDisconnects while the
-// server drains and reports whether it did. Embedded proxy peers are never queued
-// because their disconnect refreshes the network maps of the peers using them.
-func (s *Server) queueDisconnect(accountID string, peer *nbpeer.Peer, streamStartTime time.Time) bool {
-	if peer.ProxyMeta.Embedded {
-		return false
-	}
-
-	s.drainMu.Lock()
-	defer s.drainMu.Unlock()
-	if !s.draining {
-		return false
-	}
-	s.pendingDisconnects = append(s.pendingDisconnects, types.PeerSession{
-		AccountID:        accountID,
-		PeerID:           peer.ID,
-		SessionStartedAt: streamStartTime.UnixNano(),
-	})
-	return true
+// skipDisconnectWrite reports whether the disconnect write of an ending stream is left to
+// the shutdown release of the liveness controller. Embedded proxy peers always write their
+// own because their disconnect refreshes the network maps of the peers using them.
+func (s *Server) skipDisconnectWrite(peer *nbpeer.Peer) bool {
+	return s.draining.Load() && !peer.ProxyMeta.Embedded
 }
 
-// StartDraining makes ending sync streams queue their disconnect for FlushDisconnects
-// instead of writing one each.
+// StartDraining makes ending sync streams of regular peers skip their disconnect write.
 func (s *Server) StartDraining() {
-	s.drainMu.Lock()
-	defer s.drainMu.Unlock()
-	s.draining = true
-}
-
-// FlushDisconnects stops draining and marks the queued sessions disconnected in batched
-// writes. Streams ending afterwards write their own disconnect again. It returns an error
-// when not every queued session could be written.
-func (s *Server) FlushDisconnects(ctx context.Context) error {
-	s.drainMu.Lock()
-	sessions := s.pendingDisconnects
-	s.pendingDisconnects = nil
-	s.draining = false
-	s.drainMu.Unlock()
-
-	if len(sessions) == 0 {
-		return nil
-	}
-	err := s.accountManager.MarkPeersDisconnected(ctx, sessions)
-	if err != nil && ctx.Err() == nil {
-		// Retrying the whole batch is safe: rows already marked no longer match their session token.
-		log.WithContext(ctx).Warnf("retrying to mark %d peers disconnected on shutdown: %v", len(sessions), err)
-		err = s.accountManager.MarkPeersDisconnected(ctx, sessions)
-	}
-	if err != nil {
-		return fmt.Errorf("mark %d peers disconnected on shutdown: %w", len(sessions), err)
-	}
-	return nil
+	s.draining.Store(true)
 }
 
 func (s *Server) validateToken(ctx context.Context, peerKey, jwtToken string) (string, error) {
