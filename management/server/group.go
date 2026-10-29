@@ -369,6 +369,11 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		}
 		newGroup.PublicID = oldGroup.PublicID
 
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			return nil
+		}
+
 		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 
 		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
