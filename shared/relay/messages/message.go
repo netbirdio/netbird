@@ -17,6 +17,8 @@ const (
 	MaxMessageSize       = 8820
 
 	ProtocolV1 ProtocolVersion = 1
+	// ProtocolV2 is advertised only by a client presenting the auth token with a proof.
+	ProtocolV2 ProtocolVersion = 2
 	// CurrentProtocolVersion is the highest protocol version this build supports.
 	CurrentProtocolVersion = ProtocolV1
 

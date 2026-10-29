@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +12,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -539,4 +543,16 @@ func TestConnContextCauseOnLocalClose(t *testing.T) {
 	if cause := context.Cause(relayedConn.Context()); !errors.Is(cause, net.ErrClosed) {
 		t.Errorf("unexpected cancellation cause after a local close: %v, want %v", cause, net.ErrClosed)
 	}
+}
+
+func TestManager_AuthKeyAndAuthTokenReachTheRelayClients(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	m := NewManager(context.Background(), nil, "alice", iface.DefaultMTU, WithAuthKey(priv))
+	assert.Equal(t, priv, m.serverPicker.AuthKey, "home relay clients must sign with the auth key")
+
+	require.NoError(t, m.UpdateAuthToken([]byte("opaque auth token")))
+	token, isAuthToken := m.serverPicker.TokenStore.Credentials()
+	assert.True(t, isAuthToken, "relay clients must present the auth token")
+	assert.Equal(t, []byte("opaque auth token"), token, "relay clients must present the token Management sent")
 }

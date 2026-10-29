@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -31,6 +32,7 @@ type ServerPicker struct {
 	ConnectionTimeout time.Duration
 	TransportFallback *transportFallback
 	NetEvents         NetEvents
+	AuthKey           ed25519.PrivateKey
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
@@ -80,6 +82,7 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	relayClient.SetTransportFallback(sp.TransportFallback)
 	relayClient.netEvents = sp.NetEvents
+	relayClient.authKey = sp.AuthKey
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

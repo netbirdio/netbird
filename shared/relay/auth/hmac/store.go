@@ -2,6 +2,7 @@ package hmac
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -13,6 +14,8 @@ import (
 type TokenStore struct {
 	mu    sync.Mutex
 	token []byte
+	// authToken marks token as the auth token, which is presented with a proof of the auth key.
+	authToken bool
 }
 
 func (a *TokenStore) UpdateToken(token *Token) error {
@@ -34,7 +37,27 @@ func (a *TokenStore) UpdateToken(token *Token) error {
 	}
 
 	a.token = tok.Marshal()
+	a.authToken = false
 	return nil
+}
+
+// UpdateAuthToken replaces the current token with the auth token, kept as received.
+func (a *TokenStore) UpdateAuthToken(token []byte) error {
+	if len(token) == 0 {
+		return errors.New("empty auth token")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.token = append([]byte(nil), token...)
+	a.authToken = true
+	return nil
+}
+
+// Credentials returns the current token and whether it is the auth token.
+func (a *TokenStore) Credentials() ([]byte, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.token, a.authToken
 }
 
 func (a *TokenStore) TokenBinary() []byte {

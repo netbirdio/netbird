@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"net/netip"
 	"sync"
@@ -60,6 +61,11 @@ func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
 }
 
+// WithAuthKey sets the key that signs the proof presented with the auth token.
+func WithAuthKey(key ed25519.PrivateKey) ManagerOption {
+	return func(m *Manager) { m.authKey = key }
+}
+
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events NetEvents) ManagerOption {
 	return func(m *Manager) { m.netEvents = events }
@@ -92,6 +98,7 @@ type Manager struct {
 	mtu                uint16
 	maxBackoffInterval time.Duration
 	netEvents          NetEvents
+	authKey            ed25519.PrivateKey
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -128,6 +135,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		opt(m)
 	}
 	m.serverPicker.NetEvents = m.netEvents
+	m.serverPicker.AuthKey = m.authKey
 	m.serverPicker.ServerURLs.Store(serverURLs)
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netEvents)
 	return m
@@ -297,6 +305,11 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
 }
 
+// UpdateAuthToken replaces the token in the token store with the auth token.
+func (m *Manager) UpdateAuthToken(token []byte) error {
+	return m.tokenStore.UpdateAuthToken(token)
+}
+
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
@@ -325,6 +338,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
 	relayClient.SetTransportFallback(m.transportFallback)
 	relayClient.netEvents = m.netEvents
+	relayClient.authKey = m.authKey
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.Lock()
