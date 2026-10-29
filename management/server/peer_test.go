@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -3328,6 +3329,39 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
 		assert.Greater(t, networkSerial(t, manager, account.Id), afterDisconnect, "embedded proxy connect must bump")
 	})
+
+	t.Run("embedded proxy write is not applied when the increment fails", func(t *testing.T) {
+		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		require.True(t, embedded.ProxyMeta.Embedded)
+		session := embedded.Status.SessionStartedAt
+
+		original := manager.Store
+		manager.Store = &serialFailingStore{Store: original}
+		t.Cleanup(func() { manager.Store = original })
+
+		require.Error(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		current, err := original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		assert.Equal(t, session, current.Status.SessionStartedAt, "a failed increment leaves the connection untouched")
+		assert.True(t, current.Status.Connected)
+
+		manager.Store = original
+		before := networkSerial(t, manager, account.Id)
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session-1, nil))
+		assert.Greater(t, networkSerial(t, manager, account.Id), before, "a write that does not apply still bumped")
+		current, err = original.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		assert.Equal(t, session, current.Status.SessionStartedAt)
+	})
+}
+
+type serialFailingStore struct {
+	store.Store
+}
+
+func (s *serialFailingStore) IncrementNetworkSerial(context.Context, string) error {
+	return errors.New("increment failed")
 }
 
 type txCountingStore struct {

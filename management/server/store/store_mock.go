@@ -3550,17 +3550,18 @@ func (mr *MockStoreMockRecorder) ReleaseInstance(ctx, id any) *gomock.Call {
 }
 
 // ReleasePeerConnection mocks base method.
-func (m *MockStore) ReleasePeerConnection(ctx context.Context, peerID string) error {
+func (m *MockStore) ReleasePeerConnection(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReleasePeerConnection", ctx, peerID)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "ReleasePeerConnection", ctx, accountID, peerID, session)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // ReleasePeerConnection indicates an expected call of ReleasePeerConnection.
-func (mr *MockStoreMockRecorder) ReleasePeerConnection(ctx, peerID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ReleasePeerConnection(ctx, accountID, peerID, session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePeerConnection", reflect.TypeOf((*MockStore)(nil).ReleasePeerConnection), ctx, peerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePeerConnection", reflect.TypeOf((*MockStore)(nil).ReleasePeerConnection), ctx, accountID, peerID, session)
 }
 
 // RemovePeerFromAllGroups mocks base method.

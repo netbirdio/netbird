@@ -1235,7 +1235,9 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 // expirePeerIfStillDue flags the peer as login-expired and returns its fresh copy, or nil
 // when it no longer qualifies. The candidate list is read without a lock, so a login that
-// landed in between would otherwise be overwritten with a stale expired status.
+// landed in between would otherwise be overwritten with a stale expired status. The
+// connection released afterwards is the session read under the lock, so a session
+// established after the commit survives.
 func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accountID, peerID string, settings *types.Settings, reason peerExpirationReason) (*nbpeer.Peer, error) {
 	var expired *nbpeer.Peer
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1259,7 +1261,7 @@ func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accou
 	if err != nil || expired == nil {
 		return nil, err
 	}
-	if err := am.peerLiveness.ReleaseConnection(ctx, expired.ID); err != nil {
+	if err := am.peerLiveness.ReleaseConnection(ctx, accountID, expired.ID, expired.Status.SessionStartedAt); err != nil {
 		log.WithContext(ctx).Warnf("release connection of expired peer %s: %v", expired.ID, err)
 	}
 	return expired, nil

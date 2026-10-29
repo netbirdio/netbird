@@ -213,11 +213,12 @@ type Store interface {
 	// re-registration of the ended session no longer matches. It returns false when
 	// a newer session has replaced it or the peer does not exist.
 	DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error)
-	// ReleasePeerConnection releases the peer's connection whatever its session,
-	// stamping LastSeen with the database clock only when an instance held it. The
-	// stored session advances so that a re-registration of the released session no
-	// longer matches.
-	ReleasePeerConnection(ctx context.Context, peerID string) error
+	// ReleasePeerConnection ends the account's peer connection of session on behalf
+	// of a login expiry, stamping LastSeen with the database clock only when an
+	// instance held it. The stored session advances so that a re-registration of the
+	// released session no longer matches. It returns false when a newer session has
+	// replaced it or the peer has no such connection.
+	ReleasePeerConnection(ctx context.Context, accountID, peerID string, session int64) (bool, error)
 	// ReRegisterPeers re-points the connections of sessions at the instance,
 	// overwriting a connection only with a session that is the same or newer. Peers
 	// that no longer exist are skipped.
@@ -601,9 +602,6 @@ func migratePreAuto(ctx context.Context, db *gorm.DB) error {
 func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
-			return migration.BackfillPeerConnections[nbpeer.Connection](ctx, db)
-		},
-		func(db *gorm.DB) error {
 			return migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](ctx, db, "network_net")
 		},
 		func(db *gorm.DB) error {
@@ -644,6 +642,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPeerConnections[nbpeer.Connection](ctx, db)
 		},
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[rpservice.Service, types.Account](ctx, db, "account_id")

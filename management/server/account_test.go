@@ -2324,6 +2324,55 @@ func TestDefaultAccountManager_ExpirePeerIfStillDue_ReleasesConnection(t *testin
 	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "a held connection is stamped on release")
 }
 
+type afterTransactionStore struct {
+	store.Store
+	after func()
+}
+
+func (s *afterTransactionStore) ExecuteInTransaction(ctx context.Context, f func(store.Store) error) error {
+	err := s.Store.ExecuteInTransaction(ctx, f)
+	if err == nil {
+		s.after()
+	}
+	return err
+}
+
+func TestDefaultAccountManager_ExpirePeerIfStillDue_KeepsSessionConnectedAfterCommit(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	ctx := context.Background()
+
+	accountID, err := manager.GetAccountIDByUserID(ctx, auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+	_, key := addExpiringPeers(t, manager)
+	setPeerLogin(t, manager, accountID, key, false, time.Now().UTC().Add(-2*time.Hour))
+
+	session := time.Now().UnixNano()
+	require.NoError(t, manager.MarkPeerConnected(ctx, key, accountID, session, nil))
+	peer, err := manager.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+	require.NoError(t, err)
+
+	newer := session + 1_000_000
+	original := manager.Store
+	manager.Store = &afterTransactionStore{Store: original, after: func() {
+		applied, err := manager.peerLiveness.Connect(ctx, accountID, peer.ID, newer)
+		require.NoError(t, err)
+		require.True(t, applied)
+	}}
+	t.Cleanup(func() { manager.Store = original })
+
+	settings := &types.Settings{PeerLoginExpiration: time.Hour, PeerLoginExpirationEnabled: true}
+	expired, err := manager.expirePeerIfStillDue(ctx, accountID, peer.ID, settings, peerExpirationSessionExpired)
+	require.NoError(t, err)
+	require.NotNil(t, expired)
+
+	peer, err = original.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key)
+	require.NoError(t, err)
+	assert.True(t, peer.Status.LoginExpired)
+	assert.True(t, peer.Status.Connected, "a session established after the commit is not released")
+	assert.Equal(t, newer, peer.Status.SessionStartedAt)
+}
+
 // addExpiringPeers registers two SSO peers with login expiration enabled and returns their public keys.
 func addExpiringPeers(t *testing.T, manager *DefaultAccountManager) (string, string) {
 	t.Helper()
@@ -2349,7 +2398,8 @@ func setPeerLogin(t *testing.T, manager *DefaultAccountManager, accountID, peerK
 	peer.LastLogin = &lastLogin
 	require.NoError(t, manager.Store.SavePeer(context.Background(), accountID, peer))
 	if !connected {
-		require.NoError(t, manager.Store.ReleasePeerConnection(context.Background(), peer.ID))
+		_, err = manager.Store.ReleasePeerConnection(context.Background(), accountID, peer.ID, peer.Status.SessionStartedAt)
+		require.NoError(t, err)
 		return
 	}
 	require.NoError(t, manager.Store.RegisterInstance(context.Background(), "test-instance", "test-host"))

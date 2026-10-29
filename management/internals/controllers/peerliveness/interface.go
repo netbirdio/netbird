@@ -26,9 +26,12 @@ type Controller interface {
 	// fails the error is returned and the release is retried on every heartbeat tick until
 	// it applies or the session no longer matches.
 	Disconnect(ctx context.Context, accountID, peerID string, session int64) (bool, error)
-	// ReleaseConnection releases the peer's connection whatever its session, so no stream of
-	// this instance can resurrect it. Callers must not hold a store transaction.
-	ReleaseConnection(ctx context.Context, peerID string) error
+	// ReleaseConnection releases the peer's connection of session on behalf of a login
+	// expiry, so no stream of this instance can resurrect it. A newer session is left
+	// alone. When the write fails the error is returned and the release is retried on
+	// every heartbeat tick until it applies or the session no longer matches. Callers
+	// must not hold a store transaction.
+	ReleaseConnection(ctx context.Context, accountID, peerID string, session int64) error
 	// ForgetPeer drops the registry entry and any pending release of a peer once it and its
 	// connection record are deleted, so it is not re-registered after a heartbeat lapse.
 	ForgetPeer(peerID string)
@@ -52,6 +55,6 @@ type Store interface {
 	ReleaseInstance(ctx context.Context, id string) error
 	ConnectPeer(ctx context.Context, accountID, peerID, instanceID string, session int64) (bool, error)
 	DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error)
-	ReleasePeerConnection(ctx context.Context, peerID string) error
+	ReleasePeerConnection(ctx context.Context, accountID, peerID string, session int64) (bool, error)
 	ReRegisterPeers(ctx context.Context, instanceID string, sessions []types.PeerSession) error
 }

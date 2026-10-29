@@ -1239,17 +1239,53 @@ func TestSqlStore_ReleasePeerConnection(t *testing.T) {
 			setPeerLastSeen(t, store, id, old)
 		}
 
-		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-a"))
+		released, err := store.ReleasePeerConnection(ctx, peerConnectionAccountID, "peer-a", 100)
+		require.NoError(t, err)
+		assert.True(t, released)
 		conn := getPeerConnection(t, store, "peer-a")
 		require.NotNil(t, conn, "the record stays")
-		assert.Empty(t, instanceOf(conn), "the session is released whatever its token")
+		assert.Empty(t, instanceOf(conn), "the matching session is released")
 		assert.Equal(t, int64(101), conn.SessionStartedAt, "the released session no longer matches its own token")
 		assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "peer-a"), time.Minute, "a held connection is stamped")
 		assert.Equal(t, "inst-1", instanceOf(getPeerConnection(t, store, "peer-b")))
 
-		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-c"))
+		released, err = store.ReleasePeerConnection(ctx, peerConnectionAccountID, "peer-c", 0)
+		require.NoError(t, err)
+		assert.True(t, released)
 		assert.WithinDuration(t, old, peerLastSeen(t, store, "peer-c"), time.Second, "a peer no instance held keeps its last seen")
-		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-gone"), "releasing a missing record is not an error")
+
+		released, err = store.ReleasePeerConnection(ctx, peerConnectionAccountID, "peer-gone", 0)
+		require.NoError(t, err, "releasing a missing record is not an error")
+		assert.False(t, released)
+	})
+}
+
+func TestSqlStore_ReleasePeerConnectionIgnoresOtherSessionsAndAccounts(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		addPeerConnectionTestPeers(t, store, "peer-a")
+		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
+		require.NoError(t, err)
+		applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-2", 200)
+		require.NoError(t, err)
+		require.True(t, applied)
+
+		released, err := store.ReleasePeerConnection(ctx, peerConnectionAccountID, "peer-a", 100)
+		require.NoError(t, err)
+		assert.False(t, released, "a stale release does not touch a newer session")
+		conn := getPeerConnection(t, store, "peer-a")
+		assert.Equal(t, "inst-2", instanceOf(conn))
+		assert.Equal(t, int64(200), conn.SessionStartedAt)
+
+		released, err = store.ReleasePeerConnection(ctx, "other-account", "peer-a", 200)
+		require.NoError(t, err)
+		assert.False(t, released, "the release is scoped to the account")
+		assert.Equal(t, "inst-2", instanceOf(getPeerConnection(t, store, "peer-a")))
+
+		released, err = store.ReleasePeerConnection(ctx, peerConnectionAccountID, "peer-a", 200)
+		require.NoError(t, err)
+		assert.True(t, released)
+		assert.Empty(t, instanceOf(getPeerConnection(t, store, "peer-a")))
 	})
 }
 
@@ -1672,8 +1708,11 @@ func TestSqlStore_ReRegisterPeersReclaimsSweptButNotReleased(t *testing.T) {
 		swept, err := store.SweepInstanceChunk(ctx, "inst-1", lastSeen, 10)
 		require.NoError(t, err)
 		require.Equal(t, 3, swept)
-		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-expired"))
-		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-expired-newer"))
+		for _, id := range []string{"peer-expired", "peer-expired-newer"} {
+			released, err := store.ReleasePeerConnection(ctx, peerConnectionAccountID, id, 100)
+			require.NoError(t, err)
+			require.True(t, released)
+		}
 
 		require.NoError(t, store.ReRegisterPeers(ctx, "inst-2", []types.PeerSession{
 			{AccountID: peerConnectionAccountID, PeerID: "peer-swept", SessionStartedAt: 100},
@@ -1721,7 +1760,8 @@ func TestSqlStore_LivenessWritesLeavePeersRowAlone(t *testing.T) {
 		unchanged("SweepInstanceChunk")
 		_, err = store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 300)
 		require.NoError(t, err)
-		require.NoError(t, store.ReleasePeerConnection(ctx, "peer-a"))
+		_, err = store.ReleasePeerConnection(ctx, peerConnectionAccountID, "peer-a", 300)
+		require.NoError(t, err)
 		unchanged("ReleasePeerConnection")
 		require.NoError(t, store.ReRegisterPeers(ctx, "inst-1", []types.PeerSession{{AccountID: peerConnectionAccountID, PeerID: "peer-a", SessionStartedAt: 300}}))
 		unchanged("ReRegisterPeers")

@@ -206,22 +206,23 @@ func (s *SqlStore) DisconnectPeer(ctx context.Context, accountID, peerID string,
 	return result.RowsAffected > 0, nil
 }
 
-// ReleasePeerConnection releases the peer's connection whatever its session. LastSeen is
-// stamped with the database clock only when an instance held the connection. The stored
-// session advances by one so that a re-registration of the released session no longer
-// matches, while any later session still claims the peer.
-func (s *SqlStore) ReleasePeerConnection(ctx context.Context, peerID string) error {
-	err := s.db.WithContext(ctx).Exec(
+// ReleasePeerConnection ends the account's peer connection of session on behalf of a login
+// expiry. LastSeen is stamped with the database clock only when an instance held the
+// connection. The stored session advances by one so that a re-registration of the released
+// session no longer matches, while any later session still claims the peer. It returns
+// false when a newer session has replaced it or the peer has no such connection.
+func (s *SqlStore) ReleasePeerConnection(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
+	result := s.db.WithContext(ctx).Exec(
 		`UPDATE peer_connections
 		SET last_seen = CASE WHEN instance_id IS NOT NULL THEN CURRENT_TIMESTAMP ELSE last_seen END,
 		instance_id = NULL, session_started_at = session_started_at + 1
-		WHERE peer_id = ?`,
-		peerID,
-	).Error
-	if err != nil {
-		return status.Errorf(status.Internal, "release peer connection: %v", err)
+		WHERE account_id = ? AND peer_id = ? AND session_started_at = ?`,
+		accountID, peerID, session,
+	)
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "release peer connection: %v", result.Error)
 	}
-	return nil
+	return result.RowsAffected > 0, nil
 }
 
 // ReRegisterPeers re-points the connections of sessions at the instance, in chunks. A

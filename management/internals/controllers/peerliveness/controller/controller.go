@@ -26,6 +26,13 @@ type connection struct {
 	session   int64
 }
 
+// pendingEnd is a connection end that failed and is retried. A login expiry release and a
+// disconnect stamp LastSeen differently, so the kind is kept.
+type pendingEnd struct {
+	connection
+	release bool
+}
+
 // Controller implements peerliveness.Controller on top of a store.
 type Controller struct {
 	store peerliveness.Store
@@ -39,11 +46,11 @@ type Controller struct {
 	id                string
 	pendingReRegister bool
 
-	// registryMu guards registry and pending. pending holds the peers whose release failed,
-	// keyed by peer so it is bounded by the number of peers.
+	// registryMu guards registry and pending. pending holds the peers whose disconnect or
+	// release failed, keyed by peer so it is bounded by the number of peers.
 	registryMu sync.Mutex
 	registry   map[string]connection
-	pending    map[string]connection
+	pending    map[string]pendingEnd
 
 	lifecycleMu sync.Mutex
 	cancel      context.CancelFunc
@@ -55,7 +62,7 @@ func NewController(store peerliveness.Store) *Controller {
 	return &Controller{
 		store:    store,
 		registry: make(map[string]connection),
-		pending:  make(map[string]connection),
+		pending:  make(map[string]pendingEnd),
 	}
 }
 
@@ -118,33 +125,45 @@ func (c *Controller) Connect(ctx context.Context, accountID, peerID string, sess
 // fails the error is returned and the release is retried on every heartbeat tick until
 // it applies or the session no longer matches.
 func (c *Controller) Disconnect(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
-	deleted, err := c.store.DisconnectPeer(ctx, accountID, peerID, session)
+	return c.end(ctx, peerID, pendingEnd{connection: connection{accountID: accountID, session: session}})
+}
+
+// ReleaseConnection releases the peer's connection of session on behalf of a login
+// expiry, so no stream of this instance can resurrect it. A newer session is left alone.
+// When the write fails the error is returned and the release is retried on every
+// heartbeat tick until it applies or the session no longer matches. Callers must not
+// hold a store transaction.
+func (c *Controller) ReleaseConnection(ctx context.Context, accountID, peerID string, session int64) error {
+	_, err := c.end(ctx, peerID, pendingEnd{connection: connection{accountID: accountID, session: session}, release: true})
+	return err
+}
+
+// end writes the end of a connection and drops the registry entry when it holds the same
+// session. A failed write is queued for retry unless a newer session owns the registry.
+func (c *Controller) end(ctx context.Context, peerID string, e pendingEnd) (bool, error) {
+	applied, err := c.write(ctx, peerID, e)
 
 	c.registryMu.Lock()
 	defer c.registryMu.Unlock()
 
 	conn, registered := c.registry[peerID]
-	if registered && conn.session == session {
+	if registered && conn.session == e.session {
 		delete(c.registry, peerID)
 	}
 	if err != nil {
-		if !registered || conn.session == session {
-			c.pending[peerID] = connection{accountID: accountID, session: session}
+		if !registered || conn.session == e.session {
+			c.pending[peerID] = e
 		}
 		return false, err
 	}
-	return deleted, nil
+	return applied, nil
 }
 
-// ReleaseConnection releases the peer's connection whatever its session, so no stream of
-// this instance can resurrect it. Callers must not hold a store transaction.
-func (c *Controller) ReleaseConnection(ctx context.Context, peerID string) error {
-	if err := c.store.ReleasePeerConnection(ctx, peerID); err != nil {
-		return err
+func (c *Controller) write(ctx context.Context, peerID string, e pendingEnd) (bool, error) {
+	if e.release {
+		return c.store.ReleasePeerConnection(ctx, e.accountID, peerID, e.session)
 	}
-
-	c.ForgetPeer(peerID)
-	return nil
+	return c.store.DisconnectPeer(ctx, e.accountID, peerID, e.session)
 }
 
 // ForgetPeer drops the registry entry and any pending release of a peer once it and its
@@ -164,11 +183,14 @@ func (c *Controller) ForgetAccount(accountID string) {
 	c.registryMu.Lock()
 	defer c.registryMu.Unlock()
 
-	for _, peers := range []map[string]connection{c.registry, c.pending} {
-		for peerID, conn := range peers {
-			if conn.accountID == accountID {
-				delete(peers, peerID)
-			}
+	for peerID, conn := range c.registry {
+		if conn.accountID == accountID {
+			delete(c.registry, peerID)
+		}
+	}
+	for peerID, e := range c.pending {
+		if e.accountID == accountID {
+			delete(c.pending, peerID)
 		}
 	}
 }
@@ -343,21 +365,21 @@ func (c *Controller) sweepInstance(ctx context.Context, inst nbpeer.ManagementIn
 	return nil
 }
 
-// retryPendingReleases retries the releases that failed, dropping each one once it applied
-// or no longer matches the stored session. It stops at the first store error.
+// retryPendingReleases retries the connection ends that failed, dropping each one once it
+// applied or no longer matches the stored session. It stops at the first store error.
 func (c *Controller) retryPendingReleases(ctx context.Context) {
 	c.registryMu.Lock()
 	pending := maps.Clone(c.pending)
 	c.registryMu.Unlock()
 
-	for peerID, conn := range pending {
-		if _, err := c.store.DisconnectPeer(ctx, conn.accountID, peerID, conn.session); err != nil {
-			log.WithContext(ctx).Errorf("retry peer disconnect: %v", err)
+	for peerID, e := range pending {
+		if _, err := c.write(ctx, peerID, e); err != nil {
+			log.WithContext(ctx).Errorf("retry peer connection end: %v", err)
 			return
 		}
 
 		c.registryMu.Lock()
-		if c.pending[peerID] == conn {
+		if c.pending[peerID] == e {
 			delete(c.pending, peerID)
 		}
 		c.registryMu.Unlock()

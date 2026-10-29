@@ -142,21 +142,17 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 }
 
 // writePeerStatus runs a peer connection write. The connection state of an embedded
-// proxy peer is part of the network map, so for those peers an applied write is followed
-// by an increment of the account network serial. The write goes first because the
-// controller updates its registry once the write returns, and it runs outside any
-// transaction because the controller must not be called while one is open.
+// proxy peer is part of the network map, so for those peers the account network serial is
+// incremented first: a failed increment leaves the connection state unchanged, and a
+// write that then does not apply only costs a redundant map recompute. The write runs
+// outside any transaction because the controller must not be called while one is open.
 func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func() (bool, error)) (bool, error) {
-	updated, err := write()
-	if err != nil || !updated {
-		return false, err
-	}
 	if peer.ProxyMeta.Embedded {
 		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return true, fmt.Errorf("increment network serial: %w", err)
+			return false, fmt.Errorf("increment network serial: %w", err)
 		}
 	}
-	return true, nil
+	return write()
 }
 
 // schedulePeerExpirations arms the account's login/inactivity expiration
