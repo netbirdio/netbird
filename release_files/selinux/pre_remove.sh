@@ -22,10 +22,11 @@ fi
 active=0
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet netbird; then
   active=1
-  if ! systemctl stop netbird; then
-    echo "netbird-selinux: stopping netbird failed, leaving the policy module loaded" >&2
-    exit 0
-  fi
+fi
+
+if [ "$active" = 1 ] && ! systemctl stop netbird; then
+  echo "netbird-selinux: stopping netbird failed, leaving the policy module loaded" >&2
+  exit 0
 fi
 
 if ! semodule -X 200 -r netbird; then
