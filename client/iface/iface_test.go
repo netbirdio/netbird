@@ -524,11 +524,6 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localIP2 := "127.0.0.1"
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP2, peer2wgPort))
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer func() {
 		err = iface1.Close()
 		if err != nil {
@@ -540,7 +535,8 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}()
 
-	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), []netip.Prefix{peer2wgIP}, keepAlive, peer2endpoint, nil)
+	// Keep peer1 passive until peer2 initiates, rather than racing two handshake attempts.
+	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), []netip.Prefix{peer2wgIP}, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,14 +544,7 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// On Linux with the kernel module both peers are kernel devices, elsewhere
-	// they run on wireguard-go. A tight busy-loop here would starve the
-	// wireguard-go goroutines that process the handshake, so poll on a ticker
-	// instead and yield the CPU between checks. WireGuard also only retries a
-	// lost handshake initiation every REKEY_TIMEOUT (5s), which is why the
-	// overall wait can occasionally stretch to tens of seconds. Each side sends
-	// its first initiation when its peer is configured, and the first one leaves
-	// before the other device knows the peer, so that one is always wasted.
+	// Polling yields to the userspace backend while it handles packets.
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
 	ticker := time.NewTicker(500 * time.Millisecond)
