@@ -28,7 +28,7 @@ func Backoff(ctx context.Context) backoff.BackOff {
 
 // CreateConnection creates a gRPC client connection with the appropriate transport options.
 // The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
-func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string) (*grpc.ClientConn, error) {
+func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string, extraOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	// for js, the outer websocket layer takes care of tls
 	if tlsEnabled && runtime.GOOS != "js" {
@@ -46,9 +46,7 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 	connCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(
-		connCtx,
-		addr,
+	opts := []grpc.DialOption{
 		transportOption,
 		WithCustomDialer(tlsEnabled, component),
 		grpc.WithBlock(),
@@ -56,7 +54,10 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}),
-	)
+	}
+	opts = append(opts, extraOpts...)
+
+	conn, err := grpc.DialContext(connCtx, addr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("dial context: %w", err)
 	}

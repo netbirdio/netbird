@@ -21,34 +21,73 @@ var (
 		Activity:     "AccountCreate",
 		ActivityCode: api.EventActivityCodeAccountCreate,
 	}
+
+	testNetworkTrafficResponse = api.NetworkTrafficEventsResponse{
+		Data:     []api.NetworkTrafficEvent{},
+		Page:     1,
+		PageSize: 50,
+	}
 )
 
-func TestEvents_List_200(t *testing.T) {
+func TestEvents_ListAuditEvents_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/events/audit", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.Event{testEvent})
 			_, err := w.Write(retBytes)
 			require.NoError(t, err)
 		})
-		ret, err := c.Events.List(context.Background())
+		ret, err := c.Events.ListAuditEvents(context.Background())
 		require.NoError(t, err)
 		assert.Len(t, ret, 1)
 		assert.Equal(t, testEvent, ret[0])
 	})
 }
 
-func TestEvents_List_Err(t *testing.T) {
+func TestEvents_ListAuditEvents_Err(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
-		mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/events/audit", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
 			_, err := w.Write(retBytes)
 			require.NoError(t, err)
 		})
-		ret, err := c.Events.List(context.Background())
+		ret, err := c.Events.ListAuditEvents(context.Background())
 		assert.Error(t, err)
 		assert.Equal(t, "No", err.Error())
 		assert.Empty(t, ret)
+	})
+}
+
+func TestEvents_ListNetworkTrafficEvents_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/events/network-traffic", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "1", r.URL.Query().Get("page"))
+			assert.Equal(t, "50", r.URL.Query().Get("page_size"))
+			retBytes, _ := json.Marshal(testNetworkTrafficResponse)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Events.ListNetworkTrafficEvents(context.Background(),
+			rest.NetworkTrafficPage(1),
+			rest.NetworkTrafficPageSize(50),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, testNetworkTrafficResponse, *ret)
+	})
+}
+
+func TestEvents_ListNetworkTrafficEvents_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/events/network-traffic", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Events.ListNetworkTrafficEvents(context.Background())
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Nil(t, ret)
 	})
 }
 
@@ -62,7 +101,7 @@ func TestEvents_Integration(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		events, err := c.Events.List(context.Background())
+		events, err := c.Events.ListAuditEvents(context.Background())
 		require.NoError(t, err)
 		assert.NotEmpty(t, events)
 	})

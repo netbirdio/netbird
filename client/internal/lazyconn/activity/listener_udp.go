@@ -3,11 +3,13 @@ package activity
 import (
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
 
@@ -20,6 +22,8 @@ type UDPListener struct {
 	done     sync.Mutex
 
 	isClosed atomic.Bool
+
+	capturedPacket []byte
 }
 
 // NewUDPListener creates a listener that detects activity via UDP socket reads.
@@ -46,9 +50,13 @@ func NewUDPListener(wgIface WgInterface, cfg lazyconn.PeerConfig) (*UDPListener,
 }
 
 // ReadPackets blocks reading from the UDP socket until activity is detected or the listener is closed.
+// The first packet that triggers activity is captured so it can be reinjected through the real
+// transport once it is established. Without this, kernel WireGuard's handshake initiation would be
+// dropped and WG would only retry after REKEY_TIMEOUT.
 func (d *UDPListener) ReadPackets() {
 	for {
-		n, remoteAddr, err := d.conn.ReadFromUDP(make([]byte, 1))
+		buf := make([]byte, int(d.wgIface.MTU())+bufsize.WGBufferOverhead)
+		n, remoteAddr, err := d.conn.ReadFromUDP(buf)
 		if err != nil {
 			if d.isClosed.Load() {
 				d.peerCfg.Log.Infof("exit from activity listener")
@@ -62,18 +70,22 @@ func (d *UDPListener) ReadPackets() {
 			d.peerCfg.Log.Warnf("received %d bytes from %s, too short", n, remoteAddr)
 			continue
 		}
-		d.peerCfg.Log.Infof("activity detected")
+		d.capturedPacket = slices.Clone(buf[:n])
+		d.peerCfg.Log.Infof("activity detected, captured %d bytes for reinjection", n)
 		break
 	}
 
-	d.peerCfg.Log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
-	if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
-		d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
-	}
-
-	// Ignore close error as it may return "use of closed network connection" if already closed.
+	// Leave the peer in place. ConfigureWGEndpoint will UpdatePeer with the real endpoint;
+	// removing the peer here wipes kernel WG's staged queue and drops the user packet that
+	// triggered activation.
 	_ = d.conn.Close()
 	d.done.Unlock()
+}
+
+// CapturedPacket returns the first packet that triggered activity, or nil if none was captured.
+// Safe to call after ReadPackets returns.
+func (d *UDPListener) CapturedPacket() []byte {
+	return d.capturedPacket
 }
 
 // Close stops the listener and cleans up resources.

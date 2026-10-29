@@ -25,6 +25,7 @@ func (h *hostsDNSHolder) set(list []netip.AddrPort) {
 	h.mutex.Unlock()
 }
 
+//nolint:unused
 func (h *hostsDNSHolder) get() map[netip.AddrPort]struct{} {
 	h.mutex.RLock()
 	l := h.unprotectedDNSList

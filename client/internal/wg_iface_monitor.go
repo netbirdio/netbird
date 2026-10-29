@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"runtime"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -28,6 +27,10 @@ func NewWGIfaceMonitor() *WGIfaceMonitor {
 
 // Start begins monitoring the WireGuard interface.
 // It relies on the provided context cancellation to stop.
+//
+// On Linux the watcher is event-driven (RTNLGRP_LINK netlink subscription)
+// to avoid the allocation churn of repeatedly dumping the kernel link
+// table; on other platforms it falls back to a low-frequency poll.
 func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRestart bool, err error) {
 	defer close(m.done)
 
@@ -56,31 +59,7 @@ func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRes
 
 	log.Infof("Interface monitor: watching %s (index: %d)", ifaceName, expectedIndex)
 
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Infof("Interface monitor: stopped for %s", ifaceName)
-			return false, fmt.Errorf("wg interface monitor stopped: %v", ctx.Err())
-		case <-ticker.C:
-			currentIndex, err := getInterfaceIndex(ifaceName)
-			if err != nil {
-				// Interface was deleted
-				log.Infof("Interface monitor: %s deleted", ifaceName)
-				return true, fmt.Errorf("interface %s deleted: %w", ifaceName, err)
-			}
-
-			// Check if interface index changed (interface was recreated)
-			if currentIndex != expectedIndex {
-				log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
-					ifaceName, expectedIndex, currentIndex)
-				return true, nil
-			}
-		}
-	}
-
+	return watchInterface(ctx, ifaceName, expectedIndex)
 }
 
 // getInterfaceIndex returns the index of a network interface by name.

@@ -12,10 +12,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// sessionUser returns the OS user name the session was authenticated for. The context keeps the
+// name from the first auth request of the connection, which is the one passwordHandler checked,
+// while sess.User() is the name from the last request the client sent and may differ from it.
+func sessionUser(sess ssh.Session) string {
+	return sess.Context().User()
+}
+
 // associateJWTUsername extracts pending JWT username for the session and associates it with the session state.
 // Returns the JWT username (empty if none) for logging purposes.
 func (s *Server) associateJWTUsername(sess ssh.Session, sessionKey sessionKey) string {
-	key := newAuthKey(sess.User(), sess.RemoteAddr())
+	key := newAuthKey(sessionUser(sess), sess.RemoteAddr())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -53,14 +60,21 @@ func (s *Server) sessionHandler(session ssh.Session) {
 		logger.Infof("SSH session closed after %v", duration)
 	}()
 
-	privilegeResult, err := s.userPrivilegeCheck(session.User())
+	ptyReq, winCh, isPty := session.Pty()
+	if isPty {
+		// The request loop blocks sending a resize nobody reads, and only sees its request
+		// stream close once that send completes. Covers the paths below that return
+		// without consuming window changes.
+		defer drainWindowChanges(winCh)
+	}
+
+	privilegeResult, err := s.userPrivilegeCheck(sessionUser(session))
 	if err != nil {
 		s.handlePrivError(logger, session, err)
 		return
 	}
 
-	ptyReq, winCh, isPty := session.Pty()
-	hasCommand := len(session.Command()) > 0
+	hasCommand := session.RawCommand() != ""
 
 	if isPty && !hasCommand {
 		// ssh <host> - PTY interactive session (login)
@@ -83,7 +97,7 @@ func (s *Server) registerSession(session ssh.Session, sessionType string) sessio
 	shortID := hex.EncodeToString(hash[:4])
 
 	remoteAddr := session.RemoteAddr().String()
-	username := session.User()
+	username := sessionUser(session)
 	sessionKey := sessionKey(fmt.Sprintf("%s@%s-%s", username, remoteAddr, shortID))
 
 	s.mu.Lock()

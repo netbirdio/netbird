@@ -1,0 +1,130 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Ideas & Feature Requests
+
+        Use this category for feature requests, enhancements, integrations, and product ideas.
+
+        NetBird uses community traction in discussions — upvotes, replies, affected users, and use-case detail — as an input when deciding what should become a maintainer-curated issue or roadmap item. A clear problem statement is more useful than a solution-only request.
+
+        Please search first and add your use case to an existing discussion when one already exists.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched existing discussions and issues for similar requests.
+          required: true
+        - label: I checked the documentation to confirm this is not already supported.
+          required: true
+        - label: This is a product idea or enhancement request, not a support question.
+          required: true
+        - label: I removed or anonymized sensitive details from examples and screenshots.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      description: Select every area this request touches.
+      multiple: true
+      options:
+        - Client / Agent
+        - CLI
+        - Desktop UI
+        - Mobile app
+        - Dashboard / Admin UI
+        - Management service / API
+        - Signal service
+        - Relay
+        - DNS
+        - Routes / Exit nodes
+        - NetBird SSH
+        - Access control policies
+        - Posture checks
+        - Identity provider / SSO
+        - Self-hosting / Deployment
+        - Kubernetes / Operator
+        - Terraform / Automation
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to accomplish, and what is difficult or impossible today?
+      placeholder: |
+        As a ...
+        I want to ...
+        Because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, workflow, API, UI, or integration you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds considered
+      description: What have you tried today? Why is the current workaround not enough?
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Community impact and priority
+      description: Help us understand who benefits and how urgent this is.
+      placeholder: |
+        - Number of users/teams/peers affected:
+        - Deployment type: Cloud / self-hosted / both
+        - Frequency: daily / weekly / occasional
+        - Blocking production adoption? yes/no
+        - Related comments, discussions, or customer requests:
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples from other tools or products
+      description: If another tool solves this well, link or describe the behavior.
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security, privacy, and compatibility considerations
+      description: Note any access-control, audit, data retention, network, platform, or backward-compatibility concerns.
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation ideas
+      description: Optional. If you are familiar with the codebase or API, share possible implementation notes.
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Are you willing to help?
+      options:
+        - Yes, I can submit a PR if the approach is accepted.
+        - Yes, I can test or validate a proposed implementation.
+        - Yes, I can provide more use-case details.
+        - Not at this time.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, diagrams, links, or anything else that helps explain the request.

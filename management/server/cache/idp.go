@@ -88,7 +88,8 @@ func NewUserDataCache(store store.StoreInterface) *UserDataCacheImpl {
 
 // AccountUserDataCache wraps the basic Get, Set and Delete methods for []*idp.UserData objects.
 type AccountUserDataCache struct {
-	cache Marshaler
+	cache    Marshaler
+	loadable *cache.LoadableCache[any]
 }
 
 func (a *AccountUserDataCache) Get(ctx context.Context, key string) ([]*idp.UserData, error) {
@@ -127,13 +128,18 @@ func (a *AccountUserDataCache) Delete(ctx context.Context, key string) error {
 	return a.cache.Delete(ctx, key)
 }
 
+// Close stops the goroutine that stores loaded values. The cache must not be used afterwards.
+func (a *AccountUserDataCache) Close() error {
+	return a.loadable.Close()
+}
+
 // NewAccountUserDataCache creates a new AccountUserDataCache object.
 func NewAccountUserDataCache(loadableFunc cache.LoadFunction[any], store store.StoreInterface) *AccountUserDataCache {
 	simpleCache := cache.New[any](store)
 	loadable := cache.NewLoadable[any](loadableFunc, simpleCache)
 	if store.GetType() == redis.RedisType {
 		m := marshaler.New(loadable)
-		return &AccountUserDataCache{cache: m}
+		return &AccountUserDataCache{cache: m, loadable: loadable}
 	}
-	return &AccountUserDataCache{cache: &marshalerWraper{loadable}}
+	return &AccountUserDataCache{cache: &marshalerWraper{loadable}, loadable: loadable}
 }

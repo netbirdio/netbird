@@ -1,0 +1,4 @@
+{
+  "description": "A tcp/22 policy implies legacy SSH only when the destination peer has SSHEnabled; here it does not, so peer-srv gets the firewall rules but no authorized users.",
+  "peers": ["peer-srv"]
+}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
@@ -33,7 +34,7 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 )
 
 const (
@@ -336,6 +337,104 @@ func TestUser_GetAllPATs(t *testing.T) {
 	assert.Equal(t, 2, len(pats))
 }
 
+func TestUser_PAT_CrossAccountProtection(t *testing.T) {
+	const (
+		accountAID     = "accountA"
+		accountBID     = "accountB"
+		userAID        = "userA"
+		adminBID       = "adminB"
+		serviceUserBID = "serviceUserB"
+		regularUserBID = "regularUserB"
+		tokenBID       = "tokenB1"
+		hashedTokenB   = "SoMeHaShEdToKeNB"
+	)
+
+	setupStore := func(t *testing.T) (*DefaultAccountManager, func()) {
+		t.Helper()
+
+		s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+		require.NoError(t, err, "creating store")
+
+		accountA := newAccountWithId(context.Background(), accountAID, userAID, "", "", "", false)
+		require.NoError(t, s.SaveAccount(context.Background(), accountA))
+
+		accountB := newAccountWithId(context.Background(), accountBID, adminBID, "", "", "", false)
+		accountB.Users[serviceUserBID] = &types.User{
+			Id:              serviceUserBID,
+			AccountID:       accountBID,
+			IsServiceUser:   true,
+			ServiceUserName: "svcB",
+			Role:            types.UserRoleAdmin,
+			PATs: map[string]*types.PersonalAccessToken{
+				tokenBID: {
+					ID:          tokenBID,
+					HashedToken: hashedTokenB,
+				},
+			},
+		}
+		accountB.Users[regularUserBID] = &types.User{
+			Id:        regularUserBID,
+			AccountID: accountBID,
+			Role:      types.UserRoleUser,
+		}
+		require.NoError(t, s.SaveAccount(context.Background(), accountB))
+
+		pm := permissions.NewManager(s)
+		am := &DefaultAccountManager{
+			Store:              s,
+			eventStore:         &activity.InMemoryEventStore{},
+			permissionsManager: pm,
+		}
+		return am, cleanup
+	}
+
+	t.Run("CreatePAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.CreatePAT(context.Background(), accountAID, userAID, serviceUserBID, "xss-token", 7)
+		require.Error(t, err, "cross-account CreatePAT must fail")
+
+		_, err = am.CreatePAT(context.Background(), accountAID, userAID, regularUserBID, "xss-token", 7)
+		require.Error(t, err, "cross-account CreatePAT for regular user must fail")
+
+		_, err = am.CreatePAT(context.Background(), accountBID, adminBID, serviceUserBID, "legit-token", 7)
+		require.NoError(t, err, "same-account CreatePAT should succeed")
+	})
+
+	t.Run("DeletePAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		err := am.DeletePAT(context.Background(), accountAID, userAID, serviceUserBID, tokenBID)
+		require.Error(t, err, "cross-account DeletePAT must fail")
+	})
+
+	t.Run("GetPAT for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.GetPAT(context.Background(), accountAID, userAID, serviceUserBID, tokenBID)
+		require.Error(t, err, "cross-account GetPAT must fail")
+	})
+
+	t.Run("GetAllPATs for user in different account is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.GetAllPATs(context.Background(), accountAID, userAID, serviceUserBID)
+		require.Error(t, err, "cross-account GetAllPATs must fail")
+	})
+
+	t.Run("CreatePAT with forged accountID targeting foreign user is denied", func(t *testing.T) {
+		am, cleanup := setupStore(t)
+		t.Cleanup(cleanup)
+
+		_, err := am.CreatePAT(context.Background(), accountAID, userAID, adminBID, "forged", 7)
+		require.Error(t, err, "forged accountID CreatePAT must fail")
+	})
+}
+
 func TestUser_Copy(t *testing.T) {
 	// this is an imaginary case which will never be in DB this way
 	user := types.User{
@@ -608,6 +707,69 @@ func TestUser_InviteNewUser(t *testing.T) {
 	assert.Errorf(t, err, "Invite user with owner role should throw error")
 }
 
+func TestUser_InviteNewUser_ServiceUserAfterCreatorRemoved(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	const (
+		creatorID    = "creatorID"
+		newOwnerID   = "newOwnerID"
+		newOwnerMail = "new-owner@test.com"
+	)
+
+	account := newAccountWithId(context.Background(), mockAccountID, creatorID, "", "", "", false)
+	delete(account.Users, creatorID)
+	account.Users[newOwnerID] = &types.User{
+		Id:        newOwnerID,
+		AccountID: mockAccountID,
+		Role:      types.UserRoleOwner,
+	}
+	account.Users[mockServiceUserID] = &types.User{
+		Id:              mockServiceUserID,
+		AccountID:       mockAccountID,
+		Role:            types.UserRoleAdmin,
+		IsServiceUser:   true,
+		ServiceUserName: mockServiceUserName,
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissions.NewManager(s),
+	}
+
+	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
+	require.NoError(t, err)
+	cacheManager := nbcache.NewAccountUserDataCache(am.loadAccount, cs)
+	t.Cleanup(func() { assert.NoError(t, cacheManager.Close()) })
+	am.cacheManager = cacheManager
+
+	idpUsers := []*idp.UserData{{ID: newOwnerID, Email: newOwnerMail, Name: "new owner"}}
+	var invitedBy string
+	am.idpManager = &idp.MockIDP{
+		CreateUserFunc: func(_ context.Context, email, name, _, invitedByEmail string) (*idp.UserData, error) {
+			invitedBy = invitedByEmail
+			newUser := &idp.UserData{ID: "invitedID", Email: email, Name: name}
+			idpUsers = append(idpUsers, newUser)
+			return newUser, nil
+		},
+		GetAccountFunc: func(_ context.Context, _ string) ([]*idp.UserData, error) {
+			return idpUsers, nil
+		},
+	}
+
+	_, err = am.inviteNewUser(context.Background(), mockAccountID, mockServiceUserID, &types.UserInfo{
+		Name:  "invited",
+		Email: "invited@test.com",
+		Role:  mockRole,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, newOwnerMail, invitedBy, "service user invites should be sent on behalf of the current owner")
+}
+
 func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -704,6 +866,52 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	}
 }
 
+func TestUser_DeleteUser_OtherAccount(t *testing.T) {
+	testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	if err = testStore.SaveAccount(context.Background(), account); err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	otherAccount := newAccountWithId(context.Background(), "otherAccount", "otherOwner", "", "", "", false)
+	otherAccount.Users["otherRegularUser"] = &types.User{
+		Id:        "otherRegularUser",
+		AccountID: "otherAccount",
+		Role:      types.UserRoleUser,
+	}
+	otherAccount.Users["otherServiceUser"] = &types.User{
+		Id:              "otherServiceUser",
+		AccountID:       "otherAccount",
+		Role:            types.UserRoleUser,
+		IsServiceUser:   true,
+		ServiceUserName: "otherServiceUser",
+	}
+	if err = testStore.SaveAccount(context.Background(), otherAccount); err != nil {
+		t.Fatalf("Error when saving other account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:              testStore,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissions.NewManager(testStore),
+	}
+
+	for _, targetUserID := range []string{"otherRegularUser", "otherServiceUser"} {
+		t.Run(targetUserID, func(t *testing.T) {
+			err := am.DeleteUser(context.Background(), mockAccountID, mockUserID, targetUserID)
+			assert.Equal(t, status.NewUserNotFoundError(targetUserID), err)
+
+			_, err = testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
+			assert.NoError(t, err, "user of another account must not be deleted")
+		})
+	}
+}
+
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -748,7 +956,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	permissionsManager := permissions.NewManager(store)
@@ -796,6 +1004,49 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		})
 	}
 
+}
+
+func TestUser_deleteRegularUser_RejectsOwner(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Users[mockTargetUserId] = &types.User{
+		Id:     mockTargetUserId,
+		Issued: types.UserIssuedAPI,
+		Role:   types.UserRoleOwner,
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	am := DefaultAccountManager{Store: s}
+
+	_, err = am.deleteRegularUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{ID: mockTargetUserId})
+	assert.EqualError(t, err, status.NewOwnerDeletePermissionError().Error())
+}
+
+func TestUser_deleteRegularUser_InitiatorOwnerDeletesThemself(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	networkMapControllerMock := network_map.NewMockController(gomock.NewController(t))
+	networkMapControllerMock.EXPECT().OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	am := DefaultAccountManager{
+		Store:                s,
+		eventStore:           &activity.InMemoryEventStore{},
+		networkMapController: networkMapControllerMock,
+	}
+
+	_, err = am.deleteRegularUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{ID: mockUserID})
+	require.NoError(t, err)
+
+	_, err = s.GetUserByUserID(context.Background(), store.LockingStrengthNone, mockUserID)
+	assert.Equal(t, status.NewUserNotFoundError(mockUserID), err)
 }
 
 func TestUser_DeleteUser_RegularUsers(t *testing.T) {
@@ -864,7 +1115,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
@@ -1357,163 +1608,170 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 }
 
 func TestUserAccountPeersUpdate(t *testing.T) {
-	// account groups propagation is enabled
-	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	runPeerUpdateTest(t, func(t *testing.T) {
+		// account groups propagation is enabled
+		manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	require.NoError(t, err)
+		err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
+		require.NoError(t, err)
 
-	policy := &types.Policy{
-		Enabled: true,
-		Rules: []*types.PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"groupA"},
-				Destinations:  []string{"groupA"},
-				Bidirectional: true,
-				Action:        types.PolicyTrafficActionAccept,
+		policy := &types.Policy{
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"groupA"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
 			},
-		},
-	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
-	require.NoError(t, err)
-
-	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	// Creating a new regular user should send peer update (as users are not filtered yet)
-	t.Run("creating new regular user with no groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
-			Id:        "regularUser1",
-			AccountID: account.Id,
-			Role:      types.UserRoleUser,
-			Issued:    types.UserIssuedAPI,
-		}, true)
+		}
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+		updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 
-	// updating user with no linked peers should update account peers and send peer update (as users are not filtered yet)
-	t.Run("updating user with no linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+		// Creating a new regular user should send peer update (as users are not filtered yet)
+		step(t, "creating new regular user with no groups", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
 
-		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
-			Id:        "regularUser1",
-			AccountID: account.Id,
-			Role:      types.UserRoleUser,
-			Issued:    types.UserIssuedAPI,
-		}, false)
-		require.NoError(t, err)
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+			_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
+				Id:        "regularUser1",
+				AccountID: account.Id,
+				Role:      types.UserRoleUser,
+				Issued:    types.UserIssuedAPI,
+			}, true)
+			require.NoError(t, err)
 
-	// deleting user with no linked peers should not update account peers and not send peer update
-	t.Run("deleting user with no linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser1")
-		require.NoError(t, err)
+		// saving an unchanged user with no linked peers should not update account peers and not send peer update
+		step(t, "updating user with no linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+			_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
+				Id:        "regularUser1",
+				AccountID: account.Id,
+				Role:      types.UserRoleUser,
+				Issued:    types.UserIssuedAPI,
+			}, false)
+			require.NoError(t, err)
 
-	// create a user and add new peer with the user
-	_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
-		Id:        "regularUser2",
-		AccountID: account.Id,
-		Role:      types.UserRoleAdmin,
-		Issued:    types.UserIssuedAPI,
-	}, true)
-	require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
 
-	key, err := wgtypes.GeneratePrivateKey()
-	require.NoError(t, err)
+		// drain any buffered updates from previous subtests
+		drainPeerUpdates(updMsg)
 
-	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
-		Key:  expectedPeerKey,
-		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	}, false)
-	require.NoError(t, err)
+		// deleting user with no linked peers should not update account peers and not send peer update
+		step(t, "deleting user with no linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	// updating user with linked peers should update account peers and send peer update
-	t.Run("updating user with linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+			err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser1")
+			require.NoError(t, err)
 
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+
+		// create a user and add new peer with the user
 		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
 			Id:        "regularUser2",
 			AccountID: account.Id,
 			Role:      types.UserRoleAdmin,
 			Issued:    types.UserIssuedAPI,
+		}, true)
+		require.NoError(t, err)
+
+		key, err := wgtypes.GeneratePrivateKey()
+		require.NoError(t, err)
+
+		expectedPeerKey := key.PublicKey().String()
+		peer4, _, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
+			Key:  expectedPeerKey,
+			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 		}, false)
 		require.NoError(t, err)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+		// updating user with linked peers should update account peers and send peer update
+		step(t, "updating user with linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, updMsg)
+				close(done)
+			}()
 
-	peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
-	t.Cleanup(func() {
-		updateManager.CloseChannel(context.Background(), peer4.ID)
-	})
+			_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &types.User{
+				Id:        "regularUser2",
+				AccountID: account.Id,
+				Role:      types.UserRoleAdmin,
+				Issued:    types.UserIssuedAPI,
+			}, false)
+			require.NoError(t, err)
 
-	// deleting user with linked peers should update account peers and send peer update
-	t.Run("deleting user with linked peers", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, peer4UpdMsg)
-			close(done)
-		}()
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 
-		err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser2")
-		require.NoError(t, err)
+		peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
+		t.Cleanup(func() {
+			updateManager.CloseChannel(context.Background(), peer4.ID)
+		})
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
+		// deleting user with linked peers should update account peers and send peer update
+		step(t, "deleting user with linked peers", func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				peerShouldReceiveUpdate(t, peer4UpdMsg)
+				close(done)
+			}()
+
+			err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser2")
+			require.NoError(t, err)
+
+			select {
+			case <-done:
+			case <-time.After(peerUpdateTimeout):
+				t.Error("timeout waiting for peerShouldReceiveUpdate")
+			}
+		})
 	})
 }
 
@@ -1589,6 +1847,42 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account2))
 
+	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
+	account3.Users["pending-user"] = &types.User{
+		Id:              "pending-user",
+		AccountID:       account3.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account3))
+
+	// The owner has no address to name, so the refusal falls back to the generic one.
+	account4 := newAccountWithId(context.Background(), "account4", "account4Owner", "", "", "", false)
+	account4.Users["pending-user-without-owner-email"] = &types.User{
+		Id:              "pending-user-without-owner-email",
+		AccountID:       account4.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account4))
+
+	// No user holds the owner role, so the owner lookup itself fails.
+	account5 := newAccountWithId(context.Background(), "account5", "account5Admin", "", "", "", false)
+	account5.Users["account5Admin"].Role = types.UserRoleAdmin
+	account5.Users["pending-user-without-owner"] = &types.User{
+		Id:              "pending-user-without-owner",
+		AccountID:       account5.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account5))
+
+	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	require.NoError(t, store.SaveAccount(context.Background(), account6))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1621,6 +1915,34 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			name:        "service user",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:        "pending approval names the owner",
+			userAuth:    auth.UserAuth{AccountId: account3.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "pending approval without an owner address",
+			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			name:        "pending approval without an owner",
+			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			// The account claim points at an account the caller is not in. The
+			// owner named has to be the one of the account holding the caller's
+			// own record, never the one the claim asks for.
+			name:        "pending approval ignores a mismatched account claim",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "blocked user answers before the account claim is validated",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:     "owner user",
@@ -1924,7 +2246,7 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
@@ -2030,4 +2352,25 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 		assert.Error(t, err, "Creating user with duplicate email should fail")
 		t.Logf("Duplicate email error: %v", err)
 	})
+}
+
+func TestDefaultAccountManager_UserMutations_BumpNetworkSerial(t *testing.T) {
+	manager, _, account, _, _, _ := setupNetworkMapTest(t)
+
+	account, err := manager.Store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+	account.Users["regular-user"] = types.NewRegularUser("regular-user", "", "")
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	ctx := nbcontext.WithRole(context.Background(), string(types.UserRoleOwner))
+
+	before := networkSerial(t, manager, account.Id)
+	_, err = manager.SaveUser(ctx, account.Id, userID, &types.User{Id: "regular-user", Role: types.UserRoleUser, Blocked: true})
+	require.NoError(t, err)
+	afterSave := networkSerial(t, manager, account.Id)
+	assert.Greater(t, afterSave, before, "SaveUser must bump the serial")
+
+	_, err = manager.deleteRegularUser(ctx, account.Id, userID, &types.UserInfo{ID: "regular-user"})
+	require.NoError(t, err)
+	assert.Greater(t, networkSerial(t, manager, account.Id), afterSave, "deleteRegularUser must bump the serial")
 }

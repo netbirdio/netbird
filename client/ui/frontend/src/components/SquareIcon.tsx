@@ -1,0 +1,37 @@
+import { type ComponentType } from "react";
+import { type LucideProps } from "lucide-react";
+import { cn } from "@/lib/cn";
+
+export type SquareIconVariant = "default" | "info" | "warning" | "danger";
+
+const variantClass: Record<SquareIconVariant, string> = {
+    default: "text-nb-gray-50",
+    info: "text-sky-400",
+    warning: "text-netbird",
+    danger: "text-red-500",
+};
+
+type SquareIconProps = {
+    icon: ComponentType<LucideProps>;
+    iconSize?: number;
+    variant?: SquareIconVariant;
+    className?: string;
+};
+
+export const SquareIcon = ({
+    icon: Icon,
+    iconSize = 18,
+    variant = "default",
+    className,
+}: SquareIconProps) => (
+    <div
+        aria-hidden={"true"}
+        className={cn(
+            "flex h-11 w-11 items-center justify-center rounded-lg border border-nb-gray-800 bg-nb-gray-920 dark:border-nb-gray-900",
+            variantClass[variant],
+            className,
+        )}
+    >
+        <Icon size={iconSize} />
+    </div>
+);

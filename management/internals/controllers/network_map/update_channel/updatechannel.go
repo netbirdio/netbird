@@ -51,7 +51,7 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 		found = true
 		select {
 		case channel <- update:
-			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
+			log.WithContext(ctx).Tracef("update was sent to channel for peer %s", peerID)
 		default:
 			dropped = true
 			log.WithContext(ctx).Warnf("channel for peer %s is %d full or closed", peerID, len(channel))
@@ -131,6 +131,30 @@ func (p *PeersUpdateManager) CloseChannel(ctx context.Context, peerID string) {
 	}()
 
 	p.closeChannel(ctx, peerID)
+}
+
+// CloseSessionChannel closes the peer's updates channel only while it is still session's channel.
+// It returns false when a newer stream has registered a different channel, which the stale
+// session must leave to its new owner. A nil session belongs to a stream that failed before
+// registering its own channel; it is the newest session and closes any channel still registered.
+func (p *PeersUpdateManager) CloseSessionChannel(ctx context.Context, peerID string, session chan *network_map.UpdateMessage) bool {
+	start := time.Now()
+
+	p.channelsMux.Lock()
+	defer func() {
+		p.channelsMux.Unlock()
+		if p.metrics != nil {
+			p.metrics.UpdateChannelMetrics().CountCloseChannelDuration(time.Since(start))
+		}
+	}()
+
+	if channel, ok := p.peerChannels[peerID]; ok && session != nil && channel != session {
+		log.WithContext(ctx).Debugf("skipped closing updates channel: peer %s is owned by a newer session", peerID)
+		return false
+	}
+
+	p.closeChannel(ctx, peerID)
+	return true
 }
 
 // GetAllConnectedPeers returns a copy of the connected peers map

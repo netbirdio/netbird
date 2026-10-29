@@ -2,7 +2,9 @@ package system
 
 import (
 	"context"
+	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
@@ -34,6 +36,20 @@ func Test_CustomHostname(t *testing.T) {
 	assert.Equal(t, want, got.Hostname)
 }
 
+func TestGetInfoWithChecksTimeout_Success(t *testing.T) {
+	info, ok := GetInfoWithChecksTimeout(context.Background(), 30*time.Second, nil)
+	assert.True(t, ok, "expected gathering to complete within the timeout")
+	assert.NotNil(t, info)
+}
+
+func TestGetInfoWithChecksTimeout_Timeout(t *testing.T) {
+	// A 1ns budget expires before the (real) system-info gathering can finish, so the
+	// caller must get (nil, false) instead of blocking on the in-flight goroutine.
+	info, ok := GetInfoWithChecksTimeout(context.Background(), time.Nanosecond, nil)
+	assert.False(t, ok, "expected timeout to be reported")
+	assert.Nil(t, info)
+}
+
 func Test_NetAddresses(t *testing.T) {
 	addr, err := networkAddresses()
 	if err != nil {
@@ -41,5 +57,44 @@ func Test_NetAddresses(t *testing.T) {
 	}
 	if len(addr) == 0 {
 		t.Errorf("no network addresses found")
+	}
+}
+
+func TestInfo_RemoveAddresses(t *testing.T) {
+	addr := func(cidr string) NetworkAddress {
+		return NetworkAddress{NetIP: netip.MustParsePrefix(cidr)}
+	}
+
+	info := &Info{
+		NetworkAddresses: []NetworkAddress{
+			addr("192.168.1.7/24"),
+			addr("100.76.70.97/32"),                          // overlay v4 (host mask /32)
+			addr("2001:818:c51b:4800:845:a65d:ae6f:623f/64"), // real global v6
+			addr("fd00:1234::1/64"),                          // overlay v6
+		},
+	}
+
+	// Overlay addresses as the engine knows them, with a different mask (/16, /64).
+	info.removeAddresses(
+		netip.MustParseAddr("100.76.70.97"),
+		netip.MustParseAddr("fd00:1234::1"),
+	)
+
+	want := []string{"192.168.1.7/24", "2001:818:c51b:4800:845:a65d:ae6f:623f/64"}
+	if len(info.NetworkAddresses) != len(want) {
+		t.Fatalf("got %d addresses, want %d: %v", len(info.NetworkAddresses), len(want), info.NetworkAddresses)
+	}
+	for i, w := range want {
+		if got := info.NetworkAddresses[i].NetIP.String(); got != w {
+			t.Errorf("address[%d] = %s, want %s", i, got, w)
+		}
+	}
+}
+
+func TestInfo_RemoveAddresses_NoOp(t *testing.T) {
+	info := &Info{NetworkAddresses: []NetworkAddress{{NetIP: netip.MustParsePrefix("10.0.0.1/24")}}}
+	info.removeAddresses()
+	if len(info.NetworkAddresses) != 1 {
+		t.Errorf("expected no change with empty input, got %v", info.NetworkAddresses)
 	}
 }

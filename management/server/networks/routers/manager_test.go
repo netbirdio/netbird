@@ -195,6 +195,7 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 	if err != nil {
 		require.NoError(t, err)
 	}
+	router.ID = "testRouterId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
@@ -208,6 +209,102 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 	updatedRouter, err := manager.UpdateRouter(ctx, userID, router)
 	require.NoError(t, err)
 	require.Equal(t, router.Metric, updatedRouter.Metric)
+}
+
+func Test_UpdateRouterRejectsCrossAccountID(t *testing.T) {
+	ctx := context.Background()
+	userID := "testAdminId"
+
+	// Admin of testAccountId tries to update a router that belongs to otherAccountId
+	// by passing the other account's router ID through the URL.
+	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1, true)
+	if err != nil {
+		require.NoError(t, err)
+	}
+	router.ID = "otherRouterId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUp)
+	permissionsManager := permissions.NewManager(s)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
+
+	updatedRouter, err := manager.UpdateRouter(ctx, userID, router)
+	require.Error(t, err)
+	require.Nil(t, updatedRouter)
+
+	// The other account's router must be untouched.
+	stored, err := s.GetNetworkRouterByID(ctx, store.LockingStrengthNone, "otherAccountId", "otherRouterId")
+	require.NoError(t, err)
+	require.Equal(t, "otherAccountId", stored.AccountID)
+	require.Equal(t, "otherNetworkId", stored.NetworkID)
+	require.Equal(t, "otherPeer", stored.Peer)
+	require.Equal(t, 1, stored.Metric)
+}
+
+func Test_CreateRouterRejectsCrossAccountID(t *testing.T) {
+	ctx := context.Background()
+	userID := "testAdminId"
+
+	// Admin of testAccountId tries to create a router in otherAccountId's network.
+	// The permission check is on router.AccountID (their own), but the network
+	// lookup must fail because (testAccountId, otherNetworkId) does not exist.
+	router, err := types.NewNetworkRouter("testAccountId", "otherNetworkId", "testPeerId", []string{}, false, 1, true)
+	if err != nil {
+		require.NoError(t, err)
+	}
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUp)
+	permissionsManager := permissions.NewManager(s)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
+
+	createdRouter, err := manager.CreateRouter(ctx, userID, router)
+	require.Error(t, err)
+	require.Nil(t, createdRouter)
+
+	// No router should have been created in either account's scope under otherNetworkId.
+	routersInOther, err := s.GetNetworkRoutersByNetID(ctx, store.LockingStrengthNone, "otherAccountId", "otherNetworkId")
+	require.NoError(t, err)
+	require.Len(t, routersInOther, 1)
+	require.Equal(t, "otherRouterId", routersInOther[0].ID)
+}
+
+func Test_UpdateRouterRejectsNetworkMismatch(t *testing.T) {
+	ctx := context.Background()
+	userID := "testAdminId"
+
+	// The router exists in testNetworkId, but the caller submits secondNetworkId
+	// (a different network in the same account). The update must be refused.
+	router, err := types.NewNetworkRouter("testAccountId", "secondNetworkId", "testPeerId", []string{}, false, 1, true)
+	if err != nil {
+		require.NoError(t, err)
+	}
+	router.ID = "testRouterId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUp)
+	permissionsManager := permissions.NewManager(s)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
+
+	updatedRouter, err := manager.UpdateRouter(ctx, userID, router)
+	require.Error(t, err)
+	require.Nil(t, updatedRouter)
+
+	stored, err := s.GetNetworkRouterByID(ctx, store.LockingStrengthNone, "testAccountId", "testRouterId")
+	require.NoError(t, err)
+	require.Equal(t, "testNetworkId", stored.NetworkID)
 }
 
 func Test_UpdateRouterFailsWithPermissionDenied(t *testing.T) {

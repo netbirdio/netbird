@@ -5,30 +5,56 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"time"
 
+	"github.com/gorilla/mux"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/cors"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
+	proxyactivity "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
+	proxyactivitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
+	"github.com/netbirdio/netbird/management/server/api/v1alpha1"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
+)
+
+const (
+	apiPrefix   = "/api"
+	apiV1Prefix = "/api/v1alpha1"
 )
 
 var (
@@ -55,9 +81,32 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 	})
 }
 
+// CacheStore returns a shared cache store backed by Redis or in-memory depending on the environment.
+// All consumers should reuse this store to avoid creating multiple Redis connections.
+func (s *BaseServer) CacheStore() nbcache.Store {
+	return Create(s, func() nbcache.Store {
+		cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultStoreMaxTimeout, nbcache.DefaultStoreCleanupInterval, nbcache.DefaultStoreMaxConn)
+		if err != nil {
+			log.Fatalf("failed to create shared cache store: %v", err)
+		}
+		return cs
+	})
+}
+
+// DBConn opens the database connection shared by the store and the domain repositories.
+func (s *BaseServer) DBConn() *db.Conn {
+	return Create(s, func() *db.Conn {
+		conn, err := store.OpenConn(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir)
+		if err != nil {
+			log.Fatalf("failed to open database connection: %v", err)
+		}
+		return conn
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -74,14 +123,61 @@ func (s *BaseServer) Store() store.Store {
 	})
 }
 
+// TODO dmitri: move all validation checks (e.g. config+env vars) from runtime to base server creation
+// this way we don't need to spread defensive checks throughout the codebase
+func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
+	return Create(s, func() *networkmapdb.NetworkMapDBStoreImpl {
+		store, err := networkmapdbfactory.NewNetworkMapDBStore(
+			context.Background(),
+			s.Config.StoreConfig.Engine,
+			s.Config.Datadir,
+			s.IntegratedValidator(),
+			s.SettingsManager(),
+			s.NetworkMapReplicaPool(),
+			s.Metrics().GetMeter(),
+		)
+		// networkmap db store supports postgres and sqlite backends only
+		// for other backends a fallback is used, so NotSupportedStoreEngineError
+		// is not a fatal error
+		if err != nil && !errors.Is(err, networkmapdbfactory.ErrNotSupportedStoreEngine) {
+			log.Fatalf("failed to create network map store: %v", err)
+		}
+		return store
+	})
+}
+
+// NetworkMapReplicaPool opens the pgx pool to the Postgres read replica serving
+// network map data reads. It is nil unless the store engine is Postgres and
+// networkmapdbfactory.ReplicaDsnEnv is set.
+func (s *BaseServer) NetworkMapReplicaPool() *pgxpool.Pool {
+	return CreateNamed(s, "NetworkMapReplica", func() *pgxpool.Pool {
+		dsn := os.Getenv(networkmapdbfactory.ReplicaDsnEnv)
+		if dsn == "" || s.Config.StoreConfig.Engine != types.PostgresStoreEngine {
+			return nil
+		}
+		pool, err := db.OpenPgxPool(context.Background(), dsn, db.DefaultPoolConfig)
+		if err != nil {
+			log.Errorf("network map data reads use the primary, connecting to the replica failed: %v", err)
+			return nil
+		}
+		s.OnStop(pool.Close)
+		return pool
+	})
+}
+
 func (s *BaseServer) EventStore() activity.Store {
 	return Create(s, func() activity.Store {
-		integrationMetrics, err := integrations.InitIntegrationMetrics(context.Background(), s.Metrics())
-		if err != nil {
-			log.Fatalf("failed to initialize integration metrics: %v", err)
+		var err error
+		key := s.Config.DataStoreEncryptionKey
+		if key == "" {
+			log.Debugf("generate new activity store encryption key")
+			key, err = crypt.GenerateKey()
+			if err != nil {
+				log.Fatalf("failed to generate event store encryption key: %v", err)
+			}
 		}
 
-		eventStore, _, err := integrations.InitEventStore(context.Background(), s.Config.Datadir, s.Config.DataStoreEncryptionKey, integrationMetrics)
+		eventStore, err := activitystore.NewSqlStore(context.Background(), s.Config.Datadir, key)
 		if err != nil {
 			log.Fatalf("failed to initialize event store: %v", err)
 		}
@@ -91,46 +187,101 @@ func (s *BaseServer) EventStore() activity.Store {
 }
 
 func (s *BaseServer) APIHandler() http.Handler {
-	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager())
+	_ = CreateNamed(s, "http_v1api", func() http.Handler {
+		apiv1Router := s.ApiV1Router()
+		_, err := v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.PeersManager(), s.NetworkMapController(), s.PermissionsManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
-		return httpAPIHandler
+
+		return apiv1Router
+	})
+
+	_ = CreateNamed(s, "http_v0api", func() http.Handler {
+		apiRouter := s.ApiRouter()
+		_, err := nbhttp.NewAPIHandler(
+			context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(),
+			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
+			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
+			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
+			s.AgentNetworkManager(), nil,
+		)
+		if err != nil {
+			log.Fatalf("failed to create API handler: %v", err)
+		}
+		return apiRouter
+	})
+
+	return s.Router()
+}
+
+// IDPHandler returns the HTTP handler for the embedded IdP (Dex), or nil if
+// the deployment isn't using the embedded variant.
+func (s *BaseServer) IDPHandler() http.Handler {
+	embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager)
+	if !ok || embeddedIdP == nil {
+		return nil
+	}
+	return cors.AllowAll().Handler(embeddedIdP.Handler())
+}
+
+// Router returns the root HTTP router with the shared API middleware applied.
+func (s *BaseServer) Router() *mux.Router {
+	return Create(s, func() *mux.Router {
+		router := mux.NewRouter()
+		router.Use(middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics())...)
+		return router
+	})
+}
+
+// ApiV1Router returns the subrouter for the versioned API under apiV1Prefix.
+func (s *BaseServer) ApiV1Router() *mux.Router {
+	return CreateNamed(s, "apiv1_router", func() *mux.Router {
+		return s.Router().PathPrefix(apiV1Prefix).Subrouter()
+	})
+}
+
+// ApiRouter returns the subrouter for the unversioned API under apiPrefix.
+func (s *BaseServer) ApiRouter() *mux.Router {
+	return CreateNamed(s, "apiv0_router", func() *mux.Router {
+		// The nested versioned prefix must be registered before the broader apiPrefix.
+		s.ApiV1Router()
+		return s.Router().PathPrefix(apiPrefix).Subrouter()
+	})
+}
+
+func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
+	return Create(s, func() *ratelimit.APIRateLimiter {
+		cfg, enabled := ratelimit.RateLimiterConfigFromEnv()
+		limiter := ratelimit.NewAPIRateLimiter(cfg)
+		limiter.SetEnabled(enabled)
+		return limiter
 	})
 }
 
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
-		trustedPeers := s.Config.ReverseProxy.TrustedPeers
-		defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
-		if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
-			log.WithContext(context.Background()).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
-			trustedPeers = defaultTrustedPeers
-		}
-		trustedHTTPProxies := s.Config.ReverseProxy.TrustedHTTPProxies
-		trustedProxiesCount := s.Config.ReverseProxy.TrustedHTTPProxiesCount
-		if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-			log.WithContext(context.Background()).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
-				"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
-		}
-		realipOpts := []realip.Option{
-			realip.WithTrustedPeers(trustedPeers),
-			realip.WithTrustedProxies(trustedHTTPProxies),
-			realip.WithTrustedProxiesCount(trustedProxiesCount),
-			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
-		}
+		realipOpts := realIPOptions(s.Config.ReverseProxy)
+		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
+		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
 			grpc.KeepaliveEnforcementPolicy(kaep),
 			grpc.KeepaliveParams(kasp),
-			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
-			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
+			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
+			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
+			// Stop waits for the sync handlers, so their teardown has queued every
+			// disconnect before FlushDisconnects writes them.
+			grpc.WaitForHandlers(true),
 		}
+
+		// Append interceptors contributed by registered gRPC extensions. These
+		// run after the built-in chain (ChainUnaryInterceptor is additive).
+		gRPCOpts = appendExtensionInterceptors(gRPCOpts, s.grpcExtensions)
 
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
-				log.Fatalf("failed to create certificate manager: %v", err)
+				log.Fatalf("failed to create certificate service: %v", err)
 			}
 			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
@@ -144,17 +295,135 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider())
-		if err != nil {
-			log.Fatalf("failed to create management server: %v", err)
-		}
-		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
+		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, s.ManagementGRPCServer())
+
+		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
+		log.Info("ProxyService registered on gRPC server")
+
+		// Register services contributed by external modules via the extension seam.
+		registerExtensions(gRPCAPIHandler, s.grpcExtensions)
 
 		return gRPCAPIHandler
 	})
 }
 
-func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
+// ManagementGRPCServer returns the management gRPC service, created once and served by GRPCServer.
+func (s *BaseServer) ManagementGRPCServer() *nbgrpc.Server {
+	return Create(s, func() *nbgrpc.Server {
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore())
+		if err != nil {
+			log.Fatalf("failed to create management server: %v", err)
+		}
+		serviceMgr := s.ServiceManager()
+		srv.SetReverseProxyManager(serviceMgr)
+		if serviceMgr != nil {
+			serviceMgr.StartExposeReaper(context.Background())
+		}
+		return srv
+	})
+}
+
+func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
+	return Create(s, func() *nbgrpc.ProxyServiceServer {
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.SingleUseStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
+		s.AfterInit(func(s *BaseServer) {
+			proxyService.SetServiceManager(s.ServiceManager())
+			proxyService.SetActivityManager(s.ProxyActivityManager())
+			proxyService.SetProxyController(s.ServiceProxyController())
+			proxyService.SetAgentNetworkSynthesizer(newAgentNetworkSynthesizer(s.Store()))
+			proxyService.SetAgentNetworkLimitsService(s.AgentNetworkManager())
+		})
+		return proxyService
+	})
+}
+
+// agentNetworkSynthesizerAdapter implements nbgrpc.AgentNetworkSynthesizer by
+// delegating to the agentnetwork package's store-backed synthesiser.
+type agentNetworkSynthesizerAdapter struct {
+	store store.Store
+}
+
+func newAgentNetworkSynthesizer(s store.Store) *agentNetworkSynthesizerAdapter {
+	return &agentNetworkSynthesizerAdapter{store: s}
+}
+
+func (a *agentNetworkSynthesizerAdapter) SynthesizeServicesForCluster(ctx context.Context, clusterAddr string) ([]*rpservice.Service, error) {
+	return agentnetwork.SynthesizeServicesForCluster(ctx, a.store, clusterAddr)
+}
+
+func (a *agentNetworkSynthesizerAdapter) SynthesizeServicesForAccount(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
+	return agentnetwork.SynthesizeServices(ctx, a.store, accountID)
+}
+
+func (a *agentNetworkSynthesizerAdapter) SynthesizeServiceForDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
+	return agentnetwork.SynthesizeServiceForDomain(ctx, a.store, domain)
+}
+
+func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
+	return Create(s, func() nbgrpc.ProxyOIDCConfig {
+		return nbgrpc.ProxyOIDCConfig{
+			Issuer: s.Config.HttpConfig.AuthIssuer,
+			// todo: double check auth clientID value
+			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
+			Scopes:       []string{"openid", "profile", "email"},
+			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
+			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
+			Audience:     s.Config.HttpConfig.AuthAudience,
+			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
+		}
+	})
+}
+
+func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
+	return Create(s, func() *nbgrpc.OneTimeTokenStore {
+		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), s.CacheStore())
+		log.Info("One-time token store initialized for proxy authentication")
+		return tokenStore
+	})
+}
+
+func (s *BaseServer) SingleUseStore() *nbgrpc.SingleUseStore {
+	return Create(s, func() *nbgrpc.SingleUseStore {
+		return nbgrpc.NewSingleUseStore(context.Background(), s.CacheStore())
+	})
+}
+
+// ProxyActivityManager records reverse proxy usage for activity accounting.
+func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
+	return Create(s, func() proxyactivity.Manager {
+		return proxyactivitymanager.NewManager(s.Store())
+	})
+}
+
+func (s *BaseServer) AccessLogDBConn() *db.Conn {
+	return CreateNamed(s, "accesslogs", func() *db.Conn {
+		conn, err := accesslogsmanager.OpenConn(context.Background(), s.Config.Datadir, s.DBConn().Engine())
+		if err != nil {
+			log.Fatalf("failed to open access log database connection: %v", err)
+		}
+		s.OnStop(func() {
+			if err := conn.Close(); err != nil {
+				log.Debugf("failed to close access log database connection: %v", err)
+			}
+		})
+		return conn
+	})
+}
+
+func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
+	return Create(s, func() accesslogs.Manager {
+		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.AccessLogDBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager.StartPeriodicCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogRetentionDays,
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
+		s.OnStop(accessLogManager.StopPeriodicCleanup)
+		return accessLogManager
+	})
+}
+
+func loadTLSConfig(certFile, certKey string) (*tls.Config, error) {
 	// Load server's certificate and private key
 	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
 	if err != nil {
@@ -200,4 +469,38 @@ func streamInterceptor(
 	//nolint
 	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(srv, wrapped)
+}
+
+// realIPOptions builds the real-IP middleware options.
+//
+// Empty TrustedPeers trusts all IPv4 and IPv6 sources. Configure TrustedPeers
+// with the reverse proxy address or network.
+//
+// X-Forwarded-For takes precedence over X-Real-IP.
+func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
+	trustedPeers := cfg.TrustedPeers
+	if len(trustedPeers) == 0 {
+		trustedPeers = []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/0"),
+			netip.MustParsePrefix("::/0"),
+		}
+	}
+	if idx := slices.IndexFunc(trustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
+		log.WithContext(context.Background()).Warnf("TrustedPeers contains the default route %s, which trusts "+
+			"X-Forwarded-For from every client and allows connection IP spoofing. Set TrustedPeers to the address "+
+			"of your reverse proxy.", trustedPeers[idx])
+	}
+	if cfg.TrustedHTTPProxiesCount > 0 {
+		log.WithContext(context.Background()).Warn(
+			"TrustedHTTPProxiesCount skips X-Forwarded-For entries by position before TrustedHTTPProxies filters by address. " +
+				"An incorrect count may skip the real client IP and produce an incorrect source address.",
+		)
+	}
+
+	return []realip.Option{
+		realip.WithTrustedPeers(trustedPeers),
+		realip.WithTrustedProxies(cfg.TrustedHTTPProxies),
+		realip.WithTrustedProxiesCount(cfg.TrustedHTTPProxiesCount),
+		realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
+	}
 }

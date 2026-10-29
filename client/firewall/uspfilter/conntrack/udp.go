@@ -17,6 +17,9 @@ const (
 	DefaultUDPTimeout = 30 * time.Second
 	// UDPCleanupInterval is how often we check for stale connections
 	UDPCleanupInterval = 15 * time.Second
+
+	// EnvUDPMaxEntries caps the UDP conntrack table size.
+	EnvUDPMaxEntries = "NB_CONNTRACK_UDP_MAX"
 )
 
 // UDPConnTrack represents a UDP connection state
@@ -34,6 +37,7 @@ type UDPTracker struct {
 	cleanupTicker *time.Ticker
 	tickerCancel  context.CancelFunc
 	mutex         sync.RWMutex
+	maxEntries    int
 	flowLogger    nftypes.FlowLogger
 }
 
@@ -51,6 +55,7 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		tickerCancel:  cancel,
+		maxEntries:    envInt(logger, EnvUDPMaxEntries, DefaultMaxUDPEntries),
 		flowLogger:    flowLogger,
 	}
 
@@ -117,13 +122,18 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 	conn.UpdateCounters(direction, size)
 
 	t.mutex.Lock()
+	if t.maxEntries > 0 && len(t.connections) >= t.maxEntries {
+		t.evictOneLocked()
+	}
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	if origPort != 0 {
-		t.logger.Trace4("New %s UDP connection: %s (port DNAT %d -> %d)", direction, key, origPort, dstPort)
-	} else {
-		t.logger.Trace2("New %s UDP connection: %s", direction, key)
+	if t.logger.Enabled(nblog.LevelTrace) {
+		if origPort != 0 {
+			t.logger.Trace4("New %s UDP connection: %s (port DNAT %d -> %d)", direction, key, origPort, dstPort)
+		} else {
+			t.logger.Trace2("New %s UDP connection: %s", direction, key)
+		}
 	}
 	t.sendEvent(nftypes.TypeStart, conn, ruleID)
 }
@@ -151,6 +161,34 @@ func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 	return true
 }
 
+// evictOneLocked removes one entry to make room. Caller must hold t.mutex.
+// Bounded sample: picks the oldest among up to evictSampleSize entries.
+func (t *UDPTracker) evictOneLocked() {
+	var candKey ConnKey
+	var candSeen int64
+	haveCand := false
+	sampled := 0
+
+	for k, c := range t.connections {
+		seen := c.lastSeen.Load()
+		if !haveCand || seen < candSeen {
+			candKey = k
+			candSeen = seen
+			haveCand = true
+		}
+		sampled++
+		if sampled >= evictSampleSize {
+			break
+		}
+	}
+	if haveCand {
+		if evicted := t.connections[candKey]; evicted != nil {
+			t.sendEvent(nftypes.TypeEnd, evicted, nil)
+		}
+		delete(t.connections, candKey)
+	}
+}
+
 // cleanupRoutine periodically removes stale connections
 func (t *UDPTracker) cleanupRoutine(ctx context.Context) {
 	defer t.cleanupTicker.Stop()
@@ -173,8 +211,10 @@ func (t *UDPTracker) cleanup() {
 		if conn.timeoutExceeded(t.timeout) {
 			delete(t.connections, key)
 
-			t.logger.Trace5("Removed UDP connection %s (timeout) [in: %d Pkts/%d B, out: %d Pkts/%d B]",
-				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
+			if t.logger.Enabled(nblog.LevelTrace) {
+				t.logger.Trace5("Removed UDP connection %s (timeout) [in: %d Pkts/%d B, out: %d Pkts/%d B]",
+					key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
+			}
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 	}

@@ -523,7 +523,7 @@ func parseHostnameAndCommand(args []string) error {
 }
 
 func runSSH(ctx context.Context, addr string, cmd *cobra.Command) error {
-	target := fmt.Sprintf("%s:%d", addr, port)
+	target := net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(port))
 	c, err := sshclient.Dial(ctx, target, username, sshclient.DialOptions{
 		KnownHostsFile:     knownHostsFile,
 		IdentityFile:       identityFile,
@@ -787,10 +787,10 @@ func isUnixSocket(path string) bool {
 	return strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./")
 }
 
-// normalizeLocalHost converts "*" to "0.0.0.0" for binding to all interfaces.
+// normalizeLocalHost converts "*" to "" for binding to all interfaces (dual-stack).
 func normalizeLocalHost(host string) string {
 	if host == "*" {
-		return "0.0.0.0"
+		return ""
 	}
 	return host
 }

@@ -3,10 +3,12 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -150,6 +152,21 @@ func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) e
 	if bundle.Parameters.LogFileCount < 1 || bundle.Parameters.LogFileCount > 1000 {
 		return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", bundle.Parameters.LogFileCount)
 	}
+	// validate anonymize_level: omitted or empty defaults on the client;
+	// otherwise it must name a known level. An unknown value is rejected here
+	// rather than silently escalated, so a typo surfaces at job creation. The
+	// normalized (trimmed, lowercased) value is persisted so it matches what
+	// the client parses — the client only lowercases, so a stored " default "
+	// would otherwise resolve to strict.
+	if lvl := bundle.Parameters.AnonymizeLevel; lvl != nil {
+		normalized := strings.ToLower(strings.TrimSpace(*lvl))
+		switch normalized {
+		case "", anonymize.LevelDefaultString, anonymize.LevelStrictString:
+		default:
+			return fmt.Errorf("anonymize_level must be %q or %q, got %q", anonymize.LevelDefaultString, anonymize.LevelStrictString, *lvl)
+		}
+		bundle.Parameters.AnonymizeLevel = &normalized
+	}
 
 	workload.Parameters, err = json.Marshal(bundle.Parameters)
 	if err != nil {
@@ -209,6 +226,17 @@ func (j *Job) ToStreamJobRequest() (*proto.JobRequest, error) {
 	}
 }
 
+// derefString returns the pointed-to string, or "" when the pointer is nil.
+// The bundle parameters carry anonymize_level and upload_url as optional
+// fields; an absent value maps to the empty proto string, which the client
+// resolves to its default.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (j *Job) buildStreamBundleResponse() (*proto.JobRequest, error) {
 	var p api.BundleParameters
 	if err := json.Unmarshal(j.Workload.Parameters, &p); err != nil {
@@ -218,10 +246,12 @@ func (j *Job) buildStreamBundleResponse() (*proto.JobRequest, error) {
 		ID: []byte(j.ID),
 		WorkloadParameters: &proto.JobRequest_Bundle{
 			Bundle: &proto.BundleParameters{
-				BundleFor:     p.BundleFor,
-				BundleForTime: int64(p.BundleForTime),
-				LogFileCount:  int32(p.LogFileCount),
-				Anonymize:     p.Anonymize,
+				BundleFor:      p.BundleFor,
+				BundleForTime:  int64(p.BundleForTime),
+				LogFileCount:   int32(p.LogFileCount),
+				Anonymize:      p.Anonymize,
+				AnonymizeLevel: derefString(p.AnonymizeLevel),
+				UploadUrl:      derefString(p.UploadUrl),
 			},
 		},
 	}, nil

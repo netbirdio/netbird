@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 const (
-	certValidationTimeout = 60 * time.Second
+	certValidationTimeout = 5 * time.Minute
 )
 
 func (p *RDCleanPathProxy) validateCertificateWithJS(conn *proxyConnection, certChain [][]byte) (bool, error) {
@@ -46,17 +47,31 @@ func (p *RDCleanPathProxy) validateCertificateWithJS(conn *proxyConnection, cert
 
 	promise := conn.wsHandlers.Call("onCertificateRequest", certInfo)
 
-	resultChan := make(chan bool)
-	errorChan := make(chan error)
+	resultChan := make(chan bool, 1)
+	errorChan := make(chan error, 1)
 
-	promise.Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		result := args[0].Bool()
-		resultChan <- result
+	// Release from inside the callbacks so a post-timeout promise resolution
+	// does not invoke an already-released func.
+	var thenFn, catchFn js.Func
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			thenFn.Release()
+			catchFn.Release()
+		})
+	}
+	thenFn = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		defer release()
+		resultChan <- args[0].Bool()
 		return nil
-	})).Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	})
+	catchFn = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		defer release()
 		errorChan <- fmt.Errorf("certificate validation failed")
 		return nil
-	}))
+	})
+
+	promise.Call("then", thenFn).Call("catch", catchFn)
 
 	select {
 	case result := <-resultChan:

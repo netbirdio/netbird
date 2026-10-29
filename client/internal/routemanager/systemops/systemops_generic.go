@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
@@ -30,8 +31,6 @@ var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
-
-var ErrRoutingIsSeparate = errors.New("routing is separate")
 
 func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	stateManager.RegisterState(&ShutdownState{})
@@ -122,9 +121,12 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 		return Nexthop{}, vars.ErrRouteNotAllowed
 	}
 
-	// Check if the prefix is part of any local subnets
-	if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
-		return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
+	// BSDs blackhole a /32 added inside a directly-connected subnet; Linux/Windows need it to beat the wt0 route.
+	switch runtime.GOOS {
+	case "darwin", "freebsd", "netbsd", "openbsd", "dragonfly":
+		if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
+			return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
+		}
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
@@ -222,30 +224,20 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 			return err
 		}
 
-		// TODO: remove once IPv6 is supported on the interface
-		if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			return fmt.Errorf("add unreachable route split 1: %w", err)
-		}
-		if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+		// When the interface has no v6, add v6 split-default as blackhole so
+		// unroutable v6 goes to WG (dropped, no AllowedIPs) instead of leaking
+		// to the system default route. When v6 is active, management sends ::/0
+		// as a separate route that the dedicated handler adds.
+		// Soft-fail: v6 blackhole is best-effort, don't abort v4 routing on failure.
+		if !r.wgInterface.Address().HasIPv6() {
+			if err := r.addV6SplitDefault(nextHop); err != nil {
+				log.Warnf("failed to add v6 split-default blackhole: %s", err)
 			}
-			return fmt.Errorf("add unreachable route split 2: %w", err)
 		}
 
 		return nil
 	case vars.Defaultv6:
-		if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			return fmt.Errorf("add unreachable route split 1: %w", err)
-		}
-		if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
-			}
-			return fmt.Errorf("add unreachable route split 2: %w", err)
-		}
-
-		return nil
+		return r.addV6SplitDefault(nextHop)
 	}
 
 	return r.addToRouteTable(prefix, nextHop)
@@ -266,28 +258,40 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 			result = multierror.Append(result, err)
 		}
 
-		// TODO: remove once IPv6 is supported on the interface
-		if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
+		if !r.wgInterface.Address().HasIPv6() {
+			result = multierror.Append(result, r.removeV6SplitDefault(nextHop))
 		}
 
 		return nberrors.FormatErrorOrNil(result)
 	case vars.Defaultv6:
-		var result *multierror.Error
-		if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-
-		return nberrors.FormatErrorOrNil(result)
+		return nberrors.FormatErrorOrNil(r.removeV6SplitDefault(nextHop))
 	default:
 		return r.removeFromRouteTable(prefix, nextHop)
 	}
+}
+
+func (r *SysOps) addV6SplitDefault(nextHop Nexthop) error {
+	if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
+		return fmt.Errorf("add split 1: %w", err)
+	}
+	if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
+		if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
+			log.Warnf("Failed to rollback v6 split-default: %s", err2)
+		}
+		return fmt.Errorf("add split 2: %w", err)
+	}
+	return nil
+}
+
+func (r *SysOps) removeV6SplitDefault(nextHop Nexthop) *multierror.Error {
+	var result *multierror.Error
+	if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
+		result = multierror.Append(result, err)
+	}
+	if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
+		result = multierror.Append(result, err)
+	}
+	return result
 }
 
 func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {
@@ -343,6 +347,22 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 	if err != nil {
 		return Nexthop{}, fmt.Errorf("new netroute: %w", err)
 	}
+
+	// go-netroute v0.4.0 rejects unspecified destinations on Linux with a hard
+	// client-side check. Substitute the lowest non-loopback address so the
+	// lookup falls through to the default route (::1 / 127.0.0.1 would match
+	// loopback, ::/0.0.0.0 are unspec). BSD/Windows pass the query straight to
+	// the kernel and need no substitution.
+	if runtime.GOOS == "linux" && ip.IsUnspecified() {
+		if ip.Is6() {
+			// ::2
+			ip = netip.AddrFrom16([16]byte{15: 2})
+		} else {
+			// 0.0.0.1
+			ip = netip.AddrFrom4([4]byte{0, 0, 0, 1})
+		}
+	}
+
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
 		log.Debugf("Failed to get route for %s: %v", ip, err)
@@ -397,12 +417,16 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 }
 
 // IsAddrRouted checks if the candidate address would route to the vpn, in which case it returns true and the matched prefix.
+// When advanced routing is active the WG socket is bound to the physical interface (fwmark on linux,
+// IP_UNICAST_IF on windows, IP_BOUND_IF on darwin) and bypasses the main routing table, so the check is skipped.
 func IsAddrRouted(addr netip.Addr, vpnRoutes []netip.Prefix) (bool, netip.Prefix) {
-	localRoutes, err := hasSeparateRouting()
+	if nbnet.AdvancedRouting() {
+		return false, netip.Prefix{}
+	}
+
+	localRoutes, err := GetRoutesFromTable()
 	if err != nil {
-		if !errors.Is(err, ErrRoutingIsSeparate) {
-			log.Errorf("Failed to get routes: %v", err)
-		}
+		log.Errorf("Failed to get routes: %v", err)
 		return false, netip.Prefix{}
 	}
 

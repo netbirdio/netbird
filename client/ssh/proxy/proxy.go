@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,12 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
+	"github.com/netbirdio/netbird/util/netrelay"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -54,8 +54,8 @@ type SSHProxy struct {
 }
 
 func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer, browserOpener func(string) error) (*SSHProxy, error) {
-	grpcAddr := strings.TrimPrefix(daemonAddr, "tcp://")
-	grpcConn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	target, opts := daemonaddr.DialTarget(daemonAddr)
+	grpcConn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to daemon: %w", err)
 	}
@@ -141,7 +141,7 @@ func (p *SSHProxy) runProxySSHServer(jwtToken string) error {
 
 func (p *SSHProxy) handleSSHSession(session ssh.Session) {
 	ptyReq, winCh, isPty := session.Pty()
-	hasCommand := len(session.Command()) > 0
+	hasCommand := session.RawCommand() != ""
 
 	sshClient, err := p.getOrCreateBackendClient(session.Context(), session.User())
 	if err != nil {
@@ -180,7 +180,7 @@ func (p *SSHProxy) handleSSHSession(session ssh.Session) {
 	}
 
 	if hasCommand {
-		if err := serverSession.Run(strings.Join(session.Command(), " ")); err != nil {
+		if err := serverSession.Run(session.RawCommand()); err != nil {
 			log.Debugf("run command: %v", err)
 			p.handleProxyExitCode(session, err)
 		}
@@ -321,7 +321,7 @@ func (p *SSHProxy) directTCPIPHandler(_ *ssh.Server, _ *cryptossh.ServerConn, ne
 		return
 	}
 
-	dest := fmt.Sprintf("%s:%d", payload.DestAddr, payload.DestPort)
+	dest := net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort)))
 	log.Debugf("local port forwarding: %s", dest)
 
 	backendClient, err := p.getOrCreateBackendClient(sshCtx, sshCtx.User())
@@ -352,7 +352,7 @@ func (p *SSHProxy) directTCPIPHandler(_ *ssh.Server, _ *cryptossh.ServerConn, ne
 	}
 	go cryptossh.DiscardRequests(clientReqs)
 
-	nbssh.BidirectionalCopyWithContext(log.NewEntry(log.StandardLogger()), sshCtx, clientChan, backendChan)
+	netrelay.Relay(sshCtx, clientChan, backendChan, netrelay.Options{Logger: log.NewEntry(log.StandardLogger())})
 }
 
 func (p *SSHProxy) sftpSubsystemHandler(s ssh.Session, jwtToken string) {
@@ -591,7 +591,7 @@ func (p *SSHProxy) handleForwardedChannel(sshCtx ssh.Context, sshConn *cryptossh
 	}
 	go cryptossh.DiscardRequests(clientReqs)
 
-	nbssh.BidirectionalCopyWithContext(log.NewEntry(log.StandardLogger()), sshCtx, clientChan, backendChan)
+	netrelay.Relay(sshCtx, clientChan, backendChan, netrelay.Options{Logger: log.NewEntry(log.StandardLogger())})
 }
 
 func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string) (*cryptossh.Client, error) {
@@ -610,13 +610,10 @@ func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string)
 		return nil, fmt.Errorf("connect to server: %w", err)
 	}
 
-	clientConn, chans, reqs, err := cryptossh.NewClientConn(conn, addr, config)
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("SSH handshake: %w", err)
-	}
+	handshakeCtx, cancel := context.WithTimeout(ctx, sshHandshakeTimeout)
+	defer cancel()
 
-	return cryptossh.NewClient(clientConn, chans, reqs), nil
+	return nbssh.Handshake(handshakeCtx, conn, addr, config)
 }
 
 func (p *SSHProxy) verifyHostKey(hostname string, remote net.Addr, key cryptossh.PublicKey) error {

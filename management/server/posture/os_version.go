@@ -100,8 +100,6 @@ func checkMinVersion(ctx context.Context, peerGoOS, peerVersion string, check *M
 		return true, nil
 	}
 
-	log.WithContext(ctx).Debugf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
-
 	return false, nil
 }
 
@@ -124,8 +122,6 @@ func checkMinKernelVersion(ctx context.Context, peerGoOS, peerVersion string, ch
 	if constraints.Check(peerNBVersion) {
 		return true, nil
 	}
-
-	log.WithContext(ctx).Debugf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
 
 	return false, nil
 }

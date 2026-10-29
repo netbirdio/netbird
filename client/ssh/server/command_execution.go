@@ -75,8 +75,8 @@ func (s *Server) createCommand(logger *log.Entry, privilegeResult PrivilegeCheck
 	}
 
 	// Try su first for system integration (PAM/audit) when privileged
-	cmd, err := s.createSuCommand(logger, session, localUser, hasPty)
-	if err != nil || privilegeResult.UsedFallback {
+	cmd, err := s.createSuCommand(logger, session, localUser, hasPty) //nolint:staticcheck
+	if err != nil || privilegeResult.UsedFallback {                   //nolint:staticcheck // always errors on platforms without su
 		logger.Debugf("su command failed, falling back to executor: %v", err)
 		cmd, cleanup, err := s.createExecutorCommand(logger, session, localUser, hasPty)
 		if err != nil {

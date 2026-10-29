@@ -1,5 +1,7 @@
 package store
 
+//go:generate go tool mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+
 import (
 	"context"
 	"errors"
@@ -10,27 +12,32 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/migration"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -40,14 +47,14 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type LockingStrength string
+type LockingStrength = db.LockingStrength
 
 const (
-	LockingStrengthUpdate      LockingStrength = "UPDATE"        // Strongest lock, preventing any changes by other transactions until your transaction completes.
-	LockingStrengthShare       LockingStrength = "SHARE"         // Allows reading but prevents changes by other transactions.
-	LockingStrengthNoKeyUpdate LockingStrength = "NO KEY UPDATE" // Similar to UPDATE but allows changes to related rows.
-	LockingStrengthKeyShare    LockingStrength = "KEY SHARE"     // Protects against changes to primary/unique keys but allows other updates.
-	LockingStrengthNone        LockingStrength = "NONE"          // No locking, allowing all transactions to proceed without restrictions.
+	LockingStrengthUpdate      = db.LockingStrengthUpdate
+	LockingStrengthShare       = db.LockingStrengthShare
+	LockingStrengthNoKeyUpdate = db.LockingStrengthNoKeyUpdate
+	LockingStrengthKeyShare    = db.LockingStrengthKeyShare
+	LockingStrengthNone        = db.LockingStrengthNone
 )
 
 type Store interface {
@@ -106,10 +113,19 @@ type Store interface {
 	SavePAT(ctx context.Context, pat *types.PersonalAccessToken) error
 	DeletePAT(ctx context.Context, userID, patID string) error
 
+	GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error)
+	GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error)
+	GetProxyAccessTokensByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.ProxyAccessToken, error)
+	GetProxyAccessTokenByID(ctx context.Context, lockStrength LockingStrength, tokenID string) (*types.ProxyAccessToken, error)
+	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
+	SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error
+	RevokeProxyAccessToken(ctx context.Context, tokenID string) error
+	MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error
+
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
-	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
 	CreateGroups(ctx context.Context, accountID string, groups []*types.Group) error
 	UpdateGroups(ctx context.Context, accountID string, groups []*types.Group) error
@@ -120,6 +136,7 @@ type Store interface {
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Policy, error)
 	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
+	GetPolicyByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
 	CreatePolicy(ctx context.Context, policy *types.Policy) error
 	SavePolicy(ctx context.Context, policy *types.Policy) error
 	DeletePolicy(ctx context.Context, accountID, policyID string) error
@@ -142,17 +159,53 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error)
+	GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupIDs []string) ([]*nbpeer.Peer, error)
+	GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error)
+	GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error)
+	GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error)
 	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
-	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	// MarkPeerConnectedIfNewerSession sets the peer to connected with the
+	// given session token, but only when the stored SessionStartedAt is
+	// strictly less than newSessionStartedAt (the sentinel zero counts as
+	// "older"). LastSeen is recorded by the database at the moment the
+	// row is updated — never by the caller — so it always reflects the
+	// real write time even under lock contention.
+	// Returns true when the update happened, false when this stream lost
+	// the race against a newer session.
+	MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error)
+	// RefreshPeerLastSeen records that a peer was just seen, stamping the
+	// database clock like the other status writers. Connected and
+	// SessionStartedAt are left alone, so this never interferes with the
+	// session-ownership protocol MarkPeerConnectedIfNewerSession implements.
+	// The write only lands when the stored LastSeen is older than
+	// staleBefore, which keeps a caller's throttle atomic under concurrent
+	// requests for the same peer. Returns true when the update happened.
+	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
+	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
+	// resets SessionStartedAt to zero, but only when the stored
+	// SessionStartedAt equals the given sessionStartedAt. LastSeen is
+	// recorded by the database. Returns true when the update happened,
+	// false when a newer session has taken over.
+	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
+	// HeartbeatPeerSession stamps LastSeen with the database clock and marks the
+	// peer connected, but only while the stored SessionStartedAt equals
+	// sessionStartedAt and the peer's login has not expired. Returns true when
+	// the update happened.
+	HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
+	// MarkPeersDisconnectedIfSameSession applies the semantics of
+	// MarkPeerDisconnectedIfSameSession to many peers in batched statements.
+	// Sessions with a zero SessionStartedAt are skipped. Returns the number
+	// of peers that were marked disconnected.
+	MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error)
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
@@ -165,6 +218,7 @@ type Store interface {
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
 	GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
+	GetRouteByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
 	SaveRoute(ctx context.Context, route *route.Route) error
 	DeleteRoute(ctx context.Context, accountID, routeID string) error
 
@@ -173,7 +227,7 @@ type Store interface {
 	SaveNameServerGroup(ctx context.Context, nameServerGroup *dns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nameServerGroupID string) error
 
-	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
+	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]netip.Addr, error)
 	IncrementNetworkSerial(ctx context.Context, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
 
@@ -198,12 +252,14 @@ type Store interface {
 	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error)
-	SaveNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	CreateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	UpdateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
 	DeleteNetworkRouter(ctx context.Context, accountID, routerID string) error
 
 	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
 	GetNetworkResourcesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*resourceTypes.NetworkResource, error)
 	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
+	GetNetworkResourceByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
 	GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*resourceTypes.NetworkResource, error)
 	SaveNetworkResource(ctx context.Context, resource *resourceTypes.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, accountID, resourceID string) error
@@ -213,6 +269,7 @@ type Store interface {
 	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
+	UpdateAccountNetworkV6(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
 
 	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
@@ -240,14 +297,185 @@ type Store interface {
 	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
 	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
+
+	CreateService(ctx context.Context, service *rpservice.Service) error
+	UpdateService(ctx context.Context, service *rpservice.Service) error
+	DeleteService(ctx context.Context, accountID, serviceID string) error
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
+	GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
+
+	RenewEphemeralService(ctx context.Context, accountID, peerID, serviceID string) error
+	GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*rpservice.Service, error)
+	CountEphemeralServicesByPeer(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (int64, error)
+	EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error)
+	GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error)
+	GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error)
+
+	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
+	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
+	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	LockCustomDomains(ctx context.Context, accountID string, serviceDomain nbdomain.Domain) ([]*domain.Domain, error)
+	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
+	GetExpiredCustomDomains(ctx context.Context, now time.Time, afterID domain.ID, limit int) ([]*domain.Domain, error)
+	DeleteExpiredCustomDomain(ctx context.Context, d *domain.Domain, now time.Time) (bool, error)
+	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
+
+	CreateAgentNetworkAccessLog(ctx context.Context, entry *agentNetworkTypes.AgentNetworkAccessLog, groups []agentNetworkTypes.AgentNetworkAccessLogGroup) error
+	CreateAgentNetworkUsage(ctx context.Context, usage *agentNetworkTypes.AgentNetworkUsage, groups []agentNetworkTypes.AgentNetworkUsageGroup) error
+	GetAgentNetworkAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLog, int64, error)
+	GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error)
+	GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkUsage, error)
+	DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error)
+	GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx context.Context) ([]string, error)
+	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
+	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
+	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
+	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
+
+	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
+	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
+	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
+	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
+	GetProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
+	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	GetClusterAllProxiesPrivate(ctx context.Context, clusterAddr string) *bool
+	GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error)
+	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
+	DisconnectAllProxies(ctx context.Context) (int64, error)
+	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
+	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
+	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error)
+	HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error)
+	HasGatewayClusterPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
+	HasGatewayEndpointByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
+
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+
+	// GetProxyMetrics returns aggregated proxy / cluster counts for the
+	// self-hosted metrics worker. Self-hosted only — file-based stores
+	// return a zero-valued struct.
+	GetProxyMetrics(ctx context.Context) (ProxyMetrics, error)
+
+	// GetAgentNetworkMetrics returns aggregated agent-network adoption + usage
+	// counts for the self-hosted metrics worker. Self-hosted only — file-based
+	// stores return a zero-valued struct.
+	GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetrics, error)
+
+	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
+
+	// Agent Network persistence (providers, policies, guardrails, settings).
+	GetAllAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Provider, error)
+	GetAccountAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Provider, error)
+	GetAgentNetworkProviderByID(ctx context.Context, lockStrength LockingStrength, accountID, providerID string) (*agentNetworkTypes.Provider, error)
+	SaveAgentNetworkProvider(ctx context.Context, provider *agentNetworkTypes.Provider) error
+	DeleteAgentNetworkProvider(ctx context.Context, accountID, providerID string) error
+	GetAccountAgentNetworkPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Policy, error)
+	GetAgentNetworkPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*agentNetworkTypes.Policy, error)
+	SaveAgentNetworkPolicy(ctx context.Context, policy *agentNetworkTypes.Policy) error
+	DeleteAgentNetworkPolicy(ctx context.Context, accountID, policyID string) error
+	GetAccountAgentNetworkGuardrails(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Guardrail, error)
+	GetAgentNetworkGuardrailByID(ctx context.Context, lockStrength LockingStrength, accountID, guardrailID string) (*agentNetworkTypes.Guardrail, error)
+	SaveAgentNetworkGuardrail(ctx context.Context, guardrail *agentNetworkTypes.Guardrail) error
+	DeleteAgentNetworkGuardrail(ctx context.Context, accountID, guardrailID string) error
+	GetAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*agentNetworkTypes.Settings, error)
+	GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Settings, error)
+	GetAgentNetworkSettingsByProxyAddress(ctx context.Context, lockStrength LockingStrength, proxyAddress string) ([]*agentNetworkTypes.Settings, error)
+	GetAgentNetworkSettingsByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*agentNetworkTypes.Settings, error)
+	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
+	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
+	DeleteAgentNetworkSettings(ctx context.Context, accountID string) error
+	IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error
+	IncrementAgentNetworkConsumptionBatch(ctx context.Context, accountID string, keys []agentNetworkTypes.ConsumptionKey, tokensIn, tokensOut int64, costUSD float64) error
+	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)
+	GetAgentNetworkConsumptionBatch(ctx context.Context, lockStrength LockingStrength, accountID string, keys []agentNetworkTypes.ConsumptionKey) (map[agentNetworkTypes.ConsumptionKey]*agentNetworkTypes.Consumption, error)
+	ListAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Consumption, error)
+	DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx context.Context) (int64, error)
+	GetAccountAgentNetworkBudgetRules(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.AccountBudgetRule, error)
+	GetAgentNetworkBudgetRuleByID(ctx context.Context, lockStrength LockingStrength, accountID, ruleID string) (*agentNetworkTypes.AccountBudgetRule, error)
+	SaveAgentNetworkBudgetRule(ctx context.Context, rule *agentNetworkTypes.AccountBudgetRule) error
+	DeleteAgentNetworkBudgetRule(ctx context.Context, accountID, ruleID string) error
+}
+
+// ProxyMetrics aggregates self-hosted proxy + cluster usage signals
+// surfaced to the telemetry payload. Each field is best-effort: when a
+// store cannot answer (e.g. FileStore) all fields are zero.
+type ProxyMetrics struct {
+	// Clusters counts distinct cluster_address values across the proxies
+	// table — every cluster the management server has heard from, online or not.
+	Clusters int64
+	// ClustersBYOP counts distinct cluster_address values that are owned
+	// by an account (account_id IS NOT NULL). These are bring-your-own-proxy
+	// installations as opposed to NetBird-operated shared clusters.
+	ClustersBYOP int64
+	// ClustersPrivate counts distinct cluster_address values where at
+	// least one proxy reported the private capability (embedded
+	// `netbird proxy` running inside a client).
+	ClustersPrivate int64
+	// Proxies is the total number of proxy rows currently persisted.
+	Proxies int64
+	// ProxiesConnected is the subset of proxies whose status is
+	// "connected" AND last_seen falls within the active heartbeat window
+	// (~2 * heartbeat interval). Proxies the controller hasn't pruned
+	// yet but that are visibly stale don't count.
+	ProxiesConnected int64
+}
+
+// AgentNetworkMetrics aggregates self-hosted agent-network adoption + usage
+// signals surfaced to the telemetry payload. Each field is best-effort: when a
+// store cannot answer (e.g. FileStore) all fields are zero.
+type AgentNetworkMetrics struct {
+	// Accounts is the number of distinct accounts with at least one provider
+	// configured (agent-network adoption).
+	Accounts int64
+	// Providers is the total number of configured providers across all accounts.
+	Providers int64
+	// Policies is the total number of agent-network policies across all accounts.
+	Policies int64
+	// BudgetRules is the total number of account-level budget rules ("budget
+	// limits") across all accounts.
+	BudgetRules int64
+	// LogCollectionEnabled is the number of accounts that have agent-network
+	// log collection turned on.
+	LogCollectionEnabled int64
+	// InputTokens / OutputTokens / CostUSD are summed over the always-collected
+	// per-request usage ledger (agent_network_request_usage), independent of the
+	// log-collection toggle. They reflect total metered LLM usage served through
+	// agent networks.
+	InputTokens  int64
+	OutputTokens int64
+	CostUSD      float64
 }
 
 const (
-	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
-	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
+	PostgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
+	PostgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 )
 
-var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine, types.MysqlStoreEngine}
+// lookupDSNEnv checks the NB_ env var first, then falls back to the legacy NETBIRD_ env var.
+func lookupDSNEnv(nbKey, legacyKey string) (string, bool) {
+	if v, ok := os.LookupEnv(nbKey); ok {
+		return v, true
+	}
+	return os.LookupEnv(legacyKey)
+}
+
+// LookupPostgresDSN returns the DSN the main store opens a Postgres engine with.
+func LookupPostgresDSN() (string, bool) {
+	return lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
+}
+
+var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine}
 
 func getStoreEngineFromEnv() types.Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
@@ -257,7 +485,7 @@ func getStoreEngineFromEnv() types.Engine {
 	}
 
 	value := types.Engine(strings.ToLower(kind))
-	if slices.Contains(supportedEngines, value) {
+	if slices.Contains(supportedEngines, value) || value == types.MysqlStoreEngine {
 		return value
 	}
 
@@ -276,7 +504,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 
 			// Migrate if it is the first run with a JSON file existing and no SQLite file present
 			jsonStoreFile := filepath.Join(dataDir, storeFileName)
-			sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
+			sqliteStoreFile := filepath.Join(dataDir, db.SqliteFileName)
 
 			if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
 				log.WithContext(ctx).Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
@@ -295,6 +523,16 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
 func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
+	conn, err := OpenConn(ctx, kind, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return newStore(ctx, conn, metrics, skipMigration)
+}
+
+// OpenConn resolves the configured engine and opens the connection that the
+// store and the domain repositories share.
+func OpenConn(ctx context.Context, kind types.Engine, dataDir string) (*db.Conn, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -304,13 +542,17 @@ func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics te
 	switch kind {
 	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("using SQLite store engine")
-		return NewSqliteStore(ctx, dataDir, metrics, skipMigration)
+		return db.OpenSqlite(ctx, dataDir)
 	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		return newPostgresStore(ctx, metrics, skipMigration)
+		dsn, ok := LookupPostgresDSN()
+		if !ok {
+			return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
+		}
+		return db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
 	case types.MysqlStoreEngine:
-		log.WithContext(ctx).Info("using MySQL store engine")
-		return newMysqlStore(ctx, metrics, skipMigration)
+		return nil, fmt.Errorf("the MySQL store engine is no longer supported. Please refer to the documentation for " +
+			"migrating to PostgreSQL: https://docs.netbird.io/selfhosted/migration/mysql-to-postgresql")
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
@@ -382,7 +624,43 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 			return migration.MigrateNewField[types.User](ctx, db, "email", "")
 		},
 		func(db *gorm.DB) error {
+			return migration.MigrateNewField[nbpeer.Peer](ctx, db, "peer_status_session_started_at", int64(0))
+		},
+		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedResources[rpservice.Service, types.Account](ctx, db, "account_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Policy](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Group](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[route.Route](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[resourceTypes.NetworkResource](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[routerTypes.NetworkRouter](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[dns.NameServerGroup](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[networkTypes.Network](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[posture.Checks](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
 		},
 	}
 }
@@ -402,6 +680,9 @@ func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 
 func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.MigrateCustomDomainValidationExpiry(ctx, db)
+		},
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
 		},
@@ -423,6 +704,17 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
 		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
+		},
+		// Post-auto so the per-bucket cost columns already exist when the legacy
+		// aggregates are folded into them and dropped.
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkAccessLog](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
+		},
 	}
 }
 
@@ -434,32 +726,28 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		kind = types.SqliteStoreEngine
 	}
 
-	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = storeSqliteFileName
-	}
-
-	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
+	conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	if filename != "" {
-		err = LoadSQL(db, filename)
+		err = LoadSQL(conn.DB(nil), filename)
 		if err != nil {
+			_ = conn.Close()
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, false)
+	store, err := NewSqlStore(ctx, conn, nil, false)
 	if err != nil {
+		_ = conn.Close()
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
+		_ = store.Close(ctx)
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
@@ -468,7 +756,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
-		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind, dataDir)
 		if err == nil {
 			return sqlStore, cleanup, nil
 		}
@@ -476,7 +764,50 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+	store.Close(ctx)
 	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+}
+
+// NewTestStore creates a test store and optionally loads SQL after migrating its schema.
+func NewTestStore(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
+	kind := getStoreEngineFromEnv()
+	if kind == "" {
+		kind = types.SqliteStoreEngine
+	}
+
+	var sqlStore *SqlStore
+	var cleanup func()
+	var err error
+
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, nil, kind, dataDir)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
+	}
+
+	if filename != "" {
+		err = LoadSQL(sqlStore.db, filename)
+		if err != nil {
+			_ = sqlStore.Close(ctx)
+			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
+		}
+	}
+
+	err = addAllGroupToAccount(ctx, sqlStore)
+	if err != nil {
+		_ = sqlStore.Close(ctx)
+		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
+	}
+
+	return sqlStore, cleanup, nil
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {
@@ -502,17 +833,25 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 	return nil
 }
 
-func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) (Store, func(), error) {
+func getSqlStoreEngine(ctx context.Context, sqliteStore *SqlStore, kind types.Engine, dataDir string) (*SqlStore, func(), error) {
+	var store *SqlStore
 	var cleanup func()
 	var err error
 	switch kind {
 	case types.PostgresStoreEngine:
-		store, cleanup, err = newReusedPostgresStore(ctx, store, kind)
-	case types.MysqlStoreEngine:
-		store, cleanup, err = newReusedMysqlStore(ctx, store, kind)
+		store, cleanup, err = newReusedPostgresStore(ctx, sqliteStore)
 	default:
 		cleanup = func() {
 			// sqlite doesn't need to be cleaned up
+		}
+		store = sqliteStore
+		var conn *db.Conn
+		if store == nil {
+			conn, err = db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create test store: %v", err)
+			}
+			store, err = NewSqlStore(ctx, conn, nil, false)
 		}
 	}
 	if err != nil {
@@ -522,16 +861,18 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
-		if store.pool != nil {
-			store.pool.Close()
+		if sqliteStore != nil && store != sqliteStore {
+			// The sqlite store only seeded the engine under test; without this
+			// every test leaks its connection and the opener goroutines.
+			sqliteStore.Close(ctx)
 		}
 	}
 
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
+func newReusedPostgresStore(ctx context.Context, sqliteStore *SqlStore) (*SqlStore, func(), error) {
+	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreatePostgresTestContainer()
@@ -541,89 +882,120 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 	}
 
 	if dsn == "" {
-		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		return nil, nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 
-	db, err := openDBWithRetry(dsn, kind, 5)
+	db, err := openDBWithRetry(dsn, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
 	}
 
-	dsn, cleanup, err := createRandomDB(dsn, db, kind)
-
-	sqlDB, _ := db.DB()
-	if sqlDB != nil {
-		sqlDB.Close()
+	template, err := postgresSchemaTemplate(ctx, dsn, db)
+	if err != nil {
+		closeGormDB(db)
+		return nil, nil, err
 	}
+
+	dsn, cleanup, err := createRandomDB(dsn, db, template)
+
+	closeGormDB(db)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return store, cleanup, nil
-}
-
-func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
-	if !ok || dsn == "" {
-		var err error
-		_, dsn, err = testutil.CreateMysqlTestContainer()
+	var store *SqlStore
+	if sqliteStore != nil {
+		store, err = newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, nil, true)
 		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+	} else {
+		store, err = NewPostgresqlStoreForTests(ctx, dsn, nil, false)
+		if err != nil {
+			cleanup()
 			return nil, nil, err
 		}
 	}
 
-	if dsn == "" {
-		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
-	}
-
-	db, err := openDBWithRetry(dsn, kind, 5)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
-	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get underlying sql.DB: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-
-	dsn, cleanup, err := createRandomDB(dsn, db, kind)
-
-	sqlDB.Close()
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	return store, cleanup, nil
 }
 
-func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
-	var db *gorm.DB
+// schemaTemplates remembers, per engine and server, a database that went
+// through the full migration once in this process. Every later test database
+// is cloned from it, so a test pays for CREATE DATABASE and a schema copy
+// instead of the 40-table AutoMigrate plus every pre and post migration.
+var (
+	schemaTemplatesMu sync.Mutex
+	schemaTemplates   = map[string]*schemaTemplate{}
+)
+
+type schemaTemplate struct {
+	dbName string
+}
+
+func schemaTemplateKey(engine types.Engine, dsn string) string {
+	return string(engine) + "|" + dsn
+}
+
+func newTestDBName(prefix string) string {
+	return fmt.Sprintf("%s_%s", prefix, strings.ReplaceAll(uuid.New().String(), "-", "_"))
+}
+
+// postgresSchemaTemplate returns the name of a fully migrated database that
+// CREATE DATABASE ... TEMPLATE can copy, creating it on first use.
+func postgresSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB) (string, error) {
+	schemaTemplatesMu.Lock()
+	defer schemaTemplatesMu.Unlock()
+
+	key := schemaTemplateKey(types.PostgresStoreEngine, baseDSN)
+	if tpl, ok := schemaTemplates[key]; ok {
+		return tpl.dbName, nil
+	}
+
+	name := newTestDBName("test_template")
+	if err := admin.Exec(fmt.Sprintf("CREATE DATABASE %s", name)).Error; err != nil {
+		return "", fmt.Errorf("create postgres template database: %w", err)
+	}
+
+	tplStore, err := NewPostgresqlStoreForTests(ctx, replaceDBName(baseDSN, name), nil, false)
+	if err != nil {
+		dropDatabase(admin, name)
+		return "", fmt.Errorf("migrate postgres template database: %w", err)
+	}
+	// TEMPLATE refuses a source that still has sessions, so release both handles
+	// before the first clone.
+	tplStore.Close(ctx)
+
+	schemaTemplates[key] = &schemaTemplate{dbName: name}
+	return name, nil
+}
+
+// dropDatabase removes a template that never became usable, so a failed setup
+// does not leave it behind on a shared server. The server may still be tearing
+// down the sessions the failed migration held, so the drop retries while
+// Postgres reports the database as in use.
+func dropDatabase(admin *gorm.DB, name string) {
+	if err := execWithTemplateRetry(admin, fmt.Sprintf("DROP DATABASE IF EXISTS %s", name)); err != nil {
+		log.Warnf("failed to drop template database %s: %v", name, err)
+	}
+}
+
+func closeGormDB(db *gorm.DB) {
+	if sqlDB, _ := db.DB(); sqlDB != nil {
+		sqlDB.Close()
+	}
+}
+
+func openDBWithRetry(dsn string, maxRetries int) (*gorm.DB, error) {
+	var gormDB *gorm.DB
 	var err error
 
 	for i := range maxRetries {
-		switch engine {
-		case types.PostgresStoreEngine:
-			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		case types.MysqlStoreEngine:
-			db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
-		}
-
+		gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err == nil {
-			return db, nil
+			return gormDB, nil
 		}
 
 		if i < maxRetries-1 {
@@ -635,68 +1007,44 @@ func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB,
 	return nil, err
 }
 
-func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(), error) {
-	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
+// createRandomDB creates a uniquely named database for one test. A non-empty
+// template is copied server-side with CREATE DATABASE ... TEMPLATE.
+func createRandomDB(dsn string, admin *gorm.DB, template string) (string, func(), error) {
+	dbName := newTestDBName("test_db")
 
-	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
+	createStmt := fmt.Sprintf("CREATE DATABASE %s", dbName)
+	if template != "" {
+		createStmt = fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, template)
+	}
+	if err := execWithTemplateRetry(admin, createStmt); err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
 	originalDSN := dsn
 
 	cleanup := func() {
-		var dropDB *gorm.DB
-		var err error
-
-		switch engine {
-		case types.PostgresStoreEngine:
-			dropDB, err = gorm.Open(postgres.Open(originalDSN), &gorm.Config{
-				SkipDefaultTransaction: true,
-				PrepareStmt:            false,
-			})
-			if err != nil {
-				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
-				return
-			}
-			defer func() {
-				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-					sqlDB.Close()
-				}
-			}()
-
+		dropDB, err := gorm.Open(postgres.Open(originalDSN), &gorm.Config{
+			SkipDefaultTransaction: true,
+			PrepareStmt:            false,
+			Logger:                 logger.Default.LogMode(logger.Info),
+		})
+		if err != nil {
+			log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
+			return
+		}
+		defer func() {
 			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-				sqlDB.SetMaxOpenConns(1)
-				sqlDB.SetMaxIdleConns(0)
-				sqlDB.SetConnMaxLifetime(time.Second)
+				sqlDB.Close()
 			}
+		}()
 
-			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
-
-		case types.MysqlStoreEngine:
-			dropDB, err = gorm.Open(mysql.Open(originalDSN+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{
-				SkipDefaultTransaction: true,
-				PrepareStmt:            false,
-			})
-			if err != nil {
-				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
-				return
-			}
-			defer func() {
-				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-					sqlDB.Close()
-				}
-			}()
-
-			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
-				sqlDB.SetMaxOpenConns(1)
-				sqlDB.SetMaxIdleConns(0)
-				sqlDB.SetConnMaxLifetime(time.Second)
-			}
-
-			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)).Error
+		if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+			sqlDB.SetMaxOpenConns(1)
+			sqlDB.SetMaxIdleConns(0)
+			sqlDB.SetConnMaxLifetime(time.Second)
 		}
 
-		if err != nil {
+		if err := dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error; err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
 		}
 	}
@@ -704,11 +1052,26 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(
 	return replaceDBName(dsn, dbName), cleanup, nil
 }
 
+// execWithTemplateRetry runs a statement, retrying briefly when postgres still
+// sees the template's just-closed sessions and refuses to copy it.
+func execWithTemplateRetry(db *gorm.DB, stmt string) error {
+	var err error
+	for attempt := 0; attempt < 20; attempt++ {
+		err = db.Exec(stmt).Error
+		if err == nil || !strings.Contains(err.Error(), "is being accessed by other users") {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return err
+}
+
 func replaceDBName(dsn, newDBName string) string {
 	re := regexp.MustCompile(`(?P<pre>[:/@])(?P<dbname>[^/?]+)(?P<post>\?|$)`)
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
+// LoadSQL executes the SQL statements from the given file.
 func LoadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
@@ -737,7 +1100,7 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 		return fmt.Errorf("%s doesn't exist, couldn't continue the operation", fileStorePath)
 	}
 
-	sqlStorePath := path.Join(dataDir, storeSqliteFileName)
+	sqlStorePath := path.Join(dataDir, db.SqliteFileName)
 	if _, err := os.Stat(sqlStorePath); err == nil {
 		return fmt.Errorf("%s already exists, couldn't continue the operation", sqlStorePath)
 	}

@@ -40,7 +40,7 @@ func (h Set) Comment() string {
 
 // NewPrefixSet generates a unique name for an ipset based on the given prefixes.
 func NewPrefixSet(prefixes []netip.Prefix) Set {
-	// sort for consistent naming
+	prefixes = slices.Clone(prefixes)
 	SortPrefixes(prefixes)
 
 	hash := sha256.New()

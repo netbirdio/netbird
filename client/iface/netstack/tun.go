@@ -6,34 +6,34 @@ import (
 	"strconv"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 const EnvSkipProxy = "NB_NETSTACK_SKIP_PROXY"
 
 type NetStackTun struct { //nolint:revive
-	address       netip.Addr
+	addresses     []netip.Addr
 	dnsAddress    netip.Addr
 	mtu           int
 	listenAddress string
 
 	proxy  *Proxy
-	tundev tun.Device
+	tundev wgbackend.TUN
 }
 
-func NewNetStackTun(listenAddress string, address netip.Addr, dnsAddress netip.Addr, mtu int) *NetStackTun {
+func NewNetStackTun(listenAddress string, addresses []netip.Addr, dnsAddress netip.Addr, mtu int) *NetStackTun {
 	return &NetStackTun{
-		address:       address,
+		addresses:     addresses,
 		dnsAddress:    dnsAddress,
 		mtu:           mtu,
 		listenAddress: listenAddress,
 	}
 }
 
-func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
-	nsTunDev, tunNet, err := netstack.CreateNetTUN(
-		[]netip.Addr{t.address},
+func (t *NetStackTun) Create() (wgbackend.TUN, *wgbackend.NetstackNet, error) {
+	nsTunDev, tunNet, err := wgbackend.CreateNetTUN(
+		t.addresses,
 		[]netip.Addr{t.dnsAddress},
 		t.mtu)
 	if err != nil {
@@ -66,7 +66,7 @@ func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
 		}
 	}()
 
-	return nsTunDev, tunNet, nil
+	return t.tundev, tunNet, nil
 }
 
 func (t *NetStackTun) Close() error {

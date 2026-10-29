@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"os/user"
 	"strings"
@@ -506,15 +505,37 @@ func userExists(fullUsername, username, domain string) error {
 	return nil
 }
 
-// isLocalUser determines if this is a local user vs domain user
+// isLocalUser reports whether domain refers to this machine rather than to a
+// Windows domain.
 func (pd *PrivilegeDropper) isLocalUser(domain string) bool {
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "localhost"
+	return isLocalDomain(domain, netbiosComputerName)
+}
+
+// isLocalDomain compares against the NetBIOS name because Windows qualifies local
+// accounts with it, and it is the DNS host name truncated to 15 characters.
+// An unknown name falls back to the domain path: treating it as local could
+// authenticate a same named local account instead.
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/computer-names
+func isLocalDomain(domain string, machineName func() (string, error)) bool {
+	if domain == "" || domain == "." {
+		return true
 	}
 
-	return domain == "" || domain == "." ||
-		strings.EqualFold(domain, hostname)
+	name, err := machineName()
+	if err != nil {
+		log.Debugf("read NetBIOS computer name: %v", err)
+		return false
+	}
+	return strings.EqualFold(domain, name)
+}
+
+func netbiosComputerName() (string, error) {
+	buf := make([]uint16, windows.MAX_COMPUTERNAME_LENGTH+1)
+	size := uint32(len(buf))
+	if err := windows.GetComputerNameEx(windows.ComputerNamePhysicalNetBIOS, &buf[0], &size); err != nil {
+		return "", fmt.Errorf("GetComputerNameEx: %w", err)
+	}
+	return windows.UTF16ToString(buf[:size]), nil
 }
 
 // authenticateLocalUser handles authentication for local users

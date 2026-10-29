@@ -17,4 +17,5 @@ type WGIface interface {
 	IsUserspaceBind() bool
 	Address() wgaddr.Address
 	LastActivities() map[string]monotime.Time
+	MTU() uint16
 }

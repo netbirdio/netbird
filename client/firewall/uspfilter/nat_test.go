@@ -15,9 +15,11 @@ import (
 
 // TestDNATTranslationCorrectness verifies DNAT translation works correctly
 func TestDNATTranslationCorrectness(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -86,22 +88,29 @@ func parsePacket(t testing.TB, packetData []byte) *decoder {
 	d := &decoder{
 		decoded: []gopacket.LayerType{},
 	}
-	d.parser = gopacket.NewDecodingLayerParser(
+	d.parser4 = gopacket.NewDecodingLayerParser(
 		layers.LayerTypeIPv4,
 		&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 	)
-	d.parser.IgnoreUnsupported = true
+	d.parser4.IgnoreUnsupported = true
+	d.parser6 = gopacket.NewDecodingLayerParser(
+		layers.LayerTypeIPv6,
+		&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+	)
+	d.parser6.IgnoreUnsupported = true
 
-	err := d.parser.DecodeLayers(packetData, &d.decoded)
+	err := d.decodePacket(packetData)
 	require.NoError(t, err)
 	return d
 }
 
 // TestDNATMappingManagement tests adding/removing DNAT mappings
 func TestDNATMappingManagement(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -147,9 +156,11 @@ func TestDNATMappingManagement(t *testing.T) {
 }
 
 func TestInboundPortDNAT(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -197,9 +208,11 @@ func TestInboundPortDNAT(t *testing.T) {
 }
 
 func TestInboundPortDNATNegative(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))

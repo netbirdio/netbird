@@ -10,10 +10,14 @@ import (
 )
 
 func AddSyslogHook() {
+	AddSyslogHookToLogger(log.StandardLogger())
+}
+
+func AddSyslogHookToLogger(logger *log.Logger) {
 	hook, err := lSyslog.NewSyslogHook("", "", syslog.LOG_INFO, "")
 
 	if err != nil {
-		log.Errorf("Failed creating syslog hook: %s", err)
+		logger.Errorf("Failed creating syslog hook: %s", err)
 	}
-	log.AddHook(hook)
+	logger.AddHook(hook)
 }

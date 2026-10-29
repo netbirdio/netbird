@@ -83,14 +83,8 @@ type pocketIdUserGroupDto struct {
 }
 
 func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMetrics) (*PocketIdManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
+	httpClient := newHTTPClient()
 
-	httpClient := &http.Client{
-		Timeout:   idpTimeout(),
-		Transport: httpTransport,
-	}
-	
 	helper := JsonParser{}
 
 	if config.ManagementEndpoint == "" {

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -13,10 +12,20 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
+	"github.com/netbirdio/netbird/relay/protocol"
+	"github.com/netbirdio/netbird/relay/server/listener"
+
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
 )
+
+type Listener interface {
+	Bind() error
+	Serve(func(conn listener.Conn)) error
+	Shutdown(ctx context.Context) error
+	Protocol() protocol.Protocol
+}
 
 type Config struct {
 	Meter          metric.Meter
@@ -109,20 +118,26 @@ func NewRelay(config Config) (*Relay, error) {
 }
 
 // Accept start to handle a new peer connection
-func (r *Relay) Accept(conn net.Conn) {
+func (r *Relay) Accept(conn listener.Conn) {
 	acceptTime := time.Now()
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
 	if r.closed {
+		if err := conn.Close(); err != nil {
+			log.Debugf("failed to close connection after shutdown, %s: %s", conn.RemoteAddr(), err)
+		}
 		return
 	}
+
+	hsCtx, hsCancel := context.WithTimeout(context.Background(), handshakeTimeout)
+	defer hsCancel()
 
 	h := handshake{
 		conn:        conn,
 		validator:   r.validator,
 		preparedMsg: r.preparedMsg,
 	}
-	peerID, err := h.handshakeReceive()
+	peerID, err := h.handshakeReceive(hsCtx)
 	if err != nil {
 		if peerid.IsHealthCheck(peerID) {
 			log.Debugf("health check connection from %s", conn.RemoteAddr())
@@ -135,30 +150,35 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
-	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
+	if err := h.handshakeResponse(hsCtx); err != nil {
+		log.Errorf("failed to send handshake response, close connection: %s", err)
+		if cErr := conn.Close(); cErr != nil {
+			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
+		}
+		return
+	}
+	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
+
+	peer := NewPeer(r.metrics, *peerID, h.selectedVersion, conn, r.store, r.notifier)
+	peer.log.Infof("peer connected from: %s, advertised protocol version: %d, selected: %d", conn.RemoteAddr(), h.advertisedVersion, h.selectedVersion)
 	storeTime := time.Now()
 	if isReconnection := r.store.AddPeer(peer); isReconnection {
 		r.metrics.RecordPeerReconnection()
 	}
 	r.notifier.PeerCameOnline(peer.ID())
 
+	transport := conn.Protocol()
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
-	r.metrics.PeerConnected(peer.String())
+	r.metrics.PeerConnected(peer.String(), transport)
+	r.metrics.RecordProtocolVersion(h.advertisedVersion, h.selectedVersion)
 	go func() {
 		peer.Work()
 		if deleted := r.store.DeletePeer(peer); deleted {
 			r.notifier.PeerWentOffline(peer.ID())
 		}
 		peer.log.Debugf("relay connection closed")
-		r.metrics.PeerDisconnected(peer.String())
+		r.metrics.PeerDisconnected(peer.String(), transport)
 	}()
-
-	if err := h.handshakeResponse(); err != nil {
-		log.Errorf("failed to send handshake response, close peer: %s", err)
-		peer.Close()
-	}
-	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 }
 
 // Shutdown closes the relay server
