@@ -62,7 +62,7 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
 
-		// constaint violation errors in sqlite and postgres
+		// constraint violation errors in sqlite and postgres
 		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
 			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
 		}
@@ -78,7 +78,7 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
 
-		// constaint violation errors in sqlite and postgres
+		// constraint violation errors in sqlite and postgres
 		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
 			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
 		}
