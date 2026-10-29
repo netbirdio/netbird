@@ -106,7 +106,6 @@ func (s *SqlStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountI
 			"peer_status_connected":          true,
 			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
 			"peer_status_session_started_at": newSessionStartedAt,
-			"peer_status_login_expired":      false,
 		})
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "mark peer connected: %v", result.Error)
@@ -140,6 +139,51 @@ func (s *SqlStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accoun
 		return false, status.Errorf(status.Internal, "mark peer disconnected: %v", result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// markPeersDisconnectedChunkSize bounds the sessions per statement so the
+// bound parameter count stays below the database limits.
+const markPeersDisconnectedChunkSize = 1000
+
+// MarkPeersDisconnectedIfSameSession is the batched form of
+// MarkPeerDisconnectedIfSameSession: one UPDATE per chunk of sessions, each
+// peer guarded by its own (account, peer, session) tuple. A failed chunk does
+// not stop the others, only a done ctx does; the count then covers the chunks
+// that succeeded and the error joins the failures.
+func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error) {
+	var total int64
+	var errs []error
+	for start := 0; start < len(sessions); start += markPeersDisconnectedChunkSize {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", err))
+			break
+		}
+		end := min(start+markPeersDisconnectedChunkSize, len(sessions))
+		tuples := make([][]any, 0, end-start)
+		for _, session := range sessions[start:end] {
+			if session.SessionStartedAt == 0 {
+				continue
+			}
+			tuples = append(tuples, []any{session.AccountID, session.PeerID, session.SessionStartedAt})
+		}
+		if len(tuples) == 0 {
+			continue
+		}
+		result := s.db.WithContext(ctx).
+			Model(&nbpeer.Peer{}).
+			Where("(account_id, id, peer_status_session_started_at) IN ?", tuples).
+			Updates(map[string]any{
+				"peer_status_connected":          false,
+				"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
+				"peer_status_session_started_at": int64(0),
+			})
+		if result.Error != nil {
+			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", result.Error))
+			continue
+		}
+		total += result.RowsAffected
+	}
+	return total, errors.Join(errs...)
 }
 
 // ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
@@ -179,6 +223,30 @@ func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID st
 		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
 	}
 
+	return result.RowsAffected > 0, nil
+}
+
+// HeartbeatPeerSession stamps LastSeen with the database clock and marks the peer
+// connected, but only while sessionStartedAt still owns the peer and its login has not
+// expired. Setting Connected again undoes a save of a peer that was read as disconnected
+// while its heartbeats were delayed; the session match keeps an ended or replaced
+// session from coming back, and the login check keeps an expired peer disconnected
+// until it logs in again.
+func (s *SqlStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+	if sessionStartedAt == 0 {
+		return false, nil
+	}
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("peer_status_session_started_at = ? AND peer_status_login_expired = ?", sessionStartedAt, false).
+		Updates(map[string]any{
+			"peer_status_connected": true,
+			"peer_status_last_seen": gorm.Expr("CURRENT_TIMESTAMP"),
+		})
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "heartbeat peer session: %v", result.Error)
+	}
 	return result.RowsAffected > 0, nil
 }
 
@@ -252,7 +320,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 				p.Status.SessionStartedAt = peerStatusSessionStartedAt.Int64
 			}
 			if peerStatusConnected.Valid {
-				p.Status.Connected = peerStatusConnected.Bool
+				p.Status.Connected = nbpeer.IsConnected(peerStatusConnected.Bool, p.Status.LastSeen)
 			}
 			if peerStatusLoginExpired.Valid {
 				p.Status.LoginExpired = peerStatusLoginExpired.Bool
@@ -599,7 +667,12 @@ func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
 		db = db.Where("user_id=?", f.UserId)
 	}
 	if f.Connected != nil {
-		db = db.Where("peer_status_connected=?", *f.Connected)
+		lastSeenAfter := time.Now().UTC().Add(-nbpeer.StaleAfter)
+		if *f.Connected {
+			db = db.Where("peer_status_connected = ? AND peer_status_last_seen >= ?", true, lastSeenAfter)
+		} else {
+			db = db.Where("(peer_status_connected = ? OR peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", false, lastSeenAfter)
+		}
 	}
 	if f.ApprovalRequired != nil {
 		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequired)

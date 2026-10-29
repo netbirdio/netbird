@@ -3244,6 +3244,21 @@ func (mr *MockStoreMockRecorder) HasGatewayEndpointByOtherAccount(ctx, host, acc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasGatewayEndpointByOtherAccount", reflect.TypeOf((*MockStore)(nil).HasGatewayEndpointByOtherAccount), ctx, host, accountID)
 }
 
+// HeartbeatPeerSession mocks base method.
+func (m *MockStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HeartbeatPeerSession", ctx, accountID, peerID, sessionStartedAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HeartbeatPeerSession indicates an expected call of HeartbeatPeerSession.
+func (mr *MockStoreMockRecorder) HeartbeatPeerSession(ctx, accountID, peerID, sessionStartedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeartbeatPeerSession", reflect.TypeOf((*MockStore)(nil).HeartbeatPeerSession), ctx, accountID, peerID, sessionStartedAt)
+}
+
 // IncrementAgentNetworkConsumption mocks base method.
 func (m *MockStore) IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error {
 	m.ctrl.T.Helper()
@@ -3476,6 +3491,21 @@ func (m *MockStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accou
 func (mr *MockStoreMockRecorder) MarkPeerDisconnectedIfSameSession(ctx, accountID, peerID, sessionStartedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnectedIfSameSession", reflect.TypeOf((*MockStore)(nil).MarkPeerDisconnectedIfSameSession), ctx, accountID, peerID, sessionStartedAt)
+}
+
+// MarkPeersDisconnectedIfSameSession mocks base method.
+func (m *MockStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types3.PeerSession) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPeersDisconnectedIfSameSession", ctx, sessions)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkPeersDisconnectedIfSameSession indicates an expected call of MarkPeersDisconnectedIfSameSession.
+func (mr *MockStoreMockRecorder) MarkPeersDisconnectedIfSameSession(ctx, sessions any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeersDisconnectedIfSameSession", reflect.TypeOf((*MockStore)(nil).MarkPeersDisconnectedIfSameSession), ctx, sessions)
 }
 
 // MarkPendingJobsAsFailed mocks base method.
