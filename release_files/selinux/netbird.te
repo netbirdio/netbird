@@ -90,6 +90,12 @@ term_login_pty(netbird_devpts_t)
 #
 
 allow netbird_t self:capability { net_admin net_raw dac_override dac_read_search chown fowner fsetid kill setuid setgid sys_resource sys_chroot sys_ptrace };
+
+# Attaching a socket filter checks CAP_BPF first and succeeds without it
+gen_require(`
+	class capability2 bpf;
+')
+dontaudit netbird_t self:capability2 bpf;
 allow netbird_t self:process { fork signal_perms setpgid setsched getsched getsession setrlimit setcap getcap };
 allow netbird_t self:fifo_file rw_fifo_file_perms;
 allow netbird_t self:unix_stream_socket { create_stream_socket_perms connectto };
