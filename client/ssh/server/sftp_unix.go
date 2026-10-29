@@ -21,7 +21,7 @@ func (s *Server) executeSftpWithPrivilegeDrop(sess ssh.Session, targetUser *user
 		return fmt.Errorf("parse user credentials: %w", err)
 	}
 
-	sftpCmd, err := s.createSftpExecutorCommand(sess, uid, gid, groups, targetUser.HomeDir)
+	sftpCmd, err := s.createSftpExecutorCommand(sess, targetUser.Username, uid, gid, groups, targetUser.HomeDir)
 	if err != nil {
 		return fmt.Errorf("create executor: %w", err)
 	}
@@ -49,7 +49,7 @@ func (s *Server) executeSftpWithPrivilegeDrop(sess ssh.Session, targetUser *user
 }
 
 // createSftpExecutorCommand creates a command that spawns netbird ssh sftp for privilege dropping
-func (s *Server) createSftpExecutorCommand(sess ssh.Session, uid, gid uint32, groups []uint32, workingDir string) (*exec.Cmd, error) {
+func (s *Server) createSftpExecutorCommand(sess ssh.Session, username string, uid, gid uint32, groups []uint32, workingDir string) (*exec.Cmd, error) {
 	netbirdPath, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -57,6 +57,7 @@ func (s *Server) createSftpExecutorCommand(sess ssh.Session, uid, gid uint32, gr
 
 	args := []string{
 		"ssh", "sftp",
+		"--user", username,
 		"--uid", strconv.FormatUint(uint64(uid), 10),
 		"--gid", strconv.FormatUint(uint64(gid), 10),
 		"--working-dir", workingDir,
