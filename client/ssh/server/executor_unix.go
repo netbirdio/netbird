@@ -283,6 +283,7 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 
 		// Actual execution failure (command not found, permission denied, etc.)
 		log.Debugf("command execution failed: %v", err)
+		_, _ = fmt.Fprintf(os.Stderr, "start shell: %v\n", err)
 		os.Exit(ExitCodeShellExecFail)
 	}
 
