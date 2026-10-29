@@ -9,8 +9,7 @@
 # ssh client configuration written by the daemon
 /etc/ssh/ssh_config\.d/99-netbird\.conf(\.tmp)?	--	gen_context(system_u:object_r:netbird_ssh_conf_t,s0)
 
-# routing table name drop-in
-/etc/iproute2/rt_tables\.d		-d	gen_context(system_u:object_r:netbird_rt_tables_t,s0)
+# routing table name drop-in (the directory is shared and keeps its label)
 /etc/iproute2/rt_tables\.d/netbird\.conf	--	gen_context(system_u:object_r:netbird_rt_tables_t,s0)
 
 # netbird state files
