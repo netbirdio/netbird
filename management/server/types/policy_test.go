@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func TestPolicyEqual_SameRulesDifferentOrder(t *testing.T) {
@@ -190,4 +192,9 @@ func TestPolicyEqual_FullScenario(t *testing.T) {
 		},
 	}
 	assert.True(t, a.Equal(b))
+}
+
+func TestPolicy_EqualComparesAllFields(t *testing.T) {
+	// PublicID is copied from the stored policy before comparing.
+	testutil.EqualComparesAllFields(t, (*Policy).Equal, "PublicID")
 }

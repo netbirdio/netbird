@@ -3,6 +3,8 @@ package types
 import (
 	"net/netip"
 	"testing"
+
+	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func TestGetResourceType(t *testing.T) {
@@ -52,4 +54,10 @@ func TestGetResourceType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNetworkResource_EqualComparesAllFields(t *testing.T) {
+	// PublicID is copied from the stored resource before comparing. Address is
+	// not persisted; the Type, Domain and Prefix parsed from it are compared.
+	testutil.EqualComparesAllFields(t, (*NetworkResource).Equal, "PublicID", "Address")
 }
