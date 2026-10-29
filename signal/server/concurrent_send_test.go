@@ -23,6 +23,7 @@ type concurrencyCheckStream struct {
 	ctx      context.Context
 	inflight atomic.Int32
 	maxSeen  atomic.Int32
+	total    atomic.Int32
 }
 
 func (s *concurrencyCheckStream) Send(*proto.EncryptedMessage) error {
@@ -36,6 +37,7 @@ func (s *concurrencyCheckStream) Send(*proto.EncryptedMessage) error {
 	// Widen the window so overlapping callers are reliably observed.
 	time.Sleep(time.Millisecond)
 	s.inflight.Add(-1)
+	s.total.Add(1)
 	return nil
 }
 

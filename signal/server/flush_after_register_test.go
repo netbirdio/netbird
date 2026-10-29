@@ -74,6 +74,10 @@ func TestConnectStream_FlushAfterRegister_Enabled(t *testing.T) {
 }
 
 func TestConnectStream_FlushAfterRegister_DisabledByDefault(t *testing.T) {
+	// Isolate from whatever the test process's environment happens to have,
+	// so this reliably exercises the default rather than an inherited value.
+	t.Setenv(EnvFlushAfterRegister, "")
+
 	s, err := NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
 	require.False(t, s.flushAfterRegister, "flag must default to disabled")
@@ -91,11 +95,41 @@ func TestConnectStream_FlushAfterRegister_DisabledByDefault(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+// blockingFirstSendStream wraps concurrencyCheckStream and pauses its very
+// first Send call until released, signaling once it has entered. This lets a
+// test start concurrent senders while that first call is in flight, so it
+// reliably overlaps with them instead of depending on scheduling luck.
+type blockingFirstSendStream struct {
+	*concurrencyCheckStream
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func newBlockingFirstSendStream(ctx context.Context) *blockingFirstSendStream {
+	return &blockingFirstSendStream{
+		concurrencyCheckStream: &concurrencyCheckStream{ctx: ctx},
+		entered:                make(chan struct{}),
+		release:                make(chan struct{}),
+	}
+}
+
+func (s *blockingFirstSendStream) Send(msg *proto.EncryptedMessage) error {
+	s.once.Do(func() {
+		close(s.entered)
+		<-s.release
+	})
+	return s.concurrencyCheckStream.Send(msg)
+}
+
 // TestConnectStream_FlushNeverRacesForwardedMessages guards against
 // regressing the flush back to calling stream.Send directly: the flush must
 // go through Peer.Send (which holds sendMu) so it can never run concurrently
 // with a message forwardMessageToPeer relays to the same peer, which would
-// violate gRPC's single-writer contract for a ServerStream.
+// violate gRPC's single-writer contract for a ServerStream. The first Send
+// (the flush) is held open until all 50 forwards are queued up behind
+// Peer.Send's mutex, guaranteeing real overlap instead of relying on the
+// flush and the forwards happening to race by scheduling luck.
 func TestConnectStream_FlushNeverRacesForwardedMessages(t *testing.T) {
 	s, err := NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
@@ -103,10 +137,16 @@ func TestConnectStream_FlushNeverRacesForwardedMessages(t *testing.T) {
 
 	const peerID = "peer-flush-race"
 	ctx, cancel := registeredStreamCtx(peerID)
-	stream := &concurrencyCheckStream{ctx: ctx}
+	stream := newBlockingFirstSendStream(ctx)
 
 	done := make(chan error, 1)
 	go func() { done <- s.ConnectStream(stream) }()
+
+	select {
+	case <-stream.entered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the registration flush to start")
+	}
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -116,10 +156,16 @@ func TestConnectStream_FlushNeverRacesForwardedMessages(t *testing.T) {
 			s.forwardMessageToPeer(context.Background(), &proto.EncryptedMessage{Key: "sender", RemoteKey: peerID})
 		}()
 	}
-	wg.Wait()
 
+	// Give the forwards time to actually reach Peer.Send and queue up behind
+	// its mutex - held by the flush's in-progress Send - before releasing it.
+	time.Sleep(50 * time.Millisecond)
+	close(stream.release)
+
+	wg.Wait()
 	cancel()
 	require.NoError(t, <-done)
 
 	require.Equal(t, int32(1), stream.maxSeen.Load(), "Stream.Send must never run concurrently on the same peer stream")
+	require.Equal(t, int32(51), stream.total.Load(), "expected the placeholder plus all 50 forwarded messages")
 }

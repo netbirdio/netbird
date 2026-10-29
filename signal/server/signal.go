@@ -48,6 +48,12 @@ const (
 	sendTimeout = 10 * time.Second
 
 	applicationName = "signal"
+
+	// EnvFlushAfterRegister opts into sending a placeholder frame immediately
+	// after the registration header on ConnectStream, for proxies that buffer
+	// a headers-only stream until a DATA frame follows it. See the comment on
+	// flushAfterRegister's use in ConnectStream for details.
+	EnvFlushAfterRegister = "NB_SIGNAL_FLUSH_AFTER_REGISTER"
 )
 
 var (
@@ -88,29 +94,32 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		sTimeout = parsed
 	}
 
-	var flushAfterRegister bool
-	if raw := os.Getenv("NB_SIGNAL_FLUSH_AFTER_REGISTER"); raw != "" {
-		parsed, err := strconv.ParseBool(raw)
-		if err != nil {
-			log.Warnf("invalid NB_SIGNAL_FLUSH_AFTER_REGISTER value %q, ignoring (expected a boolean)", raw)
-		} else {
-			flushAfterRegister = parsed
-		}
-	}
-
 	s := &Server{
 		dispatcher:         d,
 		registry:           peer.NewRegistry(appMetrics),
 		metrics:            appMetrics,
 		successHeader:      metadata.Pairs(proto.HeaderRegistered, "1"),
 		sendTimeout:        sTimeout,
-		flushAfterRegister: flushAfterRegister,
+		flushAfterRegister: flushAfterRegisterFromEnv(),
 	}
 
 	stopProfiling := profiling.Start(applicationName)
 	s.OnStop(stopProfiling)
 
 	return s, nil
+}
+
+func flushAfterRegisterFromEnv() bool {
+	val := os.Getenv(EnvFlushAfterRegister)
+	if val == "" {
+		return false
+	}
+	enabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvFlushAfterRegister, err)
+		return false
+	}
+	return enabled
 }
 
 // Stop runs the handlers registered with OnStop.
