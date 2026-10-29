@@ -405,26 +405,15 @@ func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength Lock
 }
 
 func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error) {
-	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	var peer nbpeer.Peer
-	result := tx.Take(&peer, keyQueryCondition, peerKey)
-
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	peer, err := s.takePeerWithConnection(ctx, lockStrength, "peers.key = ?", peerKey)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.NewPeerNotFoundError(peerKey)
 		}
-		return nil, status.Errorf(status.Internal, "issue getting peer from store: %s", result.Error)
-	}
-
-	if err := s.attachPeerConnections(ctx, &peer); err != nil {
 		return nil, status.Errorf(status.Internal, "issue getting peer from store: %s", err)
 	}
 
-	return &peer, nil
+	return peer, nil
 }
 
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
@@ -681,22 +670,11 @@ func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) erro
 
 // GetPeerByID retrieves a peer by its ID and account ID.
 func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (*nbpeer.Peer, error) {
-	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	var peer *nbpeer.Peer
-	result := tx.
-		Take(&peer, accountAndIDQueryCondition, accountID, peerID)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	peer, err := s.takePeerWithConnection(ctx, lockStrength, "peers.account_id = ? AND peers.id = ?", accountID, peerID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.NewPeerNotFoundError(peerID)
 		}
-		return nil, status.Errorf(status.Internal, "failed to get peer from store")
-	}
-
-	if err := s.attachPeerConnections(ctx, peer); err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
@@ -834,37 +812,26 @@ func (s *SqlStore) DeletePeer(ctx context.Context, accountID string, peerID stri
 }
 
 func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error) {
-	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	column := "ip"
+	column := "peers.ip"
 	if ip.To4() == nil {
-		column = "ipv6"
+		column = "peers.ipv6"
 	}
 	jsonValue := fmt.Sprintf(`"%s"`, ip.String())
 
-	var peer nbpeer.Peer
-	result := tx.
-		Take(&peer, fmt.Sprintf("account_id = ? AND %s = ?", column), accountID, jsonValue)
-	if result.Error != nil {
+	peer, err := s.takePeerWithConnection(ctx, lockStrength, fmt.Sprintf("peers.account_id = ? AND %s = ?", column), accountID, jsonValue)
+	if err != nil {
 		// A tunnel-IP miss is an expected outcome (e.g. the proxy's
 		// ValidateTunnelPeer probing an address that isn't in the
 		// account roster); surface it as NotFound so callers can tell
 		// it apart from a real store failure.
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "peer with ip %s not found", ip.String())
 		}
-		return nil, status.Errorf(status.Internal, "failed to get peer from store")
-	}
-
-	if err := s.attachPeerConnections(ctx, &peer); err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 
-	return &peer, nil
+	return peer, nil
 }
 
 func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error) {

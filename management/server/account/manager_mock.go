@@ -17,7 +17,6 @@ import (
 	time "time"
 
 	dns "github.com/netbirdio/netbird/dns"
-	peerliveness "github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	activity "github.com/netbirdio/netbird/management/server/activity"
 	affectedpeers "github.com/netbirdio/netbird/management/server/affectedpeers"
@@ -1557,18 +1556,6 @@ func (m *MockManager) SaveUser(ctx context.Context, accountID, initiatorUserID s
 func (mr *MockManagerMockRecorder) SaveUser(ctx, accountID, initiatorUserID, update any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveUser", reflect.TypeOf((*MockManager)(nil).SaveUser), ctx, accountID, initiatorUserID, update)
-}
-
-// SetPeerLiveness mocks base method.
-func (m *MockManager) SetPeerLiveness(controller peerliveness.Controller) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPeerLiveness", controller)
-}
-
-// SetPeerLiveness indicates an expected call of SetPeerLiveness.
-func (mr *MockManagerMockRecorder) SetPeerLiveness(controller any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPeerLiveness", reflect.TypeOf((*MockManager)(nil).SetPeerLiveness), controller)
 }
 
 // SetServiceManager mocks base method.

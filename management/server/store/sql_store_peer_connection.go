@@ -188,14 +188,17 @@ func (s *SqlStore) ConnectPeer(ctx context.Context, accountID, peerID, instanceI
 	return rows > 0, nil
 }
 
-// DisconnectPeer releases the peer's connection when an instance still holds it under
-// session, and stamps LastSeen with the database clock. It returns false when a newer
-// session has replaced it or no instance holds the peer.
-func (s *SqlStore) DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error) {
+// DisconnectPeer ends the account's peer connection of session, whether an instance still
+// holds it or a sweep already released it. LastSeen is raised to the database clock and
+// the stored session advances by one so that a re-registration of the ended session no
+// longer matches. It returns false when a newer session has replaced it or the peer does
+// not exist.
+func (s *SqlStore) DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
 	result := s.db.WithContext(ctx).Exec(
-		`UPDATE peer_connections SET last_seen = CURRENT_TIMESTAMP, instance_id = NULL
-		WHERE peer_id = ? AND session_started_at = ? AND instance_id IS NOT NULL`,
-		peerID, session,
+		`UPDATE peer_connections
+		SET last_seen = `+raiseLastSeenTo("CURRENT_TIMESTAMP")+`, instance_id = NULL, session_started_at = session_started_at + 1
+		WHERE account_id = ? AND peer_id = ? AND session_started_at = ?`,
+		accountID, peerID, session,
 	)
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "disconnect peer: %v", result.Error)
@@ -240,7 +243,8 @@ func (s *SqlStore) ReRegisterPeers(ctx context.Context, instanceID string, sessi
 }
 
 // upsertPeerConnections makes the instance hold the connections of sessions, stamping
-// LastSeen with the database clock. Sessions of peers that no longer exist are skipped. An
+// LastSeen with the database clock. Sessions of peers that no longer exist, or that belong
+// to another account than the session names, are skipped. An
 // existing connection of the same peer is only overwritten when its stored session
 // compares to the incoming one by fence. It returns the number of connections inserted or
 // overwritten.
@@ -255,7 +259,7 @@ func upsertPeerConnections(tx *gorm.DB, instanceID string, sessions []types.Peer
 		`WITH incoming (peer_id, account_id, instance_id, session_started_at) AS (VALUES `+placeholders+`)
 		INSERT INTO peer_connections (peer_id, account_id, instance_id, session_started_at, last_seen)
 		SELECT incoming.peer_id, incoming.account_id, incoming.instance_id, incoming.session_started_at, CURRENT_TIMESTAMP
-		FROM incoming JOIN peers ON peers.id = incoming.peer_id WHERE true
+		FROM incoming JOIN peers ON peers.id = incoming.peer_id AND peers.account_id = incoming.account_id WHERE true
 		ON CONFLICT (peer_id) DO UPDATE SET account_id = excluded.account_id,
 		instance_id = excluded.instance_id, session_started_at = excluded.session_started_at,
 		last_seen = CURRENT_TIMESTAMP
@@ -357,4 +361,41 @@ func applyPeerConnection(peer *nbpeer.Peer, rows map[string]peerConnectionRow) {
 		peer.Status = &nbpeer.PeerStatus{}
 	}
 	peer.Status.ApplyConnection(sql.NullInt64{Int64: row.SessionStartedAt, Valid: ok}, row.LastSeen, row.InstanceLastSeen)
+}
+
+// peerWithConnection is a peer row joined with its connection row and the holding
+// instance.
+type peerWithConnection struct {
+	nbpeer.Peer
+	ConnSessionStartedAt sql.NullInt64
+	ConnLastSeen         sql.NullTime
+	ConnInstanceLastSeen sql.NullTime
+}
+
+// takePeerWithConnection loads the one peer matching the condition together with its
+// liveness in a single query. The condition must qualify its columns with peers. A held
+// lock covers only the peers row. It returns gorm.ErrRecordNotFound when no peer matches.
+func (s *SqlStore) takePeerWithConnection(ctx context.Context, lockStrength LockingStrength, condition string, args ...any) (*nbpeer.Peer, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength), Table: clause.Table{Name: "peers"}})
+	}
+
+	var row peerWithConnection
+	err := tx.Table("peers").
+		Select("peers.*, pc.session_started_at AS conn_session_started_at, pc.last_seen AS conn_last_seen, mi.last_seen AS conn_instance_last_seen").
+		Joins("LEFT JOIN peer_connections pc ON pc.peer_id = peers.id").
+		Joins("LEFT JOIN management_instances mi ON mi.id = pc.instance_id").
+		Where(condition, args...).
+		Take(&row).Error
+	if err != nil {
+		return nil, err
+	}
+
+	peer := row.Peer
+	if peer.Status == nil {
+		peer.Status = &nbpeer.PeerStatus{}
+	}
+	peer.Status.ApplyConnection(row.ConnSessionStartedAt, row.ConnLastSeen, row.ConnInstanceLastSeen)
+	return &peer, nil
 }

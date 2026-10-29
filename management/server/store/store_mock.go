@@ -926,18 +926,18 @@ func (mr *MockStoreMockRecorder) DisconnectAllProxies(ctx any) *gomock.Call {
 }
 
 // DisconnectPeer mocks base method.
-func (m *MockStore) DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error) {
+func (m *MockStore) DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DisconnectPeer", ctx, peerID, session)
+	ret := m.ctrl.Call(m, "DisconnectPeer", ctx, accountID, peerID, session)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DisconnectPeer indicates an expected call of DisconnectPeer.
-func (mr *MockStoreMockRecorder) DisconnectPeer(ctx, peerID, session any) *gomock.Call {
+func (mr *MockStoreMockRecorder) DisconnectPeer(ctx, accountID, peerID, session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectPeer", reflect.TypeOf((*MockStore)(nil).DisconnectPeer), ctx, peerID, session)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectPeer", reflect.TypeOf((*MockStore)(nil).DisconnectPeer), ctx, accountID, peerID, session)
 }
 
 // DisconnectProxy mocks base method.

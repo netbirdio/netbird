@@ -15,7 +15,6 @@ import (
 	reflect "reflect"
 
 	network_map "github.com/netbirdio/netbird/management/internals/controllers/network_map"
-	peerliveness "github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	account "github.com/netbirdio/netbird/management/server/account"
 	integrated_validator "github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	peer "github.com/netbirdio/netbird/management/server/peer"
@@ -217,16 +216,4 @@ func (m *MockManager) SetNetworkMapController(networkMapController network_map.C
 func (mr *MockManagerMockRecorder) SetNetworkMapController(networkMapController any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNetworkMapController", reflect.TypeOf((*MockManager)(nil).SetNetworkMapController), networkMapController)
-}
-
-// SetPeerLiveness mocks base method.
-func (m *MockManager) SetPeerLiveness(controller peerliveness.Controller) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPeerLiveness", controller)
-}
-
-// SetPeerLiveness indicates an expected call of SetPeerLiveness.
-func (mr *MockManagerMockRecorder) SetPeerLiveness(controller any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPeerLiveness", reflect.TypeOf((*MockManager)(nil).SetPeerLiveness), controller)
 }

@@ -230,7 +230,7 @@ func TestController_HeartbeatLapseReRegistersPeers(t *testing.T) {
 			account, peer string
 			session       int64
 		}{{"acc-1", "peer-1", 10}, {"acc-2", "peer-2", 20}, {"acc-1", "peer-3", 30}} {
-			_, err := c.Connect(context.Background(), st, p.account, p.peer, p.session)
+			_, err := c.Connect(context.Background(), p.account, p.peer, p.session)
 			require.NoError(t, err)
 		}
 
@@ -282,7 +282,7 @@ func TestController_FailedReRegisterPeersIsRetried(t *testing.T) {
 		oldID := c.InstanceID()
 
 		st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", oldID, int64(10)).Return(true, nil)
-		_, err := c.Connect(context.Background(), st, "acc", "peer", 10)
+		_, err := c.Connect(context.Background(), "acc", "peer", 10)
 		require.NoError(t, err)
 
 		time.Sleep(3*nbpeer.HeartbeatInterval + time.Second)
@@ -415,26 +415,137 @@ func TestController_DisconnectFencesRegistry(t *testing.T) {
 	ctx := context.Background()
 
 	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(5)).Return(true, nil)
-	applied, err := c.Connect(ctx, st, "acc", "peer", 5)
+	applied, err := c.Connect(ctx, "acc", "peer", 5)
 	require.NoError(t, err)
 	require.True(t, applied)
 
-	st.EXPECT().DisconnectPeer(gomock.Any(), "peer", int64(3)).Return(false, nil)
-	deleted, err := c.Disconnect(ctx, st, "peer", 3)
+	st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(3)).Return(false, nil)
+	deleted, err := c.Disconnect(ctx, "acc", "peer", 3)
 	require.NoError(t, err)
 	assert.False(t, deleted)
 	assert.Equal(t, connection{accountID: "acc", session: 5}, c.registry["peer"])
 
-	st.EXPECT().DisconnectPeer(gomock.Any(), "peer", int64(5)).Return(false, errors.New("boom"))
-	_, err = c.Disconnect(ctx, st, "peer", 5)
-	require.Error(t, err)
-	assert.Contains(t, c.registry, "peer")
-
-	st.EXPECT().DisconnectPeer(gomock.Any(), "peer", int64(5)).Return(true, nil)
-	deleted, err = c.Disconnect(ctx, st, "peer", 5)
+	st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(true, nil)
+	deleted, err = c.Disconnect(ctx, "acc", "peer", 5)
 	require.NoError(t, err)
 	assert.True(t, deleted)
 	assert.NotContains(t, c.registry, "peer")
+	assert.Empty(t, c.pending)
+}
+
+func TestController_FailedDisconnectIsRetriedUntilApplied(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c, st, _ := newController(t)
+		noStaleInstances(st)
+		st.EXPECT().HeartbeatInstance(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+		require.NoError(t, c.Start(context.Background()))
+		ctx := context.Background()
+
+		st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(5)).Return(true, nil)
+		_, err := c.Connect(ctx, "acc", "peer", 5)
+		require.NoError(t, err)
+
+		gomock.InOrder(
+			st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(false, errors.New("boom")),
+			st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(false, errors.New("still down")),
+			st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(true, nil),
+		)
+		_, err = c.Disconnect(ctx, "acc", "peer", 5)
+		require.Error(t, err)
+
+		c.registryMu.Lock()
+		assert.NotContains(t, c.registry, "peer", "a failed disconnect must not leave a registry entry to be re-registered")
+		assert.Equal(t, map[string]connection{"peer": {accountID: "acc", session: 5}}, c.pending)
+		c.registryMu.Unlock()
+
+		time.Sleep(nbpeer.HeartbeatInterval + time.Second)
+		synctest.Wait()
+		c.registryMu.Lock()
+		assert.Contains(t, c.pending, "peer", "a failing retry keeps the entry")
+		c.registryMu.Unlock()
+
+		time.Sleep(nbpeer.HeartbeatInterval)
+		synctest.Wait()
+		c.registryMu.Lock()
+		assert.Empty(t, c.pending)
+		c.registryMu.Unlock()
+
+		// A further tick would hit an unexpected DisconnectPeer call.
+		time.Sleep(2 * nbpeer.HeartbeatInterval)
+		synctest.Wait()
+
+		st.EXPECT().ReleaseInstance(gomock.Any(), gomock.Any()).Return(nil)
+		require.NoError(t, c.Release(context.Background()))
+	})
+}
+
+func TestController_RetriedDisconnectNotAppliedIsDropped(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c, st, _ := newController(t)
+		noStaleInstances(st)
+		st.EXPECT().HeartbeatInstance(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+		require.NoError(t, c.Start(context.Background()))
+
+		gomock.InOrder(
+			st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(false, errors.New("boom")),
+			st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(false, nil),
+		)
+		_, err := c.Disconnect(context.Background(), "acc", "peer", 5)
+		require.Error(t, err)
+
+		time.Sleep(3*nbpeer.HeartbeatInterval + time.Second)
+		synctest.Wait()
+
+		c.registryMu.Lock()
+		assert.Empty(t, c.pending)
+		c.registryMu.Unlock()
+
+		st.EXPECT().ReleaseInstance(gomock.Any(), gomock.Any()).Return(nil)
+		require.NoError(t, c.Release(context.Background()))
+	})
+}
+
+func TestController_FailedDisconnectOfSupersededSessionIsNotQueued(t *testing.T) {
+	c, st := startedController(t)
+	ctx := context.Background()
+
+	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(7)).Return(true, nil)
+	_, err := c.Connect(ctx, "acc", "peer", 7)
+	require.NoError(t, err)
+
+	st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(5)).Return(false, errors.New("boom"))
+	_, err = c.Disconnect(ctx, "acc", "peer", 5)
+	require.Error(t, err)
+
+	assert.Equal(t, connection{accountID: "acc", session: 7}, c.registry["peer"])
+	assert.Empty(t, c.pending)
+}
+
+func TestController_ConnectAndForgetDropPendingRelease(t *testing.T) {
+	c, st := startedController(t)
+	ctx := context.Background()
+
+	st.EXPECT().DisconnectPeer(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(false, errors.New("boom")).Times(3)
+	for _, peerID := range []string{"reconnected", "forgotten", "other-account"} {
+		account := "acc"
+		if peerID == "other-account" {
+			account = "acc-2"
+		}
+		_, err := c.Disconnect(ctx, account, peerID, 5)
+		require.Error(t, err)
+	}
+	require.Len(t, c.pending, 3)
+
+	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "reconnected", gomock.Any(), int64(6)).Return(true, nil)
+	_, err := c.Connect(ctx, "acc", "reconnected", 6)
+	require.NoError(t, err)
+	assert.NotContains(t, c.pending, "reconnected")
+
+	c.ForgetPeer("forgotten")
+	assert.NotContains(t, c.pending, "forgotten")
+
+	c.ForgetAccount("acc-2")
+	assert.Empty(t, c.pending)
 }
 
 func TestController_ReleaseConnectionClearsRegistry(t *testing.T) {
@@ -442,16 +553,15 @@ func TestController_ReleaseConnectionClearsRegistry(t *testing.T) {
 	ctx := context.Background()
 
 	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(5)).Return(true, nil)
-	_, err := c.Connect(ctx, st, "acc", "peer", 5)
+	_, err := c.Connect(ctx, "acc", "peer", 5)
 	require.NoError(t, err)
 
 	st.EXPECT().ReleasePeerConnection(gomock.Any(), "peer").Return(errors.New("boom"))
-	require.Error(t, c.ReleaseConnection(ctx, st, "peer"))
+	require.Error(t, c.ReleaseConnection(ctx, "peer"))
 	assert.Contains(t, c.registry, "peer", "a failed release keeps the registry entry")
 
-	txStore := peerliveness.NewMockStore(gomock.NewController(t))
-	txStore.EXPECT().ReleasePeerConnection(gomock.Any(), "peer").Return(nil)
-	require.NoError(t, c.ReleaseConnection(ctx, txStore, "peer"))
+	st.EXPECT().ReleasePeerConnection(gomock.Any(), "peer").Return(nil)
+	require.NoError(t, c.ReleaseConnection(ctx, "peer"))
 	assert.NotContains(t, c.registry, "peer")
 }
 
@@ -460,7 +570,7 @@ func TestController_ForgetPeerDropsOnlyThatPeer(t *testing.T) {
 
 	for _, peerID := range []string{"peer-1", "peer-2"} {
 		st.EXPECT().ConnectPeer(gomock.Any(), "acc", peerID, gomock.Any(), int64(5)).Return(true, nil)
-		_, err := c.Connect(context.Background(), st, "acc", peerID, 5)
+		_, err := c.Connect(context.Background(), "acc", peerID, 5)
 		require.NoError(t, err)
 	}
 
@@ -475,7 +585,7 @@ func TestController_ForgetAccountDropsOnlyThatAccount(t *testing.T) {
 
 	for _, p := range []struct{ account, peer string }{{"acc-1", "peer-1"}, {"acc-1", "peer-2"}, {"acc-2", "peer-3"}} {
 		st.EXPECT().ConnectPeer(gomock.Any(), p.account, p.peer, gomock.Any(), int64(5)).Return(true, nil)
-		_, err := c.Connect(context.Background(), st, p.account, p.peer, 5)
+		_, err := c.Connect(context.Background(), p.account, p.peer, 5)
 		require.NoError(t, err)
 	}
 
@@ -506,37 +616,24 @@ func TestController_ConnectNotAppliedLeavesRegistry(t *testing.T) {
 	c, st := startedController(t)
 
 	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(5)).Return(false, nil)
-	applied, err := c.Connect(context.Background(), st, "acc", "peer", 5)
+	applied, err := c.Connect(context.Background(), "acc", "peer", 5)
 	require.NoError(t, err)
 	assert.False(t, applied)
 
 	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(6)).Return(false, errors.New("boom"))
-	_, err = c.Connect(context.Background(), st, "acc", "peer", 6)
+	_, err = c.Connect(context.Background(), "acc", "peer", 6)
 	require.Error(t, err)
 
 	assert.Empty(t, c.registry)
 }
 
 func TestController_ConnectBeforeStartFails(t *testing.T) {
-	c, st, _ := newController(t)
+	c, _, _ := newController(t)
 
-	applied, err := c.Connect(context.Background(), st, "acc", "peer", 5)
+	applied, err := c.Connect(context.Background(), "acc", "peer", 5)
 	require.Error(t, err)
 	assert.False(t, applied)
 	assert.Empty(t, c.registry)
-}
-
-func TestController_ConnectUsesGivenStore(t *testing.T) {
-	c, _ := startedController(t)
-	txStore := peerliveness.NewMockStore(gomock.NewController(t))
-
-	txStore.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(5)).Return(true, nil)
-	txStore.EXPECT().DisconnectPeer(gomock.Any(), "peer", int64(5)).Return(true, nil)
-
-	_, err := c.Connect(context.Background(), txStore, "acc", "peer", 5)
-	require.NoError(t, err)
-	_, err = c.Disconnect(context.Background(), txStore, "peer", 5)
-	require.NoError(t, err)
 }
 
 func TestController_ReleaseStopsLoopAndReleasesCurrentID(t *testing.T) {
@@ -619,7 +716,7 @@ func TestController_ReRegistrationWaitsForInFlightConnect(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		applied, err := c.Connect(context.Background(), st, "acc", "peer", 9)
+		applied, err := c.Connect(context.Background(), "acc", "peer", 9)
 		assert.NoError(t, err)
 		assert.True(t, applied)
 	})
@@ -647,8 +744,9 @@ func TestController_ReRegistrationWaitsForInFlightConnect(t *testing.T) {
 	require.NoError(t, c.Release(context.Background()))
 }
 
-// A Connect that starts during re-registration must write under the new ID.
-func TestController_ConnectDuringReRegistrationUsesNewID(t *testing.T) {
+// Re-registration writes the registry back outside the lock, so Connect and Disconnect
+// during that write neither block nor use the old ID.
+func TestController_ConnectAndDisconnectDuringReRegistrationProceed(t *testing.T) {
 	c, st, _ := newController(t)
 	noStaleInstances(st)
 	require.NoError(t, c.Start(context.Background()))
@@ -667,7 +765,7 @@ func TestController_ConnectDuringReRegistrationUsesNewID(t *testing.T) {
 		assert.NoError(t, c.reRegister(context.Background()))
 	})
 	<-inReRegister
-	newID := c.id
+	newID := c.InstanceID()
 
 	var connectedUnder string
 	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(9)).
@@ -675,16 +773,68 @@ func TestController_ConnectDuringReRegistrationUsesNewID(t *testing.T) {
 			connectedUnder = instanceID
 			return true, nil
 		})
-	wg.Go(func() {
-		_, err := c.Connect(context.Background(), st, "acc", "peer", 9)
-		assert.NoError(t, err)
-	})
-	requireBlockedOnMutex(t, "(*Controller).Connect", "sync.(*RWMutex).RLock")
+	st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(9)).Return(true, nil)
+
+	applied, err := c.Connect(context.Background(), "acc", "peer", 9)
+	require.NoError(t, err)
+	require.True(t, applied)
+	deleted, err := c.Disconnect(context.Background(), "acc", "peer", 9)
+	require.NoError(t, err)
+	require.True(t, deleted)
 	close(finishReRegister)
 	wg.Wait()
 
 	assert.Equal(t, newID, connectedUnder)
+	assert.Empty(t, c.registry)
 
 	st.EXPECT().ReleaseInstance(gomock.Any(), newID).Return(nil)
+	require.NoError(t, c.Release(context.Background()))
+}
+
+// A peer that disconnects after the registry snapshot is still written back with its old
+// session, which the store's fence rejects because the disconnect advanced it.
+func TestController_ReRegistrationWritesSnapshotTakenBeforeDisconnect(t *testing.T) {
+	c, st, _ := newController(t)
+	noStaleInstances(st)
+	require.NoError(t, c.Start(context.Background()))
+
+	st.EXPECT().ConnectPeer(gomock.Any(), "acc", "peer", gomock.Any(), int64(9)).Return(true, nil)
+	_, err := c.Connect(context.Background(), "acc", "peer", 9)
+	require.NoError(t, err)
+
+	var written []types.PeerSession
+	st.EXPECT().ReRegisterPeers(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, sessions []types.PeerSession) error {
+			written = sessions
+			st.EXPECT().DisconnectPeer(gomock.Any(), "acc", "peer", int64(9)).Return(true, nil)
+			_, err := c.Disconnect(context.Background(), "acc", "peer", 9)
+			return err
+		})
+
+	require.NoError(t, c.reRegister(context.Background()))
+
+	assert.Equal(t, []types.PeerSession{{AccountID: "acc", PeerID: "peer", SessionStartedAt: 9}}, written)
+	assert.Empty(t, c.registry)
+
+	st.EXPECT().ReleaseInstance(gomock.Any(), c.InstanceID()).Return(nil)
+	require.NoError(t, c.Release(context.Background()))
+}
+
+// A failed RegisterInstance leaves the old ID in place so the next heartbeat retries.
+func TestController_ReRegisterFailureKeepsOldID(t *testing.T) {
+	st := peerliveness.NewMockStore(gomock.NewController(t))
+	gomock.InOrder(
+		st.EXPECT().RegisterInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+		st.EXPECT().RegisterInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("boom")),
+	)
+	noStaleInstances(st)
+	c := NewController(st)
+	require.NoError(t, c.Start(context.Background()))
+	oldID := c.InstanceID()
+
+	require.Error(t, c.reRegister(context.Background()))
+	assert.Equal(t, oldID, c.InstanceID())
+
+	st.EXPECT().ReleaseInstance(gomock.Any(), oldID).Return(nil)
 	require.NoError(t, c.Release(context.Background()))
 }

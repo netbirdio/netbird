@@ -15,9 +15,6 @@ import (
 func TestGetPeers(t *testing.T) {
 	ctx := context.TODO()
 
-	peers, clusterToPeersIdx, err := conn(t, ctx).GetPeers(ctx, "account-1")
-	assert.NoError(t, err)
-
 	// shouldn't be returned in the index, as it's not connected
 	execQuery(t, ctx,
 		`insert into peers (id,account_id,"key",ssh_key,proxy_meta_embedded)
@@ -32,6 +29,9 @@ func TestGetPeers(t *testing.T) {
 	execQuery(t, ctx,
 		`insert into peer_connections (peer_id,account_id,instance_id,session_started_at)
 		 values('peer-5','account-1','instance-1',1)`)
+
+	peers, clusterToPeersIdx, err := conn(t, ctx).GetPeers(ctx, "account-1")
+	assert.NoError(t, err)
 
 	peer1 := nmdata.Peer{
 		ID:                     "peer-id-1",
@@ -163,6 +163,7 @@ func TestGetPeers(t *testing.T) {
 		},
 	}
 
+	assert.Len(t, peers, 5, "the unindexed peers are still returned")
 	assert.Contains(t, peers, peer1)
 	assert.Contains(t, peers, peer2)
 	assert.Contains(t, peers, peer3)

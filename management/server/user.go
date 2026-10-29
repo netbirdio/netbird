@@ -1253,14 +1253,14 @@ func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accou
 		if err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
-		if err := am.peerLiveness.ReleaseConnection(ctx, transaction, peer.ID); err != nil {
-			return err
-		}
 		expired = peer
 		return nil
 	})
-	if err != nil {
+	if err != nil || expired == nil {
 		return nil, err
+	}
+	if err := am.peerLiveness.ReleaseConnection(ctx, expired.ID); err != nil {
+		log.WithContext(ctx).Warnf("release connection of expired peer %s: %v", expired.ID, err)
 	}
 	return expired, nil
 }

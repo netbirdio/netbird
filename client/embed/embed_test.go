@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -118,7 +119,8 @@ func startManagement(t *testing.T, signalAddr string) string {
 	eventStore := &activity.InMemoryEventStore{}
 
 	permissionsManager := permissions.NewManager(testStore)
-	peersManager := peers.NewManager(testStore, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, testStore)
+	peersManager := peers.NewManager(testStore, permissionsManager, peerLiveness)
 	jobManager := job.NewJobManager(nil, testStore, peersManager)
 
 	cacheStore, err := nbcache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
@@ -146,7 +148,7 @@ func startManagement(t *testing.T, signalAddr string) string {
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(context.Background(), testStore)
 	networkMapController := controller.NewController(context.Background(), testStore, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", manager.NewEphemeralManager(testStore, peersManager), cfg, nil)
-	accountManager, err := mgmt.BuildManager(context.Background(), cfg, testStore, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	accountManager, err := mgmt.BuildManager(context.Background(), cfg, testStore, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	require.NoError(t, err)
 
 	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, cfg.TURNConfig, cfg.Relay, settingsMockManager, groupsManager)

@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -365,12 +366,13 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		AnyTimes()
 	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
-	peersManager := peers.NewManager(store, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, store)
+	peersManager := peers.NewManager(store, permissionsManager, peerLiveness)
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	ephemeralMgr := manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager))
+	ephemeralMgr := manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager, peerLiveness))
 
 	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
@@ -380,13 +382,17 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", ephemeralMgr, config, nil)
 	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
-		eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+		eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 
 	if err != nil {
 		cleanup()
 		return nil, nil, "", cleanup, err
 	}
-	startPeerLiveness(t, accountManager)
+	storeCleanup := cleanup
+	cleanup = func() {
+		_ = peerLiveness.Release(context.Background())
+		storeCleanup()
+	}
 
 	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	if err != nil {
@@ -836,8 +842,8 @@ type expireOnConnectController struct {
 	err   error
 }
 
-func (c *expireOnConnectController) Connect(ctx context.Context, st peerliveness.Store, accountID, peerID string, session int64) (bool, error) {
-	updated, err := c.Controller.Connect(ctx, st, accountID, peerID, session)
+func (c *expireOnConnectController) Connect(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
+	updated, err := c.Controller.Connect(ctx, accountID, peerID, session)
 	if err != nil {
 		return updated, err
 	}
@@ -875,7 +881,7 @@ func Test_SyncRejectsPeerExpiredWhileConnecting(t *testing.T) {
 	require.NoError(t, err)
 
 	decorated := &expireOnConnectController{Controller: am.peerLiveness, store: am.Store}
-	am.SetPeerLiveness(decorated)
+	am.peerLiveness = decorated
 
 	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
 	require.NoError(t, err)

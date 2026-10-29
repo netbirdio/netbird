@@ -35,7 +35,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
-	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -1723,7 +1723,7 @@ func TestAccountManager_DeletePeer_ForgetsPeerConnection(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)
 	recorder := &deletionRecorder{Controller: manager.peerLiveness}
-	manager.SetPeerLiveness(recorder)
+	manager.peerLiveness = recorder
 
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	require.NoError(t, err)
@@ -1748,7 +1748,7 @@ func TestDeletePeers_ForgetsPeerConnectionOnlyAfterCommit(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)
 	recorder := &deletionRecorder{Controller: manager.peerLiveness}
-	manager.SetPeerLiveness(recorder)
+	manager.peerLiveness = recorder
 
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	require.NoError(t, err)
@@ -1786,7 +1786,7 @@ func TestAccountManager_DeleteAccount_ForgetsLivenessRegistry(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)
 	recorder := &deletionRecorder{Controller: manager.peerLiveness}
-	manager.SetPeerLiveness(recorder)
+	manager.peerLiveness = recorder
 
 	account, err := createAccount(manager, "test_account", userID, "")
 	require.NoError(t, err)
@@ -2553,7 +2553,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 		peer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
 		require.NoError(t, err)
 		require.False(t, peer.Status.Connected, "peer should be disconnected")
-		require.Equal(t, streamStartTime.UnixNano(), peer.Status.SessionStartedAt, "SessionStartedAt stays as the fence of the ended session")
+		require.Equal(t, streamStartTime.UnixNano()+1, peer.Status.SessionStartedAt, "SessionStartedAt advances past the ended session")
 	})
 
 	t.Run("skip disconnect when stored session is newer (zombie stream protection)", func(t *testing.T) {
@@ -3854,17 +3854,6 @@ func newSettingsMockManager(t testing.TB) *settings.MockManager {
 	return settingsMockManager
 }
 
-// startPeerLiveness gives the manager a started peer liveness controller over its store
-// and releases it when the test ends.
-func startPeerLiveness(t testing.TB, am *DefaultAccountManager) {
-	t.Helper()
-
-	liveness := peerlivenesscontroller.NewController(am.Store)
-	require.NoError(t, liveness.Start(context.Background()))
-	t.Cleanup(func() { _ = liveness.Release(context.Background()) })
-	am.SetPeerLiveness(liveness)
-}
-
 func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb.NetworkMapDBStoreImpl) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
 	t.Helper()
 
@@ -3887,7 +3876,8 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 	settingsMockManager := newSettingsMockManager(t)
 
 	permissionsManager := permissions.NewManager(store)
-	peersManager := peers.NewManager(store, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, store)
+	peersManager := peers.NewManager(store, permissionsManager, peerLiveness)
 
 	proxyManager := proxy.NewMockManager(ctrl)
 	proxyManager.EXPECT().
@@ -3903,8 +3893,8 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nmdataStore)
-	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager, peerLiveness)), &config.Config{}, nmdataStore)
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3918,7 +3908,6 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 		return nil, nil, err
 	}
 	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyController, proxyManager, nil))
-	startPeerLiveness(t, manager)
 
 	return manager, updateManager, nil
 }

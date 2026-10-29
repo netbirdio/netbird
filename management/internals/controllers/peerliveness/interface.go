@@ -19,21 +19,22 @@ type Controller interface {
 	Start(ctx context.Context) error
 	// Connect claims the peer's connection for this instance when session is newer than the
 	// stored one. It returns false when a newer session already owns the peer and an error
-	// before Start. The write goes through st, which may be bound to the caller's transaction.
-	Connect(ctx context.Context, st Store, accountID, peerID string, session int64) (bool, error)
+	// before Start.
+	Connect(ctx context.Context, accountID, peerID string, session int64) (bool, error)
 	// Disconnect releases the peer's connection when it still carries session. It returns
-	// false when a newer session owns the peer or no connection exists. The write goes
-	// through st, which may be bound to the caller's transaction.
-	Disconnect(ctx context.Context, st Store, peerID string, session int64) (bool, error)
+	// false when a newer session owns the peer or no connection exists. When the write
+	// fails the error is returned and the release is retried on every heartbeat tick until
+	// it applies or the session no longer matches.
+	Disconnect(ctx context.Context, accountID, peerID string, session int64) (bool, error)
 	// ReleaseConnection releases the peer's connection whatever its session, so no stream of
-	// this instance can resurrect it. The write goes through st, which may be bound to the
-	// caller's transaction.
-	ReleaseConnection(ctx context.Context, st Store, peerID string) error
-	// ForgetPeer drops the registry entry of a peer once it and its connection record are
-	// deleted, so it is not re-registered after a heartbeat lapse.
+	// this instance can resurrect it. Callers must not hold a store transaction.
+	ReleaseConnection(ctx context.Context, peerID string) error
+	// ForgetPeer drops the registry entry and any pending release of a peer once it and its
+	// connection record are deleted, so it is not re-registered after a heartbeat lapse.
 	ForgetPeer(peerID string)
-	// ForgetAccount drops the registry entries of the account's peers once the account and
-	// its connection records are deleted, so they are not re-registered after a heartbeat lapse.
+	// ForgetAccount drops the registry entries and pending releases of the account's peers
+	// once the account and its connection records are deleted, so they are not
+	// re-registered after a heartbeat lapse.
 	ForgetAccount(accountID string)
 	// Release stops the heartbeat loop and retires the instance on clean shutdown.
 	Release(ctx context.Context) error
@@ -50,7 +51,7 @@ type Store interface {
 	DeleteInstanceIfStale(ctx context.Context, id string) (bool, error)
 	ReleaseInstance(ctx context.Context, id string) error
 	ConnectPeer(ctx context.Context, accountID, peerID, instanceID string, session int64) (bool, error)
-	DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error)
+	DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error)
 	ReleasePeerConnection(ctx context.Context, peerID string) error
 	ReRegisterPeers(ctx context.Context, instanceID string, sessions []types.PeerSession) error
 }

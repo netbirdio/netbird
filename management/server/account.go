@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
-	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -124,12 +123,6 @@ var _ account.Manager = (*DefaultAccountManager)(nil)
 
 func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
 	am.serviceManager = serviceManager
-}
-
-// SetPeerLiveness replaces the controller that records peer connections. The default
-// controller built with the manager is never started, so it rejects connects.
-func (am *DefaultAccountManager) SetPeerLiveness(controller peerliveness.Controller) {
-	am.peerLiveness = controller
 }
 
 // AddAccountDeletionHook registers hook to run on every account deletion. Hooks run in
@@ -237,6 +230,7 @@ func BuildManager(
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
 	sharedCacheStore cacheStore.StoreInterface,
+	peerLiveness peerliveness.Controller,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -263,7 +257,7 @@ func BuildManager(
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
-		peerLiveness:             peerlivenesscontroller.NewController(store),
+		peerLiveness:             peerLiveness,
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)

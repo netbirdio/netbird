@@ -159,7 +159,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *BaseServer) start(ctx context.Context) error {
+func (s *BaseServer) start(ctx context.Context) (err error) {
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
@@ -171,13 +171,18 @@ func (s *BaseServer) start(ctx context.Context) error {
 	s.PeersManager()
 	s.GeoLocationManager()
 
-	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
+	err = s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
 		return fmt.Errorf("failed to expose metrics: %v", err)
 	}
 	if err := s.PeerLiveness().Start(srvCtx); err != nil {
 		return fmt.Errorf("start peer liveness: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			s.releasePeerLiveness(ctx)
+		}
+	}()
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
 	tlsEnabled, err := s.setupTLS(srvCtx)
@@ -307,6 +312,16 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 		return true, nil
 	default:
 		return false, nil
+	}
+}
+
+// releasePeerLiveness retires the liveness instance after a failed start, so its peers do
+// not stay connected until the instance row goes stale.
+func (s *BaseServer) releasePeerLiveness(ctx context.Context) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout-shutdownCloseReserve)
+	defer cancel()
+	if err := s.PeerLiveness().Release(releaseCtx); err != nil {
+		log.WithContext(ctx).Errorf("release peer liveness after failed start: %v", err)
 	}
 }
 

@@ -846,7 +846,7 @@ func setupPeerConnectionsTestDB(t *testing.T, peers any) *gorm.DB {
 	db := setupDatabase(t)
 	require.NoError(t, db.Migrator().DropTable(&nbpeer.Connection{}))
 	require.NoError(t, db.Migrator().DropTable("peers"))
-	require.NoError(t, db.AutoMigrate(peers, &nbpeer.Connection{}))
+	require.NoError(t, db.AutoMigrate(peers))
 	return db
 }
 
@@ -860,8 +860,9 @@ func TestBackfillPeerConnections(t *testing.T) {
 		{ID: "peer2", AccountID: "acc2"},
 	}).Error)
 
-	require.NoError(t, migration.BackfillPeerConnections(ctx, db))
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
 
+	require.True(t, db.Migrator().HasTable(&nbpeer.Connection{}), "the backfill creates the table")
 	var rows []nbpeer.Connection
 	require.NoError(t, db.Order("peer_id").Find(&rows).Error)
 	require.Len(t, rows, 2)
@@ -879,24 +880,21 @@ func TestBackfillPeerConnections(t *testing.T) {
 	require.NoError(t, db.Model(&nbpeer.Connection{}).Where("peer_id = ?", "peer1").Update("last_seen", later).Error)
 	require.NoError(t, db.Create(&legacyLivenessPeer{ID: "peer3", AccountID: "acc1", PeerStatusLastSeen: &seen}).Error)
 
-	require.NoError(t, migration.BackfillPeerConnections(ctx, db))
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](ctx, db))
 
 	var count int64
 	require.NoError(t, db.Model(&nbpeer.Connection{}).Count(&count).Error)
-	assert.Equal(t, int64(2), count, "a second run does not backfill again")
+	assert.Equal(t, int64(2), count, "once the table exists the peers table is not read again")
 	var peer1 nbpeer.Connection
 	require.NoError(t, db.Where("peer_id = ?", "peer1").Take(&peer1).Error)
-	assert.True(t, later.Equal(peer1.LastSeen.UTC()), "a second run does not overwrite")
+	assert.True(t, later.Equal(peer1.LastSeen.UTC()), "an existing row is not overwritten")
 }
 
 func TestBackfillPeerConnections_NoLegacyColumn(t *testing.T) {
 	db := setupPeerConnectionsTestDB(t, &nbpeer.Peer{})
 	require.False(t, db.Migrator().HasColumn("peers", "peer_status_last_seen"))
-	require.NoError(t, db.Exec("INSERT INTO peers (id, account_id) VALUES ('peer1', 'acc1')").Error)
 
-	require.NoError(t, migration.BackfillPeerConnections(context.Background(), db))
+	require.NoError(t, migration.BackfillPeerConnections[nbpeer.Connection](context.Background(), db))
 
-	var count int64
-	require.NoError(t, db.Model(&nbpeer.Connection{}).Count(&count).Error)
-	assert.Zero(t, count, "peers created after the upgrade get their record at registration")
+	assert.False(t, db.Migrator().HasTable(&nbpeer.Connection{}), "without the legacy column the table is left to AutoMigrate")
 }

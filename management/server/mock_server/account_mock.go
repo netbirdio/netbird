@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -158,10 +157,6 @@ type MockAccountManager struct {
 }
 
 func (am *MockAccountManager) SetServiceManager(serviceManager service.Manager) {
-	// Mock implementation - no-op
-}
-
-func (am *MockAccountManager) SetPeerLiveness(controller peerliveness.Controller) {
 	// Mock implementation - no-op
 }
 

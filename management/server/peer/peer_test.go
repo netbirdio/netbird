@@ -185,8 +185,7 @@ func TestPeerStatus_ApplyConnection(t *testing.T) {
 	}{
 		{name: "held by a live instance", session: session, lastSeen: ownSeen, instance: sql.NullTime{Time: fresh, Valid: true}, wantConn: true, wantSession: 42, wantLastSeen: fresh},
 		{name: "held by a stale instance", session: session, lastSeen: ownSeen, instance: sql.NullTime{Time: stale, Valid: true}, wantSession: 42, wantLastSeen: stale},
-		{name: "held by a missing instance", session: session, lastSeen: ownSeen, wantSession: 42, wantLastSeen: own},
-		{name: "held by no instance", session: session, lastSeen: ownSeen, wantSession: 42, wantLastSeen: own},
+		{name: "released or held by a missing instance", session: session, lastSeen: ownSeen, wantSession: 42, wantLastSeen: own},
 		{name: "never seen", session: session, wantSession: 42},
 		{name: "no record", wantLastSeen: time.Time{}},
 		{name: "instance older than own last seen", session: session, lastSeen: ownSeen, instance: sql.NullTime{Time: own.Add(-time.Minute), Valid: true}, wantSession: 42, wantLastSeen: own},

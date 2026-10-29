@@ -18,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -109,8 +108,8 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st peerliveness.Store) (bool, error) {
-		return am.peerLiveness.Connect(ctx, st, accountID, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func() (bool, error) {
+		return am.peerLiveness.Connect(ctx, accountID, peer.ID, sessionStartedAt)
 	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
@@ -143,35 +142,21 @@ func (am *DefaultAccountManager) markPeerConnected(ctx context.Context, peerPubK
 }
 
 // writePeerStatus runs a peer connection write. The connection state of an embedded
-// proxy peer is part of the network map, so for those peers an applied write is paired
-// with an increment of the account network serial in one transaction. The serial is
-// incremented first and the write is the transaction's last statement, because the
-// controller updates its registry once the write returns and a later failure would
-// leave the registry ahead of the database. A write that does not apply rolls the
-// increment back.
-func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func(peerliveness.Store) (bool, error)) (bool, error) {
-	if !peer.ProxyMeta.Embedded {
-		return write(am.Store)
+// proxy peer is part of the network map, so for those peers an applied write is followed
+// by an increment of the account network serial. The write goes first because the
+// controller updates its registry once the write returns, and it runs outside any
+// transaction because the controller must not be called while one is open.
+func (am *DefaultAccountManager) writePeerStatus(ctx context.Context, accountID string, peer *nbpeer.Peer, write func() (bool, error)) (bool, error) {
+	updated, err := write()
+	if err != nil || !updated {
+		return false, err
 	}
-
-	errNotApplied := errors.New("peer connection write not applied")
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("increment network serial: %w", err)
+	if peer.ProxyMeta.Embedded {
+		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return true, fmt.Errorf("increment network serial: %w", err)
 		}
-		updated, err := write(transaction)
-		if err != nil {
-			return err
-		}
-		if !updated {
-			return errNotApplied
-		}
-		return nil
-	})
-	if errors.Is(err, errNotApplied) {
-		return false, nil
 	}
-	return err == nil, err
+	return true, nil
 }
 
 // schedulePeerExpirations arms the account's login/inactivity expiration
@@ -213,8 +198,8 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		return err
 	}
 
-	updated, err := am.writePeerStatus(ctx, accountID, peer, func(st peerliveness.Store) (bool, error) {
-		return am.peerLiveness.Disconnect(ctx, st, peer.ID, sessionStartedAt)
+	updated, err := am.writePeerStatus(ctx, accountID, peer, func() (bool, error) {
+		return am.peerLiveness.Disconnect(ctx, accountID, peer.ID, sessionStartedAt)
 	})
 	if err != nil {
 		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusError)

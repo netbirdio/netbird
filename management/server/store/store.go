@@ -207,10 +207,12 @@ type Store interface {
 	// database clock. It returns false when a newer session already holds the peer or
 	// the peer no longer exists.
 	ConnectPeer(ctx context.Context, accountID, peerID, instanceID string, session int64) (bool, error)
-	// DisconnectPeer releases the peer's connection when an instance still holds it
-	// under session, stamping LastSeen with the database clock. It returns false when
-	// a newer session has replaced it or no instance holds the peer.
-	DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error)
+	// DisconnectPeer ends the account's peer connection of session, whether an
+	// instance still holds it or a sweep already released it. LastSeen is raised to
+	// the database clock and the stored session advances by one so that a
+	// re-registration of the ended session no longer matches. It returns false when
+	// a newer session has replaced it or the peer does not exist.
+	DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error)
 	// ReleasePeerConnection releases the peer's connection whatever its session,
 	// stamping LastSeen with the database clock only when an instance held it. The
 	// stored session advances so that a re-registration of the released session no
@@ -599,6 +601,9 @@ func migratePreAuto(ctx context.Context, db *gorm.DB) error {
 func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
+			return migration.BackfillPeerConnections[nbpeer.Connection](ctx, db)
+		},
+		func(db *gorm.DB) error {
 			return migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](ctx, db, "network_net")
 		},
 		func(db *gorm.DB) error {
@@ -725,9 +730,6 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
-		},
-		func(db *gorm.DB) error {
-			return migration.BackfillPeerConnections(ctx, db)
 		},
 	}
 }

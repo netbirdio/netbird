@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -153,5 +152,4 @@ type Manager interface {
 	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
 	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 	SetServiceManager(serviceManager service.Manager)
-	SetPeerLiveness(controller peerliveness.Controller)
 }

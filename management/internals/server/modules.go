@@ -84,12 +84,11 @@ func (s *BaseServer) SettingsManager() settings.Manager {
 
 func (s *BaseServer) PeersManager() peers.Manager {
 	return Create(s, func() peers.Manager {
-		manager := peers.NewManager(s.Store(), s.PermissionsManager())
+		manager := peers.NewManager(s.Store(), s.PermissionsManager(), s.PeerLiveness())
 		s.AfterInit(func(s *BaseServer) {
 			manager.SetNetworkMapController(s.NetworkMapController())
 			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
 			manager.SetAccountManager(s.AccountManager())
-			manager.SetPeerLiveness(s.PeerLiveness())
 		})
 		return manager
 	})
@@ -97,14 +96,13 @@ func (s *BaseServer) PeersManager() peers.Manager {
 
 func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
-		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore())
+		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore(), s.PeerLiveness())
 		if err != nil {
 			log.Fatalf("failed to create account service: %v", err)
 		}
 
 		s.AfterInit(func(s *BaseServer) {
 			accountManager.SetServiceManager(s.ServiceManager())
-			accountManager.SetPeerLiveness(s.PeerLiveness())
 			accountManager.AddAccountDeletionHook(s.AgentNetworkManager().RemoveAccountGateway)
 		})
 

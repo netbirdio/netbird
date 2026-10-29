@@ -13,7 +13,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
-	peerlivenesscontroller "github.com/netbirdio/netbird/management/internals/controllers/peerliveness/controller"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -36,7 +35,6 @@ type Manager interface {
 	SetNetworkMapController(networkMapController network_map.Controller)
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
 	SetAccountManager(accountManager account.Manager)
-	SetPeerLiveness(controller peerliveness.Controller)
 	GetPeerID(ctx context.Context, peerKey string) (string, error)
 	CreateProxyPeer(ctx context.Context, accountID string, peerKey string, cluster string) error
 	// GetPeerByTunnelIP looks up a peer in accountID by its WireGuard tunnel IP.
@@ -58,11 +56,11 @@ type managerImpl struct {
 	peerLiveness            peerliveness.Controller
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, peerLiveness peerliveness.Controller) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
-		peerLiveness:       peerlivenesscontroller.NewController(store),
+		peerLiveness:       peerLiveness,
 	}
 }
 
@@ -76,10 +74,6 @@ func (m *managerImpl) SetIntegratedPeerValidator(integratedPeerValidator integra
 
 func (m *managerImpl) SetAccountManager(accountManager account.Manager) {
 	m.accountManager = accountManager
-}
-
-func (m *managerImpl) SetPeerLiveness(controller peerliveness.Controller) {
-	m.peerLiveness = controller
 }
 
 func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error) {

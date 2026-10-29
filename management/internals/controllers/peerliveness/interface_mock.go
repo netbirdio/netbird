@@ -44,33 +44,33 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 }
 
 // Connect mocks base method.
-func (m *MockController) Connect(ctx context.Context, st Store, accountID, peerID string, session int64) (bool, error) {
+func (m *MockController) Connect(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Connect", ctx, st, accountID, peerID, session)
+	ret := m.ctrl.Call(m, "Connect", ctx, accountID, peerID, session)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Connect indicates an expected call of Connect.
-func (mr *MockControllerMockRecorder) Connect(ctx, st, accountID, peerID, session any) *gomock.Call {
+func (mr *MockControllerMockRecorder) Connect(ctx, accountID, peerID, session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockController)(nil).Connect), ctx, st, accountID, peerID, session)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockController)(nil).Connect), ctx, accountID, peerID, session)
 }
 
 // Disconnect mocks base method.
-func (m *MockController) Disconnect(ctx context.Context, st Store, peerID string, session int64) (bool, error) {
+func (m *MockController) Disconnect(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Disconnect", ctx, st, peerID, session)
+	ret := m.ctrl.Call(m, "Disconnect", ctx, accountID, peerID, session)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Disconnect indicates an expected call of Disconnect.
-func (mr *MockControllerMockRecorder) Disconnect(ctx, st, peerID, session any) *gomock.Call {
+func (mr *MockControllerMockRecorder) Disconnect(ctx, accountID, peerID, session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockController)(nil).Disconnect), ctx, st, peerID, session)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockController)(nil).Disconnect), ctx, accountID, peerID, session)
 }
 
 // ForgetAccount mocks base method.
@@ -126,17 +126,17 @@ func (mr *MockControllerMockRecorder) Release(ctx any) *gomock.Call {
 }
 
 // ReleaseConnection mocks base method.
-func (m *MockController) ReleaseConnection(ctx context.Context, st Store, peerID string) error {
+func (m *MockController) ReleaseConnection(ctx context.Context, peerID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReleaseConnection", ctx, st, peerID)
+	ret := m.ctrl.Call(m, "ReleaseConnection", ctx, peerID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReleaseConnection indicates an expected call of ReleaseConnection.
-func (mr *MockControllerMockRecorder) ReleaseConnection(ctx, st, peerID any) *gomock.Call {
+func (mr *MockControllerMockRecorder) ReleaseConnection(ctx, peerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseConnection", reflect.TypeOf((*MockController)(nil).ReleaseConnection), ctx, st, peerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseConnection", reflect.TypeOf((*MockController)(nil).ReleaseConnection), ctx, peerID)
 }
 
 // Start mocks base method.
@@ -208,18 +208,18 @@ func (mr *MockStoreMockRecorder) DeleteInstanceIfStale(ctx, id any) *gomock.Call
 }
 
 // DisconnectPeer mocks base method.
-func (m *MockStore) DisconnectPeer(ctx context.Context, peerID string, session int64) (bool, error) {
+func (m *MockStore) DisconnectPeer(ctx context.Context, accountID, peerID string, session int64) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DisconnectPeer", ctx, peerID, session)
+	ret := m.ctrl.Call(m, "DisconnectPeer", ctx, accountID, peerID, session)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DisconnectPeer indicates an expected call of DisconnectPeer.
-func (mr *MockStoreMockRecorder) DisconnectPeer(ctx, peerID, session any) *gomock.Call {
+func (mr *MockStoreMockRecorder) DisconnectPeer(ctx, accountID, peerID, session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectPeer", reflect.TypeOf((*MockStore)(nil).DisconnectPeer), ctx, peerID, session)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectPeer", reflect.TypeOf((*MockStore)(nil).DisconnectPeer), ctx, accountID, peerID, session)
 }
 
 // HeartbeatInstance mocks base method.

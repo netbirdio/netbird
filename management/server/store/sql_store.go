@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
@@ -223,8 +224,8 @@ func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemet
 	return newStore(ctx, conn, metrics, skipMigration)
 }
 
-// seedFromSqliteStore copies the installation ID and the accounts of the
-// sqlite seed store into a freshly created engine store.
+// seedFromSqliteStore copies the installation ID, the accounts and the liveness tables of
+// the sqlite seed store into a freshly created engine store.
 func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) error {
 	if err := store.SaveInstallationID(ctx, sqliteStore.GetInstallationID()); err != nil {
 		return err
@@ -232,6 +233,32 @@ func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) erro
 	for _, account := range sqliteStore.GetAllAccounts(ctx) {
 		if err := store.SaveAccount(ctx, account); err != nil {
 			return err
+		}
+	}
+	return copyLivenessTables(ctx, store, sqliteStore)
+}
+
+// copyLivenessTables copies all management instances and peer connections, which the
+// account copy does not carry, replacing the connection rows it created.
+func copyLivenessTables(ctx context.Context, store, sqliteStore *SqlStore) error {
+	var instances []nbpeer.ManagementInstance
+	if err := sqliteStore.db.WithContext(ctx).Find(&instances).Error; err != nil {
+		return fmt.Errorf("read management instances: %w", err)
+	}
+	var connections []nbpeer.Connection
+	if err := sqliteStore.db.WithContext(ctx).Find(&connections).Error; err != nil {
+		return fmt.Errorf("read peer connections: %w", err)
+	}
+
+	upsert := store.db.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true})
+	if len(instances) > 0 {
+		if err := upsert.CreateInBatches(instances, peerConnectionChunkSize).Error; err != nil {
+			return fmt.Errorf("copy management instances: %w", err)
+		}
+	}
+	if len(connections) > 0 {
+		if err := upsert.CreateInBatches(connections, peerConnectionChunkSize).Error; err != nil {
+			return fmt.Errorf("copy peer connections: %w", err)
 		}
 	}
 	return nil

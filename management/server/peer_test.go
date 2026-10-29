@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -1341,7 +1342,8 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1350,9 +1352,9 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1432,7 +1434,8 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1441,9 +1444,9 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1590,7 +1593,8 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1599,9 +1603,9 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1675,7 +1679,8 @@ func Test_LoginPeer(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peerLiveness := peerlivenesstest.NewStarted(t, s)
+	peersManager := peers.NewManager(s, permissionsManager, peerLiveness)
 
 	ctx := context.Background()
 
@@ -1684,9 +1689,9 @@ func Test_LoginPeer(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager, peerLiveness)), &config.Config{}, nil)
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false, cacheStore, peerLiveness)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -3304,7 +3309,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		expired.Status.LoginExpired = true
 		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
 
-		session++
+		session += 2
 		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
 		afterExpired := networkSerial(t, manager, account.Id)
 		assert.Equal(t, before, afterExpired, "login-expired reconnect writes no network map data")
@@ -3319,7 +3324,7 @@ func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
 		afterDisconnect := networkSerial(t, manager, account.Id)
 		assert.Greater(t, afterDisconnect, afterExpired, "embedded proxy disconnect must bump")
 
-		session++
+		session += 2
 		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
 		assert.Greater(t, networkSerial(t, manager, account.Id), afterDisconnect, "embedded proxy connect must bump")
 	})

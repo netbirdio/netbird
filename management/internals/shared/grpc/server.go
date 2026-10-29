@@ -334,7 +334,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
+		s.cancelPeerRoutinesWithoutLock(context.WithoutCancel(ctx), accountID, peer, syncStart, nil)
 		return err
 	}
 
@@ -342,14 +342,14 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, nil)
+		s.cancelPeerRoutinesWithoutLock(context.WithoutCancel(ctx), accountID, peer, syncStart, nil)
 		return err
 	}
 
 	if err = s.accountManager.CheckPeerMaySync(ctx, accountID, peerKey.String(), settings); err != nil {
 		log.WithContext(ctx).Debugf("peer %s may no longer sync after connecting: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart, updates)
+		s.cancelPeerRoutinesWithoutLock(context.WithoutCancel(ctx), accountID, peer, syncStart, updates)
 		return mapError(ctx, err)
 	}
 
