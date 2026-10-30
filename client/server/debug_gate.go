@@ -71,7 +71,7 @@ func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure b
 	if insecure {
 		return denyPrivileged(ctx,
 			"uploading a debug bundle without transport security (--upload-bundle-insecure)",
-			ipcauth.ElevatedCommand("netbird debug bundle -U --upload-bundle-insecure --upload-bundle-url <url>"))
+			ipcauth.ElevatedCommand(ipcauth.CLICommand("debug bundle -U --upload-bundle-insecure --upload-bundle-url <url>")))
 	}
 
 	if parsed.Scheme != "https" {
@@ -84,7 +84,7 @@ func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure b
 
 	return denyPrivileged(ctx,
 		"uploading a debug bundle to an upload service other than the default one",
-		ipcauth.ElevatedCommand("netbird debug bundle -U --upload-bundle-url <url>"))
+		ipcauth.ElevatedCommand(ipcauth.CLICommand("debug bundle -U --upload-bundle-url <url>")))
 }
 
 // isDefaultUploadService reports whether the URL points at the upload service

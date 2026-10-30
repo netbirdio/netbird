@@ -14,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
@@ -1212,7 +1213,18 @@ func (s *WindowManager) title(key string) string {
 			lang = pref
 		}
 	}
-	return s.translator.Translate(lang, key)
+	return s.translator.Translate(lang, key) + installationTitleSuffix()
+}
+
+// installationTitleSuffix names a named installation in its window titles, as
+// " (ACME)", so two NetBird windows can be told apart. The default
+// installation's titles are unchanged.
+func installationTitleSuffix() string {
+	inst := instance.Current()
+	if inst.IsDefault() {
+		return ""
+	}
+	return " (" + inst.Label() + ")"
 }
 
 // retitleAll re-applies the localised title to every live auxiliary window. Pointers are

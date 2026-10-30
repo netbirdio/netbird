@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -455,7 +456,7 @@ func TestWouldChangeNormalizesBeforeMeasuring(t *testing.T) {
 	rawConfig := func(t *testing.T) *Config {
 		t.Helper()
 
-		cfg := &Config{WgIface: iface.WgInterfaceDefault}
+		cfg := &Config{WgIface: instance.Current().InterfaceName()}
 		require.Nil(t, cfg.ServerSSHAllowed, "the fixture is only useful while the config is not normalized")
 		require.Nil(t, cfg.EnableSSHRoot)
 		require.Empty(t, cfg.IFaceBlackList)

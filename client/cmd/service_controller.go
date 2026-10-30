@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
@@ -56,6 +57,18 @@ func daemonServerOptions(network string) []grpc.ServerOption {
 	return []grpc.ServerOption{grpc.Creds(creds)}
 }
 
+// refuseLegacyAddrForNamed keeps a named daemon off the default installation's
+// legacy loopback address, which MigrateLegacy would move onto the default
+// installation's pipe.
+func refuseLegacyAddrForNamed(inst instance.Instance, addr string) error {
+	legacy := instance.Default().LegacyTCPDaemonAddr()
+	if inst.IsDefault() || legacy == "" || addr != legacy {
+		return nil
+	}
+	return fmt.Errorf("the named installation %s cannot serve the legacy daemon address %s; use %s",
+		inst.Name(), legacy, inst.DaemonAddr())
+}
+
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting NetBird service") //nolint
@@ -73,6 +86,9 @@ func (p *program) Start(svc service.Service) error {
 	if migrated, ok := daemonaddr.MigrateLegacy(daemonAddr); ok {
 		log.Infof("daemon address %q predates named-pipe support, listening on %q so callers can be identified", daemonAddr, migrated)
 		daemonAddr = migrated
+	}
+	if err := refuseLegacyAddrForNamed(instance.Current(), daemonAddr); err != nil {
+		return err
 	}
 
 	network, _, err := parseListenAddress(daemonAddr)
@@ -228,6 +244,7 @@ func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel 
 			return nil, fmt.Errorf("init log: %w", err)
 		}
 	}
+	logInstanceWarnings()
 
 	cfg, err := newSVCConfig()
 	if err != nil {

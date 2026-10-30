@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"google.golang.org/grpc/backoff"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 )
@@ -64,8 +64,5 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 // Linux/macOS, a named pipe on Windows. The pipe carries the caller's token,
 // which loopback TCP does not, so the daemon can tell who is calling.
 func DaemonAddr() string {
-	if runtime.GOOS == "windows" {
-		return daemonaddr.WindowsPipeAddr
-	}
-	return "unix:///var/run/netbird.sock"
+	return instance.Current().DaemonAddr()
 }

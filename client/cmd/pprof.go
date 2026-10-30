@@ -6,19 +6,23 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 func init() {
-	addr := pprofAddr()
-	go pprof(addr)
+	startPprof = sync.OnceFunc(func() {
+		go pprof(pprofAddr())
+	})
 }
 
 func pprofAddr() string {
 	listenAddr := os.Getenv("NB_PPROF_ADDR")
 	if listenAddr == "" {
-		return "localhost:6969"
+		return instance.Current().PprofAddr()
 	}
 
 	return listenAddr

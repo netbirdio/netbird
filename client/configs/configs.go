@@ -1,9 +1,7 @@
 package configs
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 // UILogFile is the file name the desktop UI writes its log to. It is defined
@@ -11,19 +9,12 @@ import (
 // bundle collector all share one definition.
 const UILogFile = "gui-client.log"
 
+// StateDir is the daemon's state directory, from the identity package.
 var StateDir string
 
 func init() {
-	StateDir = os.Getenv("NB_STATE_DIR")
-	if StateDir != "" {
-		return
-	}
-	switch runtime.GOOS {
-	case "windows":
-		StateDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Netbird")
-	case "darwin", "linux":
-		StateDir = "/var/lib/netbird"
-	case "freebsd", "openbsd", "netbsd", "dragonfly":
-		StateDir = "/var/db/netbird"
-	}
+	StateDir = instance.Current().StateDir()
+	instance.OnSetCurrent(func(inst instance.Instance) {
+		StateDir = inst.StateDir()
+	})
 }

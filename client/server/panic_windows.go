@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -27,9 +28,8 @@ var (
 )
 
 func handlePanicLog() error {
-	// TODO: move this to a central location
-	logDir := path.Join(os.Getenv("PROGRAMDATA"), "Netbird")
-	logPath := path.Join(logDir, "netbird.err")
+	logPath := instance.Current().PanicLogFile()
+	logDir := filepath.Dir(logPath)
 
 	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return fmt.Errorf("create panic log directory: %w", err)

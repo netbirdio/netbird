@@ -69,6 +69,9 @@
       <string id="DisableNetworks_Name">Disable networks</string>
       <string id="DisableNetworks_Help">When enabled, the client UI/CLI cannot list, select or deselect NetBird networks (the corresponding daemon RPCs return Unavailable). Equivalent to --disable-networks.</string>
 
+      <string id="DisableNamedInstallations_Name">Disable named installations</string>
+      <string id="DisableNamedInstallations_Help">When enabled, named (side-by-side) NetBird installations on this machine refuse to connect, and the installer refuses to create one. The default installation is not affected. Only this machine-wide value counts; a per-installation key cannot lift it.</string>
+
       <string id="DisableAdvancedView_Name">Disable advanced view</string>
       <string id="DisableAdvancedView_Help">When enabled, the client UI hides the advanced-view section of the new UI revision. Tristate at the daemon: 1 (enabled) hides the section; 0 (disabled) explicitly shows it; not configured leaves the UI's default behavior in place. MDM is the sole source — no equivalent CLI flag exists.</string>
 

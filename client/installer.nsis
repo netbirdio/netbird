@@ -24,6 +24,17 @@
 
 !define NETBIRD_DATA_DIR "$COMMONPROGRAMDATA\Netbird"
 
+; Named installations (side-by-side). Everything below is used only when an
+; installation name is chosen; the default installation keeps the paths above.
+!define RECORDS_KEY "SOFTWARE\NetBird\Installations"
+!define POLICY_KEY "Software\Policies\NetBird"
+!define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+!define UNINSTALL_ROOT "Software\Microsoft\Windows\CurrentVersion\Uninstall"
+!define INSTALLER_LOG "$TEMP\netbird-installer.log"
+!ifndef DISPLAY_VERSION
+    !define DISPLAY_VERSION "${VERSION}"
+!endif
+
 Unicode True
 
 ######################################################################
@@ -52,6 +63,7 @@ ShowInstDetails Show
 !include "MUI2.nsh"
 !include LogicLib.nsh
 !include "nsDialogs.nsh"
+!include "FileFunc.nsh"
 
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
@@ -71,10 +83,15 @@ ShowInstDetails Show
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING
 
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW WelcomeShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE WelcomeLeave
 !insertmacro MUI_PAGE_WELCOME
 
 !insertmacro MUI_PAGE_LICENSE "${LICENSE_DATA}"
 
+Page custom NamedPageCreate NamedPageLeave
+
+!define MUI_PAGE_CUSTOMFUNCTION_PRE DirectoryPre
 !insertmacro MUI_PAGE_DIRECTORY
 
 !insertmacro MUI_PAGE_INSTFILES
@@ -97,6 +114,29 @@ UninstPage custom un.DeleteDataPage un.DeleteDataPageLeave
 Var DeleteDataCheckbox
 Var DeleteDataEnabled
 
+; Named installation. $Instance is the canonical (lowercase) name, empty for
+; the default installation.
+Var Instance
+Var InstanceLabel
+Var InstanceColor
+Var InstanceRole
+Var InstanceAutostart
+Var NamedMode
+Var IsUpgrade
+Var ColorGiven
+Var RoleGiven
+Var UpgradeRun
+Var DataDir
+Var AdvancedCheckbox
+Var NameCombo
+Var ColorCombo
+Var ColorSwatch
+Var PrimaryCheckbox
+Var PrimaryWarning
+Var AutostartCheckbox
+Var StatusLabel
+Var OtherPrimary
+
 ######################################################################
 
 ; Function to create the uninstall data deletion page
@@ -110,7 +150,7 @@ Function un.DeleteDataPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateCheckbox} 0 20u 100% 10u "Delete all ${APP_NAME} configuration and state data (${NETBIRD_DATA_DIR})"
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "Delete all ${APP_NAME} configuration and state data ($DataDir)"
   Pop $DeleteDataCheckbox
   ${NSD_Uncheck} $DeleteDataCheckbox
   StrCpy $DeleteDataEnabled "0"
@@ -167,9 +207,465 @@ Pop $1
 Pop $0
 !macroend
 
-Function .onInit
-StrCpy $INSTDIR "${INSTALL_DIR}"
+######################################################################
+; Named installations: validation shared by the page and /INSTANCE=, with the
+; messages the CLI uses (client/internal/instance).
 
+; Pops a character, pushes its lowercase form if it is an ASCII letter or digit,
+; else "".
+!macro NB_LOWER_ALNUM UN
+Function ${UN}NbLowerAlnum
+  Exch $0
+  Push $1
+  Push $2
+  StrCpy $1 0
+  nb_la_loop:
+    StrCpy $2 "abcdefghijklmnopqrstuvwxyz0123456789" 1 $1
+    StrCmp $2 "" nb_la_none
+    StrCmpS $2 $0 nb_la_found
+    StrCpy $2 "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" 1 $1
+    StrCmpS $2 $0 nb_la_upper
+    IntOp $1 $1 + 1
+    Goto nb_la_loop
+  nb_la_upper:
+    StrCpy $2 "abcdefghijklmnopqrstuvwxyz0123456789" 1 $1
+  nb_la_found:
+    StrCpy $0 $2
+    Goto nb_la_end
+  nb_la_none:
+    StrCpy $0 ""
+  nb_la_end:
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+!macroend
+!insertmacro NB_LOWER_ALNUM ""
+
+; In: $R0 = name as typed. Out: $R1 = canonical name, $R2 = error message
+; (empty when the name is valid).
+Function NbValidateName
+  Push $R3
+  Push $R4
+  Push $R5
+  StrCpy $R1 ""
+  StrCpy $R2 ""
+  StrLen $R3 $R0
+  ${If} $R3 = 0
+    StrCpy $R2 "Enter a name for this installation."
+    Goto nb_vn_done
+  ${EndIf}
+  StrCpy $R4 0
+  ${DoWhile} $R4 < $R3
+    StrCpy $R5 $R0 1 $R4
+    Push $R5
+    Call NbLowerAlnum
+    Pop $R5
+    ${If} $R5 == ""
+      StrCpy $R1 ""
+      StrCpy $R2 "Use only letters and digits (no spaces, hyphens or underscores)."
+      Goto nb_vn_done
+    ${EndIf}
+    StrCpy $R1 "$R1$R5"
+    IntOp $R4 $R4 + 1
+  ${Loop}
+  StrCpy $R5 $R1 1
+  Push $R5
+  Call NbIsLowerLetter
+  Pop $R5
+  ${If} $R5 != "1"
+    StrCpy $R1 ""
+    StrCpy $R2 "The name must start with a letter."
+    Goto nb_vn_done
+  ${EndIf}
+  ${If} $R3 > 12
+    StrCpy $R1 ""
+    StrCpy $R2 "The name can be at most 12 characters long."
+    Goto nb_vn_done
+  ${EndIf}
+  ${If} $R1 == "default"
+  ${OrIf} $R1 == "netbird"
+    StrCpy $R2 '"$R1" is reserved. Choose another name.'
+    StrCpy $R1 ""
+  ${EndIf}
+  nb_vn_done:
+  Pop $R5
+  Pop $R4
+  Pop $R3
+FunctionEnd
+
+; Pops a character, pushes "1" if it is a lowercase ASCII letter.
+Function NbIsLowerLetter
+  Exch $0
+  Push $1
+  Push $2
+  StrCpy $1 0
+  nb_il_loop:
+    StrCpy $2 "abcdefghijklmnopqrstuvwxyz" 1 $1
+    StrCmp $2 "" nb_il_no
+    StrCmpS $2 $0 nb_il_yes
+    IntOp $1 $1 + 1
+    Goto nb_il_loop
+  nb_il_yes:
+    StrCpy $0 "1"
+    Goto nb_il_end
+  nb_il_no:
+    StrCpy $0 ""
+  nb_il_end:
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
+; In: $R0 = palette name or #RRGGBB. Out: $R1 = #RRGGBB, $R2 = error message.
+; The palette is the Okabe-Ito set of client/ui/instancecolor.
+Function NbResolveColor
+  Push $R3
+  Push $R4
+  Push $R5
+  StrCpy $R1 ""
+  StrCpy $R2 ""
+  ${Select} $R0
+    ${Case} "purple"
+      StrCpy $R1 "#CC79A7"
+    ${Case} "skyblue"
+      StrCpy $R1 "#56B4E9"
+    ${Case} "yellow"
+      StrCpy $R1 "#F0E442"
+    ${Case} "orange"
+      StrCpy $R1 "#E69F00"
+    ${Case} "blue"
+      StrCpy $R1 "#0072B2"
+    ${Case} "green"
+      StrCpy $R1 "#009E73"
+    ${Case} "vermillion"
+      StrCpy $R1 "#D55E00"
+  ${EndSelect}
+  ${If} $R1 != ""
+    Goto nb_rc_done
+  ${EndIf}
+  StrLen $R3 $R0
+  StrCpy $R4 $R0 1
+  ${If} $R3 != 7
+  ${OrIf} $R4 != "#"
+    StrCpy $R2 "Enter a colour as #RRGGBB or pick one from the list."
+    Goto nb_rc_done
+  ${EndIf}
+  StrCpy $R4 1
+  ${DoWhile} $R4 < 7
+    StrCpy $R5 $R0 1 $R4
+    Push $R5
+    Call NbIsHexDigit
+    Pop $R5
+    ${If} $R5 != "1"
+      StrCpy $R2 "Enter a colour as #RRGGBB or pick one from the list."
+      Goto nb_rc_done
+    ${EndIf}
+    IntOp $R4 $R4 + 1
+  ${Loop}
+  StrCpy $R1 $R0
+  nb_rc_done:
+  Pop $R5
+  Pop $R4
+  Pop $R3
+FunctionEnd
+
+; Pops a character, pushes "1" if it is a hexadecimal digit.
+Function NbIsHexDigit
+  Exch $0
+  Push $1
+  Push $2
+  StrCpy $1 0
+  nb_hd_loop:
+    StrCpy $2 "0123456789abcdefABCDEF" 1 $1
+    StrCmp $2 "" nb_hd_no
+    StrCmpS $2 $0 nb_hd_yes
+    IntOp $1 $1 + 1
+    Goto nb_hd_loop
+  nb_hd_yes:
+    StrCpy $0 "1"
+    Goto nb_hd_end
+  nb_hd_no:
+    StrCpy $0 ""
+  nb_hd_end:
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
+; Pops a message, writes it to the installer log and, when interactive, shows
+; it; then quits with exit code 2. An invalid parameter never falls back to the
+; default installation.
+Function NbFailParam
+  Exch $0
+  Push $1
+  FileOpen $1 "${INSTALLER_LOG}" a
+  FileSeek $1 0 END
+  FileWrite $1 "netbird-installer: $0$\r$\n"
+  FileClose $1
+  IfSilent +2
+  MessageBox MB_ICONSTOP "$0"
+  SetErrorLevel 2
+  Quit
+FunctionEnd
+
+; Writes a line to the installer log.
+!macro NB_LOG UN
+Function ${UN}NbLog
+  Exch $0
+  Push $1
+  FileOpen $1 "${INSTALLER_LOG}" a
+  FileSeek $1 0 END
+  FileWrite $1 "netbird-installer: $0$\r$\n"
+  FileClose $1
+  DetailPrint "$0"
+  Pop $1
+  Pop $0
+FunctionEnd
+!macroend
+!insertmacro NB_LOG ""
+!insertmacro NB_LOG "un."
+
+; Pushes "1" when machine policy forbids named installations.
+Function NbNamedDisabledByPolicy
+  Push $0
+  ClearErrors
+  ReadRegDWORD $0 HKLM "${POLICY_KEY}" "DisableNamedInstallations"
+  ${If} ${Errors}
+    StrCpy $0 "0"
+  ${ElseIf} $0 <> 0
+    StrCpy $0 "1"
+  ${EndIf}
+  Exch $0
+FunctionEnd
+
+; Sets $InstanceColor to the first palette colour that no installation record
+; uses, or the first palette colour when all are taken.
+Function NbFirstUnusedColor
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  StrCpy $InstanceColor ""
+  ${ForEach} $1 0 6 + 1
+    ${Select} $1
+      ${Case} 0
+        StrCpy $2 "#CC79A7"
+      ${Case} 1
+        StrCpy $2 "#56B4E9"
+      ${Case} 2
+        StrCpy $2 "#F0E442"
+      ${Case} 3
+        StrCpy $2 "#E69F00"
+      ${Case} 4
+        StrCpy $2 "#0072B2"
+      ${Case} 5
+        StrCpy $2 "#009E73"
+      ${Case} 6
+        StrCpy $2 "#D55E00"
+    ${EndSelect}
+    Push $2
+    Call NbColorUsed
+    Pop $3
+    ${If} $3 != "1"
+      StrCpy $InstanceColor $2
+      ${Break}
+    ${EndIf}
+  ${Next}
+  ${If} $InstanceColor == ""
+    StrCpy $InstanceColor "#CC79A7"
+  ${EndIf}
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+; Pops a colour, pushes "1" when an installation record uses it.
+Function NbColorUsed
+  Exch $0
+  Push $1
+  Push $2
+  Push $3
+  StrCpy $3 ""
+  StrCpy $1 0
+  ${Do}
+    EnumRegKey $2 HKLM "${RECORDS_KEY}" $1
+    ${If} $2 == ""
+      ${Break}
+    ${EndIf}
+    ReadRegStr $2 HKLM "${RECORDS_KEY}\$2" "Color"
+    ${If} $2 == $0
+      StrCpy $3 "1"
+      ${Break}
+    ${EndIf}
+    IntOp $1 $1 + 1
+  ${Loop}
+  StrCpy $0 $3
+  Pop $3
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
+; Sets $OtherPrimary to another primary installation, or "": the default
+; installation (its service exists) or a record with Role=primary.
+Function NbOtherPrimary
+  Push $0
+  Push $1
+  Push $2
+  StrCpy $OtherPrimary ""
+  ReadRegStr $1 HKLM "SYSTEM\CurrentControlSet\Services\${APP_NAME}" "ImagePath"
+  ${If} $1 != ""
+    StrCpy $OtherPrimary "the default installation"
+  ${Else}
+    StrCpy $0 0
+    ${Do}
+      EnumRegKey $1 HKLM "${RECORDS_KEY}" $0
+      ${If} $1 == ""
+        ${Break}
+      ${EndIf}
+      ${If} $1 != $Instance
+        ReadRegStr $2 HKLM "${RECORDS_KEY}\$1" "Role"
+        ${If} $2 == "primary"
+          StrCpy $OtherPrimary $1
+          ${Break}
+        ${EndIf}
+      ${EndIf}
+      IntOp $0 $0 + 1
+    ${Loop}
+  ${EndIf}
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+; Completes the named installation $Instance from what is already installed:
+; upgrade or repair when its record or Uninstall key exists, the recorded folder,
+; colour, role and label unless given again.
+Function NbResolveNamedTarget
+  Push $R0
+  Push $R1
+  Push $R2
+  ReadRegStr $R0 HKLM "${RECORDS_KEY}\$Instance" "InstallDir"
+  ReadRegStr $R1 HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "UninstallString"
+  StrCpy $IsUpgrade "0"
+  ${If} $R0 != ""
+  ${OrIf} $R1 != ""
+    StrCpy $IsUpgrade "1"
+  ${EndIf}
+  ${If} $R0 != ""
+    StrCpy $INSTDIR $R0
+  ${Else}
+    StrCpy $INSTDIR "$PROGRAMFILES64\${APP_NAME}_$Instance"
+  ${EndIf}
+
+  ${If} $ColorGiven != "1"
+    ReadRegStr $R0 HKLM "${RECORDS_KEY}\$Instance" "Color"
+    ${If} $R0 != ""
+      StrCpy $InstanceColor $R0
+    ${Else}
+      Call NbFirstUnusedColor
+    ${EndIf}
+  ${EndIf}
+  ${If} $RoleGiven != "1"
+    ReadRegStr $R0 HKLM "${RECORDS_KEY}\$Instance" "Role"
+    ${If} $R0 == "primary"
+      StrCpy $InstanceRole "primary"
+    ${Else}
+      StrCpy $InstanceRole "secondary"
+    ${EndIf}
+  ${EndIf}
+  ReadRegStr $R0 HKLM "${RECORDS_KEY}\$Instance" "Label"
+  ${If} $R0 != ""
+    StrCpy $InstanceLabel $R0
+  ${EndIf}
+  Pop $R2
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
+; Parses /INSTANCE=, /COLOR=, /ROLE= and /AUTOSTART=.
+Function NbParseParameters
+  Push $R0
+  Push $R1
+  Push $R2
+  Push $R9
+  StrCpy $NamedMode "0"
+  StrCpy $ColorGiven "0"
+  StrCpy $RoleGiven "0"
+  StrCpy $InstanceRole "secondary"
+  StrCpy $InstanceAutostart "1"
+  ${GetParameters} $R9
+
+  ClearErrors
+  ${GetOptions} $R9 "/INSTANCE=" $R0
+  ${IfNot} ${Errors}
+  ${AndIf} $R0 != ""
+    Call NbValidateName
+    ${If} $R2 != ""
+      Push "/INSTANCE=$R0: $R2"
+      Call NbFailParam
+    ${EndIf}
+    StrCpy $Instance $R1
+    StrCpy $InstanceLabel $R0
+    StrCpy $NamedMode "1"
+  ${EndIf}
+
+  ${If} $NamedMode == "1"
+    ClearErrors
+    ${GetOptions} $R9 "/COLOR=" $R0
+    ${IfNot} ${Errors}
+      Call NbResolveColor
+      ${If} $R2 != ""
+        Push "/COLOR=$R0: $R2"
+        Call NbFailParam
+      ${EndIf}
+      StrCpy $InstanceColor $R1
+      StrCpy $ColorGiven "1"
+    ${EndIf}
+
+    ClearErrors
+    ${GetOptions} $R9 "/ROLE=" $R0
+    ${IfNot} ${Errors}
+      ${If} $R0 == "primary"
+        StrCpy $InstanceRole "primary"
+      ${ElseIf} $R0 == "secondary"
+        StrCpy $InstanceRole "secondary"
+      ${Else}
+        Push "/ROLE=$R0: use primary or secondary."
+        Call NbFailParam
+      ${EndIf}
+      StrCpy $RoleGiven "1"
+    ${EndIf}
+
+    ClearErrors
+    ${GetOptions} $R9 "/AUTOSTART=" $R0
+    ${IfNot} ${Errors}
+      ${If} $R0 == "0"
+      ${OrIf} $R0 == "1"
+        StrCpy $InstanceAutostart $R0
+      ${Else}
+        Push "/AUTOSTART=$R0: use 0 or 1."
+        Call NbFailParam
+      ${EndIf}
+    ${EndIf}
+
+    Call NbNamedDisabledByPolicy
+    Pop $R0
+    ${If} $R0 == "1"
+      Push "Named installations are disabled by policy (DisableNamedInstallations)."
+      Call NbFailParam
+    ${EndIf}
+  ${EndIf}
+  Pop $R9
+  Pop $R2
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
+; The default installation's upgrade handling, as it always ran at start-up.
+Function NbHandleExistingDefault
 ; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
 ; in the 32-bit view. Fall back to it so upgrades still find them.
 SetRegView 64
@@ -192,10 +688,470 @@ ${If} $R0 != ""
 ${EndIf}
 FunctionEnd
 
+######################################################################
+; Welcome page checkbox and the named-installation page.
+
+Function WelcomeShow
+  ${NSD_CreateCheckbox} 120u 160u 195u 20u "Advanced: install an additional, named NetBird$\r$\n(to connect to another network at the same time)"
+  Pop $AdvancedCheckbox
+  SetCtlColors $AdvancedCheckbox "" "FFFFFF"
+  ${If} $NamedMode == "1"
+    ${NSD_Check} $AdvancedCheckbox
+  ${EndIf}
+  Call WelcomeMakeRoomForCheckbox
+FunctionEnd
+
+; MUI2's welcome text label reaches 168u, over the top of the checkbox, where
+; it would paint over the checkbox and take its clicks. End the label above the
+; checkbox and keep the checkbox on top.
+Function WelcomeMakeRoomForCheckbox
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  System::Call "*(i, i, i, i) p .r1"
+  System::Call "user32::GetWindowRect(p $mui.WelcomePage.Text, p r1)"
+  System::Call "*$1(i .r2, i .r3, i .r4, i)"
+  System::Call "user32::GetWindowRect(p $AdvancedCheckbox, p r1)"
+  System::Call "*$1(i, i .r5, i, i)"
+  System::Free $1
+  IntOp $4 $4 - $2
+  IntOp $5 $5 - $3
+  ; SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
+  System::Call "user32::SetWindowPos(p $mui.WelcomePage.Text, p 0, i 0, i 0, i r4, i r5, i 0x16)"
+  ; HWND_TOP; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+  System::Call "user32::SetWindowPos(p $AdvancedCheckbox, p 0, i 0, i 0, i 0, i 0, i 0x13)"
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+FunctionEnd
+
+Function WelcomeLeave
+  ${NSD_GetState} $AdvancedCheckbox $0
+  ${If} $0 == ${BST_CHECKED}
+    Call NbNamedDisabledByPolicy
+    Pop $1
+    ${If} $1 == "1"
+      MessageBox MB_ICONSTOP "Named installations are disabled by policy on this computer."
+      Abort
+    ${EndIf}
+    StrCpy $NamedMode "1"
+  ${Else}
+    StrCpy $NamedMode "0"
+    StrCpy $Instance ""
+    StrCpy $INSTDIR "${INSTALL_DIR}"
+    ; The default installation's upgrade prompt, deferred from start-up so that
+    ; choosing a named installation never removes the default one.
+    Call NbHandleExistingDefault
+  ${EndIf}
+FunctionEnd
+
+Function NamedPageCreate
+  ${If} $NamedMode != "1"
+    Abort
+  ${EndIf}
+  !insertmacro MUI_HEADER_TEXT "Named installation" "Each named installation is a separate NetBird with its own network, service and tray icon."
+
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 2u 60u 10u "Name"
+  Pop $0
+  ${NSD_CreateComboBox} 62u 0 120u 80u "$InstanceLabel"
+  Pop $NameCombo
+  StrCpy $1 0
+  ${Do}
+    EnumRegKey $2 HKLM "${RECORDS_KEY}" $1
+    ${If} $2 == ""
+      ${Break}
+    ${EndIf}
+    ${NSD_CB_AddString} $NameCombo $2
+    IntOp $1 $1 + 1
+  ${Loop}
+  ; A drop-down combo box ignores its creation text; set it explicitly.
+  ${NSD_SetText} $NameCombo "$InstanceLabel"
+  ${NSD_OnChange} $NameCombo NamedPageUpdate
+  ${NSD_CreateLabel} 186u 2u 114u 20u "1-12 letters or digits, starting with a letter"
+  Pop $0
+
+  ${NSD_CreateLabel} 0 30u 60u 10u "Colour"
+  Pop $0
+  ${If} $InstanceColor == ""
+    Call NbFirstUnusedColor
+  ${EndIf}
+  ${NSD_CreateComboBox} 62u 28u 100u 80u "$InstanceColor"
+  Pop $ColorCombo
+  ${NSD_CB_AddString} $ColorCombo "purple"
+  ${NSD_CB_AddString} $ColorCombo "skyblue"
+  ${NSD_CB_AddString} $ColorCombo "yellow"
+  ${NSD_CB_AddString} $ColorCombo "orange"
+  ${NSD_CB_AddString} $ColorCombo "blue"
+  ${NSD_CB_AddString} $ColorCombo "green"
+  ${NSD_CB_AddString} $ColorCombo "vermillion"
+  ${NSD_SetText} $ColorCombo "$InstanceColor"
+  ${NSD_OnChange} $ColorCombo NamedPageUpdate
+  ${NSD_CreateBitmap} 166u 29u 12u 10u ""
+  Pop $ColorSwatch
+  ${NSD_CreateButton} 186u 27u 60u 14u "Custom..."
+  Pop $0
+  ${NSD_OnClick} $0 NamedPageCustomColor
+
+  ${NSD_CreateCheckbox} 0 52u 100% 10u "Primary: may use exit nodes and take over system DNS"
+  Pop $PrimaryCheckbox
+  ${If} $InstanceRole == "primary"
+    ${NSD_Check} $PrimaryCheckbox
+  ${EndIf}
+  ${NSD_OnClick} $PrimaryCheckbox NamedPageUpdate
+  ${NSD_CreateLabel} 12u 63u 100% 10u "Leave unchecked if another NetBird on this computer is primary."
+  Pop $0
+  ${NSD_CreateLabel} 12u 74u 100% 18u ""
+  Pop $PrimaryWarning
+
+  ${NSD_CreateCheckbox} 0 96u 100% 10u "Start the NetBird tray icon when I sign in"
+  Pop $AutostartCheckbox
+  ${If} $InstanceAutostart != "0"
+    ${NSD_Check} $AutostartCheckbox
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 116u 100% 20u ""
+  Pop $StatusLabel
+
+  Call NamedPageUpdate
+  nsDialogs::Show
+FunctionEnd
+
+; Refreshes the swatch, the primary warning and the status line.
+Function NamedPageUpdate
+  Push $R0
+  Push $R1
+  Push $R2
+  ${NSD_GetText} $ColorCombo $R0
+  Call NbResolveColor
+  ${If} $R2 != ""
+    StrCpy $R1 "#FFFFFF"
+  ${EndIf}
+  Call NbPaintSwatch
+
+  ${NSD_GetText} $NameCombo $R0
+  Call NbValidateName
+  ${If} $R2 != ""
+    ${NSD_SetText} $StatusLabel "$R2"
+  ${Else}
+    ReadRegStr $R0 HKLM "${RECORDS_KEY}\$R1" "Version"
+    ReadRegStr $R2 HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$R1" "UninstallString"
+    ${If} $R0 != ""
+      ${NSD_SetText} $StatusLabel 'An installation named "$R1" exists ($R0). It will be upgraded.'
+    ${ElseIf} $R2 != ""
+      ${NSD_SetText} $StatusLabel 'An installation named "$R1" exists. It will be repaired.'
+    ${Else}
+      ${NSD_SetText} $StatusLabel 'The installation "$R1" will be created.'
+    ${EndIf}
+  ${EndIf}
+
+  ${NSD_GetState} $PrimaryCheckbox $R0
+  ${NSD_SetText} $PrimaryWarning ""
+  ${If} $R0 == ${BST_CHECKED}
+    StrCpy $Instance $R1
+    Call NbOtherPrimary
+    ${If} $OtherPrimary != ""
+      ${NSD_SetText} $PrimaryWarning "Another primary installation exists: $OtherPrimary. Two primaries compete for exit nodes and system DNS."
+    ${EndIf}
+  ${EndIf}
+  Pop $R2
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
+; Pushes the COLORREF (0x00BBGGRR) of the colour $R1 (#RRGGBB).
+Function NbColorRef
+  Push $0
+  Push $1
+  Push $2
+  StrCpy $0 $R1 2 1
+  StrCpy $1 $R1 2 3
+  StrCpy $2 $R1 2 5
+  IntOp $0 0x$0 + 0
+  IntOp $1 0x$1 << 8
+  IntOp $2 0x$2 << 16
+  IntOp $0 $0 | $1
+  IntOp $0 $0 | $2
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
+; Fills the swatch with the colour $R1 (#RRGGBB) and a grey frame. SetCtlColors
+; takes its colours at compile time, so the swatch is a bitmap drawn with GDI.
+Function NbPaintSwatch
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  Push $7
+  Push $8
+  Push $9
+  Call NbColorRef
+  Pop $3
+
+  System::Call "*(i 0, i 0, i 0, i 0) p .r4"
+  System::Call "user32::GetClientRect(p $ColorSwatch, p r4)"
+  System::Call "*$4(i, i, i .r5, i .r6)"
+  System::Call "user32::GetDC(p $ColorSwatch) p .r7"
+  System::Call "gdi32::CreateCompatibleDC(p r7) p .r8"
+  System::Call "gdi32::CreateCompatibleBitmap(p r7, i r5, i r6) p .r9"
+  System::Call "user32::ReleaseDC(p $ColorSwatch, p r7)"
+  System::Call "gdi32::SelectObject(p r8, p r9) p .r7"
+  System::Call "gdi32::CreateSolidBrush(i r3) p .r0"
+  System::Call "user32::FillRect(p r8, p r4, p r0)"
+  System::Call "gdi32::DeleteObject(p r0)"
+  System::Call "gdi32::CreateSolidBrush(i 0x808080) p .r0"
+  System::Call "user32::FrameRect(p r8, p r4, p r0)"
+  System::Call "gdi32::DeleteObject(p r0)"
+  System::Call "gdi32::SelectObject(p r8, p r7)"
+  System::Call "gdi32::DeleteDC(p r8)"
+  System::Free $4
+  ; The control returns the bitmap it showed before, which is ours to free.
+  SendMessage $ColorSwatch ${STM_SETIMAGE} ${IMAGE_BITMAP} $9 $0
+  ${If} $0 <> 0
+    System::Call "gdi32::DeleteObject(p r0)"
+  ${EndIf}
+  Pop $9
+  Pop $8
+  Pop $7
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+; Opens the Windows colour dialog. CHOOSECOLOR on a 32-bit installer:
+; lStructSize, hwndOwner, hInstance, rgbResult, lpCustColors, Flags, ...
+Function NamedPageCustomColor
+  Pop $0
+  System::Alloc 64
+  Pop $2
+  ; Start the dialog on the current colour: CC_RGBINIT | CC_FULLOPEN.
+  Push $R0
+  Push $R1
+  Push $R2
+  ${NSD_GetText} $ColorCombo $R0
+  Call NbResolveColor
+  StrCpy $3 0
+  ${If} $R2 == ""
+    Call NbColorRef
+    Pop $3
+  ${EndIf}
+  Pop $R2
+  Pop $R1
+  Pop $R0
+  System::Call '*(&l4, p $HWNDPARENT, p 0, i r3, p r2, i 0x3, p 0, p 0, p 0) p .r1'
+  System::Call 'comdlg32::ChooseColorW(p r1) i .r3'
+  ${If} $3 <> 0
+    System::Call '*$1(i, p, p, i .r4)'
+    IntOp $5 $4 & 0xFF
+    IntOp $6 $4 >> 8
+    IntOp $6 $6 & 0xFF
+    IntOp $7 $4 >> 16
+    IntOp $7 $7 & 0xFF
+    IntFmt $5 "%02X" $5
+    IntFmt $6 "%02X" $6
+    IntFmt $7 "%02X" $7
+    ${NSD_SetText} $ColorCombo "#$5$6$7"
+    Call NamedPageUpdate
+  ${EndIf}
+  System::Free $1
+  System::Free $2
+FunctionEnd
+
+Function NamedPageLeave
+  Push $R0
+  Push $R1
+  Push $R2
+  ${NSD_GetText} $NameCombo $R0
+  Call NbValidateName
+  ${If} $R2 != ""
+    MessageBox MB_ICONEXCLAMATION "$R2"
+    Pop $R2
+    Pop $R1
+    Pop $R0
+    Abort
+  ${EndIf}
+  StrCpy $Instance $R1
+  StrCpy $InstanceLabel $R0
+
+  ${NSD_GetText} $ColorCombo $R0
+  Call NbResolveColor
+  ${If} $R2 != ""
+    MessageBox MB_ICONEXCLAMATION "$R2"
+    Pop $R2
+    Pop $R1
+    Pop $R0
+    Abort
+  ${EndIf}
+  StrCpy $InstanceColor $R1
+  StrCpy $ColorGiven "1"
+
+  ${NSD_GetState} $PrimaryCheckbox $R0
+  ${If} $R0 == ${BST_CHECKED}
+    StrCpy $InstanceRole "primary"
+  ${Else}
+    StrCpy $InstanceRole "secondary"
+  ${EndIf}
+  StrCpy $RoleGiven "1"
+
+  ${NSD_GetState} $AutostartCheckbox $R0
+  ${If} $R0 == ${BST_CHECKED}
+    StrCpy $InstanceAutostart "1"
+  ${Else}
+    StrCpy $InstanceAutostart "0"
+  ${EndIf}
+
+  ; A label typed with its own casing wins over the recorded one; a name picked
+  ; from the list (always lowercase) keeps the recorded label.
+  StrCpy $R2 $InstanceLabel
+  Call NbResolveNamedTarget
+  StrCmpS $R2 $Instance +2 0
+  StrCpy $InstanceLabel $R2
+  Pop $R2
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
+; The folder of a new named installation can be chosen; an upgrade keeps it.
+Function DirectoryPre
+  ${If} $NamedMode == "1"
+  ${AndIf} $IsUpgrade == "1"
+    Abort
+  ${EndIf}
+FunctionEnd
+
+######################################################################
+Function .onInit
+StrCpy $INSTDIR "${INSTALL_DIR}"
+SetRegView 64
+
+Call NbParseParameters
+${If} $NamedMode == "1"
+    ; A named installation never touches the default one: its upgrade, if any,
+    ; runs in the -NamedPrepare section with that installation's own uninstaller.
+    Call NbResolveNamedTarget
+${Else}
+    ; Interactive runs ask on leaving the Welcome page, once the user has
+    ; chosen between the default and a named installation.
+    IfSilent 0 +2
+    Call NbHandleExistingDefault
+${EndIf}
+FunctionEnd
+
 Function un.onInit
 SetRegView 64
+StrCpy $DataDir "${NETBIRD_DATA_DIR}"
+StrCpy $UpgradeRun "0"
+${un.GetParameters} $R9
+ClearErrors
+${un.GetOptions} $R9 "/UPGRADE" $R0
+${IfNot} ${Errors}
+    StrCpy $UpgradeRun "1"
+${EndIf}
+Call un.NbIdentifyInstallation
+FunctionEnd
+
+; Finds the installation this uninstaller belongs to: the record whose
+; InstallDir is its own folder, else the default installation when the folder
+; is the default one or the default Uninstall key points here. Anything else
+; stops with an error rather than act on the default installation.
+Function un.NbIdentifyInstallation
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  StrCpy $Instance ""
+  GetFullPathName $3 "$INSTDIR"
+  StrCpy $0 0
+  ${Do}
+    EnumRegKey $1 HKLM "${RECORDS_KEY}" $0
+    ${If} $1 == ""
+      ${Break}
+    ${EndIf}
+    ReadRegStr $2 HKLM "${RECORDS_KEY}\$1" "InstallDir"
+    ${If} $2 != ""
+      GetFullPathName $2 "$2"
+      ${If} $2 == $3
+        StrCpy $Instance $1
+        ReadRegStr $InstanceLabel HKLM "${RECORDS_KEY}\$1" "Label"
+        ${If} $InstanceLabel == ""
+          StrCpy $InstanceLabel $1
+        ${EndIf}
+        StrCpy $DataDir "$COMMONPROGRAMDATA\${APP_NAME}_$1"
+        ${Break}
+      ${EndIf}
+    ${EndIf}
+    IntOp $0 $0 + 1
+  ${Loop}
+
+  ${If} $Instance == ""
+    GetFullPathName $1 "${INSTALL_DIR}"
+    ReadRegStr $2 HKLM "${UNINSTALL_PATH}" "UninstallString"
+    ${If} $1 != $3
+    ${AndIf} $2 != "$INSTDIR\netbird_uninstall.exe"
+      Push "This uninstaller ($INSTDIR) belongs to no known NetBird installation; nothing was changed."
+      Call un.NbLog
+      IfSilent +2
+      MessageBox MB_ICONSTOP "This uninstaller ($INSTDIR) belongs to no known NetBird installation. Nothing was changed."
+      SetErrorLevel 2
+      Quit
+    ${EndIf}
+  ${EndIf}
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+; Ends the UI processes whose executable is inside this installation's folder,
+; and only those: other installations' UIs keep running.
+Function un.NbEndOwnUI
+  DetailPrint "Terminating the NetBird UI of this installation..."
+  nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-Process -Name 'netbird-ui*' -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.StartsWith('$INSTDIR\', [System.StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force"`
+  Pop $0
+  ${If} $0 != 0
+    DetailPrint "Could not end the NetBird UI of this installation ($0)."
+  ${EndIf}
 FunctionEnd
 ######################################################################
+; Upgrade or repair of a named installation: only its own uninstaller runs, in
+; upgrade mode, which keeps the record, the state folder and the per-user
+; files. Nothing of another installation is touched.
+Section -NamedPrepare
+    ${If} $NamedMode != "1"
+    ${OrIf} $IsUpgrade != "1"
+        Return
+    ${EndIf}
+    ReadRegStr $R0 HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "UninstallString"
+    ReadRegStr $R1 HKLM "${RECORDS_KEY}\$Instance" "InstallDir"
+    ${If} $R0 == ""
+    ${OrIf} $R1 == ""
+        Push "Installation $Instance is incomplete (record or Uninstall key missing); repairing it."
+        Call NbLog
+    ${EndIf}
+    ${If} $R0 != ""
+        DetailPrint "Upgrading the installation $Instance..."
+        !insertmacro UninstallPreviousNSIS $R0 "/UPGRADE"
+    ${EndIf}
+SectionEnd
+
 Section -MainProgram
     ${INSTALL_TYPE}
     ; The previous uninstaller stops the service and the UI only when its uninstall key
@@ -219,12 +1175,63 @@ Section -MainProgram
         File /r "..\\dist\\netbird_windows_amd64\\"
     !endif
     File "..\\client\\ui\\assets\\netbird.png"
+
+    ; A named installation's UI has its own file name, so an upstream installer
+    ; or updater that ends every netbird-ui.exe leaves it running.
+    ${If} $NamedMode == "1"
+        Delete "$INSTDIR\netbird-ui_$Instance.exe"
+        Rename "$INSTDIR\${UI_APP_EXE}.exe" "$INSTDIR\netbird-ui_$Instance.exe"
+    ${EndIf}
 SectionEnd
 ######################################################################
+
+; Registers a named installation: its own Uninstall key, record and
+; shortcuts; no App Paths key and no PATH entry, which belong to the default
+; installation.
+Function NbRegisterNamed
+    WriteRegStr HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "DisplayName" "NetBird ($InstanceLabel)"
+    WriteRegStr HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "UninstallString" "$INSTDIR\netbird_uninstall.exe"
+    WriteRegStr HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "DisplayIcon" "$INSTDIR\netbird.exe"
+    WriteRegStr HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "DisplayVersion" "${VERSION}"
+    WriteRegStr HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance" "Publisher" "${COMP_NAME}"
+
+    ; The installation record: readable by every user, writable by
+    ; administrators, which is the default access of HKLM\SOFTWARE.
+    WriteRegStr HKLM "${RECORDS_KEY}\$Instance" "Label" "$InstanceLabel"
+    WriteRegStr HKLM "${RECORDS_KEY}\$Instance" "Color" "$InstanceColor"
+    WriteRegStr HKLM "${RECORDS_KEY}\$Instance" "Role" "$InstanceRole"
+    WriteRegStr HKLM "${RECORDS_KEY}\$Instance" "InstallDir" "$INSTDIR"
+    WriteRegStr HKLM "${RECORDS_KEY}\$Instance" "Version" "${DISPLAY_VERSION}"
+
+    SetShellVarContext all
+    CreateShortCut "$SMPROGRAMS\NetBird ($InstanceLabel).lnk" "$INSTDIR\netbird-ui_$Instance.exe" "--instance $Instance"
+    CreateShortCut "$DESKTOP\NetBird ($InstanceLabel).lnk" "$INSTDIR\netbird-ui_$Instance.exe" "--instance $Instance"
+
+    ; Autostart is set up once, for the user running the installer.
+    ${If} $IsUpgrade != "1"
+        SetShellVarContext current
+        ${If} $InstanceAutostart == "1"
+            WriteRegStr HKCU "${RUN_KEY}" "netbird_$Instance" '"$INSTDIR\netbird-ui_$Instance.exe" --instance $Instance'
+        ${ElseIfNot} ${FileExists} "$APPDATA\netbird_$Instance\ui-preferences.json"
+            ; Mark the UI's one-time autostart decision as taken, so its first
+            ; start does not enable autostart against the user's choice.
+            CreateDirectory "$APPDATA\netbird_$Instance"
+            FileOpen $0 "$APPDATA\netbird_$Instance\ui-preferences.json" w
+            FileWrite $0 '{"autostartInitialized":true}'
+            FileClose $0
+        ${EndIf}
+        SetShellVarContext all
+    ${EndIf}
+FunctionEnd
 
 Section -Icons_Reg
 SetOutPath "$INSTDIR"
 WriteUninstaller "$INSTDIR\netbird_uninstall.exe"
+
+${If} $NamedMode == "1"
+    Call NbRegisterNamed
+    Return
+${EndIf}
 
 WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
@@ -281,6 +1288,17 @@ Section -WebView2
 SectionEnd
 
 Section -Post
+${If} $NamedMode == "1"
+    ${If} $IsUpgrade == "1"
+        ; A repair can find the service still registered.
+        ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop --instance $Instance'
+        ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall --instance $Instance'
+    ${EndIf}
+    ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service install --instance $Instance --instance-role $InstanceRole'
+    ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service start --instance $Instance'
+    Sleep 1000
+    Return
+${EndIf}
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service install'
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service start'
 # sleep a bit for visibility
@@ -291,13 +1309,17 @@ SectionEnd
 Section Uninstall
 ${INSTALL_TYPE}
 
+${If} $Instance != ""
+    Call un.NbUninstallNamed
+    Return
+${EndIf}
+
 DetailPrint "Stopping Netbird service..."
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
 DetailPrint "Uninstalling Netbird service..."
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 
-DetailPrint "Terminating Netbird UI process..."
-ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
+Call un.NbEndOwnUI
 
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
@@ -344,11 +1366,68 @@ EnVar::DeleteValue "path" "$INSTDIR"
 DetailPrint "Uninstallation finished."
 SectionEnd
 
+; Uninstalls a named installation and nothing of any other. With /UPGRADE, as
+; the installer runs it before an upgrade, the record, the state folder and the
+; per-user files stay.
+Function un.NbUninstallNamed
+    DetailPrint "Stopping the NetBird service of $Instance..."
+    ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop --instance $Instance'
+    DetailPrint "Uninstalling the NetBird service of $Instance..."
+    ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall --instance $Instance'
+
+    Call un.NbEndOwnUI
+
+    ${If} $UpgradeRun != "1"
+    ${AndIf} $DeleteDataEnabled == "1"
+        DetailPrint "Removing $DataDir..."
+        ClearErrors
+        RMDir /r "$DataDir"
+        IfErrors 0 +2
+        DetailPrint "Error deleting $DataDir. It might be in use or already removed."
+    ${EndIf}
+
+    DetailPrint "Waiting for service handle to be released..."
+    Sleep 3000
+
+    DetailPrint "Deleting application files..."
+    Delete "$INSTDIR\netbird-ui_$Instance.exe"
+    Delete "$INSTDIR\${MAIN_APP_EXE}.exe"
+    Delete "$INSTDIR\wintun.dll"
+    RmDir /r "$INSTDIR"
+
+    SetShellVarContext all
+    Delete "$DESKTOP\NetBird ($InstanceLabel).lnk"
+    Delete "$SMPROGRAMS\NetBird ($InstanceLabel).lnk"
+
+    DeleteRegKey HKLM "${UNINSTALL_ROOT}\${APP_NAME}_$Instance"
+    ${If} $UpgradeRun != "1"
+        DeleteRegKey HKLM "${RECORDS_KEY}\$Instance"
+        DeleteRegKey /ifempty HKLM "${RECORDS_KEY}"
+
+        ; Per-user items of the user running the uninstaller. Other users'
+        ; entries point to a deleted program and stay, as with the default
+        ; installation.
+        SetShellVarContext current
+        DeleteRegValue HKCU "${RUN_KEY}" "netbird_$Instance"
+        DeleteRegKey HKCU "Software\Classes\AppUserModelId\NetBird_$Instance"
+        ${If} $DeleteDataEnabled == "1"
+            RMDir /r "$APPDATA\netbird_$Instance"
+        ${EndIf}
+        SetShellVarContext all
+    ${EndIf}
+
+    DetailPrint "Uninstallation finished."
+FunctionEnd
+
 
 !if ${ARCH} == "amd64"
 Function LaunchLink
 SetShellVarContext all
    SetOutPath $INSTDIR
+   ${If} $NamedMode == "1"
+       ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\NetBird ($InstanceLabel).lnk"
+       Return
+   ${EndIf}
    ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${APP_NAME}.lnk"
 FunctionEnd
 !endif

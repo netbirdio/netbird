@@ -9,15 +9,15 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/wincmd"
 )
 
 type action string
 
 const (
-	addRule          action = "add"
-	deleteRule       action = "delete"
-	firewallRuleName        = "Netbird"
+	addRule    action = "add"
+	deleteRule action = "delete"
 )
 
 // WindowsInterfaceAllower opens the NetBird interface in the Windows firewall
@@ -38,8 +38,15 @@ func (a *WindowsInterfaceAllower) Apply() error {
 		return nil
 	}
 
-	if !isFirewallRuleActive(firewallRuleName) {
-		if err := manageFirewallRule(firewallRuleName,
+	inst := instance.Current()
+	ruleName, ruleNameV6 := inst.FirewallRuleName(), inst.FirewallRuleNameV6()
+
+	if !inst.IsDefault() {
+		removeStaleRules(ruleName, ruleNameV6)
+	}
+
+	if !isFirewallRuleActive(ruleName) {
+		if err := manageFirewallRule(ruleName,
 			addRule,
 			"dir=in",
 			"enable=yes",
@@ -51,8 +58,8 @@ func (a *WindowsInterfaceAllower) Apply() error {
 		}
 	}
 
-	if v6 := a.iface.Address().IPv6; v6.IsValid() && !isFirewallRuleActive(firewallRuleName+"-v6") {
-		if err := manageFirewallRule(firewallRuleName+"-v6",
+	if v6 := a.iface.Address().IPv6; v6.IsValid() && !isFirewallRuleActive(ruleNameV6) {
+		if err := manageFirewallRule(ruleNameV6,
 			addRule,
 			"dir=in",
 			"enable=yes",
@@ -73,18 +80,36 @@ func (a *WindowsInterfaceAllower) Close() error {
 		return nil
 	}
 
+	inst := instance.Current()
+	ruleName, ruleNameV6 := inst.FirewallRuleName(), inst.FirewallRuleNameV6()
+
 	var merr *multierror.Error
-	if isFirewallRuleActive(firewallRuleName) {
-		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
+	if isFirewallRuleActive(ruleName) {
+		if err := manageFirewallRule(ruleName, deleteRule); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove windows firewall rule: %w", err))
 		}
 	}
-	if isFirewallRuleActive(firewallRuleName + "-v6") {
-		if err := manageFirewallRule(firewallRuleName+"-v6", deleteRule); err != nil {
+	if isFirewallRuleActive(ruleNameV6) {
+		if err := manageFirewallRule(ruleNameV6, deleteRule); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove windows v6 firewall rule: %w", err))
 		}
 	}
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// removeStaleRules deletes rules left by an earlier run of a named installation.
+// The rules have no crash state, so after a crash and an address change a reused
+// rule would allow the old overlay address and keep blocking the new one;
+// recreating them is simpler than parsing netsh's localized output.
+func removeStaleRules(names ...string) {
+	for _, name := range names {
+		if !isFirewallRuleActive(name) {
+			continue
+		}
+		if err := manageFirewallRule(name, deleteRule); err != nil {
+			log.Warnf("remove stale windows firewall rule %s: %v", name, err)
+		}
+	}
 }
 
 func manageFirewallRule(ruleName string, action action, extraArgs ...string) error {

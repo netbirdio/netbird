@@ -16,6 +16,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/updater/downloader"
 	"github.com/netbirdio/netbird/client/internal/updater/reposign"
 )
@@ -27,7 +28,7 @@ type Installer struct {
 // New used by the service
 func New() *Installer {
 	return &Installer{
-		tempDir: defaultTempDir,
+		tempDir: instance.Current().UpdaterTempDir(),
 	}
 }
 

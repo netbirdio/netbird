@@ -8,10 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	DefaultSocks5Port = 1080
-)
-
 // Proxy todo close server
 type Proxy struct {
 	server *socks5.Server

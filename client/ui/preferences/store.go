@@ -16,12 +16,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/util"
 )
 
-// Lives under os.UserConfigDir()/netbird (OS-user writable, not the daemon's
-// root-owned state).
+// Lives in the installation's directory under os.UserConfigDir() (OS-user
+// writable, not the daemon's root-owned state).
 const preferencesFileName = "ui-preferences.json"
 
 // EventPreferencesChanged fires on every persisted update, payload UIPreferences.
@@ -381,5 +382,5 @@ func preferencesPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "netbird", preferencesFileName), nil
+	return filepath.Join(dir, instance.Current().UserDirName(), preferencesFileName), nil
 }

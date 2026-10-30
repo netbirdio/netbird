@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/ui/guilog"
 )
 
@@ -20,7 +21,7 @@ func uiLogPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "netbird", configs.UILogFile), nil
+	return filepath.Join(dir, instance.Current().UserDirName(), configs.UILogFile), nil
 }
 
 // newDebugLog builds the GUI debug log, disabled when userSetLogFile is set

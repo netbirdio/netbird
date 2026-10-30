@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 // Well-known policy keys. Names mirror the corresponding ConfigInput Go field
@@ -73,6 +75,11 @@ const (
 	// as a string; must be an https URL with a host. Absent = defer to the
 	// management-supplied URL (or the default upload server).
 	KeyBundleUploadURL = "debugBundleUploadURL"
+
+	// KeyDisableNamedInstallations forbids named installations on the
+	// machine: their daemons refuse to connect. Read as a bool from the
+	// machine-wide policy only.
+	KeyDisableNamedInstallations = "disableNamedInstallations"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -162,6 +169,9 @@ func (l *Loader) Load() *Policy {
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}
+	}
+	if inst := instance.Current(); !inst.IsDefault() {
+		values = l.withInstallationPolicy(values, inst.Name())
 	}
 	if values == nil {
 		return &Policy{values: map[string]any{}}

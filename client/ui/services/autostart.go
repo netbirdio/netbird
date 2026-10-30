@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 // Autostart facade over Wails' AutostartManager. The OS autostart entry registration
@@ -40,7 +42,7 @@ func (a *Autostart) IsEnabled(_ context.Context) (bool, error) {
 // SetEnabled takes effect on the next login, not immediately.
 func (a *Autostart) SetEnabled(_ context.Context, enabled bool) error {
 	if enabled {
-		if err := a.mgr.Enable(); err != nil {
+		if err := a.enable(); err != nil {
 			return fmt.Errorf("enable autostart: %w", err)
 		}
 		return nil
@@ -49,4 +51,19 @@ func (a *Autostart) SetEnabled(_ context.Context, enabled bool) error {
 		return fmt.Errorf("disable autostart: %w", err)
 	}
 	return nil
+}
+
+// enable registers the autostart entry. A named installation's entry has its
+// own value name and passes --instance, so it starts that installation's UI;
+// the Wails fork finds the entry by executable path, which differs per
+// installation. The default installation registers exactly as before.
+func (a *Autostart) enable() error {
+	inst := instance.Current()
+	if inst.IsDefault() {
+		return a.mgr.Enable()
+	}
+	return a.mgr.EnableWithOptions(application.AutostartOptions{
+		Identifier: inst.AutostartName(),
+		Arguments:  inst.AutostartArguments(),
+	})
 }
