@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,7 @@ import (
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -54,6 +56,11 @@ func TestMain(m *testing.M) {
 }
 
 func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
+	t.Helper()
+	return startManagementWithGeo(t, nil)
+}
+
+func startManagementWithGeo(t *testing.T, geo geolocation.Geolocation) (*grpc.Server, net.Listener) {
 	t.Helper()
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
@@ -143,6 +150,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mgmtServer.SetGeolocation(geo)
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
 		if err := s.Serve(lis); err != nil {
@@ -690,4 +698,92 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match") //nolint:staticcheck
+}
+
+// countryGeo serves fixed country prefixes; the real index is covered in the geolocation package.
+type countryGeo struct {
+	geolocation.Mock
+	prefixes map[string][]netip.Prefix
+}
+
+func (g *countryGeo) CountryPrefixes(code string) ([]netip.Prefix, error) {
+	return g.prefixes[code], nil
+}
+
+func TestClient_GetCountryPrefixes(t *testing.T) {
+	usPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("8.8.8.0/24"),
+		netip.MustParsePrefix("2001:4860::/32"),
+	}
+	geo := &countryGeo{prefixes: map[string][]netip.Prefix{"US": usPrefixes}}
+	ctx := context.Background()
+
+	newRegisteredClient := func(t *testing.T, addr string) *GrpcClient {
+		t.Helper()
+		key, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		client, err := NewClient(ctx, addr, key, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = client.Close() })
+		_, err = client.Register(ValidKey, "", system.GetInfo(ctx), nil, nil)
+		require.NoError(t, err)
+		return client
+	}
+
+	t.Run("registered peer gets the prefixes", func(t *testing.T) {
+		s, lis := startManagementWithGeo(t, geo)
+		defer closeManagementSilently(s, lis)
+		client := newRegisteredClient(t, lis.Addr().String())
+
+		prefixes, err := client.GetCountryPrefixes(ctx, "us")
+		require.NoError(t, err)
+		assert.Equal(t, usPrefixes, prefixes, "lower-case codes should resolve like upper-case ones")
+	})
+
+	t.Run("invalid country code", func(t *testing.T) {
+		s, lis := startManagementWithGeo(t, geo)
+		defer closeManagementSilently(s, lis)
+		client := newRegisteredClient(t, lis.Addr().String())
+
+		_, err := client.GetCountryPrefixes(ctx, "USA")
+		assert.Equal(t, codes.InvalidArgument, status.Code(err), "unexpected error: %v", err)
+	})
+
+	t.Run("unregistered peer is refused", func(t *testing.T) {
+		s, lis := startManagementWithGeo(t, geo)
+		defer closeManagementSilently(s, lis)
+		key, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		client, err := NewClient(ctx, lis.Addr().String(), key, false)
+		require.NoError(t, err)
+		defer func() { _ = client.Close() }()
+
+		_, err = client.GetCountryPrefixes(ctx, "US")
+		assert.Equal(t, codes.PermissionDenied, status.Code(err), "unexpected error: %v", err)
+	})
+
+	t.Run("geolocation disabled", func(t *testing.T) {
+		s, lis := startManagementWithGeo(t, nil)
+		defer closeManagementSilently(s, lis)
+		client := newRegisteredClient(t, lis.Addr().String())
+
+		// More fetches than the per-country budget: each must still report geolocation as
+		// unavailable rather than exhaust the budget.
+		for i := range 8 {
+			_, err := client.GetCountryPrefixes(ctx, "US")
+			assert.Equal(t, codes.Unavailable, status.Code(err), "fetch %d: unexpected error: %v", i+1, err)
+		}
+	})
+
+	t.Run("canceled context stops the server key lookup", func(t *testing.T) {
+		s, lis := startManagementWithGeo(t, geo)
+		defer closeManagementSilently(s, lis)
+		client := newRegisteredClient(t, lis.Addr().String())
+
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		_, err := client.GetCountryPrefixes(canceled, "US")
+		assert.Equal(t, codes.Canceled, status.Code(err), "unexpected error: %v", err)
+		assert.ErrorContains(t, err, "public key", "the key lookup itself should honor the caller's context")
+	})
 }

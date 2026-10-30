@@ -316,6 +316,7 @@ func (s *BaseServer) ManagementGRPCServer() *nbgrpc.Server {
 		}
 		serviceMgr := s.ServiceManager()
 		srv.SetReverseProxyManager(serviceMgr)
+		srv.SetGeolocation(s.GeoLocationManager())
 		if serviceMgr != nil {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
