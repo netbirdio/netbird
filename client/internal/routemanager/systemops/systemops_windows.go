@@ -3,6 +3,7 @@ package systemops
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -29,6 +30,20 @@ func init() {
 
 const (
 	InfiniteLifetime = 0xffffffff
+
+	// vpnRouteMetric weights routes installed on the overlay interface so they lose an
+	// equal-length race against a native route. Windows ranks by prefix length first and
+	// only then by route metric plus interface metric, so this is a large margin rather
+	// than a guarantee: a native route still loses if its interface carries a manually
+	// configured metric in the thousands. Windows' automatic interface metrics top out at
+	// 65, which leaves the margin intact. The guard in localSubnetOverlap is what actually
+	// prevents shadowing; this only settles races it does not cover.
+	// Must stay within the 1..9999 range Windows accepts.
+	vpnRouteMetric = 5000
+
+	// exclusionRouteMetric weights routes installed on a physical interface to keep traffic
+	// off the overlay. Their whole purpose is to outrank the overlay, so they stay lowest.
+	exclusionRouteMetric = 1
 )
 
 type RouteUpdateType int
@@ -210,18 +225,30 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 	return r.cleanupRefCounter(stateManager)
 }
 
-func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+// addToRouteTable installs a route, recovering the outgoing interface from the next hop's zone
+// when the caller supplied a zoned address rather than an interface.
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
 	log.Debugf("Adding route to %s via %s", prefix, nexthop)
 	// if we don't have an interface but a zone, extract the interface index from the zone
 	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
 		zone, err := strconv.Atoi(nexthop.IP.Zone())
 		if err != nil {
-			return fmt.Errorf("invalid zone: %w", err)
+			return false, fmt.Errorf("invalid zone: %w", err)
 		}
 		nexthop.Intf = &net.Interface{Index: zone}
 	}
 
-	return addRoute(prefix, nexthop)
+	return addRoute(prefix, nexthop, r.routeMetric(nexthop))
+}
+
+// routeMetric returns the metric for a route leaving over nexthop. A route on the overlay
+// interface must yield to an equally specific native route; a route on a physical interface
+// exists to bypass the overlay and must not.
+func (r *SysOps) routeMetric(nexthop Nexthop) uint32 {
+	if r.wgInterface != nil && nexthop.Intf != nil && nexthop.Intf.Name == r.wgInterface.Name() {
+		return vpnRouteMetric
+	}
+	return exclusionRouteMetric
 }
 
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
@@ -259,23 +286,39 @@ func setupRouteEntry(prefix netip.Prefix, nexthop Nexthop) (*MIB_IPFORWARD_ROW2,
 }
 
 // addRoute adds a route using Windows iphelper APIs
-func addRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, metric uint32) (created bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in addRoute: %v, stack trace: %s", r, debug.Stack())
 		}
 	}()
 
-	route, setupErr := setupRouteEntry(prefix, nexthop)
+	route, setupErr := newManagedRouteEntry(prefix, nexthop, metric)
 	if setupErr != nil {
-		return fmt.Errorf("setup route entry: %w", setupErr)
+		return false, setupErr
 	}
 
-	route.Metric = 1
+	if err := createIPForwardEntry2(route); err != nil {
+		if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// newManagedRouteEntry builds a persistent route entry carrying the given metric.
+func newManagedRouteEntry(prefix netip.Prefix, nexthop Nexthop, metric uint32) (*MIB_IPFORWARD_ROW2, error) {
+	route, err := setupRouteEntry(prefix, nexthop)
+	if err != nil {
+		return nil, fmt.Errorf("setup route entry: %w", err)
+	}
+
+	route.Metric = metric
 	route.ValidLifetime = InfiniteLifetime
 	route.PreferredLifetime = InfiniteLifetime
 
-	return createIPForwardEntry2(route)
+	return route, nil
 }
 
 // deleteRoute deletes a route using Windows iphelper APIs
@@ -292,6 +335,9 @@ func deleteRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
 	}
 
 	if err := getIPForwardEntry2(route); err != nil {
+		if errors.Is(err, windows.ERROR_NOT_FOUND) {
+			return nil
+		}
 		return fmt.Errorf("get route entry: %w", err)
 	}
 
@@ -361,7 +407,7 @@ func createIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("CreateIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("CreateIpForwardEntry2: code %d", windows.NTStatus(r1))
+		return fmt.Errorf("CreateIpForwardEntry2: %w", windows.Errno(r1))
 	}
 	return nil
 }
@@ -372,7 +418,7 @@ func deleteIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("DeleteIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("DeleteIpForwardEntry2: code %d", r1)
+		return fmt.Errorf("DeleteIpForwardEntry2: %w", windows.Errno(r1))
 	}
 	return nil
 }
@@ -383,7 +429,7 @@ func getIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("GetIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("GetIpForwardEntry2: code %d", r1)
+		return fmt.Errorf("GetIpForwardEntry2: %w", windows.Errno(r1))
 	}
 	return nil
 }
