@@ -48,6 +48,9 @@ const (
 	// envWarningDelay overrides defaultWarningDelayBase with a Go duration
 	// string (e.g. "90s", "2m"). Invalid or non-positive values are ignored.
 	envWarningDelay = "NB_DNS_HEALTH_WARNING_DELAY"
+	// hostCacheFlushCoalesce is the window within which repeated host DNS
+	// cache flush requests collapse into a single flush.
+	hostCacheFlushCoalesce = 5 * time.Second
 )
 
 // errNoUsableNameservers signals that a merged-domain group has no usable
@@ -114,6 +117,8 @@ type nsGroupProj struct {
 	// warningActive tracks whether we've already published a warning
 	// for the current streak, so recovery emits iff a warning did.
 	warningActive bool
+	// flushOnRecovery outlives unhealthySince, which Undecided clears once failures age out.
+	flushOnRecovery bool
 }
 
 // nsGroupVerdict is the outcome of evaluateNSGroupHealth.
@@ -187,6 +192,15 @@ type DefaultServer struct {
 	// healthRefresh is buffered=1; writers coalesce, senders never block.
 	// See refreshHealth for the lock-order rationale.
 	healthRefresh chan struct{}
+
+	// cacheFlushMu guards lastCacheFlush and cacheFlushPending.
+	cacheFlushMu sync.Mutex
+	// lastCacheFlush is the last successful host DNS cache flush, used to coalesce recoveries.
+	lastCacheFlush time.Time
+	// cacheFlushPending is set while a flush is scheduled but has not run yet.
+	cacheFlushPending bool
+	// cacheFlushCoalesce is the coalescing window, set at construction and mutated only by tests.
+	cacheFlushCoalesce time.Duration
 }
 
 type handlerWithStop interface {
@@ -272,6 +286,7 @@ func NewDefaultServerIos(
 	return ds
 }
 
+// newDefaultServer builds a DefaultServer with a no-op host manager; Initialize keeps it if system DNS is disabled or under netstack.
 func newDefaultServer(
 	ctx context.Context,
 	wgInterface WGIface,
@@ -304,6 +319,7 @@ func newDefaultServer(
 		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
 	}
+	defaultServer.cacheFlushCoalesce = hostCacheFlushCoalesce
 	// Wire the local resolver against the peer status recorder so it can
 	// suppress A/AAAA answers that point at disconnected peers (typical
 	// case: synthesised private-service records pointing at an embedded
@@ -1132,6 +1148,10 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort) bool {
 	p.everHealthy = true
 	p.unhealthySince = time.Time{}
+	if p.flushOnRecovery || p.warningActive {
+		p.flushOnRecovery = false
+		s.flushHostDNSCache()
+	}
 	if !p.warningActive {
 		return true
 	}
@@ -1147,10 +1167,53 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 	return true
 }
 
+// flushHostDNSCache drops answers the OS cached while the group was down.
+func (s *DefaultServer) flushHostDNSCache() {
+	s.cacheFlushMu.Lock()
+	defer s.cacheFlushMu.Unlock()
+	if s.cacheFlushPending {
+		return
+	}
+	s.cacheFlushPending = true
+	// Recoveries inside the window flush once it ends.
+	delay := time.Until(s.lastCacheFlush.Add(s.cacheFlushCoalesce))
+	time.AfterFunc(max(delay, 0), s.runHostDNSCacheFlush)
+}
+
+// runHostDNSCacheFlush holds s.mux so it can't overlap DNS config changes sharing D-Bus.
+func (s *DefaultServer) runHostDNSCacheFlush() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.cacheFlushMu.Lock()
+	// A flush may have finished while this one waited for s.mux.
+	if delay := time.Until(s.lastCacheFlush.Add(s.cacheFlushCoalesce)); delay > 0 {
+		time.AfterFunc(delay, s.runHostDNSCacheFlush)
+		s.cacheFlushMu.Unlock()
+		return
+	}
+	s.cacheFlushPending = false
+	s.cacheFlushMu.Unlock()
+
+	flusher, ok := s.hostManager.(interface{ flushDNSCache() error })
+	if !ok {
+		return
+	}
+	if err := flusher.flushDNSCache(); err != nil {
+		log.Warnf("failed to flush host DNS cache after upstream recovery: %v", err)
+		return
+	}
+
+	s.cacheFlushMu.Lock()
+	s.lastCacheFlush = time.Now()
+	s.cacheFlushMu.Unlock()
+}
+
 // projectUnhealthy records an unhealthy tick on p, publishes the
 // warning when the emission rules fire, and returns the Enabled flag
 // to record in NSGroupState.
 func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPort, immediate bool, now time.Time, delay time.Duration) bool {
+	p.flushOnRecovery = true
 	streakStart := p.unhealthySince.IsZero()
 	if streakStart {
 		p.unhealthySince = now
