@@ -328,6 +328,7 @@ func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    targetPath,
 		ManagementURL: storedManagementURL,
+		Owner:         testProfileOwner(),
 	})
 	require.NoError(t, err)
 
@@ -347,7 +348,7 @@ func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
 	}
 	t.Cleanup(func() { afterLoginPreCheck = nil })
 
-	_, err = s.Login(userCtx(), &proto.LoginRequest{
+	_, err = s.Login(withTarget(userCtx(), targetPath), &proto.LoginRequest{
 		ProfileName:   &target,
 		Username:      &username,
 		ManagementUrl: storedManagementURL,

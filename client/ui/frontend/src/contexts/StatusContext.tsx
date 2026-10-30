@@ -22,6 +22,7 @@ type StatusContextValue = {
     refresh: () => Promise<void>;
     isReady: boolean;
     isDaemonUnavailable: boolean;
+    isDaemonAccessDenied: boolean;
     isDaemonAvailable: boolean;
     isDaemonOutdated: boolean;
 };
@@ -65,7 +66,9 @@ export const StatusProvider = ({ children }: { children: ReactNode }) => {
     }, [refresh]);
 
     const isReady = status !== null;
-    const isDaemonUnavailable = isReady && status.status === "DaemonUnavailable";
+    const isDaemonAccessDenied = isReady && status.status === "DaemonAccessDenied";
+    const isDaemonUnavailable =
+        isReady && (status.status === "DaemonUnavailable" || isDaemonAccessDenied);
     const isDaemonAvailable = isReady && !isDaemonUnavailable;
 
     useEffect(() => {
@@ -90,10 +93,20 @@ export const StatusProvider = ({ children }: { children: ReactNode }) => {
             refresh,
             isReady,
             isDaemonUnavailable,
+            isDaemonAccessDenied,
             isDaemonAvailable,
             isDaemonOutdated,
         }),
-        [status, error, refresh, isReady, isDaemonUnavailable, isDaemonAvailable, isDaemonOutdated],
+        [
+            status,
+            error,
+            refresh,
+            isReady,
+            isDaemonUnavailable,
+            isDaemonAccessDenied,
+            isDaemonAvailable,
+            isDaemonOutdated,
+        ],
     );
 
     return (

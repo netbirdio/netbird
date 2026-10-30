@@ -35,7 +35,7 @@ func PeerIdentity(conn net.Conn) (Identity, error) {
 		return Identity{}, fmt.Errorf("read LOCAL_PEERCRED: %w", credErr)
 	}
 
-	id := Identity{UID: cred.Uid}
+	id := Identity{UID: cred.Uid, known: true}
 	if cred.Ngroups > 0 {
 		id.GID = cred.Groups[0]
 	}

@@ -31,5 +31,6 @@ func CurrentProcessIdentity() (Identity, error) {
 		SID:      user.User.Sid.String(),
 		Groups:   groups,
 		Elevated: token.IsElevated(),
+		known:    true,
 	}, nil
 }

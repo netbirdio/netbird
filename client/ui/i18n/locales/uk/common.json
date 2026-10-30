@@ -1393,5 +1393,35 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Очікування авторизації…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Інший користувач"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Активний профіль належить іншому користувачеві. Змінити його або відключити може лише власник."
+    },
+    "error.privilege_required": {
+        "message": "Ця дія потребує підвищених привілеїв."
+    },
+    "error.session_held": {
+        "message": "Інший користувач підключив цю машину."
+    },
+    "error.not_profile_owner": {
+        "message": "Цей профіль належить іншому користувачеві."
+    },
+    "error.profile_unowned": {
+        "message": "Цей профіль ще не має власника."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Немає доступу"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Немає доступу до служби NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Адміністратор обмежив доступ до служби NetBird на цьому пристрої вибраними користувачами або групами, і ваш обліковий запис до них не входить. Зверніться до адміністратора щодо доступу."
+    },
+    "error.daemon_access_denied": {
+        "message": "Вашому обліковому запису не дозволено використовувати службу NetBird на цьому пристрої. Зверніться до адміністратора щодо доступу."
     }
 }

@@ -9,6 +9,6 @@ import (
 
 // listenNamedPipe is Windows-only: no other platform serves the daemon on a
 // named pipe.
-func listenNamedPipe(string) (net.Listener, string, error) {
+func listenNamedPipe(string, []string) (net.Listener, string, error) {
 	return nil, "", fmt.Errorf("named pipes are only supported on Windows")
 }

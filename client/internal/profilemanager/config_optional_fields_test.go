@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -118,12 +119,12 @@ func TestNoWriteStoresAnUnsetOptionalBool(t *testing.T) {
 	// Renaming used to copy the file back through a bare Unmarshal, which
 	// preserved the nulls a pre-fix client had written.
 	t.Run("RenameProfile", func(t *testing.T) {
-		withTestSM(t, func(sm *ServiceManager, username string) {
-			created, err := sm.AddProfile("work", username)
+		withTestSM(t, func(sm *ServiceManager, id ipcauth.Identity) {
+			created, err := sm.AddProfile("work", &id)
 			require.NoError(t, err)
 			unsetOnDisk(t, created.Path, optionalBoolFields()...)
 
-			require.NoError(t, sm.RenameProfile(created.ID, username, "office"))
+			require.NoError(t, sm.RenameProfile(created.ID, "office"))
 
 			requireNoNullOnDisk(t, created.Path, "RenameProfile")
 		})

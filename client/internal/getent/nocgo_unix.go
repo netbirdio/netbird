@@ -88,6 +88,25 @@ func LookupGroupID(gid string) (*user.Group, error) {
 	return g, nil
 }
 
+// LookupGroupName looks up a group by name, falling back to getent if os/user
+// fails.
+func LookupGroupName(name string) (*user.Group, error) {
+	g, err := user.LookupGroup(name)
+	if err == nil {
+		return g, nil
+	}
+
+	stdErr := err
+	log.Debugf("os/user.LookupGroup(%q) failed, trying getent: %v", name, err)
+
+	g, _, getentErr := groupLookup(name)
+	if getentErr != nil {
+		log.Debugf("getent fallback for group %q also failed: %v", name, getentErr)
+		return nil, stdErr
+	}
+	return g, nil
+}
+
 // GroupIDs returns the IDs of the groups the user is a member of.
 // NOTE: unlike the lookups above, which try the standard library first, this
 // intentionally tries `id -G` first because without cgo, user.GroupIds only
