@@ -137,6 +137,12 @@ server:
   #   dsn: ""  # Connection string for postgres (e.g., "host=localhost port=5432 user=postgres password=postgres dbname=netbird_idp sslmode=disable")
   #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/idp.db)
 
+  # Peer authentication for Signal and Relay (optional, off by default).
+  # Peers that send an auth key get a token bound to their keys, signed with authSecret.
+  # Enable only once every Relay verifies these tokens, or peers lose relayed connections.
+  # peerAuth:
+  #   enabled: false
+
   # Reverse proxy settings (optional)
   # reverseProxy:
   #   trustedHTTPProxies: []           # CIDRs of trusted reverse proxies (e.g. ["10.0.0.0/8"])

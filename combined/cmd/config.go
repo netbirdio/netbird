@@ -86,6 +86,15 @@ type ServerConfig struct {
 	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
 
 	AgentNetwork AgentNetworkConfig `yaml:"agentNetwork"`
+
+	PeerAuth PeerAuthConfig `yaml:"peerAuth"`
+}
+
+// PeerAuthConfig controls the Signal and Relay tokens bound to the peer keys, signed with authSecret.
+type PeerAuthConfig struct {
+	// Enabled issues the bound token to peers that send an auth key. Turn it on only once every
+	// Relay verifies the bound token.
+	Enabled bool `yaml:"enabled"`
 }
 
 // AgentNetworkConfig contains agent-network (LLM gateway) configuration.
@@ -756,6 +765,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		PerAccountHighestSupportedSyncMessageVersion: c.Server.PerAccountSupportedSyncMessageVersions,
 		AgentNetwork: nbconfig.AgentNetwork{
 			PricingDefaultsFile: c.Server.AgentNetwork.PricingDefaultsFile,
+		},
+		PeerAuth: nbconfig.PeerAuth{
+			Enabled: c.Server.PeerAuth.Enabled,
 		},
 	}, nil
 }

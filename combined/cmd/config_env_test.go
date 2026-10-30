@@ -10,6 +10,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
 func unsetSecretEnvs(t *testing.T) {
@@ -234,4 +236,23 @@ func captureLogOutput(t *testing.T) *bytes.Buffer {
 		logger.SetLevel(origLevel)
 	})
 	return &buf
+}
+
+func TestToManagementConfigPeerAuth(t *testing.T) {
+	unsetSecretEnvs(t)
+	path := writeCombinedConfig(t, "relay-secret", "")
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	content = append(content, []byte("  peerAuth:\n    enabled: true\n")...)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, cfg.Validate())
+	mgmt, err := cfg.ToManagementConfig()
+	require.NoError(t, err)
+
+	assert.Equal(t, nbconfig.PeerAuth{Enabled: true}, mgmt.PeerAuth, "server.peerAuth must reach the Management config")
+	require.NotNil(t, mgmt.Relay, "the local relay must give Management the secret to sign with")
+	assert.Equal(t, "relay-secret", mgmt.Relay.Secret, "Management signs peer auth tokens with server.authSecret")
 }

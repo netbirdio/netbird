@@ -40,6 +40,8 @@ type Config struct {
 	Relay      *Relay
 	Signal     *Host
 
+	PeerAuth PeerAuth
+
 	Datadir                string
 	DataStoreEncryptionKey string
 
@@ -97,6 +99,13 @@ type Relay struct {
 	Addresses      []string
 	CredentialsTTL util.Duration
 	Secret         string
+}
+
+// PeerAuth configures the Signal and Relay tokens bound to the peer's WireGuard and auth keys.
+type PeerAuth struct {
+	// Enabled issues the bound token, instead of the legacy relay token, to every peer that sends
+	// an auth key. Turn it on only once every Relay verifies the bound token.
+	Enabled bool
 }
 
 // HttpServerConfig is a config of the HTTP Management service server
