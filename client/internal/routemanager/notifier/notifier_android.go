@@ -63,6 +63,14 @@ func (n *Notifier) OnNewPrefixes([]netip.Prefix) {
 	// Not used on Android
 }
 
+func (n *Notifier) BeginBatch() {
+	// Not used on Android: OnNewRoutes already announces once per network map
+}
+
+func (n *Notifier) EndBatch() {
+	// Not used on Android
+}
+
 func (n *Notifier) notifyLocked() {
 	if n.listener == nil {
 		return
