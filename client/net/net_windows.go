@@ -28,13 +28,26 @@ const (
 // GetBestInterfaceFunc is set at runtime to avoid import cycle
 var GetBestInterfaceFunc func(dest netip.Addr, vpnIntf string) (*net.Interface, error)
 
+// GetCandidateInterfacesFunc is set at runtime to avoid import cycle.
+// It returns all usable interfaces for dest, best-first.
+var GetCandidateInterfacesFunc func(dest netip.Addr, vpnIntf string) ([]*net.Interface, error)
+
 // nativeToBigEndian converts a uint32 from native byte order to big-endian
 func nativeToBigEndian(v uint32) uint32 {
 	return (v&0xff)<<24 | (v&0xff00)<<8 | (v&0xff0000)>>8 | (v&0xff000000)>>24
 }
 
-// parseDestinationAddress parses the destination address from various formats
+// parseDestinationAddress parses the destination address from various formats.
+// DNS uses a short background timeout for Control callbacks that have no caller ctx.
 func parseDestinationAddress(network, address string) (netip.Addr, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return parseDestinationAddressContext(ctx, network, address, nil)
+}
+
+// parseDestinationAddressContext parses the destination address, resolving hostnames
+// with the provided context and optional resolver.
+func parseDestinationAddressContext(ctx context.Context, network, address string, resolver *net.Resolver) (netip.Addr, error) {
 	if address == "" {
 		if strings.HasSuffix(network, "6") {
 			return netip.IPv6Unspecified(), nil
@@ -63,10 +76,11 @@ func parseDestinationAddress(network, address string) (netip.Addr, error) {
 		return netip.IPv4Unspecified(), nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
 
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	ips, err := resolver.LookupIPAddr(ctx, host)
 	if err != nil || len(ips) == 0 {
 		return netip.Addr{}, fmt.Errorf("resolve destination %s: %w", host, err)
 	}

@@ -19,8 +19,11 @@ import (
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	log.Debugf("Dialing %s %s", network, address)
 
-	if CustomRoutingDisabled() || AdvancedRouting() {
+	if CustomRoutingDisabled() {
 		return d.Dialer.DialContext(ctx, network, address)
+	}
+	if AdvancedRouting() {
+		return d.dialAdvanced(ctx, network, address)
 	}
 
 	connID := hooks.GenerateConnID()
