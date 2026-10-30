@@ -181,16 +181,28 @@ func toAPIResponse(idp *types.IdentityProvider) api.IdentityProvider {
 	if idp.ID != "" {
 		resp.Id = &idp.ID
 	}
+	if idp.AdditionalScopes != nil {
+		scopes := append([]string{}, idp.AdditionalScopes...)
+		resp.AdditionalScopes = &scopes
+	}
+	resp.GroupsClaim = idp.GroupsClaim
+	resp.GetUserInfo = idp.GetUserInfo
 	// Note: ClientSecret is never returned in responses for security
 	return resp
 }
 
 func fromAPIRequest(req *api.IdentityProviderRequest) *types.IdentityProvider {
-	return &types.IdentityProvider{
+	idp := &types.IdentityProvider{
 		Type:         types.IdentityProviderType(req.Type),
 		Name:         req.Name,
 		Issuer:       req.Issuer,
 		ClientID:     req.ClientId,
 		ClientSecret: req.ClientSecret,
 	}
+	if req.AdditionalScopes != nil {
+		idp.AdditionalScopes = append([]string{}, (*req.AdditionalScopes)...)
+	}
+	idp.GroupsClaim = req.GroupsClaim
+	idp.GetUserInfo = req.GetUserInfo
+	return idp
 }
