@@ -760,6 +760,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	peer, network, postureChecks, enableSSH, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          cleanClientString(string(sshKey)),
+		AuthPubKey:      loginAuthPubKey(loginReq),
 		Meta:            peerMeta,
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),

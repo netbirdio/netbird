@@ -838,6 +838,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 		SSHEnabled:                  false,
 		SSHKey:                      peer.SSHKey,
+		AuthPubKey:                  peer.AuthPubKey,
 		LastLogin:                   &registrationTime,
 		CreatedAt:                   registrationTime,
 		LoginExpirationEnabled:      addedByUser && !temporary,
@@ -1279,6 +1280,7 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 			Key:            login.WireGuardPubKey,
 			Meta:           login.Meta,
 			SSHKey:         login.SSHKey,
+			AuthPubKey:     login.AuthPubKey,
 			Location:       nbpeer.Location{ConnectionIP: login.ConnectionIP},
 			ExtraDNSLabels: login.ExtraDNSLabels,
 		}
@@ -1316,6 +1318,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	var peer *nbpeer.Peer
 	var shouldStorePeer, shouldUpdatePeers bool
 	var peerGroupIDs []string
+	var prevAuthPubKey string
 
 	peer, err = am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, login.WireGuardPubKey)
 	if err != nil {
@@ -1352,10 +1355,18 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 				shouldStorePeer = true
 			}
 
+			prevAuthPubKey = peer.AuthPubKey
+			authKeyChanged := peer.AuthPubKey != login.AuthPubKey
+			peer.AuthPubKey = login.AuthPubKey
+			if !shouldStorePeer && !authKeyChanged {
+				return nil
+			}
+
+			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
+				return err
+			}
+			// The auth key is in no other peer's network map, so it alone does not bump the serial.
 			if shouldStorePeer {
-				if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
-					return err
-				}
 				if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 					return fmt.Errorf("increment network serial: %w", err)
 				}
@@ -1366,6 +1377,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if err != nil {
 			return nil, nil, nil, false, err
 		}
+		logAuthPubKeyChange(ctx, peer.ID, prevAuthPubKey, peer.AuthPubKey)
 	}
 
 	// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
@@ -1422,10 +1434,24 @@ func (am *DefaultAccountManager) checkPeerLogin(ctx context.Context, st store.St
 	return nil
 }
 
+// logAuthPubKeyChange logs a replaced or dropped peer auth key at info: it changes which proofs
+// Signal and Relay accept from the peer, and a peer normally keeps its key.
+func logAuthPubKeyChange(ctx context.Context, peerID, prev, next string) {
+	switch {
+	case prev == next:
+	case prev == "":
+		log.WithContext(ctx).Debugf("peer %s registered a peer auth key", peerID)
+	case next == "":
+		log.WithContext(ctx).Infof("peer %s logged in without its peer auth key, it gets legacy tokens", peerID)
+	default:
+		log.WithContext(ctx).Infof("peer %s replaced its peer auth key", peerID)
+	}
+}
+
 // peerLoginChangesPeer reports whether logging in writes the peer: an SSO
-// re-login of an expired peer or a new SSH key.
+// re-login of an expired peer, a new SSH key or a new auth key.
 func peerLoginChangesPeer(ctx context.Context, peer *nbpeer.Peer, login types.PeerLogin, settings *types.Settings) bool {
-	if peer.SSHKey != login.SSHKey {
+	if peer.SSHKey != login.SSHKey || peer.AuthPubKey != login.AuthPubKey {
 		return true
 	}
 	return login.UserID != "" && peerLoginExpired(ctx, peer, settings)
