@@ -229,7 +229,7 @@ func TestIptablesManagerDenyRedirectMark(t *testing.T) {
 			denyRuleIndex = i
 			require.NotContains(t, rule, markTarget, "deny counterpart must not set the redirect mark")
 			require.Contains(t, rule, "-j DROP", "deny counterpart must drop before DNAT")
-			require.Contains(t, rule, "! --ctstate RELATED,ESTABLISHED", "deny counterpart must exempt established and related traffic")
+			require.Contains(t, rule, "! --ctstate RELATED,ESTABLISHED", "deny counterpart must exempt established and related traffic, as INPUT does")
 		} else {
 			acceptRuleIndex = i
 			require.Contains(t, rule, markTarget, "accept counterpart must set the redirect mark")

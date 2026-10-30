@@ -268,9 +268,9 @@ func (r *family) installFilterRule(
 		// The redirect mark tells FORWARD that the input ACL accepts a
 		// packet DNAT diverted there, so only an accept counterpart sets
 		// it. A drop counterpart drops new traffic before DNAT can divert
-		// it to FORWARD, where a route ACL could accept it; established
-		// and related packets are exempt, as the input chain accepts them
-		// ahead of its drops.
+		// it to FORWARD, where a route ACL could accept it. Established
+		// and related packets are exempt, as INPUT accepts them ahead of
+		// the ACL chain.
 		var mangleSpecs []string
 		if !isRoute {
 			mangleSpecs = slices.Clone(specs)

@@ -575,29 +575,6 @@ func getEstablishedExprs(register uint32) []expr.Any {
 	}
 }
 
-// getNotEstablishedExprs matches packets whose conntrack state is neither
-// established nor related.
-func getNotEstablishedExprs() []expr.Any {
-	return []expr.Any{
-		&expr.Ct{
-			Key:      expr.CtKeySTATE,
-			Register: 1,
-		},
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
-			Xor:            binaryutil.NativeEndian.PutUint32(0),
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
-	}
-}
-
 // isIPv6Rule reports whether the rule belongs to the v6 table. For a
 // prefix destination the destination family decides; otherwise the
 // (single-family) sources do, since management duplicates rules per
