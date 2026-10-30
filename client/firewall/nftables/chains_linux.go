@@ -611,7 +611,7 @@ func (r *family) Flush() error {
 // caller can commit it in the same transaction as the rule it pairs
 // with. The redirect mark tells the forward filter that the input ACL
 // accepts a packet DNAT diverted from input to forward, so only an
-// accept counterpart sets it. A drop counterpart drops the traffic
+// accept counterpart sets it. A drop counterpart drops new traffic
 // before DNAT and is inserted at the head, mirroring the
 // drop-before-accept order of the input chain. Returns nil when the
 // prerouting chain is absent, in which case nothing is queued.
@@ -657,10 +657,11 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, ac
 	}
 
 	// Drop denied traffic here, before DNAT can divert it to the forward
-	// path where a route ACL could accept it. Like the input chain, whose
-	// drops precede its established accept, this applies to every
-	// conntrack state.
+	// path where a route ACL could accept it. Established and related
+	// packets are exempt, as the input chain accepts them ahead of its
+	// drops.
 	if action == firewall.ActionDrop {
+		preroutingExprs = append(preroutingExprs, getNotEstablishedExprs()...)
 		preroutingExprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictDrop})
 		rule.Exprs = preroutingExprs
 		return r.conn.InsertRule(rule)
