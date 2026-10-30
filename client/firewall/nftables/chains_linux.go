@@ -657,9 +657,9 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, ac
 		UserData: userData,
 	}
 
-	// Denied traffic leaves the chain unmarked. Returning from the base
-	// chain also skips the data plane and masquerade marking for it,
-	// which is fine: the policy drops it on either path.
+	// Denied traffic leaves the chain unmarked, so DNAT'd packets fall to
+	// the route ACLs. Return, not drop: this runs before any conntrack
+	// check, so a drop would also cut replies the input chain accepts.
 	if action == firewall.ActionDrop {
 		preroutingExprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictReturn})
 		rule.Exprs = preroutingExprs
