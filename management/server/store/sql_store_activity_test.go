@@ -86,49 +86,53 @@ func TestRefreshPeerLastSeenRecordsNeverSeenPeer(t *testing.T) {
 }
 
 // TestRefreshPeerLastSeenLeavesSessionStateAlone pins the column boundary: the
-// connected flag and the session token belong to the sync stream that owns the
+// holding instance and the session token belong to the sync stream that owns the
 // peer's session, and a blind write here would corrupt its fencing. This is why
 // SavePeerStatus is not reused for an activity bump.
 func TestRefreshPeerLastSeenLeavesSessionStateAlone(t *testing.T) {
 	ctx := context.Background()
 	store := newActivityTestStore(t)
 
-	stored := activityPeer(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
-	stored.Status.Connected = true
-	stored.Status.SessionStartedAt = 1234567890
-	require.NoError(t, store.AddPeerToAccount(ctx, stored))
+	require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))))
+	applied, err := store.ConnectPeer(ctx, activityAccountID, "activityPeer", "instance-1", 1234567890)
+	require.NoError(t, err)
+	require.True(t, applied)
+	setPeerLastSeen(t, store, "activityPeer", time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
 
 	refreshed, err := store.RefreshPeerLastSeen(ctx, activityAccountID, "activityPeer", time.Now().UTC().Add(-time.Hour))
 	require.NoError(t, err)
 	require.True(t, refreshed, "the peer is stale enough to refresh")
 
-	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
-	require.NoError(t, err)
-	assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute, "last seen should move forward")
-	assert.True(t, peer.Status.Connected, "connected flag must survive an activity write")
-	assert.Equal(t, int64(1234567890), peer.Status.SessionStartedAt, "session token must survive an activity write")
+	conn := getPeerConnection(t, store, "activityPeer")
+	require.NotNil(t, conn)
+	assert.WithinDuration(t, time.Now().UTC(), peerLastSeen(t, store, "activityPeer"), time.Minute, "last seen should move forward")
+	assert.Equal(t, "instance-1", instanceOf(conn), "the holding instance must survive an activity write")
+	assert.Equal(t, int64(1234567890), conn.SessionStartedAt, "session token must survive an activity write")
 }
 
 // TestPeerReadsAsDisconnectedWhenStale covers a management instance that stopped
-// without marking its peers disconnected: the stored flag stays set, so reads must
-// fall back to LastSeen, both when loading the peer and when filtering on it.
+// without releasing its peers: their connection rows stay, so reads must fall back to
+// the instance's LastSeen, both when loading the peer and when filtering on it.
 func TestPeerReadsAsDisconnectedWhenStale(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
 		name          string
-		lastSeen      time.Time
+		instanceAge   time.Duration
 		wantConnected bool
 	}{
-		{name: "seen within StaleAfter", lastSeen: time.Now().UTC().Add(-time.Minute), wantConnected: true},
-		{name: "not seen for longer than StaleAfter", lastSeen: time.Now().UTC().Add(-nbpeer.StaleAfter - time.Minute)},
+		{name: "instance seen within StaleAfter", instanceAge: time.Minute, wantConnected: true},
+		{name: "instance not seen for longer than StaleAfter", instanceAge: nbpeer.StaleAfter + time.Minute},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newActivityTestStore(t)
-			stored := activityPeer(tt.lastSeen)
-			stored.Status.Connected = true
-			require.NoError(t, store.AddPeerToAccount(ctx, stored))
+			require.NoError(t, store.AddPeerToAccount(ctx, activityPeer(time.Now().UTC().Add(-time.Hour))))
+			require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host"))
+			applied, err := store.ConnectPeer(ctx, activityAccountID, "activityPeer", "instance-1", 1)
+			require.NoError(t, err)
+			require.True(t, applied)
+			ageInstance(t, store, "instance-1", tt.instanceAge)
 
 			peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
 			require.NoError(t, err)
@@ -143,50 +147,6 @@ func TestPeerReadsAsDisconnectedWhenStale(t *testing.T) {
 					assert.Empty(t, peers, "filter connected=%t", connected)
 				}
 			}
-		})
-	}
-}
-
-func TestHeartbeatPeerSession(t *testing.T) {
-	ctx := context.Background()
-	const session = int64(1234567890)
-	stale := time.Now().UTC().Add(-time.Hour)
-
-	tests := []struct {
-		name          string
-		storedSession int64
-		loginExpired  bool
-		session       int64
-		wantUpdated   bool
-	}{
-		{name: "stream that owns the session", storedSession: session, session: session, wantUpdated: true},
-		{name: "login expired while the stream stayed open", storedSession: session, loginExpired: true, session: session},
-		{name: "session replaced by a newer stream", storedSession: session + 1, session: session},
-		{name: "session already ended", session: session},
-		{name: "zero token never matches", session: 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := newActivityTestStore(t)
-			stored := activityPeer(stale)
-			stored.Status.SessionStartedAt = tt.storedSession
-			stored.Status.LoginExpired = tt.loginExpired
-			require.NoError(t, store.AddPeerToAccount(ctx, stored))
-
-			updated, err := store.HeartbeatPeerSession(ctx, activityAccountID, "activityPeer", tt.session)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantUpdated, updated)
-
-			peer, err := store.GetPeerByID(ctx, LockingStrengthNone, activityAccountID, "activityPeer")
-			require.NoError(t, err)
-			assert.Equal(t, tt.storedSession, peer.Status.SessionStartedAt, "the session token must never change")
-			if tt.wantUpdated {
-				assert.True(t, peer.Status.Connected, "a heartbeat must undo a connected flag that was saved back as false")
-				assert.WithinDuration(t, time.Now().UTC(), peer.Status.LastSeen.UTC(), time.Minute)
-				return
-			}
-			assert.False(t, peer.Status.Connected)
-			assert.WithinDuration(t, stale, peer.Status.LastSeen.UTC(), time.Second)
 		})
 	}
 }

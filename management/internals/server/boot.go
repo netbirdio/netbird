@@ -269,8 +269,8 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			grpc.KeepaliveParams(kasp),
 			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
-			// Stop waits for the sync handlers, so their teardown has queued every
-			// disconnect before FlushDisconnects writes them.
+			// Stop waits for the sync handlers, but only up to grpcStopTimeout; a
+			// handler still running then is covered by the instance release.
 			grpc.WaitForHandlers(true),
 		}
 

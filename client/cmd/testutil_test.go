@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness/peerlivenesstest"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -96,7 +97,8 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(ctrl.Finish)
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
-	peersmanager := peers.NewManager(store, permissionsManagerMock)
+	peerLiveness := peerlivenesstest.NewStarted(t, store)
+	peersmanager := peers.NewManager(store, permissionsManagerMock, peerLiveness)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 
 	jobManager := job.NewJobManager(nil, store, peersmanager)
@@ -125,7 +127,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", manager.NewEphemeralManager(store, peersmanager), config, nil)
 
-	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore)
+	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, settingsMockManager, permissionsManagerMock, false, cacheStore, peerLiveness)
 	if err != nil {
 		t.Fatal(err)
 	}

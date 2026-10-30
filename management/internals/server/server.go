@@ -46,7 +46,7 @@ const (
 	// before killing the process.
 	shutdownTimeout = 9 * time.Second
 	grpcStopTimeout = 3 * time.Second
-	// shutdownCloseReserve is kept from the flush for closing the stores.
+	// shutdownCloseReserve is kept from the release for closing the stores.
 	shutdownCloseReserve = 2 * time.Second
 	// shutdownIdPReserve is kept from the extension shutdown hooks for stopping the embedded IdP.
 	shutdownIdPReserve = 1 * time.Second
@@ -159,7 +159,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *BaseServer) start(ctx context.Context) error {
+func (s *BaseServer) start(ctx context.Context) (err error) {
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
@@ -171,10 +171,18 @@ func (s *BaseServer) start(ctx context.Context) error {
 	s.PeersManager()
 	s.GeoLocationManager()
 
-	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
+	err = s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
 		return fmt.Errorf("failed to expose metrics: %v", err)
 	}
+	if err := s.PeerLiveness().Start(srvCtx); err != nil {
+		return fmt.Errorf("start peer liveness: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			s.releasePeerLiveness(ctx)
+		}
+	}()
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
 	tlsEnabled, err := s.setupTLS(srvCtx)
@@ -307,11 +315,21 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 	}
 }
 
-// Stop attempts a graceful shutdown within shutdownTimeout. Writing the disconnects of the
-// drained streams may use the budget left after stopping the services and gRPC streams,
+// releasePeerLiveness retires the liveness instance after a failed start, so its peers do
+// not stay connected until the instance row goes stale.
+func (s *BaseServer) releasePeerLiveness(ctx context.Context) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout-shutdownCloseReserve)
+	defer cancel()
+	if err := s.PeerLiveness().Release(releaseCtx); err != nil {
+		log.WithContext(ctx).Errorf("release peer liveness after failed start: %v", err)
+	}
+}
+
+// Stop attempts a graceful shutdown within shutdownTimeout. Releasing the peer liveness
+// instance may use the budget left after stopping the services and gRPC streams,
 // except for shutdownCloseReserve, which stays for closing the stores; the extension hooks
 // leave shutdownIdPReserve for stopping the embedded IdP. It returns an error when the
-// disconnects could not all be written or the shutdown ran out of time.
+// instance could not be released or the shutdown ran out of time.
 func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -335,9 +353,9 @@ func (s *BaseServer) Stop() error {
 	s.ManagementGRPCServer().StartDraining()
 	s.stopGRPCServer()
 	deadline, _ := ctx.Deadline()
-	flushCtx, cancelFlush := context.WithDeadline(ctx, deadline.Add(-shutdownCloseReserve))
-	flushErr := s.ManagementGRPCServer().FlushDisconnects(flushCtx)
-	cancelFlush()
+	releaseCtx, cancelRelease := context.WithDeadline(ctx, deadline.Add(-shutdownCloseReserve))
+	releaseErr := s.PeerLiveness().Release(releaseCtx)
+	cancelRelease()
 
 	if s.proxyAuthClose != nil {
 		s.proxyAuthClose()
@@ -360,12 +378,12 @@ func (s *BaseServer) Stop() error {
 	case err := <-s.Errors():
 		if err != nil {
 			log.WithContext(ctx).Infof("stopped Management Service: %v", err)
-			return flushErr
+			return releaseErr
 		}
 		log.WithContext(ctx).Infof("stopped Management Service")
-		return flushErr
+		return releaseErr
 	case <-ctx.Done():
-		return errors.Join(flushErr, ctx.Err())
+		return errors.Join(releaseErr, ctx.Err())
 	}
 }
 

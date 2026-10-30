@@ -683,6 +683,13 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 	err = store.SaveAccount(ctx, account)
 	require.NoError(t, err, "Failed to save comprehensive test account")
 
+	require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host"))
+	for _, id := range []string{peerID1, peerID3} {
+		applied, connectErr := store.ConnectPeer(ctx, accountID, id, "instance-1", 1)
+		require.NoError(t, connectErr)
+		require.True(t, applied)
+	}
+
 	// Retrieve the account from the database
 	retrievedAccount, err := store.GetAccount(ctx, accountID)
 	require.NoError(t, err, "Failed to retrieve account")

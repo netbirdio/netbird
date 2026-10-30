@@ -191,6 +191,11 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
 	}
 
+	if err := s.attachPeerConnections(ctx, peers...); err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
+	}
+
 	return peers, nil
 }
 

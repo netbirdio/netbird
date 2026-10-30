@@ -599,6 +599,46 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+// BackfillPeerConnections creates the peer_connections table from the model T and seeds one
+// row per peer from the deprecated peers.peer_status_last_seen column. It runs before AutoMigrate and only
+// while peer_connections does not exist yet, so the peers table is read once, on the upgrade
+// from the release that kept liveness on it. Creating the table and copying the rows share a
+// transaction, so a failed copy leaves no table behind and is retried on the next start.
+func BackfillPeerConnections[T any](ctx context.Context, db *gorm.DB) error {
+	var model T
+	if db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debug("peer_connections table exists, no backfill needed")
+		return nil
+	}
+	if !db.Migrator().HasColumn("peers", "peer_status_last_seen") {
+		log.WithContext(ctx).Debug("peers table has no peer_status_last_seen column, no backfill needed")
+		return nil
+	}
+
+	var copied int64
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Migrator().CreateTable(&model); err != nil {
+			return fmt.Errorf("create peer_connections: %w", err)
+		}
+		result := tx.Exec(
+			`INSERT INTO peer_connections (peer_id, account_id, instance_id, session_started_at, last_seen)
+			SELECT id, account_id, NULL, 0, peer_status_last_seen FROM peers
+			WHERE account_id IS NOT NULL`,
+		)
+		if result.Error != nil {
+			return fmt.Errorf("copy last seen: %w", result.Error)
+		}
+		copied = result.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("backfill peer_connections: %w", err)
+	}
+
+	log.WithContext(ctx).Infof("Backfilled %d rows into peer_connections", copied)
+	return nil
+}
+
 func BackfillPublicIDs[T any](ctx context.Context, db *gorm.DB) error {
 	var model T
 
