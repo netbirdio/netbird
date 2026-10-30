@@ -661,12 +661,13 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, ac
 	// chain also skips the data plane and masquerade marking for it,
 	// which is fine: the policy drops it on either path.
 	if action == firewall.ActionDrop {
-		rule.Exprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictReturn})
+		preroutingExprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictReturn})
+		rule.Exprs = preroutingExprs
 		return r.conn.InsertRule(rule)
 	}
 
 	// mark
-	rule.Exprs = append(preroutingExprs,
+	preroutingExprs = append(preroutingExprs,
 		&expr.Immediate{
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
@@ -677,6 +678,7 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, ac
 			SourceRegister: true,
 		},
 	)
+	rule.Exprs = preroutingExprs
 	return r.conn.AddRule(rule)
 }
 
