@@ -9,6 +9,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -153,6 +154,8 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 	if stampCertificateChallenges(update.Update.GetChecks(), pu.challenger, pu.peerKey) && pu.onChallengeStamped != nil {
 		pu.onChallengeStamped()
 	}
+	// Stamped at send time: the peer re-aligns its Signal and Relay proof clock on it.
+	update.Update.ManagementTime = timestamppb.Now()
 	encryptedResp, err := pu.encrypter.EncryptMessage(pu.peerKey, key, update.Update)
 	if err != nil {
 		pu.cleanupFunc()

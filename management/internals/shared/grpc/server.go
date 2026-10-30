@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/shared/management/client/common"
 	"github.com/netbirdio/netbird/shared/management/grpc"
@@ -965,6 +966,8 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil, types.TwinAccountSettings(settings)),
 		PeerConfig:    toPeerConfig(types.TwinPeer(peer), types.TwinNetwork(network), s.networkMapController.GetDNSDomain(settings), types.TwinAccountSettings(settings), s.config.HttpConfig, s.config.DeviceAuthorizationFlow, enableSSH, false),
 		Checks:        toProtocolChecks(ctx, postureChecks),
+		// The peer signs its Signal and Relay proofs on Management time.
+		ManagementTime: timestamppb.Now(),
 	}
 
 	// settings is always non-nil here, so we never emit nil — encoder returns
@@ -1102,6 +1105,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	if stampCertificateChallenges(plainResp.Checks, s.challenger, peerKey) {
 		onChallengeStamped()
 	}
+	plainResp.ManagementTime = timestamppb.Now()
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")

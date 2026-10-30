@@ -47,7 +47,7 @@ func TestSendPeerUpdates_FirstUpdate(t *testing.T) {
 	updateDebouncer.EXPECT().TimerChannel().AnyTimes().Return(timeCh)
 	syncSender.EXPECT().Context().AnyTimes().Return(srvCtx)
 	secretsManager.EXPECT().GetWGKey().Return(srvKey, nil)
-	syncSender.EXPECT().Send(pbMatcher{x: &proto.EncryptedMessage{WgPubKey: srvKey.PublicKey().String(), Body: mustMarshal(t, &msg)}})
+	syncSender.EXPECT().Send(sentUpdateMatcher{wgPubKey: srvKey.PublicKey().String(), want: mustMarshal(t, &msg)})
 	updateDebouncer.EXPECT().Stop()
 
 	var wg sync.WaitGroup
@@ -84,7 +84,7 @@ func TestSendPeerUpdates_TimerUpdate(t *testing.T) {
 	updateDebouncer.EXPECT().TimerChannel().AnyTimes().Return(timeCh)
 	syncSender.EXPECT().Context().AnyTimes().Return(srvCtx)
 	secretsManager.EXPECT().GetWGKey().Return(srvKey, nil)
-	syncSender.EXPECT().Send(pbMatcher{x: &proto.EncryptedMessage{WgPubKey: srvKey.PublicKey().String(), Body: mustMarshal(t, &msg)}})
+	syncSender.EXPECT().Send(sentUpdateMatcher{wgPubKey: srvKey.PublicKey().String(), want: mustMarshal(t, &msg)})
 	updateDebouncer.EXPECT().Stop()
 
 	var wg sync.WaitGroup
@@ -189,6 +189,32 @@ func mustMarshal(t *testing.T, msg *network_map.UpdateMessage) []byte {
 	r, err := pb.Marshal(msg.Update)
 	assert.NoError(t, err)
 	return r
+}
+
+// sentUpdateMatcher matches an update as sent: stamped with Management time, otherwise unchanged.
+type sentUpdateMatcher struct {
+	wgPubKey string
+	want     []byte
+}
+
+func (m sentUpdateMatcher) Matches(x any) bool {
+	msg, ok := x.(*proto.EncryptedMessage)
+	if !ok || msg.GetWgPubKey() != m.wgPubKey {
+		return false
+	}
+	var got, want proto.SyncResponse
+	if pb.Unmarshal(msg.GetBody(), &got) != nil || pb.Unmarshal(m.want, &want) != nil {
+		return false
+	}
+	if !got.GetManagementTime().IsValid() || time.Since(got.GetManagementTime().AsTime()) > time.Minute {
+		return false
+	}
+	got.ManagementTime = nil
+	return pb.Equal(&want, &got)
+}
+
+func (m sentUpdateMatcher) String() string {
+	return "is the update stamped with Management time"
 }
 
 type testEncrypter struct{}

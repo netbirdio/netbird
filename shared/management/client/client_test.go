@@ -616,6 +616,43 @@ func TestClient_LoginSendsAuthKey(t *testing.T) {
 	}
 }
 
+// The peer signs its Signal and Relay proofs on Management time, so Login and every Sync must
+// carry it.
+func TestClient_LoginAndSyncCarryManagementTime(t *testing.T) {
+	s, listener := startManagement(t)
+	t.Cleanup(func() { closeManagementSilently(s, listener) })
+
+	testKey, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	client, err := NewClient(context.Background(), listener.Addr().String(), testKey, false)
+	require.NoError(t, err)
+
+	info := system.GetInfo(context.TODO())
+	loginResp, err := client.Register(ValidKey, "", info, nil, nil)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), loginResp.GetManagementTime().AsTime(), time.Minute, "login must carry Management time")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ch := make(chan *mgmtProto.SyncResponse, 1)
+	go func() {
+		_ = client.Sync(ctx, func(context.Context) *system.Info { return info }, func(msg *mgmtProto.SyncResponse) error {
+			select {
+			case ch <- msg:
+			default:
+			}
+			return nil
+		})
+	}()
+
+	select {
+	case resp := <-ch:
+		assert.WithinDuration(t, time.Now(), resp.GetManagementTime().AsTime(), time.Minute, "sync must carry Management time")
+	case <-time.After(10 * time.Second):
+		t.Fatal("no sync received")
+	}
+}
+
 func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 	if len(a.NetworkAddresses) != len(b.NetworkAddresses) {
 		return false
