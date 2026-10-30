@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/shared/exposetarget"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -116,11 +117,14 @@ type MiddlewareConfig struct {
 }
 
 type Target struct {
-	ID                   uint               `gorm:"primaryKey" json:"-"`
-	AccountID            string             `gorm:"index:idx_target_account;not null" json:"-"`
-	ServiceID            string             `gorm:"index:idx_service_targets;not null" json:"-"`
-	Path                 *string            `json:"path,omitempty"`
-	Host                 string             `json:"host"`
+	ID        uint    `gorm:"primaryKey" json:"-"`
+	AccountID string  `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID string  `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path      *string `json:"path,omitempty"`
+	Host      string  `json:"host"`
+	// HostPinned is true when Host was supplied by the caller and must
+	// not be overwritten by peer or resource lookup.
+	HostPinned           bool               `gorm:"not null;default:false" json:"host_pinned"`
 	Port                 uint16             `gorm:"index:idx_target_port" json:"port"`
 	Protocol             string             `gorm:"index:idx_target_protocol" json:"protocol"`
 	TargetId             string             `gorm:"index:idx_target_id" json:"target_id"`
@@ -1555,6 +1559,7 @@ type ExposeServiceRequest struct {
 	Password       string
 	UserGroups     []string
 	ListenPort     uint16
+	TargetHost     string
 }
 
 // Validate checks all fields of the expose request.
@@ -1591,6 +1596,14 @@ func (r *ExposeServiceRequest) Validate() error {
 
 	if r.NamePrefix != "" && !validNamePrefix.MatchString(r.NamePrefix) {
 		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
+	}
+
+	if r.TargetHost != "" {
+		host, err := exposetarget.NormalizeHost(r.TargetHost)
+		if err != nil {
+			return err
+		}
+		r.TargetHost = host
 	}
 
 	return nil
@@ -1633,6 +1646,8 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 	svc.Targets = []*Target{
 		{
 			AccountID:  accountID,
+			Host:       r.TargetHost,
+			HostPinned: r.TargetHost != "",
 			Port:       r.Port,
 			Protocol:   targetProto,
 			TargetId:   peerID,
@@ -1671,6 +1686,7 @@ type ExposeServiceResponse struct {
 	ServiceURL       string
 	Domain           string
 	PortAutoAssigned bool
+	TargetHost       string
 }
 
 // GenerateExposeName generates a random service name for peer-exposed services.

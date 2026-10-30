@@ -6538,6 +6538,7 @@ type ExposeServiceRequest struct {
 	Domain        string                 `protobuf:"bytes,6,opt,name=domain,proto3" json:"domain,omitempty"`
 	NamePrefix    string                 `protobuf:"bytes,7,opt,name=name_prefix,json=namePrefix,proto3" json:"name_prefix,omitempty"`
 	ListenPort    uint32                 `protobuf:"varint,8,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
+	TargetHost    string                 `protobuf:"bytes,9,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6628,6 +6629,13 @@ func (x *ExposeServiceRequest) GetListenPort() uint32 {
 	return 0
 }
 
+func (x *ExposeServiceRequest) GetTargetHost() string {
+	if x != nil {
+		return x.TargetHost
+	}
+	return ""
+}
+
 type ExposeServiceEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Event:
@@ -6700,6 +6708,7 @@ type ExposeServiceReady struct {
 	ServiceUrl       string                 `protobuf:"bytes,2,opt,name=service_url,json=serviceUrl,proto3" json:"service_url,omitempty"`
 	Domain           string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
 	PortAutoAssigned bool                   `protobuf:"varint,4,opt,name=port_auto_assigned,json=portAutoAssigned,proto3" json:"port_auto_assigned,omitempty"`
+	TargetHost       string                 `protobuf:"bytes,5,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -6760,6 +6769,13 @@ func (x *ExposeServiceReady) GetPortAutoAssigned() bool {
 		return x.PortAutoAssigned
 	}
 	return false
+}
+
+func (x *ExposeServiceReady) GetTargetHost() string {
+	if x != nil {
+		return x.TargetHost
+	}
+	return ""
 }
 
 type StartCaptureRequest struct {
@@ -7659,7 +7675,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16InstallerResultRequest\"O\n" +
 	"\x17InstallerResultResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1a\n" +
-	"\berrorMsg\x18\x02 \x01(\tR\berrorMsg\"\x87\x02\n" +
+	"\berrorMsg\x18\x02 \x01(\tR\berrorMsg\"\xa8\x02\n" +
 	"\x14ExposeServiceRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x122\n" +
 	"\bprotocol\x18\x02 \x01(\x0e2\x16.daemon.ExposeProtocolR\bprotocol\x12\x10\n" +
@@ -7671,16 +7687,20 @@ const file_daemon_proto_rawDesc = "" +
 	"\vname_prefix\x18\a \x01(\tR\n" +
 	"namePrefix\x12\x1f\n" +
 	"\vlisten_port\x18\b \x01(\rR\n" +
-	"listenPort\"Q\n" +
+	"listenPort\x12\x1f\n" +
+	"\vtarget_host\x18\t \x01(\tR\n" +
+	"targetHost\"Q\n" +
 	"\x12ExposeServiceEvent\x122\n" +
 	"\x05ready\x18\x01 \x01(\v2\x1a.daemon.ExposeServiceReadyH\x00R\x05readyB\a\n" +
-	"\x05event\"\x9e\x01\n" +
+	"\x05event\"\xbf\x01\n" +
 	"\x12ExposeServiceReady\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1f\n" +
 	"\vservice_url\x18\x02 \x01(\tR\n" +
 	"serviceUrl\x12\x16\n" +
 	"\x06domain\x18\x03 \x01(\tR\x06domain\x12,\n" +
-	"\x12port_auto_assigned\x18\x04 \x01(\bR\x10portAutoAssigned\"\xd9\x01\n" +
+	"\x12port_auto_assigned\x18\x04 \x01(\bR\x10portAutoAssigned\x12\x1f\n" +
+	"\vtarget_host\x18\x05 \x01(\tR\n" +
+	"targetHost\"\xd9\x01\n" +
 	"\x13StartCaptureRequest\x12\x1f\n" +
 	"\vtext_output\x18\x01 \x01(\bR\n" +
 	"textOutput\x12\x19\n" +

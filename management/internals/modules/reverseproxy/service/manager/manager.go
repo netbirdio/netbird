@@ -188,6 +188,9 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 	for _, target := range s.Targets {
 		switch target.TargetType {
 		case service.TargetTypePeer:
+			if target.HostPinned {
+				continue
+			}
 			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, s.ID, err)
@@ -1361,6 +1364,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		ServiceURL:       serviceURL,
 		Domain:           svc.Domain,
 		PortAutoAssigned: svc.PortAutoAssigned,
+		TargetHost:       req.TargetHost,
 	}, nil
 }
 

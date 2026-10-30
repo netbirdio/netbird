@@ -416,7 +416,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// the client's HTTPClient to avoid issues with request validation that do
 	// not work with reverse proxied requests.
 	transport := &http.Transport{
-		DialContext:           dialWithTimeout(client.DialContext),
+		DialContext:           dialWithTimeout(types.GuardLoopbackDial(client.DialContext)),
 		MaxIdleConns:          n.transportCfg.maxIdleConns,
 		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
