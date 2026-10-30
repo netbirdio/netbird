@@ -112,6 +112,10 @@ type Config struct {
 	// serving exclusively over the WireGuard tunnel. Also enables
 	// per-account inbound listeners on each embedded client's netstack.
 	Private bool
+	// AllowSelfTargetLoop lets an overlay peer reach a service whose
+	// backend is that same peer, instead of answering 421 Misdirected
+	// Request.
+	AllowSelfTargetLoop bool
 
 	// MaxDialTimeout caps the per-service backend dial timeout.
 	MaxDialTimeout time.Duration
@@ -170,6 +174,7 @@ func New(ctx context.Context, cfg Config) *Server {
 		SupportsCustomPorts:      cfg.SupportsCustomPorts,
 		RequireSubdomain:         cfg.RequireSubdomain,
 		Private:                  cfg.Private,
+		AllowSelfTargetLoop:      cfg.AllowSelfTargetLoop,
 		MaxDialTimeout:           cfg.MaxDialTimeout,
 		MaxSessionIdleTimeout:    cfg.MaxSessionIdleTimeout,
 		MappingBatchWatchdog:     cfg.MappingBatchWatchdog,

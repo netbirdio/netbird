@@ -230,6 +230,10 @@ type Server struct {
 	// registers a service exposes :80 + :443 inside its own WG tunnel,
 	// scoped to that account's services only.
 	Private bool
+	// AllowSelfTargetLoop lets an overlay peer reach a service whose
+	// backend resolves to that peer's own tunnel IP instead of being
+	// rejected with 421 Misdirected Request.
+	AllowSelfTargetLoop bool
 	// MaxDialTimeout caps the per-service backend dial timeout.
 	// When the API sends a timeout, it is clamped to this value.
 	// When the API sends no timeout, this value is used as the default.
@@ -612,6 +616,9 @@ func (s *Server) initReverseProxy() {
 	var rpOpts []proxy.Option
 	if s.middlewareManager != nil {
 		rpOpts = append(rpOpts, proxy.WithMiddlewareManager(s.middlewareManager))
+	}
+	if s.AllowSelfTargetLoop {
+		rpOpts = append(rpOpts, proxy.WithAllowSelfTargetLoop(true))
 	}
 	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(upstreamRT), s.ForwardedProto, s.TrustedProxies, s.Logger, rpOpts...)
 }
