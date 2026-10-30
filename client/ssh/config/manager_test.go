@@ -245,18 +245,25 @@ func TestRenderPeerConfig(t *testing.T) {
 		"    CheckHostIP no\n" +
 		"    LogLevel ERROR\n\n"
 
+	// A path with a space cannot be fixed on the Match line (ssh_config has no portable
+	// nested quoting), so the block is dead. The output must say so in a comment, and
+	// the ProxyCommand path is quoted so it works if the exec guard is ever dropped.
+	spaceWarning := "# WARNING: the NetBird executable path contains a space, so OpenSSH skips this block\n" +
+		"# and native ssh bypasses the NetBird proxy for these peers.\n"
+
 	tests := []struct {
 		name      string
 		execPath  string
 		proxyExec string
+		prefix    string
 	}{
-		{"path without space", `C:\PROGRA~1\NetBird\netbird.exe`, `C:\PROGRA~1\NetBird\netbird.exe`},
-		{"path with space", `C:\Program Files\NetBird\netbird.exe`, `"C:\Program Files\NetBird\netbird.exe"`},
+		{"path without space", `C:\PROGRA~1\NetBird\netbird.exe`, `C:\PROGRA~1\NetBird\netbird.exe`, ""},
+		{"path with space", `C:\Program Files\NetBird\netbird.exe`, `"C:\Program Files\NetBird\netbird.exe"`, spaceWarning},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			want := fmt.Sprintf(tmpl, tt.execPath, tt.proxyExec)
+			want := tt.prefix + fmt.Sprintf(tmpl, tt.execPath, tt.proxyExec)
 			assert.Equal(t, want, renderPeerConfig("100.125.1.1,peer1", tt.execPath), "rendered config for %s", tt.execPath)
 		})
 	}
