@@ -356,7 +356,7 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
-	log.Debugf("registering handler %s with priority %d for %v", handler, priority, domains)
+	log.Debugf("registering handler %s with priority %d for %s", handler, priority, joinDomainsForLog(domains))
 
 	for _, domain := range domains {
 		if domain == "" {
@@ -417,7 +417,7 @@ func (s *DefaultServer) CancelBatch() {
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
-	log.Debugf("deregistering handler with priority %d for %v", priority, domains)
+	log.Debugf("deregistering handler with priority %d for %s", priority, joinDomainsForLog(domains))
 
 	for _, domain := range domains {
 		if domain == "" {
@@ -1360,6 +1360,16 @@ func joinAddrPorts(servers []netip.AddrPort) string {
 		parts = append(parts, s.String())
 	}
 	return strings.Join(parts, ", ")
+}
+
+// joinDomainsForLog renders domains as domain=<name> tokens, the form the
+// debug bundle recognizes as a DNS name when it anonymizes a log line.
+func joinDomainsForLog(domains []string) string {
+	parts := make([]string, 0, len(domains))
+	for _, d := range domains {
+		parts = append(parts, "domain="+d)
+	}
+	return strings.Join(parts, " ")
 }
 
 // generateGroupKey returns a stable identity for an NS group so health
