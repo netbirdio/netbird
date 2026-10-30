@@ -20,6 +20,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 var ifaceMock = &iFaceMock{
@@ -239,6 +240,85 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	require.NotEqual(t, -1, denyRuleIndex, "deny rule should exist in nftables")
 	require.Less(t, denyRuleIndex, acceptRuleIndex,
 		"deny rule should come before accept rule in nftables chain (deny at index %d, accept at index %d)",
+		denyRuleIndex, acceptRuleIndex)
+}
+
+// TestNftablesManagerDenyRedirectMark verifies the prerouting counterparts
+// of peer ACL rules. The forward filter accepts any packet carrying the
+// redirect mark without consulting the input chain, so traffic that DNAT
+// diverts from input to forward (e.g. a published container port) is
+// governed by these counterparts alone: a deny must not set the mark, and
+// it must precede the counterpart of an overlapping accept.
+func TestNftablesManagerDenyRedirectMark(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	ip := netip.MustParseAddr("100.96.0.2").Unmap()
+	testClient := &nftables.Conn{}
+
+	// Accept everything from the peer first, then deny tcp/80 from it.
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "failed to add accept rule")
+
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
+	require.NoError(t, err, "failed to add deny rule")
+
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
+	rules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chainPrerouting)
+	require.NoError(t, err, "failed to get prerouting rules")
+
+	wantSrc := ip.AsSlice()
+	redirectMark := binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected)
+	var acceptRuleIndex, denyRuleIndex = -1, -1
+	for i, rule := range rules {
+		var hasSrc, hasPort80, setsMark, returns bool
+		for _, e := range rule.Exprs {
+			switch e := e.(type) {
+			case *expr.Cmp:
+				if e.Op == expr.CmpOpEq && bytes.Equal(e.Data, wantSrc) {
+					hasSrc = true
+				}
+				if len(e.Data) == 2 && binary.BigEndian.Uint16(e.Data) == 80 {
+					hasPort80 = true
+				}
+			case *expr.Immediate:
+				if bytes.Equal(e.Data, redirectMark) {
+					setsMark = true
+				}
+			case *expr.Verdict:
+				if e.Kind == expr.VerdictReturn {
+					returns = true
+				}
+			}
+		}
+
+		if !hasSrc {
+			continue
+		}
+		if hasPort80 {
+			t.Logf("Rule [%d]: src=%s port=80 mark=%v return=%v", i, ip, setsMark, returns)
+			denyRuleIndex = i
+			require.False(t, setsMark, "deny counterpart must not set the redirect mark")
+			require.True(t, returns, "deny counterpart must return before accept counterparts")
+		} else {
+			t.Logf("Rule [%d]: src=%s mark=%v", i, ip, setsMark)
+			acceptRuleIndex = i
+			require.True(t, setsMark, "accept counterpart must set the redirect mark")
+		}
+	}
+
+	require.NotEqual(t, -1, acceptRuleIndex, "accept counterpart should exist in the prerouting chain")
+	require.NotEqual(t, -1, denyRuleIndex, "deny counterpart should exist in the prerouting chain")
+	require.Less(t, denyRuleIndex, acceptRuleIndex,
+		"deny counterpart should come before accept counterpart in the prerouting chain (deny at index %d, accept at index %d)",
 		denyRuleIndex, acceptRuleIndex)
 }
 

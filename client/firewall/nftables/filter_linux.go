@@ -85,7 +85,7 @@ func (r *family) AddFilterRule(
 			r.dropNetworkMatch(exprs)
 			return nil, fmt.Errorf("build mangle rule: %w", err)
 		}
-		mangleRule = r.queuePreroutingRule(mangleExprs, userData)
+		mangleRule = r.queuePreroutingRule(mangleExprs, userData, action)
 	}
 
 	nftRule := &nftables.Rule{

@@ -606,12 +606,17 @@ func (r *family) Flush() error {
 	return nil
 }
 
-// queuePreroutingRule builds the prerouting mangle rule that marks
-// redirected traffic and queues it on the connection without flushing,
-// so the caller can commit it in the same transaction as the rule it
-// pairs with. Returns nil when the prerouting chain is absent, in which
-// case nothing is queued.
-func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte) *nftables.Rule {
+// queuePreroutingRule builds the prerouting mangle counterpart of a peer
+// ACL rule and queues it on the connection without flushing, so the
+// caller can commit it in the same transaction as the rule it pairs
+// with. The redirect mark tells the forward filter that the input ACL
+// accepts a packet DNAT diverted from input to forward, so only an
+// accept counterpart sets it: a drop counterpart returns from the chain
+// without the mark and is inserted at the head so it precedes every
+// accept counterpart, mirroring the drop-before-accept order of the
+// input chain. Returns nil when the prerouting chain is absent, in
+// which case nothing is queued.
+func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, action firewall.Action) *nftables.Rule {
 	if r.chainPrerouting == nil {
 		log.Warn("prerouting chain is not created")
 		return nil
@@ -632,7 +637,7 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte) *n
 		},
 	}, preroutingExprs...)
 
-	// local destination and mark
+	// local destination
 	preroutingExprs = append(preroutingExprs,
 		&expr.Fib{
 			Register:       1,
@@ -644,7 +649,24 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte) *n
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL),
 		},
+	)
 
+	rule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chainPrerouting,
+		UserData: userData,
+	}
+
+	// Denied traffic leaves the chain unmarked. Returning from the base
+	// chain also skips the data plane and masquerade marking for it,
+	// which is fine: the policy drops it on either path.
+	if action == firewall.ActionDrop {
+		rule.Exprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictReturn})
+		return r.conn.InsertRule(rule)
+	}
+
+	// mark
+	rule.Exprs = append(preroutingExprs,
 		&expr.Immediate{
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
@@ -655,13 +677,7 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte) *n
 			SourceRegister: true,
 		},
 	)
-
-	return r.conn.AddRule(&nftables.Rule{
-		Table:    r.workTable,
-		Chain:    r.chainPrerouting,
-		Exprs:    preroutingExprs,
-		UserData: userData,
-	})
+	return r.conn.AddRule(rule)
 }
 
 func (r *family) createDefaultChains() (err error) {
