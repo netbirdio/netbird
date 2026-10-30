@@ -22,16 +22,39 @@ static char *nbGetGtkThemeName(void) {
 	return name;
 }
 
-// name may be NULL to leave the theme name untouched.
+// name may be NULL to keep the current theme name.
+//
+// On GTK 4.20+ writing gtk-application-prefer-dark-theme reloads the theme
+// without re-registering its gresource, so themes like Yaru lose their CSS.
+// Only write the flag when it changes, and clear the theme name around the
+// write so the real theme is loaded fresh afterwards.
 static void nbSetGtkTheme(const char *name, int dark) {
 	GtkSettings *settings = gtk_settings_get_default();
 	if (settings == NULL) {
 		return;
 	}
-	if (name != NULL && name[0] != '\0') {
-		g_object_set(settings, "gtk-theme-name", name, NULL);
+
+	gboolean want = dark ? TRUE : FALSE;
+	gboolean current = FALSE;
+	g_object_get(settings, "gtk-application-prefer-dark-theme", &current, NULL);
+	gboolean flagChanged = (current ? TRUE : FALSE) != want;
+
+	char *currentName = NULL;
+	g_object_get(settings, "gtk-theme-name", &currentName, NULL);
+	const char *target = (name != NULL && name[0] != '\0') ? name : currentName;
+	gboolean haveTarget = target != NULL && target[0] != '\0';
+	gboolean nameChanged = haveTarget && g_strcmp0(target, currentName) != 0;
+
+	if (haveTarget && (flagChanged || nameChanged)) {
+		g_object_set(settings, "gtk-theme-name", "", NULL);
 	}
-	g_object_set(settings, "gtk-application-prefer-dark-theme", dark ? TRUE : FALSE, NULL);
+	if (flagChanged) {
+		g_object_set(settings, "gtk-application-prefer-dark-theme", want, NULL);
+	}
+	if (haveTarget && (flagChanged || nameChanged)) {
+		g_object_set(settings, "gtk-theme-name", target, NULL);
+	}
+	g_free(currentName);
 }
 
 static void nbFreeGtkString(char *s) { g_free(s); }
