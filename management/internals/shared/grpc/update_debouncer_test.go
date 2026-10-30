@@ -2,10 +2,12 @@ package grpc
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUpdateDebouncer_FirstUpdateSentImmediately(t *testing.T) {
@@ -147,16 +149,9 @@ func TestUpdateDebouncer_TimerResetOnNewUpdate(t *testing.T) {
 	select {
 	case <-debouncer.TimerChannel():
 		pendingUpdates := debouncer.GetPendingUpdates()
-		if len(pendingUpdates) != 1 {
-			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
-		}
-		if pendingUpdates[0] != update3 {
-			t.Error("Should get the last update (update3)")
-		}
-		// Timer should be restarted since there was a pending update
-		if debouncer.TimerChannel() == nil {
-			t.Error("Timer should be restarted after sending pending update")
-		}
+		assert.Len(t, pendingUpdates, 1)
+		assert.Equal(t, *update3, *pendingUpdates[0])
+		assert.NotNil(t, debouncer.TimerChannel()) // Timer should be restarted since there was a pending update
 	case <-time.After(150 * time.Millisecond):
 		t.Error("Timer should have fired")
 	}
@@ -230,52 +225,6 @@ func TestUpdateDebouncer_StopCleansUp(t *testing.T) {
 
 	// Multiple stops should be safe
 	debouncer.Stop()
-}
-
-func TestUpdateDebouncer_HighFrequencyUpdates(t *testing.T) {
-	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
-	defer debouncer.Stop()
-
-	// Simulate high-frequency updates
-	var lastUpdate *network_map.UpdateMessage
-	sentImmediately := 0
-	for i := 0; i < 100; i++ {
-		update := &network_map.UpdateMessage{
-			Update: &proto.SyncResponse{
-				NetworkMap: &proto.NetworkMap{
-					Serial: uint64(i),
-				},
-			},
-			MessageType: network_map.MessageTypeNetworkMap,
-		}
-		lastUpdate = update
-		if debouncer.ProcessUpdate(update) {
-			sentImmediately++
-		}
-		time.Sleep(1 * time.Millisecond) // Very rapid updates
-	}
-
-	// Only first update should be sent immediately
-	if sentImmediately != 1 {
-		t.Errorf("Expected only 1 update sent immediately, got %d", sentImmediately)
-	}
-
-	// Wait for debounce period
-	select {
-	case <-debouncer.TimerChannel():
-		pendingUpdates := debouncer.GetPendingUpdates()
-		if len(pendingUpdates) != 1 {
-			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
-		}
-		if pendingUpdates[0] != lastUpdate {
-			t.Error("Should get the very last update")
-		}
-		if pendingUpdates[0].Update.NetworkMap.Serial != 99 {
-			t.Errorf("Expected serial 99, got %d", pendingUpdates[0].Update.NetworkMap.Serial)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Error("Timer should have fired")
-	}
 }
 
 func TestUpdateDebouncer_NoUpdatesAfterFirst(t *testing.T) {
@@ -377,50 +326,150 @@ func TestUpdateDebouncer_TrueQuietPeriodResetsToImmediateMode(t *testing.T) {
 	}
 }
 
-func TestUpdateDebouncer_ContinuousHighFrequencyStaysInDebounceMode(t *testing.T) {
-	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
-	defer debouncer.Stop()
+func TestUpdateDebouncer_TimerStateMachine_SingleUpdate(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		debouncer := NewUpdateDebouncer(50 * time.Millisecond)
+		defer debouncer.Stop()
 
-	// Simulate continuous high-frequency updates
-	for i := 0; i < 10; i++ {
-		update := &network_map.UpdateMessage{
-			Update: &proto.SyncResponse{
-				NetworkMap: &proto.NetworkMap{
-					Serial: uint64(i),
-				},
-			},
-			MessageType: network_map.MessageTypeNetworkMap,
-		}
+		assert.Nil(t, debouncer.timer)
+		assert.Nil(t, debouncer.timerC)
 
-		if i == 0 {
-			// First one sent immediately
-			if !debouncer.ProcessUpdate(update) {
-				t.Error("First update should be sent immediately")
-			}
-		} else {
-			// All others should be coalesced (not sent immediately)
-			if debouncer.ProcessUpdate(update) {
-				t.Errorf("Update %d should not be sent immediately", i)
-			}
-		}
+		assert.True(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
 
-		// Wait a bit but send next update before debounce expires
-		time.Sleep(20 * time.Millisecond)
-	}
+		assert.NotNil(t, debouncer.timer)
+		assert.NotNil(t, debouncer.timerC)
+		assert.WithinDuration(t, time.Now().Add(debouncer.hardDebounceIntervalLimit()), debouncer.timer.deadline, 5*time.Millisecond)
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 5*time.Millisecond)
 
-	// Now wait for final debounce
-	select {
-	case <-debouncer.TimerChannel():
-		pendingUpdates := debouncer.GetPendingUpdates()
-		if len(pendingUpdates) == 0 {
-			t.Fatal("Should have the last update pending")
-		}
-		if pendingUpdates[0].Update.NetworkMap.Serial != 9 {
-			t.Errorf("Expected serial 9, got %d", pendingUpdates[0].Update.NetworkMap.Serial)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Error("Timer should have fired")
-	}
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+
+		assert.Eventually(t,
+			func() bool {
+				select {
+				case <-debouncer.TimerChannel():
+					assert.Empty(t, debouncer.GetPendingUpdates())
+					return true
+				default:
+					return false
+				}
+			}, 10*time.Millisecond, 2*time.Millisecond)
+
+		assert.Nil(t, debouncer.timer)
+		assert.Nil(t, debouncer.timerC)
+	})
+}
+
+func TestUpdateDebouncer_TimerStateMachine_MultipleUpdates(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		debouncer := NewUpdateDebouncer(50 * time.Millisecond)
+		defer debouncer.Stop()
+
+		// first update, timer starts
+		assert.True(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		deadline := debouncer.timer.deadline
+		firesAt := debouncer.timer.firesAt
+
+		time.Sleep(45 * time.Millisecond)
+		synctest.Wait()
+
+		// second update, debounce timer reset, deadline stays the same
+		assert.Equal(t, firesAt, debouncer.timer.firesAt) // hasn't changed before the update
+		assert.False(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		assert.Equal(t, deadline, debouncer.timer.deadline) // deadline shouldn't change
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 2*time.Millisecond)
+
+		time.Sleep(45 * time.Millisecond)
+		synctest.Wait()
+
+		assert.False(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		assert.Equal(t, deadline, debouncer.timer.deadline) // deadline shouldn't change
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 2*time.Millisecond)
+
+		assert.Eventually(t,
+			func() bool {
+				select {
+				case <-debouncer.TimerChannel():
+					assert.NotEmpty(t, debouncer.GetPendingUpdates())
+					return true
+				default:
+					return false
+				}
+			}, 100*time.Millisecond, 2*time.Millisecond)
+
+		assert.WithinDuration(t, time.Now().Add(debouncer.hardDebounceIntervalLimit()), debouncer.timer.deadline, 2*time.Millisecond) // deadline updated
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 2*time.Millisecond)
+
+		time.Sleep(45 * time.Millisecond)
+		synctest.Wait()
+
+		// GetPendingUpdates without any pending updates should delete the timer
+		assert.Eventually(t,
+			func() bool {
+				select {
+				case <-debouncer.TimerChannel():
+					assert.Empty(t, debouncer.GetPendingUpdates()) // no updates
+					return true
+				default:
+					return false
+				}
+			}, 100*time.Millisecond, 2*time.Millisecond)
+
+		assert.Nil(t, debouncer.timer)
+		assert.Nil(t, debouncer.timerC)
+	})
+}
+
+func TestUpdateDebouncer_TimerStateMachine_MultipleUpdates_HardDealineExceeded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		debouncer := NewUpdateDebouncer(50 * time.Millisecond)
+		defer debouncer.Stop()
+
+		// first update, timer starts
+		assert.True(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		deadline := debouncer.timer.deadline
+		firesAt := debouncer.timer.firesAt
+
+		time.Sleep(45 * time.Millisecond)
+		synctest.Wait()
+
+		// second update, debounce timer reset, deadline stays the same
+		assert.Equal(t, firesAt, debouncer.timer.firesAt) // hasn't changed before the update
+		assert.False(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		assert.Equal(t, deadline, debouncer.timer.deadline) // deadline shouldn't change
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 2*time.Millisecond)
+
+		time.Sleep(45 * time.Millisecond)
+		synctest.Wait()
+
+		assert.False(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		assert.Equal(t, deadline, debouncer.timer.deadline) // deadline shouldn't change
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 2*time.Millisecond)
+
+		time.Sleep(45 * time.Millisecond)
+		synctest.Wait()
+
+		// this update reaches the hard deadline
+		// should result in a short debounce interval
+		assert.False(t, debouncer.ProcessUpdate(&network_map.UpdateMessage{}))
+		assert.Equal(t, deadline, debouncer.timer.deadline)                       // deadline shouldn't change
+		assert.True(t, time.Until(debouncer.timer.firesAt) < 40*time.Millisecond) // verify debounce interval less than the default one
+
+		// GetPendingUpdates without any pending updates should delete the timer
+		assert.Eventually(t,
+			func() bool {
+				select {
+				case <-debouncer.TimerChannel():
+					assert.NotEmpty(t, debouncer.GetPendingUpdates())
+					return true
+				default:
+					return false
+				}
+			}, 100*time.Millisecond, 2*time.Millisecond)
+
+		assert.WithinDuration(t, time.Now().Add(debouncer.hardDebounceIntervalLimit()), debouncer.timer.deadline, 2*time.Millisecond) // new deadline
+		assert.WithinDuration(t, time.Now().Add(50*time.Millisecond), debouncer.timer.firesAt, 2*time.Millisecond)                    // debounce interval back to the default value
+	})
 }
 
 func TestUpdateDebouncer_ControlConfigMessagesQueued(t *testing.T) {
