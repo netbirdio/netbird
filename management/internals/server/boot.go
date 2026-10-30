@@ -212,6 +212,15 @@ func (s *BaseServer) APIHandler() http.Handler {
 		return apiRouter
 	})
 
+	// A block of its own: a server embedding BaseServer may build the v0 API above itself.
+	_ = CreateNamed(s, "http_mcp", func() http.Handler {
+		apiRouter := s.ApiRouter()
+		if err := s.registerMCPEndpoints(apiRouter); err != nil {
+			log.Fatalf("failed to register MCP endpoints: %v", err)
+		}
+		return apiRouter
+	})
+
 	return s.Router()
 }
 
@@ -225,11 +234,22 @@ func (s *BaseServer) IDPHandler() http.Handler {
 	return cors.AllowAll().Handler(embeddedIdP.Handler())
 }
 
-// Router returns the root HTTP router with the shared API middleware applied.
+// Router returns the root HTTP router with the shared API middleware applied. With the MCP
+// OAuth broker running, a challenge sits ahead of that middleware, since only a wrapper
+// outside the auth middleware can add the RFC 9728 pointer to its 401, and the auth
+// middleware also accepts the broker's tokens on the MCP endpoint.
 func (s *BaseServer) Router() *mux.Router {
 	return Create(s, func() *mux.Router {
 		router := mux.NewRouter()
-		router.Use(middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics())...)
+		chain := middleware.BuildMiddleware(s.RateLimiter(), s.AuthManager(), s.AccountManager(), s.Metrics())
+		if broker := s.MCPBroker(); broker != nil {
+			router.Use(broker.ChallengeMiddleware())
+			// BuildMiddleware ends with the auth middleware. The MCP server tests fail if that
+			// ever changes, because broker tokens would then reach the plain auth middleware.
+			last := len(chain) - 1
+			chain[last] = broker.AuthMiddleware(chain[last])
+		}
+		router.Use(chain...)
 		return router
 	})
 }
