@@ -137,6 +137,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
+	var unchanged bool
 	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -146,21 +147,26 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 		newGroup.AccountID = accountID
 
-		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		eventsToStore = append(eventsToStore, events...)
-
 		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
 		}
+		newGroup.PublicID = oldGroup.PublicID
 
 		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
 		peersToRemove := util.Difference(oldGroup.Peers, newGroup.Peers)
+		if len(peersToAdd) == 0 && len(peersToRemove) == 0 && newGroup.EqualIgnoringPeers(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			unchanged = true
+			return nil
+		}
+
+		events := am.prepareGroupEventsFromOld(ctx, transaction, accountID, userID, newGroup, oldGroup)
+		eventsToStore = append(eventsToStore, events...)
+
 		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, peersToAdd, peersToRemove); err != nil {
 			return err
 		}
-
-		newGroup.PublicID = oldGroup.PublicID
 
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
@@ -187,6 +193,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	})
 	if err != nil {
 		return err
+	}
+
+	if unchanged {
+		return nil
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -358,7 +368,14 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		}
 		newGroup.PublicID = oldGroup.PublicID
 
-		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		// Membership is not written here, but a differing peer list is still treated
+		// as a change so callers relying on the refresh keep getting it.
+		if groupUnchanged(oldGroup, newGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			return nil
+		}
+
+		events = am.prepareGroupEventsFromOld(ctx, transaction, accountID, userID, newGroup, oldGroup)
 
 		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
@@ -380,15 +397,32 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 	return events, snap, change, err
 }
 
+// groupUnchanged reports whether newGroup matches the stored oldGroup, including
+// peer membership compared as a set.
+func groupUnchanged(oldGroup, newGroup *types.Group) bool {
+	return len(util.Difference(newGroup.Peers, oldGroup.Peers)) == 0 &&
+		len(util.Difference(oldGroup.Peers, newGroup.Peers)) == 0 &&
+		newGroup.EqualIgnoringPeers(oldGroup)
+}
+
 // prepareGroupEvents prepares a list of event functions to be stored.
 func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transaction store.Store, accountID, userID string, newGroup *types.Group) []func() {
+	oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+	if err != nil {
+		oldGroup = nil
+	}
+	return am.prepareGroupEventsFromOld(ctx, transaction, accountID, userID, newGroup, oldGroup)
+}
+
+// prepareGroupEventsFromOld prepares a list of event functions to be stored, diffing
+// newGroup against the already loaded oldGroup. A nil oldGroup means the group is new.
+func (am *DefaultAccountManager) prepareGroupEventsFromOld(ctx context.Context, transaction store.Store, accountID, userID string, newGroup, oldGroup *types.Group) []func() {
 	var eventsToStore []func()
 
 	addedPeers := make([]string, 0)
 	removedPeers := make([]string, 0)
 
-	oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
-	if err == nil && oldGroup != nil {
+	if oldGroup != nil {
 		addedPeers = util.Difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = util.Difference(oldGroup.Peers, newGroup.Peers)
 

@@ -69,6 +69,8 @@ func (p *Policy) Copy() *Policy {
 	return c
 }
 
+// Equal reports whether both policies have the same attributes and rules, ignoring
+// the order of rules and of ID lists. Duplicate rule IDs are never considered equal.
 func (p *Policy) Equal(other *Policy) bool {
 	if p == nil || other == nil {
 		return p == other
@@ -92,9 +94,18 @@ func (p *Policy) Equal(other *Policy) bool {
 
 	otherRules := make(map[string]*PolicyRule, len(other.Rules))
 	for _, r := range other.Rules {
+		if r == nil {
+			return false
+		}
+		if _, dup := otherRules[r.ID]; dup {
+			return false
+		}
 		otherRules[r.ID] = r
 	}
 	for _, r := range p.Rules {
+		if r == nil {
+			return false
+		}
 		otherRule, ok := otherRules[r.ID]
 		if !ok {
 			return false
@@ -102,6 +113,7 @@ func (p *Policy) Equal(other *Policy) bool {
 		if !r.Equal(otherRule) {
 			return false
 		}
+		delete(otherRules, r.ID)
 	}
 
 	return true

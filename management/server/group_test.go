@@ -868,9 +868,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
+			// The rename makes this a real change; an unchanged save is skipped.
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupA",
-				Name:  "GroupA",
+				Name:  "GroupA-renamed",
 				Peers: []string{peer1.ID, peer2.ID},
 			})
 			assert.NoError(t, err)
@@ -939,9 +940,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
+			// The rename makes this a real change; an unchanged save is skipped.
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupC",
-				Name:  "GroupC",
+				Name:  "GroupC-renamed",
 				Peers: []string{peer1.ID, peer3.ID},
 			})
 			assert.NoError(t, err)
