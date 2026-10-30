@@ -95,6 +95,8 @@ type PeerAuthConfig struct {
 	// Enabled issues the bound token to peers that send an auth key. Turn it on only once every
 	// Relay verifies the bound token.
 	Enabled bool `yaml:"enabled"`
+	// Required makes the local relay refuse peers that present no bound token.
+	Required bool `yaml:"required"`
 }
 
 // AgentNetworkConfig contains agent-network (LLM gateway) configuration.

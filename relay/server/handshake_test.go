@@ -23,6 +23,9 @@ const (
 	authTokenLenOffset = 2 + 4 + 36
 )
 
+// unknownExtEntry is a well-formed type-length-value extension entry this relay does not know.
+var unknownExtEntry = []byte{200, 0, 3, 'a', 'b', 'c'}
+
 // scriptedConn is a listener.Conn whose inbound frames are queued by the test and whose
 // outbound frames are recorded.
 type scriptedConn struct {
@@ -178,15 +181,17 @@ func TestRelay_AuthV1ResponseIsUnchanged(t *testing.T) {
 	assert.Equal(t, messages.ProtocolV1, item.(*Peer).Version(), "a v1 client selects v1")
 }
 
-func TestRelay_AuthEnvelopeSelectsV1(t *testing.T) {
+// An envelope without a proof is a legacy token: the validator checks it and the relay selects
+// the highest version both sides support.
+func TestRelay_AuthEnvelopeWithoutProofIsLegacy(t *testing.T) {
 	cases := []struct {
 		name    string
 		version messages.ProtocolVersion
 		ext     []byte
 	}{
 		{"v2 without extension", 2, nil},
-		{"v2 with json extension", 2, []byte(`{"cred2":"value"}`)},
-		{"v255 with opaque extension", 255, []byte("opaque-extension-bytes")},
+		{"v2 with an unknown extension entry", 2, unknownExtEntry},
+		{"v255 with an unknown extension entry", 255, unknownExtEntry},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,15 +207,16 @@ func TestRelay_AuthEnvelopeSelectsV1(t *testing.T) {
 			relay.Accept(conn)
 
 			frames := conn.waitFrames(t, 1)
-			want, err := messages.MarshalAuthResponse(relay.instanceURL.String())
+			want, err := messages.NewEncoder(messages.ProtocolV2).AuthResponse(relay.instanceURL.String())
 			require.NoError(t, err)
-			assert.Equal(t, want, frames[0], "the response must carry the selected v1 header")
+			assert.Equal(t, want, frames[0], "the response must carry the selected v2 header")
 			assert.Equal(t, [][]byte{token}, validator.calls(), "the validator must receive the token without the extension")
 			assert.False(t, conn.isClosed(), "a higher advertised version must not be rejected")
 
 			item, ok := relay.store.Peer(peerID)
 			require.True(t, ok, "the peer must be stored after the response")
-			assert.Equal(t, messages.ProtocolV1, item.(*Peer).Version(), "the connection must use the selected v1")
+			assert.Equal(t, messages.ProtocolV2, item.(*Peer).Version(), "the connection must use the selected v2")
+			assert.False(t, item.(*Peer).Authenticated(), "a legacy token does not authenticate the peer")
 		})
 	}
 }
@@ -271,7 +277,7 @@ func TestRelay_AuthRejectsInvalidToken(t *testing.T) {
 	peerID := messages.HashID("client")
 	v1Auth, err := messages.MarshalAuthMsg(peerID, []byte("token"))
 	require.NoError(t, err)
-	envelopeAuth, err := messages.MarshalAuthEnvelope(2, peerID, []byte("token"), []byte(`{"ok":true}`))
+	envelopeAuth, err := messages.MarshalAuthEnvelope(2, peerID, []byte("token"), unknownExtEntry)
 	require.NoError(t, err)
 
 	cases := []struct {

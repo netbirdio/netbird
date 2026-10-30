@@ -36,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -259,6 +260,10 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		ExposedAddress: cfg.Relay.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		PeerAuth: relayServer.PeerAuthConfig{
+			Keys:     peerauth.TokenKeys{HMAC: hashedSecret[:]},
+			Required: cfg.Server.PeerAuth.Required,
+		},
 	}
 
 	s.relaySrv, err = createRelayServer(relayCfg, s.stunListeners)

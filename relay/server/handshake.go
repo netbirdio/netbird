@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/netbirdio/netbird/relay/server/listener"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
@@ -13,6 +15,17 @@ const (
 	// handshakeTimeout bounds how long a connection may remain in the
 	// pre-authentication handshake phase before being closed.
 	handshakeTimeout = 10 * time.Second
+
+	// supportedProtocolVersion is the highest protocol version this relay accepts. It is above
+	// messages.CurrentProtocolVersion, which clients advertise when they hold no bound token.
+	supportedProtocolVersion = messages.ProtocolV2
+)
+
+var (
+	errPeerAuthRequired      = errors.New("a token bound to the peer keys is required")
+	errPeerAuthNotConfigured = errors.New("bound token presented but peer auth is not configured")
+	errPeerIDMismatch        = errors.New("peer ID does not match the token")
+	errInvalidCredentials    = errors.New("invalid peer auth credentials")
 )
 
 type Validator interface {
@@ -27,22 +40,25 @@ type preparedMsg struct {
 type handshake struct {
 	conn        listener.Conn
 	validator   Validator
+	verifier    *peerauth.Verifier
+	required    bool
 	preparedMsg *preparedMsg
 
 	peerID            *messages.PeerID
 	advertisedVersion messages.ProtocolVersion
 	selectedVersion   messages.ProtocolVersion
+	authenticated     bool
 }
 
 func newPreparedMsg(instanceURL string) (*preparedMsg, error) {
-	responses := make(map[messages.ProtocolVersion][]byte, messages.CurrentProtocolVersion)
+	responses := make(map[messages.ProtocolVersion][]byte, supportedProtocolVersion)
 	for version := messages.ProtocolV1; ; version++ {
 		ram, err := messages.NewEncoder(version).AuthResponse(instanceURL)
 		if err != nil {
 			return nil, fmt.Errorf("marshal auth response for version %d: %w", version, err)
 		}
 		responses[version] = ram
-		if version == messages.CurrentProtocolVersion {
+		if version == supportedProtocolVersion {
 			break
 		}
 	}
@@ -90,7 +106,7 @@ func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, err
 
 	h.peerID = peerID
 	h.advertisedVersion = advertised
-	h.selectedVersion = messages.SelectVersion(advertised, messages.CurrentProtocolVersion)
+	h.selectedVersion = messages.SelectVersion(advertised, supportedProtocolVersion)
 	return peerID, nil
 }
 
@@ -108,14 +124,52 @@ func (h *handshake) handshakeResponse(ctx context.Context) error {
 }
 
 func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
-	rawPeerID, authPayload, err := messages.UnmarshalAuthMsg(buf)
+	rawPeerID, token, err := messages.UnmarshalAuthMsg(buf)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal auth message: %w", err)
 	}
-
-	if err := h.validator.Validate(authPayload); err != nil {
-		return rawPeerID, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), err)
+	ext, err := messages.UnmarshalAuthExtension(buf)
+	if err != nil {
+		return rawPeerID, fmt.Errorf("unmarshal auth extension of %s (%s): %w", rawPeerID, h.conn.RemoteAddr(), err)
 	}
 
+	proof, err := peerauth.UnmarshalRelayExtension(ext)
+	switch {
+	case errors.Is(err, peerauth.ErrNoProof):
+		return rawPeerID, h.validateLegacy(rawPeerID, token)
+	case err != nil:
+		return rawPeerID, fmt.Errorf("auth extension of %s (%s): %w: %w", rawPeerID, h.conn.RemoteAddr(), errInvalidCredentials, err)
+	}
+
+	if err := h.verifyBoundToken(*rawPeerID, token, proof); err != nil {
+		return rawPeerID, fmt.Errorf("verify %s (%s): %w: %w", rawPeerID, h.conn.RemoteAddr(), errInvalidCredentials, err)
+	}
+	h.authenticated = true
 	return rawPeerID, nil
+}
+
+func (h *handshake) validateLegacy(peerID *messages.PeerID, token []byte) error {
+	if h.required {
+		return fmt.Errorf("%s (%s): %w", peerID, h.conn.RemoteAddr(), errPeerAuthRequired)
+	}
+	if err := h.validator.Validate(token); err != nil {
+		return fmt.Errorf("validate %s (%s): %w", peerID, h.conn.RemoteAddr(), err)
+	}
+	return nil
+}
+
+// verifyBoundToken checks the token and its proof, and that the peer ID it claims is the one of
+// the WireGuard key the token is bound to.
+func (h *handshake) verifyBoundToken(peerID messages.PeerID, token []byte, proof peerauth.Proof) error {
+	if h.verifier == nil {
+		return errPeerAuthNotConfigured
+	}
+	t, err := h.verifier.Verify(token, proof, time.Now())
+	if err != nil {
+		return err
+	}
+	if messages.HashID(t.WGPub.String()) != peerID {
+		return errPeerIDMismatch
+	}
+	return nil
 }

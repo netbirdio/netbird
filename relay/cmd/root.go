@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/metrics"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/stun"
 	"github.com/netbirdio/netbird/trustedproxy"
@@ -53,6 +54,10 @@ type Config struct {
 	EnableSTUN   bool
 	STUNPorts    []int
 	STUNLogLevel string
+	// Peer auth: tokens bound to the peer keys, signed by Management with the hashed AuthSecret
+	PeerAuthHostnames []string
+	PeerAuthRequired  bool
+	PeerAuthCheckTime bool
 }
 
 func (c Config) Validate() error {
@@ -124,6 +129,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
+	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.PeerAuthHostnames, "peer-auth-hostnames", nil, "if set, the only hostnames accepted in peer auth proofs: list the exposed address hostname and any global name behind a load balancer")
+	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthRequired, "peer-auth-required", false, "refuse peers that present no token bound to their keys")
+	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthCheckTime, "peer-auth-check-time", false, "refuse peer auth proofs signed more than 10 minutes away from this Relay's clock; enable only when every peer clock is in sync. Off, a proof is valid as long as its token")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -192,6 +200,12 @@ func execute(cmd *cobra.Command, args []string) error {
 		ExposedAddress: cobraConfig.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
+		PeerAuth: server.PeerAuthConfig{
+			Keys:      peerauth.TokenKeys{HMAC: hashedSecret[:]},
+			Hostnames: cobraConfig.PeerAuthHostnames,
+			Required:  cobraConfig.PeerAuthRequired,
+			CheckTime: cobraConfig.PeerAuthCheckTime,
+		},
 	}
 
 	srv, err := createRelayServer(cfg)

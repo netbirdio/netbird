@@ -142,6 +142,7 @@ server:
   # Enable only once every Relay verifies these tokens, or peers lose relayed connections.
   # peerAuth:
   #   enabled: false
+  #   required: false   # local relay refuses peers without a bound token
 
   # Reverse proxy settings (optional)
   # reverseProxy:

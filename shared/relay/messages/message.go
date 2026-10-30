@@ -438,6 +438,23 @@ func MarshalHealthcheck() []byte {
 	return healthCheckMsg
 }
 
+// UnmarshalAuthExtension returns the extension area that follows the token in the auth envelope,
+// or nil for an Auth message of a version without the envelope.
+func UnmarshalAuthExtension(msg []byte) ([]byte, error) {
+	version, err := ReadVersion(msg)
+	if err != nil {
+		return nil, err
+	}
+	if version < authEnvelopeMinVersion {
+		return nil, nil
+	}
+	token, err := unmarshalAuthEnvelopeToken(msg)
+	if err != nil {
+		return nil, err
+	}
+	return msg[offsetAuthToken+len(token):], nil
+}
+
 func unmarshalAuthEnvelopeToken(msg []byte) ([]byte, error) {
 	if len(msg) < offsetAuthToken {
 		return nil, ErrInvalidMessageLength

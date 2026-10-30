@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"net"
 	"os"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/shared/peerauth"
@@ -826,12 +828,14 @@ func TestClient_AuthTokenWithoutAuthKeyFails(t *testing.T) {
 	assert.Error(t, err, "an auth token cannot be presented without the key that signs its proof")
 }
 
-// A relay that does not verify proofs yet selects v1 for a client advertising v2: the client must
-// follow that selection and exchange data with a legacy client.
-func TestClient_AuthTokenClientTalksToLegacyClient(t *testing.T) {
+// A relay verifying bound tokens selects v2 for an authenticated client, which must still
+// exchange data with a legacy client on v1.
+func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	ctx := context.Background()
 	serverListenAddr := "127.0.0.1:51101"
+	secret := sha256.Sum256([]byte("relay-secret"))
 	serverCfg := newClientTestServerConfig(serverListenAddr)
+	serverCfg.PeerAuth = server.PeerAuthConfig{Keys: peerauth.TokenKeys{HMAC: secret[:]}}
 	srv, err := server.NewServer(serverCfg)
 	require.NoError(t, err)
 	go func() {
@@ -849,14 +853,24 @@ func TestClient_AuthTokenClientTalksToLegacyClient(t *testing.T) {
 		return true
 	}, 5*time.Second, 20*time.Millisecond, "relay must start listening")
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	aliceWG, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	alicePub, alicePriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	token, err := peerauth.IssueHMACToken(secret[:], peerauth.Token{
+		Expiry:  time.Now().Add(time.Hour),
+		WGPub:   aliceWG.PublicKey(),
+		AuthPub: alicePub,
+	})
 	require.NoError(t, err)
 	aliceStore := &hmac.TokenStore{}
-	require.NoError(t, aliceStore.UpdateAuthToken([]byte("opaque auth token")))
-	clientAlice := NewClient(serverCfg.ExposedAddress, aliceStore, "alice", iface.DefaultMTU)
-	clientAlice.authKey = priv
+	require.NoError(t, aliceStore.UpdateAuthToken(token))
+	aliceID := aliceWG.PublicKey().String()
+	clientAlice := NewClient(serverCfg.ExposedAddress, aliceStore, aliceID, iface.DefaultMTU)
+	clientAlice.authKey = alicePriv
 	require.NoError(t, clientAlice.Connect(ctx))
 	t.Cleanup(func() { _ = clientAlice.Close() })
+	assert.Equal(t, messages.ProtocolV2, clientAlice.encoder.Version(), "the relay must select v2 for the authenticated client")
 
 	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	require.NoError(t, clientBob.Connect(ctx))
@@ -864,7 +878,7 @@ func TestClient_AuthTokenClientTalksToLegacyClient(t *testing.T) {
 
 	connAliceToBob, err := clientAlice.OpenConn(ctx, "bob")
 	require.NoError(t, err)
-	connBobToAlice, err := clientBob.OpenConn(ctx, "alice")
+	connBobToAlice, err := clientBob.OpenConn(ctx, aliceID)
 	require.NoError(t, err)
 
 	payload := []byte("hello bob, I am alice")
