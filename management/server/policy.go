@@ -59,15 +59,14 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		}
 
 		if isUpdate {
+			action = activity.PolicyUpdated
+			policy.PublicID = existingPolicy.PublicID
+
 			if policy.Equal(existingPolicy) {
 				log.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
 				unchanged = true
 				return nil
 			}
-
-			action = activity.PolicyUpdated
-
-			policy.PublicID = existingPolicy.PublicID
 
 			if err = transaction.SavePolicy(ctx, policy); err != nil {
 				return err
@@ -96,11 +95,11 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return nil, err
 	}
 
+	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
+
 	if unchanged {
 		return policy, nil
 	}
-
-	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
 	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 

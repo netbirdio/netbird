@@ -109,6 +109,44 @@ func (n *NetworkResource) Copy() *NetworkResource {
 	}
 }
 
+// Equal reports whether both resources have the same user-settable attributes. The
+// address is compared through its parsed type, domain and prefix, and group IDs are
+// compared as a set, matching how group membership is stored.
+func (n *NetworkResource) Equal(other *NetworkResource) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	if n.ID != other.ID ||
+		n.AccountID != other.AccountID ||
+		n.NetworkID != other.NetworkID ||
+		n.Name != other.Name ||
+		n.Description != other.Description ||
+		n.Type != other.Type ||
+		n.Domain != other.Domain ||
+		n.Prefix != other.Prefix ||
+		n.Enabled != other.Enabled {
+		return false
+	}
+
+	return stringSetsEqual(n.GroupIDs, other.GroupIDs)
+}
+
+func stringSetsEqual(a, b []string) bool {
+	setA := make(map[string]struct{}, len(a))
+	for _, v := range a {
+		setA[v] = struct{}{}
+	}
+	setB := make(map[string]struct{}, len(b))
+	for _, v := range b {
+		if _, ok := setA[v]; !ok {
+			return false
+		}
+		setB[v] = struct{}{}
+	}
+	return len(setA) == len(setB)
+}
+
 func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
 	r := &route.Route{
 		ID:                  route.ID(fmt.Sprintf("%s:%s", n.ID, peer.ID)),

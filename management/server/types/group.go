@@ -90,6 +90,41 @@ func (g *Group) Copy() *Group {
 	return group
 }
 
+// EqualIgnoringPeers reports whether both groups have the same stored attributes
+// other than peer membership. Resources are compared ignoring order.
+func (g *Group) EqualIgnoringPeers(other *Group) bool {
+	if g == nil || other == nil {
+		return g == other
+	}
+
+	if g.ID != other.ID ||
+		g.AccountID != other.AccountID ||
+		g.Name != other.Name ||
+		g.Issued != other.Issued ||
+		g.IntegrationReference != other.IntegrationReference {
+		return false
+	}
+
+	return resourceSlicesEqualUnordered(g.Resources, other.Resources)
+}
+
+func resourceSlicesEqualUnordered(a, b []Resource) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[Resource]int, len(a))
+	for _, r := range a {
+		counts[r]++
+	}
+	for _, r := range b {
+		if counts[r] == 0 {
+			return false
+		}
+		counts[r]--
+	}
+	return true
+}
+
 // HasPeers checks if the group has any peers.
 func (g *Group) HasPeers() bool {
 	return len(g.Peers) > 0

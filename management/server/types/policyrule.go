@@ -92,6 +92,8 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 	return rule
 }
 
+// Equal reports whether both rules have the same attributes, ignoring the order of
+// sources, destinations, ports, port ranges and authorized group users.
 func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 	if pm == nil || other == nil {
 		return pm == other
