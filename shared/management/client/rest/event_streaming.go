@@ -15,9 +15,9 @@ type EventStreamingAPI struct {
 }
 
 // List retrieves all event streaming integrations
-// See more: https://docs.netbird.io/api/resources/event-streaming#list-all-event-streaming-integrations
+// See more: https://docs.netbird.io/api/resources/event-streaming-integrations#list-event-streaming-integrations
 func (a *EventStreamingAPI) List(ctx context.Context) ([]api.IntegrationResponse, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/event-streaming", nil, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/integrations/event-streaming", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -29,9 +29,9 @@ func (a *EventStreamingAPI) List(ctx context.Context) ([]api.IntegrationResponse
 }
 
 // Get retrieves a specific event streaming integration by ID
-// See more: https://docs.netbird.io/api/resources/event-streaming#retrieve-an-event-streaming-integration
+// See more: https://docs.netbird.io/api/resources/event-streaming-integrations#get-event-streaming-integration
 func (a *EventStreamingAPI) Get(ctx context.Context, integrationID int) (*api.IntegrationResponse, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/event-streaming/"+strconv.Itoa(integrationID), nil, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/integrations/event-streaming/"+strconv.Itoa(integrationID), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -43,13 +43,13 @@ func (a *EventStreamingAPI) Get(ctx context.Context, integrationID int) (*api.In
 }
 
 // Create creates a new event streaming integration
-// See more: https://docs.netbird.io/api/resources/event-streaming#create-an-event-streaming-integration
+// See more: https://docs.netbird.io/api/resources/event-streaming-integrations#create-event-streaming-integration
 func (a *EventStreamingAPI) Create(ctx context.Context, request api.CreateIntegrationRequest) (*api.IntegrationResponse, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.NewRequest(ctx, "POST", "/api/event-streaming", bytes.NewReader(requestBytes), nil)
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/integrations/event-streaming", bytes.NewReader(requestBytes), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -61,13 +61,13 @@ func (a *EventStreamingAPI) Create(ctx context.Context, request api.CreateIntegr
 }
 
 // Update updates an existing event streaming integration
-// See more: https://docs.netbird.io/api/resources/event-streaming#update-an-event-streaming-integration
+// See more: https://docs.netbird.io/api/resources/event-streaming-integrations#update-event-streaming-integration
 func (a *EventStreamingAPI) Update(ctx context.Context, integrationID int, request api.CreateIntegrationRequest) (*api.IntegrationResponse, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.NewRequest(ctx, "PUT", "/api/event-streaming/"+strconv.Itoa(integrationID), bytes.NewReader(requestBytes), nil)
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/integrations/event-streaming/"+strconv.Itoa(integrationID), bytes.NewReader(requestBytes), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -79,9 +79,9 @@ func (a *EventStreamingAPI) Update(ctx context.Context, integrationID int, reque
 }
 
 // Delete deletes an event streaming integration
-// See more: https://docs.netbird.io/api/resources/event-streaming#delete-an-event-streaming-integration
+// See more: https://docs.netbird.io/api/resources/event-streaming-integrations#delete-event-streaming-integration
 func (a *EventStreamingAPI) Delete(ctx context.Context, integrationID int) error {
-	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/event-streaming/"+strconv.Itoa(integrationID), nil, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/integrations/event-streaming/"+strconv.Itoa(integrationID), nil, nil)
 	if err != nil {
 		return err
 	}
