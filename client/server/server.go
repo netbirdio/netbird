@@ -1374,20 +1374,6 @@ func (s *Server) switchProfileIfNeeded(resolved *profilemanager.Profile, activeP
 		return false, fmt.Errorf("failed to set active profile state: %w", err)
 	}
 
-	if s.checkProfilesDisabled() {
-		log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
-		return false, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-	}
-
-	log.Infof("switching to profile %s (%s)", resolved.Name, resolved.ID)
-	if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       resolved.ID,
-		Username: legacyDirHint(resolved),
-	}); err != nil {
-		log.Errorf("failed to set active profile state: %v", err)
-		return false, fmt.Errorf("failed to set active profile state: %w", err)
-	}
-
 	return true, nil
 }
 
