@@ -12,9 +12,9 @@ type RouterPair struct {
 	Destination Network
 	Masquerade  bool
 	Inverse     bool
-	// Dynamic indicates the route is domain-based. NAT rules for dynamic
-	// routes are duplicated to the v6 table so that resolved AAAA records
-	// are masqueraded correctly.
+	// Dynamic indicates a domain or country route, whose destinations can be of
+	// either address family. NAT rules for dynamic routes are duplicated to the
+	// v6 table so that v6 destinations are masqueraded correctly.
 	Dynamic bool
 }
 

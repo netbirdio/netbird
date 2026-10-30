@@ -35,6 +35,11 @@ func TestGetRoutes(t *testing.T) {
 	                         groups, access_control_groups, skip_auto_apply)
 		VALUES('route-3','account-1','route-3-public',null,null,null,null,'route-3',
 		        null,null,null,null,null,null,null,null,null)`)
+	execQuery(t, ctx,
+		`insert into routes (id, account_id, public_id, network, countries, keep_route, net_id, description,
+	                         peer, network_type, masquerade, metric, enabled, groups, skip_auto_apply)
+		VALUES('route-4','account-1','route-4-public','"192.0.2.0/32"','["CA","US"]',false,'us-exit','route-4',
+		        'peer-id-1',4,true,9999,true,'["group-one-resource-id"]',false)`)
 
 	routes, err := conn(t, ctx).GetRoutes(ctx, "account-1")
 	assert.NoError(t, err)
@@ -83,5 +88,21 @@ func TestGetRoutes(t *testing.T) {
 		AccountID:   "account-1",
 		PublicID:    "route-3-public",
 		Description: "route-3",
+	})
+	assert.Contains(t, routes, nmdata.Route{
+		ID:          "route-4",
+		AccountID:   "account-1",
+		PublicID:    "route-4-public",
+		Network:     netip.MustParsePrefix("192.0.2.0/32"),
+		Countries:   []string{"CA", "US"},
+		NetID:       "us-exit",
+		Description: "route-4",
+		Peer:        "peer-id-1",
+		PeerID:      "peer-id-1",
+		NetworkType: nmdata.NetworkTypeCountry,
+		Masquerade:  true,
+		Metric:      9999,
+		Enabled:     true,
+		Groups:      []string{"group-one-resource-id"},
 	})
 }
