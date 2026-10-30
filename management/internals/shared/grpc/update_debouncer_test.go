@@ -150,7 +150,7 @@ func TestUpdateDebouncer_TimerResetOnNewUpdate(t *testing.T) {
 	case <-debouncer.TimerChannel():
 		pendingUpdates := debouncer.GetPendingUpdates()
 		assert.Len(t, pendingUpdates, 1)
-		assert.Equal(t, *update3, *pendingUpdates[0])
+		assert.Equal(t, update3, pendingUpdates[0])
 		assert.NotNil(t, debouncer.TimerChannel()) // Timer should be restarted since there was a pending update
 	case <-time.After(150 * time.Millisecond):
 		t.Error("Timer should have fired")
