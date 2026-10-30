@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -60,4 +62,14 @@ func TestApplyAccessLogStoreEnv(t *testing.T) {
 	require.Equal(t, "postgres", os.Getenv(accesslogsmanager.StoreEngineEnv))
 	require.Equal(t, "postgres-dsn", os.Getenv(accesslogsmanager.PostgresDSNEnv))
 	require.Equal(t, "access_logs.db", os.Getenv(accesslogsmanager.SqliteFileEnv))
+}
+
+func TestLoadConfigGeoliteUpdateInterval(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	data := "server:\n  exposedAddress: https://netbird.example.com:443\n  geoliteUpdateInterval: 6h\n"
+	require.NoError(t, os.WriteFile(configPath, []byte(data), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, 6*time.Hour, cfg.Management.GeoliteUpdateInterval)
 }

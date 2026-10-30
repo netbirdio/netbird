@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -42,8 +42,7 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	err = util.CopyFileContents(geonamesdbPath, path.Join(tempDir, filepath.Base(geonamesdbPath)))
 	assert.NoError(t, err)
 
-	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, false)
-	assert.NoError(t, err)
+	geo := geolocation.NewGeolocation(context.Background(), tempDir, false, 0)
 	t.Cleanup(func() { _ = geo.Stop() })
 
 	ctrl := gomock.NewController(t)

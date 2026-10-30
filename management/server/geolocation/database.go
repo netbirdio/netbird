@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 
 	log "github.com/sirupsen/logrus"
@@ -42,9 +43,12 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 				if err := decompressTarGzFile(src, dst); err != nil {
 					return err
 				}
-				return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, mmdbFile))
+				return writeAtomically(dataDir, mmdbFile, func(tmpFile string) error {
+					return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, tmpFile))
+				})
 			}
 			if err := loadDatabase(
+				ctx,
 				geoLiteCitySha256TarURL,
 				geoLiteCityTarGZURL,
 				extractFunc,
@@ -58,10 +62,13 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 					return err
 				}
 				extractedCsvFile := path.Join(dst, geoLiteCityCSV)
-				return importCsvToSqlite(dataDir, extractedCsvFile, geonamesdbFile)
+				return writeAtomically(dataDir, geonamesdbFile, func(tmpFile string) error {
+					return importCsvToSqlite(dataDir, extractedCsvFile, tmpFile)
+				})
 			}
 
 			if err := loadDatabase(
+				ctx,
 				geoLiteCitySha256ZipURL,
 				geoLiteCityZipURL,
 				extractFunc,
@@ -73,22 +80,47 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 	return nil
 }
 
+// writeAtomically lets write fill a temporary file in dataDir and renames it to name, so neither readers nor other
+// instances sharing dataDir ever see a partially written database.
+func writeAtomically(dataDir, name string, write func(tmpFile string) error) error {
+	tmp, err := os.CreateTemp(dataDir, "."+name+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := write(filepath.Base(tmpPath)); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := os.Rename(tmpPath, path.Join(dataDir, name)); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
 // loadDatabase downloads a file from the specified URL and verifies its checksum.
 // It then calls the extract function to perform additional processing on the extracted files.
-func loadDatabase(checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
+func loadDatabase(ctx context.Context, checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
 	temp, err := os.MkdirTemp(os.TempDir(), "geolite")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(temp)
 
-	checksumFilename, err := getFilenameFromURL(checksumURL)
+	checksumFilename, err := getFilenameFromURL(ctx, checksumURL)
 	if err != nil {
 		return err
 	}
 	checksumFile := path.Join(temp, checksumFilename)
 
-	err = downloadFile(checksumURL, checksumFile)
+	err = downloadFile(ctx, checksumURL, checksumFile)
 	if err != nil {
 		return err
 	}
@@ -98,13 +130,13 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 		return err
 	}
 
-	dbFilename, err := getFilenameFromURL(fileURL)
+	dbFilename, err := getFilenameFromURL(ctx, fileURL)
 	if err != nil {
 		return err
 	}
 	dbFile := path.Join(temp, dbFilename)
 
-	err = downloadFile(fileURL, dbFile)
+	err = downloadFile(ctx, fileURL, dbFile)
 	if err != nil {
 		return err
 	}

@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -23,6 +25,7 @@ var (
 	disableMetrics              bool
 	disableSingleAccMode        bool
 	disableGeoliteUpdate        bool
+	geoliteUpdateInterval       time.Duration
 	idpSignKeyRefreshEnabled    bool
 	userDeleteFromIDPEnabled    bool
 	mgmtPort                    int
@@ -81,6 +84,7 @@ func init() {
 	mgmtCmd.Flags().BoolVar(&idpSignKeyRefreshEnabled, idpSignKeyRefreshEnabledFlagName, false, "Enable cache headers evaluation to determine signing key rotation period. This will refresh the signing key upon expiry.")
 	mgmtCmd.Flags().BoolVar(&userDeleteFromIDPEnabled, "user-delete-from-idp", false, "Allows to delete user from IDP when user is deleted from account")
 	mgmtCmd.Flags().BoolVar(&disableGeoliteUpdate, "disable-geolite-update", true, "disables automatic updates to the Geolite2 geolocation databases")
+	mgmtCmd.Flags().DurationVar(&geoliteUpdateInterval, "geolite-update-interval", geolocation.DefaultUpdateInterval, "interval between checks for newer Geolite2 geolocation databases, at least 1h; ignored when automatic updates are disabled")
 	rootCmd.MarkFlagRequired("config") //nolint
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
