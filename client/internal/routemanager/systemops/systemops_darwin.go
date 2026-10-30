@@ -41,6 +41,24 @@ const scopedRouteBudget = 5 * time.Second
 // the table. Any subsequent reconnect via nbnet.NewDialer picks up the
 // populated bound-iface cache and gets IP_BOUND_IF set cleanly.
 func (r *SysOps) setupAdvancedRouting() error {
+	installed, err := r.setupAdvancedRoutingWith(GetNextHop)
+	if installed == 0 {
+		return err
+	}
+	if err != nil {
+		log.Warnf("advanced routing setup partially succeeded: %v", err)
+	}
+	return nil
+}
+
+// nexthopLookup resolves the default next hop for the family of an
+// unspecified address.
+type nexthopLookup func(unspec netip.Addr) (Nexthop, error)
+
+// setupAdvancedRoutingWith is setupAdvancedRouting with the default next hop
+// resolved by lookup. It returns how many address families got a scoped
+// default, and the failures of the others.
+func (r *SysOps) setupAdvancedRoutingWith(lookup nexthopLookup) (int, error) {
 	// Drop any previously-cached egress interface before reinstalling. On a
 	// refresh, a family that no longer resolves would otherwise keep the stale
 	// binding, causing new sockets to scope to an interface without a matching
@@ -55,7 +73,7 @@ func (r *SysOps) setupAdvancedRouting() error {
 	installed := 0
 
 	for _, unspec := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
-		ok, err := r.installScopedDefaultFor(unspec)
+		ok, err := r.installScopedDefaultFor(unspec, lookup)
 		if err != nil {
 			merr = multierror.Append(merr, err)
 			continue
@@ -65,20 +83,14 @@ func (r *SysOps) setupAdvancedRouting() error {
 		}
 	}
 
-	if installed == 0 && merr != nil {
-		return nberrors.FormatErrorOrNil(merr)
-	}
-	if merr != nil {
-		log.Warnf("advanced routing setup partially succeeded: %v", nberrors.FormatErrorOrNil(merr))
-	}
-	return nil
+	return installed, nberrors.FormatErrorOrNil(merr)
 }
 
 // installScopedDefaultFor resolves the physical default nexthop for the given
 // address family, installs a scoped default via it, and caches the iface for
 // subsequent IP_BOUND_IF / IPV6_BOUND_IF socket binds.
-func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
-	nexthop, err := GetNextHop(unspec)
+func (r *SysOps) installScopedDefaultFor(unspec netip.Addr, lookup nexthopLookup) (bool, error) {
+	nexthop, err := lookup(unspec)
 	if err != nil {
 		if errors.Is(err, vars.ErrRouteNotFound) {
 			return false, nil
@@ -118,6 +130,146 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
 	return true, nil
 }
 
+// physicalDefault is the physical default next hop of one address family.
+type physicalDefault struct {
+	unspec  netip.Addr
+	nexthop Nexthop
+}
+
+// scopedKey identifies a scoped default by address family and interface.
+type scopedKey struct {
+	is6   bool
+	index int
+}
+
+// refreshUnderlay moves the scoped defaults and the cached egress interface
+// to the current physical default.
+//
+// Unlike engine start, a refresh runs with the NetBird routes in place: with
+// an exit node the plain lookup resolves 0/1 on the NetBird interface and
+// would bind NetBird's own traffic to the tunnel. For the same reason the
+// binding must never be empty here: a socket dialed meanwhile would follow
+// 0/1 into the tunnel. So the new routes and binding go in before the old
+// ones come out.
+func (r *SysOps) refreshUnderlay(advancedRouting bool) error {
+	if !advancedRouting {
+		return nil
+	}
+	defaults, err := lookupUnderlayDefaults(nbnet.GetVPNInterfaceName())
+	// Unlike engine start, a family left unbound here keeps sockets on the
+	// old network or sends them into the tunnel: any failure restarts.
+	if err != nil {
+		return err
+	}
+	// The refresh only runs on a change with a default in place. Finding none
+	// leaves NetBird's sockets unbound, following 0/1 into the tunnel: fail, so
+	// the engine falls back to a restart.
+	if len(defaults) == 0 {
+		return errors.New("no physical default found to bind NetBird's traffic to")
+	}
+
+	keep := make(map[scopedKey]bool)
+	for _, d := range defaults {
+		if err := r.replaceScopedDefault(d.unspec, d.nexthop); err != nil {
+			return fmt.Errorf("install scoped default on %s: %w", d.nexthop.Intf.Name, err)
+		}
+		nbnet.SetBoundInterface(afNumOf(d.unspec), d.nexthop.Intf)
+		keep[scopedKey{is6: d.unspec.Is6(), index: d.nexthop.Intf.Index}] = true
+		log.Infof("moved the %s scoped default and binding to %s", afOf(d.unspec), d.nexthop.Intf.Name)
+	}
+	for _, unspec := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+		if !hasDefaultFor(defaults, unspec) {
+			nbnet.ClearBoundInterface(afNumOf(unspec))
+		}
+	}
+
+	// NetBird's sockets are already bound to the new interface: a leftover
+	// scoped default on the old one is unused, not worth a restart.
+	if err := r.flushScopedDefaultsExcept(func(dst netip.Prefix, index int) bool {
+		return keep[scopedKey{is6: dst.Addr().Is6(), index: index}]
+	}); err != nil {
+		log.Warnf("remove old scoped defaults: %v", err)
+	}
+	return nil
+}
+
+// lookupUnderlayDefaults resolves the physical default of each address family,
+// skipping the NetBird interface. A family without a default is left out.
+func lookupUnderlayDefaults(vpnIntf string) ([]physicalDefault, error) {
+	var defaults []physicalDefault
+	for _, unspec := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+		nexthop, err := GetUnderlayNextHop(unspec, vpnIntf)
+		if errors.Is(err, vars.ErrRouteNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get default nexthop for %s: %w", unspec, err)
+		}
+		if nexthop.Intf == nil {
+			return nil, fmt.Errorf("unusable default nexthop for %s (no interface)", unspec)
+		}
+		defaults = append(defaults, physicalDefault{unspec: unspec, nexthop: nexthop})
+	}
+	return defaults, nil
+}
+
+// replaceScopedDefault installs the scoped default via nexthop. RTM_ADD
+// refuses a second scoped default on the same interface: ours, left with the
+// old gateway, is repointed in place; macOS's own is reused untouched, as
+// engine start does, since macOS keeps it current.
+func (r *SysOps) replaceScopedDefault(unspec netip.Addr, nexthop Nexthop) error {
+	err := r.addScopedDefault(unspec, nexthop)
+	if !errors.Is(err, unix.EEXIST) {
+		return err
+	}
+	rib, err := retryFetchRIB()
+	if err != nil {
+		return fmt.Errorf("fetch routing table: %w", err)
+	}
+	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
+	if err != nil {
+		return fmt.Errorf("parse routing table: %w", err)
+	}
+	if !ownScopedDefault(msgs, unspec, nexthop.Intf.Index) {
+		log.Debugf("reusing the existing %s scoped default on %s", afOf(unspec), nexthop.Intf.Name)
+		return nil
+	}
+	return r.scopedRouteSocket(unix.RTM_CHANGE, unspec, nexthop)
+}
+
+// ownScopedDefault reports whether the scoped default of unspec's family on
+// the interface index is one NetBird installed.
+func ownScopedDefault(msgs []route.Message, unspec netip.Addr, index int) bool {
+	for _, msg := range msgs {
+		rtMsg, ok := msg.(*route.RouteMessage)
+		if !ok || rtMsg.Index != index || rtMsg.Flags&unix.RTF_IFSCOPE == 0 {
+			continue
+		}
+		info, err := MsgToRoute(rtMsg)
+		if err != nil || !info.Dst.IsValid() || info.Dst.Bits() != 0 || info.Dst.Addr().Is6() != unspec.Is6() {
+			continue
+		}
+		return rtMsg.Flags&routeProtoFlag != 0
+	}
+	return false
+}
+
+func hasDefaultFor(defaults []physicalDefault, unspec netip.Addr) bool {
+	for _, d := range defaults {
+		if d.unspec == unspec {
+			return true
+		}
+	}
+	return false
+}
+
+func afNumOf(unspec netip.Addr) int {
+	if unspec.Is6() {
+		return unix.AF_INET6
+	}
+	return unix.AF_INET
+}
+
 func (r *SysOps) cleanupAdvancedRouting() error {
 	nbnet.ClearBoundInterfaces()
 	return r.flushScopedDefaults()
@@ -133,6 +285,13 @@ func (r *SysOps) flushPlatformExtras() error {
 // flushScopedDefaults removes any scoped default routes tagged with routeProtoFlag.
 // Safe to call at startup to clear residual entries from a prior session.
 func (r *SysOps) flushScopedDefaults() error {
+	return r.flushScopedDefaultsExcept(func(netip.Prefix, int) bool { return false })
+}
+
+// flushScopedDefaultsExcept removes the scoped default routes tagged with
+// routeProtoFlag, except those keep reports for their destination and
+// interface index.
+func (r *SysOps) flushScopedDefaultsExcept(keep func(dst netip.Prefix, index int) bool) error {
 	rib, err := retryFetchRIB()
 	if err != nil {
 		return fmt.Errorf("fetch routing table: %w", err)
@@ -164,6 +323,9 @@ func (r *SysOps) flushScopedDefaults() error {
 			continue
 		}
 		if !info.Dst.IsValid() || info.Dst.Bits() != 0 {
+			continue
+		}
+		if keep(info.Dst, rtMsg.Index) {
 			continue
 		}
 

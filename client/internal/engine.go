@@ -2482,20 +2482,26 @@ func (e *Engine) startNetworkMonitor() {
 	}
 
 	e.networkMonitor = networkmonitor.New()
+	var watch recoveryWatch
+	loop := underlayLoop{
+		listen: e.networkMonitor.Listen,
+		decide: func(change networkmonitor.Change) underlayAction {
+			return decideUnderlayAction(change, e.netMgr != nil)
+		},
+		redial:  e.redialOnUnderlayChange,
+		restart: e.triggerClientRestart,
+		armWatch: func() {
+			watchCtx := watch.replace(e.ctx)
+			e.shutdownWg.Add(1)
+			go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
+		},
+		stopWatch:    watch.stop,
+		availability: networkAvailability{mgr: e.netMgr},
+	}
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		if err := e.networkMonitor.Listen(e.ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				log.Infof("network monitor stopped")
-				return
-			}
-			log.Errorf("network monitor error: %v", err)
-			return
-		}
-
-		log.Infof("Network monitor: detected network change, triggering client restart")
-		e.triggerClientRestart()
+		loop.run(e.ctx)
 	}()
 }
 
