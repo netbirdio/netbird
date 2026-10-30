@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -14,10 +15,13 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -196,7 +200,7 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 				CLIAuthAudience: tc.cliAuthAudience,
 			}
 
-			result := buildJWTConfig(config, nil)
+			result := buildJWTConfig(config, nil, &nmdata.AccountSettingsInfo{})
 
 			assert.NotNil(t, result)
 			assert.Equal(t, tc.expectedAudiences, result.Audiences, "audiences should match expected")
@@ -333,5 +337,67 @@ func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
 			assert.Equal(t, tt.wantEnabled, cfg.RoutingPeerDnsResolutionEnabled,
 				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
 		})
+	}
+}
+
+func TestBuildJWTConfig_MaxTokenAge(t *testing.T) {
+	config := &nbconfig.HttpServerConfig{
+		AuthIssuer:   "https://issuer.example.com",
+		AuthAudience: "dashboard-aud",
+	}
+
+	t.Run("unset leaves max token age zero", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &nmdata.AccountSettingsInfo{})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(0), result.MaxTokenAge)
+	})
+
+	t.Run("explicit duration is sent as seconds", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &nmdata.AccountSettingsInfo{
+			SSHJWTMaxTokenAge: 10 * time.Minute,
+		})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(600), result.MaxTokenAge)
+	})
+}
+
+func TestToPeerConfig_SSHJWTMaxTokenAge(t *testing.T) {
+	ctx := context.Background()
+	sqlStore, err := store.NewSqliteStore(ctx, t.TempDir(), nil, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlStore.Close(ctx)) })
+	db, err := sqlStore.GetDB().DB()
+	require.NoError(t, err)
+	conn := &networkmap_sqlite.SqliteStoreConn{Conn: db}
+
+	account := &types.Account{
+		Id:       "ssh-jwt-settings",
+		Network:  &types.Network{Net: net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(16, 32)}},
+		Settings: &types.Settings{Extra: &types.ExtraSettings{}},
+	}
+	require.NoError(t, sqlStore.GetDB().Create(account).Error)
+	peer := &nmdata.Peer{IP: netip.MustParseAddr("100.64.0.1"), SSHEnabled: true}
+	httpConfig := &nbconfig.HttpServerConfig{
+		AuthIssuer:   "https://issuer.example.com",
+		AuthAudience: "ssh-audience",
+	}
+
+	for _, maxAge := range []time.Duration{0, 10 * time.Minute, 0} {
+		account.Settings.SSHJWTMaxTokenAge = maxAge
+		require.NoError(t, sqlStore.SaveAccountSettings(ctx, account.Id, account.Settings))
+		dbSettings, err := conn.GetAccountSettings(ctx, account.Id)
+		require.NoError(t, err)
+
+		for name, settings := range map[string]*nmdata.AccountSettingsInfo{
+			"in-memory": types.TwinAccountSettings(account.Settings),
+			"sqlite":    &dbSettings,
+		} {
+			cfg := toPeerConfig(peer, types.TwinNetwork(account.Network), "netbird.test", settings, httpConfig, nil, false, false)
+			require.NotNil(t, cfg.SshConfig.JwtConfig)
+			assert.Equal(t, int64(maxAge/time.Second), cfg.SshConfig.JwtConfig.MaxTokenAge,
+				"%s settings must carry the configured SSH JWT age to the peer", name)
+		}
 	}
 }

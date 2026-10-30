@@ -20,12 +20,14 @@ import (
 type jwtStoringMDMFetcher struct {
 	cache      *jwtCache
 	caller     ipcauth.Identity
+	token      string
 	generation uint64
+	stored     bool
 }
 
 func (f *jwtStoringMDMFetcher) Fetch() map[string]any {
 	f.generation = f.cache.currentGeneration()
-	f.cache.store("previous-profile-token", f.caller, time.Minute, f.generation)
+	f.stored = f.cache.store(f.token, f.caller, time.Minute, f.generation)
 	return nil
 }
 
@@ -209,14 +211,19 @@ func TestLogin_ProfileSwitchRejectsJWTObtainedUnderPreviousConfig(t *testing.T) 
 	// to the previous profile. It caches a token under the generation current at
 	// that point, as WaitJWTToken would.
 	generation := s.jwtCache.currentGeneration()
-	fetcher := &jwtStoringMDMFetcher{cache: s.jwtCache, caller: unprivilegedIdentity()}
+	fetcher := &jwtStoringMDMFetcher{
+		cache:  s.jwtCache,
+		caller: unprivilegedIdentity(),
+		token:  newJWTCacheToken(t, "previous-profile-user"),
+	}
 	s.mdmLoader = mdm.NewLoader(fetcher)
 
 	_, err = s.Login(userCtx(), &proto.LoginRequest{ProfileName: &other, Username: &username})
 	require.Error(t, err)
 
 	require.Greater(t, fetcher.generation, generation, "the token was not cached after the switch dropped the previous profile's state")
-	_, found := s.jwtCache.get(fetcher.caller)
+	require.True(t, fetcher.stored, "the fixture token must be cacheable for the test to be meaningful")
+	_, found := s.jwtCache.get(fetcher.caller, time.Minute)
 	require.False(t, found, "a JWT obtained under the previous profile's config survived the login-driven switch")
 }
 
