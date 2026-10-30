@@ -270,7 +270,7 @@ func applyOIDCDefaults(connType string, config map[string]interface{}) map[strin
 	for k, v := range config {
 		augmented[k] = v
 	}
-	setDefault(augmented, "scopes", []string{"openid", "profile", "email"})
+	setDefault(augmented, "scopes", []string{"openid", "profile", "email", "groups"})
 	setDefault(augmented, "insecureEnableGroups", true)
 	setDefault(augmented, "insecureSkipEmailVerified", true)
 
