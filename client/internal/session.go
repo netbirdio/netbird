@@ -2,8 +2,6 @@ package internal
 
 import (
 	"context"
-	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -62,21 +60,4 @@ func (s *SessionWatcher) startWatcher() {
 			}
 		}
 	}
-}
-
-// CheckUIApp checks whether UI application is running.
-func CheckUIApp() bool {
-	cmd := exec.Command("ps", "-ef")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "netbird-ui") && !strings.Contains(line, "grep") {
-			return true
-		}
-	}
-	return false
 }
