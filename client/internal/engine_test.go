@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -38,6 +39,7 @@ import (
 	mgmt "github.com/netbirdio/netbird/shared/management/client"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
@@ -1670,4 +1672,20 @@ func TestEngine_UpdateNetbirdConfigHandsAuthTokenToSignal(t *testing.T) {
 	require.Len(t, got, 2, "every NetbirdConfig must update the Signal auth token")
 	assert.Equal(t, []byte("auth token"), got[0], "Signal must receive the auth token Management sent")
 	assert.Empty(t, got[1], "a NetbirdConfig without auth token must clear it")
+}
+
+func TestEngine_AlignAuthClockFollowsSync(t *testing.T) {
+	clock := &peerauth.Clock{}
+	engine := &Engine{authClock: clock}
+
+	// The local clock stepped an hour behind Management since the login: the next sync fixes it.
+	engine.alignAuthClock(timestamppb.New(time.Now().Add(time.Hour)))
+	assert.WithinDuration(t, time.Now().Add(time.Hour), clock.Now(), time.Second, "a sync must re-align the proof clock")
+
+	// A Management that does not send its time leaves the clock as it was.
+	engine.alignAuthClock(nil)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), clock.Now(), time.Second, "a sync without Management time must keep the clock")
+
+	// An engine without a proof clock ignores the Management time.
+	(&Engine{}).alignAuthClock(timestamppb.Now())
 }

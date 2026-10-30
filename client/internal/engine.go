@@ -22,6 +22,7 @@ import (
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -73,6 +74,7 @@ import (
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
@@ -197,6 +199,8 @@ type EngineServices struct {
 	// NetMgr gates the reconnection loops on OS-reported network
 	// availability; nil disables gating.
 	NetMgr *netevents.Manager
+	// AuthClock is the clock the Signal and Relay proofs are signed on; nil keeps the local one.
+	AuthClock *peerauth.Clock
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -298,6 +302,7 @@ type Engine struct {
 	infoSource system.InfoSource
 
 	relayManager       *relayClient.Manager
+	authClock          *peerauth.Clock
 	stateManager       *statemanager.Manager
 	portForwardManager *portforward.Manager
 	srWatcher          *guard.SRWatcher
@@ -385,6 +390,7 @@ func NewEngine(
 		signaler:           peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
+		authClock:          services.AuthClock,
 		peerStore:          peerstore.NewConnStore(),
 		wgDetector:         stdnet.NewWGDetector(config.WgIfaceName),
 		syncMsgMux:         &sync.Mutex{},
@@ -1007,6 +1013,15 @@ func (e *Engine) phase(name string) func() {
 	}
 }
 
+// alignAuthClock re-aligns the proof clock on every sync, so a wrong local clock is fixed
+// without a new login, e.g. after a suspend the monotonic clock did not count.
+func (e *Engine) alignAuthClock(t *timestamppb.Timestamp) {
+	if e.authClock == nil || !t.IsValid() {
+		return
+	}
+	e.authClock.SetManagementTime(t.AsTime())
+}
+
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
@@ -1023,6 +1038,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	e.ApplySessionDeadline(update.GetSessionExpiresAt())
+	e.alignAuthClock(update.GetManagementTime())
 
 	// Envelope sync responses carry PeerConfig at the top level; legacy
 	// NetworkMap syncs carry it under NetworkMap.PeerConfig.

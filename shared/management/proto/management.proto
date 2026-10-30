@@ -165,6 +165,10 @@ message SyncResponse {
   NetworkMapEnvelope NetworkMapEnvelope = 8;
 
   int32 Version = 9;
+
+  // managementTime is Management's clock when it sent this snapshot. The peer re-aligns the
+  // clock its Signal and Relay proofs are signed on, as with LoginResponse.managementTime.
+  google.protobuf.Timestamp managementTime = 10;
 }
 
 message  SyncMetaRequest {
