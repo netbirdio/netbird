@@ -8,12 +8,11 @@ import (
 	"testing"
 	"time"
 
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
-
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
@@ -34,14 +33,14 @@ func (f *fakeTunDevice) Create() (device.WGConfigurer, error) {
 func (f *fakeTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return nil, errors.New("not implemented")
 }
-func (f *fakeTunDevice) UpdateAddr(wgaddr.Address) error      { return nil }
-func (f *fakeTunDevice) WgAddress() wgaddr.Address            { return wgaddr.Address{} }
-func (f *fakeTunDevice) MTU() uint16                          { return DefaultMTU }
-func (f *fakeTunDevice) DeviceName() string                   { return "nb-close-test" }
+func (f *fakeTunDevice) UpdateAddr(wgaddr.Address) error        { return nil }
+func (f *fakeTunDevice) WgAddress() wgaddr.Address              { return wgaddr.Address{} }
+func (f *fakeTunDevice) MTU() uint16                            { return DefaultMTU }
+func (f *fakeTunDevice) DeviceName() string                     { return "nb-close-test" }
 func (f *fakeTunDevice) FilteredDevice() *device.FilteredDevice { return nil }
-func (f *fakeTunDevice) Device() *wgdevice.Device             { return nil }
-func (f *fakeTunDevice) GetNet() *netstack.Net                { return nil }
-func (f *fakeTunDevice) GetICEBind() device.EndpointManager   { return nil }
+func (f *fakeTunDevice) Device() *wgbackend.Device              { return nil }
+func (f *fakeTunDevice) GetNet() *wgbackend.NetstackNet         { return nil }
+func (f *fakeTunDevice) GetICEBind() device.EndpointManager     { return nil }
 
 func (f *fakeTunDevice) Close() error {
 	close(f.closeStarted)
@@ -62,6 +61,10 @@ func (fakeProxyFactory) Free() error             { return nil }
 // WGIface.GetDevice() which needs the same mutex. The fix is to drop
 // the lock before tun.Close() returns control.
 func TestWGIface_CloseReleasesMutexBeforeTunClose(t *testing.T) {
+	// Netstack mode skips the platform interface cleanup in Close, so only
+	// the mutex and tun close behavior is exercised.
+	t.Setenv(nbnetstack.EnvUseNetstackMode, "true")
+
 	tun := &fakeTunDevice{
 		closeStarted: make(chan struct{}),
 		unblockClose: make(chan struct{}),
@@ -105,7 +108,10 @@ func TestWGIface_CloseReleasesMutexBeforeTunClose(t *testing.T) {
 
 	close(tun.unblockClose)
 	select {
-	case <-closeDone:
+	case err := <-closeDone:
+		if err != nil {
+			t.Errorf("WGIface.Close() returned an error: %v", err)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("WGIface.Close() never returned after the tun was unblocked")
 	}

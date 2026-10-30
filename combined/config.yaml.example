@@ -45,7 +45,8 @@ server:
       email: ""
       awsRoute53: false
 
-  # Shared secret for relay authentication (required when running local relay)
+  # Shared secret for relay authentication (required when running local relay).
+  # Can also be set via NB_AUTH_SECRET; a non-empty value overrides this field.
   authSecret: "your-secret-key-here"
 
   # Data directory for all services
@@ -110,8 +111,10 @@ server:
 
   # Store configuration
   store:
-    engine: "sqlite"  # sqlite, postgres, or mysql
-    dsn: ""  # Connection string for postgres or mysql
+    engine: "sqlite"  # sqlite or postgres
+    dsn: ""  # Connection string for postgres
+    # Store field encryption key. Can also be set via NB_STORE_ENCRYPTION_KEY;
+    # a non-empty value overrides this field.
     encryptionKey: ""
     # file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/store.db)
 
@@ -120,6 +123,13 @@ server:
   #   engine: "sqlite"  # sqlite or postgres
   #   dsn: ""  # Connection string for postgres
   #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/events.db)
+
+  # Reverse proxy access log store configuration (optional, follows the store engine:
+  # sqlite uses its own file in dataDir, postgres reuses the store DSN with a separate pool)
+  # accessLogStore:
+  #   engine: "postgres"  # sqlite or postgres
+  #   dsn: ""  # Connection string for a dedicated postgres database
+  #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/access_logs.db)
 
   # Auth (embedded IdP) store configuration (optional, defaults to sqlite3 in dataDir/idp.db)
   # authStore:

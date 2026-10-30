@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"runtime"
 	"strings"
@@ -26,14 +25,9 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/externalipmap"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
-)
-
-const (
-	invalidInputType int = iota
-	ipInputType
-	interfaceInputType
 )
 
 const (
@@ -106,7 +100,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
 
-	err = validateNATExternalIPs(natExternalIPs)
+	err = externalipmap.Validate(natExternalIPs)
 	if err != nil {
 		return err
 	}
@@ -499,7 +493,6 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	req.Username = username
 
 	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
 	req.NatExternalIPs = natExternalIPs
 	req.CustomDNSAddress = customDNSAddressConverted
 	req.ExtraIFaceBlacklist = extraIFaceBlackList
@@ -836,36 +829,6 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	return &loginRequest, nil
 }
 
-func validateNATExternalIPs(list []string) error {
-	for _, element := range list {
-		if element == "" {
-			return fmt.Errorf("empty string is not a valid input for %s", externalIPMapFlag)
-		}
-
-		subElements := strings.Split(element, "/")
-		if len(subElements) > 2 {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"String\" or \"String/String\"", element, externalIPMapFlag)
-		}
-
-		if len(subElements) == 1 && !isValidIP(subElements[0]) {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
-		}
-
-		last := 0
-		for _, singleElement := range subElements {
-			inputType, err := validateElement(singleElement)
-			if err != nil {
-				return fmt.Errorf("%s is not a valid input for %s. it should be an IP string or a network name", singleElement, externalIPMapFlag)
-			}
-			if last == interfaceInputType && inputType == interfaceInputType {
-				return fmt.Errorf("%s is not a valid input for %s. it should not contain two interface names", element, externalIPMapFlag)
-			}
-			last = inputType
-		}
-	}
-	return nil
-}
-
 func parseInterfaceName(name string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
@@ -876,39 +839,6 @@ func parseInterfaceName(name string) error {
 	}
 
 	return fmt.Errorf("invalid interface name %s. Please use the prefix utun followed by a number on MacOS. e.g., utun1 or utun199", name)
-}
-
-func validateElement(element string) (int, error) {
-	if isValidIP(element) {
-		return ipInputType, nil
-	}
-	validIface, err := isValidInterface(element)
-	if err != nil {
-		return invalidInputType, fmt.Errorf("unable to validate the network interface name, error: %s", err)
-	}
-
-	if validIface {
-		return interfaceInputType, nil
-	}
-
-	return interfaceInputType, fmt.Errorf("invalid IP or network interface name not found")
-}
-
-func isValidIP(ip string) bool {
-	return net.ParseIP(ip) != nil
-}
-
-func isValidInterface(name string) (bool, error) {
-	netInterfaces, err := net.Interfaces()
-	if err != nil {
-		return false, err
-	}
-	for _, iface := range netInterfaces {
-		if iface.Name == name {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func parseCustomDNSAddress(modified bool) ([]byte, error) {

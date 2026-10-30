@@ -621,7 +621,13 @@ func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error
 
 	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
 	if err != nil {
-		log.Errorf("failed to login to Management Service: %v", err)
+		// PermissionDenied is how management asks an unknown peer to register,
+		// which the caller does next, so it is not an error worth reporting.
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			log.Debugf("login to Management Service refused: %v", err)
+		} else {
+			log.Errorf("failed to login to Management Service: %v", err)
+		}
 		return nil, err
 	}
 
@@ -1018,6 +1024,19 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	proofs := make([]*proto.CertificateProof, 0, len(info.CertificateProofs))
+	for _, p := range info.CertificateProofs {
+		proofs = append(proofs, &proto.CertificateProof{
+			Nonce:     p.Nonce,
+			Chain:     p.Chain,
+			SigAlg:    p.SigAlg,
+			Signature: p.Signature,
+		})
+	}
+	if len(proofs) > 0 {
+		log.Debugf("peer meta carries %d certificate posture proofs", len(proofs))
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
 		GoOS:             info.GoOS,
@@ -1037,7 +1056,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
-		Files: files,
+		Files:             files,
+		CertificateProofs: proofs,
 
 		Flags: &proto.Flags{
 			RosenpassEnabled:    info.RosenpassEnabled,

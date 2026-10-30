@@ -12,7 +12,6 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -33,7 +32,6 @@ import (
 const (
 	idQueryCondition               = "id = ?"
 	keyQueryCondition              = "key = ?"
-	mysqlKeyQueryCondition         = "`key` = ?"
 	accountAndIDQueryCondition     = "account_id = ? and id = ?"
 	accountAndAnyIDQueryCondition  = "account_id = ? and (id = ? or public_id = ?)"
 	accountAndPeerIDQueryCondition = "account_id = ? and peer_id = ?"
@@ -84,7 +82,7 @@ func NewSqlStore(ctx context.Context, conn *db.Conn, metrics telemetry.AppMetric
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
-		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
+		&proxy.Proxy{},
 		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
 		&agentNetworkTypes.AgentNetworkAccessLog{}, &agentNetworkTypes.AgentNetworkAccessLogGroup{},
@@ -117,13 +115,6 @@ func (s *SqlStore) Conn() *db.Conn {
 
 func (s *SqlStore) pgxPool() *pgxpool.Pool {
 	return s.conn.Pool(s.tx)
-}
-
-func GetKeyQueryCondition(s *SqlStore) string {
-	if s.conn.Engine() == db.MysqlStoreEngine {
-		return mysqlKeyQueryCondition
-	}
-	return keyQueryCondition
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
@@ -168,15 +159,6 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 // NewPostgresqlStore creates a new Postgres store.
 func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	conn, err := db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
-	if err != nil {
-		return nil, err
-	}
-	return newStore(ctx, conn, metrics, skipMigration)
-}
-
-// NewMysqlStore creates a new MySQL store.
-func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	conn, err := db.OpenMysql(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -240,11 +222,6 @@ func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemet
 	return newStore(ctx, conn, metrics, skipMigration)
 }
 
-// NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
-func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	return newMysqlStoreFromSqlStore(ctx, sqliteStore, dsn, metrics, false)
-}
-
 // seedFromSqliteStore copies the installation ID and the accounts of the
 // sqlite seed store into a freshly created engine store.
 func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) error {
@@ -257,20 +234,6 @@ func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) erro
 		}
 	}
 	return nil
-}
-
-func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	store, err := NewMysqlStore(ctx, dsn, metrics, skipMigration)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
-		_ = store.Close(ctx)
-		return nil, err
-	}
-
-	return store, nil
 }
 
 // ExecuteInTransaction runs operation in a transaction. A store that is already

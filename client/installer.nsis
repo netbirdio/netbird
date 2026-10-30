@@ -2,7 +2,7 @@
 !define COMP_NAME "Netbird"
 !define WEB_SITE "Netbird.io"
 !define VERSION $%APPVER%
-!define COPYRIGHT "Netbird Authors, 2022"
+!define COPYRIGHT "Netbird Authors, 2022-2026"
 !define DESCRIPTION "Connect your devices into a secure WireGuard-based overlay network with SSO, MFA, and granular access controls."
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
@@ -198,6 +198,15 @@ FunctionEnd
 ######################################################################
 Section -MainProgram
     ${INSTALL_TYPE}
+    ; The previous uninstaller stops the service and the UI only when its uninstall key
+    ; is found and endpoint protection lets the unsigned uninstaller run. Extraction
+    ; fails on any exe that is still running.
+    DetailPrint "Stopping Netbird service..."
+    ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
+    DetailPrint "Terminating ${UI_APP_NAME} process..."
+    ExecWait '"$SYSDIR\taskkill.exe" /im ${UI_APP_EXE}.exe /f'
+    ; Both return before the processes release their image files.
+    Sleep 3000
     # SetOverwrite ifnewer
     SetOutPath "$INSTDIR"
     !ifndef ARCH

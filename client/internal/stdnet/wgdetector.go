@@ -34,6 +34,8 @@ type WGDetector struct {
 	// probe is replaced in tests; it is the call this type exists to avoid repeating.
 	probe func(string) bool
 
+	ownIface string
+
 	mu    sync.RWMutex
 	cache map[string]wgDetectorEntry
 
@@ -41,11 +43,12 @@ type WGDetector struct {
 }
 
 // NewWGDetector returns a detector with the default time to live.
-func NewWGDetector() *WGDetector {
+func NewWGDetector(ownIface string) *WGDetector {
 	return &WGDetector{
-		ttl:   wgDetectorTTL,
-		probe: probeWireGuard,
-		cache: make(map[string]wgDetectorEntry),
+		ttl:      wgDetectorTTL,
+		probe:    probeWireGuard,
+		ownIface: ownIface,
+		cache:    make(map[string]wgDetectorEntry),
 	}
 }
 
@@ -55,6 +58,10 @@ func NewWGDetector() *WGDetector {
 func (d *WGDetector) IsWireGuard(iFace string) bool {
 	if d == nil {
 		return probeWireGuard(iFace)
+	}
+
+	if d.isOwnInterface(iFace) {
+		return true
 	}
 
 	if isWireGuard, ok := d.cached(iFace); ok {
@@ -102,6 +109,10 @@ func (d *WGDetector) store(iFace string, isWireGuard bool) {
 		}
 	}
 	d.cache[iFace] = wgDetectorEntry{isWireGuard: isWireGuard, expireAt: now.Add(d.ttl)}
+}
+
+func (d *WGDetector) isOwnInterface(iFace string) bool {
+	return d.ownIface != "" && iFace == d.ownIface
 }
 
 func probeWireGuard(iFace string) bool {

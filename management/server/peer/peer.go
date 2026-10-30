@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -101,6 +102,32 @@ type PeerStatus struct { //nolint:revive
 	RequiresApproval bool
 }
 
+const (
+	// HeartbeatInterval is how often the management instance serving a peer's sync
+	// stream refreshes the peer's LastSeen.
+	HeartbeatInterval = time.Minute
+	// StaleAfter is how long a connected peer may go without a LastSeen refresh before
+	// it reads as disconnected. It spans several heartbeats so one missed refresh does
+	// not disconnect a live peer.
+	StaleAfter = 5 * time.Minute
+)
+
+// IsConnected reports whether a peer stored with the given connected flag and LastSeen
+// counts as connected. A management instance that stops without marking its peers
+// disconnected leaves the flag set, so a peer whose LastSeen is older than StaleAfter
+// reads as disconnected.
+func IsConnected(connected bool, lastSeen time.Time) bool {
+	return connected && time.Since(lastSeen) < StaleAfter
+}
+
+// AfterFind applies IsConnected to every peer loaded through gorm.
+func (p *Peer) AfterFind(*gorm.DB) error {
+	if p.Status != nil {
+		p.Status.Connected = IsConnected(p.Status.Connected, p.Status.LastSeen)
+	}
+	return nil
+}
+
 // Location is a geo location information of a Peer based on public connection IP
 type Location struct {
 	ConnectionIP net.IP `gorm:"serializer:json"` // from grpc peer or reverse proxy headers depends on setup
@@ -174,6 +201,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+	Certificates       []string    `gorm:"serializer:json"`
 	Capabilities       []int32     `gorm:"serializer:json"`
 	SyncMessageVersion int
 }
@@ -199,7 +227,8 @@ func (p PeerSystemMeta) isEmpty() bool {
 		p.SystemManufacturer == "" &&
 		p.Environment.Cloud == "" &&
 		p.Environment.Platform == "" &&
-		len(p.Files) == 0
+		len(p.Files) == 0 &&
+		len(p.Certificates) == 0
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -417,6 +446,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	}
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+	if !sameMultiset(oldMeta.Certificates, newMeta.Certificates) {
+		add("certificates", len(oldMeta.Certificates), len(newMeta.Certificates))
 	}
 	if oldMeta.SyncMessageVersion != newMeta.SyncMessageVersion {
 		add("sync_meta_version", fmt.Sprintf("%d", oldMeta.SyncMessageVersion), fmt.Sprintf("%d", newMeta.SyncMessageVersion))

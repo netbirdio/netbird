@@ -150,3 +150,39 @@ func TestWGDetectorDropsExpiredEntries(t *testing.T) {
 	assert.Len(t, d.cache, 1, "expired entries of vanished interfaces must be dropped")
 	assert.Contains(t, d.cache, "eth0", "the fresh answer must be kept")
 }
+
+func TestWGDetectorOwnInterfaceIsWireGuardWithoutProbing(t *testing.T) {
+	d, calls := newCountingDetector(t, time.Minute, false)
+	d.ownIface = "NetBird"
+
+	assert.True(t, d.IsWireGuard("NetBird"), "the agent's own interface is a WireGuard device")
+	assert.Equal(t, int64(0), calls.Load(), "the own interface must never reach the probe")
+
+	assert.False(t, d.IsWireGuard("NetBird2"), "only the exact own name is answered without probing")
+	assert.Equal(t, int64(1), calls.Load(), "a different interface is probed")
+}
+
+func TestWGDetectorWithoutOwnInterfaceProbesEmptyName(t *testing.T) {
+	d, calls := newCountingDetector(t, time.Minute, false)
+
+	assert.False(t, d.IsWireGuard(""), "an unnamed interface is not mistaken for the own one")
+	assert.Equal(t, int64(1), calls.Load(), "with no own interface set every name is probed")
+}
+
+func TestInterfaceFilterRejectsOwnInterfaceRegardlessOfDisallowList(t *testing.T) {
+	d, calls := newCountingDetector(t, time.Minute, false)
+	d.ownIface = "NetBird"
+	filter := InterfaceFilter([]string{"wt"}, d)
+
+	assert.False(t, filter("NetBird"), "the own interface is rejected even when the disallow list does not cover it")
+	assert.Equal(t, int64(0), calls.Load(), "the own interface is not probed")
+
+	assert.True(t, filter("eth0"), "an ordinary interface stays available")
+	assert.Equal(t, int64(1), calls.Load(), "an ordinary interface is still probed")
+}
+
+func TestNewWGDetectorKeepsTheOwnInterface(t *testing.T) {
+	d := NewWGDetector("NetbirdWT")
+
+	assert.True(t, d.IsWireGuard("NetbirdWT"), "the constructor records the own interface")
+}

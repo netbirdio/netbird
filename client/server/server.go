@@ -268,7 +268,7 @@ func (s *Server) Start() error {
 
 	if s.updateManager == nil {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
-		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
+		s.updateManager = updater.NewManager(s.rootCtx, s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
 	}
 
@@ -592,9 +592,6 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 
 	if msg.ManagementUrl != "" {
 		config.ManagementURL = msg.ManagementUrl
-	}
-	if msg.AdminURL != "" {
-		config.AdminURL = msg.AdminURL
 	}
 	if msg.InterfaceName != nil {
 		config.InterfaceName = msg.InterfaceName
@@ -2409,7 +2406,6 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	// overlay (Loader lives outside profilemanager).
 	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	managementURL := cfg.ManagementURL
-	adminURL := cfg.AdminURL
 
 	var preSharedKey = cfg.PreSharedKey
 	if preSharedKey != "" {
@@ -2465,7 +2461,6 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	return &proto.GetConfigResponse{
 		ManagementUrl:                 managementURL.String(),
 		PreSharedKey:                  preSharedKey,
-		AdminURL:                      adminURL.String(),
 		InterfaceName:                 cfg.WgIface,
 		WireguardPort:                 int64(cfg.WgPort),
 		Mtu:                           int64(cfg.MTU),
@@ -2717,9 +2712,23 @@ func (s *Server) checkDisableAdvancedView() *bool {
 	return nil
 }
 
+// profileOwnerOption passes the OS account of the active profile to the connect client,
+// which reads that account's certificate store for user certificate posture checks.
+func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
+	if s.profileManager == nil {
+		return nil
+	}
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Warnf("failed to read the active profile owner, no user certificate store is used for certificate posture: %v", err)
+		return []internal.ConnectClientOption{internal.WithUnknownProfileOwner()}
+	}
+	return []internal.ConnectClientOption{internal.WithProfileOwner(activeProf.Username)}
+}
+
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder)
+	client := internal.NewConnectClient(ctx, config, statusRecorder, s.profileOwnerOption()...)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 

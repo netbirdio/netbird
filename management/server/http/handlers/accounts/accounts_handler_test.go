@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -130,6 +130,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -159,6 +160,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -188,6 +190,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr("latest"),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -217,6 +220,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -246,6 +250,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -275,6 +280,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -304,6 +310,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(true),
 				DashboardFeatures: &api.AccountDashboardFeatures{
 					AgentNetwork: br(true),
@@ -345,6 +352,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				DashboardFeatures: &api.AccountDashboardFeatures{
 					AgentNetwork: br(true),
@@ -377,6 +385,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
 				MetricsPushEnabled:              br(false),
+				PeerHostnameCollisionRejected:   br(false),
 				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
@@ -469,9 +478,9 @@ func TestCalculateMaxHosts(t *testing.T) {
 		prefix string
 		min    int64
 	}{
-		{"v4 /24", "100.64.0.0/24", 254},
-		{"v4 /16", "100.64.0.0/16", 65534},
-		{"v4 /28", "100.64.0.0/28", 14},
+		{"v4 /24", "100.64.0.0/24", 253},
+		{"v4 /16", "100.64.0.0/16", 65533},
+		{"v4 /28", "100.64.0.0/28", 13},
 		{"v6 /64", "fd00::/64", math.MaxInt64},
 		{"v6 /120", "fd00::/120", 256},
 		{"v6 /112", "fd00::/112", 65536},

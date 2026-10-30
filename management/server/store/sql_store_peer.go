@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -105,7 +106,6 @@ func (s *SqlStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountI
 			"peer_status_connected":          true,
 			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
 			"peer_status_session_started_at": newSessionStartedAt,
-			"peer_status_login_expired":      false,
 		})
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "mark peer connected: %v", result.Error)
@@ -139,6 +139,51 @@ func (s *SqlStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accoun
 		return false, status.Errorf(status.Internal, "mark peer disconnected: %v", result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// markPeersDisconnectedChunkSize bounds the sessions per statement so the
+// bound parameter count stays below the database limits.
+const markPeersDisconnectedChunkSize = 1000
+
+// MarkPeersDisconnectedIfSameSession is the batched form of
+// MarkPeerDisconnectedIfSameSession: one UPDATE per chunk of sessions, each
+// peer guarded by its own (account, peer, session) tuple. A failed chunk does
+// not stop the others, only a done ctx does; the count then covers the chunks
+// that succeeded and the error joins the failures.
+func (s *SqlStore) MarkPeersDisconnectedIfSameSession(ctx context.Context, sessions []types.PeerSession) (int64, error) {
+	var total int64
+	var errs []error
+	for start := 0; start < len(sessions); start += markPeersDisconnectedChunkSize {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", err))
+			break
+		}
+		end := min(start+markPeersDisconnectedChunkSize, len(sessions))
+		tuples := make([][]any, 0, end-start)
+		for _, session := range sessions[start:end] {
+			if session.SessionStartedAt == 0 {
+				continue
+			}
+			tuples = append(tuples, []any{session.AccountID, session.PeerID, session.SessionStartedAt})
+		}
+		if len(tuples) == 0 {
+			continue
+		}
+		result := s.db.WithContext(ctx).
+			Model(&nbpeer.Peer{}).
+			Where("(account_id, id, peer_status_session_started_at) IN ?", tuples).
+			Updates(map[string]any{
+				"peer_status_connected":          false,
+				"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
+				"peer_status_session_started_at": int64(0),
+			})
+		if result.Error != nil {
+			errs = append(errs, status.Errorf(status.Internal, "mark peers disconnected: %v", result.Error))
+			continue
+		}
+		total += result.RowsAffected
+	}
+	return total, errors.Join(errs...)
 }
 
 // ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
@@ -181,12 +226,36 @@ func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID st
 	return result.RowsAffected > 0, nil
 }
 
+// HeartbeatPeerSession stamps LastSeen with the database clock and marks the peer
+// connected, but only while sessionStartedAt still owns the peer and its login has not
+// expired. Setting Connected again undoes a save of a peer that was read as disconnected
+// while its heartbeats were delayed; the session match keeps an ended or replaced
+// session from coming back, and the login check keeps an expired peer disconnected
+// until it logs in again.
+func (s *SqlStore) HeartbeatPeerSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+	if sessionStartedAt == 0 {
+		return false, nil
+	}
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("peer_status_session_started_at = ? AND peer_status_login_expired = ?", sessionStartedAt, false).
+		Updates(map[string]any{
+			"peer_status_connected": true,
+			"peer_status_last_seen": gorm.Expr("CURRENT_TIMESTAMP"),
+		})
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "heartbeat peer session: %v", result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
 	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
 	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
 	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version,
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
-	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
+	meta_environment, meta_flags, meta_files, meta_certificates, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
 	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
 	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6, meta_sync_message_version
 	FROM peers WHERE account_id = $1`
@@ -204,7 +273,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			peerStatusLastSeen                                                                              sql.NullTime
 			peerStatusSessionStartedAt                                                                      sql.NullInt64
 			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded          sql.NullBool
-			ip, extraDNS, netAddr, env, flags, files, capabilities, connIP, ipv6                            []byte
+			ip, extraDNS, netAddr, env, flags, files, certificates, capabilities, connIP, ipv6              []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
@@ -217,7 +286,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &createdAt, &ephemeral, &extraDNS,
 			&allowExtraDNSLabels, &metaHostname, &metaGoOS, &metaKernel, &metaCore, &metaPlatform,
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
-			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &capabilities,
+			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &certificates, &capabilities,
 			&peerStatusLastSeen, &peerStatusSessionStartedAt, &peerStatusConnected, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
 			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
@@ -251,7 +320,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 				p.Status.SessionStartedAt = peerStatusSessionStartedAt.Int64
 			}
 			if peerStatusConnected.Valid {
-				p.Status.Connected = peerStatusConnected.Bool
+				p.Status.Connected = nbpeer.IsConnected(peerStatusConnected.Bool, p.Status.LastSeen)
 			}
 			if peerStatusLoginExpired.Valid {
 				p.Status.LoginExpired = peerStatusLoginExpired.Bool
@@ -334,6 +403,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if files != nil {
 				_ = json.Unmarshal(files, &p.Meta.Files)
 			}
+			if certificates != nil {
+				_ = json.Unmarshal(certificates, &p.Meta.Certificates)
+			}
 			if capabilities != nil {
 				_ = json.Unmarshal(capabilities, &p.Meta.Capabilities)
 			}
@@ -371,7 +443,7 @@ func (s *SqlStore) GetAccountByPeerID(ctx context.Context, peerID string) (*type
 
 func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error) {
 	var peer nbpeer.Peer
-	result := s.db.Select("account_id").Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := s.db.Select("account_id").Take(&peer, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -390,7 +462,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.Model(&peer).Select("account_id").Where(GetKeyQueryCondition(s), peerKey).Take(&accountID)
+	result := s.db.Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).Take(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -479,7 +551,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	}
 
 	var peer nbpeer.Peer
-	result := tx.Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := tx.Take(&peer, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -491,7 +563,6 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	return &peer, nil
 }
 
-// GetAccountPeers retrieves peers for an account.
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter, macFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
 	tx := s.db
@@ -511,13 +582,173 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 	if macFilter != "" {
 		query = query.Where("meta_network_addresses LIKE ?", "%"+macFilter+"%")
 	}
-
 	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}
 
 	return peers, nil
+}
+
+// GetAccountPeers retrieves peers for an account.
+func (s *SqlStore) GetAccountPeersPaginated(ctx context.Context, lockStrength LockingStrength, accountID string, pagination PaginationState, filters PeerFilters, sorting PeerSorting) ([]*nbpeer.Peer, int, error) {
+	// main query
+	var peers []*nbpeer.Peer
+	{
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		query := tx.Where("peers.account_id=?", accountID)
+		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
+		query = filters.AsConditions(query)
+		query = pagination.AsScope(query)
+		query = sorting.AsOrderBy(ctx, query)
+
+		if err := query.Distinct().Find(&peers).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get peers from store")
+		}
+	}
+
+	// total number of records
+	var peerCount int64
+	{
+		tx := s.db
+		if lockStrength != LockingStrengthNone {
+			tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+		}
+		query := tx.Where("peers.account_id=?", accountID)
+		query = query.Where("(peers.proxy_meta_embedded=false or peers.proxy_meta_embedded is null)")
+		query = filters.AsConditions(query)
+
+		if err := query.Table("peers").Select("count(distinct(peers.id))").Count(&peerCount).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to get total number of peers from the store: %s", err)
+			return nil, 0, status.Errorf(status.Internal, "failed to get total number of peers from store")
+		}
+	}
+
+	return peers, int(peerCount), nil
+}
+
+type PaginationState struct {
+	Page     int
+	PageSize int
+}
+
+func (p *PaginationState) AsScope(db *gorm.DB) *gorm.DB {
+	// empty pagination state
+	if p.PageSize == 0 {
+		return db
+	}
+	offset := max(p.Page-1, 0) * p.PageSize
+	return db.Offset(offset).Limit(p.PageSize)
+}
+
+type PeerFilters struct {
+	UserId           string
+	GroupIds         []string
+	Connected        *bool
+	ApprovalRequired *bool
+	Os               []string
+	IP               string
+	MAC              string
+	Hostname         string
+	Name             string
+	IsServer         *bool
+	PeersIds         []string
+}
+
+func (f *PeerFilters) AsConditions(db *gorm.DB) *gorm.DB {
+	if len(f.GroupIds) > 0 {
+		db = db.Joins("join group_peers on peers.id=group_peers.peer_id and peers.account_id=group_peers.account_id").Where("group_peers.group_id in (?)", f.GroupIds)
+	}
+	if f.UserId != "" {
+		db = db.Where("user_id=?", f.UserId)
+	}
+	if f.Connected != nil {
+		lastSeenAfter := time.Now().UTC().Add(-nbpeer.StaleAfter)
+		if *f.Connected {
+			db = db.Where("peer_status_connected = ? AND peer_status_last_seen >= ?", true, lastSeenAfter)
+		} else {
+			db = db.Where("(peer_status_connected = ? OR peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", false, lastSeenAfter)
+		}
+	}
+	if f.ApprovalRequired != nil {
+		db = db.Where("peer_status_requires_approval=?", *f.ApprovalRequired)
+	}
+	if len(f.Os) > 0 {
+		db = db.Where("meta_go_os in (?)", f.Os)
+	}
+	if f.IP != "" {
+		db = db.Where("ip like ? or lower(ipv6) like ?", fmt.Sprintf("%%%s%%", f.IP), fmt.Sprintf("%%%s%%", strings.ToLower(f.IP)))
+	}
+	if f.MAC != "" {
+		db = db.Where("lower(meta_network_addresses) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.MAC)))
+	}
+	if f.Hostname != "" {
+		db = db.Where("lower(meta_hostname) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Hostname)))
+	}
+	if f.Name != "" {
+		db = db.Where("lower(name) like ?", fmt.Sprintf("%%%s%%", strings.ToLower(f.Name)))
+	}
+	if f.IsServer != nil {
+		if *f.IsServer {
+			db = db.Where("(user_id='' or user_id is null)")
+		} else {
+			db = db.Where("user_id<>'' and user_id is not null")
+		}
+	}
+	if len(f.PeersIds) > 0 {
+		db = db.Where("id in (?)", f.PeersIds)
+	}
+
+	return db
+}
+
+type PeerSortByField int
+
+const (
+	PeerSortByName PeerSortByField = iota
+	PeerSortByLastSeen
+	PeerSortByVersion
+)
+
+type OrderBy int
+
+const (
+	AscOrderBy OrderBy = iota
+	DescOrderBy
+)
+
+type PeerSortingKey struct {
+	Field PeerSortByField
+	Order OrderBy
+}
+
+type PeerSorting struct {
+	Fields []PeerSortingKey
+}
+
+func (s *PeerSorting) AsOrderBy(ctx context.Context, db *gorm.DB) *gorm.DB {
+	order := make([]clause.OrderByColumn, 0)
+
+	for _, key := range s.Fields {
+		switch key.Field {
+		case PeerSortByName:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.name"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByLastSeen:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.peer_status_last_seen"}, Desc: key.Order == DescOrderBy})
+		case PeerSortByVersion:
+			order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "meta_wt_version"}, Desc: key.Order == DescOrderBy})
+		default:
+			log.WithContext(ctx).Warnf("invalid order by column '%v', skipping", key.Field)
+		}
+	}
+
+	// always order/break ties by id asc order
+	order = append(order, clause.OrderByColumn{Column: clause.Column{Name: "peers.id"}, Desc: false})
+	return db.Order(clause.OrderBy{Columns: order})
 }
 
 // GetUserPeers retrieves peers for a user.
@@ -712,12 +943,15 @@ func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStr
 		Where("account_id = ? AND dns_label = ?", accountID, hostname).
 		Limit(1).
 		Scan(&peerID)
+	if result.Error != nil {
+		return "", result.Error
+	}
 
 	if peerID == "" {
 		return "", gorm.ErrRecordNotFound
 	}
 
-	return peerID, result.Error
+	return peerID, nil
 }
 
 // GetEmbeddedProxyPeerIDsByCluster returns peer IDs of all embedded proxy peers
@@ -753,7 +987,7 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 	var userID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("user_id").
-		Take(&userID, GetKeyQueryCondition(s), peerKey)
+		Take(&userID, keyQueryCondition, peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -774,7 +1008,7 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 	var peerID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("id").
-		Where(GetKeyQueryCondition(s), key).
+		Where(keyQueryCondition, key).
 		Limit(1).
 		Scan(&peerID)
 	if result.Error != nil {

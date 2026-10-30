@@ -426,6 +426,9 @@ func accountPostureChecks(id string, pc *nmdata.PostureChecks, publicID string) 
 		}
 		out.Checks.ProcessCheck = &posture.ProcessCheck{Processes: procs}
 	}
+	if def.CertificateCheck != nil {
+		out.Checks.CertificateCheck = &posture.CertificateCheck{CACertificates: def.CertificateCheck.CACertificates}
+	}
 	return out
 }
 

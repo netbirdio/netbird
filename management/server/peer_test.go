@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -730,7 +731,6 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 			assert.NotNil(t, peers)
-
 			assert.Len(t, peers, testCase.expectedPeerCount)
 
 		})
@@ -1567,8 +1567,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine == "sqlite" || engine == "mysql" || engine == "" {
-		// we intentionally disabled foreign keys in mysql
+	if engine == "sqlite" || engine == "" {
 		t.Skip("Skipping test because store is not respecting foreign keys")
 	}
 	if runtime.GOOS == "windows" {
@@ -2219,10 +2218,6 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 		{
 			name:   "PostgreSQL uniqueness error",
 			engine: types.PostgresStoreEngine,
-		},
-		{
-			name:   "MySQL uniqueness error",
-			engine: types.MysqlStoreEngine,
 		},
 		{
 			name:   "SQLite uniqueness error",
@@ -3049,4 +3044,416 @@ func TestResolvePeerLocation(t *testing.T) {
 			assert.Equal(t, tt.want.GeoNameID, got.GeoNameID, "geoname id should match")
 		})
 	}
+}
+
+func TestAddPeer_HostnameCollisionRejected(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	account.Settings.PeerHostnameCollisionRejected = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key", types.SetupKeyReusable, time.Hour, nil, 100, "owner", false, false)
+	require.NoError(t, err)
+	ephemeralKey, err := manager.CreateSetupKey(context.Background(), account.Id, "ephemeral", types.SetupKeyReusable, time.Hour, nil, 100, "owner", true, false)
+	require.NoError(t, err)
+
+	addPeer := func(hostname, key string) (*nbpeer.Peer, error) {
+		wgKey, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		peer := &nbpeer.Peer{
+			Key:  wgKey.PublicKey().String(),
+			Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+		}
+		added, _, _, _, err := manager.AddPeer(context.Background(), "", key, "", peer, false)
+		return added, err
+	}
+
+	first, err := addPeer("my-host", setupKey.Key)
+	require.NoError(t, err)
+	assert.Equal(t, "my-host", first.DNSLabel)
+
+	_, err = addPeer("My-Host", setupKey.Key)
+	require.Error(t, err)
+	e, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.PermissionDenied, e.Type())
+
+	other, err := addPeer("other-host", setupKey.Key)
+	require.NoError(t, err)
+	assert.Equal(t, "other-host", other.DNSLabel)
+
+	_, err = addPeer("my-host", ephemeralKey.Key)
+	require.Error(t, err)
+	e, ok = status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.PermissionDenied, e.Type())
+
+	ephemeral, err := addPeer("ephemeral-host", ephemeralKey.Key)
+	require.NoError(t, err)
+	assert.Equal(t, "ephemeral-host", ephemeral.DNSLabel)
+
+	account.Settings.PeerHostnameCollisionRejected = false
+	require.NoError(t, manager.Store.SaveAccountSettings(context.Background(), account.Id, account.Settings))
+
+	suffixed, err := addPeer("my-host", setupKey.Key)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(suffixed.DNSLabel, "my-host-"))
+}
+
+func TestUpdatePeer_HostnameCollisionRejected(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	account.Settings.PeerHostnameCollisionRejected = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	addPeer := func(hostname string) *nbpeer.Peer {
+		wgKey, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		added, _, _, _, err := manager.AddPeer(context.Background(), "", "", "owner", &nbpeer.Peer{
+			Key:  wgKey.PublicKey().String(),
+			Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+		}, false)
+		require.NoError(t, err)
+		return added
+	}
+	first := addPeer("web-server")
+	second := addPeer("old-name")
+
+	update := second.Copy()
+	update.Name = "Web-Server"
+	_, err = manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	require.Error(t, err)
+	e, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.PermissionDenied, e.Type())
+
+	update = second.Copy()
+	update.Name = "api-server.example.com"
+	updated, err := manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	require.NoError(t, err)
+	assert.Equal(t, "api-server", updated.DNSLabel)
+
+	update = first.Copy()
+	update.Name = "WEB-SERVER"
+	updated, err = manager.UpdatePeer(context.Background(), account.Id, "owner", update)
+	require.NoError(t, err, "renaming to a different spelling of the own label must not collide with itself")
+	assert.Equal(t, "web-server", updated.DNSLabel)
+}
+
+func TestAddPeer_HostnameCollisionRejectedConcurrent(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	account.Settings.PeerHostnameCollisionRejected = true
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key", types.SetupKeyReusable, time.Hour, nil, 100, "owner", false, false)
+	require.NoError(t, err)
+
+	const attempts = 20
+	start := make(chan struct{})
+	errs := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wgKey, err := wgtypes.GenerateKey()
+			if err != nil {
+				errs <- err
+				return
+			}
+			<-start
+			_, _, _, _, err = manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
+				Key:  wgKey.PublicKey().String(),
+				Meta: nbpeer.PeerSystemMeta{Hostname: "same-host", OS: "linux"},
+			}, false)
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	succeeded := 0
+	for err := range errs {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		e, ok := status.FromError(err)
+		require.True(t, ok, "unexpected error: %v", err)
+		assert.Equal(t, status.PermissionDenied, e.Type(), "unexpected error: %v", err)
+	}
+	assert.Equal(t, 1, succeeded)
+
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	assert.Equal(t, "same-host", peers[0].DNSLabel)
+}
+
+func TestAddPeer_IPCollisionKeepsLabel(t *testing.T) {
+	for _, rejectCollision := range []bool{false, true} {
+		t.Run(fmt.Sprintf("collision rejected %t", rejectCollision), func(t *testing.T) {
+			manager, _, err := createManager(t)
+			require.NoError(t, err)
+
+			account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+			account.Settings.PeerHostnameCollisionRejected = rejectCollision
+			_, smallNet, err := net.ParseCIDR("100.64.0.0/26")
+			require.NoError(t, err)
+			account.Network.Net = *smallNet
+			require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+			const totalPeers = 20
+			for i := 0; i < totalPeers; i++ {
+				wgKey, err := wgtypes.GenerateKey()
+				require.NoError(t, err)
+				hostname := fmt.Sprintf("host-%d", i)
+				added, _, _, _, err := manager.AddPeer(context.Background(), "", "", "owner", &nbpeer.Peer{
+					Key:  wgKey.PublicKey().String(),
+					Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+				}, false)
+				require.NoError(t, err)
+				assert.Equal(t, hostname, added.DNSLabel, "an IP collision must not change the DNS label")
+			}
+		})
+	}
+}
+
+func TestAddPeer_ExhaustedIPAllocationFails(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	_, tinyNet, err := net.ParseCIDR("100.64.0.0/30")
+	require.NoError(t, err)
+	account.Network.Net = *tinyNet
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	addPeer := func(hostname string) error {
+		wgKey, err := wgtypes.GenerateKey()
+		require.NoError(t, err)
+		_, _, _, _, err = manager.AddPeer(context.Background(), "", "", "owner", &nbpeer.Peer{
+			Key:  wgKey.PublicKey().String(),
+			Meta: nbpeer.PeerSystemMeta{Hostname: hostname, OS: "linux"},
+		}, false)
+		return err
+	}
+	require.NoError(t, addPeer("host-1"))
+
+	err = addPeer("host-2")
+	require.Error(t, err, "no free IP left, registration must fail")
+
+	peers, err := manager.Store.GetAccountPeers(context.Background(), store.LockingStrengthNone, account.Id, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	assert.Equal(t, netip.MustParseAddr("100.64.0.1"), peers[0].IP)
+}
+
+func TestPeerWrites_BumpNetworkSerial(t *testing.T) {
+	manager, _, account, peer1, peer2, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	t.Run("SyncPeer with changed meta bumps, unchanged does not", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		before := networkSerial(t, manager, account.Id)
+		_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: current.Meta}, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, before, networkSerial(t, manager, account.Id))
+
+		meta := current.Meta
+		meta.Hostname = "renamed-host"
+		_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: meta}, account.Id)
+		require.NoError(t, err)
+		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("LoginPeer with changed ssh key bumps, unchanged does not", func(t *testing.T) {
+		current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		before := networkSerial(t, manager, account.Id)
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: current.SSHKey, Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Equal(t, before, networkSerial(t, manager, account.Id))
+
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAnew", Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Greater(t, networkSerial(t, manager, account.Id), before)
+	})
+
+	t.Run("MarkPeerConnected and MarkPeerDisconnected", func(t *testing.T) {
+		session := time.Now().UTC().UnixNano()
+
+		before := networkSerial(t, manager, account.Id)
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		assert.Equal(t, before, networkSerial(t, manager, account.Id), "regular peers must not bump")
+
+		expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		expired.Status.LoginExpired = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
+
+		session++
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		afterExpired := networkSerial(t, manager, account.Id)
+		assert.Equal(t, before, afterExpired, "login-expired reconnect writes no network map data")
+
+		embedded, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+		require.NoError(t, err)
+		embedded.Status.LoginExpired = false
+		embedded.ProxyMeta.Embedded = true
+		require.NoError(t, manager.Store.SavePeer(ctx, account.Id, embedded))
+
+		require.NoError(t, manager.MarkPeerDisconnected(ctx, peer2.Key, account.Id, session))
+		afterDisconnect := networkSerial(t, manager, account.Id)
+		assert.Greater(t, afterDisconnect, afterExpired, "embedded proxy disconnect must bump")
+
+		session++
+		require.NoError(t, manager.MarkPeerConnected(ctx, peer2.Key, account.Id, session, nil))
+		assert.Greater(t, networkSerial(t, manager, account.Id), afterDisconnect, "embedded proxy connect must bump")
+	})
+}
+
+type txCountingStore struct {
+	store.Store
+	txs atomic.Int32
+}
+
+func (s *txCountingStore) ExecuteInTransaction(ctx context.Context, f func(store.Store) error) error {
+	s.txs.Add(1)
+	return s.Store.ExecuteInTransaction(ctx, f)
+}
+
+func TestPeerSyncAndLogin_LockOnlyOnChange(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+	counting := &txCountingStore{Store: manager.Store}
+	manager.Store = counting
+
+	current, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	require.NoError(t, err)
+
+	t.Run("SyncPeer without meta change opens no transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: current.Meta}, account.Id)
+		require.NoError(t, err)
+		assert.Zero(t, counting.txs.Load())
+	})
+
+	t.Run("SyncPeer with meta change saves in one transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		meta := current.Meta
+		meta.Hostname = "lock-on-change-host"
+		_, _, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: meta}, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), counting.txs.Load())
+
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "lock-on-change-host", saved.Meta.Hostname)
+	})
+
+	t.Run("LoginPeer without change opens no transaction", func(t *testing.T) {
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+
+		counting.txs.Store(0)
+		_, _, _, _, err = manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: saved.SSHKey, Meta: saved.Meta})
+		require.NoError(t, err)
+		assert.Zero(t, counting.txs.Load())
+	})
+
+	t.Run("LoginPeer with new ssh key saves in one transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAlockonchange", Meta: current.Meta})
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), counting.txs.Load())
+
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey)
+	})
+
+	t.Run("LoginPeer rejects a user mismatch without a transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, UserID: "someone-else", SSHKey: "ssh-ed25519 AAAAother", Meta: current.Meta})
+		assert.Equal(t, status.NewPeerLoginMismatchError(), err)
+		assert.Zero(t, counting.txs.Load())
+
+		saved, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ssh-ed25519 AAAAlockonchange", saved.SSHKey, "a rejected login must not store its ssh key")
+	})
+
+	t.Run("LoginPeer rejects disallowed extra DNS labels without a transaction", func(t *testing.T) {
+		counting.txs.Store(0)
+		_, _, _, _, err := manager.LoginPeer(ctx, types.PeerLogin{WireGuardPubKey: peer1.Key, SSHKey: "ssh-ed25519 AAAAlabels", ExtraDNSLabels: []string{"extra"}, Meta: current.Meta})
+		errStatus, ok := status.FromError(err)
+		require.True(t, ok, "expected a status error, got %v", err)
+		assert.Equal(t, status.PreconditionFailed, errStatus.Type())
+		assert.Zero(t, counting.txs.Load())
+	})
+}
+
+func TestCheckPeerMaySync(t *testing.T) {
+	manager, _, account, peer1, peer2, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	require.NoError(t, manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
+
+	expired, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer1.ID)
+	require.NoError(t, err)
+	expired.Status.LoginExpired = true
+	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, expired))
+	assert.Equal(t, status.NewPeerLoginExpiredError(), manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil))
+
+	owner := types.NewRegularUser("blocked-owner", "", "")
+	owner.AccountID = account.Id
+	owner.Blocked = true
+	require.NoError(t, manager.Store.SaveUser(ctx, owner))
+	blocked, err := manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, account.Id, peer2.ID)
+	require.NoError(t, err)
+	blocked.UserID = owner.Id
+	require.NoError(t, manager.Store.SavePeer(ctx, account.Id, blocked))
+	err = manager.CheckPeerMaySync(ctx, account.Id, peer2.Key, nil)
+	errStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.PermissionDenied, errStatus.Type())
+
+	assert.Equal(t, status.NewPeerNotRegisteredError(), manager.CheckPeerMaySync(ctx, account.Id, "unknown-key", nil))
+}
+
+type failingPeerLookupStore struct {
+	store.Store
+}
+
+func (s *failingPeerLookupStore) GetPeerByPeerPubKey(context.Context, store.LockingStrength, string) (*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "issue getting peer from store: connection reset")
+}
+
+func TestPeerLookupErrorKeepsTransientStoreErrors(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+	ctx := context.Background()
+	manager.Store = &failingPeerLookupStore{Store: manager.Store}
+
+	err := manager.CheckPeerMaySync(ctx, account.Id, peer1.Key, nil)
+	errStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.Internal, errStatus.Type(), "a store failure must not look like an unregistered peer")
+
+	_, _, _, _, err = manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key}, account.Id)
+	errStatus, ok = status.FromError(err)
+	require.True(t, ok, "expected a status error, got %v", err)
+	assert.Equal(t, status.Internal, errStatus.Type(), "a store failure must not look like an unregistered peer")
 }

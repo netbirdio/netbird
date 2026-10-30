@@ -14,10 +14,12 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
@@ -107,7 +109,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(newAccessLogsRepository(t), store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
@@ -146,7 +148,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics, nil)...)
+	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics)...)
 	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
 		groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
 		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
@@ -249,7 +251,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(newAccessLogsRepository(t), store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
@@ -288,7 +290,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics, nil)...)
+	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics)...)
 	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager,
 		geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
 		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
@@ -297,6 +299,16 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	}
 
 	return apiHandler, am, updMsg
+}
+
+func newAccessLogsRepository(t testing_tools.TB) accesslogs.Repository {
+	t.Helper()
+	conn, err := accesslogsmanager.OpenConn(context.Background(), t.TempDir(), db.SqliteStoreEngine)
+	if err != nil {
+		t.Fatalf("Failed to open access log store: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return accesslogsmanager.NewRepository(conn)
 }
 
 func mockValidateAndParseToken(_ context.Context, token string) (auth.UserAuth, *jwt.Token, error) {

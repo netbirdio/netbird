@@ -38,7 +38,8 @@ func Execute() error {
 }
 
 func init() {
-	stopCh = make(chan int)
+	// Buffered so a server failure before the run loop waits is not dropped.
+	stopCh = make(chan int, 1)
 	defaultLogFile = "/var/log/netbird/signal.log"
 
 	if runtime.GOOS == "windows" {

@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -24,8 +26,8 @@ type TxMetrics interface {
 	CountTransactionDuration(duration time.Duration)
 }
 
-// Conn is the database connection shared by all repositories: one gorm handle,
-// the pgx pool of a Postgres deployment and the engine they talk to.
+// Conn is a database connection the repositories run on: one gorm handle, the
+// pgx pool of a Postgres deployment and the engine they talk to.
 type Conn struct {
 	db        *gorm.DB
 	pool      *pgxpool.Pool
@@ -34,28 +36,50 @@ type Conn struct {
 	metrics   TxMetrics
 }
 
+// Option tunes a Conn as it is opened.
+type Option func(*connOptions)
+
+type connOptions struct {
+	maxOpenConns int
+}
+
+// WithMaxOpenConns sizes the gorm connection pool of this Conn, taking
+// precedence over NB_SQL_MAX_OPEN_CONNS. A pgx pool keeps its PoolConfig size,
+// and SQLite always uses one connection.
+func WithMaxOpenConns(n int) Option {
+	return func(o *connOptions) {
+		o.maxOpenConns = n
+	}
+}
+
 // NewConn takes ownership of an open gorm handle and pool once it returns
 // without error, applying the connection limits and transaction timeout
-// configured through the environment.
-func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool) (*Conn, error) {
+// configured through the environment and opts.
+func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool, opts ...Option) (*Conn, error) {
 	sqlDB, err := gormDB.DB()
 	if err != nil {
 		return nil, err
 	}
 
-	txTimeout := defaultTransactionTimeout
-	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
-		if parsed, err := time.ParseDuration(v); err == nil {
-			txTimeout = parsed
-		}
+	var options connOptions
+	for _, opt := range opts {
+		opt(&options)
 	}
+
+	txTimeout := util.DurationFromEnv(transactionTimeoutEnv, defaultTransactionTimeout)
 	log.WithContext(ctx).Infof("Setting transaction timeout to %v", txTimeout)
+	if d := util.DurationFromEnv(statementTimeoutEnv, 0); engine == PostgresStoreEngine && d > 0 {
+		log.WithContext(ctx).Infof("Setting statement timeout to %v", d)
+	}
 
 	conns := runtime.NumCPU()
 	configuredConns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
 	connsConfigured := err == nil
 	if connsConfigured {
 		conns = configuredConns
+	}
+	if options.maxOpenConns > 0 {
+		conns = options.maxOpenConns
 	}
 	if engine == SqliteStoreEngine {
 		if connsConfigured {

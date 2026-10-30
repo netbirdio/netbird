@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // PacketFilter interface for firewall abilities
@@ -42,7 +43,7 @@ type PacketCapture interface {
 
 // FilteredDevice to override Read or Write of packets
 type FilteredDevice struct {
-	tun.Device
+	wgbackend.TUN
 
 	filter  PacketFilter
 	capture atomic.Pointer[PacketCapture]
@@ -54,9 +55,9 @@ type FilteredDevice struct {
 }
 
 // newDeviceFilter constructor function
-func newDeviceFilter(device tun.Device) *FilteredDevice {
+func newDeviceFilter(device wgbackend.TUN) *FilteredDevice {
 	return &FilteredDevice{
-		Device: device,
+		TUN: device,
 	}
 }
 
@@ -66,7 +67,7 @@ func newDeviceFilter(device tun.Device) *FilteredDevice {
 func (d *FilteredDevice) Close() error {
 	var err error
 	d.closeOnce.Do(func() {
-		err = d.Device.Close()
+		err = d.TUN.Close()
 	})
 	if err != nil {
 		return err
@@ -142,14 +143,14 @@ func (d *FilteredDevice) Write(bufs [][]byte, offset int) (int, error) {
 // wintun read path and converting them into errors.
 func (d *FilteredDevice) deviceRead(bufs [][]byte, sizes []int, offset int) (n int, err error) {
 	defer d.recoverFromPanic("read", &n, &err)
-	return d.Device.Read(bufs, sizes, offset)
+	return d.TUN.Read(bufs, sizes, offset)
 }
 
 // deviceWrite calls the underlying device Write, recovering from panics in the
 // wintun write path and converting them into errors.
 func (d *FilteredDevice) deviceWrite(bufs [][]byte, offset int) (n int, err error) {
 	defer d.recoverFromPanic("write", &n, &err)
-	return d.Device.Write(bufs, offset)
+	return d.TUN.Write(bufs, offset)
 }
 
 // recoverFromPanic converts a panic in the underlying device into a regular
