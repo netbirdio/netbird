@@ -658,8 +658,8 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, ac
 
 	// Drop denied traffic here, before DNAT can divert it to the forward
 	// path where a route ACL could accept it. Established and related
-	// packets are exempt, as the input chain accepts them ahead of its
-	// drops.
+	// packets are exempt so replies to connections the host opened keep
+	// passing, as they do on the iptables backend.
 	if action == firewall.ActionDrop {
 		preroutingExprs = append(preroutingExprs, getNotEstablishedExprs()...)
 		preroutingExprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictDrop})
