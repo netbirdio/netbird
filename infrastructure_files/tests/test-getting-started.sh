@@ -80,3 +80,245 @@ for image in traefik:latest traefik:custom-build traefik registry.example:5000/t
 done
 
 echo "Passed $cases Traefik image configuration cases."
+
+file_mode() {
+  local file="$1"
+  stat -c '%a' "$file" 2>/dev/null || stat -f '%OLp' "$file"
+}
+
+service_block() {
+  local name="$1"
+  awk -v s="  ${name}:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
+}
+
+render_proxy_stack() {
+  local case_dir="$1"
+  mkdir -p "$case_dir"
+  (
+    cd "$case_dir"
+    initialize_default_values
+    NETBIRD_DOMAIN=netbird.test
+    NETBIRD_NON_INTERACTIVE=true
+    NETBIRD_REVERSE_PROXY_TYPE=0
+    NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
+    NETBIRD_ENABLE_PROXY=true
+    NETBIRD_ENABLE_CROWDSEC="$2"
+    unset NETBIRD_ENABLE_CROWDSEC_APPSEC
+    if [[ -n "${3:-}" ]]; then
+      NETBIRD_ENABLE_CROWDSEC_APPSEC="$3"
+    fi
+    configure_reverse_proxy
+    generate_configuration_files
+  )
+}
+
+assert_appsec_enabled() {
+  local case_dir="$test_dir/appsec-on"
+  render_proxy_stack "$case_dir" true true
+  local compose="$case_dir/docker-compose.yml"
+  local key
+  key=$(sed -n 's/^CROWDSEC_DASHBOARD_BOUNCER_KEY=//p' "$case_dir/.env")
+  if [[ ! "$key" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "AppSec: dashboard bouncer key was not written" >&2
+    exit 1
+  fi
+  if [[ "$(file_mode "$case_dir/.env")" != "600" ]]; then
+    echo "AppSec: .env mode is $(file_mode "$case_dir/.env"), expected 600" >&2
+    exit 1
+  fi
+  if grep -Fq "$key" "$compose"; then
+    echo "AppSec: dashboard bouncer key was written into docker-compose.yml" >&2
+    exit 1
+  fi
+  for line in \
+    'github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin' \
+    'version=v1.7.1' \
+    'crowdsecAppsecHost=crowdsec:7422' \
+    'crowdsecAppsecFailureBlock=true' \
+    'crowdsecAppsecUnreachableBlock=true' \
+    'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker' \
+    'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker' \
+    'netbird-dashboard-api.priority=110' \
+    'crowdsecurity/appsec-virtual-patching' \
+    'crowdsecurity/appsec-generic-rules' \
+    'start_period: 30s'; do
+    if ! grep -Fq "$line" "$compose"; then
+      echo "AppSec: missing '$line' in docker-compose.yml" >&2
+      exit 1
+    fi
+  done
+  for line in \
+    'listen_addr: 0.0.0.0:7422' \
+    'crowdsecurity/appsec-default' \
+    'source: appsec'; do
+    if ! grep -Fq "$line" "$case_dir/crowdsec/acquis.d/appsec.yaml"; then
+      echo "AppSec: missing '$line' in appsec.yaml" >&2
+      exit 1
+    fi
+  done
+  local traefik dashboard server crowdsec
+  traefik=$(service_block traefik < "$compose")
+  dashboard=$(service_block dashboard < "$compose")
+  server=$(service_block netbird-server < "$compose")
+  crowdsec=$(service_block crowdsec < "$compose")
+  if [[ "$traefik" != *$'depends_on:\n      crowdsec:\n        condition: service_healthy'* ]]; then
+    echo "AppSec: Traefik does not wait for CrowdSec" >&2
+    exit 1
+  fi
+  # Both sides must read the same key from .env. The middleware belongs on the
+  # Traefik service: declared on the dashboard container, a restart would drop
+  # it and the routers would fail open.
+  if ! grep -Fq 'crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' <<< "$traefik"; then
+    echo "AppSec: Traefik service does not read the dashboard bouncer key" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'BOUNCER_KEY_netbird_dashboard: "${CROWDSEC_DASHBOARD_BOUNCER_KEY}"' <<< "$crowdsec"; then
+    echo "AppSec: crowdsec service does not register the dashboard bouncer key" >&2
+    exit 1
+  fi
+  for command in 'cscli lapi status' '/dev/tcp/127.0.0.1/7422'; do
+    if ! grep -Fq "$command" <<< "$crowdsec"; then
+      echo "AppSec: CrowdSec health check is missing '$command'" >&2
+      exit 1
+    fi
+  done
+  if ! grep -Fq 'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker' <<< "$dashboard"; then
+    echo "AppSec: dashboard router is not protected" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker' <<< "$server"; then
+    echo "AppSec: API router is not protected" >&2
+    exit 1
+  fi
+  local api_rule backend_rule
+  api_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-dashboard-api\.rule=//p' <<< "$server")
+  if [[ "$api_rule" != 'Host(`netbird.test`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec: API router has an unexpected rule: $api_rule" >&2
+    exit 1
+  fi
+  # A missing AppSec middleware disables the protected routers. The backend
+  # must not match API or OAuth2 requests while those routers are unavailable.
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' <<< "$server")
+  if [[ "$backend_rule" != 'Host(`netbird.test`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`))' ]]; then
+    echo "AppSec: backend router has an unexpected rule: $backend_rule" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'netbird-dashboard-api.service=netbird-server' <<< "$server"; then
+    echo "AppSec: API router does not target netbird-server" >&2
+    exit 1
+  fi
+  if [[ "$server" == *'netbird-dashboard-api.rule='*'/relay'* ]]; then
+    echo "AppSec: API router includes relay" >&2
+    exit 1
+  fi
+  if grep -F 'netbird-grpc' <<< "$server" | grep -q 'crowdsec'; then
+    echo "AppSec: gRPC router gained the AppSec middleware" >&2
+    exit 1
+  fi
+  if grep -Fq 'netbird-backend.middlewares' "$compose" || grep -Fq 'proxy-passthrough.middlewares' "$compose"; then
+    echo "AppSec: middleware attached outside the dashboard and API routers" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_appsec_disabled() {
+  local case_dir="$test_dir/appsec-off-${1:-default}"
+  render_proxy_stack "$case_dir" true "${1:-}"
+  if [[ -e "$case_dir/.env" || -e "$case_dir/crowdsec/acquis.d/appsec.yaml" ]]; then
+    echo "AppSec off: generated AppSec files" >&2
+    exit 1
+  fi
+  if grep -Fq 'appsec' "$case_dir/docker-compose.yml" || grep -Fq '7422' "$case_dir/docker-compose.yml"; then
+    echo "AppSec off: CrowdSec-only compose includes AppSec" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'COLLECTIONS: crowdsecurity/linux' "$case_dir/docker-compose.yml"; then
+    echo "AppSec off: missing the base CrowdSec collection" >&2
+    exit 1
+  fi
+  local backend_rule
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' "$case_dir/docker-compose.yml")
+  if [[ "$backend_rule" != 'Host(`netbird.test`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec off: backend router has an unexpected rule: $backend_rule" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_appsec_requires_crowdsec() {
+  local status=0
+  (
+    initialize_default_values
+    NETBIRD_NON_INTERACTIVE=true
+    NETBIRD_REVERSE_PROXY_TYPE=0
+    NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
+    NETBIRD_ENABLE_PROXY=true
+    NETBIRD_ENABLE_CROWDSEC=false
+    NETBIRD_ENABLE_CROWDSEC_APPSEC=true
+    configure_reverse_proxy
+  ) >"$test_dir/appsec-requires.out" 2>"$test_dir/appsec-requires.err" || status=$?
+  if [[ "$status" -eq 0 ]] || ! grep -Fq 'requires NETBIRD_ENABLE_CROWDSEC=true' "$test_dir/appsec-requires.err"; then
+    echo "AppSec without CrowdSec: expected the install to stop" >&2
+    cat "$test_dir/appsec-requires.err" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_appsec_rejects_invalid_value() {
+  local crowdsec status
+  for crowdsec in true false; do
+    status=0
+    (
+      initialize_default_values
+      NETBIRD_NON_INTERACTIVE=true
+      NETBIRD_REVERSE_PROXY_TYPE=0
+      NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
+      NETBIRD_ENABLE_PROXY=true
+      NETBIRD_ENABLE_CROWDSEC="$crowdsec"
+      NETBIRD_ENABLE_CROWDSEC_APPSEC=yes
+      configure_reverse_proxy
+    ) >"$test_dir/appsec-invalid.out" 2>"$test_dir/appsec-invalid.err" || status=$?
+    if [[ "$status" -eq 0 ]] || ! grep -Fq 'NETBIRD_ENABLE_CROWDSEC_APPSEC must be true or false.' "$test_dir/appsec-invalid.err"; then
+      echo "Invalid AppSec value with CrowdSec $crowdsec: expected the install to stop" >&2
+      cat "$test_dir/appsec-invalid.err" >&2
+      exit 1
+    fi
+    cases=$((cases + 1))
+  done
+}
+
+assert_reinitialize_rotates_only_appsec_key() {
+  local case_dir="$test_dir/reinitialize" output status=0
+  mkdir -p "$case_dir"
+  (
+    cd "$case_dir"
+    : > config.yaml
+    DOCKER_COMPOSE_COMMAND="docker compose"
+    check_existing_installation
+  ) >"$case_dir/output" 2>&1 || status=$?
+  output=$(cat "$case_dir/output")
+  if [[ "$status" -eq 0 ]]; then
+    echo "Reinitialize instructions: expected existing install to stop" >&2
+    exit 1
+  fi
+  if [[ "$output" != *"sed -i '/^CROWDSEC_DASHBOARD_BOUNCER_KEY=/d' .env"* ]]; then
+    echo "Reinitialize instructions: dashboard bouncer key is not removed" >&2
+    exit 1
+  fi
+  if grep -F 'rm -f' "$case_dir/output" | grep -Fq ' .env'; then
+    echo "Reinitialize instructions: .env would be deleted" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_appsec_enabled
+assert_appsec_disabled
+assert_appsec_disabled false
+assert_appsec_requires_crowdsec
+assert_appsec_rejects_invalid_value
+assert_reinitialize_rotates_only_appsec_key
+
+echo "Passed $cases configuration cases."

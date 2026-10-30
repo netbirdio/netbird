@@ -94,3 +94,208 @@ for header_config in "" "$TRAEFIK_HEADER_CONFIG"; do
 done
 
 echo "Passed $cases Traefik tag validation cases."
+
+render_enterprise() {
+  NETBIRD_TRAFFIC_FLOW=no
+  NETBIRD_PROXY=yes
+  NETBIRD_CROWDSEC=yes
+  NETBIRD_CROWDSEC_APPSEC="$1"
+  CUSTOM_TLS_CERTS=""
+  render_docker_compose
+}
+
+assert_enterprise_appsec() {
+  local rendered traefik dashboard server crowdsec
+  rendered=$(render_enterprise yes)
+  traefik=$(printf '%s\n' "$rendered" | service_block traefik)
+  dashboard=$(printf '%s\n' "$rendered" | service_block dashboard)
+  server=$(printf '%s\n' "$rendered" | service_block netbird-server)
+  crowdsec=$(printf '%s\n' "$rendered" | service_block crowdsec)
+  if [[ "$traefik" == *$'\n\n'* ]]; then
+    echo "AppSec: Traefik service contains a blank line" >&2
+    exit 1
+  fi
+  # netbird-server also waits on a healthy Postgres, so the dependency has to
+  # be found inside the Traefik block and name crowdsec.
+  if [[ "$traefik" != *$'depends_on:\n      crowdsec:\n        condition: service_healthy'* ]]; then
+    echo "AppSec: Traefik does not wait for CrowdSec" >&2
+    exit 1
+  fi
+  for line in \
+    'github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin' \
+    'version=v1.7.1' \
+    'crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' \
+    'crowdsecAppsecHost=crowdsec:7422' \
+    'crowdsecAppsecFailureBlock=true' \
+    'crowdsecAppsecUnreachableBlock=true'; do
+    if ! grep -Fq "$line" <<< "$traefik"; then
+      echo "AppSec: Traefik service is missing '$line'" >&2
+      exit 1
+    fi
+  done
+  if ! grep -Fq 'netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' <<< "$dashboard"; then
+    echo "AppSec: dashboard router is not protected" >&2
+    exit 1
+  fi
+  local api_rule backend_rule
+  api_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-dashboard-api\.rule=//p' <<< "$server")
+  if [[ "$api_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec: API router has an unexpected rule: $api_rule" >&2
+    exit 1
+  fi
+  # A missing AppSec middleware disables the protected routers. The backend
+  # must not match API or OAuth2 requests while those routers are unavailable.
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' <<< "$server")
+  if [[ "$backend_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`))' ]]; then
+    echo "AppSec: backend router has an unexpected rule: $backend_rule" >&2
+    exit 1
+  fi
+  for line in \
+    'netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker,nb-security@docker' \
+    'netbird-dashboard-api.service=netbird-server' \
+    'netbird-dashboard-api.priority=110'; do
+    if ! grep -Fq "$line" <<< "$server"; then
+      echo "AppSec: netbird-server is missing '$line'" >&2
+      exit 1
+    fi
+  done
+  for line in \
+    'crowdsecurity/appsec-virtual-patching' \
+    'crowdsecurity/appsec-generic-rules' \
+    'BOUNCER_KEY_netbird_dashboard=${CROWDSEC_DASHBOARD_BOUNCER_KEY}' \
+    './crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro' \
+    '/dev/tcp/127.0.0.1/7422' \
+    'start_period: 30s'; do
+    if ! grep -Fq "$line" <<< "$crowdsec"; then
+      echo "AppSec: crowdsec service is missing '$line'" >&2
+      exit 1
+    fi
+  done
+  if grep -F 'netbird-dashboard-api.rule' <<< "$server" | grep -q '/relay'; then
+    echo "AppSec: API router includes relay" >&2
+    exit 1
+  fi
+  if grep -F 'netbird-grpc' <<< "$server" | grep -q 'crowdsec'; then
+    echo "AppSec: gRPC router gained the AppSec middleware" >&2
+    exit 1
+  fi
+  if grep -F 'netbird-backend.middlewares' <<< "$server" | grep -q 'crowdsec'; then
+    echo "AppSec: relay router gained the AppSec middleware" >&2
+    exit 1
+  fi
+  if grep -Fq 'proxy-passthrough.middlewares' <<< "$rendered"; then
+    echo "AppSec: proxy passthrough gained a middleware" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'netbird-grpc.middlewares=nb-security@docker' <<< "$server"; then
+    echo "AppSec: gRPC router lost nb-security" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_enterprise_crowdsec_only() {
+  local rendered
+  rendered=$(render_enterprise no)
+  if grep -Fq 'appsec' <<< "$rendered" || grep -Fq '7422' <<< "$rendered"; then
+    echo "AppSec off: CrowdSec-only compose includes AppSec" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'COLLECTIONS=crowdsecurity/linux' <<< "$rendered"; then
+    echo "AppSec off: missing the base CrowdSec collection" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'middlewares=nb-security@docker' <<< "$rendered"; then
+    echo "AppSec off: dashboard lost nb-security" >&2
+    exit 1
+  fi
+  local backend_rule
+  backend_rule=$(sed -n 's/^ *- traefik\.http\.routers\.netbird-backend\.rule=//p' <<< "$rendered")
+  if [[ "$backend_rule" != 'Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))' ]]; then
+    echo "AppSec off: backend router has an unexpected rule: $backend_rule" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+assert_dashboard_key_preserved() {
+  local case_dir="$test_dir/dashboard-key"
+  mkdir -p "$case_dir"
+  (
+    cd "$case_dir"
+    printf 'CROWDSEC_DASHBOARD_BOUNCER_KEY=existingkey\n' > .env
+    NETBIRD_CROWDSEC_APPSEC=yes
+    ensure_crowdsec_dashboard_key
+    if [[ -n "${CROWDSEC_DASHBOARD_BOUNCER_KEY}" ]]; then
+      echo "AppSec: existing dashboard bouncer key was replaced" >&2
+      exit 1
+    fi
+    if [[ "$(env_get CROWDSEC_DASHBOARD_BOUNCER_KEY)" != "existingkey" ]]; then
+      echo "AppSec: existing dashboard bouncer key changed" >&2
+      exit 1
+    fi
+    rm -f .env
+    NETBIRD_CROWDSEC_APPSEC=yes
+    ensure_crowdsec_dashboard_key
+    if [[ ! "$CROWDSEC_DASHBOARD_BOUNCER_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "AppSec: new dashboard bouncer key was not generated" >&2
+      exit 1
+    fi
+    generated=$CROWDSEC_DASHBOARD_BOUNCER_KEY
+    rendered=$(render_env_dashboard_bouncer_key)
+    if [[ "$rendered" != "CROWDSEC_DASHBOARD_BOUNCER_KEY=${generated}" ]]; then
+      echo "AppSec: dashboard bouncer key was not rendered into .env" >&2
+      exit 1
+    fi
+    CROWDSEC_DASHBOARD_BOUNCER_KEY=""
+    if [[ -n "$(render_env_dashboard_bouncer_key)" ]]; then
+      echo "AppSec: empty dashboard bouncer key would overwrite .env" >&2
+      exit 1
+    fi
+  )
+  cases=$((cases + 1))
+}
+
+assert_appsec_acquisition() {
+  local case_dir="$test_dir/appsec-acquis"
+  mkdir -p "$case_dir"
+  (
+    cd "$case_dir"
+    APPSEC_ACQUIS_CREATED=""
+    write_crowdsec_appsec_acquisition
+    if [[ "$APPSEC_ACQUIS_CREATED" != "crowdsec/acquis.d/appsec.yaml" ]]; then
+      echo "AppSec: acquisition file was not recorded for rollback" >&2
+      exit 1
+    fi
+    for line in \
+      'listen_addr: 0.0.0.0:7422' \
+      'crowdsecurity/appsec-default' \
+      'type: appsec' \
+      'source: appsec'; do
+      if ! grep -Fq "$line" crowdsec/acquis.d/appsec.yaml; then
+        echo "AppSec: acquisition file is missing '$line'" >&2
+        exit 1
+      fi
+    done
+    # A customized file from an earlier run must survive --enable-proxy.
+    printf 'custom: true\n' > crowdsec/acquis.d/appsec.yaml
+    APPSEC_ACQUIS_CREATED=""
+    write_crowdsec_appsec_acquisition
+    if [[ "$(cat crowdsec/acquis.d/appsec.yaml)" != "custom: true" ]]; then
+      echo "AppSec: existing acquisition file was overwritten" >&2
+      exit 1
+    fi
+    if [[ -n "$APPSEC_ACQUIS_CREATED" ]]; then
+      echo "AppSec: existing acquisition file was marked for rollback" >&2
+      exit 1
+    fi
+  )
+  cases=$((cases + 1))
+}
+
+assert_enterprise_appsec
+assert_enterprise_crowdsec_only
+assert_dashboard_key_preserved
+assert_appsec_acquisition
+
+echo "Passed $cases enterprise configuration cases."
