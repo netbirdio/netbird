@@ -26,6 +26,8 @@ type MockManager struct {
 	StopFunc                     func(manager *statemanager.Manager)
 }
 
+func (m *MockManager) InitRouteSelector() {}
+
 func (m *MockManager) Init() error {
 	return nil
 }

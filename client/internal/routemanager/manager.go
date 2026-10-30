@@ -49,6 +49,7 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	Init() error
+	InitRouteSelector()
 	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
@@ -226,9 +227,16 @@ func (m *DefaultManager) ReconcilePeerAllowedIPs(peerKey string) error {
 	)
 }
 
+// InitRouteSelector sets up the route selector
+func (m *DefaultManager) InitRouteSelector() {
+	m.routeSelector = m.initSelector()
+}
+
 // Init sets up the routing
 func (m *DefaultManager) Init() error {
-	m.routeSelector = m.initSelector()
+	if m.routeSelector == nil {
+		m.routeSelector = m.initSelector()
+	}
 
 	if nbnet.CustomRoutingDisabled() || m.disableClientRoutes {
 		return nil
