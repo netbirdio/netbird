@@ -17,6 +17,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -178,6 +179,68 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 			"deny rule should come before accept rule in iptables chain (deny at index %d, accept at index %d)",
 			denyRuleIndex, acceptRuleIndex)
 	})
+}
+
+// TestIptablesManagerDenyRedirectMark verifies the mangle counterparts of
+// peer ACL rules. FORWARD accepts any packet carrying the redirect mark
+// without consulting the input chain, so traffic that DNAT diverts from
+// INPUT to FORWARD (e.g. a published container port) is governed by these
+// counterparts alone: a deny must drop new traffic before DNAT rather than
+// leave it to FORWARD, where a route ACL could accept it, and it must
+// precede the counterpart of an overlapping accept.
+func TestIptablesManagerDenyRedirectMark(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err := manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	ip := netip.MustParseAddr("10.20.0.4")
+
+	// Accept everything from the peer first, then deny tcp/80 from it.
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "failed to add accept rule")
+
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, "tcp", nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
+	require.NoError(t, err, "failed to add deny rule")
+
+	rules, err := ipv4Client.List(tableMangle, chainRTPre)
+	require.NoError(t, err, "failed to list mangle rules")
+
+	t.Logf("All iptables rules in chain %s:", chainRTPre)
+	for i, rule := range rules {
+		t.Logf("  [%d] %s", i, rule)
+	}
+
+	srcMatch := fmt.Sprintf("-s %s/32", ip)
+	markTarget := fmt.Sprintf("-j MARK --set-xmark %#x", nbnet.PreroutingFwmarkRedirected)
+	var denyRuleIndex, acceptRuleIndex = -1, -1
+	for i, rule := range rules {
+		if !strings.Contains(rule, srcMatch) {
+			continue
+		}
+		if strings.Contains(rule, "--dport 80") {
+			denyRuleIndex = i
+			require.NotContains(t, rule, markTarget, "deny counterpart must not set the redirect mark")
+			require.Contains(t, rule, "-j DROP", "deny counterpart must drop before DNAT")
+			require.Contains(t, rule, "! --ctstate RELATED,ESTABLISHED", "deny counterpart must exempt established and related traffic, as INPUT does")
+		} else {
+			acceptRuleIndex = i
+			require.Contains(t, rule, markTarget, "accept counterpart must set the redirect mark")
+		}
+	}
+
+	require.NotEqual(t, -1, denyRuleIndex, "deny counterpart should exist in the mangle chain")
+	require.NotEqual(t, -1, acceptRuleIndex, "accept counterpart should exist in the mangle chain")
+	require.Less(t, denyRuleIndex, acceptRuleIndex,
+		"deny counterpart should come before accept counterpart in the mangle chain (deny at index %d, accept at index %d)",
+		denyRuleIndex, acceptRuleIndex)
 }
 
 func TestIptablesManagerIPSet(t *testing.T) {
