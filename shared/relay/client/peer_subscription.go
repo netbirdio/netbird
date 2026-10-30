@@ -22,43 +22,54 @@ type relayedConnWriter interface {
 
 // PeersStateSubscription manages subscriptions to peer state changes (online/offline)
 // over a relay connection. It allows tracking peers' availability and handling offline
-// events via a callback. We get online notification from the server only once.
+// events via a callback. A peer that registers again while it is subscribed is
+// reported through the re-registration callback; servers that report online only once
+// never trigger it.
 type PeersStateSubscription struct {
-	log             *log.Entry
-	relayConn       relayedConnWriter
-	offlineCallback func(peerIDs []messages.PeerID)
+	log                  *log.Entry
+	relayConn            relayedConnWriter
+	offlineCallback      func(peerIDs []messages.PeerID)
+	reregisteredCallback func(peerIDs []messages.PeerID)
 
 	listenForOfflinePeers map[messages.PeerID]struct{}
 	waitingPeers          map[messages.PeerID]chan struct{}
 	mu                    sync.Mutex // Mutex to protect access to waitingPeers and listenForOfflinePeers
 }
 
-func NewPeersStateSubscription(log *log.Entry, relayConn relayedConnWriter, offlineCallback func(peerIDs []messages.PeerID)) *PeersStateSubscription {
+func NewPeersStateSubscription(log *log.Entry, relayConn relayedConnWriter, offlineCallback, reregisteredCallback func(peerIDs []messages.PeerID)) *PeersStateSubscription {
 	return &PeersStateSubscription{
 		log:                   log,
 		relayConn:             relayConn,
 		offlineCallback:       offlineCallback,
+		reregisteredCallback:  reregisteredCallback,
 		listenForOfflinePeers: make(map[messages.PeerID]struct{}),
 		waitingPeers:          make(map[messages.PeerID]chan struct{}),
 	}
 }
 
 // OnPeersOnline should be called when a notification is received that certain peers have come online.
-// It checks if any of the peers are being waited on and signals their availability.
+// It signals the availability of peers that are being waited on, and reports peers that
+// were already online and subscribed as registered again.
 func (s *PeersStateSubscription) OnPeersOnline(peersID []messages.PeerID) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	var reregistered []messages.PeerID
 	for _, peerID := range peersID {
 		waitCh, ok := s.waitingPeers[peerID]
 		if !ok {
-			// If meanwhile the peer was unsubscribed, we don't need to signal it
+			if _, subscribed := s.listenForOfflinePeers[peerID]; subscribed {
+				reregistered = append(reregistered, peerID)
+			}
 			continue
 		}
 
 		waitCh <- struct{}{}
 		delete(s.waitingPeers, peerID)
 		close(waitCh)
+	}
+	s.mu.Unlock()
+
+	if len(reregistered) > 0 && s.reregisteredCallback != nil {
+		s.reregisteredCallback(reregistered)
 	}
 }
 
