@@ -295,7 +295,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if addr := w.RemoteAddr(); addr != nil {
 		network := addr.Network()
 		ctx = contextWithDNSProtocol(ctx, network)
-		resutil.SetMeta(w, "protocol", network)
+		resutil.SetMeta(w, resutil.MetaKeyProtocol, network)
 	}
 
 	ok, failures := u.tryUpstreamServers(ctx, w, r, logger)
@@ -331,7 +331,7 @@ func (u *upstreamResolverBase) tryOnlyRace(ctx context.Context, w dns.ResponseWr
 		return false, res.failures
 	}
 	if res.ede != "" {
-		resutil.SetMeta(w, "ede", res.ede)
+		resutil.SetMeta(w, resutil.MetaKeyEDE, res.ede)
 	}
 	u.writeSuccessResponse(w, res.msg, res.upstream, r.Question[0].Name, res.protocol, logger)
 	return true, res.failures
@@ -361,7 +361,7 @@ func (u *upstreamResolverBase) raceAll(ctx context.Context, w dns.ResponseWriter
 			failures = append(failures, res.failures...)
 			if res.msg != nil {
 				if res.ede != "" {
-					resutil.SetMeta(w, "ede", res.ede)
+					resutil.SetMeta(w, resutil.MetaKeyEDE, res.ede)
 				}
 				u.writeSuccessResponse(w, res.msg, res.upstream, r.Question[0].Name, res.protocol, logger)
 				return true, failures
@@ -550,9 +550,9 @@ func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) str
 }
 
 func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, proto string, logger *log.Entry) {
-	resutil.SetMeta(w, "upstream", upstream.String())
+	resutil.SetMeta(w, resutil.MetaKeyUpstream, upstream.String())
 	if proto != "" {
-		resutil.SetMeta(w, "upstream_protocol", proto)
+		resutil.SetMeta(w, resutil.MetaKeyUpstreamProtocol, proto)
 	}
 
 	// Clear Zero bit from external responses to prevent upstream servers from
