@@ -190,6 +190,10 @@ type Client struct {
 
 	stateSubscription *PeersStateSubscription
 
+	// lifetimeCancel releases the context the client was connected with once the
+	// client closes. Guarded by mu.
+	lifetimeCancel context.CancelFunc
+
 	mtu uint16
 
 	// transportFallback, when set, records datagram-too-large failures so a
@@ -754,6 +758,11 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			}
 			return
 		case <-ctx.Done():
+			// Closing a client chosen by the picker cancels the context it was
+			// connected with, so by now the client may be stopped or connected again.
+			if !c.runningOn(conn) {
+				return
+			}
 			err := c.close(true)
 			if err != nil {
 				c.log.Errorf("failed to teardown connection: %s", err)
@@ -761,6 +770,13 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			return
 		}
 	}
+}
+
+// runningOn reports whether the client is still running on the given connection.
+func (c *Client) runningOn(conn net.Conn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.serviceIsRunning && c.relayConn == conn
 }
 
 func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {
@@ -853,12 +869,30 @@ func (c *Client) close(gracefullyExit bool) error {
 		c.writeCloseMsg()
 	}
 	err = c.relayConn.Close()
+	lifetimeCancel := c.lifetimeCancel
+	c.lifetimeCancel = nil
 	c.mu.Unlock()
 
 	c.log.Infof("waiting for read loop to close")
 	c.wgReadLoop.Wait()
+	if lifetimeCancel != nil {
+		lifetimeCancel()
+	}
 	c.log.Infof("relay connection closed")
 	return err
+}
+
+// releaseContextOnClose makes Close cancel the context the client was connected
+// with. If the client already closed, cancel runs right away.
+func (c *Client) releaseContextOnClose(cancel context.CancelFunc) {
+	c.mu.Lock()
+	if c.serviceIsRunning {
+		c.lifetimeCancel = cancel
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	cancel()
 }
 
 func (c *Client) notifyDisconnected() {
