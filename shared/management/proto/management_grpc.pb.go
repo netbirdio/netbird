@@ -65,6 +65,11 @@ type ManagementServiceClient interface {
 	RenewExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// GetCountryPrefixes returns the IP prefixes the geolocation database assigns to a country.
+	// Peers fetch them for country routes, which carry only the country codes.
+	// EncryptedMessage of the request has a body of CountryPrefixesRequest.
+	// EncryptedMessage of the response has a body of CountryPrefixesResponse.
+	GetCountryPrefixes(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 }
 
 type managementServiceClient struct {
@@ -237,6 +242,15 @@ func (c *managementServiceClient) StopExpose(ctx context.Context, in *EncryptedM
 	return out, nil
 }
 
+func (c *managementServiceClient) GetCountryPrefixes(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/GetCountryPrefixes", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -288,6 +302,11 @@ type ManagementServiceServer interface {
 	RenewExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// GetCountryPrefixes returns the IP prefixes the geolocation database assigns to a country.
+	// Peers fetch them for country routes, which carry only the country codes.
+	// EncryptedMessage of the request has a body of CountryPrefixesRequest.
+	// EncryptedMessage of the response has a body of CountryPrefixesResponse.
+	GetCountryPrefixes(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -333,6 +352,9 @@ func (UnimplementedManagementServiceServer) RenewExpose(context.Context, *Encryp
 }
 func (UnimplementedManagementServiceServer) StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopExpose not implemented")
+}
+func (UnimplementedManagementServiceServer) GetCountryPrefixes(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCountryPrefixes not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -592,6 +614,24 @@ func _ManagementService_StopExpose_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_GetCountryPrefixes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).GetCountryPrefixes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/GetCountryPrefixes",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).GetCountryPrefixes(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -642,6 +682,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopExpose",
 			Handler:    _ManagementService_StopExpose_Handler,
+		},
+		{
+			MethodName: "GetCountryPrefixes",
+			Handler:    _ManagementService_GetCountryPrefixes_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

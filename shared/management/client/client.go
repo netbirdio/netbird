@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"io"
+	"net/netip"
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -38,4 +39,5 @@ type Client interface {
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error
 	StopExpose(ctx context.Context, domain string) error
+	GetCountryPrefixes(ctx context.Context, country string) ([]netip.Prefix, error)
 }
