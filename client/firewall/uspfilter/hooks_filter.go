@@ -21,9 +21,10 @@ const (
 )
 
 // HooksFilter is a minimal packet filter that only handles outbound DNS hooks.
-// It is installed on the WireGuard interface when the userspace bind is active
-// but a full firewall filter (Manager) is not needed because a native kernel
-// firewall (nftables/iptables) handles packet filtering.
+// It is installed on the interface when the userspace bind is active but a full
+// filter (Manager) is not: either because a native kernel firewall
+// (nftables/iptables) handles packet filtering, or because no firewall manager
+// runs at all.
 type HooksFilter struct {
 	udpHook atomic.Pointer[common.PacketHook]
 	tcpHook atomic.Pointer[common.PacketHook]
