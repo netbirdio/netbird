@@ -3,11 +3,13 @@ package inactivity
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/monotime"
 )
 
@@ -23,11 +25,13 @@ type WgInterface interface {
 }
 
 type Manager struct {
-	inactivePeersChan chan map[string]struct{}
+	inactivePeersChan chan map[string]peerid.ConnID
 
 	iface               WgInterface
-	interestedPeers     map[string]*lazyconn.PeerConfig
 	inactivityThreshold time.Duration
+
+	mu              sync.RWMutex
+	interestedPeers map[string]*lazyconn.PeerConfig
 }
 
 func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager {
@@ -39,14 +43,18 @@ func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager 
 
 	log.Infof("inactivity threshold configured: %v", inactivityThreshold)
 	return &Manager{
-		inactivePeersChan:   make(chan map[string]struct{}, 1),
+		inactivePeersChan:   make(chan map[string]peerid.ConnID, 1),
 		iface:               iface,
 		interestedPeers:     make(map[string]*lazyconn.PeerConfig),
 		inactivityThreshold: inactivityThreshold,
 	}
 }
 
-func (m *Manager) InactivePeersChan() chan map[string]struct{} {
+// InactivePeersChan carries, for each idle peer, the connection it was found
+// idle on. A peer can be removed and re-added between the check and the moment
+// the consumer reads this, and the new connection is a different one; the ID
+// lets the consumer drop a signal that no longer refers to the live connection.
+func (m *Manager) InactivePeersChan() chan map[string]peerid.ConnID {
 	if m == nil {
 		// return a nil channel that blocks forever
 		return nil
@@ -60,6 +68,9 @@ func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
 		return
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.interestedPeers[peerCfg.PublicKey]; exists {
 		return
 	}
@@ -72,6 +83,9 @@ func (m *Manager) RemovePeer(peer string) {
 	if m == nil {
 		return
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	pi, ok := m.interestedPeers[peer]
 	if !ok {
@@ -110,7 +124,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 }
 
-func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[string]struct{}) {
+func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[string]peerid.ConnID) {
 	select {
 	case m.inactivePeersChan <- inactivePeers:
 	case <-ctx.Done():
@@ -120,13 +134,13 @@ func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[str
 	}
 }
 
-func (m *Manager) checkStats() (map[string]struct{}, error) {
+func (m *Manager) checkStats() (map[string]peerid.ConnID, error) {
 	lastActivities := m.iface.LastActivities()
 
-	idlePeers := make(map[string]struct{})
+	idlePeers := make(map[string]peerid.ConnID)
 
 	checkTime := time.Now()
-	for peerID, peerCfg := range m.interestedPeers {
+	for peerID, peerCfg := range m.snapshotInterestedPeers() {
 		lastActive, ok := lastActivities[peerID]
 		if !ok {
 			// when peer is in connecting state
@@ -137,11 +151,24 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 		since := monotime.Since(lastActive)
 		if since > m.inactivityThreshold {
 			peerCfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
-			idlePeers[peerID] = struct{}{}
+			idlePeers[peerID] = peerCfg.PeerConnID
 		}
 	}
 
 	return idlePeers, nil
+}
+
+// snapshotInterestedPeers copies the peer map so the caller can walk it without
+// holding the lock while logging.
+func (m *Manager) snapshotInterestedPeers() map[string]*lazyconn.PeerConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	peers := make(map[string]*lazyconn.PeerConfig, len(m.interestedPeers))
+	for k, v := range m.interestedPeers {
+		peers[k] = v
+	}
+	return peers
 }
 
 func validateInactivityThreshold(configuredThreshold *time.Duration) (time.Duration, error) {
