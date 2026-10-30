@@ -584,7 +584,7 @@ func (c *GrpcClient) IsHealthy() bool {
 
 func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
-		return nil, errors.New(errMsgNoMgmtConnection)
+		return nil, gstatus.Error(codes.Unavailable, errMsgNoMgmtConnection)
 	}
 
 	serverKey, err := c.getServerPublicKey()
