@@ -1446,6 +1446,51 @@ func TestRouteACLFiltering(t *testing.T) {
 	}
 }
 
+// TestUnspecifiedDestinationNotRouted verifies that a packet addressed to 0.0.0.0 is
+// decided by the peer ACLs, not the route ACLs, even when a route rule would accept it.
+// Dialing 0.0.0.0 resolves to loopback on the host, so it must be treated like any other
+// local address rather than handed to the forwarder.
+func TestUnspecifiedDestinationNotRouted(t *testing.T) {
+	manager := setupRoutedManager(t, "10.10.0.100/16")
+
+	routeRule, err := manager.AddFilterRule(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.DeleteFilterRule(routeRule)) })
+
+	packet := createTestPacket(t, "100.10.0.1", "0.0.0.0", fw.ProtocolUDP, 12345, 53)
+
+	// No peer rule permits this source yet, so the packet must be dropped by the
+	// peer ACLs rather than handed to the forwarder, despite the accept-all route
+	// rule above.
+	require.True(t, manager.FilterInbound(packet, 0),
+		"a packet to 0.0.0.0 with no matching peer rule must be dropped, not routed")
+
+	peerRule, err := manager.AddFilterRule(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+		fw.Network{},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.DeleteFilterRule(peerRule)) })
+
+	// With a peer rule now permitting the source, the same destination must be
+	// accepted: it is governed by the peer ACLs, not the route ACLs.
+	require.False(t, manager.FilterInbound(packet, 0),
+		"a packet to 0.0.0.0 permitted by a peer rule must not be dropped")
+}
+
 func TestRouteACLOrder(t *testing.T) {
 	manager := setupRoutedManager(t, "10.10.0.100/16")
 
