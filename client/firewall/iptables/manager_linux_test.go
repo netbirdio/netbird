@@ -185,8 +185,9 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 // peer ACL rules. FORWARD accepts any packet carrying the redirect mark
 // without consulting the input chain, so traffic that DNAT diverts from
 // INPUT to FORWARD (e.g. a published container port) is governed by these
-// counterparts alone: a deny must not set the mark, and it must precede
-// the counterpart of an overlapping accept.
+// counterparts alone: a deny must drop new traffic before DNAT rather than
+// leave it to FORWARD, where a route ACL could accept it, and it must
+// precede the counterpart of an overlapping accept.
 func TestIptablesManagerDenyRedirectMark(t *testing.T) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err)
@@ -227,7 +228,8 @@ func TestIptablesManagerDenyRedirectMark(t *testing.T) {
 		if strings.Contains(rule, "--dport 80") {
 			denyRuleIndex = i
 			require.NotContains(t, rule, markTarget, "deny counterpart must not set the redirect mark")
-			require.Contains(t, rule, "-j RETURN", "deny counterpart must return before accept counterparts")
+			require.Contains(t, rule, "-j DROP", "deny counterpart must drop before DNAT")
+			require.Contains(t, rule, "! --ctstate RELATED,ESTABLISHED", "deny counterpart must exempt established and related traffic")
 		} else {
 			acceptRuleIndex = i
 			require.Contains(t, rule, markTarget, "accept counterpart must set the redirect mark")

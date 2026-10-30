@@ -267,7 +267,10 @@ func (r *family) installFilterRule(
 
 		// The redirect mark tells FORWARD that the input ACL accepts a
 		// packet DNAT diverted there, so only an accept counterpart sets
-		// it; a drop counterpart returns without the mark.
+		// it. A drop counterpart drops new traffic before DNAT can divert
+		// it to FORWARD, where a route ACL could accept it; established
+		// and related packets are exempt, as the input chain accepts them
+		// ahead of its drops.
 		var mangleSpecs []string
 		if !isRoute {
 			mangleSpecs = slices.Clone(specs)
@@ -276,7 +279,10 @@ func (r *family) installFilterRule(
 				"-m", "addrtype", "--dst-type", "LOCAL",
 			)
 			if action == firewall.ActionDrop {
-				mangleSpecs = append(mangleSpecs, "-j", "RETURN")
+				mangleSpecs = append(mangleSpecs,
+					"-m", "conntrack", "!", "--ctstate", "RELATED,ESTABLISHED",
+					"-j", "DROP",
+				)
 			} else {
 				mangleSpecs = append(mangleSpecs,
 					"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
@@ -299,9 +305,9 @@ func (r *family) installFilterRule(
 			switch {
 			case err == nil:
 			case action == firewall.ActionDrop:
-				// The drop counterpart is what keeps the redirect mark off
-				// denied traffic, so without it the drop fails open on the
-				// forward path. Fail the rule like a failed filter rule.
+				// Without the drop counterpart, DNAT'd traffic bypasses the
+				// drop on the forward path. Fail the rule like a failed
+				// filter rule.
 				installed = append(installed, filterSpecs{specs: specs})
 				r.removeFilterSpecs(chain, installed)
 				r.dropSourceMatch(destExp)
@@ -346,9 +352,8 @@ func (r *family) insertFilterRule(chain string, action firewall.Action, specs []
 
 // insertMangleRule writes the prerouting counterpart of a peer ACL rule
 // into the redirect-mark chain. Drop counterparts are inserted at
-// position 1 so they precede every accept counterpart, mirroring the
-// drop-before-accept order of the input chain; accept counterparts are
-// appended.
+// position 1, mirroring the drop-before-accept order of the input
+// chain; accept counterparts are appended.
 func (r *family) insertMangleRule(action firewall.Action, specs []string) error {
 	if action == firewall.ActionDrop {
 		return r.iptablesClient.Insert(tableMangle, chainRTPre, 1, specs...)

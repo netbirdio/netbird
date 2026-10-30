@@ -611,11 +611,10 @@ func (r *family) Flush() error {
 // caller can commit it in the same transaction as the rule it pairs
 // with. The redirect mark tells the forward filter that the input ACL
 // accepts a packet DNAT diverted from input to forward, so only an
-// accept counterpart sets it: a drop counterpart returns from the chain
-// without the mark and is inserted at the head so it precedes every
-// accept counterpart, mirroring the drop-before-accept order of the
-// input chain. Returns nil when the prerouting chain is absent, in
-// which case nothing is queued.
+// accept counterpart sets it. A drop counterpart drops new traffic
+// before DNAT and is inserted at the head, mirroring the
+// drop-before-accept order of the input chain. Returns nil when the
+// prerouting chain is absent, in which case nothing is queued.
 func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, action firewall.Action) *nftables.Rule {
 	if r.chainPrerouting == nil {
 		log.Warn("prerouting chain is not created")
@@ -657,11 +656,13 @@ func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte, ac
 		UserData: userData,
 	}
 
-	// Denied traffic leaves the chain unmarked, so DNAT'd packets fall to
-	// the route ACLs. Return, not drop: this runs before any conntrack
-	// check, so a drop would also cut replies the input chain accepts.
+	// Drop denied traffic here, before DNAT can divert it to the forward
+	// path where a route ACL could accept it. Established and related
+	// packets are exempt, as the input chain accepts them ahead of its
+	// drops.
 	if action == firewall.ActionDrop {
-		preroutingExprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictReturn})
+		preroutingExprs = append(preroutingExprs, getNotEstablishedExprs()...)
+		preroutingExprs = append(preroutingExprs, &expr.Verdict{Kind: expr.VerdictDrop})
 		rule.Exprs = preroutingExprs
 		return r.conn.InsertRule(rule)
 	}

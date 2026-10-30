@@ -247,8 +247,10 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 // of peer ACL rules. The forward filter accepts any packet carrying the
 // redirect mark without consulting the input chain, so traffic that DNAT
 // diverts from input to forward (e.g. a published container port) is
-// governed by these counterparts alone: a deny must not set the mark, and
-// it must precede the counterpart of an overlapping accept.
+// governed by these counterparts alone: a deny must drop new traffic
+// before DNAT rather than leave it to the forward filter, where a route
+// ACL could accept it, and it must precede the counterpart of an
+// overlapping accept.
 func TestNftablesManagerDenyRedirectMark(t *testing.T) {
 	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
@@ -279,7 +281,7 @@ func TestNftablesManagerDenyRedirectMark(t *testing.T) {
 	redirectMark := binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected)
 	var acceptRuleIndex, denyRuleIndex = -1, -1
 	for i, rule := range rules {
-		var hasSrc, hasPort80, setsMark, returns bool
+		var hasSrc, hasPort80, setsMark, checksCtState, drops bool
 		for _, e := range rule.Exprs {
 			switch e := e.(type) {
 			case *expr.Cmp:
@@ -293,9 +295,13 @@ func TestNftablesManagerDenyRedirectMark(t *testing.T) {
 				if bytes.Equal(e.Data, redirectMark) {
 					setsMark = true
 				}
+			case *expr.Ct:
+				if e.Key == expr.CtKeySTATE {
+					checksCtState = true
+				}
 			case *expr.Verdict:
-				if e.Kind == expr.VerdictReturn {
-					returns = true
+				if e.Kind == expr.VerdictDrop {
+					drops = true
 				}
 			}
 		}
@@ -304,10 +310,11 @@ func TestNftablesManagerDenyRedirectMark(t *testing.T) {
 			continue
 		}
 		if hasPort80 {
-			t.Logf("Rule [%d]: src=%s port=80 mark=%v return=%v", i, ip, setsMark, returns)
+			t.Logf("Rule [%d]: src=%s port=80 mark=%v ctstate=%v drop=%v", i, ip, setsMark, checksCtState, drops)
 			denyRuleIndex = i
 			require.False(t, setsMark, "deny counterpart must not set the redirect mark")
-			require.True(t, returns, "deny counterpart must return before accept counterparts")
+			require.True(t, drops, "deny counterpart must drop before DNAT")
+			require.True(t, checksCtState, "deny counterpart must exempt established and related traffic")
 		} else {
 			t.Logf("Rule [%d]: src=%s mark=%v", i, ip, setsMark)
 			acceptRuleIndex = i
