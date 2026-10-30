@@ -30,17 +30,24 @@ type dnsPeerActivator struct {
 // until one is connected or ctx (the per-query DNS wait budget) expires.
 // Activation itself is tied to the engine's long-lived context so the dial
 // survives a wait that times out. Unknown or already-connected addresses are
-// skipped, so the steady-state (warm) path adds no latency.
+// skipped, so the steady-state (warm) path adds no latency. When any address
+// already points at a connected peer the answer is usable as is, so the others
+// are still woken but never waited on.
 func (a *dnsPeerActivator) ActivatePeersByIP(ctx context.Context, addrs []netip.Addr) {
 	if a == nil || a.connMgr == nil {
 		return
 	}
 
 	var pending []string
+	anyConnected := false
 	for _, addr := range addrs {
 		ip := addr.String()
 		st, ok := a.status.PeerStateByIP(ip)
-		if !ok || st.ConnStatus == peer.StatusConnected {
+		if !ok {
+			continue
+		}
+		if st.ConnStatus == peer.StatusConnected {
+			anyConnected = true
 			continue
 		}
 		conn, ok := a.peerStore.PeerConn(st.PubKey)
@@ -51,7 +58,7 @@ func (a *dnsPeerActivator) ActivatePeersByIP(ctx context.Context, addrs []netip.
 		pending = append(pending, ip)
 	}
 
-	if len(pending) == 0 {
+	if anyConnected || len(pending) == 0 {
 		return
 	}
 	a.waitConnected(ctx, pending)
