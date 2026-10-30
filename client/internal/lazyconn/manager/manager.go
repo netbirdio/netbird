@@ -229,6 +229,20 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 	return false, nil
 }
 
+// AddActivePeer adds a peer whose connection is already established, so it goes
+// straight to inactivity monitoring instead of waiting for a wake signal.
+// Returns true if the peer is on the exclude list and is not managed lazily.
+func (m *Manager) AddActivePeer(peerCfg lazyconn.PeerConfig) (bool, error) {
+	m.managedPeersMu.Lock()
+	defer m.managedPeersMu.Unlock()
+
+	if _, ok := m.excludes[peerCfg.PublicKey]; ok {
+		return true, nil
+	}
+
+	return false, m.addActivePeer(&peerCfg)
+}
+
 // AddActivePeers adds a list of peers to the lazy connection manager
 // suppose these peers was in connected or in connecting states
 func (m *Manager) AddActivePeers(peerCfg []lazyconn.PeerConfig) error {

@@ -192,23 +192,22 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 // (the peer belongs to the exclude set: a forwarder, or a peer that is not lazy by policy).
 // Non-permanent peers are handed to the lazy manager. The subsequent SetExcludeList call
 // reconciles membership for existing peers across flag flips.
-func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn, permanent bool) (exists bool) {
+// active marks a peer whose connection was already established, e.g. one re-added after a
+// network map modification: it is registered as active and its connection stays open, so the
+// remote side does not have to signal a wake for a connection it still considers established.
+func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn, permanent, active bool) (exists bool) {
 	if success := e.peerStore.AddPeerConn(peerKey, conn); !success {
 		return true
 	}
 
 	if !e.isStartedWithLazyMgr() || permanent {
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
+		e.openConn(ctx, conn)
 		return
 	}
 
 	if !lazyconn.IsSupported(conn.AgentVersionString()) {
 		conn.Log.Warnf("peer does not support lazy connection (%s), open permanent connection", conn.AgentVersionString())
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
+		e.openConn(ctx, conn)
 		return
 	}
 
@@ -218,25 +217,44 @@ func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Co
 		PeerConnID: conn.ConnID(),
 		Log:        conn.Log,
 	}
-	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
+
+	excluded, err := e.addToLazyManager(lazyPeerCfg, active)
 	if err != nil {
 		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
-		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
-		}
+		e.openConn(ctx, conn)
 		return
 	}
 
 	if excluded {
 		conn.Log.Infof("peer is on lazy conn manager exclude list, opening connection")
+		e.openConn(ctx, conn)
+		return
+	}
+
+	if active {
+		conn.Log.Infof("peer added to lazy conn manager as active")
 		if err := conn.Open(ctx); err != nil {
-			conn.Log.Errorf("failed to open connection: %v", err)
+			conn.Log.Errorf("failed to open connection, falling back to activity monitoring: %v", err)
+			e.lazyConnMgr.DeactivatePeer(conn.ConnID())
 		}
 		return
 	}
 
 	conn.Log.Infof("peer added to lazy conn manager")
 	return
+}
+
+func (e *ConnMgr) addToLazyManager(cfg lazyconn.PeerConfig, active bool) (excluded bool, err error) {
+	if active {
+		return e.lazyConnMgr.AddActivePeer(cfg)
+	}
+	return e.lazyConnMgr.AddPeer(cfg)
+}
+
+func (e *ConnMgr) openConn(ctx context.Context, conn *peer.Conn) {
+	if err := conn.Open(ctx); err != nil {
+		conn.Log.Errorf("failed to open connection: %v", err)
+	}
 }
 
 func (e *ConnMgr) RemovePeerConn(peerKey string) {
