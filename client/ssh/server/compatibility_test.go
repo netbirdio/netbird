@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,12 @@ func TestMain(m *testing.M) {
 	// propagate exit codes.
 	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "exec" {
 		runTestExecutor()
+		return
+	}
+
+	// Likewise, the SFTP subsystem starts the test binary with "ssh sftp" args as the target user.
+	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "sftp" {
+		runTestSftpServer()
 		return
 	}
 
@@ -85,6 +92,58 @@ func runTestExecutor() {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+// runTestSftpServer emulates the netbird SFTP subprocess for tests: it serves SFTP on stdin/stdout.
+func runTestSftpServer() {
+	wrote := make(chan struct{}, 1)
+	out := &writeSignalingCloser{WriteCloser: os.Stdout, wrote: wrote}
+
+	sftpServer, err := sftp.NewServer(struct {
+		io.Reader
+		io.WriteCloser
+	}{
+		Reader:      os.Stdin,
+		WriteCloser: out,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sftp server creation failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := sftpServer.Serve(); err != nil && !errors.Is(err, io.EOF) {
+		fmt.Fprintf(os.Stderr, "sftp server error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Serve returns once its worker goroutines hand responses to the packet manager, not
+	// once its background controller goroutine has actually written them to WriteCloser.
+	// A process that exits immediately after Serve returns can race that goroutine and
+	// lose the final response. Wait for at least one write, bounded by a timeout in case
+	// no response was ever due (e.g. the client only sent requests expecting none).
+	select {
+	case <-wrote:
+	case <-time.After(2 * time.Second):
+	}
+	os.Exit(0)
+}
+
+// writeSignalingCloser signals wrote after every successful Write, so a caller can wait for
+// the underlying pkg/sftp server to actually flush a response instead of racing its internal
+// controller goroutine.
+type writeSignalingCloser struct {
+	io.WriteCloser
+	wrote chan struct{}
+}
+
+func (w *writeSignalingCloser) Write(p []byte) (int, error) {
+	n, err := w.WriteCloser.Write(p)
+	if n > 0 {
+		select {
+		case w.wrote <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
 }
 
 // TestSSHServerCompatibility tests that our SSH server is compatible with the system SSH client
