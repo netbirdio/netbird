@@ -3,19 +3,17 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"runtime"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/netbird/util/embeddedroots"
+	"github.com/netbirdio/netbird/util"
 )
 
 // Backoff returns a backoff configuration for gRPC calls
@@ -32,14 +30,8 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	// for js, the outer websocket layer takes care of tls
 	if tlsEnabled && runtime.GOOS != "js" {
-		certPool, err := x509.SystemCertPool()
-		if err != nil || certPool == nil {
-			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
-			certPool = embeddedroots.Get()
-		}
-
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			RootCAs: certPool,
+			RootCAs: util.GetGlobalCertPool(),
 		}))
 	}
 
