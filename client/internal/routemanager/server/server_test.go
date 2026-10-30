@@ -64,3 +64,20 @@ func TestRouterCleanUpReleasesRouting(t *testing.T) {
 	require.Len(t, fw.removed, 1, "the route's NAT rule must be removed")
 	assert.Equal(t, 1, fw.disabled, "CleanUp must release the routing reference")
 }
+
+func TestRouteToRouterPair_CountryRoute(t *testing.T) {
+	r := &route.Route{
+		ID:          "route-us",
+		Network:     netip.MustParsePrefix("192.0.2.0/32"),
+		NetworkType: route.CountryNetwork,
+		Countries:   []string{"US", "CA"},
+		Masquerade:  true,
+	}
+
+	pair := routeToRouterPair(r, false)
+
+	assert.Equal(t, firewall.NewCountrySet([]string{"US", "CA"}), pair.Destination.Set,
+		"the NAT rule should match the same set the route ACL fills")
+	assert.False(t, pair.Destination.IsPrefix(), "the placeholder network must not become the destination")
+	assert.True(t, pair.Dynamic, "country sets hold both families, so the v6 table needs the rule too")
+}

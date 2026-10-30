@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -33,13 +35,13 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 	return am.Store.GetRouteByID(ctx, store.LockingStrengthNone, accountID, string(routeID))
 }
 
-// checkRoutePrefixOrDomainsExistForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
+// maxRouteCountries is the most countries a route can name, like the 32 domains a route can have.
+const maxRouteCountries = 32
+
+// checkRoutePrefixOrDomainsExistForPeers checks if a route with a given destination exists for a single peer or multiple peer groups.
 func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction store.Store, accountID string, checkRoute *route.Route, groupsMap map[string]*types.Group) error {
 	// routes can have both peer and peer_groups
-	prefix := checkRoute.Network
-	domains := checkRoute.Domains
-
-	routesWithPrefix, err := getRoutesByPrefixOrDomains(ctx, transaction, accountID, prefix, domains)
+	routesWithPrefix, err := getRoutesByDestination(ctx, transaction, accountID, checkRoute)
 	if err != nil {
 		return err
 	}
@@ -71,7 +73,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 			if !ok || group == nil {
 				return status.Errorf(
 					status.InvalidArgument, "failed to add route with %s - peer group %s doesn't exist",
-					getRouteDescriptor(prefix, domains), groupID,
+					getRouteDescriptor(checkRoute), groupID,
 				)
 			}
 
@@ -90,7 +92,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 
 		if _, ok := seenPeers[peerID]; ok {
 			return status.Errorf(status.AlreadyExists,
-				"failed to add route with %s - peer %s already has this route", getRouteDescriptor(prefix, domains), peerID)
+				"failed to add route with %s - peer %s already has this route", getRouteDescriptor(checkRoute), peerID)
 		}
 	}
 
@@ -100,7 +102,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 		if _, ok := seenPeerGroups[groupID]; ok {
 			return status.Errorf(
 				status.AlreadyExists, "failed to add route with %s - peer group %s already has this route",
-				getRouteDescriptor(prefix, domains), group.Name)
+				getRouteDescriptor(checkRoute), group.Name)
 		}
 
 		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
@@ -118,7 +120,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 
 				return status.Errorf(status.AlreadyExists,
 					"failed to add route with %s - peer %s from the group %s already has this route",
-					getRouteDescriptor(prefix, domains), peer.Name, group.Name)
+					getRouteDescriptor(checkRoute), peer.Name, group.Name)
 			}
 		}
 	}
@@ -126,15 +128,32 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 	return nil
 }
 
-func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
-	if len(domains) > 0 {
-		return fmt.Sprintf("domains [%s]", domains.SafeString())
+func getRouteDescriptor(r *route.Route) string {
+	switch {
+	case len(r.Countries) > 0:
+		return fmt.Sprintf("countries [%s]", strings.Join(r.Countries, ", "))
+	case len(r.Domains) > 0:
+		return fmt.Sprintf("domains [%s]", r.Domains.SafeString())
+	default:
+		return fmt.Sprintf("prefix %s", r.Network.String())
 	}
-	return fmt.Sprintf("prefix %s", prefix.String())
 }
 
-// CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
+// routeDestination identifies what a route routes, so routes to the same destination are found.
+// Domain and country routes share a placeholder network, so their own lists identify them.
+func routeDestination(r *route.Route) string {
+	switch {
+	case len(r.Countries) > 0:
+		return "countries:" + strings.Join(r.Countries, ",")
+	case len(r.Domains) > 0:
+		return "domains:" + r.Domains.PunycodeString()
+	default:
+		return r.Network.String()
+	}
+}
+
+// CreateRoute creates and saves a copy of routeToCreate with a new ID.
+func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID, userID string, routeToCreate *route.Route) (*route.Route, error) {
 	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -143,7 +162,11 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if len(domains) > 0 && prefix.IsValid() {
+	if routeToCreate == nil {
+		return nil, status.Errorf(status.InvalidArgument, "route provided is nil")
+	}
+
+	if len(routeToCreate.Domains) > 0 && routeToCreate.Network.IsValid() {
 		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
 	}
 
@@ -152,26 +175,15 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		newRoute = &route.Route{
-			ID:                  route.ID(xid.New().String()),
-			AccountID:           accountID,
-			Network:             prefix,
-			Domains:             domains,
-			KeepRoute:           keepRoute,
-			NetID:               netID,
-			Description:         description,
-			Peer:                peerID,
-			PeerGroups:          peerGroupIDs,
-			NetworkType:         networkType,
-			Masquerade:          masquerade,
-			Metric:              metric,
-			Enabled:             enabled,
-			Groups:              groups,
-			AccessControlGroups: accessControlGroupIDs,
-			SkipAutoApply:       skipAutoApply,
-		}
+		newRoute = routeToCreate.Copy()
+		newRoute.ID = route.ID(xid.New().String())
+		newRoute.AccountID = accountID
 
 		if err = validateRoute(ctx, transaction, accountID, newRoute); err != nil {
+			return err
+		}
+
+		if err = am.checkRouteCountries(ctx, newRoute.Countries); err != nil {
 			return err
 		}
 
@@ -215,6 +227,10 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateRoute(ctx, transaction, accountID, routeToSave); err != nil {
+			return err
+		}
+
+		if err = am.checkRouteCountries(ctx, routeToSave.Countries); err != nil {
 			return err
 		}
 
@@ -317,16 +333,8 @@ func validateRoute(ctx context.Context, transaction store.Store, accountID strin
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	if len(routeToSave.Domains) > 0 && routeToSave.Network.IsValid() {
-		return status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
-	}
-
-	if len(routeToSave.Domains) == 0 && !routeToSave.Network.IsValid() {
-		return status.Errorf(status.InvalidArgument, "invalid Prefix")
-	}
-
-	if len(routeToSave.Domains) > 0 {
-		routeToSave.Network = getPlaceholderIP()
+	if err := validateRouteDestination(routeToSave); err != nil {
+		return err
 	}
 
 	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
@@ -339,6 +347,80 @@ func validateRoute(ctx context.Context, transaction store.Store, accountID strin
 	}
 
 	return checkRoutePrefixOrDomainsExistForPeers(ctx, transaction, accountID, routeToSave, groupsMap)
+}
+
+// validateRouteDestination checks that a route has exactly one of network, domains and countries,
+// and gives domain and country routes the placeholder network.
+func validateRouteDestination(r *route.Route) error {
+	if len(r.Countries) > 0 {
+		return validateCountryRoute(r)
+	}
+
+	if len(r.Domains) > 0 && r.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
+	}
+
+	if len(r.Domains) == 0 && !r.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "invalid Prefix")
+	}
+
+	if len(r.Domains) > 0 {
+		r.Network = getPlaceholderIP()
+	}
+	return nil
+}
+
+// validateCountryRoute normalizes the countries of a country route to sorted, unique upper-case
+// codes, so the same countries in another order are the same destination.
+func validateCountryRoute(r *route.Route) error {
+	if len(r.Domains) > 0 || r.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "countries should not be provided together with network or domains")
+	}
+
+	if len(r.Countries) > maxRouteCountries {
+		return status.Errorf(status.InvalidArgument, "a route can have at most %d countries", maxRouteCountries)
+	}
+
+	countries := make([]string, 0, len(r.Countries))
+	for _, country := range r.Countries {
+		country = strings.ToUpper(country)
+		if !geolocation.IsCountryCode(country) {
+			return status.Errorf(status.InvalidArgument, "invalid country code %q", country)
+		}
+		countries = append(countries, country)
+	}
+	slices.Sort(countries)
+
+	r.Countries = slices.Compact(countries)
+	r.NetworkType = route.CountryNetwork
+	r.Network = getPlaceholderIP()
+	return nil
+}
+
+// checkRouteCountries checks that the geolocation service runs and knows every country of a route.
+func (am *DefaultAccountManager) checkRouteCountries(ctx context.Context, countries []string) error {
+	if len(countries) == 0 {
+		return nil
+	}
+
+	if am.geo == nil {
+		return status.Errorf(status.PreconditionFailed, "country routes need the geolocation service, which is disabled")
+	}
+
+	known, err := am.geo.GetAllCountries()
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get the known countries: %v", err)
+		return status.Errorf(status.Internal, "failed to get the known countries")
+	}
+
+	for _, country := range countries {
+		if !slices.ContainsFunc(known, func(c geolocation.Country) bool {
+			return strings.EqualFold(c.CountryISOCode, country)
+		}) {
+			return status.Errorf(status.InvalidArgument, "unknown country %q", country)
+		}
+	}
+	return nil
 }
 
 // validateRouteGroups validates the route groups and returns the validated groups map.
@@ -368,24 +450,23 @@ func validateRouteGroups(ctx context.Context, transaction store.Store, accountID
 	return groupsMap, nil
 }
 
-// getPlaceholderIP returns a placeholder IP address for the route if domains are used
+// getPlaceholderIP returns a placeholder IP address for the route if domains or countries are used
 func getPlaceholderIP() netip.Prefix {
 	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
 	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 }
 
-// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
-func getRoutesByPrefixOrDomains(ctx context.Context, transaction store.Store, accountID string, prefix netip.Prefix, domains domain.List) ([]*route.Route, error) {
+// getRoutesByDestination returns the routes of an account that route the same destination as checkRoute.
+func getRoutesByDestination(ctx context.Context, transaction store.Store, accountID string, checkRoute *route.Route) ([]*route.Route, error) {
 	accountRoutes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 
+	destination := routeDestination(checkRoute)
 	routes := make([]*route.Route, 0)
 	for _, r := range accountRoutes {
-		dynamic := r.IsDynamic()
-		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
-			!dynamic && r.Network.String() == prefix.String() {
+		if routeDestination(r) == destination {
 			routes = append(routes, r)
 		}
 	}

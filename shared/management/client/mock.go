@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -25,6 +26,7 @@ type MockClient struct {
 	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExposeFunc                func(ctx context.Context, domain string) error
 	StopExposeFunc                 func(ctx context.Context, domain string) error
+	GetCountryPrefixesFunc         func(ctx context.Context, country string) ([]netip.Prefix, error)
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -136,4 +138,11 @@ func (m *MockClient) StopExpose(ctx context.Context, domain string) error {
 		return nil
 	}
 	return m.StopExposeFunc(ctx, domain)
+}
+
+func (m *MockClient) GetCountryPrefixes(ctx context.Context, country string) ([]netip.Prefix, error) {
+	if m.GetCountryPrefixesFunc == nil {
+		return nil, nil
+	}
+	return m.GetCountryPrefixesFunc(ctx, country)
 }

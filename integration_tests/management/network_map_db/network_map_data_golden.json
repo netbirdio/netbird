@@ -274,6 +274,7 @@
       "Domains": [
         "test-1.com"
       ],
+      "Countries": null,
       "KeepRoute": true,
       "NetID": "route-331-net-id",
       "Description": "route-1",

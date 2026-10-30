@@ -1917,17 +1917,24 @@ components:
             type: string
             example: chacbco6lnnbn6cg5s91
         network:
-          description: Network range in CIDR format, Conflicts with domains
+          description: Network range in CIDR format, Conflicts with domains and countries
           type: string
           example: 10.64.0.0/24
         domains:
-          description: Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
+          description: Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network and countries
           type: array
           items:
             type: string
             minLength: 1
             maxLength: 32
             example: "example.com"
+        countries:
+          description: Countries whose IP prefixes, as resolved by the management geolocation database, are routed. Requires geolocation to be enabled and peers that support country routes. Max of 32 countries can be added per route configuration. Conflicts with network and domains
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/CountryCode'
         metric:
           description: Route metric number. Lowest number has higher priority
           type: integer
@@ -1969,6 +1976,7 @@ components:
           # Only one property has to be set
           #- network
         #- domains
+        #- countries
         - metric
         - masquerade
         - groups
@@ -1982,7 +1990,7 @@ components:
               type: string
               example: chacdk86lnnboviihd7g
             network_type:
-              description: Network type indicating if it is a domain route or a IPv4/IPv6 route
+              description: Network type indicating if it is a domain, country or IPv4/IPv6 route
               type: string
               example: IPv4
           required:

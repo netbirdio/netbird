@@ -2045,11 +2045,22 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 				Groups:      []string{"groupB"},
 			}
 
-			_, err := manager.CreateRoute(
-				context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, route.Peer,
-				route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-				route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
-			)
+			_, err := manager.CreateRoute(context.Background(), account.Id, userID, &nbroute.Route{
+				Network:             route.Network,
+				NetworkType:         route.NetworkType,
+				Domains:             route.Domains,
+				Peer:                route.Peer,
+				PeerGroups:          route.PeerGroups,
+				Description:         route.Description,
+				NetID:               route.NetID,
+				Masquerade:          route.Masquerade,
+				Metric:              route.Metric,
+				Groups:              route.Groups,
+				AccessControlGroups: []string{},
+				Enabled:             true,
+				KeepRoute:           route.KeepRoute,
+				SkipAutoApply:       route.SkipAutoApply,
+			})
 			require.NoError(t, err)
 
 			settleAffectedUpdates(updMsg)
@@ -2931,6 +2942,8 @@ func (g *fakeGeo) Lookup(net.IP) (*geolocation.Record, error) {
 func (g *fakeGeo) GetAllCountries() ([]geolocation.Country, error) { return nil, nil }
 
 func (g *fakeGeo) GetCitiesByCountry(string) ([]geolocation.City, error) { return nil, nil }
+
+func (g *fakeGeo) CountryPrefixes(string) ([]netip.Prefix, error) { return nil, nil }
 
 func (g *fakeGeo) Stop() error { return nil }
 
