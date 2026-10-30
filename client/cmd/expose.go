@@ -19,6 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/shared/exposetarget"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -136,7 +137,7 @@ func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
 	}
 
 	if cmd.Flags().Changed("with-target-host") || exposeTargetHost != "" {
-		host, err := expose.NormalizeTargetHost(exposeTargetHost)
+		host, err := exposetarget.NormalizeHost(exposeTargetHost)
 		if err != nil {
 			return 0, err
 		}

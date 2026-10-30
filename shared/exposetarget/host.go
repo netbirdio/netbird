@@ -1,4 +1,4 @@
-package expose
+package exposetarget
 
 import (
 	"fmt"
@@ -7,9 +7,10 @@ import (
 	"strings"
 )
 
-// NormalizeTargetHost trims and validates a --with-target-host value.
+// NormalizeHost trims and validates an expose target host. The client and
+// management server share it so both normalize a value the same way.
 // The host must be an IP or DNS name with no scheme, port, or path.
-func NormalizeTargetHost(raw string) (string, error) {
+func NormalizeHost(raw string) (string, error) {
 	host := strings.TrimSpace(raw)
 	if host == "" {
 		return "", fmt.Errorf("target host cannot be empty")

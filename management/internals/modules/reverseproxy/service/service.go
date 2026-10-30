@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/shared/exposetarget"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -1598,7 +1599,7 @@ func (r *ExposeServiceRequest) Validate() error {
 	}
 
 	if r.TargetHost != "" {
-		host, err := normalizeExposeTargetHost(r.TargetHost)
+		host, err := exposetarget.NormalizeHost(r.TargetHost)
 		if err != nil {
 			return err
 		}
