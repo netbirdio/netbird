@@ -72,6 +72,11 @@ type WGIface struct {
 	configurer     device.WGConfigurer
 	filter         device.PacketFilter
 	wgProxyFactory wgProxyFactory
+
+	// overlayPeerKey is the public key of the placeholder peer that owns the overlay range.
+	overlayPeerKey string
+	// overlayRange is the range the placeholder owns on the device, empty while none is reserved.
+	overlayRange []netip.Prefix
 }
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
@@ -135,7 +140,11 @@ func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.tun.UpdateAddr(newAddr)
+	if err := w.tun.UpdateAddr(newAddr); err != nil {
+		return err
+	}
+
+	return w.reserveOverlay(true)
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
@@ -146,6 +155,10 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 	defer w.mu.Unlock()
 	if w.configurer == nil {
 		return ErrIfaceNotFound
+	}
+
+	if err := w.checkNotOverlayRange(allowedIps...); err != nil {
+		return err
 	}
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
@@ -181,6 +194,10 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	defer w.mu.Unlock()
 	if w.configurer == nil {
 		return ErrIfaceNotFound
+	}
+
+	if err := w.checkNotOverlayRange(allowedIP); err != nil {
+		return err
 	}
 
 	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
