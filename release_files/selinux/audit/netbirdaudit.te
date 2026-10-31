@@ -2,9 +2,21 @@ policy_module(netbirdaudit, 1.0.0)
 
 # Development aid, not part of the netbird-selinux package. Logs every use of a permission
 # the netbird module grants to netbird_t as an "avc: granted" record, so the features that
-# need a permission can be found before retiring it. See ../README.md, "Auditing permission use".
+# need a permission can be found before retiring it.
 #
 # Sockets are left out on purpose: they are checked per packet and would flood the log.
+#
+# Usage, from this directory (the audit log needs a larger max_log_file and num_logs in
+# /etc/audit/auditd.conf, and auditctl -b 65536 -r 0, for a long run):
+#
+#   make -f /usr/share/selinux/devel/Makefile netbirdaudit.pp
+#   semodule -X 300 -i netbirdaudit.pp
+#   semodule -DB                       (also log the denials that dontaudit hides)
+#   python3 report.py <start-epoch> <marks-file> > report.tsv
+#   semodule -X 300 -r netbirdaudit; semodule -B
+#
+# report.py documents the marks file. To retire a permission, remove it from netbird.te,
+# rebuild the module and repeat the features the report lists for it.
 
 gen_require(`
 	type netbird_t;
