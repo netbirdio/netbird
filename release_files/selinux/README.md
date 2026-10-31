@@ -57,10 +57,11 @@ Capabilities, as written in `netbird.te`:
 | `setuid`, `setgid` | SFTP helper dropping to the session user | The `ssh-sftp` scenarios only |
 | `sys_admin` | `setsid -c` before `login` (`netbird_ssh_sessions`). The daemon also probes `su` and `login` at start | Interactive login scenarios, daemon start |
 | `audit_write` | Granted by `logging_send_audit_msgs`, not by a rule here | Not seen |
-| `chown`, `fowner`, `fsetid`, `kill`, `sys_resource`, `sys_chroot` | Not seen. `kill` is how the SSH server signals the process group of a session (`client/ssh/server/command_execution_unix.go`). The others have no code path in the client | Not seen |
+| `kill` | The SSH server signals the process group of a session when it ends (`client/ssh/server/command_execution_unix.go`). A root-owned `su` in the group needs no capability, a process of the user itself would | Not seen |
 
-The original eBPF rules (`bpf`, `perfmon`) are gone because the client no longer loads
-eBPF: the WireGuard proxy is a loopback raw-socket proxy.
+Left out on purpose: `bpf` and `perfmon` (the client no longer loads eBPF, the WireGuard
+proxy is a loopback raw-socket proxy), and `chown`, `fowner`, `fsetid`, `sys_resource`
+and `sys_chroot`, which have no code path in the client and were never used in a run.
 
 Everything else, by feature:
 
