@@ -174,11 +174,11 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, err
 	}
 
+	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
+
 	if change.IsEmpty() {
 		return router, nil
 	}
-
-	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
 	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
 

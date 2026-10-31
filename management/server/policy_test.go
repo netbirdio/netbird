@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -1307,9 +1308,22 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		// Saving the policy unchanged must not write or send peer update
 		step(t, "saving unchanged policy with source and destination groups with peers", func(t *testing.T) {
+			policyUpdatedEvents := func() int {
+				events, err := manager.GetEvents(context.Background(), account.Id, userID)
+				require.NoError(t, err)
+				count := 0
+				for _, e := range events {
+					if e.Activity == activity.PolicyUpdated && e.TargetID == policyWithSourceAndDestinationPeers.ID {
+						count++
+					}
+				}
+				return count
+			}
+
 			settleAffectedUpdates(updMsg)
 			before, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
 			require.NoError(t, err)
+			eventsBefore := policyUpdatedEvents()
 
 			_, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers.Copy(), false)
 			assert.NoError(t, err)
@@ -1317,6 +1331,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			time.Sleep(peerUpdateSettleTime)
 			synctest.Wait()
 			assert.Empty(t, updMsg, "peer must not receive an update")
+			assert.Equal(t, eventsBefore+1, policyUpdatedEvents(), "unchanged update must still log a policy updated event")
 
 			after, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
 			require.NoError(t, err)

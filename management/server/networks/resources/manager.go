@@ -259,8 +259,13 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			oldResource.GroupIDs = append(oldResource.GroupIDs, g.ID)
 		}
 
+		updatedEvent := func() {
+			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
+		}
+
 		if resource.Equal(oldResource) {
 			unchanged = true
+			eventsToStore = append(eventsToStore, updatedEvent)
 			return nil
 		}
 
@@ -275,9 +280,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 
 		eventsToStore = append(eventsToStore, events...)
-		eventsToStore = append(eventsToStore, func() {
-			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
-		})
+		eventsToStore = append(eventsToStore, updatedEvent)
 
 		change = affectedpeers.Change{Resources: []*types.NetworkResource{oldResource, resource}}
 		if snap, err = affectedpeers.Load(ctx, transaction, resource.AccountID, change); err != nil {
@@ -295,12 +298,12 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to update network resource: %w", err)
 	}
 
-	if unchanged {
-		return resource, nil
-	}
-
 	for _, event := range eventsToStore {
 		event()
+	}
+
+	if unchanged {
+		return resource, nil
 	}
 
 	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them

@@ -496,7 +496,7 @@ func Test_UpdateResourceUnchangedSkipsWrite(t *testing.T) {
 	serialBefore := serial()
 	_, err = manager.UpdateResource(ctx, userID, resource.Copy())
 	require.NoError(t, err)
-	assert.Equal(t, 1, events, "unchanged update must not log an event")
+	assert.Equal(t, 2, events, "unchanged update must still log an event")
 	assert.Equal(t, 1, fanOuts, "unchanged update must not update affected peers")
 	assert.Equal(t, serialBefore, serial(), "unchanged update must not bump the network serial")
 }

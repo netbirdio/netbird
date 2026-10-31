@@ -460,7 +460,7 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, existingRecord.Content, result.Content, "unchanged update must return the stored record")
-		assert.Zero(t, events, "unchanged update must not log an event")
+		assert.Equal(t, 1, events, "unchanged update must still log an event")
 		assert.Zero(t, fanOuts, "unchanged update must not update affected peers")
 	})
 

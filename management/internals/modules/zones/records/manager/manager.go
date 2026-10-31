@@ -171,12 +171,12 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, err
 	}
 
+	meta := record.EventMeta(zone.ID, zone.Name)
+	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, meta)
+
 	if unchanged {
 		return record, nil
 	}
-
-	meta := record.EventMeta(zone.ID, zone.Name)
-	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, meta)
 
 	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
