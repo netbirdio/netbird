@@ -30,6 +30,25 @@ func Difference(a, b []string) []string {
 	return diff
 }
 
+// ElementsMatch reports whether a and b hold the same elements with the same
+// multiplicity, ignoring order.
+func ElementsMatch[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[T]int, len(a))
+	for _, x := range a {
+		counts[x]++
+	}
+	for _, x := range b {
+		if counts[x] == 0 {
+			return false
+		}
+		counts[x]--
+	}
+	return true
+}
+
 // ToPtr returns a pointer to the given value.
 func ToPtr[T any](value T) *T {
 	return &value

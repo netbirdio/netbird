@@ -116,6 +116,10 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		}
 		network.PublicID = existing.PublicID
 
+		if network.Equal(existing) {
+			return nil
+		}
+
 		if err := transaction.SaveNetwork(ctx, network); err != nil {
 			return fmt.Errorf("failed to save network: %w", err)
 		}

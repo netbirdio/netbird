@@ -65,7 +65,7 @@ type Snapshot struct {
 // Expand's walker preconditions, loading only what the change can touch.
 func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snapshot, error) {
 	snap := &Snapshot{}
-	if c.isEmpty() {
+	if c.IsEmpty() {
 		return snap, nil
 	}
 
@@ -249,7 +249,8 @@ type Change struct {
 	LinkGroups []string
 }
 
-func (c Change) isEmpty() bool {
+// IsEmpty reports whether the change carries nothing that could affect peers.
+func (c Change) IsEmpty() bool {
 	return len(c.ChangedGroupIDs) == 0 &&
 		len(c.ChangedPeerIDs) == 0 &&
 		len(c.Policies) == 0 &&
@@ -270,7 +271,7 @@ func (c Change) isEmpty() bool {
 // no store access. Run after the producing tx commits. A nil Snapshot expands to
 // nothing. Logs the full walk at trace level for diagnosing a miscalculation.
 func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []string {
-	if snap == nil || c.isEmpty() {
+	if snap == nil || c.IsEmpty() {
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
@@ -283,7 +284,7 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 // Collect returns the affected group and direct-peer IDs without expanding groups
 // to members. Test-only introspection; use Resolve otherwise.
 func Collect(ctx context.Context, s store.Store, accountID string, c Change) (groupIDs []string, directPeerIDs []string) {
-	if c.isEmpty() {
+	if c.IsEmpty() {
 		return nil, nil
 	}
 	snap, err := Load(ctx, s, accountID, c)
