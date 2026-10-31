@@ -74,6 +74,18 @@ func (s *Server) createCommand(logger *log.Entry, privilegeResult PrivilegeCheck
 		return cmd, cleanup, nil
 	}
 
+	// su cannot start a session in a confined SELinux user's context, so those users go
+	// through the executor, which sets it.
+	if needsSessionContext(localUser.Username, localGroupNames(localUser)) {
+		logger.Debugf("user %s has a confined SELinux mapping, using executor to set the session context", localUser.Username)
+		cmd, cleanup, err := s.createExecutorCommand(logger, session, localUser, hasPty)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create command with privileges: %w", err)
+		}
+		cmd.Env = s.prepareCommandEnv(logger, localUser, session)
+		return cmd, cleanup, nil
+	}
+
 	// Try su first for system integration (PAM/audit) when privileged
 	cmd, err := s.createSuCommand(logger, session, localUser, hasPty) //nolint:staticcheck
 	if err != nil || privilegeResult.UsedFallback {                   //nolint:staticcheck // always errors on platforms without su

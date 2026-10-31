@@ -15,6 +15,8 @@ import (
 )
 
 var (
+	sftpUser       string
+	sftpContextSet bool
 	sftpUID        uint32
 	sftpGID        uint32
 	sftpGroupsInt  []uint
@@ -29,6 +31,8 @@ var sshSftpCmd = &cobra.Command{
 }
 
 func init() {
+	sshSftpCmd.Flags().StringVar(&sftpUser, "user", "", "Target user name")
+	sshSftpCmd.Flags().BoolVar(&sftpContextSet, "context-set", false, "The SELinux session context is already applied")
 	sshSftpCmd.Flags().Uint32Var(&sftpUID, "uid", 0, "Target user ID")
 	sshSftpCmd.Flags().Uint32Var(&sftpGID, "gid", 0, "Target group ID")
 	sshSftpCmd.Flags().UintSliceVar(&sftpGroupsInt, "groups", nil, "Supplementary group IDs (can be repeated)")
@@ -44,12 +48,23 @@ func sftpMain(cmd *cobra.Command, _ []string) error {
 	}
 
 	config := sshserver.ExecutorConfig{
+		Username:   sftpUser,
 		UID:        sftpUID,
 		GID:        sftpGID,
 		Groups:     groups,
 		WorkingDir: sftpWorkingDir,
 		Shell:      "",
 		Command:    "",
+	}
+
+	if !sftpContextSet {
+		// Serving as the user needs the user's SELinux context, which only an exec can set.
+		argv := append([]string{os.Args[0]}, os.Args[1:]...)
+		argv = append(argv, "--context-set")
+		if _, err := privilegeDropper.ExecInSessionContext(config, argv); err != nil {
+			cmd.PrintErrf("start SFTP in the session context: %v\n", err)
+			os.Exit(sshserver.ExitCodeSELinuxContextFail)
+		}
 	}
 
 	log.Tracef("dropping privileges for SFTP to UID=%d, GID=%d, groups=%v", config.UID, config.GID, config.Groups)

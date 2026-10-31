@@ -194,6 +194,7 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 	}
 	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	config := ExecutorConfig{
+		Username:   localUser.Username,
 		UID:        uid,
 		GID:        gid,
 		Groups:     groups,

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -17,14 +19,18 @@ import (
 
 // Exit codes for executor process communication
 const (
-	ExitCodeSuccess           = 0
-	ExitCodePrivilegeDropFail = 10
-	ExitCodeShellExecFail     = 11
-	ExitCodeValidationFail    = 12
+	ExitCodeSuccess            = 0
+	ExitCodePrivilegeDropFail  = 10
+	ExitCodeShellExecFail      = 11
+	ExitCodeValidationFail     = 12
+	ExitCodeSELinuxContextFail = 13
 )
 
 // ExecutorConfig holds configuration for the executor process
 type ExecutorConfig struct {
+	// Username is the login name of the target user, used to resolve the SELinux context
+	// the session starts in.
+	Username   string
 	UID        uint32
 	GID        uint32
 	Groups     []uint32
@@ -79,6 +85,7 @@ func (pd *PrivilegeDropper) CreateExecutorCommand(ctx context.Context, config Ex
 
 	args := []string{
 		"ssh", "exec",
+		"--user", config.Username,
 		"--uid", fmt.Sprintf("%d", config.UID),
 		"--gid", fmt.Sprintf("%d", config.GID),
 		"--working-dir", config.WorkingDir,
@@ -217,9 +224,29 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 		config.PTY = false
 	}
 
+	// The SELinux exec context is per thread, so the thread that sets it must be the one
+	// that forks the shell. The process exits afterwards, so the lock is never released.
+	runtime.LockOSThread()
+
+	// The context is resolved while still root, and a failure refuses the session rather
+	// than starting it in the daemon's own domain.
+	sessionContext, err := sessionExecContext(config.Username, groupNames(config.Groups))
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "resolve SELinux session context: %v\n", err)
+		os.Exit(ExitCodeSELinuxContextFail)
+	}
+
 	if err := pd.DropPrivileges(config.UID, config.GID, config.Groups); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "privilege drop failed: %v\n", err)
 		os.Exit(ExitCodePrivilegeDropFail)
+	}
+
+	if sessionContext != "" {
+		log.Tracef("starting session in SELinux context %s", sessionContext)
+		if err := setExecContext(sessionContext); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "set SELinux session context: %v\n", err)
+			os.Exit(ExitCodeSELinuxContextFail)
+		}
 	}
 
 	if config.WorkingDir != "" {
@@ -256,10 +283,22 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 
 		// Actual execution failure (command not found, permission denied, etc.)
 		log.Debugf("command execution failed: %v", err)
+		_, _ = fmt.Fprintf(os.Stderr, "start shell: %v\n", err)
 		os.Exit(ExitCodeShellExecFail)
 	}
 
 	os.Exit(ExitCodeSuccess)
+}
+
+// groupNames resolves group IDs to names, skipping the ones that cannot be resolved.
+func groupNames(gids []uint32) []string {
+	names := make([]string, 0, len(gids))
+	for _, gid := range gids {
+		if g, err := user.LookupGroupId(strconv.FormatUint(uint64(gid), 10)); err == nil {
+			names = append(names, g.Name)
+		}
+	}
+	return names
 }
 
 // validatePrivileges validates that privilege dropping to the target UID/GID is allowed
