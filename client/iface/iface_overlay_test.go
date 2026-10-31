@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -210,4 +211,152 @@ func TestWGIface_OverlayReservation_DualStack(t *testing.T) {
 	require.Len(t, peers, 1)
 	assert.Equal(t, []string{"100.64.0.0/16", "fd00:64::/64"}, peers[w.overlayPeerKey],
 		"the v6 overlay range has to be reserved as well, an exit node carries ::/0")
+}
+
+func newOverlayTestIface(t *testing.T, name string, port int, env map[string]string) *WGIface {
+	t.Helper()
+
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
+	w, err := NewWGIFace(WGIFaceOpts{
+		IFaceName:    name,
+		Address:      wgaddr.MustParseWGAddress("100.64.0.1/16"),
+		WGPort:       port,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: stdnet.NewNet(context.Background(), testIFaceBlackList, nil),
+	})
+	require.NoError(t, err)
+	require.NoError(t, w.Create())
+	t.Cleanup(func() { _ = w.Close() })
+	_, err = w.Up()
+	require.NoError(t, err)
+	return w
+}
+
+// endpointListener stands in for a remote peer: it reports whether WireGuard sent it anything.
+type endpointListener struct {
+	conn *net.UDPConn
+}
+
+func newEndpointListener(t *testing.T) *endpointListener {
+	t.Helper()
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return &endpointListener{conn: conn}
+}
+
+func (l *endpointListener) addr() *net.UDPAddr { return l.conn.LocalAddr().(*net.UDPAddr) }
+
+// received reports whether a packet arrives within the wait.
+func (l *endpointListener) received(wait time.Duration) bool {
+	_ = l.conn.SetReadDeadline(time.Now().Add(wait))
+	buf := make([]byte, 2048)
+	_, _, err := l.conn.ReadFromUDP(buf)
+	return err == nil
+}
+
+func sendOverlayPackets(t *testing.T, dst string) {
+	t.Helper()
+
+	conn, err := net.Dial("udp", dst)
+	require.NoError(t, err)
+	defer conn.Close()
+	for i := 0; i < 3; i++ {
+		// the device may refuse the send, which is part of what is checked elsewhere
+		_, _ = conn.Write([]byte("probe"))
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestWGIface_OverlayReservation_NothingLeaksToTheExitNode is the regression guard for the reason the
+// range is reserved: an address without a peer of its own, because the peer has not connected yet or
+// was just removed, must not follow an exit node's default route to the exit node.
+//
+// WireGuard sends a handshake initiation to a peer at most once per REKEY_TIMEOUT, and that initiation is
+// what shows traffic reached an endpoint. Every probe therefore uses an exit node of its own that has not
+// seen any traffic yet; a listener that already received one would stay silent for the next probe and hide
+// a leak.
+func TestWGIface_OverlayReservation_NothingLeaksToTheExitNode(t *testing.T) {
+	modes := []struct {
+		name string
+		env  map[string]string
+		skip func() bool
+	}{
+		{name: "kernel", skip: func() bool { return !device.WireGuardModuleIsLoaded() }},
+		{name: "userspace", env: map[string]string{"NB_WG_KERNEL_DISABLED": "true"}, skip: func() bool { return !device.ModuleTunIsLoaded() }},
+	}
+
+	for i, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			if mode.skip() {
+				t.Skipf("%s WireGuard is not available here", mode.name)
+			}
+			w := newOverlayTestIface(t, fmt.Sprintf("utun%d", WgIntNumber+30+i), 33230+i, mode.env)
+
+			// the newest exit node owns 0.0.0.0/0, so it is the one a leak would reach
+			exitNodes := 0
+			newExitNode := func() *endpointListener {
+				exitNodes++
+				l := newEndpointListener(t)
+				own := netip.MustParsePrefix(fmt.Sprintf("100.64.0.%d/32", 1+exitNodes))
+				require.NoError(t, w.UpdatePeer(newOverlayTestPeerKey(t), []netip.Prefix{own, netip.MustParsePrefix("0.0.0.0/0")}, 0, l.addr(), nil))
+				return l
+			}
+
+			// control: traffic to an exit node's own address reaches its endpoint, so silence below means something
+			control := newExitNode()
+			sendOverlayPackets(t, "100.64.0.2:5053")
+			require.True(t, control.received(3*time.Second), "traffic addressed to the exit node must reach it")
+
+			// a peer that has not connected yet has no entry
+			exitNode := newExitNode()
+			sendOverlayPackets(t, "100.64.0.77:5053")
+			assert.False(t, exitNode.received(1500*time.Millisecond),
+				"traffic to an unconnected peer's address must not reach the exit node")
+
+			// a peer that was connected and is removed again, the gap a closing connection leaves
+			colleague := newEndpointListener(t)
+			colleagueKey := newOverlayTestPeerKey(t)
+			require.NoError(t, w.UpdatePeer(colleagueKey, []netip.Prefix{netip.MustParsePrefix("100.64.0.41/32")}, 0, colleague.addr(), nil))
+			sendOverlayPackets(t, "100.64.0.41:5053")
+			require.True(t, colleague.received(3*time.Second), "a connected peer receives traffic addressed to it")
+
+			exitNode = newExitNode()
+			require.NoError(t, w.RemovePeer(colleagueKey))
+			sendOverlayPackets(t, "100.64.0.41:5053")
+			assert.False(t, exitNode.received(1500*time.Millisecond),
+				"traffic to a removed peer's address must not reach the exit node")
+			assert.False(t, colleague.received(500*time.Millisecond),
+				"nor the endpoint the removed peer had")
+		})
+	}
+}
+
+// TestWGIface_OverlayReservation_UnconnectedPeerFailsFast pins how kernel WireGuard answers traffic to
+// an overlay address that has no peer yet: with an error at once, not by holding the packet. Callers
+// that retry or time out on offline peers, such as DNS upstreams, rely on this.
+func TestWGIface_OverlayReservation_UnconnectedPeerFailsFast(t *testing.T) {
+	if !device.WireGuardModuleIsLoaded() {
+		t.Skip("kernel WireGuard is not available here")
+	}
+	newOverlayTestIface(t, fmt.Sprintf("utun%d", WgIntNumber+33), 33233, nil)
+
+	conn, err := net.Dial("udp", "100.64.0.77:5053")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	start := time.Now()
+	var sendErr error
+	for i := 0; i < 3 && sendErr == nil; i++ {
+		_, sendErr = conn.Write([]byte("probe"))
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	require.Error(t, sendErr, "the device must refuse traffic for an address without a connected peer")
+	assert.Less(t, time.Since(start), 2*time.Second, "and do so at once")
+	t.Logf("kernel answers with: %v", sendErr)
 }
