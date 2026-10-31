@@ -17,6 +17,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -102,6 +103,43 @@ func TestIptablesManager(t *testing.T) {
 		require.NoError(t, err, "failed check chain exists")
 		require.Falsef(t, ok, "chain %q still exists after Close", chainACLInput)
 	})
+}
+
+func TestIptablesManagerHairpinGuard(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	guard := []string{
+		"-i", ifaceMock.Name(),
+		"-o", ifaceMock.Name(),
+		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-j", "DROP",
+	}
+	checkTableRuleSpecs(t, ipv4Client, tableMangle, chainForward, true, guard...)
+
+	// A dropped packet never creates an established flow, so the guard
+	// follows the established accept and established traffic skips it.
+	rules, err := ipv4Client.List(tableMangle, chainForward)
+	require.NoError(t, err, "failed to list mangle forward rules")
+	hairpinIndex, establishedIndex := -1, -1
+	for i, rule := range rules {
+		switch {
+		case strings.Contains(rule, fmt.Sprintf("-i %s -o %s", ifaceMock.Name(), ifaceMock.Name())):
+			hairpinIndex = i
+		case strings.Contains(rule, "RELATED,ESTABLISHED"):
+			establishedIndex = i
+		}
+	}
+	require.NotEqual(t, -1, hairpinIndex, "hairpin guard should exist in the mangle forward chain")
+	require.NotEqual(t, -1, establishedIndex, "established accept should exist in the mangle forward chain")
+	require.Less(t, establishedIndex, hairpinIndex, "hairpin guard should come after the established accept")
+
+	require.NoError(t, manager.Close(nil))
+	checkTableRuleSpecs(t, ipv4Client, tableMangle, chainForward, false, guard...)
 }
 
 func TestIptablesManagerDenyRules(t *testing.T) {

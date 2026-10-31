@@ -146,6 +146,19 @@ func (r *family) seedInitialEntries() {
 		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
 		"-j", "DROP",
 	})
+
+	// Hairpin guard: routed traffic must not leave through the wg
+	// interface it arrived on. A default route rule also matches the
+	// overlay and the networks we're a client of, and masquerading would
+	// present the traffic there under our own overlay address. It follows
+	// the established accept: a dropped packet never creates an
+	// established flow, so established traffic skips the check.
+	r.appendToEntries(mangleForwardKey, []string{
+		"-i", r.wgIface.Name(),
+		"-o", r.wgIface.Name(),
+		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-j", "DROP",
+	})
 }
 
 func (r *family) seedInitialOptionalEntries() {
