@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"sync"
 	"testing"
 	"time"
@@ -77,6 +78,11 @@ func TestAuthCredentials_ProofIsReusedWithinTheWindow(t *testing.T) {
 	steppedBack, err := a.metadataPairs(now.Add(proofRefreshInterval - time.Hour))
 	require.NoError(t, err)
 	assert.NotEqual(t, later, steppedBack, "a proof must be renewed when the clock steps back")
+
+	a.update([]byte("token-1"))
+	resent, err := a.metadataPairs(now.Add(proofRefreshInterval - time.Hour + time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, steppedBack, resent, "the same token sent again must keep its proof")
 
 	a.update([]byte("token-2"))
 	renewed, err := a.metadataPairs(now)
@@ -170,5 +176,68 @@ func TestClient_PresentsAuthTokenOnStreamAndSend(t *testing.T) {
 		assert.Equal(t, token, gotToken, "%s must carry the auth token unchanged", name)
 		assert.NoError(t, peerauth.VerifyProof(pub, peerauth.ServiceSignal, gotToken, proof, []string{"127.0.0.1"}, time.Now(), peerauth.DefaultSkew),
 			"%s proof must verify for the dialed hostname", name)
+	}
+}
+
+// A real Signal verifier must accept the credentials the client presents on the stream and on
+// every Send, even when it refuses legacy peers.
+func TestClient_AuthenticatesToSignalVerifier(t *testing.T) {
+	secret := sha256.Sum256([]byte("relay-secret"))
+	signal, err := server.NewServerWithPeerAuth(context.Background(), otel.Meter(""), server.PeerAuthConfig{
+		Keys:      peerauth.TokenKeys{HMAC: secret[:]},
+		Hostnames: []string{"127.0.0.1"},
+		Required:  true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(signal.Stop)
+	addr := serveTestSignalExchange(t, signal)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	authPub, authKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	token, err := peerauth.IssueHMACToken(secret[:], peerauth.Token{
+		Expiry:  time.Now().Add(time.Hour),
+		WGPub:   key.PublicKey(),
+		AuthPub: authPub,
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	client, err := NewClient(ctx, addr, key, false, WithAuthKey(authKey))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+	client.UpdateAuthToken(token)
+
+	received := make(chan struct{}, 1)
+	receiveDone := make(chan struct{})
+	go func() {
+		defer close(receiveDone)
+		_ = client.Receive(ctx, func(*sigProto.Message) error {
+			select {
+			case received <- struct{}{}:
+			default:
+			}
+			return nil
+		})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-receiveDone
+	})
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer waitCancel()
+	client.WaitStreamConnected(waitCtx)
+	require.True(t, client.StreamConnected(), "the authenticated stream must register")
+
+	self := key.PublicKey().String()
+	require.NoError(t, client.Send(&sigProto.Message{Key: self, RemoteKey: self, Body: &sigProto.Body{Type: sigProto.Body_OFFER}}),
+		"the authenticated send must be accepted")
+	select {
+	case <-received:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the message never came back through the authenticated stream")
 	}
 }

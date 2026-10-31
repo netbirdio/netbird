@@ -95,7 +95,7 @@ type PeerAuthConfig struct {
 	// Enabled issues the bound token to peers that send an auth key. Turn it on only once every
 	// Relay verifies the bound token.
 	Enabled bool `yaml:"enabled"`
-	// Required makes the local relay refuse peers that present no bound token.
+	// Required makes the local Relay and Signal refuse peers that present no bound token.
 	Required bool `yaml:"required"`
 }
 

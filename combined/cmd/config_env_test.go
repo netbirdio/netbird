@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -255,4 +256,8 @@ func TestToManagementConfigPeerAuth(t *testing.T) {
 	assert.Equal(t, nbconfig.PeerAuth{Enabled: true}, mgmt.PeerAuth, "server.peerAuth must reach the Management config")
 	require.NotNil(t, mgmt.Relay, "the local relay must give Management the secret to sign with")
 	assert.Equal(t, "relay-secret", mgmt.Relay.Secret, "Management signs peer auth tokens with server.authSecret")
+
+	hashed := sha256.Sum256([]byte("relay-secret"))
+	assert.Equal(t, hashed[:], signalPeerAuthConfig(cfg).Keys.HMAC,
+		"the local Signal must verify with the key Management signs with")
 }

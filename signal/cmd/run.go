@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -52,6 +53,12 @@ var (
 	signalLetsencryptListen  string
 	signalCertFile           string
 	signalCertKey            string
+
+	// Peer auth: tokens bound to the peer keys, signed by Management with the hashed relay secret
+	authSecret        string
+	peerAuthHostnames []string
+	peerAuthRequired  bool
+	peerAuthCheckTime bool
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -121,7 +128,7 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
+			srv, err := server.NewServerWithPeerAuth(cmd.Context(), metricsServer.Meter, peerAuthConfig())
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
@@ -218,6 +225,15 @@ var (
 		},
 	}
 )
+
+func peerAuthConfig() server.PeerAuthConfig {
+	cfg := server.PeerAuthConfig{Hostnames: peerAuthHostnames, Required: peerAuthRequired, CheckTime: peerAuthCheckTime}
+	if authSecret != "" {
+		hashedSecret := sha256.Sum256([]byte(authSecret))
+		cfg.Keys.HMAC = hashedSecret[:]
+	}
+	return cfg
+}
 
 func startPprof() {
 	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
@@ -367,6 +383,10 @@ func init() {
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptListen, "letsencrypt-listen-address", defaultLetsencryptListenAddress, "address of the separate Let's Encrypt challenge listener, used when --port is not 443. Set it empty when public port 443 is forwarded to --port, which answers the challenges itself")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
 	runCmd.PersistentFlags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.PersistentFlags().StringVar(&authSecret, "auth-secret", "", "the Relay auth secret, which Management signs HMAC peer auth tokens with; unset, peer auth credentials are ignored")
+	runCmd.PersistentFlags().StringSliceVar(&peerAuthHostnames, "peer-auth-hostnames", nil, "if set, the only hostnames accepted in peer auth proofs: list every name peers dial this Signal with")
+	runCmd.PersistentFlags().BoolVar(&peerAuthRequired, "peer-auth-required", false, "refuse peers that present no token bound to their keys")
+	runCmd.PersistentFlags().BoolVar(&peerAuthCheckTime, "peer-auth-check-time", false, "refuse peer auth proofs signed more than 10 minutes away from this Signal's clock; enable only when every peer clock is in sync. Off, a proof is valid as long as its token")
 	runCmd.PersistentFlags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	setFlagsFromEnvVars(runCmd)
 }

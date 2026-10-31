@@ -337,7 +337,7 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 	}
 
 	var err error
-	s.signalSrv, err = signalServer.NewServer(ctx, s.metricsServer.Meter, "signal_")
+	s.signalSrv, err = signalServer.NewServerWithPeerAuth(ctx, s.metricsServer.Meter, signalPeerAuthConfig(cfg), "signal_")
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to create signal server: %w", err)
@@ -345,6 +345,16 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 
 	log.Infof("Signal server created")
 	return nil
+}
+
+// signalPeerAuthConfig verifies tokens with the secret Management signs them with.
+func signalPeerAuthConfig(cfg *CombinedConfig) signalServer.PeerAuthConfig {
+	pa := signalServer.PeerAuthConfig{Required: cfg.Server.PeerAuth.Required}
+	if secret := cfg.Management.Relays.Secret; secret != "" {
+		hashedSecret := sha256.Sum256([]byte(secret))
+		pa.Keys.HMAC = hashedSecret[:]
+	}
+	return pa
 }
 
 func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {
