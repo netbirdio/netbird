@@ -540,11 +540,11 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}()
 
-	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), []netip.Prefix{peer2wgIP}, keepAlive, peer2endpoint, nil)
+	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), []netip.Prefix{netip.PrefixFrom(peer2wgIP.Addr(), 32)}, keepAlive, peer2endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = iface2.UpdatePeer(peer1Key.PublicKey().String(), []netip.Prefix{peer1wgIP}, keepAlive, peer1endpoint, nil)
+	err = iface2.UpdatePeer(peer1Key.PublicKey().String(), []netip.Prefix{netip.PrefixFrom(peer1wgIP.Addr(), 32)}, keepAlive, peer1endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

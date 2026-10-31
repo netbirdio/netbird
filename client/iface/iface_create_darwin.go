@@ -32,7 +32,11 @@ func (w *WGIface) Create() error {
 		return nil
 	}
 
-	return backoff.Retry(operation, backOff)
+	if err := backoff.Retry(operation, backOff); err != nil {
+		return err
+	}
+
+	return w.reserveOverlay(false)
 }
 
 // CreateOnAndroid this function make sense on mobile only
