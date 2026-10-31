@@ -16,7 +16,7 @@ func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []s
 		return err
 	}
 	w.configurer = cfgr
-	return nil
+	return w.reserveOverlay(false)
 }
 
 // Create this function make sense on mobile only
