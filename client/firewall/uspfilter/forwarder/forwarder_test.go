@@ -1,13 +1,17 @@
 package forwarder
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const echoRequestSize = 8
@@ -159,4 +163,22 @@ func TestParseICMPv4_RejectsFragment(t *testing.T) {
 
 	_, _, _, _, ok := parseICMPv4(pkt)
 	assert.False(t, ok)
+}
+
+func TestEgressesOverlay(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	newForwarder := func(ip netip.Addr, netstack bool) *Forwarder {
+		return &Forwarder{
+			logger:   nblog.NewFromLogrus(logrus.StandardLogger()),
+			ctx:      context.Background(),
+			ip:       addrFromNetipAddr(ip),
+			netstack: netstack,
+		}
+	}
+
+	// The host picks 127.0.0.1 as source for this destination, so it stands in for the overlay address.
+	assert.True(t, newForwarder(loopback, false).egressesOverlay(loopback))
+	assert.True(t, newForwarder(loopback, false).egressesOverlay(netip.AddrFrom16(loopback.As16())), "v4-mapped destination")
+	assert.False(t, newForwarder(netip.MustParseAddr("100.10.0.1"), false).egressesOverlay(loopback))
+	assert.False(t, newForwarder(loopback, true).egressesOverlay(loopback), "netstack mode has no kernel interface")
 }

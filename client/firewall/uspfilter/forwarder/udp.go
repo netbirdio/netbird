@@ -170,6 +170,17 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 		return false
 	}
 
+	// The socket is connected but nothing was sent yet, no need for a separate route lookup.
+	if !f.netstack && f.isOverlayAddr(outConn.LocalAddr()) {
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace1("forwarder: dropping UDP packet routed back into the overlay %v", epID(id))
+		}
+		if err := outConn.Close(); err != nil {
+			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+		}
+		return false
+	}
+
 	// Create wait queue for blocking syscalls
 	wq := waiter.Queue{}
 	ep, epErr := r.CreateEndpoint(&wq)
