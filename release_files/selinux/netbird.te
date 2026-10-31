@@ -89,8 +89,8 @@ term_login_pty(netbird_devpts_t)
 # netbird local policy
 #
 
-# Capabilities, one rule per need. README.md ("Permission map") lists how each one was
-# verified and how to repeat the check before retiring it.
+# Capabilities, one rule per need. README.md ("Permission map") lists them with the
+# features behind them.
 
 # Interface, address, route, ip rule and firewall changes, over netlink, nft and iptables
 allow netbird_t self:capability net_admin;
@@ -109,12 +109,10 @@ allow netbird_t self:capability dac_read_search;
 # TPM access: /dev/tpmrm0 belongs to the tss user with mode 0660
 allow netbird_t self:capability dac_override;
 
-# SFTP helper: drops to the session user before serving
+# SSH helper processes (SFTP and the exec fallback) drop to the session user before serving
 allow netbird_t self:capability { setuid setgid };
 
-# The SSH server signals the process group of a session when it ends. No audited run used
-# this: the group held a root-owned su, which needs no capability. A session process of
-# the user itself would.
+# The SSH server signals the process group of a session when it ends
 allow netbird_t self:capability kill;
 
 # Granted through interfaces called below, not by a rule here: net_bind_service by
