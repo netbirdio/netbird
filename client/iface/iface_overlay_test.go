@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,6 +188,10 @@ func TestWGIface_OverlayReservation_DualStack(t *testing.T) {
 	if !device.WireGuardModuleIsLoaded() {
 		t.Skip("kernel WireGuard is not available here")
 	}
+	// only a host without IPv6 may skip, any other failure to create the interface is a failure
+	if disabled, err := os.ReadFile("/proc/sys/net/ipv6/conf/all/disable_ipv6"); err != nil || strings.TrimSpace(string(disabled)) == "1" {
+		t.Skip("IPv6 is not enabled here")
+	}
 
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+22)
 	w, err := NewWGIFace(WGIFaceOpts{
@@ -202,9 +208,7 @@ func TestWGIface_OverlayReservation_DualStack(t *testing.T) {
 		TransportNet: stdnet.NewNet(context.Background(), testIFaceBlackList, nil),
 	})
 	require.NoError(t, err)
-	if err := w.Create(); err != nil {
-		t.Skipf("IPv6 is not usable here: %v", err)
-	}
+	require.NoError(t, w.Create())
 	t.Cleanup(func() { _ = w.Close() })
 
 	peers := deviceAllowedIPs(t, ifaceName)
@@ -343,7 +347,15 @@ func TestWGIface_OverlayReservation_UnconnectedPeerFailsFast(t *testing.T) {
 	if !device.WireGuardModuleIsLoaded() {
 		t.Skip("kernel WireGuard is not available here")
 	}
-	newOverlayTestIface(t, fmt.Sprintf("utun%d", WgIntNumber+33), 33233, nil)
+	w := newOverlayTestIface(t, fmt.Sprintf("utun%d", WgIntNumber+33), 33233, nil)
+
+	// with an exit node on the device, only the reserved range keeps this address from following its
+	// default route to an endpoint, where the packet would be held instead of refused
+	exitNode := newEndpointListener(t)
+	require.NoError(t, w.UpdatePeer(newOverlayTestPeerKey(t), []netip.Prefix{
+		netip.MustParsePrefix("100.64.0.2/32"),
+		netip.MustParsePrefix("0.0.0.0/0"),
+	}, 0, exitNode.addr(), nil))
 
 	conn, err := net.Dial("udp", "100.64.0.77:5053")
 	require.NoError(t, err)

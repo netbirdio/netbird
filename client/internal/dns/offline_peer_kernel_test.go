@@ -5,6 +5,7 @@ package dns
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -45,6 +46,19 @@ func TestExchangeWithFallback_OfflinePeerFailsFast(t *testing.T) {
 	t.Cleanup(func() { _ = w.Close() })
 	_, err = w.Up()
 	require.NoError(t, err)
+
+	// An exit node whose endpoint never answers. Without the reserved overlay range the query to the
+	// offline peer follows its default route to this endpoint and is held until the timeout, so the
+	// quick failure below depends on the range being reserved.
+	exitNode, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = exitNode.Close() })
+	exitKey, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	require.NoError(t, w.UpdatePeer(exitKey.PublicKey().String(), []netip.Prefix{
+		netip.MustParsePrefix("100.64.0.2/32"),
+		netip.MustParsePrefix("0.0.0.0/0"),
+	}, 0, exitNode.LocalAddr().(*net.UDPAddr), nil))
 
 	upstreamIP := netip.MustParseAddr("100.64.0.77")
 	const timeout = 8 * time.Second

@@ -125,11 +125,25 @@ func TestUDPListener_KernelWakeWithOverlayPlaceholder(t *testing.T) {
 	})
 
 	t.Run("address of a removed peer is not reachable until a listener exists again", func(t *testing.T) {
-		require.NoError(t, w.RemovePeer(peerKey))
-		assert.Len(t, peerKeys(t, "utun2040"), 1, "only the placeholder is left")
+		// an exit node that has seen no traffic, so a leak to it would show at once
+		exitNode, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		require.NoError(t, err)
+		defer exitNode.Close()
+		exitKey, err := wgtypes.GeneratePrivateKey()
+		require.NoError(t, err)
+		require.NoError(t, w.UpdatePeer(exitKey.PublicKey().String(), []netip.Prefix{
+			netip.MustParsePrefix("100.64.0.2/32"),
+			netip.MustParsePrefix("0.0.0.0/0"),
+		}, 0, exitNode.LocalAddr().(*net.UDPAddr), nil))
 
-		// the idle gap: nothing may leak to another peer, and nothing wakes a listener that does not exist
+		require.NoError(t, w.RemovePeer(peerKey))
+		assert.NotContains(t, peerKeys(t, "utun2040"), peerKey)
+
+		// the idle gap: nothing may leak to the exit node, and nothing wakes a listener that does not exist
 		sendTo(t, "100.64.0.7:9999")
+		require.NoError(t, exitNode.SetReadDeadline(time.Now().Add(1500*time.Millisecond)))
+		_, _, readErr := exitNode.ReadFromUDP(make([]byte, 2048))
+		assert.Error(t, readErr, "traffic to a removed peer's address must not reach the exit node")
 
 		l, done := listenForActivity(t, w, peerKey, "100.64.0.7/32")
 		defer l.Close()
@@ -143,6 +157,6 @@ func TestUDPListener_KernelWakeWithOverlayPlaceholder(t *testing.T) {
 
 	t.Run("the placeholder survives the whole cycle", func(t *testing.T) {
 		assert.Contains(t, peerKeys(t, "utun2040"), peerKey)
-		assert.Len(t, peerKeys(t, "utun2040"), 2)
+		assert.Len(t, peerKeys(t, "utun2040"), 3, "the placeholder, the exit node and the lazy peer")
 	})
 }
