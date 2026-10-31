@@ -51,7 +51,7 @@ const (
 //     when the account's EnableLogCollection setting is on. This setting read
 //     is the authoritative gate; the proxy-side strip is defense in depth.
 func IngestAccessLog(ctx context.Context, s store.Store, logEntry *accesslogs.AccessLogEntry) error {
-	entry, groups := flattenAccessLog(logEntry)
+	entry, groups := FlattenAccessLog(logEntry)
 
 	usage, usageGroups := usageFromFlattenedLog(entry, groups)
 	if err := s.CreateAgentNetworkUsage(ctx, usage, usageGroups); err != nil {
@@ -86,10 +86,12 @@ func IngestAccessLog(ctx context.Context, s store.Store, logEntry *accesslogs.Ac
 	return nil
 }
 
-// flattenAccessLog converts a reverse-proxy AccessLogEntry (whose LLM
+// FlattenAccessLog converts a reverse-proxy AccessLogEntry (whose LLM
 // dimensions live in the opaque Metadata map) into the flattened
-// agent-network row + authorising-group child rows.
-func flattenAccessLog(e *accesslogs.AccessLogEntry) (*types.AgentNetworkAccessLog, []types.AgentNetworkAccessLogGroup) {
+// agent-network row + authorising-group child rows. Exported so other
+// consumers of the proxy wire contract (log export, analytics) reuse the
+// metadata-key mapping instead of carrying their own copy.
+func FlattenAccessLog(e *accesslogs.AccessLogEntry) (*types.AgentNetworkAccessLog, []types.AgentNetworkAccessLogGroup) {
 	meta := e.Metadata
 
 	var sourceIP string
