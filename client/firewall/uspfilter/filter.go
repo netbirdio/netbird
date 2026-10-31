@@ -504,7 +504,7 @@ func (m *Manager) blockInvalidRouted(iface Iface) ([]firewall.Rule, error) {
 		rules = append(rules, v6Rule)
 	}
 
-	// TODO: Block networks that we're a client of
+	// Networks that we're a client of are blocked by the forwarder, which sees the host's routing decision.
 
 	return rules, nil
 }

@@ -404,6 +404,41 @@ func (f *Forwarder) determineDialAddr(addr tcpip.Address) netip.Addr {
 	return addrToNetipAddr(addr)
 }
 
+// egressesOverlay reports whether the host routes dst back into the overlay, which is the case for networks
+// this peer is itself a client of. Forwarded flows are host sockets, so such a flow would leave with our
+// overlay address and be granted our access by the next routing peer instead of the original sender's.
+func (f *Forwarder) egressesOverlay(dst netip.Addr) bool {
+	// Without a kernel interface the host routing table has no overlay routes.
+	if f.netstack {
+		return false
+	}
+
+	// Connecting a UDP socket only performs the route lookup, nothing is sent.
+	conn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", net.JoinHostPort(dst.String(), "9"))
+	if err != nil {
+		// Fail closed, a destination the host can't look up can't be dialed either.
+		f.logger.Debug2("forwarder: route lookup error for %v: %v", dst, err)
+		return true
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			f.logger.Debug1("forwarder: route lookup socket close error: %v", err)
+		}
+	}()
+
+	return f.isOverlayAddr(conn.LocalAddr())
+}
+
+// isOverlayAddr reports whether the local address of a connected host UDP socket is one of our overlay addresses.
+func (f *Forwarder) isOverlayAddr(local net.Addr) bool {
+	udpAddr, ok := local.(*net.UDPAddr)
+	if !ok {
+		return false
+	}
+	addr := addrFromNetipAddr(udpAddr.AddrPort().Addr().Unmap())
+	return f.ip.Equal(addr) || f.ipv6.Equal(addr)
+}
+
 func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {
 	key := buildKey(srcIP, dstIP, srcPort, dstPort)
 	f.ruleIdMap.LoadOrStore(key, ruleID)

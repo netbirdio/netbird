@@ -31,7 +31,19 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 		}
 	}()
 
-	dialAddr := net.JoinHostPort(f.determineDialAddr(id.LocalAddress).String(), strconv.Itoa(int(id.LocalPort)))
+	dialIP := f.determineDialAddr(id.LocalAddress)
+	if f.egressesOverlay(dialIP) {
+		r.Complete(true)
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace1("forwarder: rejecting TCP connection routed back into the overlay %v", epID(id))
+		}
+		// The drop event replaces the end event.
+		success = true
+		f.sendTCPEvent(nftypes.TypeDrop, flowID, id, 0, 0, 0, 0)
+		return
+	}
+
+	dialAddr := net.JoinHostPort(dialIP.String(), strconv.Itoa(int(id.LocalPort)))
 
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
