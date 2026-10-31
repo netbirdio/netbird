@@ -35,6 +35,10 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return false
 	}
 
+	if f.refuseOverlayEgress(flowID, id, uint8(icmpHdr.Type()), uint8(icmpHdr.Code())) {
+		return true
+	}
+
 	icmpData := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
 	conn, err := f.forwardICMPPacket(id, icmpData, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), false, 100*time.Millisecond)
 	if err != nil {
@@ -58,6 +62,10 @@ func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointI
 		go func() {
 			defer func() { <-f.pingSemaphore }()
 
+			if f.refuseOverlayEgress(flowID, id, icmpType, icmpCode) {
+				return
+			}
+
 			if f.hasRawICMPAccess {
 				f.handleICMPViaSocket(flowID, id, icmpType, icmpCode, icmpData, rxBytes, false)
 			} else {
@@ -68,6 +76,21 @@ func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointI
 		f.logger.Debug3("forwarder: ICMP rate limit exceeded for %v type %v code %v",
 			epID(id), icmpType, icmpCode)
 	}
+	return true
+}
+
+// refuseOverlayEgress ends the flow as dropped when the host would send the packet back into the overlay.
+// It runs where the packet is about to leave, after rate limiting, because it costs a route lookup.
+func (f *Forwarder) refuseOverlayEgress(flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8) bool {
+	if !f.egressesOverlay(f.determineDialAddr(id.LocalAddress)) {
+		return false
+	}
+
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace1("forwarder: dropping ICMP packet routed back into the overlay %v", epID(id))
+	}
+	f.sendICMPEvent(nftypes.TypeDrop, flowID, id, icmpType, icmpCode, 0, 0)
+	f.DeleteRuleID(addrToNetipAddr(id.RemoteAddress), addrToNetipAddr(id.LocalAddress), 0, 0)
 	return true
 }
 
@@ -261,6 +284,10 @@ func (f *Forwarder) handleICMPv6(id stack.TransportEndpointID, pkt *stack.Packet
 		return false
 	}
 
+	if f.refuseOverlayEgress(flowID, id, uint8(icmpHdr.Type()), uint8(icmpHdr.Code())) {
+		return true
+	}
+
 	icmpData := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
 	conn, err := f.forwardICMPPacket(id, icmpData, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), true, 100*time.Millisecond)
 	if err != nil {
@@ -283,6 +310,10 @@ func (f *Forwarder) handleICMPv6Echo(flowID uuid.UUID, id stack.TransportEndpoin
 
 		go func() {
 			defer func() { <-f.pingSemaphore }()
+
+			if f.refuseOverlayEgress(flowID, id, icmpType, icmpCode) {
+				return
+			}
 
 			if f.hasRawICMPv6Access {
 				f.handleICMPViaSocket(flowID, id, icmpType, icmpCode, icmpData, rxBytes, true)

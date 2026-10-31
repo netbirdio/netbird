@@ -363,14 +363,6 @@ func (f *Forwarder) handleICMPDirect(payload []byte) bool {
 		RemoteAddress: srcAddr,
 	}
 
-	if f.egressesOverlay(f.determineDialAddr(dstAddr)) {
-		if f.logger.Enabled(nblog.LevelTrace) {
-			f.logger.Trace1("forwarder: dropping ICMP packet routed back into the overlay %v", epID(id))
-		}
-		f.DeleteRuleID(addrToNetipAddr(srcAddr), addrToNetipAddr(dstAddr), 0, 0)
-		return true
-	}
-
 	// Trim the buffer to the IP-declared length so gVisor doesn't see padding.
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		Payload: buffer.MakeWithData(payload[:ipHdrLen+icmpLen]),

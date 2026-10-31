@@ -269,11 +269,17 @@ func TestNftablesManagerHairpinDropBeforeRouteACLs(t *testing.T) {
 	var establishedIndex, hairpinIndex = -1, -1
 	for i, rule := range rules {
 		var iif, oif, ctState bool
+		var lastKey expr.MetaKey
 		for _, e := range rule.Exprs {
 			switch e := e.(type) {
 			case *expr.Meta:
-				iif = iif || e.Key == expr.MetaKeyIIFNAME
-				oif = oif || e.Key == expr.MetaKeyOIFNAME
+				lastKey = e.Key
+			case *expr.Cmp:
+				// Only count an interface match against the wg interface itself.
+				if e.Op == expr.CmpOpEq && bytes.Equal(e.Data, ifname(ifaceMock.Name())) {
+					iif = iif || lastKey == expr.MetaKeyIIFNAME
+					oif = oif || lastKey == expr.MetaKeyOIFNAME
+				}
 			case *expr.Ct:
 				ctState = ctState || e.Key == expr.CtKeySTATE
 			case *expr.Verdict:

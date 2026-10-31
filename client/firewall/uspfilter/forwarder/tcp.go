@@ -37,6 +37,9 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 		if f.logger.Enabled(nblog.LevelTrace) {
 			f.logger.Trace1("forwarder: rejecting TCP connection routed back into the overlay %v", epID(id))
 		}
+		// The drop event replaces the end event.
+		success = true
+		f.sendTCPEvent(nftypes.TypeDrop, flowID, id, 0, 0, 0, 0)
 		return
 	}
 

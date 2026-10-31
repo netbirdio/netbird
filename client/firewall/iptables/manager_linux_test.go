@@ -113,6 +113,13 @@ func TestIptablesManagerHairpinGuard(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
+	closed := false
+	t.Cleanup(func() {
+		if !closed {
+			require.NoError(t, manager.Close(nil))
+		}
+	})
+
 	guard := []string{
 		"-i", ifaceMock.Name(),
 		"-o", ifaceMock.Name(),
@@ -138,6 +145,7 @@ func TestIptablesManagerHairpinGuard(t *testing.T) {
 	require.NotEqual(t, -1, establishedIndex, "established accept should exist in the mangle forward chain")
 	require.Less(t, establishedIndex, hairpinIndex, "hairpin guard should come after the established accept")
 
+	closed = true
 	require.NoError(t, manager.Close(nil))
 	checkTableRuleSpecs(t, ipv4Client, tableMangle, chainForward, false, guard...)
 }

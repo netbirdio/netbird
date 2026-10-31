@@ -178,6 +178,9 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
+		// The drop event replaces the end event.
+		success = true
+		f.sendUDPEvent(nftypes.TypeDrop, flowID, id, 0, 0, 0, 0)
 		return false
 	}
 

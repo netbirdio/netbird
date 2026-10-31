@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -167,9 +168,17 @@ func TestParseICMPv4_RejectsFragment(t *testing.T) {
 
 func TestEgressesOverlay(t *testing.T) {
 	loopback := netip.MustParseAddr("127.0.0.1")
+
+	logger := nblog.NewFromLogrus(logrus.StandardLogger())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, logger.Stop(ctx))
+	})
+
 	newForwarder := func(ip netip.Addr, netstack bool) *Forwarder {
 		return &Forwarder{
-			logger:   nblog.NewFromLogrus(logrus.StandardLogger()),
+			logger:   logger,
 			ctx:      context.Background(),
 			ip:       addrFromNetipAddr(ip),
 			netstack: netstack,
