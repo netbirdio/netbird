@@ -54,6 +54,10 @@ type systemConfigurator struct {
 
 	mu              sync.RWMutex
 	origNameservers []netip.Addr
+
+	// wgInterface is the overlay interface, nil when only cleaning up. It is
+	// used to make macOS request AAAA records for NetBird zones.
+	wgInterface WGIface
 }
 
 func newHostManager() (*systemConfigurator, error) {
@@ -208,6 +212,10 @@ func getSystemDNSKeys() (string, error) {
 
 func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	line := buildRemoveKeyOperation(key)
+	if serviceID, ok := serviceIDFromDNSKey(key); ok {
+		// Drop the overlay entities published for AAAA resolution first.
+		line = buildAAAARemoveCommands(serviceID) + line
+	}
 	_, err := runSystemConfigCommand(wrapCommand(line))
 	if err != nil {
 		return fmt.Errorf("remove key: %w", err)
@@ -231,7 +239,8 @@ func (s *systemConfigurator) addLocalDNS() error {
 	}
 
 	domainsStr := strings.Join(s.systemDNSSettings.Domains, " ")
-	if err := s.addDNSState(localKey, domainsStr, s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort, true); err != nil {
+	// The local resolver is the physical one, so it is not bound to the overlay.
+	if err := s.addDNSState(localKey, domainsStr, s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort, true, nil); err != nil {
 		return fmt.Errorf("add local dns state: %w", err)
 	}
 	s.createdKeys[localKey] = struct{}{}
@@ -413,12 +422,13 @@ func (s *systemConfigurator) removeKeysContaining(suffix string) error {
 // addBatchedDomains splits domains into batches and creates indexed scutil keys for each batch.
 func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, ip netip.Addr, port int, enableSearch bool) error {
 	batches := splitDomainsIntoBatches(domains)
+	overlay := s.aaaaOverlayFor(ip)
 
 	for i, batch := range batches {
 		key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
 		domainsStr := strings.Join(batch, " ")
 
-		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch); err != nil {
+		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch, overlay); err != nil {
 			return fmt.Errorf("add dns state for batch %d: %w", i, err)
 		}
 
@@ -426,11 +436,27 @@ func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, 
 	}
 
 	log.Infof("added %d %s domains across %d resolver entries", len(domains), suffix, len(batches))
+	if overlay != nil {
+		log.Infof("published %s resolvers on %s so macOS requests AAAA records", suffix, overlay.ifName)
+	}
 
 	return nil
 }
 
-func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.Addr, port int, enableSearch bool) error {
+// addDNSState publishes a resolver entity. With an overlay, the service also
+// gets IPv4/IPv6 entities on the overlay interface and the resolver is confirmed
+// for its service, so that macOS requests AAAA records through it.
+func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.Addr, port int, enableSearch bool, overlay *aaaaOverlay) error {
+	stdinCommands := wrapCommand(buildAddDNSStateCommands(state, domains, dnsServer, port, enableSearch, overlay))
+
+	_, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return fmt.Errorf("applying state for domains %s, error: %w", domains, err)
+	}
+	return nil
+}
+
+func buildAddDNSStateCommands(state, domains string, dnsServer netip.Addr, port int, enableSearch bool, overlay *aaaaOverlay) string {
 	noSearch := "1"
 	if enableSearch {
 		noSearch = "0"
@@ -440,14 +466,13 @@ func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.
 	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer.String())
 	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
 
-	addDomainCommand := buildCreateStateWithOperation(state, lines)
-	stdinCommands := wrapCommand(addDomainCommand)
-
-	_, err := runSystemConfigCommand(stdinCommands)
-	if err != nil {
-		return fmt.Errorf("applying state for domains %s, error: %w", domains, err)
+	serviceID, ok := serviceIDFromDNSKey(state)
+	if overlay == nil || !ok {
+		return buildCreateStateWithOperation(state, lines)
 	}
-	return nil
+
+	lines += buildAddCommandLine(keyConfirmedServiceID, serviceID)
+	return buildAAAAServiceCommands(serviceID, *overlay) + buildCreateStateWithOperation(state, lines)
 }
 
 func (s *systemConfigurator) getPrimaryService() (string, string, error) {
