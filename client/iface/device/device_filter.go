@@ -86,14 +86,21 @@ func (d *FilteredDevice) Read(bufs [][]byte, sizes []int, offset int) (n int, er
 	d.mutex.RUnlock()
 
 	if filter != nil {
+		// bufs belongs to the caller: wireguard-go reuses the same slice for every
+		// read and pairs each entry with its own outbound element, so the entries
+		// must never be moved. Compact the batch by copying the packet data of the
+		// kept packets forward instead.
+		kept := 0
 		for i := 0; i < n; i++ {
 			if filter.FilterOutbound(bufs[i][offset:offset+sizes[i]], sizes[i]) {
-				bufs = append(bufs[:i], bufs[i+1:]...)
-				sizes = append(sizes[:i], sizes[i+1:]...)
-				n--
-				i--
+				continue
 			}
+			if kept != i {
+				sizes[kept] = copy(bufs[kept][offset:], bufs[i][offset:offset+sizes[i]])
+			}
+			kept++
 		}
+		n = kept
 	}
 
 	if pc := d.capture.Load(); pc != nil {
