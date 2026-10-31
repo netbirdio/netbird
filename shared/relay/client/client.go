@@ -525,7 +525,7 @@ func (c *Client) handShake(ctx context.Context) (*RelayAddr, messages.ProtocolVe
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(ctx, buf)
 	if err != nil {
-		c.log.Errorf("failed to read auth response: %s", err)
+		c.log.Errorf("failed to read auth response, bound token presented: %t: %s", advertised == messages.ProtocolV2, err)
 		return nil, 0, err
 	}
 
