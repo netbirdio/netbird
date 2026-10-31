@@ -112,11 +112,10 @@ allow netbird_t self:capability dac_override;
 # SFTP helper: drops to the session user before serving
 allow netbird_t self:capability { setuid setgid };
 
-# No use was observed for these in the audited runs, which did not cover session
-# expiry, lazy connections or exit nodes. Candidates for removal once the feature that
-# could need them is ruled out: kill is how the SSH server signals the process group of
-# a session, and the rest have no code path in the client.
-allow netbird_t self:capability { chown fowner fsetid kill sys_resource sys_chroot };
+# The SSH server signals the process group of a session when it ends. No audited run used
+# this: the group held a root-owned su, which needs no capability. A session process of
+# the user itself would.
+allow netbird_t self:capability kill;
 
 # Granted through interfaces called below, not by a rule here: net_bind_service by
 # corenet_udp_bind_all_ports and corenet_tcp_bind_ssh_port (DNS listener on port 53, SSH
