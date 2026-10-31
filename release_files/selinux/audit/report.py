@@ -5,8 +5,8 @@ usage: report.py <start-epoch> <marks-file>... > report.tsv
 
 A marks file holds one line per boundary, "<epoch> S <name>" when a feature starts and
 "<epoch> E <name>" when it ends. Records that fall in no window are reported under
-"(outside-tests)". Reads /var/log/audit/audit.log and its rotations. Needs the
-netbirdaudit module for the "granted" records, see ../README.md.
+"(outside-tests)". Reads /var/log/audit/audit.log and its rotations. The "granted"
+records come from the netbirdaudit module next to this file.
 """
 import glob
 import re
