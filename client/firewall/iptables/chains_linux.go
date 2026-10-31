@@ -202,10 +202,12 @@ func (r *family) createDefaultChains() error {
 	}
 	clear(r.optionalEntries)
 
-	// Insert mangle FORWARD guard rules to prevent external DNAT bypass.
+	// Insert mangle FORWARD guard rules to prevent external DNAT bypass and
+	// hairpin forwarding. They are access controls, so a guard that can't be
+	// installed fails the init instead of leaving the path open.
 	for _, rule := range r.entries[mangleForwardKey] {
 		if err := r.iptablesClient.AppendUnique(tableMangle, chainForward, rule...); err != nil {
-			log.Errorf("failed to add mangle FORWARD guard rule: %v", err)
+			return fmt.Errorf("add mangle FORWARD guard rule %v: %w", rule, err)
 		}
 	}
 
