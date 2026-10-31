@@ -18,17 +18,38 @@ restrict_env_file() {
     return 0
 }
 
+# The service install step creates the state and log directories as the installing
+# process, so relabel them to what the SELinux policy, when loaded, assigns.
+# The routing table name drop-in lives in a directory that stock iproute2 may not ship.
+# The package creates it so the confined daemon only has to create its own file in it.
+ensure_rt_tables_dir() {
+    mkdir -p /etc/iproute2/rt_tables.d
+}
+
+restore_selinux_contexts() {
+    command -v selinuxenabled >/dev/null 2>&1 || return 0
+    selinuxenabled || return 0
+    command -v restorecon >/dev/null 2>&1 || return 0
+    if ! restorecon -iR /var/lib/netbird /var/log/netbird /etc/netbird; then
+      printf "\033[33m Could not restore SELinux contexts on the netbird directories\033[0m\n"
+    fi
+    return 0
+}
+
 cleanInstall() {
     printf "\033[32m Post Install of a clean install\033[0m\n"
     restrict_env_file
+    ensure_rt_tables_dir
     # Step 3 (clean install), enable the service in the proper way for this platform
     /usr/bin/netbird service install
+    restore_selinux_contexts
     /usr/bin/netbird service start
 }
 
 upgrade() {
     printf "\033[32m Post Install of an upgrade\033[0m\n"
     restrict_env_file
+    ensure_rt_tables_dir
     if [ "${use_systemctl}" = "True" ]; then
       printf "\033[32m Stopping the service\033[0m\n"
       systemctl stop netbird 2> /dev/null || true
@@ -40,6 +61,7 @@ upgrade() {
     # will trow an error until everyone upgrade
     /usr/bin/netbird service uninstall 2> /dev/null || true
     /usr/bin/netbird service install
+    restore_selinux_contexts
     /usr/bin/netbird service start
 }
 

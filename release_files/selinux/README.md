@@ -1,0 +1,102 @@
+# NetBird SELinux policy
+
+Confines the NetBird daemon (`netbird_t`) on hosts that run SELinux in enforcing
+mode. It ships as the separate `netbird-selinux` package, which depends on
+`netbird` and `selinux-policy-targeted`. The client RPM recommends it, so dnf
+installs it along with the client unless weak dependencies are turned off.
+Without it the daemon runs in `unconfined_service_t`, as it did before.
+
+## Building
+
+```sh
+release_files/selinux/build.sh [output-dir]
+```
+
+Needs `selinux-policy-devel`. The release builds it on EL9, the oldest policy the
+package targets. The result loads on newer policy, such as
+Fedora 44.
+
+## Installing
+
+Install the package. Its scriptlets load the module, relabel the files it covers
+and restart a running daemon. Removing the package unloads the module and
+relabels. A manual install can use `semodule -X 200 -i netbird.pp.bz2` followed by
+`restorecon -iR` on the paths listed in `post_install.sh` (the binary in `/usr/bin`,
+`/usr/sbin` or `/usr/local/bin`, the state, log and config directories, and the daemon,
+WireGuard and SSH config files).
+
+## Booleans
+
+| Boolean | Default | Effect |
+| --- | --- | --- |
+| `netbird_ssh_sessions` | on | The built-in SSH server can start user sessions. Shells and `su` run as `unconfined_t`, since the daemon cannot set the context of the user it switches to, and the daemon gets `sys_admin`, which `setsid -c` needs to hand the terminal to `login`. Turning it off removes the shell, `su` and `sys_admin` rules, but not the `login` transition. |
+| `netbird_debug_bundle` | on | Debug bundles can read the journal and list firewall state. |
+| `netbird_bind_all_ports` | off | Bind any unreserved TCP port: SSH remote port forwarding and the local metrics endpoint (default `127.0.0.1:9191`). UDP ports are always allowed. |
+| `netbird_read_user_home` | off | Read files in user home directories. Needed to add the desktop UI log (`~/.config/netbird/gui-client.log`) to debug bundles. |
+
+Change them with `setsebool -P <name>=on`.
+
+## Permission map
+
+What each permission is for, so that one can be retired when the feature behind it goes
+away. `audit/` holds a development module that logs every use of the grants, for checking
+a permission before removing it.
+
+Capabilities, as written in `netbird.te`:
+
+| Capability | Needed by |
+| --- | --- |
+| `net_admin` | Interface, address, route, ip rule and firewall changes over netlink, nft and iptables |
+| `net_raw` | Raw sockets of the loopback WireGuard proxy (`SO_BINDTODEVICE`), ping probes |
+| `net_bind_service` | DNS listener on port 53, SSH server on port 22. Granted by `corenet_udp_bind_all_ports` and `corenet_tcp_bind_ssh_port` |
+| `sys_ptrace` | Process posture check, which reads `/proc/PID/exe` of other users processes. Processes inside a user namespace stay unreadable (`cap_userns`) |
+| `dac_read_search` | SSH sessions of non-root users, `firewall-cmd` run as the firewalld fallback, the UI log in debug bundles |
+| `dac_override` | TPM access: `/dev/tpmrm0` belongs to `tss` with mode 0660 |
+| `setuid`, `setgid` | SSH helper processes (SFTP and the exec fallback) dropping to the session user |
+| `sys_admin` | `setsid -c` before `login` (`netbird_ssh_sessions`). The daemon also probes `su` and `login` at start |
+| `audit_write` | Granted by `logging_send_audit_msgs`, not by a rule in the module |
+| `kill` | The SSH server signals the process group of a session when it ends (`client/ssh/server/command_execution_unix.go`) |
+
+Not granted: `bpf` and `perfmon`, because the client does not load eBPF (the WireGuard
+proxy is a loopback raw-socket proxy), and `chown`, `fowner`, `fsetid`, `sys_resource` and
+`sys_chroot`, which no code path in the client needs.
+
+Everything else, by feature:
+
+| Feature | Grants |
+| --- | --- |
+| Firewall | Transition to `iptables_t` for iptables, ip6tables, nft, ipset and the `*-save` tools, netlink netfilter socket |
+| firewalld | D-Bus to firewalld, and `firewall-cmd` (a `bin_t` python script) as the fallback |
+| DNS | Write `net_conf_t` (resolv.conf), bind `dns_port_t`, D-Bus to systemd-resolved and NetworkManager |
+| Kernel settings | Read and write `sysctl_net_t` (forwarding, rp_filter, conntrack accounting) |
+| Netflow | Netlink netfilter socket for conntrack events, `nf_conntrack_acct` |
+| Netstack | `netbird_wg_runtime_t` and a loopback SOCKS5 listener |
+| Posture checks | `getattr` on executables, read `/proc` of other domains, read the certificate store in `netbird_etc_t`, `tpm_device_t` |
+| SSH sessions | `su` into `unconfined_t`, `login` into `local_login_t`, ptys (`netbird_devpts_t`, `ptmx_t`), `passwd_file_t`, SSSD and systemd-userdbd lookups, search of `user_home_dir_t` |
+| SSH session teardown | `signal` and `sigkill` on `unconfined_t` |
+| Debug bundle | Execute the firewall tools, files in `netbird_tmp_t`, upload over HTTPS, journal and log reads (`netbird_debug_bundle`) |
+| Ports | Bind unreserved TCP and UDP ports, connect to any TCP port |
+
+## Diagnosing denials
+
+On EL, which runs auditd, denials are in the audit log:
+
+```sh
+ausearch -m avc -c netbird
+```
+
+On a host without auditd, such as a default Fedora install, they are in the journal:
+
+```sh
+journalctl -b | grep 'avc:  denied' | grep netbird
+```
+
+To make only the daemon permissive while collecting denials, run
+`semanage permissive -a netbird_t`, and remove it with `semanage permissive -d netbird_t`.
+
+## Notes
+
+- Desktop users that run confined need the `netbird_stream_connect` interface to
+  reach the daemon socket. Unconfined users need nothing.
+- `netbird_ssh_sessions` only gates the shell and `su` transitions. The `login`
+  transition is always allowed because its interface cannot sit inside a boolean.

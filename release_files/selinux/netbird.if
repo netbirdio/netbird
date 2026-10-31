@@ -1,0 +1,119 @@
+# Based on the SELinux module by Jonathan Billings (Red Hat),
+# https://github.com/jbillingredhat/netbird (branch selinux).
+
+## <summary>NetBird mesh network client</summary>
+
+########################################
+## <summary>
+##	Execute netbird_exec_t in the netbird domain.
+## </summary>
+## <param name="domain">
+## <summary>
+##	Domain allowed to transition.
+## </summary>
+## </param>
+#
+interface(`netbird_domtrans',`
+	gen_require(`
+		type netbird_t, netbird_exec_t;
+	')
+
+	corecmd_search_bin($1)
+	domtrans_pattern($1, netbird_exec_t, netbird_t)
+')
+
+########################################
+## <summary>
+##	Read netbird configuration files. The files can hold the interface
+##	private key, so only grant this to domains that are trusted with it.
+## </summary>
+## <param name="domain">
+## <summary>
+##	Domain allowed access.
+## </summary>
+## </param>
+#
+interface(`netbird_read_config',`
+	gen_require(`
+		type netbird_etc_t;
+	')
+
+	files_search_etc($1)
+	allow $1 netbird_etc_t:dir list_dir_perms;
+	allow $1 netbird_etc_t:file read_file_perms;
+	allow $1 netbird_etc_t:lnk_file read_lnk_file_perms;
+')
+
+########################################
+## <summary>
+##	Read and delete netbird debug bundles.
+## </summary>
+## <param name="domain">
+## <summary>
+##	Domain allowed access.
+## </summary>
+## </param>
+#
+interface(`netbird_read_tmp_files',`
+	gen_require(`
+		type netbird_tmp_t;
+	')
+
+	files_search_tmp($1)
+	files_delete_tmp_dir_entry($1)
+	allow $1 netbird_tmp_t:file { read_file_perms unlink };
+')
+
+########################################
+## <summary>
+##	Connect to netbird unix socket.
+## </summary>
+## <param name="domain">
+## <summary>
+##	Domain allowed access.
+## </summary>
+## </param>
+#
+interface(`netbird_stream_connect',`
+	gen_require(`
+		type netbird_t, netbird_runtime_t;
+	')
+
+	files_search_pids($1)
+	stream_connect_pattern($1, netbird_runtime_t, netbird_runtime_t, netbird_t)
+')
+
+########################################
+## <summary>
+##	All of the rules required to administrate
+##	a netbird environment.
+## </summary>
+## <param name="domain">
+## <summary>
+##	Domain allowed access.
+## </summary>
+## </param>
+#
+interface(`netbird_admin',`
+	gen_require(`
+		type netbird_t, netbird_etc_t;
+		type netbird_var_lib_t, netbird_var_log_t;
+		type netbird_runtime_t, netbird_wg_runtime_t;
+	')
+
+	allow $1 netbird_t:process { ptrace signal_perms };
+	ps_process_pattern($1, netbird_t)
+
+	files_search_etc($1)
+	admin_pattern($1, netbird_etc_t)
+
+	files_search_var_lib($1)
+	admin_pattern($1, netbird_var_lib_t)
+
+	logging_search_logs($1)
+	admin_pattern($1, netbird_var_log_t)
+
+	files_search_pids($1)
+	admin_pattern($1, netbird_runtime_t)
+	admin_pattern($1, netbird_wg_runtime_t)
+')
