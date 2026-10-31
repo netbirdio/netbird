@@ -1,0 +1,37 @@
+policy_module(netbirdaudit, 1.0.0)
+
+# Development aid, not part of the netbird-selinux package. Logs every use of a permission
+# the netbird module grants to netbird_t as an "avc: granted" record, so the features that
+# need a permission can be found before retiring it. See ../README.md, "Auditing permission use".
+#
+# Sockets are left out on purpose: they are checked per packet and would flood the log.
+
+gen_require(`
+	type netbird_t;
+	attribute domain, file_type, sysctl_type, proc_type, device_node, ptynode, ttynode;
+	attribute port_type, node_type;
+	class capability2 { bpf perfmon };
+	class passwd rootok;
+	class bpf { map_create map_read map_write prog_load prog_run };
+	class dbus { acquire_svc send_msg };
+')
+
+auditallow netbird_t self:capability *;
+auditallow netbird_t self:capability2 { bpf perfmon };
+auditallow netbird_t self:passwd rootok;
+auditallow netbird_t self:bpf { map_create map_read map_write prog_load prog_run };
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:file *;
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:dir *;
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:lnk_file *;
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:chr_file *;
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:blk_file *;
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:sock_file *;
+auditallow netbird_t { file_type sysctl_type proc_type device_node ptynode ttynode }:fifo_file *;
+auditallow netbird_t domain:process *;
+auditallow netbird_t domain:dbus { acquire_svc send_msg };
+auditallow netbird_t port_type:tcp_socket { name_bind name_connect };
+auditallow netbird_t port_type:udp_socket name_bind;
+auditallow netbird_t node_type:tcp_socket node_bind;
+auditallow netbird_t node_type:udp_socket node_bind;
+auditallow netbird_t node_type:rawip_socket node_bind;
+auditallow netbird_t domain:unix_stream_socket connectto;

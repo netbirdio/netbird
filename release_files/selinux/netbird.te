@@ -89,7 +89,38 @@ term_login_pty(netbird_devpts_t)
 # netbird local policy
 #
 
-allow netbird_t self:capability { net_admin net_raw dac_override dac_read_search chown fowner fsetid kill setuid setgid sys_resource sys_chroot sys_ptrace };
+# Capabilities, one rule per need. README.md ("Permission map") lists how each one was
+# verified and how to repeat the check before retiring it.
+
+# Interface, address, route, ip rule and firewall changes, over netlink, nft and iptables
+allow netbird_t self:capability net_admin;
+
+# Raw sockets of the loopback proxy that carries WireGuard traffic, and SO_BINDTODEVICE
+allow netbird_t self:capability net_raw;
+
+# Process posture checks read /proc/PID/exe of other users processes
+allow netbird_t self:capability sys_ptrace;
+
+# SSH sessions of non-root users: the home and working directories are resolved before
+# the privileges drop. Also used by firewall-cmd when it runs as the firewalld fallback,
+# and by debug bundles that read the desktop UI log from a home directory.
+allow netbird_t self:capability dac_read_search;
+
+# TPM access: /dev/tpmrm0 belongs to the tss user with mode 0660
+allow netbird_t self:capability dac_override;
+
+# SFTP helper: drops to the session user before serving
+allow netbird_t self:capability { setuid setgid };
+
+# No use was observed for these in the audited runs, which did not cover session
+# expiry, lazy connections or exit nodes. Candidates for removal once the feature that
+# could need them is ruled out: kill is how the SSH server signals the process group of
+# a session, and the rest have no code path in the client.
+allow netbird_t self:capability { chown fowner fsetid kill sys_resource sys_chroot };
+
+# Granted through interfaces called below, not by a rule here: net_bind_service by
+# corenet_udp_bind_all_ports and corenet_tcp_bind_ssh_port (DNS listener on port 53, SSH
+# server on port 22) and audit_write by logging_send_audit_msgs.
 
 # Attaching a socket filter checks CAP_BPF first and succeeds without it
 gen_require(`
