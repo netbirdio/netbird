@@ -25,9 +25,10 @@ var ErrOverlayRangeReserved = errors.New("prefix is the reserved overlay range")
 // dropped locally, and a peer's own addresses still win as soon as they are added, being more
 // specific than the overlay range.
 //
-// replace drops a reservation made earlier first, since adding a peer only adds allowed IPs. It
-// must be false right after the device was configured, which removes all peers. The caller holds
-// w.mu.
+// replace moves a reservation made earlier to the current range. The new range is added before the
+// old one is released, since adding a peer only adds allowed IPs: if the device refuses the change the
+// old range stays reserved, and a failure to release the old range only leaves it reserved. replace
+// must be false right after the device was configured, which removes all peers. The caller holds w.mu.
 func (w *WGIface) reserveOverlay(replace bool) error {
 	if w.configurer == nil {
 		return ErrIfaceNotFound
@@ -41,12 +42,12 @@ func (w *WGIface) reserveOverlay(replace bool) error {
 		w.overlayPeerKey = priv.PublicKey().String()
 	}
 
-	if replace && len(w.overlayRange) > 0 {
-		if err := w.configurer.RemovePeer(w.overlayPeerKey); err != nil {
-			return fmt.Errorf("release overlay range: %w", err)
-		}
+	var previous []netip.Prefix
+	if replace {
+		previous = w.overlayRange
+	} else {
+		w.overlayRange = nil
 	}
-	w.overlayRange = nil
 
 	prefixes := overlayPrefixes(w.tun.WgAddress())
 	if err := w.configurer.UpdatePeer(w.overlayPeerKey, prefixes, 0, nil, nil); err != nil {
@@ -54,16 +55,35 @@ func (w *WGIface) reserveOverlay(replace bool) error {
 	}
 	w.overlayRange = prefixes
 
+	for _, old := range previous {
+		if slices.Contains(prefixes, old) {
+			continue
+		}
+		if err := w.configurer.RemoveAllowedIP(w.overlayPeerKey, old); err != nil {
+			log.Warnf("failed to release overlay range %s, it stays reserved: %v", old, err)
+		}
+	}
+
 	log.Debugf("reserved overlay range %v on interface %s for a placeholder peer", prefixes, w.tun.DeviceName())
 	return nil
 }
 
 func overlayPrefixes(addr wgaddr.Address) []netip.Prefix {
-	prefixes := []netip.Prefix{addr.Network.Masked()}
+	prefixes := []netip.Prefix{normalizePrefix(addr.Network)}
 	if addr.HasIPv6() && addr.IPv6Net.IsValid() {
-		prefixes = append(prefixes, addr.IPv6Net.Masked())
+		prefixes = append(prefixes, normalizePrefix(addr.IPv6Net))
 	}
 	return prefixes
+}
+
+// normalizePrefix returns the form WireGuard stores: masked, and with a v4-mapped v6 prefix such as
+// ::ffff:100.64.0.0/112 turned into the plain v4 prefix.
+func normalizePrefix(p netip.Prefix) netip.Prefix {
+	addr, bits := p.Addr(), p.Bits()
+	if addr.Is4In6() && bits >= 96 {
+		addr, bits = addr.Unmap(), bits-96
+	}
+	return netip.PrefixFrom(addr, bits).Masked()
 }
 
 // checkNotOverlayRange refuses prefixes that would take the overlay range away from the placeholder.
@@ -73,7 +93,7 @@ func overlayPrefixes(addr wgaddr.Address) []netip.Prefix {
 // w.mu.
 func (w *WGIface) checkNotOverlayRange(prefixes ...netip.Prefix) error {
 	for _, p := range prefixes {
-		if slices.Contains(w.overlayRange, p.Masked()) {
+		if slices.Contains(w.overlayRange, normalizePrefix(p)) {
 			return fmt.Errorf("%w: %s", ErrOverlayRangeReserved, p)
 		}
 	}

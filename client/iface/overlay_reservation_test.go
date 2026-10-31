@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -23,15 +24,17 @@ type fakePeer struct {
 	keepAlive  time.Duration
 }
 
-// fakeConfigurer keeps the peers a device would have.
+// fakeConfigurer keeps the peers a device would have. Like a device it only adds allowed IPs when a
+// peer is updated.
 type fakeConfigurer struct {
 	device.WGConfigurer
 
-	peers     map[string]fakePeer
-	updates   int
-	removes   int
-	updateErr error
-	removeErr error
+	peers           map[string]fakePeer
+	updates         int
+	removes         int
+	removedPrefixes []netip.Prefix
+	updateErr       error
+	removeErr       error
 }
 
 func newFakeConfigurer() *fakeConfigurer {
@@ -43,7 +46,14 @@ func (f *fakeConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, k
 	if f.updateErr != nil {
 		return f.updateErr
 	}
-	f.peers[peerKey] = fakePeer{allowedIPs: allowedIps, endpoint: endpoint, keepAlive: keepAlive}
+	p := f.peers[peerKey]
+	for _, ip := range allowedIps {
+		if !slices.Contains(p.allowedIPs, ip) {
+			p.allowedIPs = append(p.allowedIPs, ip)
+		}
+	}
+	p.endpoint, p.keepAlive = endpoint, keepAlive
+	f.peers[peerKey] = p
 	return nil
 }
 
@@ -54,11 +64,19 @@ func (f *fakeConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) er
 	return nil
 }
 
-func (f *fakeConfigurer) RemovePeer(peerKey string) error {
-	f.removes++
+func (f *fakeConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	if f.removeErr != nil {
 		return f.removeErr
 	}
+	f.removedPrefixes = append(f.removedPrefixes, allowedIP)
+	p := f.peers[peerKey]
+	p.allowedIPs = slices.DeleteFunc(p.allowedIPs, func(ip netip.Prefix) bool { return ip == allowedIP })
+	f.peers[peerKey] = p
+	return nil
+}
+
+func (f *fakeConfigurer) RemovePeer(peerKey string) error {
+	f.removes++
 	delete(f.peers, peerKey)
 	return nil
 }
@@ -120,7 +138,7 @@ func TestWGIface_ReserveOverlay_AddsPlaceholderWithoutEndpoint(t *testing.T) {
 	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, peer.allowedIPs)
 	assert.Nil(t, peer.endpoint, "the placeholder must never get an endpoint")
 	assert.Zero(t, peer.keepAlive, "the placeholder must never send keepalives")
-	assert.Zero(t, cfg.removes)
+	assert.Empty(t, cfg.removedPrefixes)
 	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, w.overlayRange)
 }
 
@@ -146,7 +164,7 @@ func TestWGIface_ReserveOverlay_ReplaceDropsThePreviousRange(t *testing.T) {
 	require.Len(t, cfg.peers, 1)
 	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.65.0.0/16")}, cfg.peers[w.overlayPeerKey].allowedIPs,
 		"the old range must not stay reserved")
-	assert.Equal(t, 1, cfg.removes)
+	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, cfg.removedPrefixes)
 }
 
 func TestWGIface_ReserveOverlay_AfterReconfigureDoesNotRemove(t *testing.T) {
@@ -158,7 +176,7 @@ func TestWGIface_ReserveOverlay_AfterReconfigureDoesNotRemove(t *testing.T) {
 	require.NoError(t, w.reserveOverlay(false))
 
 	assert.Contains(t, cfg.peers, w.overlayPeerKey)
-	assert.Zero(t, cfg.removes, "there is nothing left to remove after a reconfigure")
+	assert.Empty(t, cfg.removedPrefixes, "there is nothing left to remove after a reconfigure")
 }
 
 func TestWGIface_ReserveOverlay_UpdateFailureLeavesNothingReserved(t *testing.T) {
@@ -176,18 +194,36 @@ func TestWGIface_ReserveOverlay_UpdateFailureLeavesNothingReserved(t *testing.T)
 	assert.NotEmpty(t, w.overlayRange)
 }
 
-func TestWGIface_ReserveOverlay_ReleaseFailureKeepsTheOldReservation(t *testing.T) {
+func TestWGIface_ReserveOverlay_ReplaceFailureKeepsThePreviousReservation(t *testing.T) {
+	w, cfg, tun := newReservationTestIface(v4Addr("100.64.0.1/16"))
+	require.NoError(t, w.reserveOverlay(false))
+
+	cfg.updateErr = errors.New("busy")
+	tun.addr = v4Addr("100.65.0.1/16")
+	err := w.reserveOverlay(true)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "reserve overlay range")
+
+	// the new range was refused, so the old one must not be given up before it is replaced
+	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, w.overlayRange)
+	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, cfg.peers[w.overlayPeerKey].allowedIPs)
+	assert.Empty(t, cfg.removedPrefixes)
+	assert.Zero(t, cfg.removes)
+}
+
+func TestWGIface_ReserveOverlay_StaleRangeThatCannotBeReleasedStaysReserved(t *testing.T) {
 	w, cfg, tun := newReservationTestIface(v4Addr("100.64.0.1/16"))
 	require.NoError(t, w.reserveOverlay(false))
 
 	cfg.removeErr = errors.New("busy")
 	tun.addr = v4Addr("100.65.0.1/16")
-	err := w.reserveOverlay(true)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "release overlay range")
+	require.NoError(t, w.reserveOverlay(true), "a stale range left behind is harmless, the new one is in place")
 
-	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, w.overlayRange, "the previous reservation is still in place")
-	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, cfg.peers[w.overlayPeerKey].allowedIPs)
+	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.65.0.0/16")}, w.overlayRange)
+	assert.ElementsMatch(t, []netip.Prefix{
+		netip.MustParsePrefix("100.64.0.0/16"),
+		netip.MustParsePrefix("100.65.0.0/16"),
+	}, cfg.peers[w.overlayPeerKey].allowedIPs)
 }
 
 func TestWGIface_ReserveOverlay_WithoutConfigurer(t *testing.T) {
@@ -271,4 +307,32 @@ func TestWGIface_OverlayGuardFollowsTheReservedRange(t *testing.T) {
 
 	assert.NoError(t, w.AddAllowedIP("peer", netip.MustParsePrefix("100.64.0.0/16")), "the old range is free again")
 	assert.ErrorIs(t, w.AddAllowedIP("peer", netip.MustParsePrefix("100.70.0.0/16")), ErrOverlayRangeReserved)
+}
+
+func TestWGIface_OverlayGuardSeesThroughV4MappedPrefixes(t *testing.T) {
+	w, cfg, _ := newReservationTestIface(v4Addr("100.64.0.1/16"))
+	require.NoError(t, w.reserveOverlay(false))
+
+	// the device stores this as 100.64.0.0/16
+	mapped := netip.MustParsePrefix("::ffff:100.64.0.1/112")
+	assert.ErrorIs(t, w.UpdatePeer("peer", []netip.Prefix{mapped}, 0, nil, nil), ErrOverlayRangeReserved)
+	assert.ErrorIs(t, w.AddAllowedIP("peer", mapped), ErrOverlayRangeReserved)
+	assert.NotContains(t, cfg.peers, "peer")
+
+	// a mapped prefix that is not the range is fine
+	assert.NoError(t, w.AddAllowedIP("peer", netip.MustParsePrefix("::ffff:10.0.0.0/120")))
+}
+
+func TestNormalizePrefix(t *testing.T) {
+	cases := map[string]string{
+		"100.64.7.9/16":         "100.64.0.0/16",
+		"::ffff:100.64.0.1/112": "100.64.0.0/16",
+		"::ffff:10.1.2.3/128":   "10.1.2.3/32",
+		"fd00:64::9/64":         "fd00:64::/64",
+		"::/0":                  "::/0",
+		"::ffff:0.0.0.0/96":     "0.0.0.0/0",
+	}
+	for in, want := range cases {
+		assert.Equal(t, netip.MustParsePrefix(want), normalizePrefix(netip.MustParsePrefix(in)), in)
+	}
 }
