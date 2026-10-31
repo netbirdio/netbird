@@ -96,16 +96,23 @@ func (p *Policy) Equal(other *Policy) bool {
 
 	otherRules := make(map[string]*PolicyRule, len(other.Rules))
 	for _, r := range other.Rules {
+		if r == nil {
+			return false
+		}
+		if _, dup := otherRules[r.ID]; dup {
+			return false
+		}
 		otherRules[r.ID] = r
 	}
 	for _, r := range p.Rules {
+		if r == nil {
+			return false
+		}
 		otherRule, ok := otherRules[r.ID]
-		if !ok {
+		if !ok || !r.Equal(otherRule) {
 			return false
 		}
-		if !r.Equal(otherRule) {
-			return false
-		}
+		delete(otherRules, r.ID)
 	}
 
 	return true
