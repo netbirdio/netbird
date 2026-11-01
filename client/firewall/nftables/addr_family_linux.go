@@ -13,7 +13,6 @@ import (
 var (
 	// afIPv4 defines IPv4 header layout and nftables types.
 	afIPv4 = addrFamily{
-		protoOffset:   9,
 		srcAddrOffset: 12,
 		dstAddrOffset: 16,
 		addrLen:       net.IPv4len,
@@ -24,7 +23,6 @@ var (
 	}
 	// afIPv6 defines IPv6 header layout and nftables types.
 	afIPv6 = addrFamily{
-		protoOffset:   6,
 		srcAddrOffset: 8,
 		dstAddrOffset: 24,
 		addrLen:       net.IPv6len,
@@ -37,8 +35,6 @@ var (
 
 // addrFamily holds protocol-specific constants for nftables expression building.
 type addrFamily struct {
-	// protoOffset is the IP header offset for the protocol/next-header field (9 for v4, 6 for v6)
-	protoOffset uint32
 	// srcAddrOffset is the IP header offset for the source address (12 for v4, 8 for v6)
 	srcAddrOffset uint32
 	// dstAddrOffset is the IP header offset for the destination address (16 for v4, 24 for v6)
