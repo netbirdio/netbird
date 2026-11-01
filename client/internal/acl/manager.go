@@ -1,9 +1,11 @@
 package acl
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -148,25 +151,59 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 
 // firewallConfigHash hashes exactly the inputs ApplyFiltering uses to build the
 // firewall state, so an identical hash means an identical resulting ruleset.
+// Management guarantees neither the order nor the uniqueness of the rules
+// (a route rule is sent once per access control group the policy names), so
+// the rules are hashed as a sorted list of their wire encodings. They must not
+// be hashed as a set (hashstructure SlicesAsSets): set members are combined
+// with XOR, so a rule sent an even number of times cancels out of the hash
+// and a change confined to such rules would be skipped.
 func (d *DefaultManager) firewallConfigHash(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool) (uint64, error) {
+	peerRules, err := encodeRules(networkMap.GetFirewallRules(), func(rule *mgmProto.FirewallRule) {
+		slices.SortFunc(rule.GetSourcePrefixes(), bytes.Compare)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode peer rules: %w", err)
+	}
+
+	routeRules, err := encodeRules(networkMap.GetRoutesFirewallRules(), func(rule *mgmProto.RouteFirewallRule) {
+		slices.Sort(rule.GetSourceRanges())
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode route rules: %w", err)
+	}
+
 	return hashstructure.Hash(struct {
-		PeerRules           []*mgmProto.FirewallRule
+		PeerRules           []string
 		PeerRulesIsEmpty    bool
-		RouteRules          []*mgmProto.RouteFirewallRule
+		RouteRules          []string
 		RouteRulesIsEmpty   bool
 		DNSRouteFeatureFlag bool
 	}{
-		PeerRules:           networkMap.GetFirewallRules(),
+		PeerRules:           peerRules,
 		PeerRulesIsEmpty:    networkMap.GetFirewallRulesIsEmpty(),
-		RouteRules:          networkMap.GetRoutesFirewallRules(),
+		RouteRules:          routeRules,
 		RouteRulesIsEmpty:   networkMap.GetRoutesFirewallRulesIsEmpty(),
 		DNSRouteFeatureFlag: dnsRouteFeatureFlag,
-	}, hashstructure.FormatV2, &hashstructure.HashOptions{
-		ZeroNil:         true,
-		IgnoreZeroValue: true,
-		SlicesAsSets:    true,
-		UseStringer:     true,
-	})
+	}, hashstructure.FormatV2, nil)
+}
+
+// encodeRules returns the sorted deterministic wire encodings of rules.
+// sortSources orders the sources of a rule, which management builds from a map
+// and so does not send in a stable order either; it is handed a copy.
+func encodeRules[T proto.Message](rules []T, sortSources func(T)) ([]string, error) {
+	opts := proto.MarshalOptions{Deterministic: true}
+	encoded := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		rule = proto.Clone(rule).(T)
+		sortSources(rule)
+		b, err := opts.Marshal(rule)
+		if err != nil {
+			return nil, err
+		}
+		encoded = append(encoded, string(b))
+	}
+	slices.Sort(encoded)
+	return encoded, nil
 }
 
 func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) error {

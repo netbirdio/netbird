@@ -633,3 +633,58 @@ func TestFirewallConfigHashDeterministic(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, h1, h2, "hash must be order-independent for rule slices")
 }
+
+// TestFirewallConfigHashRepeatedRules verifies that a rule management sends
+// more than once still contributes to the hash. Management emits a route rule
+// once per access control group of the route that the policy names, and a peer
+// rule once per entry of the policy's port list.
+func TestFirewallConfigHashRepeatedRules(t *testing.T) {
+	d := &DefaultManager{}
+
+	routeRule := func(sources ...string) *mgmProto.RouteFirewallRule {
+		return &mgmProto.RouteFirewallRule{
+			SourceRanges: sources,
+			Action:       mgmProto.RuleAction_ACCEPT,
+			Destination:  "10.10.0.0/24",
+			Protocol:     mgmProto.RuleProtocol_ALL,
+		}
+	}
+	routeHash := func(rules ...*mgmProto.RouteFirewallRule) uint64 {
+		h, err := d.firewallConfigHash(&mgmProto.NetworkMap{RoutesFirewallRules: rules}, false)
+		require.NoError(t, err)
+		return h
+	}
+
+	before := routeRule("100.64.0.1/32", "100.64.0.2/32")
+	after := routeRule("100.64.0.2/32")
+	other := routeRule("100.64.0.3/32")
+
+	assert.NotEqual(t, routeHash(before, before), routeHash(after, after), "a change to a route rule sent twice must change the hash")
+	assert.NotEqual(t, routeHash(other, before, before), routeHash(other), "removing a route rule sent twice must change the hash")
+	assert.NotEqual(t, routeHash(routeRule("100.64.0.1/32", "100.64.0.1/32")), routeHash(routeRule("100.64.0.2/32", "100.64.0.2/32")),
+		"a change to a source sent twice must change the hash")
+	assert.Equal(t, routeHash(before), routeHash(routeRule("100.64.0.2/32", "100.64.0.1/32")), "hash must be order-independent for sources")
+	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, before.SourceRanges, "hashing must not modify the rules")
+
+	peerRule := func(port string, sources ...[]byte) *mgmProto.FirewallRule {
+		return &mgmProto.FirewallRule{
+			SourcePrefixes: sources,
+			Direction:      mgmProto.RuleDirection_IN,
+			Action:         mgmProto.RuleAction_ACCEPT,
+			Protocol:       mgmProto.RuleProtocol_TCP,
+			Port:           port,
+		}
+	}
+	peerHash := func(rules ...*mgmProto.FirewallRule) uint64 {
+		h, err := d.firewallConfigHash(&mgmProto.NetworkMap{FirewallRules: rules}, false)
+		require.NoError(t, err)
+		return h
+	}
+
+	src1, src2 := []byte{100, 64, 1, 2, 32}, []byte{100, 64, 2, 1, 32}
+
+	assert.NotEqual(t, peerHash(peerRule("22", src1), peerRule("5432", src1), peerRule("5432", src1)), peerHash(peerRule("22", src1)),
+		"removing a peer rule sent twice must change the hash")
+	assert.NotEqual(t, peerHash(peerRule("22", src1)), peerHash(peerRule("22", src2)), "source prefixes must not be hashed as sets of bytes")
+	assert.Equal(t, peerHash(peerRule("22", src1, src2)), peerHash(peerRule("22", src2, src1)), "hash must be order-independent for sources")
+}
