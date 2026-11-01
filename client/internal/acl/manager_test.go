@@ -664,7 +664,22 @@ func TestFirewallConfigHashRepeatedRules(t *testing.T) {
 	assert.NotEqual(t, routeHash(routeRule("100.64.0.1/32", "100.64.0.1/32")), routeHash(routeRule("100.64.0.2/32", "100.64.0.2/32")),
 		"a change to a source sent twice must change the hash")
 	assert.Equal(t, routeHash(before), routeHash(routeRule("100.64.0.2/32", "100.64.0.1/32")), "hash must be order-independent for sources")
-	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, before.SourceRanges, "hashing must not modify the rules")
+
+	unsorted := routeRule("100.64.0.2/32", "100.64.0.1/32")
+	unsorted.Domains = []string{"b.example.com", "a.example.com"}
+	_ = routeHash(unsorted)
+	assert.Equal(t, []string{"100.64.0.2/32", "100.64.0.1/32"}, unsorted.SourceRanges, "hashing must not modify the rules")
+	assert.Equal(t, []string{"b.example.com", "a.example.com"}, unsorted.Domains, "hashing must not modify the rules")
+
+	withDomains := func(domains ...string) *mgmProto.RouteFirewallRule {
+		rule := routeRule("100.64.0.1/32")
+		rule.Domains = domains
+		return rule
+	}
+	assert.Equal(t, routeHash(withDomains("a.example.com", "b.example.com")), routeHash(withDomains("b.example.com", "a.example.com")),
+		"hash must be order-independent for domains")
+	assert.NotEqual(t, routeHash(withDomains("a.example.com", "b.example.com")), routeHash(withDomains("a.example.com")),
+		"a change to the domains must change the hash")
 
 	peerRule := func(port string, sources ...[]byte) *mgmProto.FirewallRule {
 		return &mgmProto.FirewallRule{

@@ -167,6 +167,7 @@ func (d *DefaultManager) firewallConfigHash(networkMap *mgmProto.NetworkMap, dns
 
 	routeRules, err := encodeRules(networkMap.GetRoutesFirewallRules(), func(rule *mgmProto.RouteFirewallRule) {
 		slices.Sort(rule.GetSourceRanges())
+		slices.Sort(rule.GetDomains())
 	})
 	if err != nil {
 		return 0, fmt.Errorf("encode route rules: %w", err)
