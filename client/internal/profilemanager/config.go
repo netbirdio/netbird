@@ -393,6 +393,11 @@ func (config *Config) resolveUnsetDefaults() (updated bool) {
 			// default to disabled SSH on Android for security
 			log.Infof("setting SSH server to false by default on Android")
 			config.ServerSSHAllowed = util.False()
+		} else if config.PrivateKey == "" {
+			// Old versions wrote the peer's key together with the config, so a file
+			// without one never ran an SSH server and there is nothing to preserve.
+			log.Infof("setting SSH server to false by default for a configuration without identity")
+			config.ServerSSHAllowed = util.False()
 		} else {
 			// enables SSH for configs from old versions to preserve backwards compatibility
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
@@ -1190,15 +1195,17 @@ func update(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
-	// A write path is a provisioning point: a stored profile can legitimately
-	// carry no identity (a mobile logout clears the keys in place), and the
-	// next config write is what has to mint a new one. Reads leave that alone.
-	identityGenerated, err := config.EnsureIdentity()
+	// apply runs first so the defaults it resolves see the identity that is
+	// stored, not one minted a moment ago.
+	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := config.apply(input)
+	// A write path is a provisioning point: a stored profile can legitimately
+	// carry no identity (a mobile logout clears the keys in place), and the
+	// next config write is what has to mint a new one. Reads leave that alone.
+	identityGenerated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, err
 	}
@@ -1393,13 +1400,13 @@ func directUpdate(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
-	// Same provisioning point as update(); see the note there.
-	identityGenerated, err := config.EnsureIdentity()
+	// Same order as update(); see the notes there.
+	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := config.apply(input)
+	identityGenerated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, err
 	}
