@@ -350,7 +350,9 @@ func newConfigSkeleton() *Config {
 // ServerSSHAllowed is the one field whose default depends on the config's age.
 // A brand-new profile gets false from newConfigSkeleton, which runs before
 // this, so what is resolved here is only the legacy case: a config written by a
-// version that had no such field keeps SSH on, for backwards compatibility.
+// version that had no such field keeps SSH on, for backwards compatibility, when
+// it carries the peer's private key. A config without one never ran an SSH
+// server and resolves to off, as does every config on Android.
 func (config *Config) resolveUnsetDefaults() (updated bool) {
 	// Fields that default to false on every platform.
 	for _, field := range []**bool{

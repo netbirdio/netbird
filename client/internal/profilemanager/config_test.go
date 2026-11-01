@@ -279,7 +279,7 @@ func TestServerSSHAllowedLegacyDefault(t *testing.T) {
 		input ConfigInput
 		want  bool
 	}{
-		{"enrolled legacy config keeps SSH on", enrolled, ConfigInput{}, true},
+		{"enrolled legacy config keeps SSH on", enrolled, ConfigInput{}, runtime.GOOS != "android"},
 		{"empty file", `{}`, ConfigInput{}, false},
 		{"foreign json", `{"Success":false,"Error":"x","ExecutedAt":"2026-01-01T00:00:00Z"}`, ConfigInput{}, false},
 		{"foreign json with management url", `{"name":"default","username":""}`, ConfigInput{ManagementURL: "https://example.com:443"}, false},
