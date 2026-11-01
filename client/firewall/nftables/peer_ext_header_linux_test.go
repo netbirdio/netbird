@@ -4,6 +4,8 @@ package nftables
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"net"
 	"net/netip"
 	"os"
@@ -36,26 +38,27 @@ func TestNftablesManagerPeerDropMatchesBehindExtensionHeader(t *testing.T) {
 	if _, err := exec.LookPath("ip"); err != nil {
 		t.Skipf("ip not available: %v", err)
 	}
-	seedIp6tables(t)
 
 	const (
-		ifaceName = "wt-test"
-		nsName    = "nbpeer"
-		hostAddr  = "fd00::1"
-		peerAddr  = "fd00::2"
+		hostAddr = "fd00::1"
+		peerAddr = "fd00::2"
 	)
+	// Names are unique to this run so the test never touches a namespace or link it did not create.
+	suffix := make([]byte, 3)
+	_, err := rand.Read(suffix)
+	require.NoError(t, err, "generate name suffix")
+	ifaceName := "wt-" + hex.EncodeToString(suffix)
+	nsName := "nbpeer-" + hex.EncodeToString(suffix)
+
 	run := func(args ...string) {
 		t.Helper()
 		out, err := exec.Command("ip", args...).CombinedOutput()
 		require.NoError(t, err, "ip %v: %s", args, out)
 	}
-	_ = exec.Command("ip", "netns", "del", nsName).Run()
 	run("netns", "add", nsName)
-	t.Cleanup(func() {
-		_ = exec.Command("ip", "link", "del", ifaceName).Run()
-		_ = exec.Command("ip", "netns", "del", nsName).Run()
-	})
+	t.Cleanup(func() { _ = exec.Command("ip", "netns", "del", nsName).Run() })
 	run("link", "add", ifaceName, "type", "veth", "peer", "name", "nbpeer0", "netns", nsName)
+	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", ifaceName).Run() })
 	run("addr", "add", hostAddr+"/64", "dev", ifaceName, "nodad")
 	run("link", "set", ifaceName, "up")
 	run("-n", nsName, "addr", "add", peerAddr+"/64", "dev", "nbpeer0", "nodad")
