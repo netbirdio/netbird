@@ -187,6 +187,13 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 
 	m.allowedIPsRefCounter = refcounter.NewAllowedIPs(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
+			// Same invariant as Engine.filterAllowedIPs: without a v6 overlay address the native
+			// firewall has no v6 rules, so WireGuard must not accept v6 traffic. Routed prefixes
+			// can be chosen by the routing peer (resolved AAAA records of a DNS route).
+			if prefix.Addr().Is6() && !m.wgInterface.Address().HasIPv6() {
+				log.Debugf("Ignoring v6 allowed IP %s for %s: no v6 overlay address", prefix, peerKey)
+				return "", refcounter.ErrIgnore
+			}
 			// save peerKey to use it in the remove function
 			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix)
 		},
