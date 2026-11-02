@@ -248,15 +248,29 @@ func TestWGIface_UpdateAddr_MovesTheReservation(t *testing.T) {
 	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.70.0.0/16")}, cfg.peers[w.overlayPeerKey].allowedIPs)
 }
 
-func TestWGIface_UpdateAddr_FailureKeepsTheReservation(t *testing.T) {
+// A failed address change can still have applied the new address: the Linux device deletes the
+// old addresses and adds the new one before it brings the link up. Whichever of the two is in
+// use afterwards must stay reserved, so both ranges are kept until a later change succeeds.
+func TestWGIface_UpdateAddr_FailureKeepsBothRanges(t *testing.T) {
 	w, cfg, tun := newReservationTestIface(v4Addr("100.64.0.1/16"))
 	require.NoError(t, w.reserveOverlay(false))
+
+	oldRange := netip.MustParsePrefix("100.64.0.0/16")
+	newRange := netip.MustParsePrefix("100.70.0.0/16")
 
 	tun.updateAddrErr = errors.New("address in use")
 	require.Error(t, w.UpdateAddr(v4Addr("100.70.0.1/16")))
 
-	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, cfg.peers[w.overlayPeerKey].allowedIPs,
-		"a failed address change must not touch the reservation")
+	assert.ElementsMatch(t, []netip.Prefix{oldRange, newRange}, cfg.peers[w.overlayPeerKey].allowedIPs,
+		"a failed address change must leave both the old and the new range reserved")
+	assert.ElementsMatch(t, []netip.Prefix{oldRange, newRange}, w.overlayRange,
+		"the tracked reservation must match what is reserved")
+
+	tun.updateAddrErr = nil
+	require.NoError(t, w.UpdateAddr(v4Addr("100.70.0.1/16")))
+
+	assert.Equal(t, []netip.Prefix{newRange}, cfg.peers[w.overlayPeerKey].allowedIPs,
+		"a later successful change must release the range that is no longer in use")
 }
 
 func TestWGIface_UpdateAddr_ReservationFailureRestoresTheAddress(t *testing.T) {

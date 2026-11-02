@@ -152,11 +152,16 @@ func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	if err := w.addOverlayRange(next); err != nil {
 		return err
 	}
-	w.overlayRange = append(slices.Clone(previous), next...)
+	w.overlayRange = slices.Clone(previous)
+	for _, p := range next {
+		if !slices.Contains(w.overlayRange, p) {
+			w.overlayRange = append(w.overlayRange, p)
+		}
+	}
 
+	// A failed switch can still have applied the new address, so both ranges stay reserved
+	// until a later change succeeds and releases the one that is not in use.
 	if err := w.tun.UpdateAddr(newAddr); err != nil {
-		w.overlayRange = previous
-		w.releaseOverlayRanges(next, previous)
 		return err
 	}
 
