@@ -5,7 +5,7 @@ usage: cat <marks-file>... | report.py <start-epoch> > report.tsv
 
 The marks are read from standard input, one line per boundary: "<epoch> S <name>" when a
 feature starts and "<epoch> E <name>" when it ends. Every start needs its own end: a
-repeated start, an end without a start and a window left open are errors. A record inside
+repeated start, an end without a start, a window left open and any other kind are errors. A record inside
 a window is reported under that feature, a record within a short padding around a window
 under the closest one, and any other under "(outside-tests)". Reads /var/log/audit/audit.log
 and its rotations. The "granted" records come from the netbirdaudit module next to this file.
@@ -29,7 +29,11 @@ def read_windows(marks):
         parts = line.split()
         if len(parts) < 3:
             continue
-        stamp, kind, name = float(parts[0]), parts[1], parts[2]
+        try:
+            stamp = float(parts[0])
+        except ValueError:
+            sys.exit(f"report.py: invalid mark timestamp {parts[0]!r}")
+        kind, name = parts[1], parts[2]
         if kind == "S":
             if name in started:
                 sys.exit(f"report.py: window {name} started twice without an end")
@@ -38,6 +42,8 @@ def read_windows(marks):
             if name not in started:
                 sys.exit(f"report.py: window {name} ended without a start")
             windows.append((started.pop(name), stamp, name))
+        else:
+            sys.exit(f"report.py: unknown mark kind {kind!r} for window {name}, expected S or E")
     if started:
         sys.exit(f"report.py: window {sorted(started)[0]} has no end")
     return windows
@@ -48,14 +54,14 @@ def window_of(windows, stamp):
     for start, end, name in windows:
         if start <= stamp <= end:
             return name
-    best, best_distance = "(outside-tests)", None
-    for start, end, name in windows:
-        if not start - 0.05 <= stamp <= end + 0.5:
-            continue
-        distance = start - stamp if stamp < start else stamp - end
-        if best_distance is None or distance < best_distance:
-            best, best_distance = name, distance
-    return best
+    candidates = [
+        (start - stamp if stamp < start else stamp - end, name)
+        for start, end, name in windows
+        if start - 0.05 <= stamp <= end + 0.5
+    ]
+    if not candidates:
+        return "(outside-tests)"
+    return min(candidates, key=lambda candidate: candidate[0])[1]
 
 
 def parse_record(line, since):
