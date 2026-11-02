@@ -57,8 +57,8 @@ func TestNftablesManagerPeerDropMatchesBehindExtensionHeader(t *testing.T) {
 	}
 	manager, err := Create(mock, iface.DefaultMTU)
 	require.NoError(t, err, "create manager")
-	t.Cleanup(func() { _ = manager.Close(nil) })
 	require.NoError(t, manager.Init(nil))
+	t.Cleanup(func() { assert.NoError(t, manager.Close(nil), "close manager") })
 
 	addr := ns.ListenHost(t)
 	port := netip.MustParseAddrPort(addr).Port()
