@@ -7,6 +7,11 @@ func sessionExecContext(string, []string, error) (string, error) {
 	return "", nil
 }
 
+// failClosedOnGroupError is false on platforms without SELinux.
+func failClosedOnGroupError() bool {
+	return false
+}
+
 // setExecContext is a no-op on platforms without SELinux.
 func setExecContext(string) error {
 	return nil

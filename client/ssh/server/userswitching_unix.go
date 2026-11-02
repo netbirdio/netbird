@@ -149,14 +149,28 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 	gid := uint32(gid64)
 
 	groups, err := s.getSupplementaryGroups(localUser)
-	if err != nil || len(groups) == 0 {
-		if err != nil {
-			log.Warnf("failed to get supplementary groups for user %s: %v", localUser.Username, err)
-		}
-		groups = []uint32{gid}
+	groups, err = groupsOrPrimary(localUser.Username, groups, err, gid, failClosedOnGroupError())
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("get supplementary groups of %s: %w", localUser.Username, err)
 	}
 
 	return uid, gid, groups, nil
+}
+
+// groupsOrPrimary substitutes the primary group for a list that is empty or could not be
+// enumerated. With strict set, an enumeration failure is returned instead, because the
+// substitute would hide it from whatever decides on the group list later.
+func groupsOrPrimary(username string, groups []uint32, enumErr error, primary uint32, strict bool) ([]uint32, error) {
+	if enumErr != nil && strict {
+		return nil, enumErr
+	}
+	if enumErr != nil {
+		log.Warnf("failed to get supplementary groups for user %s, using the primary group: %v", username, enumErr)
+	}
+	if enumErr != nil || len(groups) == 0 {
+		return []uint32{primary}, nil
+	}
+	return groups, nil
 }
 
 // getSupplementaryGroups retrieves supplementary group IDs for a user.

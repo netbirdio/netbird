@@ -65,6 +65,14 @@ func pathMayExist(path string) bool {
 	return !errors.Is(err, fs.ErrNotExist)
 }
 
+// failClosedOnGroupError reports whether a session has to be refused when the user's
+// supplementary groups cannot be enumerated: the host enforces SELinux policy, whose
+// %group mappings are matched against that list, and a substitute list could select a
+// less confined context than the one the user is mapped to.
+func failClosedOnGroupError() bool {
+	return selinuxEnabled() && newSELinuxLookup().hasPolicy() && selinuxEnforcing()
+}
+
 // sessionExecContext returns the context a session of username has to start in, or an
 // empty string when there is nothing to set: SELinux is disabled, the host has no policy
 // files (a container on an SELinux host), or the lookup failed while SELinux is permissive,
