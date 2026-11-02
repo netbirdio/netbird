@@ -88,7 +88,7 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	switch {
 	case m.v6Overlay:
 		m.createIPv6Components(tableName, wgIface, mtu)
-	case !hostHasIPv6():
+	case !hostHasIPv6(wgIface.Name()):
 		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
 	case firewall.AllowUnfilteredIPv6():
 		log.Warnf("%s is set: IPv6 arriving on interface %s is left to the host's rules", firewall.EnvAllowUnfilteredIPv6, wgIface.Name())

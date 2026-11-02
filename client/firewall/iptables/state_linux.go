@@ -71,7 +71,7 @@ func (s *ShutdownState) Cleanup() error {
 	// Clean up v6 state even if the current run has no IPv6.
 	// The previous run may have left ip6tables rules behind.
 	if !ipt.hasV6Family() {
-		if err := ipt.createIPv6Components(s.InterfaceState, mtu); err != nil {
+		if err := ipt.createIPv6Components(s.InterfaceState, mtu, false); err != nil {
 			if s.hasIPv6State() {
 				// Keep the state, so the next start retries the cleanup of what is left.
 				return fmt.Errorf("create v6 components for cleanup: %w", err)

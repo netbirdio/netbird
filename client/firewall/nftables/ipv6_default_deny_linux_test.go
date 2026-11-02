@@ -56,7 +56,7 @@ func TestNftablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	if err := probeIPv6Filtering(); err != nil {
@@ -120,7 +120,7 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	if err := probeIPv6Filtering(); err != nil {
@@ -172,7 +172,7 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 
 	// The process is gone without closing the firewall. The new run finds the saved state and
 	// cleans up, and the host has no IPv6 by then.
-	hostHasIPv6 = func() bool { return false }
+	hostHasIPv6 = func(string) bool { return false }
 	t.Cleanup(func() { hostHasIPv6 = firewall.HostHasIPv6 })
 
 	recovered := statemanager.New(statePath)
@@ -216,7 +216,7 @@ func TestNftablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 	m, err = Create(overlayOnlyV4("wt-fam"), iface.DefaultMTU)
 	require.NoError(t, err)
 	assert.False(t, m.hasIPv6(), "no IPv6 overlay address means no IPv6 rules, NAT or forwarding")
-	wantFamily := hostHasIPv6() && probeIPv6Filtering() == nil
+	wantFamily := hostHasIPv6("wt-fam") && probeIPv6Filtering() == nil
 	assert.Equal(t, wantFamily, m.hasV6Family(), "the deny exists when the host has IPv6 and nftables can filter it")
 
 	_, err = m.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("fd00::2/128")}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept)
@@ -228,7 +228,7 @@ func TestNftablesManagerAllowUnfilteredIPv6(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	t.Setenv(firewall.EnvAllowUnfilteredIPv6, "true")
@@ -253,7 +253,7 @@ func TestNftablesManagerDropsIPv6BehindHostAcceptInInetTable(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	if err := probeIPv6Filtering(); err != nil {

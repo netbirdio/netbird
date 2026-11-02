@@ -65,10 +65,10 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	m.v6Overlay = wgIface.Address().HasIPv6()
 	switch {
 	case m.v6Overlay:
-		if err := m.createIPv6Components(wgIface, mtu); err != nil {
+		if err := m.createIPv6Components(wgIface, mtu, false); err != nil {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
-	case !hostHasIPv6():
+	case !hostHasIPv6(wgIface.Name()):
 		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
 	case firewall.AllowUnfilteredIPv6():
 		log.Warnf("%s is set: IPv6 arriving on interface %s is left to the host's rules", firewall.EnvAllowUnfilteredIPv6, wgIface.Name())
@@ -79,7 +79,7 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 			break
 		}
 		log.Infof("interface %s has no IPv6 overlay address, dropping IPv6 arriving on it", wgIface.Name())
-		if err := m.createIPv6Components(wgIface, mtu); err != nil {
+		if err := m.createIPv6Components(wgIface, mtu, true); err != nil {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
 	}
@@ -90,22 +90,22 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 // hostHasIPv6 is a variable so tests can change what the host looks like.
 var hostHasIPv6 = firewall.HostHasIPv6
 
-// probeIPv6Filtering checks that ip6tables is usable on this host, including the tables the
-// IPv6 family sets up.
+// probeIPv6Filtering checks that ip6tables can hold the default deny, which only needs the
+// filter table.
 func probeIPv6Filtering() error {
 	client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
 		return fmt.Errorf("init ip6tables: %w", err)
 	}
-	for _, table := range []string{tableFilter, tableNat, tableMangle} {
-		if _, err := client.ListChains(table); err != nil {
-			return fmt.Errorf("list ip6tables %s chains: %w", table, err)
-		}
+	if _, err := client.ListChains(tableFilter); err != nil {
+		return fmt.Errorf("list ip6tables %s chains: %w", tableFilter, err)
 	}
 	return nil
 }
 
-func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
+// createIPv6Components sets up the IPv6 family. With filterOnly it carries the default deny
+// and needs nothing but the filter table.
+func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16, filterOnly bool) error {
 	ip6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
 		return fmt.Errorf("init ip6tables: %w", err)
@@ -115,6 +115,7 @@ func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
 	if err != nil {
 		return fmt.Errorf("create v6 family: %w", err)
 	}
+	family6.filterOnly = filterOnly
 
 	// Share the same IP forwarding state with the v4 family, since the
 	// forwarding refcounter is per-family but shared between both families.

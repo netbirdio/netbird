@@ -13,18 +13,31 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
-func (r *family) createContainers() error {
-	for _, chainInfo := range []struct {
-		chain string
-		table string
-	}{
+type containerChain struct {
+	chain string
+	table string
+}
+
+// containerChains lists the chains the family creates. A filter-only family has no use for the
+// nat and mangle chains.
+func (r *family) containerChains() []containerChain {
+	chains := []containerChain{
 		{chainRTFwdIn, tableFilter},
 		{chainRTFwdOut, tableFilter},
-		{chainRTPre, tableMangle},
-		{chainRTNAT, tableNat},
-		{chainRTRdr, tableNat},
-		{chainRTMSSClamp, tableMangle},
-	} {
+	}
+	if r.filterOnly {
+		return chains
+	}
+	return append(chains,
+		containerChain{chainRTPre, tableMangle},
+		containerChain{chainRTNAT, tableNat},
+		containerChain{chainRTRdr, tableNat},
+		containerChain{chainRTMSSClamp, tableMangle},
+	)
+}
+
+func (r *family) createContainers() error {
+	for _, chainInfo := range r.containerChains() {
 		// Fallback: clear chains that survived an unclean shutdown.
 		if ok, _ := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain); ok {
 			if err := r.iptablesClient.ClearAndDeleteChain(chainInfo.table, chainInfo.chain); err != nil {
@@ -42,6 +55,10 @@ func (r *family) createContainers() error {
 
 	if err := r.insertEstablishedRule(chainRTFwdOut); err != nil {
 		return fmt.Errorf("insert established rule: %w", err)
+	}
+
+	if r.filterOnly {
+		return nil
 	}
 
 	if err := r.addPostroutingRules(); err != nil {
@@ -129,6 +146,10 @@ func (r *family) seedInitialEntries() {
 	r.appendToEntries(chainForward, []string{"-i", r.wgIface.Name(), "-j", "DROP"})
 	r.appendToEntries(chainForward, []string{"-o", r.wgIface.Name(), "-j", chainRTFwdOut})
 	r.appendToEntries(chainForward, []string{"-i", r.wgIface.Name(), "-j", chainRTFwdIn})
+
+	if r.filterOnly {
+		return
+	}
 
 	// Mangle FORWARD guard: when external DNAT redirects traffic from
 	// the wg interface, it traverses FORWARD instead of INPUT,
@@ -221,7 +242,7 @@ func (r *family) cleanUpDefaultForwardRules() error {
 		{chainNATOutput, tableNat},
 		{chainRTMSSClamp, tableMangle},
 	} {
-		ok, err := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain)
+		ok, err := r.chainExists(chainInfo.table, chainInfo.chain)
 		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("check chain %s in table %s: %w", chainInfo.chain, chainInfo.table, err))
 			continue
@@ -234,6 +255,18 @@ func (r *family) cleanUpDefaultForwardRules() error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// chainExists reports whether a chain exists. A table other than filter that the IPv6 kernel
+// does not provide holds no chains of ours, which a filter-only family relies on, so it counts
+// as absent instead of failing the cleanup.
+func (r *family) chainExists(table, chain string) (bool, error) {
+	ok, err := r.iptablesClient.ChainExists(table, chain)
+	if err != nil && r.v6 && table != tableFilter {
+		log.Debugf("check chain %s in ip6tables table %s: %v", chain, table, err)
+		return false, nil
+	}
+	return ok, err
 }
 
 func (r *family) cleanJumpRules() error {
@@ -254,7 +287,7 @@ func (r *family) cleanJumpRules() error {
 			// Untracked (e.g. fresh start after an unclean shutdown with no
 			// restored state): if the target chain survived, remove the stale
 			// jump to it so the chain can be deleted.
-			ok, err := r.iptablesClient.ChainExists(loc.table, loc.target)
+			ok, err := r.chainExists(loc.table, loc.target)
 			if err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("check chain %s in table %s: %w", loc.target, loc.table, err))
 				continue

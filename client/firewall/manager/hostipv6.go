@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,22 +16,44 @@ import (
 const EnvAllowUnfilteredIPv6 = "NB_ALLOW_UNFILTERED_IPV6"
 
 const (
-	procIfInet6        = "/proc/net/if_inet6"
-	procDisableIPv6All = "/proc/sys/net/ipv6/conf/all/disable_ipv6"
-	procDisableIPv6Def = "/proc/sys/net/ipv6/conf/default/disable_ipv6"
+	procIfInet6      = "/proc/net/if_inet6"
+	procIPv6ConfDir  = "/proc/sys/net/ipv6/conf"
+	disableIPv6Entry = "disable_ipv6"
 )
 
-// HostHasIPv6 reports whether the host kernel can receive IPv6 on a new interface.
+// HostHasIPv6 reports whether the named interface can receive IPv6.
 //
 // It is false only when the kernel has no IPv6 support, or IPv6 is disabled for both the
-// existing and the future interfaces. Anything that cannot be told, such as a procfs entry that
-// cannot be read, counts as enabled, so callers that use this to decide whether IPv6 has to be
-// filtered err on the side of filtering.
-func HostHasIPv6() bool {
-	if _, err := os.Stat(procIfInet6); errors.Is(err, fs.ErrNotExist) {
+// existing and the future interfaces and the interface itself has it disabled or, not existing
+// yet, inherits that. Writing "all" or "default" does not veto a later per-interface enable, so
+// an existing interface with IPv6 enabled counts even when both are set. Anything that cannot be
+// told, such as a procfs entry that cannot be read or an unusable name, counts as enabled, so
+// callers that use this to decide whether IPv6 has to be filtered err on the side of filtering.
+func HostHasIPv6(ifaceName string) bool {
+	return hostHasIPv6(procIfInet6, procIPv6ConfDir, ifaceName)
+}
+
+func hostHasIPv6(ifInet6, confDir, ifaceName string) bool {
+	if _, err := os.Stat(ifInet6); errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
-	return !sysctlIsOne(procDisableIPv6All) || !sysctlIsOne(procDisableIPv6Def)
+	if !sysctlIsOne(filepath.Join(confDir, "all", disableIPv6Entry)) ||
+		!sysctlIsOne(filepath.Join(confDir, "default", disableIPv6Entry)) {
+		return true
+	}
+	if ifaceName == "" || ifaceName != filepath.Base(ifaceName) || ifaceName == "." || ifaceName == ".." {
+		return true
+	}
+
+	b, err := os.ReadFile(filepath.Join(confDir, ifaceName, disableIPv6Entry))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// The interface is created with the default, which is disabled.
+		return false
+	case err != nil:
+		return true
+	}
+	return strings.TrimSpace(string(b)) != "1"
 }
 
 func sysctlIsOne(path string) bool {

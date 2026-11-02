@@ -50,7 +50,7 @@ func overlayOnlyV4(ifaceName string) *iFaceMock {
 // peer chooses the source addresses it is allowed. With no IPv6 rules to accept it, all of it
 // must be dropped, and removing the firewall must give the interface back.
 func TestIptablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	if err := probeIPv6Filtering(); err != nil {
@@ -86,7 +86,7 @@ func TestIptablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 // place has to go, even if the host looks different when the cleanup runs than it did when the
 // firewall started.
 func TestIptablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	if err := probeIPv6Filtering(); err != nil {
@@ -112,7 +112,7 @@ func TestIptablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 
 	// The process is gone without closing the firewall. The new run finds the saved state and
 	// cleans up, and the host has no IPv6 by then.
-	hostHasIPv6 = func() bool { return false }
+	hostHasIPv6 = func(string) bool { return false }
 	t.Cleanup(func() { hostHasIPv6 = firewall.HostHasIPv6 })
 
 	recovered := statemanager.New(statePath)
@@ -133,7 +133,7 @@ func TestIptablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 	m, err := Create(overlayOnlyV4("wt-fam"), iface.DefaultMTU)
 	require.NoError(t, err)
 	assert.False(t, m.hasIPv6(), "no IPv6 overlay address means no IPv6 rules, NAT or forwarding")
-	wantFamily := hostHasIPv6() && probeIPv6Filtering() == nil
+	wantFamily := hostHasIPv6("wt-fam") && probeIPv6Filtering() == nil
 	assert.Equal(t, wantFamily, m.hasV6Family(), "the deny exists when the host has IPv6 and ip6tables works")
 
 	_, err = m.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("fd00::2/128")}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept)
@@ -142,7 +142,7 @@ func TestIptablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 
 // The escape hatch leaves IPv6 on an interface without an IPv6 overlay address to the host.
 func TestIptablesManagerAllowUnfilteredIPv6(t *testing.T) {
-	if !firewall.HostHasIPv6() {
+	if !firewall.HostHasIPv6("nb-test0") {
 		t.Skip("host has no IPv6")
 	}
 	if err := probeIPv6Filtering(); err != nil {
