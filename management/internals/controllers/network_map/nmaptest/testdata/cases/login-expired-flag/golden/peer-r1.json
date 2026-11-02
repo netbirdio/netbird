@@ -48,6 +48,13 @@
             "Class": "IN",
             "TTL": "300",
             "RData": "100.64.0.11"
+          },
+          {
+            "Name": "peer-r2.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.12"
           }
         ]
       }

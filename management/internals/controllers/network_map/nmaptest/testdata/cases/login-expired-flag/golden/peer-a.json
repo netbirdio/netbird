@@ -48,12 +48,30 @@
             "Class": "IN",
             "TTL": "300",
             "RData": "100.64.0.11"
+          },
+          {
+            "Name": "peer-r2.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.12"
           }
         ]
       }
     ],
     "ForwarderPort": "22054"
   },
+  "offlinePeers": [
+    {
+      "wgPubKey": "YC6sbWtvpB2d6W/XqsNIV9crsrXBoVDdwmhCoszjCps=",
+      "allowedIps": [
+        "100.64.0.12/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-r2.netbird.test",
+      "agentVersion": "0.60.0"
+    }
+  ],
   "FirewallRules": [
     {
       "PeerIP": "100.64.0.11",
@@ -63,6 +81,19 @@
     },
     {
       "PeerIP": "100.64.0.11",
+      "Direction": "OUT",
+      "Protocol": "TCP",
+      "Port": "8080",
+      "PolicyID": "cG9sLWNvbm4="
+    },
+    {
+      "PeerIP": "100.64.0.12",
+      "Protocol": "TCP",
+      "Port": "8080",
+      "PolicyID": "cG9sLWNvbm4="
+    },
+    {
+      "PeerIP": "100.64.0.12",
       "Direction": "OUT",
       "Protocol": "TCP",
       "Port": "8080",

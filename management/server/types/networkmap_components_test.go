@@ -2,7 +2,6 @@ package types_test
 
 import (
 	"context"
-	"encoding/base64"
 	"net"
 	"net/netip"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -20,9 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
-	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func networkMapFromComponents(t *testing.T, account *types.Account, peerID string, validatedPeers map[string]struct{}) *types.NetworkMap {
@@ -121,7 +117,7 @@ func TestNetworkMapComponents_LoginExpiration(t *testing.T) {
 	validated := allPeersValidated(account)
 	nm := networkMapFromComponents(t, account, "peer-src-1", validated)
 
-	assert.NotContains(t, peerIDs(nm.OfflinePeers), "peer-dst-1", "expired peer should NOT be in OfflinePeers")
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-dst-1", "expired peer should be in OfflinePeers")
 	assert.NotContains(t, peerIDs(nm.Peers), "peer-dst-1", "expired peer should NOT be in active Peers")
 }
 
@@ -132,7 +128,7 @@ func TestNetworkMapComponents_LoginExpiredFlag(t *testing.T) {
 
 	nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account))
 
-	assert.NotContains(t, peerIDs(nm.OfflinePeers), "peer-dst-1", "peer flagged login-expired should NOT be in OfflinePeers")
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-dst-1", "peer flagged login-expired should be in OfflinePeers")
 	assert.NotContains(t, peerIDs(nm.Peers), "peer-dst-1", "peer flagged login-expired should NOT be in active Peers")
 }
 
@@ -143,7 +139,7 @@ func TestNetworkMapComponents_LoginExpiredResourceSourcePeer(t *testing.T) {
 	nm := networkMapFromComponents(t, account, "peer-router-1", allPeersValidated(account))
 
 	assert.NotContains(t, peerIDs(nm.Peers), "peer-src-2", "expired resource source peer should NOT be in the router's Peers")
-	assert.NotContains(t, peerIDs(nm.OfflinePeers), "peer-src-2", "expired resource source peer should NOT be in OfflinePeers")
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-src-2", "expired resource source peer should be in OfflinePeers")
 	assert.Contains(t, peerIDs(nm.Peers), "peer-src-1", "valid resource source peer should stay in the router's Peers")
 
 	expiredRange := account.Peers["peer-src-2"].IP.String() + "/32"
@@ -156,7 +152,7 @@ func TestNetworkMapComponents_LoginExpiredResourceSourcePeer(t *testing.T) {
 	assert.Contains(t, sources, validRange, "valid peer should remain a route firewall rule source")
 }
 
-func TestNetworkMapComponents_LoginExpiredRoutingPeerIsDropped(t *testing.T) {
+func TestNetworkMapComponents_LoginExpiredRoutingPeerIsOffline(t *testing.T) {
 	account := createComponentTestAccount()
 	account.Settings.PeerLoginExpirationEnabled = false
 	account.Peers["peer-router-1"].Status.LoginExpired = true
@@ -164,7 +160,7 @@ func TestNetworkMapComponents_LoginExpiredRoutingPeerIsDropped(t *testing.T) {
 
 	nm := networkMapFromComponents(t, account, "peer-src-1", allPeersValidated(account))
 
-	assert.NotContains(t, peerIDs(nm.OfflinePeers), "peer-router-1", "expired routing peer should NOT be in OfflinePeers")
+	assert.Contains(t, peerIDs(nm.OfflinePeers), "peer-router-1", "expired routing peer should be in OfflinePeers")
 	assert.NotContains(t, peerIDs(nm.Peers), "peer-router-1", "expired routing peer should NOT be in active Peers")
 }
 
@@ -987,166 +983,4 @@ func createComponentTestAccount() *types.Account {
 	}
 
 	return account
-}
-
-func envelopeAccountWithWgKeys(account *types.Account) {
-	for id, p := range account.Peers {
-		raw := make([]byte, 32)
-		copy(raw, id)
-		p.Key = base64.StdEncoding.EncodeToString(raw)
-	}
-	for _, r := range account.Routes {
-		r.Peer = r.PeerID
-	}
-}
-
-func envelopeForPeer(t *testing.T, account *types.Account, peerID string) *proto.NetworkMapEnvelope {
-	t.Helper()
-	components := account.GetPeerNetworkMapComponents(
-		context.Background(), peerID, account.GetPeersCustomZone(context.Background(), "netbird.io"), nil,
-		allPeersValidated(account), account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), account.GetActiveGroupUsers(),
-	)
-	env := nbgrpc.EncodeNetworkMapEnvelope(nbgrpc.ComponentsEnvelopeInput{Components: components, DNSDomain: "netbird.io"})
-	require.NotNil(t, env.GetFull())
-	return env
-}
-
-func envelopeHasPeer(full *proto.NetworkMapComponentsFull, label string) bool {
-	for _, p := range full.Peers {
-		if p.DnsLabel == label {
-			return true
-		}
-	}
-	return false
-}
-
-func TestNetworkMapEnvelope_LoginExpiredPeerAndRouteDropped(t *testing.T) {
-	account := createComponentTestAccount()
-	envelopeAccountWithWgKeys(account)
-	account.Settings.PeerLoginExpirationEnabled = false
-	account.Peers["peer-dst-1"].Status.LoginExpired = true
-	account.Routes["route-direct"] = &route.Route{
-		ID: "route-direct", AccountID: account.Id, Network: netip.MustParsePrefix("192.168.20.0/24"),
-		Peer: "peer-dst-1", PeerID: "peer-dst-1", Enabled: true, Metric: 100,
-		Groups: []string{"group-src"},
-	}
-
-	env := envelopeForPeer(t, account, "peer-src-1")
-	full := env.GetFull()
-
-	assert.False(t, envelopeHasPeer(full, "dst1"), "flagged peer must not be in the envelope peer table")
-	assert.True(t, envelopeHasPeer(full, "src1"), "target peer must stay")
-	assert.True(t, envelopeHasPeer(full, "router1"), "valid peers must stay")
-	for _, r := range full.Routes {
-		assert.NotEqual(t, "192.168.20.0/24", r.NetworkCidr, "route bound to the flagged peer must not be shipped")
-		if r.PeerIndexSet {
-			require.Less(t, int(r.PeerIndex), len(full.Peers))
-			assert.NotEqual(t, "dst1", full.Peers[r.PeerIndex].DnsLabel, "no shipped route may point at the flagged peer")
-		}
-	}
-	for _, g := range full.Groups {
-		for _, idx := range g.PeerIndexes {
-			assert.NotEqual(t, "dst1", full.Peers[idx].DnsLabel, "group must not reference the flagged peer")
-		}
-	}
-
-	res, err := networkmap.EnvelopeToNetworkMap(context.Background(), env, account.Peers["peer-src-1"].Key, "netbird.io", false)
-	require.NoError(t, err)
-	for _, rp := range res.NetworkMap.RemotePeers {
-		assert.NotEqual(t, account.Peers["peer-dst-1"].Key, rp.WgPubKey, "client must not receive the flagged peer")
-	}
-	assert.Empty(t, res.NetworkMap.OfflinePeers)
-	for _, r := range res.NetworkMap.Routes {
-		assert.NotEqual(t, account.Peers["peer-dst-1"].Key, r.Peer, "client must not compute a route through the flagged peer")
-	}
-}
-
-func TestNetworkMapEnvelope_LoginExpiredRouterPeerDropped(t *testing.T) {
-	account := createComponentTestAccount()
-	envelopeAccountWithWgKeys(account)
-	account.Peers["peer-router-1"].Status.LoginExpired = true
-	account.NetworkRouters = append(account.NetworkRouters, &routerTypes.NetworkRouter{
-		ID: "router-2", NetworkID: "net-1", Peer: "peer-src-2", Enabled: true, AccountID: account.Id,
-	})
-
-	full := envelopeForPeer(t, account, "peer-src-1").GetFull()
-
-	assert.False(t, envelopeHasPeer(full, "router1"), "flagged routing peer must not be in the envelope peer table")
-	for _, idx := range full.RouterPeerIndexes {
-		assert.NotEqual(t, "router1", full.Peers[idx].DnsLabel)
-	}
-	require.True(t, envelopeHasPeer(full, "src2"))
-	require.NotEmpty(t, full.RoutersMap, "the network entry must stay")
-	for _, list := range full.RoutersMap {
-		require.Len(t, list.Entries, 1, "only the valid router may remain")
-		assert.Equal(t, "src2", full.Peers[list.Entries[0].PeerIndex].DnsLabel)
-	}
-}
-
-func TestNetworkMapEnvelope_TimeExpiredPeerDropped(t *testing.T) {
-	account := createComponentTestAccount()
-	envelopeAccountWithWgKeys(account)
-	account.Settings.PeerLoginExpirationEnabled = true
-	account.Settings.PeerLoginExpiration = time.Hour
-	past := time.Now().Add(-2 * time.Hour)
-	account.Peers["peer-dst-1"].LoginExpirationEnabled = true
-	account.Peers["peer-dst-1"].LastLogin = &past
-	account.Peers["peer-dst-1"].UserID = "user-2"
-
-	full := envelopeForPeer(t, account, "peer-src-1").GetFull()
-
-	assert.False(t, envelopeHasPeer(full, "dst1"), "time-expired peer must not be in the envelope peer table")
-	assert.True(t, envelopeHasPeer(full, "router1"))
-}
-
-func TestNetworkMapComponents_ExpiredTargetKeepsOwnComponents(t *testing.T) {
-	account := createComponentTestAccount()
-	account.Peers["peer-src-1"].Status.LoginExpired = true
-
-	components := account.GetPeerNetworkMapComponents(
-		context.Background(), "peer-src-1", account.GetPeersCustomZone(context.Background(), "netbird.io"), nil,
-		allPeersValidated(account), account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), account.GetActiveGroupUsers(),
-	)
-
-	assert.Contains(t, components.Peers, "peer-src-1")
-	assert.Contains(t, components.Peers, "peer-dst-1")
-}
-
-func TestNetworkMapComponents_ExpiredPeerPruneDoesNotMutateShared(t *testing.T) {
-	account := createComponentTestAccount()
-	account.Peers["peer-router-1"].Status.LoginExpired = true
-	account.Peers["peer-dst-1"].Status.LoginExpired = true
-	routers := account.GetResourceRoutersMap()
-	rpm := account.GetResourcePoliciesMap()
-	zone := account.GetPeersCustomZone(context.Background(), "netbird.io")
-	validated := allPeersValidated(account)
-
-	for range 2 {
-		for _, id := range []string{"peer-src-1", "peer-src-2", "peer-router-1"} {
-			account.GetPeerNetworkMapComponents(context.Background(), id, zone, nil, validated, rpm, routers, account.GetActiveGroupUsers())
-		}
-	}
-
-	assert.Contains(t, routers["net-1"], "peer-router-1", "shared router map must keep the expired router")
-	assert.Equal(t, "peer-dst-1", account.Routes["route-main"].PeerID)
-	assert.Contains(t, account.Groups["group-dst"].Peers, "peer-dst-1")
-}
-
-func TestNetworkMapEnvelope_PeerGroupRouteWithExpiredMember(t *testing.T) {
-	account := createComponentTestAccount()
-	envelopeAccountWithWgKeys(account)
-	account.Groups["group-dst"].Peers = append(account.Groups["group-dst"].Peers, "peer-src-2")
-	account.Routes["route-main"].Peer = ""
-	account.Peers["peer-dst-1"].Status.LoginExpired = true
-
-	full := envelopeForPeer(t, account, "peer-src-1").GetFull()
-
-	assert.False(t, envelopeHasPeer(full, "dst1"))
-	require.True(t, envelopeHasPeer(full, "src2"))
-	require.NotEmpty(t, full.Routes, "the group route stays for the remaining member")
-	for _, g := range full.Groups {
-		for _, idx := range g.PeerIndexes {
-			assert.NotEqual(t, "dst1", full.Peers[idx].DnsLabel)
-		}
-	}
 }

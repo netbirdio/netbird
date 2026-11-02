@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"os"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -204,7 +203,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			accountSettings:      types.Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour},
 			peerID:               peerID1,
 			expectedPeers:        []string{},
-			expectedOfflinePeers: []string{},
+			expectedOfflinePeers: []string{peerID2},
 			peers: map[string]*nbpeer.Peer{
 				"peer-1": {
 					ID:       peerID1,
@@ -3702,7 +3701,7 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 	return manager, updateManager
 }
 
-func TestNetworkMapStore_LoginExpiredFlagDropsPeer(t *testing.T) {
+func TestNetworkMapStore_LoginExpiredFlagPeerIsOffline(t *testing.T) {
 	manager, _ := createManagerWithNetworkMapStore(t)
 	ctx := context.Background()
 
@@ -3716,20 +3715,26 @@ func TestNetworkMapStore_LoginExpiredFlagDropsPeer(t *testing.T) {
 	peer1 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
 	peer2 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
 
-	syncPeers := func() []string {
+	syncPeers := func() ([]string, []string) {
 		_, networkMap, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: peer1.Meta}, account.Id)
 		require.NoError(t, err)
-		ids := make([]string, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-		for _, p := range slices.Concat(networkMap.Peers, networkMap.OfflinePeers) {
-			ids = append(ids, p.ID)
+		var online, offline []string
+		for _, p := range networkMap.Peers {
+			online = append(online, p.ID)
 		}
-		return ids
+		for _, p := range networkMap.OfflinePeers {
+			offline = append(offline, p.ID)
+		}
+		return online, offline
 	}
-	require.Contains(t, syncPeers(), peer2.ID, "the default policy connects the peers")
+	online, _ := syncPeers()
+	require.Contains(t, online, peer2.ID, "the default policy connects the peers")
 
 	require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer2.ID, nbpeer.PeerStatus{LoginExpired: true}))
 
-	assert.NotContains(t, syncPeers(), peer2.ID, "a peer flagged login-expired must not reach the other peer's map")
+	online, offline := syncPeers()
+	assert.NotContains(t, online, peer2.ID, "a peer flagged login-expired must not be connectable")
+	assert.Contains(t, offline, peer2.ID, "a peer flagged login-expired is listed offline")
 }
 
 func newSettingsMockManager(t testing.TB) *settings.MockManager {

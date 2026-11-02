@@ -265,16 +265,14 @@ func Test_SyncProtocol(t *testing.T) {
 		t.Fatalf("expecting SyncResponse to have NetworkMap with 3 remote peers, got %d", len(networkMap.GetRemotePeers()))
 	}
 
-	if len(networkMap.GetOfflinePeers()) != 0 {
-		t.Fatalf("expecting SyncResponse to have NetworkMap without offline peers, got %d", len(networkMap.GetOfflinePeers()))
+	// expired peers come separately.
+	if len(networkMap.GetOfflinePeers()) != 2 {
+		t.Fatal("expecting SyncResponse to have NetworkMap with 2 offline peer")
 	}
 
-	for _, expiredKey := range []string{"RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4=", "oVABSKj28gv+JRsf7e0NEGKgSOGTfU/nPB2cpuG56HY="} {
-		for _, p := range networkMap.GetRemotePeers() {
-			if p.WgPubKey == expiredKey {
-				t.Fatalf("expecting expired peer %s to be absent from the remote peers", expiredKey)
-			}
-		}
+	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="
+	if networkMap.GetOfflinePeers()[0].WgPubKey != expiredPeerPubKey {
+		t.Fatalf("expecting SyncResponse to have NetworkMap with 1 offline peer with a key %s", expiredPeerPubKey)
 	}
 
 	if networkMap.GetPeerConfig() == nil {
