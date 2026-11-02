@@ -67,7 +67,7 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		if err := m.createIPv6Components(wgIface, mtu); err != nil {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
-	case firewall.HostHasIPv6():
+	case hostHasIPv6():
 		if err := probeIPv6Filtering(); err != nil {
 			// Nothing can filter IPv6 here, and failing would only drop the native firewall.
 			log.Warnf("IPv6 arriving on interface %s is not filtered: %v", wgIface.Name(), err)
@@ -84,14 +84,20 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	return m, nil
 }
 
-// probeIPv6Filtering checks that ip6tables is usable on this host.
+// hostHasIPv6 is a variable so tests can change what the host looks like.
+var hostHasIPv6 = firewall.HostHasIPv6
+
+// probeIPv6Filtering checks that ip6tables is usable on this host, including the tables the
+// IPv6 family sets up.
 func probeIPv6Filtering() error {
 	client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
 		return fmt.Errorf("init ip6tables: %w", err)
 	}
-	if _, err := client.ListChains(tableFilter); err != nil {
-		return fmt.Errorf("list ip6tables chains: %w", err)
+	for _, table := range []string{tableFilter, tableNat, tableMangle} {
+		if _, err := client.ListChains(table); err != nil {
+			return fmt.Errorf("list ip6tables %s chains: %w", table, err)
+		}
 	}
 	return nil
 }

@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"strings"
 )
@@ -14,10 +16,11 @@ const (
 // HostHasIPv6 reports whether the host kernel can receive IPv6 on a new interface.
 //
 // It is false only when the kernel has no IPv6 support, or IPv6 is disabled for both the
-// existing and the future interfaces. A value that cannot be read counts as enabled, so
-// callers that use this to decide whether IPv6 has to be filtered err on the side of filtering.
+// existing and the future interfaces. Anything that cannot be told, such as a procfs entry that
+// cannot be read, counts as enabled, so callers that use this to decide whether IPv6 has to be
+// filtered err on the side of filtering.
 func HostHasIPv6() bool {
-	if _, err := os.Stat(procIfInet6); err != nil {
+	if _, err := os.Stat(procIfInet6); errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
 	return !sysctlIsOne(procDisableIPv6All) || !sysctlIsOne(procDisableIPv6Def)

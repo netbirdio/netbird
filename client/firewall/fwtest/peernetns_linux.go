@@ -5,108 +5,175 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
-const (
-	// HostAddr is the IPv6 address of the interface in the host namespace.
-	HostAddr = "fd00::1"
-	// PeerAddr is the IPv6 address of the sender in the peer namespace.
-	PeerAddr = "fd00::2"
-)
-
 // PeerNamespace is a veth pair whose host end is named like the NetBird interface and whose
-// other end sits in a namespace of its own, so traffic from the namespace arrives on an
-// interface the firewall treats as the overlay.
+// other end sits in a network namespace of its own, so traffic from the namespace arrives on
+// an interface the firewall treats as the overlay.
+//
+// The namespace belongs to a locked OS thread. It is gone, with the peer end of the veth, when
+// that thread ends at the end of the test, so nothing outlives the test.
 type PeerNamespace struct {
 	// IfaceName is the name of the host end.
 	IfaceName string
-	nsName    string
+	// HostAddr is the IPv6 address of the host end.
+	HostAddr string
+	// PeerAddr is the IPv6 address of the peer end.
+	PeerAddr string
+
+	jobs chan func()
 }
 
-// NewPeerNamespace creates the namespace and the veth pair, and removes them when the test ends.
-// Names are unique to the run so nothing that exists on the host is touched. The test is skipped
-// when the ip tool is missing.
+type nsReady struct {
+	nsFile *os.File
+	err    error
+}
+
+// NewPeerNamespace creates the namespace and the veth pair, and removes them when the test
+// ends. Names and addresses are unique to the run, so nothing that exists on the host is
+// touched and concurrent runs do not collide.
 func NewPeerNamespace(t *testing.T) *PeerNamespace {
 	t.Helper()
-
-	if _, err := exec.LookPath("ip"); err != nil {
-		t.Skipf("ip not available: %v", err)
-	}
 
 	suffix := make([]byte, 3)
 	_, err := rand.Read(suffix)
 	require.NoError(t, err, "generate name suffix")
+	name := hex.EncodeToString(suffix)
+
 	ns := &PeerNamespace{
-		IfaceName: "wt-" + hex.EncodeToString(suffix),
-		nsName:    "nbpeer-" + hex.EncodeToString(suffix),
+		IfaceName: "wt-" + name,
+		HostAddr:  fmt.Sprintf("fd00:%x:%x::1", suffix[0], suffix[1:]),
+		PeerAddr:  fmt.Sprintf("fd00:%x:%x::2", suffix[0], suffix[1:]),
+		jobs:      make(chan func()),
 	}
+	peerName := "np-" + name
 
-	run := func(args ...string) {
-		t.Helper()
-		out, err := exec.Command("ip", args...).CombinedOutput()
-		require.NoError(t, err, "ip %v: %s", args, out)
-	}
+	ready := make(chan nsReady, 1)
+	go ns.serve(ready)
+	r := <-ready
+	require.NoError(t, r.err, "create network namespace")
+	defer r.nsFile.Close()
+	t.Cleanup(func() { close(ns.jobs) })
 
-	run("netns", "add", ns.nsName)
-	t.Cleanup(func() { _ = exec.Command("ip", "netns", "del", ns.nsName).Run() })
+	require.NoError(t, netlink.LinkAdd(&netlink.Veth{
+		LinkAttrs: netlink.LinkAttrs{Name: ns.IfaceName},
+		PeerName:  peerName,
+	}), "create veth pair")
+	t.Cleanup(func() {
+		if link, err := netlink.LinkByName(ns.IfaceName); err == nil {
+			_ = netlink.LinkDel(link)
+		}
+	})
 
-	run("link", "add", ns.IfaceName, "type", "veth", "peer", "name", "nbpeer0", "netns", ns.nsName)
-	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", ns.IfaceName).Run() })
+	peer, err := netlink.LinkByName(peerName)
+	require.NoError(t, err, "find peer end")
+	require.NoError(t, netlink.LinkSetNsFd(peer, int(r.nsFile.Fd())), "move peer end into the namespace")
 
-	run("addr", "add", HostAddr+"/64", "dev", ns.IfaceName, "nodad")
-	run("link", "set", ns.IfaceName, "up")
-	run("-n", ns.nsName, "addr", "add", PeerAddr+"/64", "dev", "nbpeer0", "nodad")
-	run("-n", ns.nsName, "link", "set", "nbpeer0", "up")
-	run("-n", ns.nsName, "link", "set", "lo", "up")
+	require.NoError(t, configure(ns.IfaceName, ns.HostAddr), "configure host end")
+	var peerErr error
+	ns.do(func() {
+		if peerErr = configure(peerName, ns.PeerAddr); peerErr != nil {
+			return
+		}
+		peerErr = setUp("lo")
+	})
+	require.NoError(t, peerErr, "configure peer end")
 
 	return ns
 }
 
+// serve runs on a thread of its own that is locked, moved into a new network namespace and
+// never unlocked, so the thread ends with the goroutine instead of going back to the pool
+// inside the namespace.
+func (ns *PeerNamespace) serve(ready chan<- nsReady) {
+	runtime.LockOSThread()
+
+	if err := unix.Unshare(unix.CLONE_NEWNET); err != nil {
+		ready <- nsReady{err: fmt.Errorf("unshare network namespace: %w", err)}
+		return
+	}
+	f, err := os.Open("/proc/thread-self/ns/net")
+	if err != nil {
+		ready <- nsReady{err: fmt.Errorf("open namespace: %w", err)}
+		return
+	}
+	ready <- nsReady{nsFile: f}
+
+	for job := range ns.jobs {
+		job()
+	}
+}
+
+// do runs fn inside the namespace and waits for it.
+func (ns *PeerNamespace) do(fn func()) {
+	done := make(chan struct{})
+	ns.jobs <- func() {
+		defer close(done)
+		fn()
+	}
+	<-done
+}
+
+func configure(ifaceName, addr string) error {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return fmt.Errorf("find %s: %w", ifaceName, err)
+	}
+
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return fmt.Errorf("parse %s", addr)
+	}
+	err = netlink.AddrAdd(link, &netlink.Addr{
+		IPNet: &net.IPNet{IP: ip, Mask: net.CIDRMask(64, 128)},
+		Flags: unix.IFA_F_NODAD,
+	})
+	if err != nil {
+		return fmt.Errorf("add %s to %s: %w", addr, ifaceName, err)
+	}
+	return setUp(ifaceName)
+}
+
+func setUp(ifaceName string) error {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return fmt.Errorf("find %s: %w", ifaceName, err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		return fmt.Errorf("bring %s up: %w", ifaceName, err)
+	}
+	return nil
+}
+
 // Dial opens a TCP connection to addr from inside the namespace and returns the dial error.
-func (ns *PeerNamespace) Dial(t *testing.T, addr string) error {
-	t.Helper()
-
-	result := make(chan error, 1)
-	go func() {
-		// The thread is never unlocked: it ends with the goroutine instead of being moved
-		// back, so no other goroutine can run inside the namespace.
-		runtime.LockOSThread()
-
-		f, err := os.Open("/var/run/netns/" + ns.nsName)
-		if err != nil {
-			result <- err
-			return
-		}
-		defer f.Close()
-		if err := unix.Setns(int(f.Fd()), unix.CLONE_NEWNET); err != nil {
-			result <- err
-			return
-		}
-
+func (ns *PeerNamespace) Dial(addr string) error {
+	var err error
+	ns.do(func() {
 		d := net.Dialer{Timeout: time.Second}
-		conn, err := d.DialContext(context.Background(), "tcp6", addr)
+		var conn net.Conn
+		conn, err = d.DialContext(context.Background(), "tcp6", addr)
 		if err == nil {
 			_ = conn.Close()
 		}
-		result <- err
-	}()
-	return <-result
+	})
+	return err
 }
 
 // ListenHost starts a TCP listener on the host end's address and returns its address.
 func (ns *PeerNamespace) ListenHost(t *testing.T) string {
 	t.Helper()
 
-	ln, err := net.Listen("tcp6", net.JoinHostPort(HostAddr, "0"))
+	ln, err := net.Listen("tcp6", net.JoinHostPort(ns.HostAddr, "0"))
 	require.NoError(t, err, "listen on the interface address")
 	t.Cleanup(func() { _ = ln.Close() })
 

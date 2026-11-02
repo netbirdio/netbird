@@ -42,6 +42,11 @@ func (s *ShutdownState) Name() string {
 	return "iptables_state"
 }
 
+// hasIPv6State reports whether the previous run set up anything for IPv6.
+func (s *ShutdownState) hasIPv6State() bool {
+	return s.InterfaceState.WGAddress.HasIPv6() || len(s.RouteRules6) > 0 || len(s.ACLEntries6) > 0
+}
+
 func (s *ShutdownState) Cleanup() error {
 	mtu := s.InterfaceState.MTU
 	if mtu == 0 {
@@ -67,6 +72,10 @@ func (s *ShutdownState) Cleanup() error {
 	// The previous run may have left ip6tables rules behind.
 	if !ipt.hasV6Family() {
 		if err := ipt.createIPv6Components(s.InterfaceState, mtu); err != nil {
+			if s.hasIPv6State() {
+				// Keep the state, so the next start retries the cleanup of what is left.
+				return fmt.Errorf("create v6 components for cleanup: %w", err)
+			}
 			log.Warnf("failed to create v6 components for cleanup: %v", err)
 		}
 	}

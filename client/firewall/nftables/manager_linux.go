@@ -2,6 +2,8 @@ package nftables
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"os"
@@ -36,8 +38,11 @@ func getTableName() string {
 	return tableNameNetbird
 }
 
-// probeTableName names the throwaway table probeIPv6Filtering creates.
-const probeTableName = "netbird-ipv6-probe"
+// probeTablePrefix starts the name of the throwaway table probeIPv6Filtering creates.
+const probeTablePrefix = "netbird-ipv6-probe-"
+
+// hostHasIPv6 is a variable so tests can change what the host looks like.
+var hostHasIPv6 = firewall.HostHasIPv6
 
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
@@ -81,7 +86,7 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	switch {
 	case m.v6Overlay:
 		m.createIPv6Components(tableName, wgIface, mtu)
-	case firewall.HostHasIPv6():
+	case hostHasIPv6():
 		if err := probeIPv6Filtering(); err != nil {
 			// Nothing can filter IPv6 here, and failing would only drop the native firewall.
 			log.Warnf("IPv6 arriving on interface %s is not filtered: %v", wgIface.Name(), err)
@@ -99,17 +104,25 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 }
 
 // probeIPv6Filtering checks that this kernel can hold an IPv6 table with a filter chain on the
-// input hook, by creating and removing a throwaway one.
+// input hook, by creating and removing a throwaway one. The table has a name of its own, so
+// concurrent probes and leftovers of an interrupted one do not interfere.
 func probeIPv6Filtering() error {
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		return fmt.Errorf("generate probe table name: %w", err)
+	}
+
 	conn := &nftables.Conn{}
-	table := conn.AddTable(&nftables.Table{Name: probeTableName, Family: nftables.TableFamilyIPv6})
-	hook, priority := nftables.ChainHookInput, nftables.ChainPriorityFilter
+	table := conn.AddTable(&nftables.Table{
+		Name:   probeTablePrefix + hex.EncodeToString(suffix),
+		Family: nftables.TableFamilyIPv6,
+	})
 	conn.AddChain(&nftables.Chain{
 		Name:     chainNameInput,
 		Table:    table,
 		Type:     nftables.ChainTypeFilter,
-		Hooknum:  hook,
-		Priority: priority,
+		Hooknum:  nftables.ChainHookInput,
+		Priority: nftables.ChainPriorityFilter,
 	})
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("create IPv6 probe table: %w", err)
