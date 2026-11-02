@@ -1,6 +1,7 @@
 package dnsinterceptor
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
+	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/route"
@@ -261,4 +263,43 @@ func TestWriteMsg_RejectedOnlyAnswerWithdrawsEarlierRoutes(t *testing.T) {
 	assert.Equal(t, []netip.Prefix{testRemoteAddr}, routesRemoved, "the route must be removed")
 	assert.Equal(t, []netip.Prefix{testRemoteAddr}, allowedIPs.removed(testRoutingPeer),
 		"the AllowedIP must be removed from the routing peer")
+}
+
+// TestRewriteToFakeIPs_OnlyAcceptedPrefixes verifies that an answer address whose route
+// was refused keeps its real IP. Its fake IP was already allocated before the route was
+// tried, but has no route and no DNAT mapping behind it, so handing it to the client
+// would leave the client with an unreachable address.
+func TestRewriteToFakeIPs_OnlyAcceptedPrefixes(t *testing.T) {
+	routeCounter := refcounter.New(
+		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+			if prefix == testRemoteAddr2 {
+				return struct{}{}, errors.New("route refused")
+			}
+			return struct{}{}, nil
+		},
+		func(netip.Prefix, struct{}) error { return nil },
+	)
+	d := newTestInterceptor(t, routeCounter, &allowedIPsRecorder{})
+	d.fakeIPManager = fakeip.NewManager()
+	require.NoError(t, d.AddAllowedIPs(testRoutingPeer))
+
+	resolved := domain.Domain("app.corp.example.")
+	logger := log.NewEntry(log.StandardLogger())
+
+	acceptedFake, err := d.fakeIPManager.AllocateFakeIP(testRemoteAddr.Addr())
+	require.NoError(t, err)
+	_, err = d.fakeIPManager.AllocateFakeIP(testRemoteAddr2.Addr())
+	require.NoError(t, err)
+
+	require.Error(t, d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testRemoteAddr, testRemoteAddr2}, logger))
+	require.Equal(t, []netip.Prefix{testRemoteAddr}, d.interceptedDomains[resolved])
+
+	reply := &dns.Msg{Answer: []dns.RR{
+		&dns.A{Hdr: dns.RR_Header{Name: string(resolved), Rrtype: dns.TypeA, Class: dns.ClassINET}, A: testRemoteAddr.Addr().AsSlice()},
+		&dns.A{Hdr: dns.RR_Header{Name: string(resolved), Rrtype: dns.TypeA, Class: dns.ClassINET}, A: testRemoteAddr2.Addr().AsSlice()},
+	}}
+	d.rewriteToFakeIPs(reply, d.interceptedDomains[resolved], logger)
+
+	assert.Equal(t, net.IP(acceptedFake.AsSlice()), reply.Answer[0].(*dns.A).A, "accepted address must be swapped for its fake IP")
+	assert.Equal(t, net.IP(testRemoteAddr2.Addr().AsSlice()), reply.Answer[1].(*dns.A).A, "refused address must keep its real IP")
 }

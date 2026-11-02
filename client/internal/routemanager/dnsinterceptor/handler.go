@@ -389,7 +389,10 @@ func (d *DnsInterceptor) reconcileAnswer(w dns.ResponseWriter, r *dns.Msg, logge
 	waitForRouteSettlement(logger)
 
 	if len(newPrefixes) > 0 {
-		d.replaceIPsInDNSResponse(r, newPrefixes, logger)
+		d.mu.RLock()
+		accepted := slices.Clone(d.interceptedDomains[resolvedDomain])
+		d.mu.RUnlock()
+		d.replaceIPsInDNSResponse(r, accepted, logger)
 	}
 }
 
@@ -575,32 +578,39 @@ func (d *DnsInterceptor) cleanupDNATMappings() {
 }
 
 // replaceIPsInDNSResponse replaces real IPs with fake IPs in the DNS response
-func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, realPrefixes []netip.Prefix, logger *log.Entry) {
+func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, accepted []netip.Prefix, logger *log.Entry) {
 	if _, ok := d.internalDnatFw(); !ok {
 		return
 	}
+	d.rewriteToFakeIPs(reply, accepted, logger)
+}
 
-	// Replace A and AAAA records with fake IPs
+// rewriteToFakeIPs swaps the A and AAAA answers whose host prefix is in accepted for
+// their fake IPs. An address without an accepted route keeps its real IP, since its
+// fake IP has no route or DNAT mapping behind it.
+func (d *DnsInterceptor) rewriteToFakeIPs(reply *dns.Msg, accepted []netip.Prefix, logger *log.Entry) {
+	fakeFor := func(ip net.IP) (netip.Addr, netip.Addr, bool) {
+		realIP, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return netip.Addr{}, netip.Addr{}, false
+		}
+		realIP = realIP.Unmap()
+		if !slices.Contains(accepted, netip.PrefixFrom(realIP, realIP.BitLen())) {
+			return netip.Addr{}, netip.Addr{}, false
+		}
+		fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP)
+		return realIP, fakeIP, exists
+	}
+
 	for _, answer := range reply.Answer {
 		switch rr := answer.(type) {
 		case *dns.A:
-			realIP, ok := netip.AddrFromSlice(rr.A)
-			if !ok {
-				continue
-			}
-
-			if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
+			if realIP, fakeIP, ok := fakeFor(rr.A); ok {
 				rr.A = fakeIP.AsSlice()
 				logger.Tracef("replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
 			}
-
 		case *dns.AAAA:
-			realIP, ok := netip.AddrFromSlice(rr.AAAA)
-			if !ok {
-				continue
-			}
-
-			if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
+			if realIP, fakeIP, ok := fakeFor(rr.AAAA); ok {
 				rr.AAAA = fakeIP.AsSlice()
 				logger.Tracef("replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
 			}
