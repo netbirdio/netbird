@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,20 +150,54 @@ func (d *DnsInterceptor) addAllowedIPForPrefix(realPrefix netip.Prefix, peerKey 
 	return nil
 }
 
-// addRouteAndAllowedIP handles both route and AllowedIPs addition for a prefix
-func (d *DnsInterceptor) addRouteAndAllowedIP(realPrefix netip.Prefix, domain domain.Domain) error {
-	// Routes use fake IPs (so traffic to fake IPs gets routed to interface)
-	routePrefix := d.transformRealToFakePrefix(realPrefix)
-	if _, err := d.routeRefCounter.Increment(routePrefix, struct{}{}); err != nil {
-		return fmt.Errorf("add route for IP %s: %v", routePrefix, err)
+// addRoutesAndAllowedIPs handles both route and AllowedIPs addition for the prefixes
+// and returns the ones whose route was accepted. A prefix the route validation
+// refused must not be remembered, otherwise AddAllowedIPs would later install it
+// for the routing peer without any check.
+func (d *DnsInterceptor) addRoutesAndAllowedIPs(realPrefixes []netip.Prefix, domain domain.Domain) ([]netip.Prefix, error) {
+	var addedPrefixes []netip.Prefix
+	var merr *multierror.Error
+
+	for _, realPrefix := range realPrefixes {
+		// Routes use fake IPs (so traffic to fake IPs gets routed to interface)
+		routePrefix := d.transformRealToFakePrefix(realPrefix)
+		if _, err := d.routeRefCounter.Increment(routePrefix, struct{}{}); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add route for IP %s: %v", routePrefix, err))
+			continue
+		}
+		addedPrefixes = append(addedPrefixes, realPrefix)
+
+		// Add to AllowedIPs if we have a current peer (uses real IPs)
+		if d.currentPeerKey == "" {
+			continue
+		}
+		if err := d.addAllowedIPForPrefix(realPrefix, d.currentPeerKey, domain); err != nil {
+			merr = multierror.Append(merr, err)
+		}
 	}
 
-	// Add to AllowedIPs if we have a current peer (uses real IPs)
-	if d.currentPeerKey == "" {
-		return nil
+	return addedPrefixes, merr.ErrorOrNil()
+}
+
+// isRoutableAddr reports whether an address answered by the routing peer may be
+// routed through it. Addresses inside the overlay network belong to peers and
+// must never become another peer's AllowedIP; the other classes mirror the
+// route validation of the system ops, which does not run in netstack mode.
+func (d *DnsInterceptor) isRoutableAddr(addr netip.Addr) bool {
+	switch {
+	case
+		!addr.IsValid(),
+		addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsInterfaceLocalMulticast(),
+		addr.IsMulticast(),
+		addr.IsUnspecified():
+		return false
 	}
 
-	return d.addAllowedIPForPrefix(realPrefix, d.currentPeerKey, domain)
+	wgAddr := d.wgInterface.Address()
+	return !wgAddr.Network.Contains(addr) && !(wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(addr))
 }
 
 // removeAllowedIP handles AllowedIPs removal for a prefix (uses real IPs)
@@ -345,7 +380,13 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 				continue
 			}
 
-			prefix := netip.PrefixFrom(ip.Unmap(), ip.BitLen())
+			ip = ip.Unmap()
+			if !d.isRoutableAddr(ip) {
+				logger.Warnf("ignoring address %s answered for domain=%s by the routing peer: not routable via peer", ip, resolvedDomain.SafeString())
+				continue
+			}
+
+			prefix := netip.PrefixFrom(ip, ip.BitLen())
 			newPrefixes = append(newPrefixes, prefix)
 		}
 
@@ -411,10 +452,9 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	}
 
 	// Add new prefixes
-	for _, prefix := range toAdd {
-		if err := d.addRouteAndAllowedIP(prefix, resolvedDomain); err != nil {
-			merr = multierror.Append(merr, err)
-		}
+	added, err := d.addRoutesAndAllowedIPs(toAdd, resolvedDomain)
+	if err != nil {
+		merr = multierror.Append(merr, err)
 	}
 
 	d.addDNATMappings(dnatMappings, logger)
@@ -436,12 +476,17 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 		d.removeDNATMappings(toRemove, logger)
 	}
 
-	// Update domain prefixes using resolved domain as key - store real IPs
-	if len(toAdd) > 0 || len(toRemove) > 0 {
-		if d.route.KeepRoute {
-			// nolint:gocritic
-			newPrefixes = append(oldPrefixes, toAdd...)
+	// Update domain prefixes using resolved domain as key - store real IPs,
+	// but only the ones that were accepted, so that a refused prefix is never
+	// replayed by AddAllowedIPs
+	if len(added) > 0 || len(toRemove) > 0 {
+		newPrefixes = slices.Clone(oldPrefixes)
+		if !d.route.KeepRoute {
+			newPrefixes = slices.DeleteFunc(newPrefixes, func(prefix netip.Prefix) bool {
+				return slices.Contains(toRemove, prefix)
+			})
 		}
+		newPrefixes = append(newPrefixes, added...)
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
 
