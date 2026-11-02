@@ -98,7 +98,7 @@ func TestIsPrivilegedCaller_SelfRule(t *testing.T) {
 			t.Cleanup(func() { selfIdentity, selfKnown, selfMayDelegate = prevID, prevKnown, prevDelegate })
 
 			selfIdentity, selfKnown = tt.self, tt.selfKnown
-			selfMayDelegate = tt.selfKnown && !tt.self.IsPrivileged()
+			selfMayDelegate = tt.selfKnown && mayDelegate(tt.self)
 
 			if got := IsPrivilegedCaller(tt.caller); got != tt.want {
 				t.Fatalf("IsPrivilegedCaller(%v) with daemon %v = %t, want %t",
@@ -130,5 +130,30 @@ func TestIsPrivilegedCaller_ThisProcess(t *testing.T) {
 	}
 	if IsPrivilegedCaller(other) {
 		t.Errorf("an unrelated identity %v was treated as privileged", other)
+	}
+}
+
+// The shared service accounts are held by unrelated services, so a daemon running
+// as one of them must not extend its authority to every process with that SID.
+func TestMayDelegate(t *testing.T) {
+	tests := []struct {
+		name string
+		self Identity
+		want bool
+	}{
+		{name: "unprivileged unix user", self: Identity{UID: 1000}, want: true},
+		{name: "root", self: Identity{UID: 0}, want: false},
+		{name: "unprivileged windows user", self: Identity{SID: "S-1-5-21-1-2-3-1001"}, want: true},
+		{name: "elevated windows user", self: Identity{SID: "S-1-5-21-1-2-3-1001", Elevated: true}, want: false},
+		{name: "local system", self: Identity{SID: sidLocalSystem}, want: false},
+		{name: "local service", self: Identity{SID: sidLocalService}, want: false},
+		{name: "network service", self: Identity{SID: sidNetworkService}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mayDelegate(tt.self); got != tt.want {
+				t.Errorf("mayDelegate(%+v) = %v, want %v", tt.self, got, tt.want)
+			}
+		})
 	}
 }

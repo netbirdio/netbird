@@ -36,7 +36,8 @@ jobs:
         with:
           node-version: "22"
 
-      # English (en) is the source of truth for translation keys; every other
-      # locale declared in _index.json must carry the exact same key set.
+      # English (en) is the source of truth for translation keys. Locales declared
+      # in _index.json fail on orphaned keys or placeholder mismatches; missing
+      # keys only warn, since they fall back to English at runtime.
       - name: Check translation key parity
         run: node client/ui/i18n/check-translations.mjs

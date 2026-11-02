@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -51,7 +52,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 		group.StoreGroupPeers()
 	}
 
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -146,7 +147,7 @@ func (s *SqlStore) checkAccountDomainBeforeSave(ctx context.Context, accountID, 
 func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) error {
 	start := time.Now()
 
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -160,6 +161,10 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 		result = tx.Select(clause.Associations).Delete(account.Services, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
+		}
+
+		if err := deleteAgentNetworkAccountConfig(tx, account.Id); err != nil {
+			return err
 		}
 
 		result = tx.Select(clause.Associations).Delete(account)
@@ -177,6 +182,29 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 	log.WithContext(ctx).Tracef("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
+}
+
+// deleteAgentNetworkAccountConfig removes the account's agent network configuration. These
+// tables are not account associations, so deleting the account does not reach them. The
+// settings row holds the account's globally unique gateway domain and the provider rows
+// hold its upstream API keys. Tables that grow with traffic are left out: consumption
+// counters and access logs are swept in the background, and usage records are kept.
+func deleteAgentNetworkAccountConfig(tx *gorm.DB, accountID string) error {
+	// Dependents first: policies point at providers and guardrails, and settings
+	// go last, as DeleteSettings refuses while providers exist.
+	models := []any{
+		&agentNetworkTypes.Policy{},
+		&agentNetworkTypes.Provider{},
+		&agentNetworkTypes.Guardrail{},
+		&agentNetworkTypes.AccountBudgetRule{},
+		&agentNetworkTypes.Settings{},
+	}
+	for _, model := range models {
+		if err := tx.Delete(model, "account_id = ?", accountID).Error; err != nil {
+			return fmt.Errorf("delete %T rows: %w", model, err)
+		}
+	}
+	return nil
 }
 
 func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
@@ -281,7 +309,7 @@ func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
-	if s.pool != nil {
+	if s.pgxPool() != nil {
 		return s.getAccountPgx(ctx, accountID)
 	}
 	return s.getAccountGorm(ctx, accountID)
@@ -718,6 +746,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
+			settings_peer_hostname_collision_rejected,
 			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
 			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
@@ -743,6 +772,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
 		sMetricsPushEnabled              sql.NullBool
+		sPeerHostnameCollisionRejected   sql.NullBool
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
 		autoUpdateVersion                sql.NullString
@@ -761,7 +791,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		networkSerial                    sql.NullInt64
 		createdAt                        sql.NullTime
 	)
-	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
+	err := s.pgxPool().QueryRow(ctx, accountQuery, accountID).Scan(
 		&account.Id, &account.CreatedBy, &createdAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
 		&networkIdentifier, &networkNet, &networkNetV6, &networkDns, &networkSerial,
 		&dnsSettingsDisabledGroups,
@@ -772,6 +802,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
+		&sPeerHostnameCollisionRejected,
 		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
 		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
@@ -841,6 +872,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sMetricsPushEnabled.Valid {
 		account.Settings.MetricsPushEnabled = sMetricsPushEnabled.Bool
+	}
+	if sPeerHostnameCollisionRejected.Valid {
+		account.Settings.PeerHostnameCollisionRejected = sPeerHostnameCollisionRejected.Bool
 	}
 	if sAgentNetworkOnly.Valid {
 		account.Settings.AgentNetworkOnly = sAgentNetworkOnly.Bool
@@ -1050,10 +1084,8 @@ func (s *SqlStore) SaveAccountSettings(ctx context.Context, accountID string, se
 		return status.Errorf(status.Internal, "failed to save account settings to store")
 	}
 
-	// MySQL reports RowsAffected=0 for no-op updates where values don't change,
-	// unlike SQLite/Postgres which report matched rows. Skip the check since the
-	// caller (UpdateAccountSettings) already verified the account exists via
-	// GetAccountSettings with LockingStrengthUpdate.
+	// No RowsAffected check: the caller (UpdateAccountSettings) already verified
+	// the account exists via GetAccountSettings with LockingStrengthUpdate.
 
 	return nil
 }

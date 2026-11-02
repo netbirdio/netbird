@@ -106,13 +106,13 @@ export function SettingsAbout() {
                     type={"button"}
                     onClick={handleVersionClick}
                     className={
-                        "cursor-text select-text bg-transparent text-sm font-semibold text-nb-gray-100 outline-none"
+                        "cursor-text bg-transparent text-sm font-semibold text-nb-gray-100 outline-hidden select-text"
                     }
                 >
                     {daemonVersion === "development" ? (
                         <span>
                             {t("settings.about.clientName")}{" "}
-                            <span className={"font-mono text-yellow-400"}>
+                            <span dir={"auto"} className={"font-mono text-yellow-400"}>
                                 {t("settings.about.development")}
                             </span>
                         </span>
@@ -120,11 +120,11 @@ export function SettingsAbout() {
                         t("settings.about.client", { version: daemonVersion })
                     )}
                 </button>
-                <p className={"cursor-text select-text text-sm font-medium text-nb-gray-250"}>
+                <p className={"cursor-text text-sm font-medium text-nb-gray-250 select-text"}>
                     {guiVersion === "development" ? (
                         <span>
                             {t("settings.about.guiName")}{" "}
-                            <span className={"font-mono text-yellow-400"}>
+                            <span dir={"auto"} className={"font-mono text-yellow-400"}>
                                 {t("settings.about.development")}
                             </span>
                         </span>
@@ -149,7 +149,7 @@ export function SettingsAbout() {
                         tabIndex={0}
                         onClick={() => openUrl(url)}
                         className={
-                            "inline-flex items-center gap-1.5 rounded-sm decoration-[0.5px] underline-offset-4 outline-none transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
+                            "inline-flex items-center gap-1.5 rounded-xs decoration-[0.5px] underline-offset-4 outline-hidden transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
                         }
                     >
                         <Icon aria-hidden={"true"} className={iconClassName ?? "h-3.5 w-3.5"} />
@@ -167,7 +167,7 @@ export function SettingsAbout() {
                         tabIndex={0}
                         onClick={() => openUrl(link.url)}
                         className={
-                            "rounded-sm decoration-[0.5px] underline-offset-4 outline-none transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
+                            "rounded-xs decoration-[0.5px] underline-offset-4 outline-hidden transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
                         }
                     >
                         {link.label}

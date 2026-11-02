@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -38,6 +38,7 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 	err = testStore.SaveAccount(ctx, &types.Account{
 		Id:        testAccountID,
 		CreatedBy: testUserID,
+		Network:   types.NewNetwork(),
 		Settings: &types.Settings{
 			PeerExposeEnabled: true,
 			PeerExposeGroups:  []string{testGroupID},

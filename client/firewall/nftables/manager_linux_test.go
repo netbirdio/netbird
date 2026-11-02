@@ -378,18 +378,6 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	err = manager.AddNatRule(pair)
 	require.NoError(t, err, "failed to add NAT rule")
 
-	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
-		Protocol:          fw.ProtocolTCP,
-		DestinationPort:   fw.Port{Values: []uint16{8080}},
-		TranslatedAddress: netip.MustParseAddr("100.96.0.2"),
-		TranslatedPort:    fw.Port{Values: []uint16{80}},
-	})
-	require.NoError(t, err, "failed to add DNAT rule")
-
-	t.Cleanup(func() {
-		require.NoError(t, manager.DeleteDNATRule(dnatRule), "failed to delete DNAT rule")
-	})
-
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
 }
@@ -452,18 +440,6 @@ func TestNftablesManagerIPv6CompatibilityWithIp6tables(t *testing.T) {
 		Masquerade:  true,
 	})
 	require.NoError(t, err, "add v6 NAT rule")
-
-	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
-		Protocol:          fw.ProtocolTCP,
-		DestinationPort:   fw.Port{Values: []uint16{8080}},
-		TranslatedAddress: netip.MustParseAddr("fd00::2"),
-		TranslatedPort:    fw.Port{Values: []uint16{80}},
-	})
-	require.NoError(t, err, "add v6 DNAT rule")
-
-	t.Cleanup(func() {
-		require.NoError(t, manager.DeleteDNATRule(dnatRule), "delete v6 DNAT rule")
-	})
 
 	stdout, stderr := runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)

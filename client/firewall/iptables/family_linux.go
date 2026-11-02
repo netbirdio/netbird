@@ -24,6 +24,7 @@ const (
 	tableFilter = "filter"
 	tableNat    = "nat"
 	tableMangle = "mangle"
+	tableRaw    = "raw"
 
 	// chainACLInput is the peer ACL chain that holds installed
 	// peer-filtering rules.
@@ -34,6 +35,7 @@ const (
 	mangleForwardKey chainKey = "MANGLE-FORWARD"
 
 	chainInput       = "INPUT"
+	chainOutput      = "OUTPUT"
 	chainPostrouting = "POSTROUTING"
 	chainPrerouting  = "PREROUTING"
 	chainForward     = "FORWARD"
@@ -53,10 +55,6 @@ const (
 	markManglePre  = "mark-mangle-pre"
 	markManglePost = "mark-mangle-post"
 	matchSet       = "--match-set"
-
-	dnatSuffix firewall.RuleID = "_dnat"
-	snatSuffix firewall.RuleID = "_snat"
-	fwdSuffix  firewall.RuleID = "_fwd"
 
 	// ipv4TCPHeaderSize is the minimum IPv4 (20) + TCP (20) header size for MSS calculation.
 	ipv4TCPHeaderSize = 40

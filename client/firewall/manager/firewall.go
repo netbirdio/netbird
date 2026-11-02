@@ -172,12 +172,6 @@ type Manager interface {
 
 	DisableRouting() error
 
-	// AddDNATRule adds outbound DNAT rule for forwarding external traffic to the NetBird network.
-	AddDNATRule(ForwardRule) (Rule, error)
-
-	// DeleteDNATRule deletes the outbound DNAT rule.
-	DeleteDNATRule(Rule) error
-
 	// UpdateSet updates the set with the given prefixes
 	UpdateSet(hash Set, prefixes []netip.Prefix) error
 
@@ -192,10 +186,6 @@ type Manager interface {
 
 	// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
 	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
-
-	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
-	// This prevents conntrack from interfering with WireGuard proxy communication.
-	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error
 }
 
 // GenKey builds the rule id for this pair from the given format.

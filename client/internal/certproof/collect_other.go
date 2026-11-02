@@ -1,0 +1,31 @@
+//go:build ((!darwin && !windows) || ios) && !js
+
+package certproof
+
+import (
+	"context"
+
+	"github.com/netbirdio/netbird/shared/management/certposture"
+	"github.com/netbirdio/netbird/shared/management/proto"
+)
+
+// CollectProofs answers the certificate challenges in checks from the PEM directory cfg
+// names, joined by its PKCS#11 token when it names one. Only macOS and Windows keep
+// per-user certificates out of reach of a privileged daemon, so every other platform
+// reads its store in the daemon itself.
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, cfg Config) []certposture.Proof {
+	return Collect(ctx, storeWithToken(cfg), checks, peerKey)
+}
+
+// UserContext identifies the user whose certificates a collection would include. These
+// platforms have no per-user store, so it never changes.
+func UserContext(Config) string {
+	return ""
+}
+
+// helperStore is the store the helper reads. Nothing launches a helper on these
+// platforms, so it is the store the daemon reads, configured from the same environment,
+// which lets an administrator check a setup by running the helper by hand.
+func helperStore() Store {
+	return storeWithToken(Config{PKCS11: PKCS11FromEnv()})
+}

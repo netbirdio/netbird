@@ -21,6 +21,13 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
+const (
+	// envRelayAuthSecret is the standalone relay --auth-secret env name so split
+	// and combined deployments share it.
+	envRelayAuthSecret    = "NB_AUTH_SECRET" //nolint:gosec // env var name, not a credential
+	envStoreEncryptionKey = "NB_STORE_ENCRYPTION_KEY"
+)
+
 // CombinedConfig is the root configuration for the combined server.
 // The combined server is primarily a Management server with optional embedded
 // Signal, Relay, and STUN services.
@@ -71,6 +78,7 @@ type ServerConfig struct {
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
+	AccessLogStore          StoreConfig        `yaml:"accessLogStore"`
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 
@@ -188,7 +196,7 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
-	DSN           string `yaml:"dsn"`  // Connection string for postgres or mysql engines
+	DSN           string `yaml:"dsn"`  // Connection string for the postgres engine
 	File          string `yaml:"file"` // SQLite database file path (optional, defaults to dataDir)
 }
 
@@ -445,6 +453,7 @@ func LoadConfig(configPath string) (*CombinedConfig, error) {
 	cfg := DefaultConfig()
 
 	if configPath == "" {
+		applyServerSecretEnv(cfg)
 		return cfg, nil
 	}
 
@@ -457,10 +466,25 @@ func LoadConfig(configPath string) (*CombinedConfig, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	applyServerSecretEnv(cfg)
+
 	// Populate internal configs from server settings
 	cfg.ApplySimplifiedDefaults()
 
 	return cfg, nil
+}
+
+// applyServerSecretEnv copies non-empty environment overrides onto the parsed
+// YAML values before defaults and validation run.
+func applyServerSecretEnv(cfg *CombinedConfig) {
+	if secret := os.Getenv(envRelayAuthSecret); secret != "" {
+		cfg.Server.AuthSecret = secret
+		log.Infof("server.authSecret taken from %s", envRelayAuthSecret)
+	}
+	if key := os.Getenv(envStoreEncryptionKey); key != "" {
+		cfg.Server.Store.EncryptionKey = key
+		log.Infof("server.store.encryptionKey taken from %s", envStoreEncryptionKey)
+	}
 }
 
 // Validate validates the configuration

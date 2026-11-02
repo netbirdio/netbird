@@ -19,7 +19,7 @@ func (s *SqlStore) getGroupPeers(ctx context.Context, groupIDs []string) ([]type
 		return nil, nil
 	}
 	const query = `SELECT account_id, group_id, peer_id FROM group_peers WHERE group_id = ANY($1)`
-	rows, err := s.pool.Query(ctx, query, groupIDs)
+	rows, err := s.pgxPool().Query(ctx, query, groupIDs)
 	if err != nil {
 		return nil, err
 	}

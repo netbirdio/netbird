@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -151,15 +150,15 @@ func (pd *PrivilegeDropper) setGroupsAndIDs(targetUID, targetGID uint32, supplem
 		}
 	}
 
-	if err := syscall.Setgroups(groups); err != nil {
+	if err := setgroups(groups); err != nil {
 		return fmt.Errorf("setgroups to %v: %w", groups, err)
 	}
 
-	if err := syscall.Setgid(int(targetGID)); err != nil {
+	if err := setgid(int(targetGID)); err != nil {
 		return fmt.Errorf("setgid to %d: %w", targetGID, err)
 	}
 
-	if err := syscall.Setuid(int(targetUID)); err != nil {
+	if err := setuid(int(targetUID)); err != nil {
 		return fmt.Errorf("setuid to %d: %w", targetUID, err)
 	}
 
@@ -182,12 +181,12 @@ func (pd *PrivilegeDropper) validatePrivilegeDropSuccess(targetUID, targetGID ui
 // validatePrivilegeDropReversibility ensures privileges cannot be restored
 func (pd *PrivilegeDropper) validatePrivilegeDropReversibility(targetUID, targetGID uint32, originalUID, originalGID int) error {
 	if originalGID != int(targetGID) {
-		if err := syscall.Setegid(originalGID); err == nil {
+		if err := setegid(originalGID); err == nil {
 			return fmt.Errorf("privilege drop validation failed: able to restore original GID %d", originalGID)
 		}
 	}
 	if originalUID != int(targetUID) {
-		if err := syscall.Seteuid(originalUID); err == nil {
+		if err := seteuid(originalUID); err == nil {
 			return fmt.Errorf("privilege drop validation failed: able to restore original UID %d", originalUID)
 		}
 	}

@@ -12,7 +12,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -45,7 +44,7 @@ func (s *SqlStore) getPersonalAccessTokens(ctx context.Context, userIDs []string
 		return nil, nil
 	}
 	const query = `SELECT id, user_id, name, hashed_token, expiration_date, created_by, created_at, last_used FROM personal_access_tokens WHERE user_id = ANY($1)`
-	rows, err := s.pool.Query(ctx, query, userIDs)
+	rows, err := s.pgxPool().Query(ctx, query, userIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -130,22 +129,29 @@ func (s *SqlStore) GetUserPATs(ctx context.Context, lockStrength LockingStrength
 	return pats, nil
 }
 
-// MarkPATUsed marks a personal access token as used.
+// MarkPATUsed marks a personal access token as used. The write is skipped when LastUsed is newer than
+// types.PATLastUsedUpdateInterval, which also turns concurrent calls for the same token into no-ops. It returns a
+// NotFound error when the token doesn't exist.
 func (s *SqlStore) MarkPATUsed(ctx context.Context, patID string) error {
-	patCopy := types.PersonalAccessToken{
-		LastUsed: util.ToPtr(time.Now().UTC()),
-	}
-
-	fieldsToUpdate := []string{"last_used"}
-	result := s.db.Select(fieldsToUpdate).
-		Where(idQueryCondition, patID).Updates(&patCopy)
+	now := time.Now().UTC()
+	result := s.db.Model(&types.PersonalAccessToken{}).
+		Where(idQueryCondition, patID).
+		Where("last_used IS NULL OR last_used < ?", now.Add(-types.PATLastUsedUpdateInterval)).
+		Update("last_used", now)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to mark pat as used: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to mark pat as used")
 	}
 
 	if result.RowsAffected == 0 {
-		return status.NewPATNotFoundError(patID)
+		var count int64
+		if err := s.db.Model(&types.PersonalAccessToken{}).Where(idQueryCondition, patID).Count(&count).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to check pat existence: %s", err)
+			return status.Errorf(status.Internal, "failed to mark pat as used")
+		}
+		if count == 0 {
+			return status.NewPATNotFoundError(patID)
+		}
 	}
 
 	return nil

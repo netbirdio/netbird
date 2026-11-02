@@ -552,12 +552,10 @@
         "message": "Error al cambiar el inicio automático"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Permanecer conectado al salir",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Permanecer conectado al salir"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "La conexión sigue activa en segundo plano después de cerrar NetBird. Solo se detiene cuando la desconectas tú.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "La conexión sigue activa en segundo plano después de cerrar NetBird. Solo se detiene cuando la desconectas tú."
     },
     "settings.general.language.label": {
         "message": "Idioma de la interfaz"
@@ -1362,6 +1360,12 @@
     },
     "error.daemon_unreachable": {
         "message": "El daemon de NetBird no responde. Compruebe que el servicio esté en ejecución."
+    },
+    "error.settings_locked": {
+        "message": "La configuración no se puede cambiar en este dispositivo: un administrador la ha bloqueado."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Esta configuración está gestionada por su organización y no se puede cambiar."
     },
     "error.unknown": {
         "message": "La operación falló."

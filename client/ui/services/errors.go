@@ -134,7 +134,18 @@ func (c errorClassifier) classify(err error) *ClientError {
 		strings.Contains(lower, "connection refused"),
 		strings.Contains(lower, "context deadline exceeded"):
 		code = "daemon_unreachable"
+	case strings.Contains(lower, "update settings are disabled"):
+		code = "settings_locked"
+	case strings.Contains(lower, "managed by mdm"):
+		code = "settings_managed_by_mdm"
 	}
+
+	// Deliberately no blanket mapping for FailedPrecondition below: the daemon
+	// returns it for two dozen states that are not settings refusals at all —
+	// "not logged in", "client is not running", "session can no longer be
+	// extended" — and this classifier is shared with the session and connection
+	// services. Only the two refusals the daemon composes are named, by their
+	// message.
 
 	// Fall back to the gRPC status code when the message didn't match a known
 	// substring — the daemon now forwards the innermost code with a clean desc

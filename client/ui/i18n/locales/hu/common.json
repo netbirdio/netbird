@@ -552,12 +552,10 @@
         "message": "Az automatikus indítás módosítása sikertelen"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Kapcsolat megtartása kilépéskor",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Kapcsolat megtartása kilépéskor"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "A kapcsolat a háttérben megmarad, miután bezárod a NetBirdöt. Csak akkor szakad meg, ha te magad bontod.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "A kapcsolat a háttérben megmarad, miután bezárod a NetBirdöt. Csak akkor szakad meg, ha te magad bontod."
     },
     "settings.general.language.label": {
         "message": "Megjelenítési nyelv"
@@ -1362,6 +1360,12 @@
     },
     "error.daemon_unreachable": {
         "message": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás."
+    },
+    "error.settings_locked": {
+        "message": "A beállítások ezen az eszközön nem módosíthatók: egy rendszergazda zárolta őket."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Ezt a beállítást a szervezete kezeli, ezért nem módosítható."
     },
     "error.unknown": {
         "message": "A művelet meghiúsult."

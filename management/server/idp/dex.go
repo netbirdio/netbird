@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dexidp/dex/api/v2"
+	"github.com/netbirdio/dex/api/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"

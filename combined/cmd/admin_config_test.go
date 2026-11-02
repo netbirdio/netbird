@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
@@ -35,13 +36,28 @@ func TestOpenAdminEventStoreMissingEncryptionKeyReturnsNilInterface(t *testing.T
 
 func TestApplyServerStoreEnv(t *testing.T) {
 	t.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", "")
-	t.Setenv("NB_STORE_ENGINE_MYSQL_DSN", "")
 	t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "")
 
 	applyServerStoreEnv(StoreConfig{Engine: "postgres", DSN: "postgres-dsn", File: "store.db"})
 	require.Equal(t, "postgres-dsn", os.Getenv("NB_STORE_ENGINE_POSTGRES_DSN"))
 	require.Equal(t, "store.db", os.Getenv("NB_STORE_ENGINE_SQLITE_FILE"))
+}
 
-	applyServerStoreEnv(StoreConfig{Engine: "mysql", DSN: "mysql-dsn"})
-	require.Equal(t, "mysql-dsn", os.Getenv("NB_STORE_ENGINE_MYSQL_DSN"))
+func TestApplyAccessLogStoreEnv(t *testing.T) {
+	keys := []string{accesslogsmanager.StoreEngineEnv, accesslogsmanager.PostgresDSNEnv, accesslogsmanager.SqliteFileEnv}
+	for _, key := range keys {
+		t.Setenv(key, "")
+		require.NoError(t, os.Unsetenv(key))
+	}
+
+	applyAccessLogStoreEnv(StoreConfig{})
+	for _, key := range keys {
+		_, ok := os.LookupEnv(key)
+		require.False(t, ok, "%s should stay unset for an empty accessLogStore block", key)
+	}
+
+	applyAccessLogStoreEnv(StoreConfig{Engine: "Postgres", DSN: "postgres-dsn", File: "access_logs.db"})
+	require.Equal(t, "postgres", os.Getenv(accesslogsmanager.StoreEngineEnv))
+	require.Equal(t, "postgres-dsn", os.Getenv(accesslogsmanager.PostgresDSNEnv))
+	require.Equal(t, "access_logs.db", os.Getenv(accesslogsmanager.SqliteFileEnv))
 }

@@ -19,7 +19,6 @@ type NetworkMap struct {
 	OfflinePeers        []*ComponentPeer
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
-	ForwardingRules     []*ForwardingRule
 	AuthorizedUsers     map[string]map[string]struct{}
 	EnableSSH           bool
 	// ForceRoutingPeerDNSResolution forces the peer to run/use routing-peer DNS

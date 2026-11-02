@@ -497,16 +497,6 @@ func TestIptablesCloseRemovesAllState(t *testing.T) {
 	require.NoError(t, manager.AddNatRule(pair), "add nat rule")
 	require.NoError(t, manager.EnableRouting(), "enable routing")
 
-	// A DNAT redirect, which also holds a forwarding reference.
-	dnat := fw.ForwardRule{
-		Protocol:          fw.ProtocolTCP,
-		DestinationPort:   fw.Port{Values: []uint16{8080}},
-		TranslatedAddress: netip.MustParseAddr("10.20.0.44"),
-		TranslatedPort:    fw.Port{Values: []uint16{80}},
-	}
-	_, err = manager.AddDNATRule(dnat)
-	require.NoError(t, err, "add dnat rule")
-
 	require.NotEqual(t, before, snapshotIptables(t, ipv4Client), "the manager must have installed state")
 
 	// Everything above stays in place, so Close is what has to remove it.

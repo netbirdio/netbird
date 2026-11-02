@@ -12,6 +12,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/management/certposture"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -92,4 +94,26 @@ func TestMaxRecvMsgSizeIntegration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, resp.Key, payloadSize)
 	})
+}
+
+// TestInfoToMetaData_CarriesCertificateProofs: management verifies the proofs it receives
+// in the peer meta, so a field dropped by the mapping fails the certificate check without
+// any error on either side.
+func TestInfoToMetaData_CarriesCertificateProofs(t *testing.T) {
+	info := &system.Info{CertificateProofs: []certposture.Proof{
+		{Nonce: []byte("nonce-1"), Chain: [][]byte{[]byte("leaf"), []byte("intermediate")}, SigAlg: "ecdsa-sha256", Signature: []byte("sig-1")},
+		{Nonce: []byte("nonce-2"), Chain: [][]byte{[]byte("other")}, SigAlg: "rsa-pss-sha256", Signature: []byte("sig-2")},
+	}}
+
+	meta := infoToMetaData(info)
+
+	require.Len(t, meta.GetCertificateProofs(), 2, "every proof reaches the meta")
+	first := meta.GetCertificateProofs()[0]
+	assert.Equal(t, []byte("nonce-1"), first.GetNonce())
+	assert.Equal(t, [][]byte{[]byte("leaf"), []byte("intermediate")}, first.GetChain(), "the whole chain is carried, in order")
+	assert.Equal(t, "ecdsa-sha256", first.GetSigAlg())
+	assert.Equal(t, []byte("sig-1"), first.GetSignature())
+	assert.Equal(t, "rsa-pss-sha256", meta.GetCertificateProofs()[1].GetSigAlg())
+
+	assert.Empty(t, infoToMetaData(&system.Info{}).GetCertificateProofs(), "a device without proofs sends none")
 }
