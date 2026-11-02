@@ -169,7 +169,13 @@ func (r *family) seedInitialEntries() {
 	})
 }
 
+// seedInitialOptionalEntries adds the rules that are allowed to fail. The redirect mark accept
+// is left out of a filter-only family: it sits above the interface DROP in FORWARD, and that
+// family has no redirected traffic to let through.
 func (r *family) seedInitialOptionalEntries() {
+	if r.filterOnly {
+		return
+	}
 	r.optionalEntries[chainForward] = []entry{
 		{
 			spec:     []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected), "-j", "ACCEPT"},
@@ -259,14 +265,27 @@ func (r *family) cleanUpDefaultForwardRules() error {
 
 // chainExists reports whether a chain exists. A table other than filter that the IPv6 kernel
 // does not provide holds no chains of ours, which a filter-only family relies on, so it counts
-// as absent instead of failing the cleanup.
+// as absent instead of failing the cleanup. Any other failure is returned.
 func (r *family) chainExists(table, chain string) (bool, error) {
 	ok, err := r.iptablesClient.ChainExists(table, chain)
-	if err != nil && r.v6 && table != tableFilter {
-		log.Debugf("check chain %s in ip6tables table %s: %v", chain, table, err)
+	tolerate := r.v6 && table != tableFilter
+	return chainCheckResult(ok, err, tolerate, func() error {
+		_, listErr := r.iptablesClient.ListChains(table)
+		return listErr
+	})
+}
+
+// chainCheckResult turns the outcome of a chain check into its result. A failed check is
+// tolerated only when the table itself cannot be listed, since that table holds no chains.
+func chainCheckResult(ok bool, err error, tolerate bool, listTable func() error) (bool, error) {
+	if err == nil || !tolerate {
+		return ok, err
+	}
+	if listErr := listTable(); listErr != nil {
+		log.Debugf("table unavailable, no chains to check: %v (check: %v)", listErr, err)
 		return false, nil
 	}
-	return ok, err
+	return false, err
 }
 
 func (r *family) cleanJumpRules() error {

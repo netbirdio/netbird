@@ -50,14 +50,13 @@ func overlayOnlyV4(ifaceName string) *iFaceMock {
 // peer chooses the source addresses it is allowed. With no IPv6 rules to accept it, all of it
 // must be dropped, and removing the firewall must give the interface back.
 func TestIptablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	if err := probeIPv6Filtering(); err != nil {
 		t.Skipf("ip6tables not usable: %v", err)
 	}
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 
 	ns.WaitDial(t, addr, "control: connection without the firewall")
@@ -86,14 +85,13 @@ func TestIptablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 // place has to go, even if the host looks different when the cleanup runs than it did when the
 // firewall started.
 func TestIptablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	if err := probeIPv6Filtering(); err != nil {
 		t.Skipf("ip6tables not usable: %v", err)
 	}
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 
 	ns.WaitDial(t, addr, "control: connection without the firewall")
@@ -142,15 +140,14 @@ func TestIptablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 
 // The escape hatch leaves IPv6 on an interface without an IPv6 overlay address to the host.
 func TestIptablesManagerAllowUnfilteredIPv6(t *testing.T) {
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	if err := probeIPv6Filtering(); err != nil {
 		t.Skipf("ip6tables not usable: %v", err)
 	}
 	t.Setenv(firewall.EnvAllowUnfilteredIPv6, "true")
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 
 	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)

@@ -709,6 +709,12 @@ func (r *family) createDefaultChains() (err error) {
 func (r *family) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error {
 	r.chainPrerouting = r.chains[chainNameManglePrerouting]
 
+	// The mark accept sits above the interface drop, so a deny-only family must not have it:
+	// a packet carrying the mark would get past the deny.
+	if r.denyOnly {
+		return nil
+	}
+
 	r.addFwmarkToForward(chainFwFilter)
 
 	if err := r.conn.Flush(); err != nil {

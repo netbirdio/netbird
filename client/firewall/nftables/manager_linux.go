@@ -154,6 +154,7 @@ func (m *Manager) createIPv6Components(tableName string, wgIface iFaceMapper, mt
 	workTable6 := &nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6}
 
 	m.family6 = newFamily(workTable6, wgIface, mtu)
+	m.family6.denyOnly = !m.v6Overlay
 
 	// Share the per-family forwarding refcounter with the v4 family so a v4
 	// rule and a v6 rule against the same state machine cooperate cleanly.

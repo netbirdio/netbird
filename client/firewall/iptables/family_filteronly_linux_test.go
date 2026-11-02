@@ -18,8 +18,8 @@ func (filterOnlyIface) Address() wgaddr.Address { return wgaddr.Address{} }
 // The family that only carries the default deny has nothing to route or NAT, so it must not
 // need the nat and mangle tables: a host whose ip6tables lacks them still gets the deny.
 func TestFilterOnlyFamilyUsesFilterTableOnly(t *testing.T) {
-	full := &family{wgIface: filterOnlyIface{}, entries: make(aclEntries)}
-	only := &family{wgIface: filterOnlyIface{}, entries: make(aclEntries), filterOnly: true}
+	full := &family{wgIface: filterOnlyIface{}, entries: make(aclEntries), optionalEntries: make(map[chainKey][]entry)}
+	only := &family{wgIface: filterOnlyIface{}, entries: make(aclEntries), optionalEntries: make(map[chainKey][]entry), filterOnly: true}
 
 	var fullTables []string
 	for _, c := range full.containerChains() {
@@ -34,6 +34,8 @@ func TestFilterOnlyFamilyUsesFilterTableOnly(t *testing.T) {
 
 	full.seedInitialEntries()
 	only.seedInitialEntries()
+	full.seedInitialOptionalEntries()
+	only.seedInitialOptionalEntries()
 	assert.NotEmpty(t, full.entries[mangleForwardKey], "the full family guards the mangle FORWARD chain")
 	assert.Empty(t, only.entries[mangleForwardKey], "a filter-only family adds no mangle rules")
 
@@ -41,4 +43,10 @@ func TestFilterOnlyFamilyUsesFilterTableOnly(t *testing.T) {
 	require.NotEmpty(t, only.entries[chainForward], "the deny still seeds the FORWARD rules")
 	assert.Contains(t, only.entries[chainInput], ruleSpec{"-i", "wt-fo", "-j", "DROP"}, "INPUT drops what arrives on the interface")
 	assert.Contains(t, only.entries[chainForward], ruleSpec{"-i", "wt-fo", "-j", "DROP"}, "FORWARD drops what arrives on the interface")
+
+	// The mark accept sits above the interface DROP in FORWARD, so with it a packet that
+	// carries the redirect mark would get past the deny. Only the full family has redirected
+	// traffic to let through, and nothing in a filter-only family sets that mark.
+	assert.NotEmpty(t, full.optionalEntries[chainForward], "the full family accepts redirected traffic in FORWARD")
+	assert.Empty(t, only.optionalEntries[chainForward], "a filter-only family must not accept marked traffic ahead of its DROP")
 }

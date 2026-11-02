@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -49,6 +50,33 @@ func overlayOnlyV4(ifaceName string) *iFaceMock {
 	}
 }
 
+// forwardMarkMatches returns how many rules of the forward filter chain in the ip6 table match
+// on the packet mark.
+func forwardMarkMatches(t *testing.T, tableName string) int {
+	t.Helper()
+
+	conn := &nftables.Conn{}
+	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyIPv6)
+	require.NoError(t, err, "list ip6 chains")
+
+	count := 0
+	for _, chain := range chains {
+		if chain.Table.Name != tableName || chain.Name != chainNameForwardFilter {
+			continue
+		}
+		rules, err := conn.GetRules(chain.Table, chain)
+		require.NoError(t, err, "get rules of %s/%s", chain.Table.Name, chain.Name)
+		for _, rule := range rules {
+			for _, e := range rule.Exprs {
+				if meta, ok := e.(*expr.Meta); ok && meta.Key == expr.MetaKeyMARK && !meta.SourceRegister {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
 // An interface without an IPv6 overlay address still receives IPv6 from its peers, since a
 // peer chooses the source addresses it is allowed. With no IPv6 rules to accept it, all of it
 // must be dropped, and removing the firewall must give the interface back.
@@ -56,14 +84,13 @@ func TestNftablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	if err := probeIPv6Filtering(); err != nil {
 		t.Skipf("nftables cannot filter IPv6: %v", err)
 	}
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 
 	ns.WaitDial(t, addr, "control: connection without the firewall")
@@ -79,6 +106,7 @@ func TestNftablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	require.NoError(t, manager.Init(nil))
 
 	assert.True(t, hasIPv6Table(t), "the ip6 table must exist while the firewall runs")
+	assert.Equal(t, 0, forwardMarkMatches(t, getTableName()), "the forward chain of the deny must not accept marked packets ahead of its drop")
 	assert.Error(t, ns.Dial(addr), "IPv6 arriving on an interface without an IPv6 overlay address must be dropped")
 
 	require.NoError(t, manager.Close(nil))
@@ -120,14 +148,13 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	if err := probeIPv6Filtering(); err != nil {
 		t.Skipf("nftables cannot filter IPv6: %v", err)
 	}
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 
 	// A table of the host, with an input chain NetBird adds its accept rule to.
@@ -228,12 +255,11 @@ func TestNftablesManagerAllowUnfilteredIPv6(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	t.Setenv(firewall.EnvAllowUnfilteredIPv6, "true")
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 
 	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
@@ -253,14 +279,13 @@ func TestNftablesManagerDropsIPv6BehindHostAcceptInInetTable(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this system")
 	}
-	if !firewall.HostHasIPv6("nb-test0") {
-		t.Skip("host has no IPv6")
-	}
+	fwtest.SkipWithoutIPv6(t)
 	if err := probeIPv6Filtering(); err != nil {
 		t.Skipf("nftables cannot filter IPv6: %v", err)
 	}
 
 	ns := fwtest.NewPeerNamespace(t)
+	fwtest.SkipWithoutIPv6On(t, ns.IfaceName)
 	addr := ns.ListenHost(t)
 	ns.WaitDial(t, addr, "control: connection without any firewall")
 
