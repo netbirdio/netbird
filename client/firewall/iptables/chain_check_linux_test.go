@@ -14,7 +14,12 @@ import (
 // reach the caller, or a cleanup would report success without having looked.
 func TestChainCheckResult(t *testing.T) {
 	checkErr := errors.New("check failed")
-	tableMissing := func() error { return errors.New("no such table") }
+	tableMissing := func() error {
+		return errors.New("running [/sbin/ip6tables -t nat -S]: exit status 3: ip6tables v1.8.7: can't initialize ip6tables table `nat': Table does not exist (do you need to insmod?)")
+	}
+	listFails := func() error {
+		return errors.New("running [/sbin/ip6tables -t nat -S]: exit status 4: Another app is currently holding the xtables lock")
+	}
 	tablePresent := func() error { return nil }
 
 	ok, err := chainCheckResult(true, nil, true, tablePresent)
@@ -28,6 +33,10 @@ func TestChainCheckResult(t *testing.T) {
 	ok, err = chainCheckResult(false, checkErr, true, tablePresent)
 	assert.False(t, ok)
 	assert.ErrorIs(t, err, checkErr, "a failure with the table present must be returned")
+
+	ok, err = chainCheckResult(false, checkErr, true, listFails)
+	assert.False(t, ok)
+	assert.ErrorIs(t, err, checkErr, "a table that cannot be listed for another reason must not count as absent")
 
 	ok, err = chainCheckResult(false, checkErr, false, tableMissing)
 	assert.False(t, ok)

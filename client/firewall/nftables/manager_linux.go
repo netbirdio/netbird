@@ -108,8 +108,9 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 }
 
 // probeIPv6Filtering checks that this kernel can hold an IPv6 table with a filter chain on the
-// input hook and a NAT chain, by creating and removing a throwaway one. The table has a name of its own, so
-// concurrent probes and leftovers of an interrupted one do not interfere.
+// input hook, by creating and removing a throwaway one. The deny-only family it guards uses
+// nothing else, so a kernel without IPv6 NAT is still filtered. The table has a name of its own,
+// so concurrent probes and leftovers of an interrupted one do not interfere.
 func probeIPv6Filtering() error {
 	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
@@ -127,14 +128,6 @@ func probeIPv6Filtering() error {
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookInput,
 		Priority: nftables.ChainPriorityFilter,
-	})
-	// The IPv6 family also sets up NAT chains.
-	conn.AddChain(&nftables.Chain{
-		Name:     "nat-postrouting",
-		Table:    table,
-		Type:     nftables.ChainTypeNAT,
-		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource,
 	})
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("create IPv6 probe table: %w", err)

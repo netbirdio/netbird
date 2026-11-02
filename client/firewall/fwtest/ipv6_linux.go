@@ -3,12 +3,16 @@ package fwtest
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
+
+const defaultDisableIPv6 = "/proc/sys/net/ipv6/conf/default/disable_ipv6"
 
 // SkipWithoutIPv6 skips the test when an interface created now would not get IPv6. The name
 // it asks about is random, so it never matches an interface the host already has: an
@@ -23,6 +27,12 @@ func SkipWithoutIPv6(t *testing.T) {
 
 	if !firewall.HostHasIPv6("nbx" + hex.EncodeToString(suffix)) {
 		t.Skip("host has no IPv6")
+	}
+
+	// HostHasIPv6 counts an interface that does not exist yet as enabled when "all" is, but a
+	// new interface takes "default", which is what disables IPv6 on the veth.
+	if b, err := os.ReadFile(defaultDisableIPv6); err == nil && strings.TrimSpace(string(b)) == "1" {
+		t.Skip("new interfaces get IPv6 disabled by the host default")
 	}
 }
 

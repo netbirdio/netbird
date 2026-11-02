@@ -4,6 +4,7 @@ package iptables
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -276,16 +277,26 @@ func (r *family) chainExists(table, chain string) (bool, error) {
 }
 
 // chainCheckResult turns the outcome of a chain check into its result. A failed check is
-// tolerated only when the table itself cannot be listed, since that table holds no chains.
+// tolerated only when listing the table fails in a way that says the table does not exist,
+// since that table holds no chains. A failure to run ip6tables or to reach an existing table,
+// such as a held lock or missing permission, is returned.
 func chainCheckResult(ok bool, err error, tolerate bool, listTable func() error) (bool, error) {
 	if err == nil || !tolerate {
 		return ok, err
 	}
-	if listErr := listTable(); listErr != nil {
+	listErr := listTable()
+	if listErr != nil && isMissingTable(listErr) {
 		log.Debugf("table unavailable, no chains to check: %v (check: %v)", listErr, err)
 		return false, nil
 	}
 	return false, err
+}
+
+// isMissingTable reports whether an ip6tables failure says the table does not exist in this
+// kernel, as opposed to the command not running or the table not being reachable.
+func isMissingTable(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "table does not exist") || strings.Contains(msg, "can't initialize")
 }
 
 func (r *family) cleanJumpRules() error {
