@@ -62,7 +62,8 @@ type Manager struct {
 	family4 *family
 	// IPv6 counterpart. It exists when the interface has an IPv6 overlay address, and also
 	// when it has none but the host has IPv6, so IPv6 arriving on the interface is dropped
-	// instead of being left to the host's rules. nil when the host has no IPv6.
+	// instead of being left to the host's rules. nil when the host has no IPv6, or when
+	// NB_ALLOW_UNFILTERED_IPV6 leaves it to the host's rules.
 	family6 *family
 	// v6Overlay is true when the interface has an IPv6 overlay address, and
 	// IPv6 rules, NAT and forwarding are handled.
@@ -139,9 +140,12 @@ func probeIPv6Filtering() error {
 		return fmt.Errorf("create IPv6 probe table: %w", err)
 	}
 
+	// Creating the table showed the kernel supports it. A failed removal, for example
+	// because a crash cleanup already swept the table, must not turn into an unfiltered
+	// IPv6 path, and a leftover is removed by the next cleanup.
 	conn.DelTable(table)
 	if err := conn.Flush(); err != nil {
-		return fmt.Errorf("delete IPv6 probe table: %w", err)
+		log.Debugf("delete IPv6 probe table: %v", err)
 	}
 	return nil
 }
@@ -469,7 +473,8 @@ func (m *Manager) cleanupNetbirdTables() error {
 	tableName := getTableName()
 	for _, t := range tables {
 		// Probe tables only outlive their probe when the process died in between.
-		if t.Name == tableName || strings.HasPrefix(t.Name, probeTablePrefix) {
+		isProbe := t.Family == nftables.TableFamilyIPv6 && strings.HasPrefix(t.Name, probeTablePrefix)
+		if t.Name == tableName || isProbe {
 			m.rConn.DelTable(t)
 		}
 	}

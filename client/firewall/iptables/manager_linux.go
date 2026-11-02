@@ -30,7 +30,8 @@ type Manager struct {
 
 	// IPv6 counterparts. They exist when the interface has an IPv6 overlay address, and
 	// also when it has none but the host has IPv6, so IPv6 arriving on the interface is
-	// dropped instead of being left to the host's rules.
+	// dropped instead of being left to the host's rules. Setting NB_ALLOW_UNFILTERED_IPV6
+	// leaves it to the host's rules.
 	ipv6Client *iptables.IPTables
 	family6    *family
 	// v6Overlay is true when the interface has an IPv6 overlay address, and

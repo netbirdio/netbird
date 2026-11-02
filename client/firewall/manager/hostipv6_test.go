@@ -1,9 +1,11 @@
 package manager
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAllowUnfilteredIPv6(t *testing.T) {
@@ -23,6 +25,9 @@ func TestAllowUnfilteredIPv6(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(EnvAllowUnfilteredIPv6, tt.value)
+			if tt.value == "" {
+				require.NoError(t, os.Unsetenv(EnvAllowUnfilteredIPv6))
+			}
 			assert.Equal(t, tt.want, AllowUnfilteredIPv6())
 		})
 	}
