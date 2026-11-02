@@ -40,6 +40,7 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 	// user switching and take the direct in-process path, never the su/executor path this test
 	// means to exercise. Use a separate, non-root account with a real shell instead.
 	loginUser := createLoginTestUser(t)
+	printFromLoginProfile(t, loginUser)
 	allowOtherExecTraverse(t)
 
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
@@ -97,6 +98,21 @@ func TestSSHServer_SFTPRefusedForNologinAccount(t *testing.T) {
 		}
 		require.Error(t, err, "SFTP must be refused for %s, whose shell is not a login shell", nologinUser)
 	})
+}
+
+// printFromLoginProfile makes the account's login shell print on startup, as the default
+// profile does on some systems. The SFTP protocol shares stdout with whatever the shell
+// prints, so a server that starts SFTP through the login shell cannot serve this account.
+func printFromLoginProfile(t *testing.T, username string) {
+	t.Helper()
+
+	u, err := user.Lookup(username)
+	require.NoError(t, err)
+
+	for _, name := range []string{".profile", ".bash_profile", ".bashrc", ".shrc"} {
+		path := filepath.Join(u.HomeDir, name)
+		require.NoError(t, os.WriteFile(path, []byte("echo startup output\n"), 0o644), "write %s", path)
+	}
 }
 
 // createLoginTestUser returns a non-root account with a real login shell, creating a throwaway
