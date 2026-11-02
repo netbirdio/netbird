@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"runtime"
+	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -82,7 +83,7 @@ func (s *Server) CheckPrivileges(req PrivilegeCheckRequest) PrivilegeCheckResult
 
 	// Handle empty username case - but still check root access controls
 	if req.RequestedUsername == "" {
-		if isPrivilegedOrUnknown(context.currentUser.Username) && !context.allowRoot {
+		if isPrivilegedOrUnknown(context.currentUser) && !context.allowRoot {
 			return PrivilegeCheckResult{
 				Allowed: false,
 				Error:   &PrivilegedUserError{Username: context.currentUser.Username},
@@ -142,7 +143,7 @@ func (s *Server) checkUserRequest(ctx *privilegeCheckContext, req PrivilegeCheck
 
 	needsUserSwitching := !isSameResolvedUser(resolvedUser, ctx.currentUser)
 
-	if isPrivilegedOrUnknown(resolvedUser.Username) && !ctx.allowRoot {
+	if isPrivilegedOrUnknown(resolvedUser) && !ctx.allowRoot {
 		return PrivilegeCheckResult{
 			Allowed:               false,
 			Error:                 &PrivilegedUserError{Username: resolvedUser.Username},
@@ -289,10 +290,11 @@ func isWindowsSameUser(requestedUsername, currentUsername string) bool {
 	return strings.EqualFold(reqDomain, curDomain)
 }
 
-// isPrivilegedOrUnknown reports whether the given username represents a
-// privileged user, or on Windows an account whose privilege could not be
-// determined.
-// On Unix: root.
+// isPrivilegedOrUnknown reports whether the given account is a privileged
+// user, or one whose privilege could not be determined.
+// On Unix: uid 0, whatever the account is called (FreeBSD ships "toor"), and
+// anything named root. An account whose uid is not a number is reported as
+// privileged.
 // On Windows: well-known service accounts, built-in Administrator accounts,
 // and members of the local Administrators group; handles domain-qualified
 // usernames like "DOMAIN\user" or "user@domain.com". An account that cannot be
@@ -300,11 +302,14 @@ func isWindowsSameUser(requestedUsername, currentUsername string) bool {
 //
 // Use this to refuse privileged accounts, never to grant them anything: the
 // undetermined case is safe for a refusal and unsafe for a grant.
-func isPrivilegedOrUnknown(username string) bool {
+func isPrivilegedOrUnknown(account *user.User) bool {
 	if getCurrentOS() != "windows" {
-		return username == "root"
+		// Parsed rather than compared with "0": without cgo the uid is the passwd
+		// field as written, and libc reads "00" as uid 0 too.
+		uid, err := strconv.ParseUint(account.Uid, 10, 32)
+		return err != nil || uid == 0 || account.Username == "root"
 	}
-	return getWindowsAccountPrivilegedOrUnknown(username)
+	return getWindowsAccountPrivilegedOrUnknown(account.Username)
 }
 
 // isCurrentProcessPrivileged checks if the current process is running with elevated privileges.

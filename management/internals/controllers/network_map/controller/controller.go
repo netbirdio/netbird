@@ -489,9 +489,8 @@ func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) *n
 
 // fetchNetworkMapData reads the twin once per buffer window. Its result is
 // shared by every waiter of that window, so the mutating steps run here, before
-// it is handed out: the twin the callers see is read-only. Injected proxy
-// policies carry no posture checks, so precomputing after the injection yields
-// the same validation as precomputing before it.
+// it is handed out: the twin the callers see is read-only. Posture checks are
+// evaluated lazily by the components calculation.
 func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) (*networkmap.NetworkMapData, error) {
 	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID)
 	if err != nil {
@@ -501,7 +500,6 @@ func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) 
 	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
 	nmData.BuildPrivateServiceCandidates()
 	nmData.InjectProxyPolicies()
-	nmData.PrecomputePostureValidation()
 
 	return nmData, nil
 }
