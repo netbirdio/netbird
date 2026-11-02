@@ -23,7 +23,8 @@ and restart a running daemon. Removing the package unloads the module and
 relabels. A manual install can use `semodule -X 200 -i netbird.pp.bz2` followed by
 `restorecon -iR` on the paths listed in `post_install.sh` (the binary in `/usr/bin`,
 `/usr/sbin` or `/usr/local/bin`, the state, log and config directories, and the daemon,
-WireGuard and SSH config files).
+WireGuard and SSH config files), then `systemctl restart netbird`: a daemon that is
+already running keeps its old domain until it is restarted.
 
 ## Booleans
 
@@ -93,6 +94,7 @@ journalctl -b | grep 'avc:  denied' | grep netbird
 
 To make only the daemon permissive while collecting denials, run
 `semanage permissive -a netbird_t`, and remove it with `semanage permissive -d netbird_t`.
+`semanage` comes from `policycoreutils-python-utils`, which the package does not depend on.
 
 ## Notes
 
