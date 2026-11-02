@@ -59,6 +59,9 @@ func TestNftablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	if !firewall.HostHasIPv6() {
 		t.Skip("host has no IPv6")
 	}
+	if err := probeIPv6Filtering(); err != nil {
+		t.Skipf("nftables cannot filter IPv6: %v", err)
+	}
 
 	ns := fwtest.NewPeerNamespace(t)
 	addr := ns.ListenHost(t)
@@ -120,6 +123,9 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 	if !firewall.HostHasIPv6() {
 		t.Skip("host has no IPv6")
 	}
+	if err := probeIPv6Filtering(); err != nil {
+		t.Skipf("nftables cannot filter IPv6: %v", err)
+	}
 
 	ns := fwtest.NewPeerNamespace(t)
 	addr := ns.ListenHost(t)
@@ -155,6 +161,8 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 
 	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
 	require.NoError(t, err, "create manager")
+	// Stops the monitor of the manager that "crashed", and does nothing else once the cleanup ran.
+	t.Cleanup(func() { _ = manager.Close(nil) })
 	require.NoError(t, manager.Init(sm))
 	require.NoError(t, sm.PersistState(context.Background()), "persist state")
 
@@ -208,7 +216,8 @@ func TestNftablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 	m, err = Create(overlayOnlyV4("wt-fam"), iface.DefaultMTU)
 	require.NoError(t, err)
 	assert.False(t, m.hasIPv6(), "no IPv6 overlay address means no IPv6 rules, NAT or forwarding")
-	assert.Equal(t, hostHasIPv6(), m.hasV6Family(), "the deny exists exactly when the host has IPv6")
+	wantFamily := hostHasIPv6() && probeIPv6Filtering() == nil
+	assert.Equal(t, wantFamily, m.hasV6Family(), "the deny exists when the host has IPv6 and nftables can filter it")
 
 	_, err = m.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("fd00::2/128")}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept)
 	assert.ErrorIs(t, err, firewall.ErrIPv6NotInitialized, "IPv6 rules are still refused without an overlay address")
@@ -246,6 +255,9 @@ func TestNftablesManagerDropsIPv6BehindHostAcceptInInetTable(t *testing.T) {
 	}
 	if !firewall.HostHasIPv6() {
 		t.Skip("host has no IPv6")
+	}
+	if err := probeIPv6Filtering(); err != nil {
+		t.Skipf("nftables cannot filter IPv6: %v", err)
 	}
 
 	ns := fwtest.NewPeerNamespace(t)
