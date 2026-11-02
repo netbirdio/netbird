@@ -76,7 +76,11 @@ func (s *Server) createCommand(logger *log.Entry, privilegeResult PrivilegeCheck
 
 	// su cannot start a session in a confined SELinux user's context, so those users go
 	// through the executor, which sets it.
-	if needsSessionContext(localUser.Username, localGroupNames(localUser)) {
+	groups, groupsErr := localGroupNames(localUser)
+	if groupsErr != nil {
+		logger.Warnf("resolve groups of %s for the SELinux mapping: %v", localUser.Username, groupsErr)
+	}
+	if needsSessionContext(localUser.Username, groups, groupsErr) {
 		logger.Debugf("user %s has a confined SELinux mapping, using executor to set the session context", localUser.Username)
 		cmd, cleanup, err := s.createExecutorCommand(logger, session, localUser, hasPty)
 		if err != nil {

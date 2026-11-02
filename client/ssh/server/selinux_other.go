@@ -5,11 +5,11 @@ package server
 import "os/user"
 
 // needsSessionContext is always false on platforms without SELinux.
-func needsSessionContext(string, []string) bool {
+func needsSessionContext(string, []string, error) bool {
 	return false
 }
 
 // localGroupNames has nothing to resolve on platforms without SELinux.
-func localGroupNames(*user.User) []string {
-	return nil
+func localGroupNames(*user.User) ([]string, error) {
+	return nil, nil
 }

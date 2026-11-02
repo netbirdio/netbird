@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -51,29 +52,47 @@ func newSELinuxLookup() *selinuxLookup {
 	return &selinuxLookup{rootDir: selinuxRootDir, reachable: kernelReachableContexts}
 }
 
-// selinuxEnabled reports whether the running kernel has SELinux enabled.
+// selinuxEnabled reports whether the running kernel has SELinux enabled. Only a missing
+// enforce file means it is not: a file that exists but cannot be examined counts as enabled,
+// so a failure never skips the session context.
 func selinuxEnabled() bool {
-	_, err := os.Stat(selinuxEnforcePath)
-	return err == nil
+	return pathMayExist(selinuxEnforcePath)
+}
+
+// pathMayExist is false only when path is known not to exist.
+func pathMayExist(path string) bool {
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
 }
 
 // sessionExecContext returns the context a session of username has to start in, or an
 // empty string when there is nothing to set: SELinux is disabled, the host has no policy
 // files (a container on an SELinux host), or the lookup failed while SELinux is permissive,
-// where sshd also lets the login continue. While enforcing, a failed lookup is an error.
-func sessionExecContext(username string, groups []string) (string, error) {
+// where sshd also lets the login continue. While enforcing, a failed lookup is an error,
+// and so is a group list that could not be resolved, as it may hold a group mapping.
+func sessionExecContext(username string, groups []string, groupsErr error) (string, error) {
 	if !selinuxEnabled() {
 		return "", nil
 	}
 
 	l := newSELinuxLookup()
 	if !l.hasPolicy() {
-		log.Debugf("SELinux is enabled but %s has no policy files, not setting a session context", l.rootDir)
+		log.Debugf("SELinux is enabled but %s has no policy, not setting a session context", l.rootDir)
 		return "", nil
 	}
+	return l.resolveSessionContext(username, groups, groupsErr, selinuxEnforcing())
+}
 
-	ctx, err := l.defaultContext(username, groups)
-	if err != nil && !selinuxEnforcing() {
+func (l *selinuxLookup) resolveSessionContext(username string, groups []string, groupsErr error, enforcing bool) (string, error) {
+	var ctx string
+	err := groupsErr
+	if err != nil {
+		err = fmt.Errorf("resolve groups of %q: %w", username, err)
+	} else {
+		ctx, err = l.defaultContext(username, groups)
+	}
+
+	if err != nil && !enforcing {
 		log.Warnf("resolve SELinux session context of %s, continuing as SELinux is permissive: %v", username, err)
 		return "", nil
 	}
@@ -83,14 +102,19 @@ func sessionExecContext(username string, groups []string) (string, error) {
 // needsSessionContext reports whether sessions of username must be started through the
 // helper that sets their SELinux context. su cannot do it, because its PAM stack carries no
 // pam_selinux, so it is only left in place for users mapped to the unconfined SELinux user,
-// where the daemon's own transition gives the same result. A user that cannot be mapped is
-// treated as needing the helper, which refuses the session if the context cannot be resolved.
-func needsSessionContext(username string, groups []string) bool {
+// where the daemon's own transition gives the same result. A user that cannot be mapped, or
+// whose groups could not be resolved, is treated as needing the helper, which refuses the
+// session if the context cannot be resolved.
+func needsSessionContext(username string, groups []string, groupsErr error) bool {
 	if !selinuxEnabled() {
 		return false
 	}
 	l := newSELinuxLookup()
-	return l.hasPolicy() && l.isConfined(username, groups)
+	return l.hasPolicy() && l.needsContext(username, groups, groupsErr)
+}
+
+func (l *selinuxLookup) needsContext(username string, groups []string, groupsErr error) bool {
+	return groupsErr != nil || l.isConfined(username, groups)
 }
 
 // isConfined reports whether username maps to a SELinux user other than the unconfined one,
@@ -101,19 +125,13 @@ func (l *selinuxLookup) isConfined(username string, groups []string) bool {
 }
 
 // localGroupNames returns the names of the groups u belongs to, for the group entries in
-// seusers. Groups that cannot be resolved are left out.
-func localGroupNames(u *user.User) []string {
+// seusers, see resolveGroupNames.
+func localGroupNames(u *user.User) ([]string, error) {
 	ids, err := getent.GroupIDs(u)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("list groups of %q: %w", u.Username, err)
 	}
-	names := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if g, err := user.LookupGroupId(id); err == nil {
-			names = append(names, g.Name)
-		}
-	}
-	return names
+	return resolveGroupNames(ids)
 }
 
 // ExecInSessionContext drops privileges and replaces the current process with argv, started
@@ -125,7 +143,8 @@ func (pd *PrivilegeDropper) ExecInSessionContext(config ExecutorConfig, argv []s
 	// The exec attribute is per thread; the process is replaced, so the lock is not released.
 	runtime.LockOSThread()
 
-	sessionContext, err := sessionExecContext(config.Username, groupNames(config.Groups))
+	groups, groupsErr := groupNames(config.Groups)
+	sessionContext, err := sessionExecContext(config.Username, groups, groupsErr)
 	if err != nil {
 		return false, fmt.Errorf("resolve session context: %w", err)
 	}
@@ -184,10 +203,12 @@ func writeExecContext(path, ctx string) error {
 	return nil
 }
 
-// hasPolicy reports whether the policy files that map users to SELinux users exist.
+// hasPolicy reports whether the policy of the host is installed, which is the case unless its
+// directory is known not to exist, as on a container on an SELinux host. An installed policy
+// whose seusers file is missing or unreadable is not absent: the lookup fails, and an
+// enforcing host refuses the session.
 func (l *selinuxLookup) hasPolicy() bool {
-	_, err := os.Stat(filepath.Join(l.policyDir(), "seusers"))
-	return err == nil
+	return pathMayExist(l.policyDir())
 }
 
 func (l *selinuxLookup) policyDir() string {

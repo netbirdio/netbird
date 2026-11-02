@@ -100,8 +100,9 @@ To make only the daemon permissive while collecting denials, run
 
 - Desktop users that run confined need the `netbird_stream_connect` interface to
   reach the daemon socket. Unconfined users need nothing.
-- `netbird_ssh_sessions` only gates the shell and `su` transitions. The `login`
-  transition is always allowed because its interface cannot sit inside a boolean.
+- `netbird_ssh_sessions` gates the shell, `su` and helper transitions, the latter being the
+  ones into the domains of confined users. The `login` transition is always allowed because
+  its interface cannot sit inside a boolean.
 - Sessions of users mapped to a confined SELinux user get the context SELinux assigns
   them at login. Users mapped to an administrator SELinux user such as `sysadm_u` are
   refused, as with sshd unless `ssh_sysadm_login` is on.

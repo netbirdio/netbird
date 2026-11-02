@@ -3,7 +3,7 @@
 package server
 
 // sessionExecContext has nothing to resolve on platforms without SELinux.
-func sessionExecContext(string, []string) (string, error) {
+func sessionExecContext(string, []string, error) (string, error) {
 	return "", nil
 }
 

@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -230,7 +228,8 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 
 	// The context is resolved while still root, and a failure refuses the session rather
 	// than starting it in the daemon's own domain.
-	sessionContext, err := sessionExecContext(config.Username, groupNames(config.Groups))
+	groups, groupsErr := groupNames(config.Groups)
+	sessionContext, err := sessionExecContext(config.Username, groups, groupsErr)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "resolve SELinux session context: %v\n", err)
 		os.Exit(ExitCodeSELinuxContextFail)
@@ -288,17 +287,6 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 	}
 
 	os.Exit(ExitCodeSuccess)
-}
-
-// groupNames resolves group IDs to names, skipping the ones that cannot be resolved.
-func groupNames(gids []uint32) []string {
-	names := make([]string, 0, len(gids))
-	for _, gid := range gids {
-		if g, err := user.LookupGroupId(strconv.FormatUint(uint64(gid), 10)); err == nil {
-			names = append(names, g.Name)
-		}
-	}
-	return names
 }
 
 // validatePrivileges validates that privilege dropping to the target UID/GID is allowed

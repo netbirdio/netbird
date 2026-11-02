@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -191,7 +192,60 @@ func TestReadEnforcing(t *testing.T) {
 
 func TestHasPolicy(t *testing.T) {
 	l := newTestLookup(t, "__default__:unconfined_u:s0\n", testDefaultContexts, nil, nil)
-	assert.True(t, l.hasPolicy(), "seusers present")
+	assert.True(t, l.hasPolicy(), "policy installed")
 
-	assert.False(t, (&selinuxLookup{rootDir: t.TempDir()}).hasPolicy(), "a host without policy files, such as a container, has none")
+	assert.False(t, (&selinuxLookup{rootDir: t.TempDir()}).hasPolicy(), "a host without a policy, such as a container, has none")
+}
+
+// An installed policy whose seusers file is gone is not an absent policy: the mapping lookup
+// fails and an enforcing host refuses the session instead of starting it unconfined.
+func TestHasPolicy_InstalledWithoutSEUsers(t *testing.T) {
+	l := newTestLookup(t, "", testDefaultContexts, nil, []string{"unconfined_u:unconfined_r:unconfined_t:s0"})
+	require.NoError(t, os.Remove(filepath.Join(l.policyDir(), "seusers")))
+
+	assert.True(t, l.hasPolicy(), "the policy directory is there")
+	_, err := l.resolveSessionContext("vma", nil, nil, true)
+	assert.Error(t, err, "an enforcing host must refuse when the mapping cannot be read")
+}
+
+func TestPathMayExist(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, pathMayExist(filepath.Join(dir, "missing")), "a missing path is absent")
+	assert.True(t, pathMayExist(dir), "an existing path is present")
+
+	if os.Geteuid() == 0 {
+		t.Skip("permission errors cannot be provoked as root")
+	}
+	locked := filepath.Join(dir, "locked")
+	require.NoError(t, os.Mkdir(locked, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "file"), nil, 0o644))
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	assert.True(t, pathMayExist(filepath.Join(locked, "file")), "a path that cannot be examined may exist, so it is not skipped")
+}
+
+func TestResolveSessionContext_GroupsUnresolved(t *testing.T) {
+	seusers := "root:unconfined_u:s0\n%wheel:staff_u:s0\n__default__:unconfined_u:s0\n"
+	l := newTestLookup(t, seusers, testDefaultContexts, nil, []string{"unconfined_u:unconfined_r:unconfined_t:s0"})
+	groupsErr := errors.New("nss unavailable")
+
+	_, err := l.resolveSessionContext("alice", nil, groupsErr, true)
+	assert.Error(t, err, "an enforcing host must not decide the mapping on an unresolved group list")
+
+	got, err := l.resolveSessionContext("alice", nil, groupsErr, false)
+	require.NoError(t, err)
+	assert.Empty(t, got, "a permissive host continues without a context")
+
+	got, err = l.resolveSessionContext("alice", nil, nil, true)
+	require.NoError(t, err, "the same user with a resolved group list is mapped normally")
+	assert.Equal(t, "unconfined_u:unconfined_r:unconfined_t:s0", got)
+}
+
+func TestNeedsContext_GroupsUnresolved(t *testing.T) {
+	seusers := "root:unconfined_u:s0\n__default__:unconfined_u:s0\n"
+	l := newTestLookup(t, seusers, testDefaultContexts, nil, nil)
+
+	assert.False(t, l.needsContext("vma", nil, nil), "an unconfined mapping keeps su")
+	assert.True(t, l.needsContext("vma", nil, errors.New("nss unavailable")),
+		"an unresolved group list must not fall through to su")
 }
