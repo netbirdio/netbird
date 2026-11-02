@@ -156,7 +156,7 @@ func TestWGIface_OverlayReservation_RealDevice(t *testing.T) {
 
 			// no peer can be handed the overlay range itself, WireGuard would move it off the placeholder
 			overlayRange := netip.MustParsePrefix("100.64.0.0/16")
-			assert.ErrorIs(t, w.UpdatePeer(exitNode, []netip.Prefix{overlayRange}, 0, nil, nil), ErrOverlayRangeReserved)
+			require.NoError(t, w.UpdatePeer(exitNode, []netip.Prefix{overlayRange}, 0, nil, nil), "the range is skipped, not the peer")
 			assert.ErrorIs(t, w.AddAllowedIP(exitNode, overlayRange), ErrOverlayRangeReserved)
 			peers = deviceAllowedIPs(t, ifaceName)
 			assert.Equal(t, []string{"100.64.0.0/16"}, peers[placeholderKey], "the placeholder still owns the range")

@@ -140,11 +140,18 @@ func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	previous := w.tun.WgAddress()
 	if err := w.tun.UpdateAddr(newAddr); err != nil {
 		return err
 	}
 
-	return w.reserveOverlay(true)
+	if err := w.reserveOverlay(true); err != nil {
+		if restoreErr := w.tun.UpdateAddr(previous); restoreErr != nil {
+			log.Errorf("failed to restore interface address after the overlay range could not be reserved: %v", restoreErr)
+		}
+		return err
+	}
+	return nil
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
@@ -157,9 +164,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 		return ErrIfaceNotFound
 	}
 
-	if err := w.checkNotOverlayRange(allowedIps...); err != nil {
-		return err
-	}
+	allowedIps = w.withoutOverlayRange(peerKey, allowedIps)
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
