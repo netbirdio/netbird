@@ -3,6 +3,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"os/user"
@@ -148,11 +150,12 @@ func allowOtherExecTraverse(t *testing.T) {
 func createLoginTestUser(t *testing.T) string {
 	t.Helper()
 
-	const username = "nb-sftp-control-test"
-
-	if _, err := user.Lookup(username); err == nil {
-		return username
-	}
+	// A name of its own per run, so the test never reuses or removes an account or home
+	// directory it did not create, and overlapping runs do not share one.
+	suffix := make([]byte, 4)
+	_, err := rand.Read(suffix)
+	require.NoError(t, err)
+	username := "nbsftp" + hex.EncodeToString(suffix)
 
 	shell := "/bin/sh"
 
