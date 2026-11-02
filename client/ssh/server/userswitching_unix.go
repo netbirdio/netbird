@@ -148,8 +148,9 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 	}
 	gid := uint32(gid64)
 
-	groups, err := s.getSupplementaryGroups(localUser)
-	groups, err = groupsOrPrimary(localUser.Username, groups, err, gid, failClosedOnGroupError())
+	strict := failClosedOnGroupError()
+	groups, err := s.getSupplementaryGroups(localUser, strict)
+	groups, err = groupsOrPrimary(localUser.Username, groups, err, gid, strict)
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("get supplementary groups of %s: %w", localUser.Username, err)
 	}
@@ -161,22 +162,29 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 // enumerated. With strict set, an enumeration failure is returned instead, because the
 // substitute would hide it from whatever decides on the group list later.
 func groupsOrPrimary(username string, groups []uint32, enumErr error, primary uint32, strict bool) ([]uint32, error) {
-	if enumErr != nil && strict {
-		return nil, enumErr
-	}
 	if enumErr != nil {
+		if strict {
+			return nil, enumErr
+		}
+		// Nothing depends on the list here, so the session continues with the primary group.
 		log.Warnf("failed to get supplementary groups for user %s, using the primary group: %v", username, enumErr)
+		groups = nil
 	}
-	if enumErr != nil || len(groups) == 0 {
+	if len(groups) == 0 {
 		return []uint32{primary}, nil
 	}
 	return groups, nil
 }
 
 // getSupplementaryGroups retrieves supplementary group IDs for a user.
-// Uses id/getent fallback for NSS users in CGO_ENABLED=0 builds.
-func (s *Server) getSupplementaryGroups(u *user.User) ([]uint32, error) {
-	groupIDStrings, err := getent.GroupIDs(u)
+// Uses id/getent fallback for NSS users in CGO_ENABLED=0 builds. With strict set, the lookup
+// fails instead of falling back to a list that may miss NSS-provided groups.
+func (s *Server) getSupplementaryGroups(u *user.User, strict bool) ([]uint32, error) {
+	lookup := getent.GroupIDs
+	if strict {
+		lookup = getent.GroupIDsStrict
+	}
+	groupIDStrings, err := lookup(u)
 	if err != nil {
 		return nil, fmt.Errorf("get group IDs for user %s: %w", u.Username, err)
 	}

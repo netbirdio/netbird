@@ -135,7 +135,7 @@ func (l *selinuxLookup) isConfined(username string, groups []string) bool {
 // localGroupNames returns the names of the groups u belongs to, for the group entries in
 // seusers, see resolveGroupNames.
 func localGroupNames(u *user.User) ([]string, error) {
-	ids, err := getent.GroupIDs(u)
+	ids, err := getent.GroupIDsStrict(u)
 	if err != nil {
 		return nil, fmt.Errorf("list groups of %q: %w", u.Username, err)
 	}
