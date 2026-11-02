@@ -28,9 +28,14 @@ type Manager struct {
 	ipv4Client *iptables.IPTables
 	family4    *family
 
-	// IPv6 counterparts, nil when no v6 overlay
+	// IPv6 counterparts. They exist when the interface has an IPv6 overlay address, and
+	// also when it has none but the host has IPv6, so IPv6 arriving on the interface is
+	// dropped instead of being left to the host's rules.
 	ipv6Client *iptables.IPTables
 	family6    *family
+	// v6Overlay is true when the interface has an IPv6 overlay address, and
+	// IPv6 rules, NAT and forwarding are handled.
+	v6Overlay bool
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -56,13 +61,39 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		return nil, fmt.Errorf("create family: %w", err)
 	}
 
-	if wgIface.Address().HasIPv6() {
+	m.v6Overlay = wgIface.Address().HasIPv6()
+	switch {
+	case m.v6Overlay:
 		if err := m.createIPv6Components(wgIface, mtu); err != nil {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
+	case firewall.HostHasIPv6():
+		if err := probeIPv6Filtering(); err != nil {
+			// Nothing can filter IPv6 here, and failing would only drop the native firewall.
+			log.Warnf("IPv6 arriving on interface %s is not filtered: %v", wgIface.Name(), err)
+			break
+		}
+		log.Infof("interface %s has no IPv6 overlay address, dropping IPv6 arriving on it", wgIface.Name())
+		if err := m.createIPv6Components(wgIface, mtu); err != nil {
+			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
+		}
+	default:
+		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
 	}
 
 	return m, nil
+}
+
+// probeIPv6Filtering checks that ip6tables is usable on this host.
+func probeIPv6Filtering() error {
+	client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+	if err != nil {
+		return fmt.Errorf("init ip6tables: %w", err)
+	}
+	if _, err := client.ListChains(tableFilter); err != nil {
+		return fmt.Errorf("list ip6tables chains: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
@@ -86,7 +117,15 @@ func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
 	return nil
 }
 
+// hasIPv6 reports whether the interface has an IPv6 overlay address, that is whether IPv6
+// rules, NAT and forwarding apply. Setup and teardown of the IPv6 family use hasV6Family.
 func (m *Manager) hasIPv6() bool {
+	return m.v6Overlay && m.ipv6Client != nil
+}
+
+// hasV6Family reports whether the IPv6 family exists and has to be set up and removed,
+// whether it carries IPv6 rules or only the default deny.
+func (m *Manager) hasV6Family() bool {
 	return m.ipv6Client != nil
 }
 
@@ -132,7 +171,7 @@ func (m *Manager) initChains(stateManager *statemanager.Manager) error {
 	}
 
 	steps := []initStep{{"v4", m.family4}}
-	if m.hasIPv6() {
+	if m.hasV6Family() {
 		steps = append(steps, initStep{"v6", m.family6})
 	}
 
@@ -280,7 +319,7 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 
 	var merr *multierror.Error
 
-	if m.hasIPv6() {
+	if m.hasV6Family() {
 		if err := m.family6.Reset(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("reset v6 family: %w", err))
 		}
