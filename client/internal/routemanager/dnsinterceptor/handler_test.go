@@ -296,8 +296,10 @@ func TestRewriteToFakeIPs_OnlyAcceptedPrefixes(t *testing.T) {
 	require.Equal(t, []netip.Prefix{testRemoteAddr}, d.interceptedDomains[resolved])
 	require.Equal(t, []netip.Prefix{testRemoteAddr}, accepted)
 
-	// A later answer for the same domain must not change what this reconciliation accepted.
+	// A later answer for the same domain must not change what this reconciliation accepted,
+	// whether it replaces the stored slice or rewrites it in place.
 	d.mu.Lock()
+	d.interceptedDomains[resolved][0] = testRemoteAddr2
 	d.interceptedDomains[resolved] = []netip.Prefix{testRemoteAddr2}
 	d.mu.Unlock()
 	require.Equal(t, []netip.Prefix{testRemoteAddr}, accepted, "the accepted set is a copy owned by the caller")
