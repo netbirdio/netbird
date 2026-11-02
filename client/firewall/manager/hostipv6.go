@@ -4,8 +4,15 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"strconv"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
+
+// EnvAllowUnfilteredIPv6 leaves IPv6 arriving on the interface to the host's own rules when the
+// interface has no IPv6 overlay address, instead of dropping it.
+const EnvAllowUnfilteredIPv6 = "NB_ALLOW_UNFILTERED_IPV6"
 
 const (
 	procIfInet6        = "/proc/net/if_inet6"
@@ -32,4 +39,20 @@ func sysctlIsOne(path string) bool {
 		return false
 	}
 	return strings.TrimSpace(string(b)) == "1"
+}
+
+// AllowUnfilteredIPv6 reports whether the operator asked, through EnvAllowUnfilteredIPv6, for IPv6
+// on an interface without an IPv6 overlay address to be left to the host's rules. A value that is
+// not a boolean is logged and ignored, so the IPv6 deny stays in place.
+func AllowUnfilteredIPv6() bool {
+	val := os.Getenv(EnvAllowUnfilteredIPv6)
+	if val == "" {
+		return false
+	}
+	allow, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvAllowUnfilteredIPv6, err)
+		return false
+	}
+	return allow
 }

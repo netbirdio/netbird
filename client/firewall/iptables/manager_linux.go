@@ -67,7 +67,11 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		if err := m.createIPv6Components(wgIface, mtu); err != nil {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
-	case hostHasIPv6():
+	case !hostHasIPv6():
+		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
+	case firewall.AllowUnfilteredIPv6():
+		log.Warnf("%s is set: IPv6 arriving on interface %s is left to the host's rules", firewall.EnvAllowUnfilteredIPv6, wgIface.Name())
+	default:
 		if err := probeIPv6Filtering(); err != nil {
 			// Nothing can filter IPv6 here, and failing would only drop the native firewall.
 			log.Warnf("IPv6 arriving on interface %s is not filtered: %v", wgIface.Name(), err)
@@ -77,8 +81,6 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		if err := m.createIPv6Components(wgIface, mtu); err != nil {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
-	default:
-		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
 	}
 
 	return m, nil

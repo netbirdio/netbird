@@ -60,7 +60,7 @@ func TestIptablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	ns := fwtest.NewPeerNamespace(t)
 	addr := ns.ListenHost(t)
 
-	require.NoError(t, ns.Dial(addr), "control: connection without the firewall")
+	ns.WaitDial(t, addr, "control: connection without the firewall")
 
 	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
 	require.NoError(t, err, "create manager")
@@ -79,7 +79,7 @@ func TestIptablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	closed = true
 
 	assert.False(t, ip6ChainExists(t, chainACLInput), "Close must remove the IPv6 ACL chain")
-	assert.NoError(t, ns.Dial(addr), "connection must work again once the firewall is closed")
+	ns.WaitDial(t, addr, "connection must work again once the firewall is closed")
 }
 
 // After a crash the saved state is what removes the firewall. Everything the IPv6 deny put in
@@ -95,6 +95,8 @@ func TestIptablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 
 	ns := fwtest.NewPeerNamespace(t)
 	addr := ns.ListenHost(t)
+
+	ns.WaitDial(t, addr, "control: connection without the firewall")
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	sm := statemanager.New(statePath)
@@ -118,7 +120,7 @@ func TestIptablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 	require.NoError(t, recovered.PerformCleanup(), "crash cleanup")
 
 	assert.False(t, ip6ChainExists(t, chainACLInput), "crash cleanup must remove the IPv6 ACL chain")
-	assert.NoError(t, ns.Dial(addr), "connection must work again after the crash cleanup")
+	ns.WaitDial(t, addr, "connection must work again after the crash cleanup")
 
 	require.NoError(t, recovered.PersistState(context.Background()))
 	names, err := recovered.GetSavedStateNames()
@@ -136,4 +138,27 @@ func TestIptablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 
 	_, err = m.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("fd00::2/128")}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept)
 	assert.ErrorIs(t, err, firewall.ErrIPv6NotInitialized, "IPv6 rules are still refused without an overlay address")
+}
+
+// The escape hatch leaves IPv6 on an interface without an IPv6 overlay address to the host.
+func TestIptablesManagerAllowUnfilteredIPv6(t *testing.T) {
+	if !firewall.HostHasIPv6() {
+		t.Skip("host has no IPv6")
+	}
+	if err := probeIPv6Filtering(); err != nil {
+		t.Skipf("ip6tables not usable: %v", err)
+	}
+	t.Setenv(firewall.EnvAllowUnfilteredIPv6, "true")
+
+	ns := fwtest.NewPeerNamespace(t)
+	addr := ns.ListenHost(t)
+
+	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	t.Cleanup(func() { _ = manager.Close(nil) })
+	require.NoError(t, manager.Init(nil))
+
+	assert.False(t, manager.hasV6Family(), "no IPv6 family when the operator allows unfiltered IPv6")
+	assert.False(t, ip6ChainExists(t, chainACLInput), "no IPv6 ACL chain when the operator allows unfiltered IPv6")
+	ns.WaitDial(t, addr, "IPv6 is left to the host's rules")
 }

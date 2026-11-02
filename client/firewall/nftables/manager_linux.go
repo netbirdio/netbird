@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/google/nftables"
@@ -86,7 +87,11 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	switch {
 	case m.v6Overlay:
 		m.createIPv6Components(tableName, wgIface, mtu)
-	case hostHasIPv6():
+	case !hostHasIPv6():
+		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
+	case firewall.AllowUnfilteredIPv6():
+		log.Warnf("%s is set: IPv6 arriving on interface %s is left to the host's rules", firewall.EnvAllowUnfilteredIPv6, wgIface.Name())
+	default:
 		if err := probeIPv6Filtering(); err != nil {
 			// Nothing can filter IPv6 here, and failing would only drop the native firewall.
 			log.Warnf("IPv6 arriving on interface %s is not filtered: %v", wgIface.Name(), err)
@@ -94,8 +99,6 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		}
 		log.Infof("interface %s has no IPv6 overlay address, dropping IPv6 arriving on it", wgIface.Name())
 		m.createIPv6Components(tableName, wgIface, mtu)
-	default:
-		log.Debugf("host has no IPv6, no IPv6 firewall for interface %s", wgIface.Name())
 	}
 
 	m.extMonitor = newExternalChainMonitor(m)
@@ -457,7 +460,8 @@ func (m *Manager) cleanupNetbirdTables() error {
 
 	tableName := getTableName()
 	for _, t := range tables {
-		if t.Name == tableName {
+		// Probe tables only outlive their probe when the process died in between.
+		if t.Name == tableName || strings.HasPrefix(t.Name, probeTablePrefix) {
 			m.rConn.DelTable(t)
 		}
 	}

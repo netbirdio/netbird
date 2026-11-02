@@ -21,11 +21,16 @@ import (
 
 func hasIPv6Table(t *testing.T) bool {
 	t.Helper()
+	return ip6TableExists(t, getTableName())
+}
+
+func ip6TableExists(t *testing.T, name string) bool {
+	t.Helper()
 
 	tables, err := (&nftables.Conn{}).ListTablesOfFamily(nftables.TableFamilyIPv6)
 	require.NoError(t, err, "list ip6 tables")
 	for _, table := range tables {
-		if table.Name == getTableName() {
+		if table.Name == name {
 			return true
 		}
 	}
@@ -58,7 +63,7 @@ func TestNftablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	ns := fwtest.NewPeerNamespace(t)
 	addr := ns.ListenHost(t)
 
-	require.NoError(t, ns.Dial(addr), "control: connection without the firewall")
+	ns.WaitDial(t, addr, "control: connection without the firewall")
 
 	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
 	require.NoError(t, err, "create manager")
@@ -77,16 +82,16 @@ func TestNftablesManagerDropsIPv6WithoutOverlayAddress(t *testing.T) {
 	closed = true
 
 	assert.False(t, hasIPv6Table(t), "Close must remove the ip6 table")
-	assert.NoError(t, ns.Dial(addr), "connection must work again once the firewall is closed")
+	ns.WaitDial(t, addr, "connection must work again once the firewall is closed")
 }
 
 // countAcceptRules returns how many of the accept rules NetBird puts into host chains are in
-// the chain of the given IPv6 table.
-func countAcceptRules(t *testing.T, tableName string) int {
+// the chains of the given table.
+func countAcceptRules(t *testing.T, family nftables.TableFamily, tableName string) int {
 	t.Helper()
 
 	conn := &nftables.Conn{}
-	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyIPv6)
+	chains, err := conn.ListChainsOfTableFamily(family)
 	require.NoError(t, err, "list ip6 chains")
 
 	count := 0
@@ -130,12 +135,20 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 		Hooknum:  nftables.ChainHookInput,
 		Priority: nftables.ChainPriorityFilter,
 	})
-	require.NoError(t, host.Flush(), "create host table")
+	// What an interrupted probe leaves behind.
+	strayName := probeTablePrefix + "deadbeef"
+	stray := host.AddTable(&nftables.Table{Name: strayName, Family: nftables.TableFamilyIPv6})
+	require.NoError(t, host.Flush(), "create host tables")
 	t.Cleanup(func() {
-		c := &nftables.Conn{}
-		c.DelTable(table)
-		_ = c.Flush()
+		// One table per flush: a table that is already gone fails the whole batch.
+		for _, tbl := range []*nftables.Table{table, stray} {
+			c := &nftables.Conn{}
+			c.DelTable(tbl)
+			_ = c.Flush()
+		}
 	})
+
+	ns.WaitDial(t, addr, "control: connection without the firewall")
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	sm := statemanager.New(statePath)
@@ -146,7 +159,7 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 	require.NoError(t, sm.PersistState(context.Background()), "persist state")
 
 	require.True(t, hasIPv6Table(t), "the ip6 table must exist while the firewall runs")
-	require.Equal(t, 1, countAcceptRules(t, hostTable), "the accept rule must be in the host chain while the firewall runs")
+	require.Equal(t, 1, countAcceptRules(t, nftables.TableFamilyIPv6, hostTable), "the accept rule must be in the host chain while the firewall runs")
 	require.Error(t, ns.Dial(addr), "IPv6 must be dropped while the firewall runs")
 
 	// The process is gone without closing the firewall. The new run finds the saved state and
@@ -159,8 +172,9 @@ func TestNftablesManagerCrashCleanupRemovesIPv6Deny(t *testing.T) {
 	require.NoError(t, recovered.PerformCleanup(), "crash cleanup")
 
 	assert.False(t, hasIPv6Table(t), "crash cleanup must remove the ip6 table")
-	assert.Equal(t, 0, countAcceptRules(t, hostTable), "crash cleanup must remove the accept rule from the host chain")
-	assert.NoError(t, ns.Dial(addr), "connection must work again after the crash cleanup")
+	assert.False(t, ip6TableExists(t, strayName), "crash cleanup must remove a probe table that was left behind")
+	assert.Equal(t, 0, countAcceptRules(t, nftables.TableFamilyIPv6, hostTable), "crash cleanup must remove the accept rule from the host chain")
+	ns.WaitDial(t, addr, "connection must work again after the crash cleanup")
 
 	require.NoError(t, recovered.PersistState(context.Background()))
 	names, err := recovered.GetSavedStateNames()
@@ -199,3 +213,74 @@ func TestNftablesManagerIPv6FamilyFollowsHostAndOverlay(t *testing.T) {
 	_, err = m.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("fd00::2/128")}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept)
 	assert.ErrorIs(t, err, firewall.ErrIPv6NotInitialized, "IPv6 rules are still refused without an overlay address")
 }
+
+// The escape hatch leaves IPv6 on an interface without an IPv6 overlay address to the host.
+func TestNftablesManagerAllowUnfilteredIPv6(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+	if !firewall.HostHasIPv6() {
+		t.Skip("host has no IPv6")
+	}
+	t.Setenv(firewall.EnvAllowUnfilteredIPv6, "true")
+
+	ns := fwtest.NewPeerNamespace(t)
+	addr := ns.ListenHost(t)
+
+	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	t.Cleanup(func() { _ = manager.Close(nil) })
+	require.NoError(t, manager.Init(nil))
+
+	assert.False(t, manager.hasV6Family(), "no IPv6 family when the operator allows unfiltered IPv6")
+	assert.False(t, hasIPv6Table(t), "no ip6 table when the operator allows unfiltered IPv6")
+	ns.WaitDial(t, addr, "IPv6 is left to the host's rules")
+}
+
+// The accept NetBird puts into a host's dual-stack table covers IPv6 as well. On a host whose
+// input policy is drop that accept is what lets the interface's traffic in, so the IPv6 deny has
+// to hold with the accept in place.
+func TestNftablesManagerDropsIPv6BehindHostAcceptInInetTable(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+	if !firewall.HostHasIPv6() {
+		t.Skip("host has no IPv6")
+	}
+
+	ns := fwtest.NewPeerNamespace(t)
+	addr := ns.ListenHost(t)
+	ns.WaitDial(t, addr, "control: connection without any firewall")
+
+	const hostTable = "nbtest-hostdrop"
+	host := &nftables.Conn{}
+	table := host.AddTable(&nftables.Table{Name: hostTable, Family: nftables.TableFamilyINet})
+	host.AddChain(&nftables.Chain{
+		Name:     "input",
+		Table:    table,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookInput,
+		Priority: nftables.ChainPriorityFilter,
+		Policy:   &dropPolicy,
+	})
+	require.NoError(t, host.Flush(), "create the host's default-drop table")
+	t.Cleanup(func() {
+		c := &nftables.Conn{}
+		c.DelTable(table)
+		_ = c.Flush()
+	})
+	require.Error(t, ns.Dial(addr), "control: the host's own policy drops the connection")
+
+	manager, err := Create(overlayOnlyV4(ns.IfaceName), iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	t.Cleanup(func() { _ = manager.Close(nil) })
+	require.NoError(t, manager.Init(nil))
+
+	require.Equal(t, 1, countAcceptRules(t, nftables.TableFamilyINet, hostTable), "NetBird's accept must be in the host's chain")
+	assert.Error(t, ns.Dial(addr), "IPv6 must still be dropped behind NetBird's accept in the host's chain")
+
+	require.NoError(t, manager.Close(nil))
+	assert.Equal(t, 0, countAcceptRules(t, nftables.TableFamilyINet, hostTable), "Close must remove NetBird's accept from the host's chain")
+}
+
+var dropPolicy = nftables.ChainPolicyDrop

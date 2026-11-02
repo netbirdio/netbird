@@ -176,6 +176,14 @@ func (ns *PeerNamespace) DialControl(addr string, control func(network, address 
 	return err
 }
 
+// WaitDial waits for a connection to addr from the namespace to succeed. Right after the
+// veth pair is created, and after a firewall that dropped the peer's neighbor discovery is
+// removed, the first attempts can fail while the neighbor entry settles.
+func (ns *PeerNamespace) WaitDial(t *testing.T, addr, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return ns.Dial(addr) == nil }, 10*time.Second, 200*time.Millisecond, msg)
+}
+
 // ListenHost starts a TCP listener on the host end's address and returns its address.
 func (ns *PeerNamespace) ListenHost(t *testing.T) string {
 	t.Helper()
