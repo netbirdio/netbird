@@ -391,16 +391,17 @@ func (config *Config) resolveUnsetDefaults() (updated bool) {
 	}
 
 	if config.ServerSSHAllowed == nil {
-		if runtime.GOOS == "android" {
+		switch {
+		case runtime.GOOS == "android":
 			// default to disabled SSH on Android for security
 			log.Infof("setting SSH server to false by default on Android")
 			config.ServerSSHAllowed = util.False()
-		} else if config.PrivateKey == "" {
+		case config.PrivateKey == "":
 			// Old versions wrote the peer's key together with the config, so a file
 			// without one never ran an SSH server and there is nothing to preserve.
 			log.Infof("setting SSH server to false by default for a configuration without identity")
 			config.ServerSSHAllowed = util.False()
-		} else {
+		default:
 			// enables SSH for configs from old versions to preserve backwards compatibility
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
