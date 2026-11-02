@@ -14,8 +14,8 @@ policy_module(netbird, 1.1.0)
 ## confined SELinux user get that user's context, the way sshd does it. Users
 ## mapped to unconfined_u run unconfined.
 ## It also grants sys_admin, which setsid -c needs to hand the terminal to login.
-## Turning it off removes the shell, su and sys_admin rules. The login transition
-## stays, because its interface cannot be placed inside a boolean.
+## Turning it off removes the shell, su, helper transition and sys_admin rules. The
+## login transition stays, because its interface cannot be placed inside a boolean.
 ## </p>
 ## </desc>
 gen_tunable(netbird_ssh_sessions, true)
