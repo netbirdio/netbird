@@ -8,12 +8,33 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// chdir is process-wide, so this test must not run in parallel.
+func TestChdirOrRoot(t *testing.T) {
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.Chdir(orig)) })
+
+	existing := t.TempDir()
+	chdirOrRoot(existing)
+	got, err := os.Getwd()
+	require.NoError(t, err)
+	want, err := filepath.EvalSymlinks(existing)
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "an existing directory must be used as is")
+
+	chdirOrRoot(filepath.Join(existing, "missing"))
+	got, err = os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, "/", got, "a missing directory must fall back to the root")
+}
 
 func TestPrivilegeDropper_ValidatePrivileges(t *testing.T) {
 	pd := NewPrivilegeDropper()

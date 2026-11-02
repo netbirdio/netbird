@@ -249,9 +249,7 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 	}
 
 	if config.WorkingDir != "" {
-		if err := os.Chdir(config.WorkingDir); err != nil {
-			log.Debugf("failed to change to working directory %s, continuing with current directory: %v", config.WorkingDir, err)
-		}
+		chdirOrRoot(config.WorkingDir)
 	}
 
 	var execCmd *exec.Cmd
@@ -287,6 +285,20 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 	}
 
 	os.Exit(ExitCodeSuccess)
+}
+
+// chdirOrRoot changes to dir and, when that is not possible, to the filesystem root, so a
+// session never starts in the directory the daemon happened to be running from.
+func chdirOrRoot(dir string) {
+	err := os.Chdir(dir)
+	if err == nil {
+		return
+	}
+
+	log.Debugf("failed to change to working directory %s, using /: %v", dir, err)
+	if err := os.Chdir("/"); err != nil {
+		log.Debugf("failed to change to /: %v", err)
+	}
 }
 
 // validatePrivileges validates that privilege dropping to the target UID/GID is allowed
