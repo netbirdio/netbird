@@ -23,28 +23,44 @@ RECORD = re.compile(
 COMM = re.compile(r'comm="([^"]*)"')
 
 
+def parse_mark(line):
+    """Returns (stamp, kind, name) for a mark line, or None for a line that is not a mark."""
+    parts = line.split()
+    if len(parts) < 3:
+        return None
+    try:
+        stamp = float(parts[0])
+    except ValueError:
+        stamp = math.nan
+    if not math.isfinite(stamp):
+        sys.exit(f"report.py: invalid mark timestamp {parts[0]!r}")
+    return stamp, parts[1], parts[2]
+
+
+def start_window(started, stamp, name):
+    if name in started:
+        sys.exit(f"report.py: window {name} started twice without an end")
+    started[name] = stamp
+
+
+def end_window(started, windows, stamp, name):
+    if name not in started:
+        sys.exit(f"report.py: window {name} ended without a start")
+    windows.append((started.pop(name), stamp, name))
+
+
 def read_windows(marks):
     windows = []
     started = {}
     for line in marks:
-        parts = line.split()
-        if len(parts) < 3:
+        mark = parse_mark(line)
+        if mark is None:
             continue
-        try:
-            stamp = float(parts[0])
-        except ValueError:
-            stamp = math.nan
-        if not math.isfinite(stamp):
-            sys.exit(f"report.py: invalid mark timestamp {parts[0]!r}")
-        kind, name = parts[1], parts[2]
+        stamp, kind, name = mark
         if kind == "S":
-            if name in started:
-                sys.exit(f"report.py: window {name} started twice without an end")
-            started[name] = stamp
+            start_window(started, stamp, name)
         elif kind == "E":
-            if name not in started:
-                sys.exit(f"report.py: window {name} ended without a start")
-            windows.append((started.pop(name), stamp, name))
+            end_window(started, windows, stamp, name)
         else:
             sys.exit(f"report.py: unknown mark kind {kind!r} for window {name}, expected S or E")
     if started:
