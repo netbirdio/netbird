@@ -99,3 +99,18 @@ func (w *WGIface) checkNotOverlayRange(prefixes ...netip.Prefix) error {
 	}
 	return nil
 }
+
+// withoutOverlayRange returns prefixes without the ones checkNotOverlayRange refuses, so a peer
+// whose list also carries the range still gets its own addresses and routes. The caller holds
+// w.mu.
+func (w *WGIface) withoutOverlayRange(peerKey string, prefixes []netip.Prefix) []netip.Prefix {
+	kept := make([]netip.Prefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		if err := w.checkNotOverlayRange(p); err != nil {
+			log.Debugf("skipping allowed IP for peer %s: %v", peerKey, err)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return kept
+}
