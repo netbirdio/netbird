@@ -4,10 +4,11 @@
 usage: cat <marks-file>... | report.py <start-epoch> > report.tsv
 
 The marks are read from standard input, one line per boundary: "<epoch> S <name>" when a
-feature starts and "<epoch> E <name>" when it ends. A record inside a window is reported
-under that feature, a record within a short padding around a window under the nearest
-one, and any other under "(outside-tests)". Reads /var/log/audit/audit.log and its
-rotations. The "granted" records come from the netbirdaudit module next to this file.
+feature starts and "<epoch> E <name>" when it ends. Every start needs its own end: a
+repeated start, an end without a start and a window left open are errors. A record inside
+a window is reported under that feature, a record within a short padding around a window
+under the closest one, and any other under "(outside-tests)". Reads /var/log/audit/audit.log
+and its rotations. The "granted" records come from the netbirdaudit module next to this file.
 """
 import glob
 import re
@@ -30,9 +31,15 @@ def read_windows(marks):
             continue
         stamp, kind, name = float(parts[0]), parts[1], parts[2]
         if kind == "S":
+            if name in started:
+                sys.exit(f"report.py: window {name} started twice without an end")
             started[name] = stamp
-        elif kind == "E" and name in started:
+        elif kind == "E":
+            if name not in started:
+                sys.exit(f"report.py: window {name} ended without a start")
             windows.append((started.pop(name), stamp, name))
+    if started:
+        sys.exit(f"report.py: window {sorted(started)[0]} has no end")
     return windows
 
 
@@ -41,10 +48,14 @@ def window_of(windows, stamp):
     for start, end, name in windows:
         if start <= stamp <= end:
             return name
+    best, best_distance = "(outside-tests)", None
     for start, end, name in windows:
-        if start - 0.05 <= stamp <= end + 0.5:
-            return name
-    return "(outside-tests)"
+        if not start - 0.05 <= stamp <= end + 0.5:
+            continue
+        distance = start - stamp if stamp < start else stamp - end
+        if best_distance is None or distance < best_distance:
+            best, best_distance = name, distance
+    return best
 
 
 def parse_record(line, since):
