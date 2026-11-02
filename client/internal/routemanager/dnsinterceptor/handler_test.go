@@ -138,13 +138,13 @@ func TestUpdateDomainPrefixes_RefusedPrefixNotReplayed(t *testing.T) {
 			resolved := domain.Domain("app.corp.example.")
 			logger := log.NewEntry(log.StandardLogger())
 
-			err := d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testPeerAddr, testRemoteAddr}, logger)
+			_, err := d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testPeerAddr, testRemoteAddr}, logger)
 			require.ErrorContains(t, err, vars.ErrRouteNotAllowed.Error())
 			assert.Equal(t, []netip.Prefix{testRemoteAddr}, d.interceptedDomains[resolved],
 				"only the accepted prefix must be remembered")
 
 			// a later answer that drops the accepted address and keeps the refused one
-			err = d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testPeerAddr, testRemoteAddr2}, logger)
+			_, err = d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testPeerAddr, testRemoteAddr2}, logger)
 			require.ErrorContains(t, err, vars.ErrRouteNotAllowed.Error())
 			if keepRoute {
 				assert.ElementsMatch(t, []netip.Prefix{testRemoteAddr, testRemoteAddr2}, d.interceptedDomains[resolved])
@@ -291,14 +291,22 @@ func TestRewriteToFakeIPs_OnlyAcceptedPrefixes(t *testing.T) {
 	_, err = d.fakeIPManager.AllocateFakeIP(testRemoteAddr2.Addr())
 	require.NoError(t, err)
 
-	require.Error(t, d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testRemoteAddr, testRemoteAddr2}, logger))
+	accepted, err := d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testRemoteAddr, testRemoteAddr2}, logger)
+	require.Error(t, err)
 	require.Equal(t, []netip.Prefix{testRemoteAddr}, d.interceptedDomains[resolved])
+	require.Equal(t, []netip.Prefix{testRemoteAddr}, accepted)
+
+	// A later answer for the same domain must not change what this reconciliation accepted.
+	d.mu.Lock()
+	d.interceptedDomains[resolved] = []netip.Prefix{testRemoteAddr2}
+	d.mu.Unlock()
+	require.Equal(t, []netip.Prefix{testRemoteAddr}, accepted, "the accepted set is a copy owned by the caller")
 
 	reply := &dns.Msg{Answer: []dns.RR{
 		&dns.A{Hdr: dns.RR_Header{Name: string(resolved), Rrtype: dns.TypeA, Class: dns.ClassINET}, A: testRemoteAddr.Addr().AsSlice()},
 		&dns.A{Hdr: dns.RR_Header{Name: string(resolved), Rrtype: dns.TypeA, Class: dns.ClassINET}, A: testRemoteAddr2.Addr().AsSlice()},
 	}}
-	d.rewriteToFakeIPs(reply, d.interceptedDomains[resolved], logger)
+	d.rewriteToFakeIPs(reply, accepted, logger)
 
 	assert.Equal(t, net.IP(acceptedFake.AsSlice()), reply.Answer[0].(*dns.A).A, "accepted address must be swapped for its fake IP")
 	assert.Equal(t, net.IP(testRemoteAddr2.Addr().AsSlice()), reply.Answer[1].(*dns.A).A, "refused address must keep its real IP")

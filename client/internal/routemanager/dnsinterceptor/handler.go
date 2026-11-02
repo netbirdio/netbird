@@ -379,7 +379,8 @@ func (d *DnsInterceptor) reconcileAnswer(w dns.ResponseWriter, r *dns.Msg, logge
 		return
 	}
 
-	if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
+	accepted, err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger)
+	if err != nil {
 		logger.Errorf("failed to update domain prefixes: %v", err)
 	}
 
@@ -389,9 +390,6 @@ func (d *DnsInterceptor) reconcileAnswer(w dns.ResponseWriter, r *dns.Msg, logge
 	waitForRouteSettlement(logger)
 
 	if len(newPrefixes) > 0 {
-		d.mu.RLock()
-		accepted := slices.Clone(d.interceptedDomains[resolvedDomain])
-		d.mu.RUnlock()
 		d.replaceIPsInDNSResponse(r, accepted, logger)
 	}
 }
@@ -436,7 +434,10 @@ func (d *DnsInterceptor) logPrefixChanges(resolvedDomain, originalDomain domain.
 	}
 }
 
-func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix, logger *log.Entry) error {
+// updateDomainPrefixes reconciles the routes of the domain with newPrefixes and returns
+// a copy of the prefixes the domain holds a route for once it is done. The copy belongs
+// to this reconciliation, a concurrent answer for the same domain does not change it.
+func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix, logger *log.Entry) ([]netip.Prefix, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -511,7 +512,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, toRemove, logger)
 	}
 
-	return nberrors.FormatErrorOrNil(merr)
+	return slices.Clone(d.interceptedDomains[resolvedDomain]), nberrors.FormatErrorOrNil(merr)
 }
 
 // removeDNATMappings removes DNAT mappings from the firewall for real IP prefixes
