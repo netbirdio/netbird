@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"testing"
 
@@ -58,4 +59,28 @@ func pkcs8PEM(t *testing.T, blockType string, key any) []byte {
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+}
+
+func TestParsePublicKeys(t *testing.T) {
+	oldPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	newPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	b64 := base64.StdEncoding.EncodeToString
+
+	keys, err := ParsePublicKeys([]string{b64(oldPub), b64(newPub)})
+	require.NoError(t, err)
+	assert.Equal(t, map[KeyID]ed25519.PublicKey{Ed25519KeyID(oldPub): oldPub, Ed25519KeyID(newPub): newPub}, keys.Ed25519,
+		"both keys of a rotation must be accepted, each under its derived id")
+
+	for name, in := range map[string][]string{
+		"not base64": {"not base64!"},
+		"wrong size": {b64([]byte("short"))},
+		"duplicate":  {b64(oldPub), b64(oldPub)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParsePublicKeys(in)
+			assert.Error(t, err, "an unusable public key list must be refused")
+		})
+	}
 }

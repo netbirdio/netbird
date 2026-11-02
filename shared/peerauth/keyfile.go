@@ -3,6 +3,7 @@ package peerauth
 import (
 	"crypto/ed25519"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -43,4 +44,21 @@ func ParseSigningKeyPEM(data []byte) (ed25519.PrivateKey, error) {
 		return nil, fmt.Errorf("key type %T, want Ed25519", key)
 	}
 	return priv, nil
+}
+
+// ParsePublicKeys builds verifier keys from base64 Management public keys, as Management logs
+// them. Several keys let a verifier accept tokens of the old and the new key during a rotation.
+func ParsePublicKeys(b64Keys []string) (TokenKeys, error) {
+	pubs := make([]ed25519.PublicKey, 0, len(b64Keys))
+	for _, s := range b64Keys {
+		pub, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			return TokenKeys{}, fmt.Errorf("decode public key %d: %w", len(pubs), err)
+		}
+		if len(pub) != ed25519.PublicKeySize {
+			return TokenKeys{}, fmt.Errorf("public key %d: %d bytes, want %d", len(pubs), len(pub), ed25519.PublicKeySize)
+		}
+		pubs = append(pubs, pub)
+	}
+	return NewEd25519Keys(pubs)
 }

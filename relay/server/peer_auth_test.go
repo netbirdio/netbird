@@ -213,6 +213,69 @@ func TestRelay_LegacyCannotTakeOverAuthenticatedPeer(t *testing.T) {
 	assert.True(t, item.(*Peer).Authenticated(), "the stored peer must still be the authenticated one")
 }
 
+// With Management's public keys configured, the Relay accepts tokens of every listed key, so a
+// rotation does not cut off peers holding a token of the old key, and refuses HMAC tokens, so the
+// auth secret it keeps for legacy peers cannot be used to mint bound tokens.
+func TestRelay_Ed25519Keys(t *testing.T) {
+	oldPub, oldPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	newPub, newPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{oldPub, newPub})
+	require.NoError(t, err)
+
+	issueEd25519 := func(priv ed25519.PrivateKey) func(peerauth.Token) ([]byte, error) {
+		return func(tok peerauth.Token) ([]byte, error) { return peerauth.IssueEd25519Token(priv, tok) }
+	}
+	issueHMAC := func(tok peerauth.Token) ([]byte, error) { return peerauth.IssueHMACToken(peerAuthTestSecret[:], tok) }
+
+	cases := []struct {
+		name     string
+		issue    func(peerauth.Token) ([]byte, error)
+		accepted bool
+	}{
+		{"token of the old key", issueEd25519(oldPriv), true},
+		{"token of the new key", issueEd25519(newPriv), true},
+		{"HMAC token", issueHMAC, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			relay, err := NewRelay(Config{
+				ExposedAddress: "rels://relay-1.example.com:443",
+				AuthValidator:  &recordingValidator{},
+				PeerAuth:       PeerAuthConfig{Keys: keys},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { relay.Shutdown(context.Background()) })
+
+			peer := newBoundPeer(t)
+			wgKey, err := wgtypes.GenerateKey()
+			require.NoError(t, err)
+			peer.id = messages.HashID(wgKey.PublicKey().String())
+			peer.token, err = tc.issue(peerauth.Token{
+				Expiry:  time.Now().Add(time.Hour),
+				WGPub:   wgKey.PublicKey(),
+				AuthPub: peer.authKey.Public().(ed25519.PublicKey),
+			})
+			require.NoError(t, err)
+
+			conn := newScriptedConn()
+			conn.deliver(t, peer.authMsg(t, peer.id, "relay-1.example.com", time.Now()))
+			relay.Accept(conn)
+
+			if !tc.accepted {
+				assert.True(t, conn.isClosed(), "the connection must be refused")
+				assert.Empty(t, relay.store.Peers(), "no peer may be stored")
+				return
+			}
+			conn.waitFrames(t, 1)
+			item, ok := relay.store.Peer(peer.id)
+			require.True(t, ok, "the peer must be stored")
+			assert.True(t, item.(*Peer).Authenticated(), "the peer must be marked authenticated")
+		})
+	}
+}
+
 func TestRelay_RefusalLogLevels(t *testing.T) {
 	// Refusals a peer repeats on every retry stay at debug; credentials that do not verify, or a
 	// legacy connection claiming an authenticated peer, are rare and logged at info.
