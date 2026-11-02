@@ -86,11 +86,17 @@ type fakeTun struct {
 
 	addr          wgaddr.Address
 	updateAddrErr error
+	addrUpdates   int
+	onUpdateAddr  func()
 }
 
 func (f *fakeTun) WgAddress() wgaddr.Address { return f.addr }
 func (f *fakeTun) DeviceName() string        { return "wt-test" }
 func (f *fakeTun) UpdateAddr(a wgaddr.Address) error {
+	f.addrUpdates++
+	if f.onUpdateAddr != nil {
+		f.onUpdateAddr()
+	}
 	if f.updateAddrErr != nil {
 		return f.updateAddrErr
 	}
@@ -264,6 +270,34 @@ func TestWGIface_UpdateAddr_ReservationFailureRestoresTheAddress(t *testing.T) {
 	assert.Equal(t, v4Addr("100.64.0.1/16"), tun.addr, "the previous address must be restored")
 	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, w.overlayRange,
 		"the reservation must still match the address in use")
+}
+
+func TestWGIface_UpdateAddr_ReservationFailureNeverChangesTheAddress(t *testing.T) {
+	w, cfg, tun := newReservationTestIface(v4Addr("100.64.0.1/16"))
+	require.NoError(t, w.reserveOverlay(false))
+
+	cfg.updateErr = errors.New("busy")
+	require.Error(t, w.UpdateAddr(v4Addr("100.70.0.1/16")))
+
+	// there is nothing to roll back, so no rollback can fail and leave the new address unprotected
+	assert.Zero(t, tun.addrUpdates, "the address must not change while the new range cannot be reserved")
+}
+
+func TestWGIface_UpdateAddr_ReservesTheNewRangeBeforeTheSwitchAndKeepsTheOldOneUntilAfter(t *testing.T) {
+	w, cfg, tun := newReservationTestIface(v4Addr("100.64.0.1/16"))
+	require.NoError(t, w.reserveOverlay(false))
+
+	oldRange := netip.MustParsePrefix("100.64.0.0/16")
+	newRange := netip.MustParsePrefix("100.70.0.0/16")
+	tun.onUpdateAddr = func() {
+		got := cfg.peers[w.overlayPeerKey].allowedIPs
+		assert.Contains(t, got, newRange, "the new range must be reserved before the address switch")
+		assert.Contains(t, got, oldRange, "the old range must stay reserved until the switch is done")
+	}
+
+	require.NoError(t, w.UpdateAddr(v4Addr("100.70.0.1/16")))
+	assert.Equal(t, 1, tun.addrUpdates)
+	assert.Equal(t, []netip.Prefix{newRange}, cfg.peers[w.overlayPeerKey].allowedIPs)
 }
 
 func TestWGIface_UpdatePeer_SkipsOnlyTheOverlayRange(t *testing.T) {
