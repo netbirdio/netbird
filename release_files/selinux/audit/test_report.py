@@ -36,8 +36,9 @@ class ReadWindowsTest(unittest.TestCase):
                 report.read_windows([f"100.0 {kind} a"])
 
     def test_invalid_timestamp(self):
-        with self.assertRaisesRegex(SystemExit, "invalid mark timestamp"):
-            report.read_windows(["soon S a"])
+        for stamp in ("soon", "nan", "inf", "-inf"):
+            with self.subTest(stamp=stamp), self.assertRaisesRegex(SystemExit, "invalid mark timestamp"):
+                report.read_windows([f"{stamp} S a"])
 
 
 class WindowOfTest(unittest.TestCase):
