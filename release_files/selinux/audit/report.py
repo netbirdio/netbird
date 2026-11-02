@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Maps the audit records of netbird_t to the feature that was running.
 
-usage: report.py <start-epoch> <marks-file>... > report.tsv
+usage: cat <marks-file>... | report.py <start-epoch> > report.tsv
 
-A marks file holds one line per boundary, "<epoch> S <name>" when a feature starts and
-"<epoch> E <name>" when it ends. Marks files must be regular files below the current
-directory. Records that fall in no window are reported under "(outside-tests)". Reads
-/var/log/audit/audit.log and its rotations. The "granted" records come from the
-netbirdaudit module next to this file.
+The marks are read from standard input, one line per boundary: "<epoch> S <name>" when a
+feature starts and "<epoch> E <name>" when it ends. A record inside a window is reported
+under that feature, a record within a short padding around a window under the nearest
+one, and any other under "(outside-tests)". Reads /var/log/audit/audit.log and its
+rotations. The "granted" records come from the netbirdaudit module next to this file.
 """
 import glob
-import os
 import re
 import sys
 from collections import defaultdict
@@ -22,34 +21,26 @@ RECORD = re.compile(
 COMM = re.compile(r'comm="([^"]*)"')
 
 
-def marks_path(arg, base):
-    path = os.path.realpath(os.path.join(base, arg))
-    if not path.startswith(base + os.sep):
-        sys.exit(f"marks file {arg} is not below {base}")
-    if not os.path.isfile(path):
-        sys.exit(f"marks file {arg} is not a regular file")
-    return path
-
-
-def read_windows(args):
-    base = os.path.realpath(os.getcwd())
+def read_windows(marks):
     windows = []
-    for arg in args:
-        started = {}
-        with open(marks_path(arg, base)) as marks:
-            for line in marks:
-                parts = line.split()
-                if len(parts) < 3:
-                    continue
-                stamp, kind, name = float(parts[0]), parts[1], parts[2]
-                if kind == "S":
-                    started[name] = stamp
-                elif kind == "E" and name in started:
-                    windows.append((started.pop(name), stamp, name))
+    started = {}
+    for line in marks:
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        stamp, kind, name = float(parts[0]), parts[1], parts[2]
+        if kind == "S":
+            started[name] = stamp
+        elif kind == "E" and name in started:
+            windows.append((started.pop(name), stamp, name))
     return windows
 
 
 def window_of(windows, stamp):
+    # A record inside a window belongs to it, whatever the padding of a neighbour says.
+    for start, end, name in windows:
+        if start <= stamp <= end:
+            return name
     for start, end, name in windows:
         if start - 0.05 <= stamp <= end + 0.5:
             return name
@@ -97,7 +88,7 @@ def print_report(counts, commands):
 
 def main():
     since = float(sys.argv[1])
-    windows = read_windows(sys.argv[2:])
+    windows = read_windows(sys.stdin)
     counts, commands = count_records(since, windows)
     print_report(counts, commands)
 

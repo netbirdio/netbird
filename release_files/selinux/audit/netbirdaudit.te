@@ -4,8 +4,9 @@ policy_module(netbirdaudit, 1.0.0)
 # the netbird module grants to netbird_t as an "avc: granted" record, so the features that
 # need a permission can be found before retiring it.
 #
-# The per-packet socket permissions (send, recv and similar) are left out on purpose: they
-# would flood the log. Binds and connects are included.
+# The per-packet socket permissions (read, write, send, recv and similar) are left out on
+# purpose: they would flood the log. Socket creation, binds, connects and the other
+# non-packet permissions are included.
 #
 # Usage, from this directory (the audit log needs a larger max_log_file and num_logs in
 # /etc/audit/auditd.conf, and auditctl -b 65536 -r 0, for a long run):
@@ -13,7 +14,7 @@ policy_module(netbirdaudit, 1.0.0)
 #   make -f /usr/share/selinux/devel/Makefile netbirdaudit.pp
 #   semodule -X 300 -i netbirdaudit.pp
 #   semodule -DB                       (also log the denials that dontaudit hides)
-#   python3 report.py <start-epoch> <marks-file> > report.tsv
+#   cat <marks-file>... | python3 report.py <start-epoch> > report.tsv
 #   semodule -X 300 -r netbirdaudit; semodule -B
 #
 # report.py documents the marks file. To retire a permission, remove it from netbird.te,
@@ -45,3 +46,5 @@ auditallow netbird_t node_type:tcp_socket node_bind;
 auditallow netbird_t node_type:udp_socket node_bind;
 auditallow netbird_t node_type:rawip_socket node_bind;
 auditallow netbird_t domain:unix_stream_socket connectto;
+auditallow netbird_t self:{ unix_stream_socket unix_dgram_socket netlink_route_socket netlink_generic_socket netlink_netfilter_socket netlink_kobject_uevent_socket tcp_socket udp_socket rawip_socket icmp_socket packet_socket tun_socket key_socket } { create bind connect listen accept getattr setattr getopt setopt shutdown };
+auditallow netbird_t self:netlink_route_socket { nlmsg_read nlmsg_write };
