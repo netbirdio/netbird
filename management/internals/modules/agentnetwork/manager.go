@@ -118,7 +118,9 @@ type PolicySelectionInput struct {
 // group dimension applies. WindowSeconds is the chosen policy's
 // effective window length in seconds (token_limit's wins when both
 // halves are enabled with mismatched windows; budget_limit's
-// otherwise; 0 when no caps are configured at all).
+// otherwise; 0 when no caps are configured at all). On a cap deny,
+// SelectedPolicyID instead names what blocked the request: the
+// exhausted policy, or the account budget rule for llm_account.* codes.
 type PolicySelectionResult struct {
 	Allow              bool
 	SelectedPolicyID   string
