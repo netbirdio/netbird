@@ -4,9 +4,10 @@
 usage: report.py <start-epoch> <marks-file>... > report.tsv
 
 A marks file holds one line per boundary, "<epoch> S <name>" when a feature starts and
-"<epoch> E <name>" when it ends. Records that fall in no window are reported under
-"(outside-tests)". Reads /var/log/audit/audit.log and its rotations. The "granted"
-records come from the netbirdaudit module next to this file.
+"<epoch> E <name>" when it ends. Marks files must be regular files below the current
+directory. Records that fall in no window are reported under "(outside-tests)". Reads
+/var/log/audit/audit.log and its rotations. The "granted" records come from the
+netbirdaudit module next to this file.
 """
 import glob
 import os
@@ -21,14 +22,21 @@ RECORD = re.compile(
 COMM = re.compile(r'comm="([^"]*)"')
 
 
-def read_windows(paths):
+def marks_path(arg, base):
+    path = os.path.realpath(os.path.join(base, arg))
+    if not path.startswith(base + os.sep):
+        sys.exit(f"marks file {arg} is not below {base}")
+    if not os.path.isfile(path):
+        sys.exit(f"marks file {arg} is not a regular file")
+    return path
+
+
+def read_windows(args):
+    base = os.path.realpath(os.getcwd())
     windows = []
-    for path in paths:
+    for arg in args:
         started = {}
-        path = os.path.realpath(path)
-        if not os.path.isfile(path):
-            sys.exit(f"marks file {path} is not a regular file")
-        with open(path) as marks:
+        with open(marks_path(arg, base)) as marks:
             for line in marks:
                 parts = line.split()
                 if len(parts) < 3:
@@ -48,35 +56,50 @@ def window_of(windows, stamp):
     return "(outside-tests)"
 
 
-def main():
-    since = float(sys.argv[1])
-    windows = read_windows(sys.argv[2:])
+def parse_record(line, since):
+    """Returns (stamp, verdict, perms, target, tclass, comm) for a netbird_t record, or None."""
+    if "avc:" not in line or "netbird_t" not in line:
+        return None
+    match = RECORD.search(line)
+    if not match:
+        return None
+    stamp, verdict, perms, _, source, target, tclass = match.groups()
+    if float(stamp) < since or source != "netbird_t":
+        return None
+    comm = COMM.search(line)
+    return float(stamp), verdict, perms, target, tclass, comm.group(1) if comm else "?"
 
+
+def count_records(since, windows):
     counts = defaultdict(lambda: defaultdict(int))
     commands = defaultdict(set)
     for path in sorted(glob.glob("/var/log/audit/audit.log*")):
         with open(path, errors="replace") as log:
             for line in log:
-                if "avc:" not in line or "netbird_t" not in line:
+                record = parse_record(line, since)
+                if record is None:
                     continue
-                match = RECORD.search(line)
-                if not match:
-                    continue
-                stamp, verdict, perms, _, source, target, tclass = match.groups()
-                if float(stamp) < since or source != "netbird_t":
-                    continue
-                comm = COMM.search(line)
-                name = comm.group(1) if comm else "?"
+                stamp, verdict, perms, target, tclass, name = record
                 for perm in perms.split():
                     key = (verdict, tclass, perm, target)
-                    counts[key][window_of(windows, float(stamp))] += 1
+                    counts[key][window_of(windows, stamp)] += 1
                     commands[key].add(name)
+    return counts, commands
 
+
+def print_report(counts, commands):
     print("verdict\tclass\tperm\ttarget\tcommands\ttotal\tscenarios")
     for key in sorted(counts):
         per_window = counts[key]
         top = ",".join(f"{w}:{n}" for w, n in sorted(per_window.items(), key=lambda x: -x[1]))
         print("\t".join([*key, ",".join(sorted(commands[key])), str(sum(per_window.values())), top]))
+
+
+def main():
+    since = float(sys.argv[1])
+    windows = read_windows(sys.argv[2:])
+    counts, commands = count_records(since, windows)
+    print_report(counts, commands)
 
 
 if __name__ == "__main__":
