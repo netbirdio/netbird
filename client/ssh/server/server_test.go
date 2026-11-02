@@ -87,6 +87,49 @@ func TestServer_RejectsConnectionAfterStop(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF, "a connection accepted after Stop must be closed, not served")
 }
 
+// TestServer_RemoveRemoteForwardListenerIfCurrent verifies that a forward's accept-loop
+// goroutine removing its own map entry on exit does not clobber a newer listener that a later
+// tcpip-forward request has already stored for the same key (for example after the first
+// connection closed or was revoked and a different connection opened the same forward).
+func TestServer_RemoveRemoteForwardListenerIfCurrent(t *testing.T) {
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	server := New(&Config{HostKeyPEM: key})
+
+	lnOld, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = lnOld.Close() }()
+
+	lnNew, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = lnNew.Close() }()
+
+	const fk = forwardKey("example.com:2222")
+
+	t.Run("removes its own entry", func(t *testing.T) {
+		server.storeRemoteForwardListener(fk, lnOld)
+		server.removeRemoteForwardListenerIfCurrent(fk, lnOld)
+
+		server.mu.RLock()
+		_, exists := server.remoteForwardListeners[fk]
+		server.mu.RUnlock()
+		assert.False(t, exists, "the listener's own entry should be removed")
+	})
+
+	t.Run("leaves a newer entry for the same key alone", func(t *testing.T) {
+		server.storeRemoteForwardListener(fk, lnOld)
+		server.storeRemoteForwardListener(fk, lnNew) // a later forward reused the key
+
+		server.removeRemoteForwardListenerIfCurrent(fk, lnOld) // the old goroutine exits late
+
+		server.mu.RLock()
+		current, exists := server.remoteForwardListeners[fk]
+		server.mu.RUnlock()
+		assert.True(t, exists, "the newer listener must stay registered")
+		assert.Same(t, lnNew, current, "the newer listener must not be replaced or removed")
+	})
+}
+
 func TestSSHServerIntegration(t *testing.T) {
 	// Generate host key for server
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
