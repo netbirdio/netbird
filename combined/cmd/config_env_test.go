@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -276,4 +277,53 @@ func TestLocalPeerAuthKeys_NoSigningKey(t *testing.T) {
 	keys, err := localPeerAuthKeys(&CombinedConfig{})
 	require.NoError(t, err)
 	assert.Empty(t, keys.Ed25519, "without a signing key no bound token is issued, so none is verified")
+}
+
+func TestEnsurePeerAuthSigningKey(t *testing.T) {
+	cfgWith := func(path string) *CombinedConfig {
+		cfg := &CombinedConfig{}
+		cfg.Server.PeerAuth.SigningKeyFile = path
+		return cfg
+	}
+
+	t.Run("missing file is generated", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "peer_auth.pem")
+		require.NoError(t, EnsurePeerAuthSigningKey(context.Background(), cfgWith(path)))
+
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Len(t, entries, 1, "the temporary file must be removed")
+		assert.Equal(t, "peer_auth.pem", entries[0].Name())
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the private key must be readable by the owner only")
+
+		key, err := peerauth.LoadSigningKeyFile(path)
+		require.NoError(t, err, "the generated key must load as Management loads it")
+		keys, err := localPeerAuthKeys(cfgWith(path))
+		require.NoError(t, err)
+		assert.Equal(t, []peerauth.KeyID{peerauth.Ed25519KeyID(key.Public().(ed25519.PublicKey))}, keys.KeyIDs(),
+			"the local Relay and Signal must verify with the generated key")
+	})
+
+	t.Run("existing file is kept", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "peer_auth.pem")
+		require.NoError(t, EnsurePeerAuthSigningKey(context.Background(), cfgWith(path)))
+		before, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		require.NoError(t, EnsurePeerAuthSigningKey(context.Background(), cfgWith(path)))
+		after, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, before, after, "an existing key must never be replaced, or every issued token stops verifying")
+	})
+
+	t.Run("parent is not a directory", func(t *testing.T) {
+		notADir := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(notADir, nil, 0o600))
+		path := filepath.Join(notADir, "peer_auth.pem")
+		assert.Error(t, EnsurePeerAuthSigningKey(context.Background(), cfgWith(path)), "a key that cannot be created must fail startup")
+	})
 }

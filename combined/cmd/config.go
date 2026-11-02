@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -832,6 +835,34 @@ func EnsureEncryptionKey(ctx context.Context, cfg *nbconfig.Config) error {
 	keyPreview := key[:8] + "..."
 	log.WithContext(ctx).Warnf("DataStoreEncryptionKey generated (%s); add it to your config file under 'server.store.encryptionKey' to persist across restarts", keyPreview)
 
+	return nil
+}
+
+// EnsurePeerAuthSigningKey creates the configured peer auth signing key when the file does not
+// exist yet. Unlike a standalone Management, which may run several instances that must share
+// one key, a combined server is the only signer and its local Relay and Signal derive the public
+// key from the same file. No configured file leaves peer auth off.
+func EnsurePeerAuthSigningKey(ctx context.Context, cfg *CombinedConfig) error {
+	path := cfg.Server.PeerAuth.SigningKeyFile
+	if path == "" {
+		return nil
+	}
+	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		return err
+	}
+
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generate peer auth signing key: %w", err)
+	}
+	data, err := peerauth.MarshalSigningKeyPEM(key)
+	if err != nil {
+		return err
+	}
+	if err := util.WriteBytesWithRestrictedPermission(ctx, path, data); err != nil {
+		return fmt.Errorf("write peer auth signing key: %w", err)
+	}
+	log.Infof("generated peer auth signing key %s", path)
 	return nil
 }
 

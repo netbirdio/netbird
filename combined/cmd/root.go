@@ -223,6 +223,10 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
 		return nil, fmt.Errorf("failed to setup TLS config: %w", err)
 	}
 
+	if err := EnsurePeerAuthSigningKey(ctx, cfg); err != nil {
+		return nil, err
+	}
+
 	if err := servers.createRelayServer(cfg, tlsSupport); err != nil {
 		return nil, err
 	}

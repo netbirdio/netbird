@@ -31,7 +31,9 @@ func TestParseSigningKeyPEM(t *testing.T) {
 	t.Run("round trip", func(t *testing.T) {
 		_, priv, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
-		key, err := ParseSigningKeyPEM(pkcs8PEM(t, pemTypePrivateKey, priv))
+		data, err := MarshalSigningKeyPEM(priv)
+		require.NoError(t, err)
+		key, err := ParseSigningKeyPEM(data)
 		require.NoError(t, err)
 		assert.Equal(t, priv, key, "the parsed key must be the encoded key")
 	})

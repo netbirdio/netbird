@@ -25,6 +25,16 @@ func LoadSigningKeyFile(path string) (ed25519.PrivateKey, error) {
 	return key, nil
 }
 
+// MarshalSigningKeyPEM encodes Management's Ed25519 signing key as a PEM PKCS#8 block, the format
+// ParseSigningKeyPEM reads.
+func MarshalSigningKeyPEM(key ed25519.PrivateKey) ([]byte, error) {
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal PKCS#8: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: pemTypePrivateKey, Bytes: der}), nil
+}
+
 // ParseSigningKeyPEM parses Management's Ed25519 signing key from a PEM PKCS#8 block, the format
 // `openssl genpkey -algorithm ed25519` writes.
 func ParseSigningKeyPEM(data []byte) (ed25519.PrivateKey, error) {
