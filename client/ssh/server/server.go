@@ -125,6 +125,8 @@ type connState struct {
 	remoteAddr   net.Addr
 	portForwards []string
 	jwtUsername  string
+	// conn is the network connection, closed when jwtUsername loses authorization.
+	conn net.Conn
 }
 
 // authKey uniquely identifies an authentication attempt by username and remote address.
@@ -137,6 +139,10 @@ type connKey string
 
 // preAuthConnKey is the context key under which the connection being authenticated is stored.
 type preAuthConnKey struct{}
+
+// netConnContextKey is the ssh.Context key under which connectionValidator leaves
+// the network connection for passwordHandler.
+type netConnContextKey struct{}
 
 func newAuthKey(username string, remoteAddr net.Addr) authKey {
 	return authKey(fmt.Sprintf("%s@%s", username, remoteAddr.String()))
@@ -167,6 +173,10 @@ type Server struct {
 	// connections tracks all SSH connections by their remote address.
 	// Populated at authentication time, stores JWT username and port forwards for status display.
 	connections map[connKey]*connState
+
+	// openConns tracks every accepted connection until it is closed.
+	// The SSH library only tracks a connection once it has authenticated, so Stop closes the others from here.
+	openConns map[*trackedConn]struct{}
 
 	allowLocalPortForwarding  bool
 	allowRemotePortForwarding bool
@@ -223,7 +233,7 @@ type SessionInfo struct {
 }
 
 // New creates an SSH server instance with the provided host key and optional JWT configuration
-// If jwtConfig is nil, JWT authentication is disabled
+// If config.JWT is nil, JWT authentication is disabled.
 func New(config *Config) *Server {
 	s := &Server{
 		mu:                     sync.RWMutex{},
@@ -232,6 +242,7 @@ func New(config *Config) *Server {
 		pendingAuthJWT:         make(map[authKey]string),
 		remoteForwardListeners: make(map[forwardKey]net.Listener),
 		connections:            make(map[connKey]*connState),
+		openConns:              make(map[*trackedConn]struct{}),
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
 		authorizer:             sshauth.NewAuthorizer(),
@@ -274,10 +285,28 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 
 	go func() {
 		if err := sshServer.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
-			log.Errorf("SSH server error: %v", err)
+			s.logServeError("SSH server error", sshServer, err)
 		}
 	}()
 	return nil
+}
+
+// logServeError logs an error returned by a gliderlabs/ssh Server's Serve call. Closing our
+// own listener explicitly as a Stop safeguard can race gliderlabs/ssh's own bookkeeping (it
+// resets its shutdown signal when a listener registers as the first one), so Serve can return
+// a raw "closed network connection" error instead of ssh.ErrServerClosed even on an intentional
+// stop. Log at Debug when srv is no longer the server's current one (Stop or a new Start already
+// ran), and at Error only when Serve failed while still expected to be running.
+func (s *Server) logServeError(msg string, srv *ssh.Server, err error) {
+	s.mu.RLock()
+	stopped := s.sshServer != srv
+	s.mu.RUnlock()
+
+	if stopped {
+		log.Debugf("%s: %v", msg, err)
+		return
+	}
+	log.Errorf("%s: %v", msg, err)
 }
 
 // AddListener starts serving SSH on an additional address (e.g. IPv6).
@@ -303,7 +332,7 @@ func (s *Server) AddListener(ctx context.Context, addr netip.AddrPort) error {
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
-			log.Errorf("SSH server error on %s: %v", addrDesc, err)
+			s.logServeError(fmt.Sprintf("SSH server error on %s", addrDesc), srv, err)
 		}
 	}()
 	return nil
@@ -336,7 +365,9 @@ func (s *Server) closeListener(ln net.Listener) {
 	}
 }
 
-// Stop closes the SSH server
+// Stop closes the SSH server, including connections still authenticating and
+// remote forwarding listeners, and clears session and connection state.
+// It does nothing if already stopped and always returns nil, even if closing fails.
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	sshServer := s.sshServer
@@ -345,14 +376,30 @@ func (s *Server) Stop() error {
 		return nil
 	}
 	s.sshServer = nil
+	listener := s.listener
 	s.listener = nil
 	extraListeners := s.extraListeners
 	s.extraListeners = nil
+	openConns := maps.Keys(s.openConns)
 	s.mu.Unlock()
 
 	// Close outside the lock: session handlers need s.mu for unregisterSession.
 	if err := sshServer.Close(); err != nil {
 		log.Debugf("close SSH server: %v", err)
+	}
+
+	// sshServer.Close only closes listeners its Serve goroutine has already registered via
+	// trackListener. A fast Start/Stop flap can race that registration, leaving the listener
+	// open even though sshServer.Close returned; close it explicitly as a safeguard, the same
+	// way extraListeners are.
+	s.closeListener(listener)
+
+	// sshServer.Close only closes authenticated connections. One still in the handshake
+	// would otherwise stay open and be able to log in to the stopped server.
+	for _, conn := range openConns {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Debugf("close SSH connection from %s: %v", conn.remoteAddr, err)
+		}
 	}
 
 	for _, ln := range extraListeners {
@@ -469,15 +516,43 @@ func (s *Server) SetNetworkValidation(addr wgaddr.Address) {
 
 // UpdateSSHAuth updates the SSH fine-grained access control configuration
 // This should be called when network map updates include new SSH auth configuration
+// Connections of users the new configuration no longer authorizes are closed.
 func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Reset JWT validator/extractor to pick up new userIDClaim
 	s.jwtValidator = nil
 	s.jwtExtractor = nil
 
 	s.authorizer.Update(config)
+	revoked := s.revokedConnections()
+	s.mu.Unlock()
+
+	// Close outside the lock: trackedConn.Close needs s.mu for handleConnectionClose.
+	for _, conn := range revoked {
+		if err := conn.Close(); err != nil {
+			log.Debugf("close revoked SSH connection: %v", err)
+		}
+	}
+}
+
+// revokedConnections returns the established connections that would not pass
+// passwordHandler's authorization anymore. Authorization is checked once per
+// connection, so these have to go along with their sessions and port forwards.
+// Must be called with s.mu held.
+func (s *Server) revokedConnections() []net.Conn {
+	var revoked []net.Conn
+	for _, state := range s.connections {
+		// Connection not authorized by JWT (non-JWT auth path)
+		if state.conn == nil {
+			continue
+		}
+		if _, err := s.authorizer.Authorize(state.jwtUsername, state.username); err != nil {
+			s.connLogger(state).Warnf("SSH auth revoked, closing connection: %v", err)
+			revoked = append(revoked, state.conn)
+		}
+	}
+	return revoked
 }
 
 // JWTConfig returns the JWT authentication this server was built with, or nil
@@ -721,28 +796,36 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 
 	logger = logger.WithField("jwt_user", userAuth.UserId)
 
-	s.mu.RLock()
-	authorizer := s.authorizer
-	s.mu.RUnlock()
+	netConn, ok := ctx.Value(netConnContextKey{}).(net.Conn)
+	if !ok {
+		logger.Errorf("SSH auth denied: no network connection in context")
+		return false
+	}
 
-	msg, err := authorizer.Authorize(userAuth.UserId, osUsername)
+	key := newAuthKey(osUsername, remoteAddr)
+	remoteAddrStr := ctx.RemoteAddr().String()
+
+	// Authorize and register under one lock: a concurrent UpdateSSHAuth either
+	// is taken into account here or finds the connection registered.
+	s.mu.Lock()
+	msg, err := s.authorizer.Authorize(userAuth.UserId, osUsername)
+	if err == nil {
+		s.pendingAuthJWT[key] = userAuth.UserId
+		s.connections[connKey(remoteAddrStr)] = &connState{
+			username:    ctx.User(),
+			remoteAddr:  ctx.RemoteAddr(),
+			jwtUsername: userAuth.UserId,
+			conn:        netConn,
+		}
+	}
+	s.mu.Unlock()
+
 	if err != nil {
 		logger.Warnf("SSH auth denied: %v", err)
 		return false
 	}
 
 	logger.Infof("SSH auth %s", msg)
-
-	key := newAuthKey(osUsername, remoteAddr)
-	remoteAddrStr := ctx.RemoteAddr().String()
-	s.mu.Lock()
-	s.pendingAuthJWT[key] = userAuth.UserId
-	s.connections[connKey(remoteAddrStr)] = &connState{
-		username:    ctx.User(),
-		remoteAddr:  ctx.RemoteAddr(),
-		jwtUsername: userAuth.UserId,
-	}
-	s.mu.Unlock()
 
 	return true
 }
@@ -790,19 +873,49 @@ type trackedConn struct {
 	onceClose  sync.Once
 }
 
+// Close closes the underlying connection and removes its server tracking once,
+// even if closing fails. It returns the underlying connection's close error.
 func (c *trackedConn) Close() error {
 	err := c.Conn.Close()
 	c.onceClose.Do(func() {
-		c.server.handleConnectionClose(c.remoteAddr)
+		c.server.handleConnectionClose(c)
 	})
 	return err
 }
 
-func (s *Server) handleConnectionClose(remoteAddr string) {
+// trackConn wraps an accepted connection, registers it so Stop can close it, and leaves it
+// in ctx so passwordHandler can record it on the connection state. It returns nil if ctx
+// identifies a stopped or replaced SSH server. The SSH server closes the original
+// connection when this callback returns nil.
+func (s *Server) trackConn(ctx ssh.Context, conn net.Conn) net.Conn {
+	tracked := &trackedConn{
+		Conn:       conn,
+		server:     s,
+		remoteAddr: conn.RemoteAddr().String(),
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	key := connKey(remoteAddr)
+	if s.sshServer == nil || ctx.Value(ssh.ContextKeyServer) != s.sshServer {
+		log.Debugf("SSH connection from %s rejected: server stopped", tracked.remoteAddr)
+		return nil
+	}
+
+	s.openConns[tracked] = struct{}{}
+	ctx.SetValue(netConnContextKey{}, tracked)
+	return tracked
+}
+
+// handleConnectionClose removes conn from shutdown tracking and removes the
+// connection status associated with its remote address.
+func (s *Server) handleConnectionClose(conn *trackedConn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.openConns, conn)
+
+	key := connKey(conn.remoteAddr)
 	state, exists := s.connections[key]
 	if exists && len(state.portForwards) > 0 {
 		s.connLogger(state).Info("port forwarding connection closed")
@@ -844,13 +957,17 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) sessionKey {
 	return "unknown"
 }
 
-func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
+// connectionValidator returns a tracked connection, or nil to reject it.
+// With a valid configured IPv4 address and network, only TCP peers in the NetBird
+// IPv4 or IPv6 subnet are allowed, excluding the server's own IPs. Otherwise,
+// network filtering is skipped. Stopped or replaced SSH servers are always rejected.
+func (s *Server) connectionValidator(ctx ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()
 	wgAddr := s.wgAddress
 	s.mu.RUnlock()
 
 	if !wgAddr.Network.IsValid() || !wgAddr.IP.IsValid() {
-		return conn
+		return s.trackConn(ctx, conn)
 	}
 
 	remoteAddr := conn.RemoteAddr()
@@ -881,11 +998,7 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	}
 
 	log.Infof("SSH connection from NetBird peer %s allowed", tcpAddr)
-	return &trackedConn{
-		Conn:       conn,
-		server:     s,
-		remoteAddr: conn.RemoteAddr().String(),
-	}
+	return s.trackConn(ctx, conn)
 }
 
 func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
@@ -963,6 +1076,19 @@ func (s *Server) removeRemoteForwardListener(key forwardKey) bool {
 	}
 
 	return true
+}
+
+// removeRemoteForwardListenerIfCurrent deletes the map entry for key, but only when it still
+// holds ln. The forward's accept-loop goroutine calls this on exit (connection closed or
+// revoked, with no explicit cancel-tcpip-forward); the guard keeps it from deleting a fresh
+// listener that a later tcpip-forward request may already have stored for the same key.
+func (s *Server) removeRemoteForwardListenerIfCurrent(key forwardKey, ln net.Listener) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if current, exists := s.remoteForwardListeners[key]; exists && current == ln {
+		delete(s.remoteForwardListeners, key)
+	}
 }
 
 func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {

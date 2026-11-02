@@ -35,8 +35,7 @@ type managerImpl struct {
 	accountManager     account.Manager
 }
 
-type mockManager struct {
-}
+type mockManager struct{}
 
 func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
 	return &managerImpl{
@@ -177,6 +176,10 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
+	if change.IsEmpty() {
+		return router, nil
+	}
+
 	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
 
 	return router, nil
@@ -205,6 +208,10 @@ func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction
 	// UpdateNetworkRouter (which does Updates(router) with Select("*"))
 	// doesn't clobber it with the request's zero value.
 	router.PublicID = existing.PublicID
+
+	if router.Equal(existing) {
+		return network, nil, affectedpeers.Change{}, nil
+	}
 
 	if err = transaction.UpdateNetworkRouter(ctx, router); err != nil {
 		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to update network router: %w", err)
