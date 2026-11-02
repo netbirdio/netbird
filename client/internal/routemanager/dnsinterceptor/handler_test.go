@@ -48,8 +48,9 @@ func (mockWGIface) GetInterfaceGUIDString() (string, error) { return "", nil }
 
 // allowedIPsRecorder records the AllowedIPs the interceptor hands to the device per peer.
 type allowedIPsRecorder struct {
-	mu   sync.Mutex
-	adds map[string][]netip.Prefix
+	mu      sync.Mutex
+	adds    map[string][]netip.Prefix
+	removes map[string][]netip.Prefix
 }
 
 func (r *allowedIPsRecorder) counter() *refcounter.AllowedIPsRefCounter {
@@ -63,8 +64,22 @@ func (r *allowedIPsRecorder) counter() *refcounter.AllowedIPsRefCounter {
 			r.adds[peerKey] = append(r.adds[peerKey], prefix)
 			return peerKey, nil
 		},
-		func(netip.Prefix, string) error { return nil },
+		func(prefix netip.Prefix, peerKey string) error {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if r.removes == nil {
+				r.removes = map[string][]netip.Prefix{}
+			}
+			r.removes[peerKey] = append(r.removes[peerKey], prefix)
+			return nil
+		},
 	)
+}
+
+func (r *allowedIPsRecorder) removed(peerKey string) []netip.Prefix {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.removes[peerKey]
 }
 
 func (r *allowedIPsRecorder) added(peerKey string) []netip.Prefix {
@@ -215,11 +230,16 @@ func TestWriteMsg_MappedAAAAAnswerIsTrackedAsIPv4(t *testing.T) {
 
 // An answer whose addresses are all rejected withdraws what an earlier answer installed.
 func TestWriteMsg_RejectedOnlyAnswerWithdrawsEarlierRoutes(t *testing.T) {
+	var routesRemoved []netip.Prefix
 	routeCounter := refcounter.New(
 		func(netip.Prefix, struct{}) (struct{}, error) { return struct{}{}, nil },
-		func(netip.Prefix, struct{}) error { return nil },
+		func(prefix netip.Prefix, _ struct{}) error {
+			routesRemoved = append(routesRemoved, prefix)
+			return nil
+		},
 	)
-	d := newTestInterceptor(t, routeCounter, &allowedIPsRecorder{})
+	allowedIPs := &allowedIPsRecorder{}
+	d := newTestInterceptor(t, routeCounter, allowedIPs)
 	require.NoError(t, d.AddAllowedIPs(testRoutingPeer))
 	logger := log.NewEntry(log.StandardLogger())
 
@@ -238,4 +258,7 @@ func TestWriteMsg_RejectedOnlyAnswerWithdrawsEarlierRoutes(t *testing.T) {
 
 	query(testPeerAddr.Addr())
 	assert.Empty(t, d.interceptedDomains["app.corp.example."], "the earlier route must be withdrawn")
+	assert.Equal(t, []netip.Prefix{testRemoteAddr}, routesRemoved, "the route must be removed")
+	assert.Equal(t, []netip.Prefix{testRemoteAddr}, allowedIPs.removed(testRoutingPeer),
+		"the AllowedIP must be removed from the routing peer")
 }

@@ -345,70 +345,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 	r.MsgHdr.Zero = false
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
-		origPattern := ""
-		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
-			origPattern = writer.GetOrigPattern()
-		}
-
-		resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
-
-		// already punycode via RegisterHandler()
-		originalDomain := domain.Domain(origPattern)
-		if originalDomain == "" {
-			originalDomain = resolvedDomain
-		}
-
-		var newPrefixes []netip.Prefix
-		var rejected bool
-		for _, answer := range r.Answer {
-			var ip netip.Addr
-			switch rr := answer.(type) {
-			case *dns.A:
-				addr, ok := netip.AddrFromSlice(rr.A)
-				if !ok {
-					logger.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
-					continue
-				}
-				ip = addr
-			case *dns.AAAA:
-				addr, ok := netip.AddrFromSlice(rr.AAAA)
-				if !ok {
-					logger.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
-					continue
-				}
-				ip = addr
-			default:
-				continue
-			}
-
-			ip = ip.Unmap()
-			if !d.isRoutableAddr(ip) {
-				rejected = true
-				logger.Warnf("ignoring a DNS answer address from the routing peer: not routable via peer")
-				logger.Debugf("ignoring address %s answered for domain=%s by the routing peer: not routable via peer", ip, resolvedDomain.SafeString())
-				continue
-			}
-
-			prefix := netip.PrefixFrom(ip, ip.BitLen())
-			newPrefixes = append(newPrefixes, prefix)
-		}
-
-		// An answer whose addresses were all rejected still reconciles, so the
-		// routes of an earlier accepted answer are withdrawn.
-		if len(newPrefixes) > 0 || rejected {
-			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
-				logger.Errorf("failed to update domain prefixes: %v", err)
-			}
-
-			if len(newPrefixes) > 0 {
-				// Allow time for route changes to be applied before sending
-				// the DNS response (relevant on iOS where setTunnelNetworkSettings
-				// is asynchronous).
-				waitForRouteSettlement(logger)
-
-				d.replaceIPsInDNSResponse(r, newPrefixes, logger)
-			}
-		}
+		d.reconcileAnswer(w, r, logger)
 	}
 
 	if err := w.WriteMsg(r); err != nil {
@@ -416,6 +353,68 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 	}
 
 	return nil
+}
+
+// reconcileAnswer updates the routes of the answered domain to the addresses of the
+// response that are routable via the peer, and swaps them for fake IPs where used.
+func (d *DnsInterceptor) reconcileAnswer(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) {
+	origPattern := ""
+	if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
+		origPattern = writer.GetOrigPattern()
+	}
+
+	resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
+
+	// already punycode via RegisterHandler()
+	originalDomain := domain.Domain(origPattern)
+	if originalDomain == "" {
+		originalDomain = resolvedDomain
+	}
+
+	newPrefixes, rejected := d.routablePrefixes(r.Answer, resolvedDomain, logger)
+
+	// An answer whose addresses were all rejected still reconciles, so the
+	// routes of an earlier accepted answer are withdrawn.
+	if len(newPrefixes) == 0 && !rejected {
+		return
+	}
+
+	if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
+		logger.Errorf("failed to update domain prefixes: %v", err)
+	}
+
+	// Allow time for route changes to be applied before sending
+	// the DNS response (relevant on iOS where setTunnelNetworkSettings
+	// is asynchronous).
+	waitForRouteSettlement(logger)
+
+	if len(newPrefixes) > 0 {
+		d.replaceIPsInDNSResponse(r, newPrefixes, logger)
+	}
+}
+
+// routablePrefixes returns the host prefixes of the A and AAAA answers that are routable
+// via the peer, and whether any such answer was refused.
+func (d *DnsInterceptor) routablePrefixes(answers []dns.RR, resolvedDomain domain.Domain, logger *log.Entry) ([]netip.Prefix, bool) {
+	var prefixes []netip.Prefix
+	var rejected bool
+	for _, answer := range answers {
+		ip, ok := answerAddr(answer, resolvedDomain, logger)
+		if !ok {
+			continue
+		}
+
+		ip = ip.Unmap()
+		if !d.isRoutableAddr(ip) {
+			rejected = true
+			logger.Warnf("ignoring a DNS answer address from the routing peer: not routable via peer")
+			logger.Debugf("ignoring address %s answered for domain=%s by the routing peer: not routable via peer", ip, resolvedDomain.SafeString())
+			continue
+		}
+
+		prefixes = append(prefixes, netip.PrefixFrom(ip, ip.BitLen()))
+	}
+	return prefixes, rejected
 }
 
 // logPrefixChanges handles the logging for prefix changes
@@ -678,4 +677,24 @@ func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) str
 	}
 
 	return fmt.Sprintf(" (peer %s)", nbdns.FormatPeerStatus(&peerState))
+}
+
+// answerAddr extracts the address of an A or AAAA record.
+func answerAddr(answer dns.RR, resolvedDomain domain.Domain, logger *log.Entry) (netip.Addr, bool) {
+	switch rr := answer.(type) {
+	case *dns.A:
+		addr, ok := netip.AddrFromSlice(rr.A)
+		if !ok {
+			logger.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
+		}
+		return addr, ok
+	case *dns.AAAA:
+		addr, ok := netip.AddrFromSlice(rr.AAAA)
+		if !ok {
+			logger.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
+		}
+		return addr, ok
+	default:
+		return netip.Addr{}, false
+	}
 }
