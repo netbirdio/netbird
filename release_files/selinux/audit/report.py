@@ -11,6 +11,7 @@ under the closest one, and any other under "(outside-tests)". Reads /var/log/aud
 and its rotations. The "granted" records come from the netbirdaudit module next to this file.
 """
 import glob
+import math
 import re
 import sys
 from collections import defaultdict
@@ -32,6 +33,8 @@ def read_windows(marks):
         try:
             stamp = float(parts[0])
         except ValueError:
+            stamp = math.nan
+        if not math.isfinite(stamp):
             sys.exit(f"report.py: invalid mark timestamp {parts[0]!r}")
         kind, name = parts[1], parts[2]
         if kind == "S":
@@ -45,7 +48,7 @@ def read_windows(marks):
         else:
             sys.exit(f"report.py: unknown mark kind {kind!r} for window {name}, expected S or E")
     if started:
-        sys.exit(f"report.py: window {sorted(started)[0]} has no end")
+        sys.exit(f"report.py: window {min(started)} has no end")
     return windows
 
 
