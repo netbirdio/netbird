@@ -3,7 +3,6 @@ package peerauth
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 
 type fixture struct {
 	mgmtPriv ed25519.PrivateKey
-	secret   []byte
 	authPriv ed25519.PrivateKey
 	wg       wgtypes.Key
 	token    []byte
@@ -25,37 +23,25 @@ type fixture struct {
 
 func newFixture(t *testing.T, svc Service) *fixture {
 	t.Helper()
-	return newFixtureWithAlgo(t, svc, AlgoEd25519)
-}
-
-func newFixtureWithAlgo(t *testing.T, svc Service, algo Algo) *fixture {
-	t.Helper()
 	mgmtPub, mgmtPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	authPub, authPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	wgPriv, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
-	secret := []byte("relay-and-signal-shared-secret-32")
 
 	now := time.Unix(1_800_000_000, 0)
 	content := Token{Expiry: now.Add(time.Hour), WGPub: wgPriv.PublicKey(), AuthPub: authPub}
 	f := &fixture{
 		mgmtPriv: mgmtPriv,
-		secret:   secret,
 		authPriv: authPriv,
 		wg:       wgPriv.PublicKey(),
 		now:      now,
 		verifier: &Verifier{Service: svc, Hostnames: []string{"relay.netbird.io", "eu-1.relay.netbird.io"}, Skew: DefaultSkew},
 	}
-	if algo == AlgoHMACSHA256 {
-		f.token, err = IssueHMACToken(secret, content)
-		f.verifier.Keys = TokenKeys{HMAC: secret}
-	} else {
-		f.token, err = IssueEd25519Token(mgmtPriv, content)
-		require.NoError(t, err)
-		f.verifier.Keys, err = NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
-	}
+	f.token, err = IssueEd25519Token(mgmtPriv, content)
+	require.NoError(t, err)
+	f.verifier.Keys, err = NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
 	require.NoError(t, err)
 	return f
 }
@@ -168,6 +154,14 @@ func TestValidateHostnames(t *testing.T) {
 	assert.Error(t, ValidateHostnames([]string{""}), "an empty entry")
 }
 
+// A malformed key must be an error, not a panic inside ed25519.Sign.
+func TestMalformedKeysAreRefused(t *testing.T) {
+	_, err := SignProof(make(ed25519.PrivateKey, 31), ServiceRelay, []byte("token"), "relay.example.com", time.Now())
+	assert.Error(t, err, "a wrong-size auth key must be refused")
+	_, err = IssueEd25519Token(nil, Token{})
+	assert.Error(t, err, "a missing signing key must be refused")
+}
+
 // Without the timestamp check a proof is valid as long as its token, whatever the peer clock;
 // the signature still covers the timestamp, and the token expiry still applies.
 func TestVerify_NoSkewSkipsTimestampCheck(t *testing.T) {
@@ -241,12 +235,10 @@ func TestFromMetadata_MissingVsMalformed(t *testing.T) {
 }
 
 func TestVerifyToken_RejectsUnsafeKeys(t *testing.T) {
-	f := newFixtureWithAlgo(t, ServiceRelay, AlgoHMACSHA256)
+	ed := newFixture(t, ServiceRelay)
+	_, err := VerifyToken(ed.token, TokenKeys{}, ed.now)
+	assert.ErrorIs(t, err, ErrKeyConfig, "a verifier without keys must be refused")
 
-	_, err := VerifyToken(f.token, TokenKeys{HMAC: []byte("short")}, f.now)
-	assert.ErrorIs(t, err, ErrKeyConfig, "a short HMAC secret must be refused")
-
-	ed := newFixtureWithAlgo(t, ServiceRelay, AlgoEd25519)
 	_, err = VerifyToken(ed.token, TokenKeys{Ed25519: map[KeyID]ed25519.PublicKey{7: make([]byte, 31)}}, ed.now)
 	assert.ErrorIs(t, err, ErrKeyConfig, "a wrong-size Ed25519 key must be refused, not panic")
 
@@ -280,56 +272,23 @@ func TestNewEd25519Keys(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyConfig, "a wrong-size key must be refused")
 }
 
-func TestIssueHMACToken_KeyIDIsFixed(t *testing.T) {
-	f := newFixtureWithAlgo(t, ServiceRelay, AlgoHMACSHA256)
-	tok, err := VerifyToken(f.token, f.verifier.Keys, f.now)
-	require.NoError(t, err)
-	assert.Equal(t, HMACKeyID, tok.KeyID, "HMAC tokens carry the fixed key ID")
+// A valid token relabelled with another algorithm must be refused on the algorithm alone: every
+// holder of the relay secret could otherwise produce one.
+func TestVerifyToken_HMACTokenRejected(t *testing.T) {
+	f := newFixture(t, ServiceRelay)
+	hmacToken := append([]byte(nil), f.token...)
+	hmacToken[0] = 1
 
-	other := append([]byte(nil), f.token...)
-	other[1+sha256.Size+3] ^= 1
-	_, err = VerifyToken(other, f.verifier.Keys, f.now)
-	assert.ErrorIs(t, err, ErrUnknownKeyID, "an HMAC token with another key ID must be refused")
-}
-
-func TestVerify_HMACRoundTrip(t *testing.T) {
-	f := newFixtureWithAlgo(t, ServiceRelay, AlgoHMACSHA256)
-	p, err := SignProof(f.authPriv, ServiceRelay, f.token, "relay.netbird.io", f.now)
-	require.NoError(t, err)
-
-	tok, err := f.verifier.Verify(f.token, p, f.now)
-	require.NoError(t, err)
-	assert.Equal(t, AlgoHMACSHA256, tok.Algo, "token must report the algorithm it was issued with")
-	assert.Equal(t, f.wg, tok.WGPub, "token must carry the WireGuard key it was issued for")
-}
-
-func TestVerifyToken_ModesAreMutuallyExclusive(t *testing.T) {
-	ed := newFixtureWithAlgo(t, ServiceRelay, AlgoEd25519)
-	hm := newFixtureWithAlgo(t, ServiceRelay, AlgoHMACSHA256)
-
-	// The Ed25519 verifier also knows the secret an attacker may have stolen from any node.
-	hmacToken, err := IssueHMACToken(hm.secret, Token{Expiry: ed.now.Add(time.Hour), WGPub: ed.wg, AuthPub: ed.authPriv.Public().(ed25519.PublicKey)})
-	require.NoError(t, err)
-	_, err = VerifyToken(hmacToken, ed.verifier.Keys, ed.now)
-	assert.ErrorIs(t, err, ErrAlgoNotAccepted, "an Ed25519 verifier must reject HMAC tokens")
-
-	_, err = VerifyToken(ed.token, hm.verifier.Keys, hm.now)
-	assert.ErrorIs(t, err, ErrAlgoNotAccepted, "an HMAC verifier must reject Ed25519 tokens")
-
-	both := TokenKeys{HMAC: hm.verifier.Keys.HMAC, Ed25519: ed.verifier.Keys.Ed25519}
-	_, err = VerifyToken(ed.token, both, ed.now)
-	assert.ErrorIs(t, err, ErrKeyConfig, "configuring both modes must be refused")
-
-	_, err = VerifyToken(ed.token, TokenKeys{}, ed.now)
-	assert.ErrorIs(t, err, ErrKeyConfig, "configuring no mode must be refused")
+	_, err := VerifyToken(hmacToken, f.verifier.Keys, f.now)
+	assert.ErrorIs(t, err, ErrAlgoNotAccepted, "an HMAC-signed token must be refused")
 }
 
 func TestVerifyToken_LegacyRelayTokenRejected(t *testing.T) {
-	f := newFixtureWithAlgo(t, ServiceRelay, AlgoHMACSHA256)
+	f := newFixture(t, ServiceRelay)
 	// Legacy Relay token: algo 1, HMAC over the decimal expiry.
-	legacy := append([]byte{byte(AlgoHMACSHA256)}, make([]byte, 32)...)
+	legacy := append([]byte{1}, make([]byte, 32)...)
 	legacy = append(legacy, []byte("1800003600")...)
 
 	_, err := VerifyToken(legacy, f.verifier.Keys, f.now)
-	assert.ErrorIs(t, err, ErrMalformedToken)
+	assert.ErrorIs(t, err, ErrAlgoNotAccepted, "a legacy Relay token must never be taken for a bound one")
 }

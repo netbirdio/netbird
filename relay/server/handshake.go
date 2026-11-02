@@ -23,7 +23,7 @@ const (
 
 var (
 	errPeerAuthRequired      = errors.New("a token bound to the peer keys is required")
-	errPeerAuthNotConfigured = errors.New("bound token presented but peer auth is not configured")
+	errPeerAuthNotConfigured = errors.New("bound token presented but no Management public key is configured, set --peer-auth-public-keys")
 	errPeerIDMismatch        = errors.New("peer ID does not match the token")
 	errInvalidCredentials    = errors.New("invalid peer auth credentials")
 )
@@ -141,6 +141,9 @@ func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
 		return rawPeerID, fmt.Errorf("auth extension of %s (%s): %w: %w", rawPeerID, h.conn.RemoteAddr(), errInvalidCredentials, err)
 	}
 
+	if h.verifier == nil {
+		return rawPeerID, fmt.Errorf("%s (%s): %w", rawPeerID, h.conn.RemoteAddr(), errPeerAuthNotConfigured)
+	}
 	if err := h.verifyBoundToken(*rawPeerID, token, proof); err != nil {
 		return rawPeerID, fmt.Errorf("verify %s (%s): %w: %w", rawPeerID, h.conn.RemoteAddr(), errInvalidCredentials, err)
 	}
@@ -161,9 +164,6 @@ func (h *handshake) validateLegacy(peerID *messages.PeerID, token []byte) error 
 // verifyBoundToken checks the token and its proof, and that the peer ID it claims is the one of
 // the WireGuard key the token is bound to.
 func (h *handshake) verifyBoundToken(peerID messages.PeerID, token []byte, proof peerauth.Proof) error {
-	if h.verifier == nil {
-		return errPeerAuthNotConfigured
-	}
 	t, err := h.verifier.Verify(token, proof, time.Now())
 	if err != nil {
 		return err

@@ -4,22 +4,20 @@ package peerauth
 
 import (
 	"crypto/ed25519"
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// Token algorithms, numbered as the Relay token algorithms. The bytes the MAC or signature
-// covers differ from the legacy Relay token, so a legacy Relay rejects these tokens.
-const (
-	AlgoHMACSHA256 Algo = 1
-	AlgoEd25519    Algo = 2
-)
+// AlgoEd25519 is the only token algorithm. It is numbered as the Relay token algorithms, where 1
+// is the legacy HMAC token, so a legacy token is never taken for a bound one; the algorithm byte
+// leaves room for a post-quantum signature later.
+const AlgoEd25519 Algo = 2
 
 const (
 	tokenContext = "netbird-peer-auth-token-v1" //nolint:gosec // G101: domain separation label, not a credential
@@ -28,11 +26,7 @@ const (
 	sizeKeyID   = 4
 	sizeExpiry  = 8
 	payloadSize = sizeKeyID + sizeExpiry + wgtypes.KeyLen + ed25519.PublicKeySize
-
-	minHMACSecretSize = sha256.Size
-
-	// HMACKeyID is the key ID of HMAC tokens: there is a single secret and it is never rotated.
-	HMACKeyID KeyID = 0
+	tokenSize   = sizeAlgo + ed25519.SignatureSize + payloadSize
 )
 
 var (
@@ -41,7 +35,7 @@ var (
 	ErrUnknownKeyID    = errors.New("unknown token key id")
 	ErrBadTokenSig     = errors.New("invalid token signature")
 	ErrTokenExpired    = errors.New("token expired")
-	ErrKeyConfig       = errors.New("exactly one of an HMAC secret and Ed25519 keys must be set, with valid sizes and key IDs")
+	ErrKeyConfig       = errors.New("token verifier needs Management public keys of valid size, each under its derived key ID")
 )
 
 // Algo is the algorithm Management signs the token with.
@@ -60,11 +54,9 @@ type Token struct {
 	AuthPub ed25519.PublicKey
 }
 
-// TokenKeys holds what a verifier checks tokens with. HMAC and Ed25519 are mutually exclusive:
-// a verifier configured for Ed25519 never accepts an HMAC token, so a leaked secret cannot
-// downgrade it.
+// TokenKeys holds the Management public keys a verifier checks tokens with. Verifiers hold no
+// secret, so no Relay or Signal can mint a token.
 type TokenKeys struct {
-	HMAC []byte
 	// Ed25519 maps each accepted Management public key by its Ed25519KeyID; build it with
 	// NewEd25519Keys.
 	Ed25519 map[KeyID]ed25519.PublicKey
@@ -93,70 +85,66 @@ func NewEd25519Keys(pubs []ed25519.PublicKey) (TokenKeys, error) {
 	return TokenKeys{Ed25519: keys}, nil
 }
 
-// IssueHMACToken signs the token with a secret shared between Management, Signal and Relay.
-func IssueHMACToken(secret []byte, t Token) ([]byte, error) {
-	t.Algo = AlgoHMACSHA256
-	t.KeyID = HMACKeyID
-	return issue(t, sha256.Size, func(msg []byte) []byte {
-		h := hmac.New(sha256.New, secret)
-		h.Write(msg)
-		return h.Sum(nil)
-	})
-}
-
 // IssueEd25519Token signs the token with Management's private key.
 func IssueEd25519Token(priv ed25519.PrivateKey, t Token) ([]byte, error) {
+	if len(priv) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("signing key size %d", len(priv))
+	}
 	t.Algo = AlgoEd25519
 	t.KeyID = Ed25519KeyID(priv.Public().(ed25519.PublicKey))
-	return issue(t, ed25519.SignatureSize, func(msg []byte) []byte {
+	return issue(t, func(msg []byte) []byte {
 		return ed25519.Sign(priv, msg)
 	})
 }
 
-// Mode returns the only algorithm the keys accept, refusing key material that would make
-// tokens forgeable or verification panic.
-func (k TokenKeys) Mode() (Algo, error) {
-	switch {
-	case len(k.HMAC) > 0 && len(k.Ed25519) == 0:
-		if len(k.HMAC) < minHMACSecretSize {
-			return 0, ErrKeyConfig
-		}
-		return AlgoHMACSHA256, nil
-	case len(k.Ed25519) > 0 && len(k.HMAC) == 0:
-		for id, pub := range k.Ed25519 {
-			if len(pub) != ed25519.PublicKeySize || Ed25519KeyID(pub) != id {
-				return 0, ErrKeyConfig
-			}
-		}
-		return AlgoEd25519, nil
-	default:
-		return 0, ErrKeyConfig
+// KeyIDs returns the IDs of the accepted keys in ascending order, for logging.
+func (k TokenKeys) KeyIDs() []KeyID {
+	ids := make([]KeyID, 0, len(k.Ed25519))
+	for id := range k.Ed25519 {
+		ids = append(ids, id)
 	}
+	slices.Sort(ids)
+	return ids
+}
+
+// Validate refuses key material that would make verification panic or never match a token.
+func (k TokenKeys) Validate() error {
+	if len(k.Ed25519) == 0 {
+		return ErrKeyConfig
+	}
+	for id, pub := range k.Ed25519 {
+		if len(pub) != ed25519.PublicKeySize || Ed25519KeyID(pub) != id {
+			return ErrKeyConfig
+		}
+	}
+	return nil
 }
 
 // VerifyToken checks the token against the verifier keys and its expiry.
 func VerifyToken(raw []byte, keys TokenKeys, now time.Time) (*Token, error) {
-	mode, err := keys.Mode()
-	if err != nil {
+	if err := keys.Validate(); err != nil {
 		return nil, err
 	}
 	if len(raw) < sizeAlgo {
 		return nil, ErrMalformedToken
 	}
-	if algo := Algo(raw[0]); algo != mode {
+	if algo := Algo(raw[0]); algo != AlgoEd25519 {
 		return nil, fmt.Errorf("%d: %w", algo, ErrAlgoNotAccepted)
 	}
-	if len(raw) != sizeAlgo+mode.sigSize()+payloadSize {
+	if len(raw) != tokenSize {
 		return nil, ErrMalformedToken
 	}
 
-	sig := raw[sizeAlgo : sizeAlgo+mode.sigSize()]
-	payload := raw[sizeAlgo+mode.sigSize():]
-	t := parsePayload(mode, payload)
-	msg := tokenSignedMessage(mode, payload)
+	sig := raw[sizeAlgo : sizeAlgo+ed25519.SignatureSize]
+	payload := raw[sizeAlgo+ed25519.SignatureSize:]
+	t := parsePayload(payload)
 
-	if err := keys.verify(t.KeyID, msg, sig); err != nil {
-		return nil, err
+	pub, ok := keys.Ed25519[t.KeyID]
+	if !ok {
+		return nil, fmt.Errorf("%d: %w", t.KeyID, ErrUnknownKeyID)
+	}
+	if !ed25519.Verify(pub, tokenSignedMessage(payload), sig) {
+		return nil, ErrBadTokenSig
 	}
 	if !now.Before(t.Expiry) {
 		return nil, ErrTokenExpired
@@ -164,51 +152,26 @@ func VerifyToken(raw []byte, keys TokenKeys, now time.Time) (*Token, error) {
 	return t, nil
 }
 
-func (k TokenKeys) verify(id KeyID, msg, sig []byte) error {
-	if len(k.HMAC) > 0 && id == HMACKeyID {
-		h := hmac.New(sha256.New, k.HMAC)
-		h.Write(msg)
-		if !hmac.Equal(h.Sum(nil), sig) {
-			return ErrBadTokenSig
-		}
-		return nil
-	}
-	if pub, ok := k.Ed25519[id]; ok {
-		if !ed25519.Verify(pub, msg, sig) {
-			return ErrBadTokenSig
-		}
-		return nil
-	}
-	return fmt.Errorf("%d: %w", id, ErrUnknownKeyID)
-}
-
-func (a Algo) sigSize() int {
-	if a == AlgoEd25519 {
-		return ed25519.SignatureSize
-	}
-	return sha256.Size
-}
-
-func issue(t Token, sigSize int, sign func([]byte) []byte) ([]byte, error) {
+func issue(t Token, sign func([]byte) []byte) ([]byte, error) {
 	if len(t.AuthPub) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("auth public key size %d", len(t.AuthPub))
 	}
 
-	buf := make([]byte, sizeAlgo+sigSize+payloadSize)
+	buf := make([]byte, tokenSize)
 	buf[0] = byte(t.Algo)
-	payload := buf[sizeAlgo+sigSize:]
+	payload := buf[sizeAlgo+ed25519.SignatureSize:]
 	binary.BigEndian.PutUint32(payload, uint32(t.KeyID))
 	binary.BigEndian.PutUint64(payload[sizeKeyID:], uint64(t.Expiry.Unix()))
 	copy(payload[sizeKeyID+sizeExpiry:], t.WGPub[:])
 	copy(payload[sizeKeyID+sizeExpiry+wgtypes.KeyLen:], t.AuthPub)
 
-	copy(buf[sizeAlgo:], sign(tokenSignedMessage(t.Algo, payload)))
+	copy(buf[sizeAlgo:], sign(tokenSignedMessage(payload)))
 	return buf, nil
 }
 
-func parsePayload(algo Algo, p []byte) *Token {
+func parsePayload(p []byte) *Token {
 	t := &Token{
-		Algo:    algo,
+		Algo:    AlgoEd25519,
 		KeyID:   KeyID(binary.BigEndian.Uint32(p)),
 		Expiry:  time.Unix(int64(binary.BigEndian.Uint64(p[sizeKeyID:])), 0),
 		AuthPub: make(ed25519.PublicKey, ed25519.PublicKeySize),
@@ -218,9 +181,9 @@ func parsePayload(algo Algo, p []byte) *Token {
 	return t
 }
 
-func tokenSignedMessage(algo Algo, payload []byte) []byte {
+func tokenSignedMessage(payload []byte) []byte {
 	msg := make([]byte, 0, len(tokenContext)+sizeAlgo+len(payload))
 	msg = append(msg, tokenContext...)
-	msg = append(msg, byte(algo))
+	msg = append(msg, byte(AlgoEd25519))
 	return append(msg, payload...)
 }

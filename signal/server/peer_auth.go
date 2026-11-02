@@ -47,13 +47,16 @@ type peerAuth struct {
 
 // newPeerAuth returns nil when no keys are configured.
 func newPeerAuth(cfg PeerAuthConfig) (*peerAuth, error) {
-	if len(cfg.Keys.HMAC) == 0 && len(cfg.Keys.Ed25519) == 0 {
+	if len(cfg.Keys.Ed25519) == 0 {
 		if cfg.Required {
 			return nil, errors.New("peer auth required without keys")
 		}
 		return nil, nil //nolint:nilnil // no keys: credentials are ignored
 	}
-	if _, err := cfg.Keys.Mode(); err != nil {
+	if err := cfg.Keys.Validate(); err != nil {
+		return nil, err
+	}
+	if err := peerauth.ValidateHostnames(cfg.Hostnames); err != nil {
 		return nil, err
 	}
 	verifier := &peerauth.Verifier{

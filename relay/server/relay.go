@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	"github.com/netbirdio/netbird/relay/protocol"
@@ -23,6 +24,9 @@ import (
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
 )
+
+// misconfigLogInterval bounds the error logged for every peer retry while peer auth is misconfigured.
+const misconfigLogInterval = time.Minute
 
 type Listener interface {
 	Bind() error
@@ -82,6 +86,7 @@ type Relay struct {
 	validator     Validator
 	verifier      *peerauth.Verifier
 	authRequired  bool
+	misconfigLog  *rate.Sometimes
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
@@ -131,6 +136,7 @@ func NewRelay(config Config) (*Relay, error) {
 		validator:      config.AuthValidator,
 		verifier:       verifier,
 		authRequired:   config.PeerAuth.Required,
+		misconfigLog:   &rate.Sometimes{First: 1, Interval: misconfigLogInterval},
 		instanceURL:    config.instanceURL,
 		exposedAddress: config.ExposedAddress,
 		store:          store.NewStore(),
@@ -170,7 +176,7 @@ func (r *Relay) Accept(conn listener.Conn) {
 	}
 	peerID, err := h.handshakeReceive(hsCtx)
 	if err != nil {
-		logHandshakeFailure(peerID, conn, err)
+		r.logHandshakeFailure(peerID, conn, err)
 		if cErr := conn.Close(); cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
@@ -263,10 +269,16 @@ func (r *Relay) takesOverAuthenticatedPeer(peerID messages.PeerID, authenticated
 
 // newPeerAuthVerifier returns nil when no keys are configured: bound tokens are then refused.
 func newPeerAuthVerifier(cfg PeerAuthConfig, instanceURL url.URL) (*peerauth.Verifier, error) {
-	if len(cfg.Keys.HMAC) == 0 && len(cfg.Keys.Ed25519) == 0 {
+	if len(cfg.Keys.Ed25519) == 0 {
+		if cfg.Required {
+			return nil, errors.New("peer auth required without Management public keys")
+		}
 		return nil, nil //nolint:nilnil // no keys: bound tokens are refused
 	}
-	if _, err := cfg.Keys.Mode(); err != nil {
+	if err := cfg.Keys.Validate(); err != nil {
+		return nil, err
+	}
+	if err := peerauth.ValidateHostnames(cfg.Hostnames); err != nil {
 		return nil, err
 	}
 	if len(cfg.Hostnames) > 0 && !slices.Contains(cfg.Hostnames, instanceURL.Hostname()) {
@@ -281,13 +293,23 @@ func newPeerAuthVerifier(cfg PeerAuthConfig, instanceURL url.URL) (*peerauth.Ver
 }
 
 // logHandshakeFailure logs refused peer auth credentials at debug when a peer repeats them on every
-// retry (none, or an expired token) and at info when they do not verify.
-func logHandshakeFailure(peerID *messages.PeerID, conn listener.Conn, err error) {
+// retry (none, or an expired token), at info when they do not verify, and at error, once per
+// interval, when this Relay lacks the keys to verify them.
+func (r *Relay) logHandshakeFailure(peerID *messages.PeerID, conn listener.Conn, err error) {
 	switch {
 	case peerid.IsHealthCheck(peerID):
 		log.Debugf("health check connection from %s", conn.RemoteAddr())
 	case errors.Is(err, errPeerAuthRequired), errors.Is(err, peerauth.ErrTokenExpired):
 		log.Debugf("refused peer: %s", err)
+	case errors.Is(err, errPeerAuthNotConfigured):
+		logged := false
+		r.misconfigLog.Do(func() {
+			logged = true
+			log.Errorf("refused peer: %s", err)
+		})
+		if !logged {
+			log.Debugf("refused peer: %s", err)
+		}
 	case errors.Is(err, peerauth.ErrStaleProof):
 		log.Infof("refused peer, check the peer clock: %s", err)
 	case errors.Is(err, errInvalidCredentials):

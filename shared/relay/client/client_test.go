@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"net"
 	"os"
 	"testing"
@@ -833,18 +832,29 @@ func TestClient_AuthTokenWithoutAuthKeyFails(t *testing.T) {
 func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	ctx := context.Background()
 	serverListenAddr := "127.0.0.1:51101"
-	secret := sha256.Sum256([]byte("relay-secret"))
+	mgmtPub, mgmtKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
 	serverCfg := newClientTestServerConfig(serverListenAddr)
-	serverCfg.PeerAuth = server.PeerAuthConfig{Keys: peerauth.TokenKeys{HMAC: secret[:]}}
+	serverCfg.PeerAuth = server.PeerAuthConfig{Keys: keys}
 	srv, err := server.NewServer(serverCfg)
 	require.NoError(t, err)
+	listenErr := make(chan error, 1)
 	go func() {
-		_ = srv.Listen(server.ListenerConfig{Address: serverListenAddr})
+		listenErr <- srv.Listen(server.ListenerConfig{Address: serverListenAddr})
 	}()
 	t.Cleanup(func() {
-		_ = srv.Shutdown(ctx)
+		assert.NoError(t, srv.Shutdown(ctx), "relay shutdown")
 	})
+	// Eventually runs the condition on another goroutine, where require must not fail the test.
+	var listenFailure error
 	require.Eventually(t, func() bool {
+		select {
+		case listenFailure = <-listenErr:
+			return true
+		default:
+		}
 		conn, err := net.Dial("tcp", serverListenAddr)
 		if err != nil {
 			return false
@@ -852,12 +862,13 @@ func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 		_ = conn.Close()
 		return true
 	}, 5*time.Second, 20*time.Millisecond, "relay must start listening")
+	require.NoError(t, listenFailure, "relay listen")
 
 	aliceWG, err := wgtypes.GenerateKey()
 	require.NoError(t, err)
 	alicePub, alicePriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := peerauth.IssueHMACToken(secret[:], peerauth.Token{
+	token, err := peerauth.IssueEd25519Token(mgmtKey, peerauth.Token{
 		Expiry:  time.Now().Add(time.Hour),
 		WGPub:   aliceWG.PublicKey(),
 		AuthPub: alicePub,
@@ -885,13 +896,33 @@ func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	_, err = connAliceToBob.Write(payload)
 	require.NoError(t, err)
 	buf := make([]byte, 65535)
-	n, err := connBobToAlice.Read(buf)
-	require.NoError(t, err)
+	n := readWithin(t, connBobToAlice, buf, 5*time.Second)
 	assert.Equal(t, payload, buf[:n], "bob must receive alice's data")
 
 	_, err = connBobToAlice.Write([]byte("hi alice"))
 	require.NoError(t, err)
-	n, err = connAliceToBob.Read(buf)
-	require.NoError(t, err)
+	n = readWithin(t, connAliceToBob, buf, 5*time.Second)
 	assert.Equal(t, []byte("hi alice"), buf[:n], "alice must receive bob's data")
+}
+
+// readWithin fails the test when nothing arrives in time: relay conns do not support deadlines.
+func readWithin(t *testing.T, conn net.Conn, buf []byte, timeout time.Duration) int {
+	t.Helper()
+	type result struct {
+		n   int
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		n, err := conn.Read(buf)
+		done <- result{n, err}
+	}()
+	select {
+	case r := <-done:
+		require.NoError(t, r.err)
+		return r.n
+	case <-time.After(timeout):
+		t.Fatalf("no data within %s", timeout)
+		return 0
+	}
 }

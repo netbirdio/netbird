@@ -54,8 +54,7 @@ type Config struct {
 	EnableSTUN   bool
 	STUNPorts    []int
 	STUNLogLevel string
-	// Peer auth: tokens bound to the peer keys, signed by Management with the hashed AuthSecret, or
-	// with its Ed25519 key when PeerAuthPublicKeys is set
+	// Peer auth: tokens bound to the peer keys, signed by Management with its Ed25519 key
 	PeerAuthPublicKeys []string
 	PeerAuthHostnames  []string
 	PeerAuthRequired   bool
@@ -131,7 +130,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
-	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.PeerAuthPublicKeys, "peer-auth-public-keys", nil, "base64 Ed25519 public keys of Management, as it logs them; if set, peer auth tokens are verified only with these keys and the auth secret is kept for legacy tokens. List two keys during a rotation")
+	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.PeerAuthPublicKeys, "peer-auth-public-keys", nil, "base64 Ed25519 public keys of Management, as it logs them, that peer auth tokens are verified with; unset, peers presenting one are refused. List two keys during a rotation")
 	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.PeerAuthHostnames, "peer-auth-hostnames", nil, "if set, the only hostnames accepted in peer auth proofs: list the exposed address hostname and any global name behind a load balancer")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthRequired, "peer-auth-required", false, "refuse peers that present no token bound to their keys")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthCheckTime, "peer-auth-check-time", false, "refuse peer auth proofs signed more than 10 minutes away from this Relay's clock; enable only when every peer clock is in sync. Off, a proof is valid as long as its token")
@@ -198,7 +197,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
 
-	peerAuthKeys, err := peerAuthTokenKeys(cobraConfig, hashedSecret[:])
+	peerAuthKeys, err := peerAuthTokenKeys(cobraConfig)
 	if err != nil {
 		cleanupSTUNListeners(stunListeners)
 		return err
@@ -335,21 +334,17 @@ func createRelayServer(cfg server.Config) (*server.Server, error) {
 	return srv, nil
 }
 
-// peerAuthTokenKeys returns the keys bound tokens are verified with. Configured public keys
-// replace the secret, so a Relay holding Management's public key never accepts an HMAC token.
-func peerAuthTokenKeys(cfg *Config, hashedSecret []byte) (peerauth.TokenKeys, error) {
+// peerAuthTokenKeys returns the Management public keys bound tokens are verified with. Without
+// them bound tokens are refused; the auth secret only ever verifies legacy tokens.
+func peerAuthTokenKeys(cfg *Config) (peerauth.TokenKeys, error) {
 	if len(cfg.PeerAuthPublicKeys) == 0 {
-		return peerauth.TokenKeys{HMAC: hashedSecret}, nil
+		return peerauth.TokenKeys{}, nil
 	}
 	keys, err := peerauth.ParsePublicKeys(cfg.PeerAuthPublicKeys)
 	if err != nil {
 		return peerauth.TokenKeys{}, fmt.Errorf("--peer-auth-public-keys: %w", err)
 	}
-	ids := make([]peerauth.KeyID, 0, len(keys.Ed25519))
-	for id := range keys.Ed25519 {
-		ids = append(ids, id)
-	}
-	log.Infof("peer auth tokens verified with Management Ed25519 key ids %v", ids)
+	log.Infof("peer auth tokens verified with Management Ed25519 key ids %v", keys.KeyIDs())
 	return keys, nil
 }
 

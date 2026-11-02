@@ -3,7 +3,6 @@ package cmd
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"testing"
 
@@ -14,29 +13,23 @@ import (
 )
 
 func TestPeerAuthTokenKeys(t *testing.T) {
-	secret := sha256.Sum256([]byte("relay-secret"))
-
-	t.Run("secret only", func(t *testing.T) {
-		keys, err := peerAuthTokenKeys(&Config{}, secret[:])
+	t.Run("no public keys", func(t *testing.T) {
+		keys, err := peerAuthTokenKeys(&Config{AuthSecret: "relay-secret"})
 		require.NoError(t, err)
-		mode, err := keys.Mode()
-		require.NoError(t, err)
-		assert.Equal(t, peerauth.AlgoHMACSHA256, mode, "without public keys bound tokens are verified with the secret")
+		assert.Empty(t, keys.Ed25519, "without public keys no bound token may verify, whatever the auth secret")
 	})
 
-	t.Run("public keys replace the secret", func(t *testing.T) {
+	t.Run("public keys", func(t *testing.T) {
 		pub, _, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
-		keys, err := peerAuthTokenKeys(&Config{PeerAuthPublicKeys: []string{base64.StdEncoding.EncodeToString(pub)}}, secret[:])
+		keys, err := peerAuthTokenKeys(&Config{PeerAuthPublicKeys: []string{base64.StdEncoding.EncodeToString(pub)}})
 		require.NoError(t, err)
-		mode, err := keys.Mode()
-		require.NoError(t, err)
-		assert.Equal(t, peerauth.AlgoEd25519, mode, "configured public keys must select Ed25519")
-		assert.Empty(t, keys.HMAC, "the secret must not verify bound tokens once public keys are set")
+		require.NoError(t, keys.Validate())
+		assert.Equal(t, pub, keys.Ed25519[peerauth.Ed25519KeyID(pub)], "the configured key must verify bound tokens")
 	})
 
 	t.Run("malformed public key", func(t *testing.T) {
-		_, err := peerAuthTokenKeys(&Config{PeerAuthPublicKeys: []string{"bm90LWEta2V5"}}, secret[:])
+		_, err := peerAuthTokenKeys(&Config{PeerAuthPublicKeys: []string{"bm90LWEta2V5"}})
 		assert.Error(t, err, "a malformed public key must fail startup")
 	})
 }

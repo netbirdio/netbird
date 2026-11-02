@@ -23,10 +23,22 @@ import (
 	"github.com/netbirdio/netbird/shared/signal/proto"
 )
 
-var signalAuthTestSecret = sha256.Sum256([]byte("relay-secret"))
+// signalTestMgmtKey returns a deterministic Management signing key named by label.
+func signalTestMgmtKey(label string) ed25519.PrivateKey {
+	seed := sha256.Sum256([]byte(label))
+	return ed25519.NewKeyFromSeed(seed[:])
+}
 
-func signalAuthTestKeys() peerauth.TokenKeys {
-	return peerauth.TokenKeys{HMAC: signalAuthTestSecret[:]}
+func signalTestKeys(t *testing.T, label string) peerauth.TokenKeys {
+	t.Helper()
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{signalTestMgmtKey(label).Public().(ed25519.PublicKey)})
+	require.NoError(t, err)
+	return keys
+}
+
+func signalAuthTestKeys(t *testing.T) peerauth.TokenKeys {
+	t.Helper()
+	return signalTestKeys(t, "management")
 }
 
 func newPeerAuthTestSignal(t *testing.T, cfg PeerAuthConfig) *Server {
@@ -44,13 +56,13 @@ type signalPeer struct {
 	authKey ed25519.PrivateKey
 }
 
-func newSignalPeer(t *testing.T, secret []byte) signalPeer {
+func newSignalPeer(t *testing.T, mgmtKey ed25519.PrivateKey) signalPeer {
 	t.Helper()
 	wgKey, err := wgtypes.GenerateKey()
 	require.NoError(t, err)
 	authPub, authKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := peerauth.IssueHMACToken(secret, peerauth.Token{
+	token, err := peerauth.IssueEd25519Token(mgmtKey, peerauth.Token{
 		Expiry:  time.Now().Add(time.Hour),
 		WGPub:   wgKey.PublicKey(),
 		AuthPub: authPub,
@@ -115,8 +127,8 @@ func TestSignal_AcceptsBoundCredentials(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(), Hostnames: tc.hostnames, Required: true})
-			p := newSignalPeer(t, signalAuthTestSecret[:])
+			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t), Hostnames: tc.hostnames, Required: true})
+			p := newSignalPeer(t, signalTestMgmtKey("management"))
 			md := p.metadata(t, tc.hostname, tc.signedAt)
 
 			require.NoError(t, registerWith(t, s, p.key, md), "stream with valid credentials must register")
@@ -129,7 +141,7 @@ func TestSignal_AcceptsBoundCredentials(t *testing.T) {
 }
 
 func TestSignal_RefusesBadCredentials(t *testing.T) {
-	other := sha256.Sum256([]byte("other-secret"))
+	other := signalTestMgmtKey("other management")
 	cases := []struct {
 		name string
 		md   func(t *testing.T, p signalPeer) (metadata.MD, string)
@@ -144,10 +156,10 @@ func TestSignal_RefusesBadCredentials(t *testing.T) {
 			return p.metadata(t, "evil.example.com", time.Now()), p.key
 		}},
 		{"token bound to another peer", func(t *testing.T, p signalPeer) (metadata.MD, string) {
-			return p.metadata(t, "signal.example.com", time.Now()), newSignalPeer(t, signalAuthTestSecret[:]).key
+			return p.metadata(t, "signal.example.com", time.Now()), newSignalPeer(t, signalTestMgmtKey("management")).key
 		}},
-		{"token signed with another secret", func(t *testing.T, _ signalPeer) (metadata.MD, string) {
-			forged := newSignalPeer(t, other[:])
+		{"token signed with another Management key", func(t *testing.T, _ signalPeer) (metadata.MD, string) {
+			forged := newSignalPeer(t, other)
 			return forged.metadata(t, "signal.example.com", time.Now()), forged.key
 		}},
 		{"proof signed by another auth key", func(t *testing.T, p signalPeer) (metadata.MD, string) {
@@ -160,8 +172,8 @@ func TestSignal_RefusesBadCredentials(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Not required: presented credentials are still verified and never downgraded to legacy.
-			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(), Hostnames: []string{"signal.example.com"}, CheckTime: true})
-			md, key := tc.md(t, newSignalPeer(t, signalAuthTestSecret[:]))
+			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t), Hostnames: []string{"signal.example.com"}, CheckTime: true})
+			md, key := tc.md(t, newSignalPeer(t, signalTestMgmtKey("management")))
 
 			err := registerWith(t, s, key, md)
 			assert.Equal(t, codes.Unauthenticated, status.Code(err), "stream must be refused, got %v", err)
@@ -174,16 +186,16 @@ func TestSignal_RefusesBadCredentials(t *testing.T) {
 }
 
 func TestSignal_LegacyPeers(t *testing.T) {
-	legacy := newSignalPeer(t, signalAuthTestSecret[:])
+	legacy := newSignalPeer(t, signalTestMgmtKey("management"))
 
 	t.Run("accepted when not required", func(t *testing.T) {
-		s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys()})
+		s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t)})
 		require.NoError(t, registerWith(t, s, legacy.key, nil))
 		assert.NoError(t, sendWith(s, nil, legacy.message()))
 	})
 
 	t.Run("refused when required", func(t *testing.T) {
-		s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(), Required: true})
+		s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t), Required: true})
 		assert.Equal(t, codes.Unauthenticated, status.Code(registerWith(t, s, legacy.key, nil)), "legacy stream must be refused")
 		assert.Equal(t, codes.Unauthenticated, status.Code(sendWith(s, nil, legacy.message())), "legacy send must be refused")
 	})
@@ -191,7 +203,7 @@ func TestSignal_LegacyPeers(t *testing.T) {
 	t.Run("credentials ignored without keys", func(t *testing.T) {
 		// A Signal without keys behaves as today, whatever a new client presents.
 		s := newPeerAuthTestSignal(t, PeerAuthConfig{})
-		p := newSignalPeer(t, signalAuthTestSecret[:])
+		p := newSignalPeer(t, signalTestMgmtKey("management"))
 		md := p.metadata(t, "signal.example.com", time.Now().Add(-time.Hour))
 		require.NoError(t, registerWith(t, s, p.key, md))
 		registered, _ := s.registry.Get(p.key)
@@ -206,8 +218,8 @@ func TestSignal_LegacyPeers(t *testing.T) {
 }
 
 func TestSignal_LegacyCannotTakeOverAuthenticatedPeer(t *testing.T) {
-	s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys()})
-	p := newSignalPeer(t, signalAuthTestSecret[:])
+	s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t)})
+	p := newSignalPeer(t, signalTestMgmtKey("management"))
 	md := p.metadata(t, "signal.example.com", time.Now())
 	require.NoError(t, registerWith(t, s, p.key, md))
 
@@ -221,8 +233,8 @@ func TestSignal_LegacyCannotTakeOverAuthenticatedPeer(t *testing.T) {
 }
 
 func TestSignal_AuthenticatedReplacesLegacyPeer(t *testing.T) {
-	s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys()})
-	p := newSignalPeer(t, signalAuthTestSecret[:])
+	s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t)})
+	p := newSignalPeer(t, signalTestMgmtKey("management"))
 	require.NoError(t, registerWith(t, s, p.key, nil))
 
 	require.NoError(t, registerWith(t, s, p.key, p.metadata(t, "signal.example.com", time.Now())),
@@ -232,25 +244,34 @@ func TestSignal_AuthenticatedReplacesLegacyPeer(t *testing.T) {
 }
 
 func TestSignal_ProofCache(t *testing.T) {
-	s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys()})
-	p := newSignalPeer(t, signalAuthTestSecret[:])
+	s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t)})
+	p := newSignalPeer(t, signalTestMgmtKey("management"))
 	md := p.metadata(t, "signal.example.com", time.Now())
 	require.NoError(t, sendWith(s, md, p.message()))
 
 	// From here on any full verification fails, so only a cache hit can pass.
-	s.peerAuth.verifier.Keys = peerauth.TokenKeys{HMAC: make([]byte, sha256.Size)}
+	s.peerAuth.verifier.Keys = signalTestKeys(t, "unrelated management")
 
 	assert.NoError(t, sendWith(s, md, p.message()), "the same credentials must be served from the cache")
 
 	renewed := p.metadata(t, "signal.example.com", time.Now().Add(time.Second))
 	assert.Error(t, sendWith(s, renewed, p.message()), "a new proof must be verified")
 
-	// The cached proof with another token of the same peer is not what was verified.
+	// The cached proof with another token of the same peer keys is not what was verified: only the
+	// token bytes differ, so the cache must be keyed on them.
+	wgPub, err := wgtypes.ParseKey(p.key)
+	require.NoError(t, err)
+	reissued, err := peerauth.IssueEd25519Token(signalTestMgmtKey("management"), peerauth.Token{
+		Expiry:  time.Now().Add(2 * time.Hour),
+		WGPub:   wgPub,
+		AuthPub: p.authKey.Public().(ed25519.PublicKey),
+	})
+	require.NoError(t, err)
 	swapped := md.Copy()
-	swapped.Set(peerauth.MetadataToken, string(newSignalPeer(t, signalAuthTestSecret[:]).token))
+	swapped.Set(peerauth.MetadataToken, string(reissued))
 	assert.Error(t, sendWith(s, swapped, p.message()), "a cached proof must not vouch for another token")
 
-	other := newSignalPeer(t, signalAuthTestSecret[:])
+	other := newSignalPeer(t, signalTestMgmtKey("management"))
 	assert.Error(t, sendWith(s, md, other.message()), "cached credentials must not vouch for another peer key")
 }
 
@@ -266,11 +287,11 @@ func TestSignal_ProofCacheExpiry(t *testing.T) {
 		"with time check":    {true, func(time.Time) time.Time { return signedAt.Add(peerauth.DefaultSkew) }},
 	} {
 		t.Run(name, func(t *testing.T) {
-			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(), CheckTime: tc.checkTime})
-			p := newSignalPeer(t, signalAuthTestSecret[:])
+			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t), CheckTime: tc.checkTime})
+			p := newSignalPeer(t, signalTestMgmtKey("management"))
 			require.NoError(t, sendWith(s, p.metadata(t, "signal.example.com", signedAt), p.message()))
 
-			tok, err := peerauth.VerifyToken(p.token, signalAuthTestKeys(), time.Now())
+			tok, err := peerauth.VerifyToken(p.token, signalAuthTestKeys(t), time.Now())
 			require.NoError(t, err)
 			s.peerAuth.cache.mu.Lock()
 			entry, ok := s.peerAuth.cache.entries[p.key]
@@ -308,7 +329,7 @@ func TestProofCache_ExpiresAndSweeps(t *testing.T) {
 func TestSignal_RefusalLogLevels(t *testing.T) {
 	// Refusals a peer repeats on every retry stay at debug; credentials that do not verify, or a
 	// legacy call claiming an authenticated peer, are rare and logged at info.
-	other := sha256.Sum256([]byte("other-secret"))
+	other := signalTestMgmtKey("other management")
 	cases := []struct {
 		name     string
 		required bool
@@ -316,18 +337,18 @@ func TestSignal_RefusalLogLevels(t *testing.T) {
 		level    log.Level
 	}{
 		{"legacy peer when required", true, func(t *testing.T, s *Server) error {
-			return registerWith(t, s, newSignalPeer(t, signalAuthTestSecret[:]).key, nil)
+			return registerWith(t, s, newSignalPeer(t, signalTestMgmtKey("management")).key, nil)
 		}, log.DebugLevel},
 		{"forged token", false, func(t *testing.T, s *Server) error {
-			forged := newSignalPeer(t, other[:])
+			forged := newSignalPeer(t, other)
 			return registerWith(t, s, forged.key, forged.metadata(t, "signal.example.com", time.Now()))
 		}, log.InfoLevel},
 		{"stale proof", false, func(t *testing.T, s *Server) error {
-			p := newSignalPeer(t, signalAuthTestSecret[:])
+			p := newSignalPeer(t, signalTestMgmtKey("management"))
 			return registerWith(t, s, p.key, p.metadata(t, "signal.example.com", time.Now().Add(-time.Hour)))
 		}, log.InfoLevel},
 		{"legacy takeover", false, func(t *testing.T, s *Server) error {
-			p := newSignalPeer(t, signalAuthTestSecret[:])
+			p := newSignalPeer(t, signalTestMgmtKey("management"))
 			require.NoError(t, registerWith(t, s, p.key, p.metadata(t, "signal.example.com", time.Now())))
 			return registerWith(t, s, p.key, nil)
 		}, log.InfoLevel},
@@ -340,7 +361,7 @@ func TestSignal_RefusalLogLevels(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(), Required: tc.required, CheckTime: true})
+			s := newPeerAuthTestSignal(t, PeerAuthConfig{Keys: signalAuthTestKeys(t), Required: tc.required, CheckTime: true})
 			hook.Reset()
 			require.Error(t, tc.register(t, s))
 

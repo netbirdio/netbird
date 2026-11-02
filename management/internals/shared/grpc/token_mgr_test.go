@@ -322,10 +322,6 @@ func TestTimeBasedAuthSecretsManager_GenerateAuthToken(t *testing.T) {
 		assert.Equal(t, wgPub, verified.WGPub, "the token must be bound to the peer WireGuard key")
 		assert.Equal(t, authPub, verified.AuthPub, "the token must be bound to the peer auth key")
 		assert.WithinDuration(t, time.Now().Add(time.Hour), verified.Expiry, time.Minute, "the token must live as long as the relay credentials")
-
-		secret := sha256.Sum256([]byte(peerAuthTestSecret))
-		_, err = peerauth.VerifyToken(token, peerauth.TokenKeys{HMAC: secret[:]}, time.Now())
-		assert.Error(t, err, "the token must not verify with the relay secret")
 	})
 
 	t.Run("malformed auth key", func(t *testing.T) {

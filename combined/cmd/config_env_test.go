@@ -270,12 +270,10 @@ func TestToManagementConfigPeerAuth(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[peerauth.KeyID]ed25519.PublicKey{peerauth.Ed25519KeyID(mgmtPub): mgmtPub}, keys.Ed25519,
 		"the local Relay and Signal must verify with the public key of the key Management signs with")
-	assert.Empty(t, keys.HMAC, "the local Relay and Signal must not verify bound tokens with the auth secret")
 }
 
 func TestLocalPeerAuthKeys_NoSigningKey(t *testing.T) {
 	keys, err := localPeerAuthKeys(&CombinedConfig{})
 	require.NoError(t, err)
-	assert.Empty(t, keys.HMAC, "without a signing key no bound token is issued, so none is verified")
 	assert.Empty(t, keys.Ed25519, "without a signing key no bound token is issued, so none is verified")
 }

@@ -19,11 +19,17 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
-var peerAuthTestSecret = sha256.Sum256([]byte("relay-secret"))
+// peerAuthTestMgmtKey is the Management signing key the test Relays trust.
+func peerAuthTestMgmtKey() ed25519.PrivateKey {
+	seed := sha256.Sum256([]byte("relay-test-management-key"))
+	return ed25519.NewKeyFromSeed(seed[:])
+}
 
 func newPeerAuthTestRelay(t *testing.T, validator Validator, cfg PeerAuthConfig) *Relay {
 	t.Helper()
-	cfg.Keys = peerauth.TokenKeys{HMAC: peerAuthTestSecret[:]}
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{peerAuthTestMgmtKey().Public().(ed25519.PublicKey)})
+	require.NoError(t, err)
+	cfg.Keys = keys
 	relay, err := NewRelay(Config{
 		ExposedAddress: "rels://relay-1.example.com:443",
 		AuthValidator:  validator,
@@ -47,7 +53,7 @@ func newBoundPeer(t *testing.T) boundPeer {
 	require.NoError(t, err)
 	authPub, authKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := peerauth.IssueHMACToken(peerAuthTestSecret[:], peerauth.Token{
+	token, err := peerauth.IssueEd25519Token(peerAuthTestMgmtKey(), peerauth.Token{
 		Expiry:  time.Now().Add(time.Hour),
 		WGPub:   wgKey.PublicKey(),
 		AuthPub: authPub,
@@ -152,17 +158,41 @@ func TestRelay_RefusesBadBoundCredentials(t *testing.T) {
 	}
 }
 
+// A bound token reaching a Relay without Management's public keys means the operator enabled the
+// signing key on Management before configuring the Relay: the refusal names the misconfiguration.
 func TestRelay_RefusesBoundTokenWithoutKeys(t *testing.T) {
 	validator := &recordingValidator{}
 	relay := newTestRelay(t, validator)
 	peer := newBoundPeer(t)
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
 
-	conn := newScriptedConn()
-	conn.deliver(t, peer.authMsg(t, peer.id, "127.0.0.1", time.Now()))
-	relay.Accept(conn)
+	// Every peer retries, so the error is logged once per interval, not once per attempt.
+	for range 3 {
+		conn := newScriptedConn()
+		conn.deliver(t, peer.authMsg(t, peer.id, "127.0.0.1", time.Now()))
+		relay.Accept(conn)
+		assert.True(t, conn.isClosed(), "a relay without peer auth keys must refuse a bound token")
+	}
 
-	assert.True(t, conn.isClosed(), "a relay without peer auth keys must refuse a bound token")
 	assert.Empty(t, validator.calls(), "the bound token must not reach the legacy validator")
+	var refusals []*log.Entry
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, "refused") && e.Level == log.ErrorLevel {
+			refusals = append(refusals, e)
+		}
+	}
+	require.Len(t, refusals, 1, "a missing key is an operator error, logged once per interval")
+	assert.Contains(t, refusals[0].Message, "--peer-auth-public-keys", "the refusal must name the missing configuration")
+}
+
+func TestRelay_PeerAuthRequiredWithoutKeysFailsStartup(t *testing.T) {
+	_, err := NewRelay(Config{
+		ExposedAddress: "rels://relay-1.example.com:443",
+		AuthValidator:  &recordingValidator{},
+		PeerAuth:       PeerAuthConfig{Required: true},
+	})
+	assert.Error(t, err, "a relay requiring peer auth without keys would refuse every peer")
 }
 
 func TestRelay_PeerAuthRequiredRefusesLegacy(t *testing.T) {
@@ -227,7 +257,16 @@ func TestRelay_Ed25519Keys(t *testing.T) {
 	issueEd25519 := func(priv ed25519.PrivateKey) func(peerauth.Token) ([]byte, error) {
 		return func(tok peerauth.Token) ([]byte, error) { return peerauth.IssueEd25519Token(priv, tok) }
 	}
-	issueHMAC := func(tok peerauth.Token) ([]byte, error) { return peerauth.IssueHMACToken(peerAuthTestSecret[:], tok) }
+	// A token of the right size that names another algorithm, as a secret holder would forge one: only
+	// the algorithm byte differs from a valid token, so the algorithm check alone refuses it.
+	issueHMAC := func(tok peerauth.Token) ([]byte, error) {
+		signed, err := peerauth.IssueEd25519Token(oldPriv, tok)
+		if err != nil {
+			return nil, err
+		}
+		signed[0] = 1
+		return signed, nil
+	}
 
 	cases := []struct {
 		name     string
