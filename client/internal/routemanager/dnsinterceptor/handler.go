@@ -359,6 +359,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 		}
 
 		var newPrefixes []netip.Prefix
+		var rejected bool
 		for _, answer := range r.Answer {
 			var ip netip.Addr
 			switch rr := answer.(type) {
@@ -382,7 +383,9 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 
 			ip = ip.Unmap()
 			if !d.isRoutableAddr(ip) {
-				logger.Warnf("ignoring address %s answered for domain=%s by the routing peer: not routable via peer", ip, resolvedDomain.SafeString())
+				rejected = true
+				logger.Warnf("ignoring a DNS answer address from the routing peer: not routable via peer")
+				logger.Debugf("ignoring address %s answered for domain=%s by the routing peer: not routable via peer", ip, resolvedDomain.SafeString())
 				continue
 			}
 
@@ -390,17 +393,21 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 			newPrefixes = append(newPrefixes, prefix)
 		}
 
-		if len(newPrefixes) > 0 {
+		// An answer whose addresses were all rejected still reconciles, so the
+		// routes of an earlier accepted answer are withdrawn.
+		if len(newPrefixes) > 0 || rejected {
 			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
 				logger.Errorf("failed to update domain prefixes: %v", err)
 			}
 
-			// Allow time for route changes to be applied before sending
-			// the DNS response (relevant on iOS where setTunnelNetworkSettings
-			// is asynchronous).
-			waitForRouteSettlement(logger)
+			if len(newPrefixes) > 0 {
+				// Allow time for route changes to be applied before sending
+				// the DNS response (relevant on iOS where setTunnelNetworkSettings
+				// is asynchronous).
+				waitForRouteSettlement(logger)
 
-			d.replaceIPsInDNSResponse(r, newPrefixes, logger)
+				d.replaceIPsInDNSResponse(r, newPrefixes, logger)
+			}
 		}
 	}
 
@@ -457,6 +464,12 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 		merr = multierror.Append(merr, err)
 	}
 
+	// Only prefixes that were accepted keep their mapping, a refused one could never be cleaned up
+	for fakeIP, realIP := range dnatMappings {
+		if !slices.Contains(added, netip.PrefixFrom(realIP, realIP.BitLen())) {
+			delete(dnatMappings, fakeIP)
+		}
+	}
 	d.addDNATMappings(dnatMappings, logger)
 
 	if !d.route.KeepRoute {

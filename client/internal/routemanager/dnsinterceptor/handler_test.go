@@ -168,6 +168,11 @@ func TestWriteMsg_IgnoresOverlayAddresses(t *testing.T) {
 		Hdr:  dns.RR_Header{Name: "app.corp.example.", Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
 		AAAA: net.IPv6loopback,
 	})
+	// a mapped overlay address is only caught because the answer is unmapped first
+	reply.Answer = append(reply.Answer, &dns.AAAA{
+		Hdr:  dns.RR_Header{Name: "app.corp.example.", Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+		AAAA: net.ParseIP("::ffff:100.64.0.10"),
+	})
 
 	w := &mockResponseWriter{}
 	require.NoError(t, d.writeMsg(w, reply, log.NewEntry(log.StandardLogger())))
@@ -179,7 +184,7 @@ func TestWriteMsg_IgnoresOverlayAddresses(t *testing.T) {
 }
 
 // An IPv4-mapped AAAA answer names an IPv4 address. It has to be tracked as the plain /32:
-// a prefix built from the mapped form is invalid and could never be installed again.
+// a prefix built from the mapped form would be ::ffff:203.0.113.5/128, not the IPv4 /32 the peer routes.
 func TestWriteMsg_MappedAAAAAnswerIsTrackedAsIPv4(t *testing.T) {
 	routeCounter := refcounter.New(
 		func(netip.Prefix, struct{}) (struct{}, error) { return struct{}{}, nil },
@@ -206,4 +211,31 @@ func TestWriteMsg_MappedAAAAAnswerIsTrackedAsIPv4(t *testing.T) {
 	}
 	// A replay for a new routing peer must not fail on what was remembered.
 	assert.NoError(t, d.AddAllowedIPs("another-routing-peer"))
+}
+
+// An answer whose addresses are all rejected withdraws what an earlier answer installed.
+func TestWriteMsg_RejectedOnlyAnswerWithdrawsEarlierRoutes(t *testing.T) {
+	routeCounter := refcounter.New(
+		func(netip.Prefix, struct{}) (struct{}, error) { return struct{}{}, nil },
+		func(netip.Prefix, struct{}) error { return nil },
+	)
+	d := newTestInterceptor(t, routeCounter, &allowedIPsRecorder{})
+	require.NoError(t, d.AddAllowedIPs(testRoutingPeer))
+	logger := log.NewEntry(log.StandardLogger())
+
+	query := func(addr netip.Addr) {
+		reply := new(dns.Msg)
+		reply.SetQuestion("app.corp.example.", dns.TypeA)
+		reply.Answer = append(reply.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: "app.corp.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   addr.AsSlice(),
+		})
+		require.NoError(t, d.writeMsg(&mockResponseWriter{}, reply, logger))
+	}
+
+	query(testRemoteAddr.Addr())
+	require.Equal(t, []netip.Prefix{testRemoteAddr}, d.interceptedDomains["app.corp.example."])
+
+	query(testPeerAddr.Addr())
+	assert.Empty(t, d.interceptedDomains["app.corp.example."], "the earlier route must be withdrawn")
 }
