@@ -54,7 +54,7 @@ Capabilities, as written in `netbird.te`:
 | `dac_override` | TPM access: `/dev/tpmrm0` belongs to `tss` with mode 0660 |
 | `setuid`, `setgid` | SSH helper processes (SFTP and the exec fallback) dropping to the session user |
 | `sys_admin` | `setsid -c` before `login` (`netbird_ssh_sessions`). The daemon also probes `su` and `login` at start |
-| `audit_write` | Granted by `logging_send_audit_msgs`, not by a rule in the module |
+| `audit_write` | Granted by `logging_send_audit_msgs` and by the `netbird_ssh_sessions` boolean |
 | `kill` | The SSH server signals the process group of a session when it ends (`client/ssh/server/command_execution_unix.go`) |
 
 Not granted: `bpf` and `perfmon`, because the client does not load eBPF (the WireGuard
@@ -75,7 +75,7 @@ Everything else, by feature:
 | SSH sessions | `su` into `unconfined_t`, `login` into `local_login_t`, ptys (`netbird_devpts_t`, `ptmx_t`), `passwd_file_t`, SSSD and systemd-userdbd lookups, search of `user_home_dir_t` |
 | SSH session teardown | `signal` and `sigkill` on `unconfined_t` |
 | Debug bundle | Execute the firewall tools, files in `netbird_tmp_t`, upload over HTTPS, journal and log reads (`netbird_debug_bundle`) |
-| Ports | Bind unreserved TCP and UDP ports, connect to any TCP port |
+| Ports | Bind unreserved UDP ports, connect to any TCP port. Binding unreserved TCP ports needs `netbird_bind_all_ports` |
 
 ## Diagnosing denials
 

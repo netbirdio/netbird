@@ -117,7 +117,8 @@ allow netbird_t self:capability kill;
 
 # Granted through interfaces called below, not by a rule here: net_bind_service by
 # corenet_udp_bind_all_ports and corenet_tcp_bind_ssh_port (DNS listener on port 53, SSH
-# server on port 22) and audit_write by logging_send_audit_msgs.
+# server on port 22) and audit_write by logging_send_audit_msgs. The
+# netbird_ssh_sessions boolean grants audit_write as well.
 
 # Attaching a socket filter checks CAP_BPF first and succeeds without it
 gen_require(`

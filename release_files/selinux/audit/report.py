@@ -9,6 +9,7 @@ A marks file holds one line per boundary, "<epoch> S <name>" when a feature star
 records come from the netbirdaudit module next to this file.
 """
 import glob
+import os
 import re
 import sys
 from collections import defaultdict
@@ -24,6 +25,9 @@ def read_windows(paths):
     windows = []
     for path in paths:
         started = {}
+        path = os.path.realpath(path)
+        if not os.path.isfile(path):
+            sys.exit(f"marks file {path} is not a regular file")
         with open(path) as marks:
             for line in marks:
                 parts = line.split()
@@ -71,8 +75,8 @@ def main():
     print("verdict\tclass\tperm\ttarget\tcommands\ttotal\tscenarios")
     for key in sorted(counts):
         per_window = counts[key]
-        top = ",".join(f"{w}:{n}" for w, n in sorted(per_window.items(), key=lambda x: -x[1])[:12])
-        print("\t".join([*key, ",".join(sorted(commands[key]))[:60], str(sum(per_window.values())), top]))
+        top = ",".join(f"{w}:{n}" for w, n in sorted(per_window.items(), key=lambda x: -x[1]))
+        print("\t".join([*key, ",".join(sorted(commands[key])), str(sum(per_window.values())), top]))
 
 
 if __name__ == "__main__":
