@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -157,9 +158,15 @@ func setUp(ifaceName string) error {
 
 // Dial opens a TCP connection to addr from inside the namespace and returns the dial error.
 func (ns *PeerNamespace) Dial(addr string) error {
+	return ns.DialControl(addr, nil)
+}
+
+// DialControl is Dial with a control function that can set socket options before the
+// connection is made.
+func (ns *PeerNamespace) DialControl(addr string, control func(network, address string, c syscall.RawConn) error) error {
 	var err error
 	ns.do(func() {
-		d := net.Dialer{Timeout: time.Second}
+		d := net.Dialer{Timeout: time.Second, Control: control}
 		var conn net.Conn
 		conn, err = d.DialContext(context.Background(), "tcp6", addr)
 		if err == nil {
