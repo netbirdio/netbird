@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -135,22 +136,32 @@ func (w *WGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return w.tun.Up()
 }
 
-// UpdateAddr updates address of the interface
+// UpdateAddr updates address of the interface. The new overlay range is reserved before the
+// address changes and the old one is released after, so the interface never runs on a range that
+// is not reserved and a failure at any step leaves nothing to roll back.
 func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	previous := w.tun.WgAddress()
+	if w.configurer == nil {
+		return w.tun.UpdateAddr(newAddr)
+	}
+
+	previous := w.overlayRange
+	next := overlayPrefixes(newAddr)
+	if err := w.addOverlayRange(next); err != nil {
+		return err
+	}
+	w.overlayRange = append(slices.Clone(previous), next...)
+
 	if err := w.tun.UpdateAddr(newAddr); err != nil {
+		w.overlayRange = previous
+		w.releaseOverlayRanges(next, previous)
 		return err
 	}
 
-	if err := w.reserveOverlay(true); err != nil {
-		if restoreErr := w.tun.UpdateAddr(previous); restoreErr != nil {
-			log.Errorf("failed to restore interface address after the overlay range could not be reserved: %v", restoreErr)
-		}
-		return err
-	}
+	w.overlayRange = next
+	w.releaseOverlayRanges(previous, next)
 	return nil
 }
 

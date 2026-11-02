@@ -34,14 +34,6 @@ func (w *WGIface) reserveOverlay(replace bool) error {
 		return ErrIfaceNotFound
 	}
 
-	if w.overlayPeerKey == "" {
-		priv, err := wgtypes.GeneratePrivateKey()
-		if err != nil {
-			return fmt.Errorf("generate overlay placeholder key: %w", err)
-		}
-		w.overlayPeerKey = priv.PublicKey().String()
-	}
-
 	var previous []netip.Prefix
 	if replace {
 		previous = w.overlayRange
@@ -50,22 +42,43 @@ func (w *WGIface) reserveOverlay(replace bool) error {
 	}
 
 	prefixes := overlayPrefixes(w.tun.WgAddress())
-	if err := w.configurer.UpdatePeer(w.overlayPeerKey, prefixes, 0, nil, nil); err != nil {
-		return fmt.Errorf("reserve overlay range: %w", err)
+	if err := w.addOverlayRange(prefixes); err != nil {
+		return err
 	}
 	w.overlayRange = prefixes
-
-	for _, old := range previous {
-		if slices.Contains(prefixes, old) {
-			continue
-		}
-		if err := w.configurer.RemoveAllowedIP(w.overlayPeerKey, old); err != nil {
-			log.Warnf("failed to release overlay range %s, it stays reserved: %v", old, err)
-		}
-	}
+	w.releaseOverlayRanges(previous, prefixes)
 
 	log.Debugf("reserved overlay range %v on interface %s for a placeholder peer", prefixes, w.tun.DeviceName())
 	return nil
+}
+
+// addOverlayRange adds prefixes to the placeholder peer. The caller holds w.mu.
+func (w *WGIface) addOverlayRange(prefixes []netip.Prefix) error {
+	if w.overlayPeerKey == "" {
+		priv, err := wgtypes.GeneratePrivateKey()
+		if err != nil {
+			return fmt.Errorf("generate overlay placeholder key: %w", err)
+		}
+		w.overlayPeerKey = priv.PublicKey().String()
+	}
+
+	if err := w.configurer.UpdatePeer(w.overlayPeerKey, prefixes, 0, nil, nil); err != nil {
+		return fmt.Errorf("reserve overlay range: %w", err)
+	}
+	return nil
+}
+
+// releaseOverlayRanges removes the prefixes of old that are not in keep from the placeholder peer.
+// A failed release only leaves a range reserved. The caller holds w.mu.
+func (w *WGIface) releaseOverlayRanges(old, keep []netip.Prefix) {
+	for _, p := range old {
+		if slices.Contains(keep, p) {
+			continue
+		}
+		if err := w.configurer.RemoveAllowedIP(w.overlayPeerKey, p); err != nil {
+			log.Warnf("failed to release overlay range %s, it stays reserved: %v", p, err)
+		}
+	}
 }
 
 func overlayPrefixes(addr wgaddr.Address) []netip.Prefix {
