@@ -429,7 +429,14 @@ func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, 
 		domainsStr := strings.Join(batch, " ")
 
 		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch, overlay); err != nil {
-			return fmt.Errorf("add dns state for batch %d: %w", i, err)
+			var merr *multierror.Error
+			merr = multierror.Append(merr, fmt.Errorf("add dns state for batch %d: %w", i, err))
+			if overlay != nil {
+				if cleanupErr := s.removeKeyFromSystemConfig(key); cleanupErr != nil {
+					merr = multierror.Append(merr, fmt.Errorf("remove partial service state for batch %d: %w", i, cleanupErr))
+				}
+			}
+			return nberrors.FormatErrorOrNil(merr)
 		}
 
 		s.createdKeys[key] = struct{}{}
