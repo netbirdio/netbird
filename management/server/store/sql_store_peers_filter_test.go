@@ -3,12 +3,21 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestSqlStore_FilterPeers(t *testing.T) {
 	runTestForAllEnginesNoSqliteSeed(t, "../testdata/peers_pagination.sql", func(t *testing.T, engine string, store Store) {
+		for _, peerID := range []string{"peer-id-one", "peer-id-two"} {
+			peer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, "account-1", peerID)
+			require.NoError(t, err)
+			peer.Status.Connected = true
+			peer.Status.LastSeen = time.Now().UTC()
+			require.NoError(t, store.SavePeerStatus(context.Background(), "account-1", peerID, *peer.Status))
+		}
+
 		var tests = []struct {
 			description    string
 			filters        PeerFilters

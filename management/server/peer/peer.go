@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -99,6 +100,32 @@ type PeerStatus struct { //nolint:revive
 	LoginExpired bool
 	// RequiresApproval indicates whether peer requires approval or not
 	RequiresApproval bool
+}
+
+const (
+	// HeartbeatInterval is how often the management instance serving a peer's sync
+	// stream refreshes the peer's LastSeen.
+	HeartbeatInterval = time.Minute
+	// StaleAfter is how long a connected peer may go without a LastSeen refresh before
+	// it reads as disconnected. It spans several heartbeats so one missed refresh does
+	// not disconnect a live peer.
+	StaleAfter = 5 * time.Minute
+)
+
+// IsConnected reports whether a peer stored with the given connected flag and LastSeen
+// counts as connected. A management instance that stops without marking its peers
+// disconnected leaves the flag set, so a peer whose LastSeen is older than StaleAfter
+// reads as disconnected.
+func IsConnected(connected bool, lastSeen time.Time) bool {
+	return connected && time.Since(lastSeen) < StaleAfter
+}
+
+// AfterFind applies IsConnected to every peer loaded through gorm.
+func (p *Peer) AfterFind(*gorm.DB) error {
+	if p.Status != nil {
+		p.Status.Connected = IsConnected(p.Status.Connected, p.Status.LastSeen)
+	}
+	return nil
 }
 
 // Location is a geo location information of a Peer based on public connection IP

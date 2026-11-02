@@ -3,16 +3,20 @@ package store
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"reflect"
 	"sort"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -940,4 +944,149 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 			assert.Equal(t, 0, count)
 		})
 	})
+}
+
+func TestSqlStore_MarkPeersDisconnectedIfSameSession(t *testing.T) {
+	ctx := context.Background()
+	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	sqlStore := store.(*SqlStore)
+
+	sessionOf := map[string]int64{"peer-a": 101, "peer-b": 102, "peer-c": 103, "peer-d": 104}
+	for id, session := range sessionOf {
+		require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+			ID:        id,
+			AccountID: accountID,
+			Key:       "key-" + id,
+			DNSLabel:  id,
+			IP:        netip.AddrFrom4([4]byte{10, 9, 0, byte(session)}),
+			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::9:%d", session)),
+		}))
+		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
+			"peer_status_connected":          true,
+			"peer_status_session_started_at": session,
+			"peer_status_last_seen":          time.Now().UTC(),
+		}).Error)
+	}
+
+	sessions := []types.PeerSession{{AccountID: accountID, PeerID: "peer-a", SessionStartedAt: 101}}
+	for i := 0; i < markPeersDisconnectedChunkSize+5; i++ {
+		sessions = append(sessions, types.PeerSession{AccountID: accountID, PeerID: fmt.Sprintf("missing-%d", i), SessionStartedAt: 1})
+	}
+	sessions = append(sessions,
+		types.PeerSession{AccountID: accountID, PeerID: "peer-b", SessionStartedAt: 102},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-c", SessionStartedAt: 103},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-d", SessionStartedAt: 999},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-d", SessionStartedAt: 0},
+	)
+
+	marked, err := store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), marked)
+
+	for id, wantConnected := range map[string]bool{"peer-a": false, "peer-b": false, "peer-c": false, "peer-d": true} {
+		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, id)
+		require.NoError(t, err)
+		assert.Equal(t, wantConnected, peer.Status.Connected, id)
+		wantSession := int64(0)
+		if wantConnected {
+			wantSession = sessionOf[id]
+		}
+		assert.Equal(t, wantSession, peer.Status.SessionStartedAt, id)
+	}
+}
+
+func TestSqlStore_MarkPeersDisconnectedIfSameSessionContinuesAfterFailedChunk(t *testing.T) {
+	ctx := context.Background()
+	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	sqlStore := store.(*SqlStore)
+
+	sessionOf := map[string]int64{"peer-a": 101, "peer-b": 102, "peer-c": 103}
+	for id, session := range sessionOf {
+		require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+			ID:        id,
+			AccountID: accountID,
+			Key:       "key-" + id,
+			DNSLabel:  id,
+			IP:        netip.AddrFrom4([4]byte{10, 9, 0, byte(session)}),
+			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::9:%d", session)),
+		}))
+		require.NoError(t, sqlStore.db.Model(&nbpeer.Peer{}).Where("id = ?", id).Updates(map[string]any{
+			"peer_status_connected":          true,
+			"peer_status_session_started_at": session,
+			"peer_status_last_seen":          time.Now().UTC(),
+		}).Error)
+	}
+
+	sessions := []types.PeerSession{{AccountID: accountID, PeerID: "peer-a", SessionStartedAt: 101}}
+	for i := 0; i < markPeersDisconnectedChunkSize-1; i++ {
+		sessions = append(sessions, types.PeerSession{AccountID: accountID, PeerID: fmt.Sprintf("missing-%d", i), SessionStartedAt: 1})
+	}
+	sessions = append(sessions,
+		types.PeerSession{AccountID: accountID, PeerID: "peer-b", SessionStartedAt: 102},
+		types.PeerSession{AccountID: accountID, PeerID: "peer-c", SessionStartedAt: 103},
+	)
+
+	chunkErr := errors.New("deadlock detected")
+	var updates atomic.Int32
+	require.NoError(t, sqlStore.db.Callback().Update().Before("gorm:update").Register("test:fail_first_chunk", func(db *gorm.DB) {
+		if updates.Add(1) == 1 {
+			_ = db.AddError(chunkErr)
+		}
+	}))
+
+	marked, err := store.MarkPeersDisconnectedIfSameSession(ctx, sessions)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, chunkErr.Error())
+	assert.Equal(t, int64(2), marked, "only the second chunk is counted")
+	assert.Equal(t, int32(2), updates.Load(), "the second chunk must still run")
+
+	for id, wantConnected := range map[string]bool{"peer-a": true, "peer-b": false, "peer-c": false} {
+		peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, id)
+		require.NoError(t, err)
+		assert.Equal(t, wantConnected, peer.Status.Connected, id)
+	}
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	updates.Store(1)
+	marked, err = store.MarkPeersDisconnectedIfSameSession(cancelled, sessions)
+	assert.Zero(t, marked)
+	assert.ErrorContains(t, err, context.Canceled.Error())
+	assert.Equal(t, int32(1), updates.Load(), "no chunk runs once the context is done")
+	assert.Equal(t, 1, strings.Count(err.Error(), context.Canceled.Error()), "a done context is reported once")
+}
+
+func TestSqlStore_MarkPeerConnectedKeepsLoginExpired(t *testing.T) {
+	ctx := context.Background()
+	store, cleanUp, err := NewTestStoreFromSQL(ctx, "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	require.NoError(t, store.AddPeerToAccount(ctx, &nbpeer.Peer{
+		ID:        "expired-peer",
+		AccountID: accountID,
+		Key:       "key-expired-peer",
+		DNSLabel:  "expired-peer",
+		IP:        netip.AddrFrom4([4]byte{10, 9, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::9:101"),
+		Status:    &nbpeer.PeerStatus{LoginExpired: true},
+	}))
+
+	updated, err := store.MarkPeerConnectedIfNewerSession(ctx, accountID, "expired-peer", 1)
+	require.NoError(t, err)
+	require.True(t, updated)
+
+	peer, err := store.GetPeerByID(ctx, LockingStrengthNone, accountID, "expired-peer")
+	require.NoError(t, err)
+	assert.True(t, peer.Status.Connected)
+	assert.True(t, peer.Status.LoginExpired, "connecting must not clear a login expiry")
 }

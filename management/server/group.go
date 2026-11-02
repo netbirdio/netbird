@@ -138,6 +138,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
+	var unchanged bool
 	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -147,21 +148,27 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 		newGroup.AccountID = accountID
 
-		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		eventsToStore = append(eventsToStore, events...)
-
-		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
 		}
+
+		newGroup.PublicID = oldGroup.PublicID
+
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			unchanged = true
+			return nil
+		}
+
+		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		eventsToStore = append(eventsToStore, events...)
 
 		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
 		peersToRemove := util.Difference(oldGroup.Peers, newGroup.Peers)
 		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, peersToAdd, peersToRemove); err != nil {
 			return err
 		}
-
-		newGroup.PublicID = oldGroup.PublicID
 
 		removed, err := removedGroupNetworkResources(ctx, transaction, accountID, oldGroup, newGroup)
 		if err != nil {
@@ -194,6 +201,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	})
 	if err != nil {
 		return err
+	}
+
+	if unchanged {
+		return nil
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -380,11 +391,16 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 
 		newGroup.AccountID = accountID
 
-		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNoKeyUpdate, accountID, newGroup.ID)
 		if err != nil {
 			return err
 		}
 		newGroup.PublicID = oldGroup.PublicID
+
+		if newGroup.Equal(oldGroup) {
+			log.WithContext(ctx).Tracef("group update skipped because equal to stored one - group id %s", newGroup.ID)
+			return nil
+		}
 
 		removed, err := removedGroupNetworkResources(ctx, transaction, accountID, oldGroup, newGroup)
 		if err != nil {

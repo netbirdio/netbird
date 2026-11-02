@@ -14,17 +14,24 @@ type Debouncer interface {
 	GetPendingUpdates() []*network_map.UpdateMessage
 }
 
+type instrumentedTimer struct {
+	firesAt          time.Time
+	timer            *time.Timer
+	debounceInterval time.Duration
+	deadline         time.Time
+}
+
 // UpdateDebouncer implements a backpressure mechanism that:
 // - Sends the first update immediately
 // - Coalesces rapid subsequent network map updates (only latest matters)
 // - Queues control/config updates (all must be delivered)
 // - Preserves the order of messages (important for control configs between network maps)
-// - Flushes pending updates once per fixed interval, so delivery is never postponed by later updates
+// - Ensures pending updates are sent after a quiet period
 type UpdateDebouncer struct {
-	debounceInterval time.Duration
-	timer            *time.Timer
+	timer            *instrumentedTimer
 	pendingUpdates   []*network_map.UpdateMessage // Queue that preserves order
 	timerC           <-chan time.Time
+	debounceInterval time.Duration
 }
 
 // NewUpdateDebouncer creates a new debouncer with the specified interval
@@ -54,6 +61,7 @@ func (d *UpdateDebouncer) ProcessUpdate(update *network_map.UpdateMessage) bool 
 		// Append to the queue (preserves order for control configs and non-consecutive network maps)
 		d.pendingUpdates = append(d.pendingUpdates, update)
 	}
+	d.timer.resetTimer(0)
 	return false
 }
 
@@ -78,7 +86,7 @@ func (d *UpdateDebouncer) GetPendingUpdates() []*network_map.UpdateMessage {
 		// There were pending updates, so updates are still coming rapidly
 		// Restart the timer to continue debouncing mode
 		if d.timer != nil {
-			d.timer.Reset(d.debounceInterval)
+			d.timer.resetTimer(d.hardDebounceIntervalLimit())
 		}
 	} else {
 		// No pending updates means true quiet period - return to immediate mode
@@ -92,7 +100,7 @@ func (d *UpdateDebouncer) GetPendingUpdates() []*network_map.UpdateMessage {
 // Stop stops the debouncer and cleans up resources
 func (d *UpdateDebouncer) Stop() {
 	if d.timer != nil {
-		d.timer.Stop()
+		d.timer.timer.Stop()
 		d.timer = nil
 		d.timerC = nil
 	}
@@ -100,6 +108,27 @@ func (d *UpdateDebouncer) Stop() {
 }
 
 func (d *UpdateDebouncer) startTimer() {
-	d.timer = time.NewTimer(d.debounceInterval)
-	d.timerC = d.timer.C
+	now := time.Now()
+	d.timer = &instrumentedTimer{
+		timer:            time.NewTimer(d.debounceInterval),
+		firesAt:          now.Add(d.debounceInterval),
+		deadline:         now.Add(d.hardDebounceIntervalLimit()),
+		debounceInterval: d.debounceInterval,
+	}
+	d.timerC = d.timer.timer.C
+}
+
+func (d *UpdateDebouncer) hardDebounceIntervalLimit() time.Duration {
+	return 3 * d.debounceInterval
+}
+
+func (t *instrumentedTimer) resetTimer(deadline time.Duration) {
+	now := time.Now()
+	t.timer.Stop()
+	if deadline != 0 {
+		t.deadline = now.Add(deadline)
+	}
+	interval := min(t.debounceInterval, time.Until(t.deadline))
+	t.timer.Reset(interval)
+	t.firesAt = now.Add(interval)
 }

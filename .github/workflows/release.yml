@@ -17,6 +17,9 @@ env:
   flags: ""
   SKIP_PUBLISH: "true"
   SKIP_DOCKER_PUSH: "false"
+  # GoReleaser otherwise picks its own tag among those on HEAD, so a release
+  # tag sharing a commit with an rc tag would be built and published as the rc.
+  GORELEASER_CURRENT_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}

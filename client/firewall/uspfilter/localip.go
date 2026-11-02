@@ -107,6 +107,12 @@ func (m *localIPManager) IsLocalIP(ip netip.Addr) bool {
 		return true
 	}
 
+	// 0.0.0.0 and :: refer to this host: dialing them connects to loopback, so
+	// they must be subject to the peer ACLs and never be forwarded as routed traffic.
+	if ip.IsUnspecified() {
+		return true
+	}
+
 	_, found := s.ips[ip]
 	return found
 }

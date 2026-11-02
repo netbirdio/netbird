@@ -233,7 +233,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			SystemManufacturer: "Dell Inc.",
 		},
 		Status: &nbpeer.PeerStatus{
-			LastSeen:         now.Add(-5 * time.Minute),
+			LastSeen:         now.Add(-1 * time.Minute),
 			Connected:        true,
 			LoginExpired:     false,
 			RequiresApproval: false,

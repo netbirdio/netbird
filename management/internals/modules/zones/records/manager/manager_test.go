@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -428,6 +429,39 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.Equal(t, 600, result.TTL)
+	})
+
+	t.Run("unchanged record - no write", func(t *testing.T) {
+		manager, testStore, zone, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		existingRecord := records.NewRecord(testAccountID, zone.ID, "api.example.com", records.RecordTypeA, "192.168.1.1", 300)
+		require.NoError(t, testStore.CreateDNSRecord(ctx, existingRecord))
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
+			Return(true, ctx, nil)
+
+		var events, fanOuts int
+		mockAccountManager.StoreEventFunc = func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		}
+		mockAccountManager.ExpandAndUpdateAffectedFunc = func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change) {
+			fanOuts++
+		}
+
+		result, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, &records.Record{
+			ID:      existingRecord.ID,
+			Name:    existingRecord.Name,
+			Type:    existingRecord.Type,
+			Content: existingRecord.Content,
+			TTL:     existingRecord.TTL,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existingRecord.Content, result.Content, "unchanged update must return the stored record")
+		assert.Equal(t, 1, events, "unchanged update must still log an event")
+		assert.Zero(t, fanOuts, "unchanged update must not update affected peers")
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
