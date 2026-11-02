@@ -327,3 +327,17 @@ func TestEnsurePeerAuthSigningKey(t *testing.T) {
 		assert.Error(t, EnsurePeerAuthSigningKey(context.Background(), cfgWith(path)), "a key that cannot be created must fail startup")
 	})
 }
+
+func TestPeerAuthHostnamesConfig(t *testing.T) {
+	unsetSecretEnvs(t)
+	path := writeCombinedConfig(t, "relay-secret", "")
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	content = append(content, []byte("  peerAuth:\n    hostnames: [netbird.example.com, relay.example.com]\n")...)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"netbird.example.com", "relay.example.com"}, cfg.Server.PeerAuth.Hostnames,
+		"server.peerAuth.hostnames must reach the local Relay and Signal")
+}

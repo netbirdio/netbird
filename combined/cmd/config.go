@@ -98,8 +98,14 @@ type PeerAuthConfig struct {
 	// SigningKeyFile is Management's PEM PKCS#8 Ed25519 signing key. Set, peers that send an auth
 	// key get the bound token, and the local Relay and Signal verify it with the derived public key.
 	SigningKeyFile string `yaml:"signingKeyFile"`
+	// Hostnames, if set, are the only hostnames the local Relay and Signal accept in proofs. They
+	// share the exposed address host, so one list serves both.
+	Hostnames []string `yaml:"hostnames"`
 	// Required makes the local Relay and Signal refuse peers that present no bound token.
 	Required bool `yaml:"required"`
+	// CheckTime makes the local Relay and Signal refuse proofs signed more than
+	// peerauth.DefaultSkew away from their clock. Enable only when every peer clock is in sync.
+	CheckTime bool `yaml:"checkTime"`
 }
 
 // AgentNetworkConfig contains agent-network (LLM gateway) configuration.

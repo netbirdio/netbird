@@ -143,7 +143,9 @@ server:
   # list that public key in --peer-auth-public-keys first, or peers lose relayed connections.
   # peerAuth:
   #   signingKeyFile: "/var/lib/netbird/peer_auth_signing.pem" # PEM PKCS#8 Ed25519 key; generated if missing
+  #   hostnames: []        # if set, the only names accepted in proofs (local Relay and Signal)
   #   required: false      # local Relay and Signal refuse peers without a bound token
+  #   checkTime: false     # refuse proofs signed >10 min from the local clock; only with synced peer clocks
 
   # Reverse proxy settings (optional)
   # reverseProxy:

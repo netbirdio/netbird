@@ -272,8 +272,10 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
 		PeerAuth: relayServer.PeerAuthConfig{
-			Keys:     peerAuthKeys,
-			Required: cfg.Server.PeerAuth.Required,
+			Keys:      peerAuthKeys,
+			Hostnames: cfg.Server.PeerAuth.Hostnames,
+			Required:  cfg.Server.PeerAuth.Required,
+			CheckTime: cfg.Server.PeerAuth.CheckTime,
 		},
 	}
 
@@ -352,7 +354,12 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 		cleanupSTUNListeners(s.stunListeners)
 		return err
 	}
-	pa := signalServer.PeerAuthConfig{Keys: peerAuthKeys, Required: cfg.Server.PeerAuth.Required}
+	pa := signalServer.PeerAuthConfig{
+		Keys:      peerAuthKeys,
+		Hostnames: cfg.Server.PeerAuth.Hostnames,
+		Required:  cfg.Server.PeerAuth.Required,
+		CheckTime: cfg.Server.PeerAuth.CheckTime,
+	}
 	s.signalSrv, err = signalServer.NewServerWithPeerAuth(ctx, s.metricsServer.Meter, pa, "signal_")
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
