@@ -68,7 +68,7 @@ func TestNftablesManagerPeerDropMatchesBehindExtensionHeader(t *testing.T) {
 	require.NoError(t, err, "add accept rule")
 	require.NoError(t, manager.Flush())
 
-	require.NoError(t, ns.Dial(addr), "control: plain connection with only the accept rule")
+	ns.WaitDial(t, addr, "control: plain connection with only the accept rule")
 	require.NoError(t, ns.DialControl(addr, setDestOpts), "control: connection with a Destination Options header with only the accept rule")
 
 	_, err = manager.AddFilterRule(nil, src, fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{port}}, fw.ActionDrop)
