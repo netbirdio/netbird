@@ -53,6 +53,8 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+const pocRelayURL = "rels://relaypztest.stage.npeer.io:443"
+
 // androidRunOverride is set on Android to inject mobile dependencies
 // when using embed.Client (which calls Run() with empty MobileDependency).
 var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath string) error
@@ -441,10 +443,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
-		if override, ok := peer.OverrideRelayURLs(); ok {
-			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
-			relayURLs = override
-		}
+		log.Warnf("TEMP POC: overriding relay URLs %v with %v", relayURLs, []string{pocRelayURL})
+		relayURLs = []string{pocRelayURL}
 		peerConfig := loginResp.GetPeerConfig()
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logPath)
