@@ -13,6 +13,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -241,4 +242,55 @@ func TestEgressesOverlay(t *testing.T) {
 	assert.True(t, newForwarder(loopback, false).egressesOverlay(netip.AddrFrom16(loopback.As16())), "v4-mapped destination")
 	assert.False(t, newForwarder(netip.MustParseAddr("100.10.0.1"), false).egressesOverlay(loopback))
 	assert.False(t, newForwarder(loopback, true).egressesOverlay(loopback), "netstack mode has no kernel interface")
+}
+
+// A UDP flow whose destination the host cannot connect to is reported as dropped when the host routes
+// the flow, and as an ordinary end in netstack mode where there is no host route lookup to blame.
+func TestHandleUDP_DialError(t *testing.T) {
+	// A link-local destination without a zone cannot be connected to.
+	unreachable := netip.MustParseAddr("fe80::1")
+	remote := netip.MustParseAddr("10.0.0.2")
+
+	tests := []struct {
+		name     string
+		netstack bool
+		want     []nftypes.Type
+	}{
+		{"host routed", false, []nftypes.Type{nftypes.TypeStart, nftypes.TypeDrop}},
+		{"netstack", true, []nftypes.Type{nftypes.TypeStart, nftypes.TypeEnd}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := nblog.NewFromLogrus(logrus.StandardLogger())
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				assert.NoError(t, logger.Stop(ctx))
+			})
+
+			flows := &recordingFlowLogger{}
+			f := &Forwarder{
+				logger:     logger,
+				ctx:        context.Background(),
+				netstack:   tc.netstack,
+				flowLogger: flows,
+			}
+			f.udpForwarder = newUDPForwarder(1500, logger, flows)
+			t.Cleanup(f.udpForwarder.cancel)
+
+			id := stack.TransportEndpointID{
+				RemoteAddress: addrFromNetipAddr(remote),
+				RemotePort:    40000,
+				LocalAddress:  addrFromNetipAddr(unreachable),
+				LocalPort:     53,
+			}
+			require.False(t, f.handleUDP(udp.NewForwarderRequest(nil, id, nil)), "a failed dial is not handled")
+
+			var got []nftypes.Type
+			for _, e := range flows.events {
+				got = append(got, e.Type)
+			}
+			assert.Equal(t, tc.want, got, "exactly one closing event is sent")
+		})
+	}
 }
