@@ -70,6 +70,9 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
+// applyDNSConfig publishes NetBird's match and search domains to the macOS
+// system resolver via scutil, persisting state after each batch so an
+// unclean shutdown leaves the least possible cleanup work.
 func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	var (
 		searchDomains []string
@@ -128,6 +131,8 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	return nil
 }
 
+// updateState persists createdKeys to the state manager so the shutdown
+// handler can restore DNS on unclean exits.
 func (s *systemConfigurator) updateState(stateManager *statemanager.Manager) {
 	if err := stateManager.UpdateState(&ShutdownState{CreatedKeys: maps.Keys(s.createdKeys)}); err != nil {
 		log.Errorf("failed to update shutdown state: %s", err)
