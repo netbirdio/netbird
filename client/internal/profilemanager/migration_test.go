@@ -191,6 +191,50 @@ func TestMigrate_AStateFileThatCannotFollowRollsBackTheRekey(t *testing.T) {
 	})
 }
 
+// The other account's directory sorts after the active one, so the active
+// profile is rekeyed while its namesake still holds the old ID. Without the
+// rollback the active state would resolve to that namesake.
+func TestMigrate_AnActiveStateThatCannotFollowRollsBackTheRekey(t *testing.T) {
+	username, _ := currentUserPrincipal(t)
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		mine := writeLegacyProfile(t, configDir, dir, "work", nil)
+		writeLegacyProfile(t, configDir, dir+"-zz-other", "work", nil)
+		state := filepath.Join(configDir, dir, "work"+stateFileSuffix)
+		require.NoError(t, os.WriteFile(state, []byte("{}"), 0600))
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
+
+		orig := writeActiveState
+		writeActiveState = func(*ServiceManager, *ActiveProfileState) error {
+			return errors.New("simulated write failure")
+		}
+		t.Cleanup(func() { writeActiveState = orig })
+
+		require.Error(t, sm.MigrateLegacyProfiles())
+		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+			"a repoint that could not finish leaves no marker, so the next start tries again")
+		assert.FileExists(t, mine, "the active profile is back under the ID the active state names")
+		assert.FileExists(t, state, "and so is its state file")
+
+		active, err := sm.GetActiveProfileState()
+		require.NoError(t, err)
+		path, err := sm.ActiveProfilePath(active)
+		require.NoError(t, err)
+		assert.Equal(t, mine, path, "the active state must still resolve to the profile that was active")
+
+		writeActiveState = orig
+		require.NoError(t, sm.MigrateLegacyProfiles())
+
+		active, err = sm.GetActiveProfileState()
+		require.NoError(t, err)
+		path, err = sm.ActiveProfilePath(active)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(configDir, dir), filepath.Dir(path),
+			"the retry repoints the active state inside the account that was running it")
+	})
+}
+
 func TestMigrate_NamesakesTheStateCannotTellApartLeaveNoMarker(t *testing.T) {
 	username, _ := currentUserPrincipal(t)
 

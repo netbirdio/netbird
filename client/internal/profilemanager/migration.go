@@ -106,15 +106,19 @@ func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActivePro
 			if err != nil {
 				return "", fmt.Errorf("generate profile ID: %w", err)
 			}
-			if err := rekeyProfile(p, fresh); err != nil {
+			moved, err := rekeyProfile(p, fresh)
+			if err != nil {
 				return "", err
 			}
 
-			if wasActive {
-				active.ID = fresh
-				if err := s.SetActiveProfileState(active); err != nil {
-					return "", fmt.Errorf("repoint active profile: %w", err)
-				}
+			if !wasActive {
+				continue
+			}
+			active.ID = fresh
+			if err := writeActiveState(s, active); err != nil {
+				// The active state still names the old ID, so the profile goes back to it.
+				undoMoves(moved)
+				return "", fmt.Errorf("repoint active profile: %w", err)
 			}
 		}
 	}
@@ -125,20 +129,24 @@ func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActivePro
 // renameFile is os.Rename, replaced in tests that need a rename to fail.
 var renameFile = os.Rename
 
+// writeActiveState is SetActiveProfileState, replaced in tests that need the write to fail.
+var writeActiveState = (*ServiceManager).SetActiveProfileState
+
 // movedFile is a completed rename, kept so it can be undone.
 type movedFile struct{ at, was string }
 
-// rekeyProfile renames a profile and its state file to a fresh ID.
+// rekeyProfile renames a profile and its state file to a fresh ID and returns
+// the completed moves so a caller can undo them.
 //
 // The state file move first and the profile file last, we try to restore if
 // renaming the profile file.
-func rekeyProfile(p *Profile, fresh ID) error {
+func rekeyProfile(p *Profile, fresh ID) ([]movedFile, error) {
 	// A legacy profile's display name is its filename, so it has to be in the
 	// file before the filename stops meaning anything. The loader already
 	// falls back to the stem, so writing p.Name is a no-op when the file
 	// carries a name of its own.
 	if err := writeProfileName(p.Path, p.Name); err != nil {
-		return fmt.Errorf("record display name of %s: %w", p.ID, err)
+		return nil, fmt.Errorf("record display name of %s: %w", p.ID, err)
 	}
 
 	dir := filepath.Dir(p.Path)
@@ -152,7 +160,7 @@ func rekeyProfile(p *Profile, fresh ID) error {
 		dst := filepath.Join(dir, fresh.String()+suffix)
 		if err := renameFile(src, dst); err != nil {
 			undoMoves(moved)
-			return fmt.Errorf("rekey %s alongside profile %s: %w", filepath.Base(src), p.ID, err)
+			return nil, fmt.Errorf("rekey %s alongside profile %s: %w", filepath.Base(src), p.ID, err)
 		}
 		moved = append(moved, movedFile{at: dst, was: src})
 	}
@@ -160,12 +168,13 @@ func rekeyProfile(p *Profile, fresh ID) error {
 	target := filepath.Join(dir, fresh.String()+".json")
 	if err := renameFile(p.Path, target); err != nil {
 		undoMoves(moved)
-		return fmt.Errorf("rekey %s: %w", p.ID, err)
+		return nil, fmt.Errorf("rekey %s: %w", p.ID, err)
 	}
 
 	log.Infof("profile %q in %s now has the unique ID %s", p.ID, dir, fresh)
+	moved = append(moved, movedFile{at: target, was: p.Path})
 	p.ID, p.Path = fresh, target
-	return nil
+	return moved, nil
 }
 
 // undoMoves puts back what a half-finished rekey moved, so the next start finds
