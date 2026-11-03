@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/netip"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
@@ -85,31 +84,6 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 	}
 
 	return int(result.RowsAffected), nil
-}
-
-// RefreshPeerLastSeen stamps the LastSeen of the peer's connection record with the
-// database clock. Which instance holds the connection and its session are left
-// untouched.
-//
-// LastSeen comes from the database clock: a Go-side timestamp is taken before the
-// write and can land after a connect that used CURRENT_TIMESTAMP, dragging the
-// column backwards.
-//
-// staleBefore carries the caller's throttle into the same statement, so
-// concurrent requests for one peer collapse into a single write instead of
-// each racing on its own stale read. The column is nullable, and NULL loses
-// every comparison, hence the explicit branch for a peer never seen.
-func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
-	result := s.db.WithContext(ctx).Exec(
-		`UPDATE peer_connections SET last_seen = CURRENT_TIMESTAMP
-		WHERE account_id = ? AND peer_id = ? AND (last_seen IS NULL OR last_seen < ?)`,
-		accountID, peerID, staleBefore,
-	)
-	if result.Error != nil {
-		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
-	}
-
-	return result.RowsAffected > 0, nil
 }
 
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {

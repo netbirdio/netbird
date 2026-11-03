@@ -173,11 +173,6 @@ type Store interface {
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
-	// RefreshPeerLastSeen stamps the LastSeen of the peer's connection record with
-	// the database clock. The write only lands when the stored LastSeen is older
-	// than staleBefore, which keeps a caller's throttle atomic under concurrent
-	// requests for the same peer. Returns true when the update happened.
-	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
 	// RegisterInstance records a management instance as alive, stamping StartedAt
 	// and LastSeen with the database clock. It fails when the ID is already registered.
 	RegisterInstance(ctx context.Context, id, hostname string) error
@@ -219,6 +214,11 @@ type Store interface {
 	// released session no longer matches. It returns false when a newer session has
 	// replaced it or the peer has no such connection.
 	ReleasePeerConnection(ctx context.Context, accountID, peerID string, session int64) (bool, error)
+	// RefreshPeerLastSeen stamps the LastSeen of the peer's connection record with
+	// the database clock. The write only lands when the stored LastSeen is older
+	// than staleBefore, which keeps a caller's throttle atomic under concurrent
+	// requests for the same peer. Returns true when the update happened.
+	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
 	// ReRegisterPeers re-points the connections of sessions at the instance,
 	// overwriting a connection only with a session that is the same or newer. Peers
 	// that no longer exist are skipped.
