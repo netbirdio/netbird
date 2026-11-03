@@ -20,6 +20,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 var ifaceMock = &iFaceMock{
@@ -240,6 +241,113 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	require.Less(t, denyRuleIndex, acceptRuleIndex,
 		"deny rule should come before accept rule in nftables chain (deny at index %d, accept at index %d)",
 		denyRuleIndex, acceptRuleIndex)
+}
+
+// TestNftablesManagerDenyRedirectMark verifies the prerouting counterparts
+// of peer ACL rules. The forward filter accepts any packet carrying the
+// redirect mark without consulting the input chain, so traffic that DNAT
+// diverts from input to forward (e.g. a published container port) is
+// governed by these counterparts alone: a deny must drop new traffic
+// before DNAT rather than leave it to the forward filter, where a route
+// ACL could accept it, and it must precede the counterpart of an
+// overlapping accept.
+func TestNftablesManagerDenyRedirectMark(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	ip := netip.MustParseAddr("100.96.0.2").Unmap()
+	testClient := &nftables.Conn{}
+
+	// Accept everything from the peer first, then deny tcp/80 from it.
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "failed to add accept rule")
+
+	_, err = manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
+	require.NoError(t, err, "failed to add deny rule")
+
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
+	rules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chainPrerouting)
+	require.NoError(t, err, "failed to get prerouting rules")
+
+	wantSrc := ip.AsSlice()
+	redirectMark := binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected)
+	var acceptRuleIndex, denyRuleIndex = -1, -1
+	for i, rule := range rules {
+		var hasSrc, hasPort80, setsMark bool
+		for _, e := range rule.Exprs {
+			switch e := e.(type) {
+			case *expr.Cmp:
+				if e.Op == expr.CmpOpEq && bytes.Equal(e.Data, wantSrc) {
+					hasSrc = true
+				}
+				if len(e.Data) == 2 && binary.BigEndian.Uint16(e.Data) == 80 {
+					hasPort80 = true
+				}
+			case *expr.Immediate:
+				if bytes.Equal(e.Data, redirectMark) {
+					setsMark = true
+				}
+			}
+		}
+
+		if !hasSrc {
+			continue
+		}
+		if hasPort80 {
+			t.Logf("Rule [%d]: src=%s port=80 mark=%v", i, ip, setsMark)
+			denyRuleIndex = i
+			require.False(t, setsMark, "deny counterpart must not set the redirect mark")
+			requireDropUnlessEstablished(t, rule.Exprs)
+		} else {
+			t.Logf("Rule [%d]: src=%s mark=%v", i, ip, setsMark)
+			acceptRuleIndex = i
+			require.True(t, setsMark, "accept counterpart must set the redirect mark")
+		}
+	}
+
+	require.NotEqual(t, -1, acceptRuleIndex, "accept counterpart should exist in the prerouting chain")
+	require.NotEqual(t, -1, denyRuleIndex, "deny counterpart should exist in the prerouting chain")
+	require.Less(t, denyRuleIndex, acceptRuleIndex,
+		"deny counterpart should come before accept counterpart in the prerouting chain (deny at index %d, accept at index %d)",
+		denyRuleIndex, acceptRuleIndex)
+}
+
+// requireDropUnlessEstablished asserts the rule ends with the conntrack
+// state exemption followed by the drop: the state match skips established
+// and related packets, and the drop is the last expression so it only
+// fires after every other match.
+func requireDropUnlessEstablished(t *testing.T, exprs []expr.Any) {
+	t.Helper()
+
+	require.GreaterOrEqual(t, len(exprs), 4, "deny counterpart is too short")
+	tail := exprs[len(exprs)-4:]
+
+	ct, ok := tail[0].(*expr.Ct)
+	require.True(t, ok, "deny counterpart must read the conntrack state before the verdict")
+	require.Equal(t, expr.CtKeySTATE, ct.Key, "deny counterpart must read the conntrack state")
+
+	bitwise, ok := tail[1].(*expr.Bitwise)
+	require.True(t, ok, "deny counterpart must mask the conntrack state")
+	require.Equal(t,
+		binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED|expr.CtStateBitRELATED),
+		bitwise.Mask, "deny counterpart must mask established and related")
+
+	cmp, ok := tail[2].(*expr.Cmp)
+	require.True(t, ok, "deny counterpart must compare the masked state")
+	require.Equal(t, expr.CmpOpEq, cmp.Op, "deny counterpart must continue only when neither bit is set")
+	require.Equal(t, []byte{0, 0, 0, 0}, cmp.Data, "deny counterpart must compare against no state bits")
+
+	verdict, ok := tail[3].(*expr.Verdict)
+	require.True(t, ok, "deny counterpart must end in a verdict")
+	require.Equal(t, expr.VerdictDrop, verdict.Kind, "deny counterpart must drop after its matches, before DNAT")
 }
 
 func TestNFtablesCreatePerformance(t *testing.T) {
