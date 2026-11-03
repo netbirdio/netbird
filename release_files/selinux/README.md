@@ -73,7 +73,7 @@ Everything else, by feature:
 | Netflow | Netlink netfilter socket for conntrack events, `nf_conntrack_acct` |
 | Netstack | `netbird_wg_runtime_t` and a loopback SOCKS5 listener |
 | Posture checks | `getattr` on executables, read `/proc` of other domains, read the certificate store in `netbird_etc_t`, `tpm_device_t` |
-| SSH sessions | `su` into `unconfined_t`, `login` into `local_login_t`, ptys (`netbird_devpts_t`, `ptmx_t`), `passwd_file_t`, SSSD and systemd-userdbd lookups, search of `user_home_dir_t` |
+| SSH sessions | `su` into `unconfined_t`, `login` into `local_login_t`, ptys (`netbird_devpts_t`, `ptmx_t`), `passwd_file_t`, SSSD and systemd-userdbd lookups, search of `user_home_dir_t` (needs `netbird_read_user_home`) |
 | SSH session teardown | `signal` and `sigkill` on `unconfined_t` |
 | Debug bundle | Execute the firewall tools, files in `netbird_tmp_t`, upload over HTTPS, journal and log reads (`netbird_debug_bundle`) |
 | Ports | Bind unreserved UDP ports, connect to any TCP port. Binding unreserved TCP ports needs `netbird_bind_all_ports` |
@@ -100,5 +100,6 @@ To make only the daemon permissive while collecting denials, run
 
 - Desktop users that run confined need the `netbird_stream_connect` interface to
   reach the daemon socket. Unconfined users need nothing.
-- `netbird_ssh_sessions` only gates the shell and `su` transitions. The `login`
+- `netbird_ssh_sessions` gates the shell and `su` transitions to `unconfined_t`, `sys_admin`,
+  `audit_write`, `passwd rootok` and `signal` and `sigkill` on `unconfined_t`. The `login`
   transition is always allowed because its interface cannot sit inside a boolean.

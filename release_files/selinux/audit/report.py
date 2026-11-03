@@ -5,7 +5,8 @@ usage: cat <marks-file>... | report.py <start-epoch> > report.tsv
 
 The marks are read from standard input, one line per boundary: "<epoch> S <name>" when a
 feature starts and "<epoch> E <name>" when it ends. Every start needs its own end: a
-repeated start, an end without a start, a window left open and any other kind are errors. A record inside
+repeated start, an end without a start, an end before its start, a window left open, a line
+that is not exactly three fields and any other kind are errors. A record inside
 a window is reported under that feature, a record within a short padding around a window
 under the closest one, and any other under "(outside-tests)". Reads /var/log/audit/audit.log
 and its rotations. The "granted" records come from the netbirdaudit module next to this file.
@@ -24,10 +25,12 @@ COMM = re.compile(r'comm="([^"]*)"')
 
 
 def parse_mark(line):
-    """Returns (stamp, kind, name) for a mark line, or None for a line that is not a mark."""
+    """Returns (stamp, kind, name) for a mark line, or None for a blank line."""
     parts = line.split()
-    if len(parts) < 3:
+    if not parts:
         return None
+    if len(parts) != 3:
+        sys.exit(f"report.py: malformed mark {line.strip()!r}, expected '<epoch> S|E <name>'")
     try:
         stamp = float(parts[0])
     except ValueError:
@@ -46,7 +49,10 @@ def start_window(started, stamp, name):
 def end_window(started, windows, stamp, name):
     if name not in started:
         sys.exit(f"report.py: window {name} ended without a start")
-    windows.append((started.pop(name), stamp, name))
+    begin = started.pop(name)
+    if stamp < begin:
+        sys.exit(f"report.py: window {name} ends at {stamp} before it starts at {begin}")
+    windows.append((begin, stamp, name))
 
 
 def read_windows(marks):
@@ -122,8 +128,18 @@ def print_report(counts, commands):
         print("\t".join([*key, ",".join(sorted(commands[key])), str(sum(per_window.values())), top]))
 
 
+def read_since(args):
+    try:
+        since = float(args[1])
+    except (IndexError, ValueError):
+        sys.exit("usage: cat <marks-file>... | report.py <start-epoch>")
+    if not math.isfinite(since):
+        sys.exit(f"report.py: invalid start epoch {args[1]!r}")
+    return since
+
+
 def main():
-    since = float(sys.argv[1])
+    since = read_since(sys.argv)
     windows = read_windows(sys.stdin)
     counts, commands = count_records(since, windows)
     print_report(counts, commands)

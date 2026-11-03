@@ -99,6 +99,7 @@ interface(`netbird_admin',`
 		type netbird_t, netbird_etc_t;
 		type netbird_var_lib_t, netbird_var_log_t;
 		type netbird_runtime_t, netbird_wg_runtime_t;
+		type netbird_ssh_conf_t, netbird_rt_tables_t, netbird_tmp_t;
 	')
 
 	allow $1 netbird_t:process { ptrace signal_perms };
@@ -116,4 +117,9 @@ interface(`netbird_admin',`
 	files_search_pids($1)
 	admin_pattern($1, netbird_runtime_t)
 	admin_pattern($1, netbird_wg_runtime_t)
+	admin_pattern($1, netbird_ssh_conf_t)
+	admin_pattern($1, netbird_rt_tables_t)
+
+	files_search_tmp($1)
+	admin_pattern($1, netbird_tmp_t)
 ')
