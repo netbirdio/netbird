@@ -8,6 +8,17 @@
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../skip-latest.sh"
 
+  # Some tests build a repository of their own. Git honours GIT_DIR and its
+  # kin over the current directory, and sets them for hooks, so a run from a
+  # hook would commit and tag in the caller's repository instead -- and still
+  # pass, reading back what it wrote. Clear every variable that ties git to a
+  # repository; git lists them itself.
+  # shellcheck disable=SC2046 # one name per word is the point
+  unset $(git rev-parse --local-env-vars)
+  # Neutralise the developer's git config too: a global tag.gpgSign turns
+  # `git tag <name>` into an annotated tag and fails for want of a message.
+  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+
   # A tag set with a newer line released and an older one still maintained.
   TAGS='v0.79.0
 v0.80.0-rc.1
@@ -111,7 +122,6 @@ v0.1.0'
   tmp=$(mktemp -d)
   repo="$tmp/repo"
   mkdir -p "$repo"
-  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   (
     cd "$repo"
     git init -q .
@@ -128,9 +138,6 @@ v0.1.0'
   tmp=$(mktemp -d)
   repo="$tmp/repo"
   mkdir -p "$repo"
-  # Neutralise the developer's git config: a global tag.gpgSign turns
-  # `git tag <name>` into an annotated tag and fails for want of a message.
-  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   (
     cd "$repo"
     git init -q .
