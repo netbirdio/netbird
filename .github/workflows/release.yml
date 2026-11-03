@@ -10,7 +10,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.1.8"
+  SIGN_PIPE_VER: "v0.1.9"
   GORELEASER_VER: "v2.16.0"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
