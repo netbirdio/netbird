@@ -104,9 +104,22 @@ v0.1.0'
 }
 
 @test "an empty SKIP_LATEST_TAGS is an empty list, not ask git" {
-  # Guards the ${VAR+set} test: a plain -n check would fall through to git,
-  # where this repository's real v0.80.0 would let the script succeed.
-  decide v0.80.0 ''
+  # Guards the ${VAR+set} test: a plain -n check would fall through to git
+  # and find v0.80.0 there, letting the script succeed. The tag lives in a
+  # repository made here, not this one: CI checks this one out without tags,
+  # where git would find nothing either and the test could not tell.
+  tmp=$(mktemp -d)
+  repo="$tmp/repo"
+  mkdir -p "$repo"
+  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+  (
+    cd "$repo"
+    git init -q .
+    git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+    git tag v0.80.0
+  ) || return 1
+  SKIP_LATEST_TAGS='' run sh -c "cd '$repo' && '$SCRIPT' v0.80.0 </dev/null"
+  rm -rf "$tmp"
   [ "$status" -eq 1 ]
 }
 
