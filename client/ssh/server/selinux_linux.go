@@ -135,6 +135,10 @@ func (l *selinuxLookup) isConfined(username string, groups []string) bool {
 // localGroupNames returns the names of the groups u belongs to, for the group entries in
 // seusers, see resolveGroupNames.
 func localGroupNames(u *user.User) ([]string, error) {
+	if !selinuxEnabled() || !newSELinuxLookup().hasPolicy() {
+		return nil, nil
+	}
+
 	ids, err := getent.GroupIDsStrict(u)
 	if err != nil {
 		return nil, fmt.Errorf("list groups of %q: %w", u.Username, err)
@@ -261,7 +265,7 @@ func (l *selinuxLookup) defaultContext(username string, groups []string) (string
 
 	for _, pref := range l.preferences(seuser) {
 		for _, candidate := range reachable {
-			if roleType(candidate) == pref {
+			if contextRoleType(candidate) == pref {
 				return candidate, nil
 			}
 		}
@@ -341,17 +345,23 @@ func loginPreferences(path string) []string {
 	return prefs
 }
 
-// roleType returns the role:type pair of a context, or of a role:type[:level] entry.
-func roleType(ctx string) string {
+// roleType returns the role:type pair of a role:type[:level] entry of a default contexts file.
+func roleType(entry string) string {
+	parts := strings.Split(entry, ":")
+	if len(parts) < 2 {
+		return entry
+	}
+	return parts[0] + ":" + parts[1]
+}
+
+// contextRoleType returns the role:type pair of a full user:role:type[:level] context, with
+// or without an MLS range.
+func contextRoleType(ctx string) string {
 	parts := strings.Split(ctx, ":")
-	switch {
-	case len(parts) >= 4:
-		return parts[1] + ":" + parts[2]
-	case len(parts) >= 2:
-		return parts[0] + ":" + parts[1]
-	default:
+	if len(parts) < 3 {
 		return ctx
 	}
+	return parts[1] + ":" + parts[2]
 }
 
 func levelOf(entry []string) string {

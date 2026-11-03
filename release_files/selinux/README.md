@@ -104,8 +104,8 @@ To make only the daemon permissive while collecting denials, run
   ones into the domains of confined users. The `login` transition is always allowed because
   its interface cannot sit inside a boolean.
 - Sessions of users mapped to a confined SELinux user get the context SELinux assigns
-  them at login. Users mapped to an administrator SELinux user such as `sysadm_u` are
-  refused, as with sshd unless `ssh_sysadm_login` is on.
+  them at login. While SELinux enforces, users mapped to an administrator SELinux user such
+  as `sysadm_u` are refused, as with sshd unless `ssh_sysadm_login` is on.
 - When SELinux is permissive, a session whose context cannot be resolved is started
   anyway and a warning is logged. When it is enforcing, the session is refused. Hosts
   that have the SELinux file system but no policy files, such as containers, are left

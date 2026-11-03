@@ -147,9 +147,33 @@ func TestParseContextReply(t *testing.T) {
 }
 
 func TestRoleType(t *testing.T) {
-	assert.Equal(t, "user_r:user_t", roleType("user_u:user_r:user_t:s0-s0:c0.c1023"))
 	assert.Equal(t, "user_r:user_t", roleType("user_r:user_t:s0"))
 	assert.Equal(t, "user_r:user_t", roleType("user_r:user_t"))
+}
+
+// A full context has the SELinux user in front, with or without an MLS range after the type.
+func TestContextRoleType(t *testing.T) {
+	assert.Equal(t, "user_r:user_t", contextRoleType("user_u:user_r:user_t:s0-s0:c0.c1023"))
+	assert.Equal(t, "user_r:user_t", contextRoleType("user_u:user_r:user_t:s0"))
+	assert.Equal(t, "user_r:user_t", contextRoleType("user_u:user_r:user_t"), "context without an MLS range")
+}
+
+func TestDefaultContext_NoMLSContexts(t *testing.T) {
+	l := &selinuxLookup{
+		rootDir: t.TempDir(),
+		reachable: func(string, string) ([]string, error) {
+			return []string{"user_u:user_r:user_t"}, nil
+		},
+	}
+	policy := filepath.Join(l.rootDir, "targeted")
+	require.NoError(t, os.MkdirAll(filepath.Join(policy, "contexts"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(policy, "seusers"), []byte("selu:user_u\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(policy, "contexts", "default_contexts"),
+		[]byte("system_r:sshd_t user_r:user_t\n"), 0o644))
+
+	got, err := l.defaultContext("selu", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "user_u:user_r:user_t", got)
 }
 
 func TestWriteExecContext(t *testing.T) {

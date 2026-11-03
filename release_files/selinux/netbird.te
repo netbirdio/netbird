@@ -485,6 +485,7 @@ kernel_read_system_state(netbird_ssh_t)
 # The user's context is looked up from the policy the way sshd does it, and the session
 # is started in it.
 selinux_get_fs_mount(netbird_ssh_t)
+selinux_get_enforce_mode(netbird_ssh_t)
 selinux_compute_user_contexts(netbird_ssh_t)
 seutil_read_config(netbird_ssh_t)
 seutil_read_default_contexts(netbird_ssh_t)
@@ -525,7 +526,7 @@ tunable_policy(`netbird_ssh_sessions',`
 	dontaudit unpriv_userdomain netbird_runtime_t:sock_file getattr;
 
 	# The SFTP server runs the daemon binary again in the user context
-	allow { unpriv_userdomain unconfined_t } netbird_exec_t:file { entrypoint read open getattr map execute };
+	allow { netbird_ssh_t unpriv_userdomain unconfined_t } netbird_exec_t:file { entrypoint read open getattr map execute };
 ')
 
 # Interface details from udev, read when listing network devices
