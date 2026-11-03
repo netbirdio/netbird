@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -324,4 +326,60 @@ func Test_UpdateNetworkPreservesPublicId(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, originalPublicId, got.PublicID, "PublicID must survive UpdateNetwork")
 	require.Equal(t, "seq-preserve-renamed", got.Name)
+}
+
+func Test_UpdateNetworkUnchangedSkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	userID := "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	var events int
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		},
+	}
+	permissionsManager := permissions.NewManager(s)
+	resourcesManager := resources.NewManager(s, permissionsManager, groups.NewManagerMock(), &am, nil)
+	counting := &saveCountingStore{Store: s, saves: new(int)}
+	manager := NewManager(counting, permissionsManager, resourcesManager, routers.NewManagerMock(), &am)
+
+	network := &types.Network{
+		ID:          "testNetworkId",
+		AccountID:   "testAccountId",
+		Name:        "new-network",
+		Description: "new-description",
+	}
+
+	_, err = manager.UpdateNetwork(ctx, userID, network.Copy())
+	require.NoError(t, err)
+	require.Equal(t, 1, *counting.saves, "real update must save the network")
+	require.Equal(t, 1, events, "real update must log an event")
+
+	_, err = manager.UpdateNetwork(ctx, userID, network.Copy())
+	require.NoError(t, err)
+	assert.Equal(t, 1, *counting.saves, "unchanged update must not save the network")
+	assert.Equal(t, 2, events, "unchanged update must still log an event")
+}
+
+// saveCountingStore counts SaveNetwork calls on a real store, including calls
+// made on the transaction store, since an identical write leaves no trace in
+// the persisted row.
+type saveCountingStore struct {
+	store.Store
+	saves *int
+}
+
+func (s *saveCountingStore) ExecuteInTransaction(ctx context.Context, f func(store.Store) error) error {
+	return s.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		return f(&saveCountingStore{Store: tx, saves: s.saves})
+	})
+}
+
+func (s *saveCountingStore) SaveNetwork(ctx context.Context, network *types.Network) error {
+	*s.saves++
+	return s.Store.SaveNetwork(ctx, network)
 }

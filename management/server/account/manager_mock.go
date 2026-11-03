@@ -1383,20 +1383,6 @@ func (mr *MockManagerMockRecorder) MarkPeerDisconnected(ctx, peerKey, accountID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeerDisconnected), ctx, peerKey, accountID, sessionStartedAt)
 }
 
-// MarkPeersDisconnected mocks base method.
-func (m *MockManager) MarkPeersDisconnected(ctx context.Context, sessions []types.PeerSession) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeersDisconnected", ctx, sessions)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkPeersDisconnected indicates an expected call of MarkPeersDisconnected.
-func (mr *MockManagerMockRecorder) MarkPeersDisconnected(ctx, sessions any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeersDisconnected", reflect.TypeOf((*MockManager)(nil).MarkPeersDisconnected), ctx, sessions)
-}
-
 // OnPeerDisconnected mocks base method.
 func (m *MockManager) OnPeerDisconnected(ctx context.Context, accountID, peerPubKey string, streamStartTime time.Time) error {
 	m.ctrl.T.Helper()

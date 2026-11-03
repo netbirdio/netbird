@@ -11,6 +11,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
@@ -185,7 +186,9 @@ type Peer struct {
 	IP                         []byte         `nmap:"json"`
 	IPv6                       []byte         `nmap:"json"`
 	PeerStatusRequiresApproval sql.NullBool   `nmap:"map_to:RequiresApproval"`
-	PeerStatusConnected        sql.NullBool   `nmap:"skip"`
+	PeerLastSeen               sql.NullTime   `nmap:"skip"`
+	PeerSessionStartedAt       sql.NullInt64  `nmap:"skip"`
+	InstanceLastSeen           sql.NullTime   `nmap:"skip"`
 	ProxyMetaEmbedded          sql.NullBool   `nmap:"skip"`
 	ProxyMetaCluster           sql.NullString `nmap:"skip"`
 	MetaWtVersion              sql.NullString `nmap:"skip"`
@@ -319,8 +322,10 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		}
 		dp.ProxyMeta.Cluster = p.ProxyMetaCluster.String
 		// This is only used to build private service candidates, not connected peers are skipped
-		dp.Connected = p.PeerStatusConnected.Bool
-		if dp.ProxyMeta.Embedded && p.PeerStatusConnected.Bool {
+		var status nbpeer.PeerStatus
+		status.ApplyConnection(p.PeerSessionStartedAt, p.PeerLastSeen, p.InstanceLastSeen)
+		dp.Connected = status.Connected
+		if dp.ProxyMeta.Embedded && dp.Connected {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}
 		if p.MetaWtVersion.Valid {

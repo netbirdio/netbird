@@ -169,6 +169,8 @@ check_domain_resolves() {
 #   NETBIRD_REVERSE_PROXY_TYPE        0-5 (default 0 = built-in Traefik)
 #   NETBIRD_ENABLE_PROXY              true/false (default false)
 #   NETBIRD_ENABLE_CROWDSEC           true/false (default false)
+#   NETBIRD_ENABLE_CROWDSEC_APPSEC    true/false (default false; requires NETBIRD_ENABLE_CROWDSEC=true,
+#                                     which needs built-in Traefik (type 0) and NETBIRD_ENABLE_PROXY=true)
 #   NETBIRD_TRAEFIK_EXTERNAL_NETWORK  external-Traefik network (type 1)
 #   NETBIRD_TRAEFIK_ENTRYPOINT        external-Traefik entrypoint (type 1, default websecure)
 #   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
@@ -207,6 +209,17 @@ resolve() {
     echo "$default"
   fi
   return 0
+}
+
+validate_boolean_env() {
+  local env_name="$1"
+  case "${!env_name:-}" in
+    "" | true | false) return 0 ;;
+    *)
+      echo "$env_name must be true or false." > /dev/stderr
+      exit 1
+      ;;
+  esac
 }
 
 read_nb_domain() {
@@ -352,6 +365,37 @@ read_enable_crowdsec() {
   return 0
 }
 
+read_enable_crowdsec_appsec() {
+  echo "" > /dev/stderr
+  echo "Protect the dashboard with CrowdSec AppSec?" > /dev/stderr
+  echo "AppSec inspects requests to the dashboard, /api, and /oauth2 and blocks" > /dev/stderr
+  echo "common web attack patterns. Relay, gRPC, and proxied services are not" > /dev/stderr
+  echo "inspected." > /dev/stderr
+  echo "" > /dev/stderr
+  echo "If CrowdSec is unreachable, those paths are blocked. Two different rule" > /dev/stderr
+  echo "matches from your IP within a minute can lock you out of the dashboard" > /dev/stderr
+  echo "for 4 hours. Recovery is over SSH." > /dev/stderr
+  echo -n "Enable AppSec? [y/N]: " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  if [[ "$CHOICE" =~ ^[Yy]$ ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+  return 0
+}
+
+# AppSec is enforced by the built-in Traefik on the dashboard paths. It has no
+# engine of its own, so it cannot be selected without CrowdSec.
+ensure_crowdsec_appsec_allowed() {
+  if [[ "${NETBIRD_ENABLE_CROWDSEC_APPSEC:-}" == "true" && "${ENABLE_CROWDSEC:-}" != "true" ]]; then
+    echo "NETBIRD_ENABLE_CROWDSEC_APPSEC=true requires NETBIRD_ENABLE_CROWDSEC=true with the built-in Traefik reverse proxy and the NetBird Proxy." > /dev/stderr
+    exit 1
+  fi
+  return 0
+}
+
 read_traefik_acme_email() {
   echo "" > /dev/stderr
   echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
@@ -493,6 +537,7 @@ initialize_default_values() {
 
   # CrowdSec configuration
   ENABLE_CROWDSEC="false"
+  ENABLE_CROWDSEC_APPSEC="false"
   CROWDSEC_BOUNCER_KEY=""
   return 0
 }
@@ -560,10 +605,13 @@ apply_agent_network_preset() {
 }
 
 configure_reverse_proxy() {
+  validate_boolean_env NETBIRD_ENABLE_CROWDSEC_APPSEC
+
   # Short-circuit: agent-network preset locks every reverse-proxy /
   # proxy / CrowdSec choice and bypasses the interactive prompts.
   if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
     apply_agent_network_preset
+    ensure_crowdsec_appsec_allowed
     return 0
   fi
 
@@ -576,6 +624,9 @@ configure_reverse_proxy() {
     ENABLE_PROXY=$(resolve NETBIRD_ENABLE_PROXY false read_enable_proxy)
     if [[ "$ENABLE_PROXY" == "true" ]]; then
       ENABLE_CROWDSEC=$(resolve NETBIRD_ENABLE_CROWDSEC false read_enable_crowdsec)
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        ENABLE_CROWDSEC_APPSEC=$(resolve NETBIRD_ENABLE_CROWDSEC_APPSEC false read_enable_crowdsec_appsec)
+      fi
     fi
   fi
 
@@ -613,6 +664,7 @@ configure_reverse_proxy() {
       echo "" > /dev/stderr
     fi
   fi
+  ensure_crowdsec_appsec_allowed
   return 0
 }
 
@@ -621,6 +673,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
+    echo "  if [ -f .env ]; then sed -i '/^CROWDSEC_DASHBOARD_BOUNCER_KEY=/d' .env; fi"
     echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
@@ -645,6 +698,9 @@ generate_configuration_files() {
         render_traefik_dynamic > traefik-dynamic.yaml
         if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
           mkdir -p crowdsec
+          if [[ "$ENABLE_CROWDSEC_APPSEC" == "true" ]]; then
+            write_crowdsec_appsec_files
+          fi
         fi
       fi
       ;;
@@ -831,6 +887,69 @@ init_environment() {
 # Configuration File Renderers
 ############################################
 
+# Port 7422 stays closed unless this file exists before the container is
+# created. Traefik waits on a health check that opens that port.
+write_crowdsec_appsec_files() {
+  mkdir -p crowdsec/acquis.d
+  cat > crowdsec/acquis.d/appsec.yaml <<'EOF'
+appsec_configs:
+  - crowdsecurity/appsec-default
+labels:
+  type: appsec
+listen_addr: 0.0.0.0:7422
+source: appsec
+EOF
+  if [[ -f .env ]] && grep -q '^CROWDSEC_DASHBOARD_BOUNCER_KEY=.' .env; then
+    chmod 600 .env
+    return 0
+  fi
+  local key
+  key=$(openssl rand -hex 32) || {
+    echo "Could not generate the CrowdSec dashboard bouncer key." > /dev/stderr
+    exit 1
+  }
+  if [[ -z "$key" ]]; then
+    echo "Could not generate the CrowdSec dashboard bouncer key." > /dev/stderr
+    exit 1
+  fi
+  if [[ ! -f .env ]]; then
+    install -m 600 /dev/null .env
+  fi
+  printf 'CROWDSEC_DASHBOARD_BOUNCER_KEY=%s\n' "$key" >> .env
+  chmod 600 .env
+  return 0
+}
+
+# The dashboard bouncer key stays in .env. Compose interpolates it.
+render_crowdsec_appsec_service() {
+  cat <<EOF
+  crowdsec:
+    image: $CROWDSEC_IMAGE
+    container_name: netbird-crowdsec
+    restart: unless-stopped
+    networks: [netbird]
+    environment:
+      COLLECTIONS: "crowdsecurity/linux crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
+      BOUNCER_KEY_netbird_dashboard: "\${CROWDSEC_DASHBOARD_BOUNCER_KEY}"
+    volumes:
+      - ./crowdsec:/etc/crowdsec
+      - crowdsec_db:/var/lib/crowdsec/data
+    healthcheck:
+      test: ["CMD-SHELL", "cscli lapi status >/dev/null 2>&1 && bash -c '</dev/tcp/127.0.0.1/7422'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    labels:
+      - traefik.enable=false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+EOF
+}
+
 render_docker_compose_traefik_builtin() {
   # Generate proxy service section and Traefik dynamic config if enabled
   local proxy_service=""
@@ -839,6 +958,16 @@ render_docker_compose_traefik_builtin() {
   local crowdsec_volumes=""
   local traefik_file_provider=""
   local traefik_dynamic_volume=""
+  local traefik_depends=""
+  local traefik_plugin=""
+  local traefik_appsec_labels=""
+  local dashboard_appsec_middleware=""
+  local dashboard_api_router=""
+  local backend_paths='PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`)'
+  # API and OAuth2 must not fall back to an uninspected router when AppSec fails.
+  if [[ "$ENABLE_CROWDSEC_APPSEC" != "true" ]]; then
+    backend_paths+=' || PathPrefix(`/api`) || PathPrefix(`/oauth2`)'
+  fi
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
@@ -888,7 +1017,11 @@ render_docker_compose_traefik_builtin() {
   netbird_proxy_certs:"
 
     if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
-      crowdsec_service="
+      if [[ "$ENABLE_CROWDSEC_APPSEC" == "true" ]]; then
+        crowdsec_service=$(render_crowdsec_appsec_service)
+        crowdsec_service+=$'\n'
+      else
+        crowdsec_service="
   crowdsec:
     image: $CROWDSEC_IMAGE
     container_name: netbird-crowdsec
@@ -912,9 +1045,60 @@ render_docker_compose_traefik_builtin() {
         max-size: \"500m\"
         max-file: \"2\"
 "
+      fi
       crowdsec_volumes="
   crowdsec_db:"
     fi
+  fi
+
+  # v1.7.1 is the bouncer plugin release validated with CrowdSec 1.8.1 and
+  # Traefik 3.7.14. The middleware is declared on Traefik so a dashboard
+  # restart does not drop it and fail open.
+  if [[ "$ENABLE_CROWDSEC_APPSEC" == "true" ]]; then
+    traefik_depends=$(cat <<'EOF'
+    depends_on:
+      crowdsec:
+        condition: service_healthy
+EOF
+)
+    traefik_depends+=$'\n'
+    traefik_plugin=$(cat <<'EOF'
+      - "--experimental.plugins.bouncer.modulename=github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
+      - "--experimental.plugins.bouncer.version=v1.7.1"
+EOF
+)
+    traefik_plugin+=$'\n'
+    traefik_appsec_labels=$(cat <<'EOF'
+    labels:
+      - traefik.enable=true
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.enabled=true
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecMode=stream
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecLapiScheme=http
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecLapiHost=crowdsec:8080
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecLapiKey=${CROWDSEC_DASHBOARD_BOUNCER_KEY}
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecAppsecEnabled=true
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecAppsecHost=crowdsec:7422
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecAppsecFailureBlock=true
+      - traefik.http.middlewares.netbird-dashboard-crowdsec.plugin.bouncer.crowdsecAppsecUnreachableBlock=true
+EOF
+)
+    traefik_appsec_labels+=$'\n'
+    dashboard_appsec_middleware=$(cat <<'EOF'
+      - traefik.http.routers.netbird-dashboard.middlewares=netbird-dashboard-crowdsec@docker
+EOF
+)
+    dashboard_appsec_middleware+=$'\n'
+    dashboard_api_router=$(cat <<EOF
+      - traefik.http.routers.netbird-dashboard-api.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-dashboard-api.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard-api.tls=true
+      - traefik.http.routers.netbird-dashboard-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-dashboard-api.service=netbird-server
+      - traefik.http.routers.netbird-dashboard-api.middlewares=netbird-dashboard-crowdsec@docker
+      - traefik.http.routers.netbird-dashboard-api.priority=110
+EOF
+)
+    dashboard_api_router+=$'\n'
   fi
 
   cat <<EOF
@@ -927,7 +1111,7 @@ services:
     networks:
       netbird:
         ipv4_address: $TRAEFIK_IP
-    command:
+${traefik_depends}    command:
       # Logging
       - "--log.level=INFO"
       - "--accesslog=true"
@@ -941,7 +1125,7 @@ services:
       - "--entrypoints.websecure.allowACMEByPass=true"
       - "--entrypoints.web.http.aliasHeadersStrategy=delete"
       - "--entrypoints.websecure.http.aliasHeadersStrategy=delete"
-      # Disable timeouts for long-lived gRPC streams
+${traefik_plugin}      # Disable timeouts for long-lived gRPC streams
       - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"
@@ -968,7 +1152,7 @@ $traefik_dynamic_volume
       options:
         max-size: "500m"
         max-file: "2"
-
+${traefik_appsec_labels}
   # UI dashboard
   dashboard:
     image: $DASHBOARD_IMAGE
@@ -984,7 +1168,7 @@ $traefik_dynamic_volume
       - traefik.http.routers.netbird-dashboard.tls=true
       - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-dashboard.service=dashboard
-      - traefik.http.routers.netbird-dashboard.priority=1
+${dashboard_appsec_middleware}      - traefik.http.routers.netbird-dashboard.priority=1
       - traefik.http.services.dashboard.loadbalancer.server.port=80
     logging:
       driver: "json-file"
@@ -1013,14 +1197,14 @@ $traefik_dynamic_volume
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
       - traefik.http.routers.netbird-grpc.priority=100
-      # Backend router (relay, WebSocket, API, OAuth2)
-      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/relay\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      # HTTP backend router
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && ($backend_paths)
       - traefik.http.routers.netbird-backend.entrypoints=websecure
       - traefik.http.routers.netbird-backend.tls=true
       - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
       - traefik.http.routers.netbird-backend.service=netbird-server
       - traefik.http.routers.netbird-backend.priority=100
-      # Services
+${dashboard_api_router}      # Services
       - traefik.http.services.netbird-server.loadbalancer.server.port=80
       - traefik.http.services.netbird-server-h2c.loadbalancer.server.port=80
       - traefik.http.services.netbird-server-h2c.loadbalancer.server.scheme=h2c
@@ -1582,6 +1766,15 @@ print_builtin_traefik_instructions() {
       echo "  To enroll in CrowdSec Console (optional, for dashboard and premium blocklists):"
       echo "    docker exec netbird-crowdsec cscli console enroll <your-enrollment-key>"
       echo "  Get your enrollment key at: https://app.crowdsec.net"
+      echo ""
+    fi
+    if [[ "$ENABLE_CROWDSEC_APPSEC" == "true" ]]; then
+      echo "CrowdSec AppSec:"
+      echo "  The dashboard, /api, and /oauth2 are inspected."
+      echo "  Once Traefik is up, a request for /.env should return 403."
+      echo "  The first Traefik start downloads the CrowdSec bouncer plugin."
+      echo "  If you are locked out, recover over SSH. See:"
+      echo "    https://docs.netbird.io/selfhosted/maintenance/crowdsec-dashboard#recovering-from-a-dashboard-lockout"
       echo ""
     fi
   fi
