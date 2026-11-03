@@ -23,7 +23,9 @@ restrict_env_file() {
 # The routing table name drop-in lives in a directory that stock iproute2 may not ship.
 # The package creates it so the confined daemon only has to create its own file in it.
 ensure_rt_tables_dir() {
-    mkdir -p /etc/iproute2/rt_tables.d
+    if ! mkdir -p /etc/iproute2/rt_tables.d; then
+      printf "\033[33m Could not create /etc/iproute2/rt_tables.d\033[0m\n"
+    fi
 }
 
 restore_selinux_contexts() {

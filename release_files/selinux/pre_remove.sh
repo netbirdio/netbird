@@ -34,10 +34,13 @@ if ! semodule -X 200 -r netbird; then
 fi
 
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && command -v restorecon >/dev/null 2>&1; then
-  restorecon -iR /usr/bin/netbird /usr/sbin/netbird /usr/local/bin/netbird \
+  for path in /usr/bin/netbird /usr/sbin/netbird /usr/local/bin/netbird \
     /etc/netbird /var/lib/netbird /var/log/netbird /var/log/netbird.out.log \
     /var/log/netbird.err.log /etc/ssh/ssh_config.d/99-netbird.conf \
-    /etc/iproute2/rt_tables.d/netbird.conf /run/netbird /run/wireguard 2>/dev/null || true
+    /etc/iproute2/rt_tables.d/netbird.conf /run/netbird /run/wireguard; do
+    [ -e "$path" ] || continue
+    restorecon -iR "$path" || echo "netbird-selinux: relabeling $path failed" >&2
+  done
 fi
 rm -f /run/netbird*.sock
 
