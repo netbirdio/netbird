@@ -10,6 +10,9 @@
 # shellcheck disable=SC2016 # so $1 in single quotes is meant for sh
 
 setup() {
+  # First, before anything can fail: teardown removes $tmp, and a tmp
+  # exported by the caller must never be what it finds there.
+  tmp=''
   SCRIPT="${BATS_TEST_DIRNAME}/../skip-latest.sh"
 
   # Some tests build a repository of their own. Git honours GIT_DIR and its
