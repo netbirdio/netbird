@@ -104,6 +104,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	}
 	if len(matchDomains) != 0 {
 		if err := s.addBatchedDomains(matchSuffix, matchDomains, config.ServerIP, config.ServerPort, false); err != nil {
+			s.updateState(stateManager)
 			return fmt.Errorf("add match domains: %w", err)
 		}
 	}
@@ -114,6 +115,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	}
 	if len(searchDomains) != 0 {
 		if err := s.addBatchedDomains(searchSuffix, searchDomains, config.ServerIP, config.ServerPort, true); err != nil {
+			s.updateState(stateManager)
 			return fmt.Errorf("add search domains: %w", err)
 		}
 	}
@@ -437,6 +439,9 @@ func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, 
 			merr = multierror.Append(merr, fmt.Errorf("add dns state for batch %d: %w", i, err))
 			if overlay != nil {
 				if cleanupErr := s.removeKeyFromSystemConfig(key); cleanupErr != nil {
+					// Cleanup failed: track the key so restore and
+					// removeKeysContaining can retry on the next cycle.
+					s.createdKeys[key] = struct{}{}
 					merr = multierror.Append(merr, fmt.Errorf("remove partial service state for batch %d: %w", i, cleanupErr))
 				}
 			}
