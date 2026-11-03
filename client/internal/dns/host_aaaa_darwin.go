@@ -75,6 +75,7 @@ type aaaaOverlay struct {
 	v6     netip.Prefix
 }
 
+// darwinAAAADisabled reports whether the macOS AAAA overlay is disabled via NB_DNS_DISABLE_MACOS_AAAA.
 func darwinAAAADisabled() bool {
 	v, ok := os.LookupEnv(envDisableDarwinAAAA)
 	if !ok {

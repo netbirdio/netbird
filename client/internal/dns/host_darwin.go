@@ -463,6 +463,10 @@ func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.
 	return nil
 }
 
+// buildAddDNSStateCommands returns the scutil command lines that create or update
+// the DNS resolver state for state. When overlay is non-nil and state is a
+// NetBird service DNS key, the AAAA overlay entities are prepended so configd
+// processes the rank before the DNS entry.
 func buildAddDNSStateCommands(state, domains string, dnsServer netip.Addr, port int, enableSearch bool, overlay *aaaaOverlay) string {
 	noSearch := "1"
 	if enableSearch {
