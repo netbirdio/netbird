@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/store"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
+	"github.com/netbirdio/netbird/shared/relay/keepalive"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
@@ -33,6 +34,9 @@ type Peer struct {
 	connMu   sync.RWMutex
 	store    *store.Store
 	notifier *store.PeerNotifier
+
+	hcSender   *healthcheck.Sender
+	kaReceiver *keepalive.Receiver
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -78,9 +82,15 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	hc := healthcheck.NewSender(p.log)
-	go hc.StartHealthCheck(ctx)
-	go p.handleHealthcheckEvents(ctx, hc)
+	if p.version >= messages.ProtocolV2 {
+		p.kaReceiver = keepalive.NewReceiver(p.log)
+		defer p.kaReceiver.Stop()
+		go p.handleKeepaliveTimeout(ctx, p.kaReceiver)
+	} else {
+		p.hcSender = healthcheck.NewSender(p.log)
+		go p.hcSender.StartHealthCheck(ctx)
+		go p.handleHealthcheckEvents(ctx, p.hcSender)
+	}
 
 	buf := make([]byte, bufferSize)
 	for {
@@ -110,7 +120,7 @@ func (p *Peer) Work() {
 			continue
 		}
 
-		p.handleMsgType(ctx, msgType, hc, n, msg)
+		p.handleMsgType(ctx, msgType, n, msg)
 	}
 }
 
@@ -123,10 +133,14 @@ func (p *Peer) Version() messages.ProtocolVersion {
 	return p.version
 }
 
-func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
+func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, n int, msg []byte) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		hc.OnHCResponse()
+		if p.hcSender != nil {
+			p.hcSender.OnHCResponse()
+		}
+	case messages.MsgTypeKeepaliveRequest:
+		p.handleKeepaliveRequest(ctx)
 	case messages.MsgTypeTransport:
 		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
 		p.metrics.PeerActivity(p.String())
@@ -211,6 +225,32 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (p *Peer) handleKeepaliveRequest(ctx context.Context) {
+	if p.kaReceiver == nil {
+		p.log.Tracef("drop keepalive request on protocol version %d", p.version)
+		return
+	}
+
+	p.kaReceiver.Refresh()
+	if _, err := p.Write(ctx, p.enc.KeepaliveResponse()); err != nil {
+		p.log.Errorf("failed to send keepalive response: %s", err)
+	}
+}
+
+func (p *Peer) handleKeepaliveTimeout(ctx context.Context, ka *keepalive.Receiver) {
+	select {
+	case _, ok := <-ka.OnTimeout:
+		if !ok {
+			return
+		}
+		p.log.Warnf("no keepalive request within %s, closing connection", ka.Allowance())
+		if err := p.conn.Close(); err != nil {
+			p.log.Errorf(errCloseConn, err)
+		}
+	case <-ctx.Done():
 	}
 }
 

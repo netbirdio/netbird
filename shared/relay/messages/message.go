@@ -17,8 +17,9 @@ const (
 	MaxMessageSize       = 8820
 
 	ProtocolV1 ProtocolVersion = 1
+	ProtocolV2 ProtocolVersion = 2
 	// CurrentProtocolVersion is the highest protocol version this build supports.
-	CurrentProtocolVersion = ProtocolV1
+	CurrentProtocolVersion = ProtocolV2
 
 	// authEnvelopeMinVersion is the first advertised version whose Auth message carries a
 	// length-prefixed token followed by an extension area.
@@ -41,6 +42,9 @@ const (
 	MsgTypeUnsubscribePeerState = 9
 	MsgTypePeersOnline          = 10
 	MsgTypePeersWentOffline     = 11
+
+	MsgTypeKeepaliveRequest  = 12
+	MsgTypeKeepaliveResponse = 13
 
 	// base size of the message
 	sizeOfVersionByte = 1
@@ -73,7 +77,8 @@ var (
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
 
-	healthCheckMsg = []byte{byte(CurrentProtocolVersion), byte(MsgTypeHealthCheck)}
+	healthCheckMsg      = []byte{byte(CurrentProtocolVersion), byte(MsgTypeHealthCheck)}
+	keepaliveRequestMsg = []byte{byte(CurrentProtocolVersion), byte(MsgTypeKeepaliveRequest)}
 )
 
 type MsgType byte
@@ -115,6 +120,10 @@ func (m MsgType) String() string {
 		return "peers online"
 	case MsgTypePeersWentOffline:
 		return "peers went offline"
+	case MsgTypeKeepaliveRequest:
+		return "keepalive request"
+	case MsgTypeKeepaliveResponse:
+		return "keepalive response"
 	default:
 		return "unknown"
 	}
@@ -156,6 +165,14 @@ func (e Encoder) Healthcheck() []byte {
 	return []byte{
 		byte(e.version),
 		byte(MsgTypeHealthCheck),
+	}
+}
+
+// KeepaliveResponse creates the response to a client keepalive request.
+func (e Encoder) KeepaliveResponse() []byte {
+	return []byte{
+		byte(e.version),
+		byte(MsgTypeKeepaliveResponse),
 	}
 }
 
@@ -227,11 +244,12 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 		MsgTypeClose,
 		MsgTypeHealthCheck,
 		MsgTypeSubscribePeerState,
-		MsgTypeUnsubscribePeerState:
+		MsgTypeUnsubscribePeerState,
+		MsgTypeKeepaliveRequest:
 		return msgType, nil
 	case MsgTypeHello, MsgTypeHelloResponse:
 		return MsgTypeUnknown, fmt.Errorf("%d: %w", msgType, ErrReservedMsgType)
-	case MsgTypeAuthResponse, MsgTypePeersOnline, MsgTypePeersWentOffline:
+	case MsgTypeAuthResponse, MsgTypePeersOnline, MsgTypePeersWentOffline, MsgTypeKeepaliveResponse:
 		return MsgTypeUnknown, fmt.Errorf("%d: %w", msgType, ErrMsgTypeDirection)
 	default:
 		return MsgTypeUnknown, fmt.Errorf("%d: %w", msgType, ErrUnknownMsgType)
@@ -252,7 +270,8 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 		MsgTypeClose,
 		MsgTypeHealthCheck,
 		MsgTypePeersOnline,
-		MsgTypePeersWentOffline:
+		MsgTypePeersWentOffline,
+		MsgTypeKeepaliveResponse:
 		return msgType, nil
 	default:
 		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d", msgType)
@@ -411,6 +430,11 @@ func UpdateTransportMsg(msg []byte, version ProtocolVersion, peerID PeerID) erro
 // message. If the client does not respond to the health check message, the server will close the connection.
 func MarshalHealthcheck() []byte {
 	return healthCheckMsg
+}
+
+// MarshalKeepaliveRequest creates the keepalive request a client sends on protocol version 2.
+func MarshalKeepaliveRequest() []byte {
+	return keepaliveRequestMsg
 }
 
 func unmarshalAuthEnvelopeToken(msg []byte) ([]byte, error) {
