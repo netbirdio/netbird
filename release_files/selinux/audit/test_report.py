@@ -9,8 +9,25 @@ class ReadWindowsTest(unittest.TestCase):
         marks = ["100.0 S a", "101.0 E a", "102.0 S b", "103.5 E b"]
         self.assertEqual(report.read_windows(marks), [(100.0, 101.0, "a"), (102.0, 103.5, "b")])
 
-    def test_blank_and_short_lines_are_skipped(self):
-        self.assertEqual(report.read_windows(["", "100.0 S", "100.0 S a", "101.0 E a"]), [(100.0, 101.0, "a")])
+    def test_blank_lines_are_skipped(self):
+        self.assertEqual(report.read_windows(["", "  ", "100.0 S a", "101.0 E a"]), [(100.0, 101.0, "a")])
+
+    def test_malformed_lines(self):
+        for line in ("100.0 S", "100.0", "100.0 S a extra"):
+            with self.subTest(line=line), self.assertRaisesRegex(SystemExit, "malformed mark"):
+                report.read_windows([line])
+
+    def test_end_before_start(self):
+        with self.assertRaisesRegex(SystemExit, "before it starts"):
+            report.read_windows(["100.0 S a", "99.0 E a"])
+
+    def test_invalid_start_epoch(self):
+        for arg in ("nan", "inf", "soon"):
+            with self.subTest(arg=arg), self.assertRaises(SystemExit):
+                report.read_since(["report.py", arg])
+        with self.assertRaises(SystemExit):
+            report.read_since(["report.py"])
+        self.assertEqual(report.read_since(["report.py", "12.5"]), 12.5)
 
     def test_repeated_start(self):
         with self.assertRaisesRegex(SystemExit, "started twice"):
