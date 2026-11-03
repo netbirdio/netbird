@@ -6,14 +6,65 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
+
+type recordingFlowLogger struct {
+	nftypes.FlowLogger
+	events []nftypes.EventFields
+}
+
+func (r *recordingFlowLogger) StoreEvent(e nftypes.EventFields) { r.events = append(r.events, e) }
+
+// Refusing an ICMP packet that would leave through the overlay ends its own flow once. The rule ID of a
+// separate flow registered in the opposite direction must survive.
+func TestRefuseOverlayEgress_KeepsReverseRuleID(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	remote := netip.MustParseAddr("10.0.0.2")
+
+	logger := nblog.NewFromLogrus(logrus.StandardLogger())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, logger.Stop(ctx))
+	})
+
+	flows := &recordingFlowLogger{}
+	f := &Forwarder{
+		logger:     logger,
+		ctx:        context.Background(),
+		ip:         addrFromNetipAddr(loopback),
+		flowLogger: flows,
+	}
+
+	forward := buildKey(remote, loopback, 0, 0)
+	reverse := buildKey(loopback, remote, 0, 0)
+	f.ruleIdMap.Store(forward, []byte("forward"))
+	f.ruleIdMap.Store(reverse, []byte("reverse"))
+
+	id := stack.TransportEndpointID{
+		RemoteAddress: addrFromNetipAddr(remote),
+		LocalAddress:  addrFromNetipAddr(loopback),
+	}
+	require.True(t, f.refuseOverlayEgress(uuid.New(), id, 8, 0), "packet routed back into the overlay is refused")
+
+	require.Len(t, flows.events, 1)
+	assert.Equal(t, nftypes.TypeDrop, flows.events[0].Type)
+
+	_, forwardLeft := f.ruleIdMap.Load(forward)
+	assert.False(t, forwardLeft, "the refused flow's rule ID is removed")
+	_, reverseLeft := f.ruleIdMap.Load(reverse)
+	assert.True(t, reverseLeft, "a separate reverse registration is not removed")
+}
 
 const echoRequestSize = 8
 

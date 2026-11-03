@@ -89,8 +89,8 @@ func (f *Forwarder) refuseOverlayEgress(flowID uuid.UUID, id stack.TransportEndp
 	if f.logger.Enabled(nblog.LevelTrace) {
 		f.logger.Trace1("forwarder: dropping ICMP packet routed back into the overlay %v", epID(id))
 	}
+	// The event removes the rule ID of this flow.
 	f.sendICMPEvent(nftypes.TypeDrop, flowID, id, icmpType, icmpCode, 0, 0)
-	f.DeleteRuleID(addrToNetipAddr(id.RemoteAddress), addrToNetipAddr(id.LocalAddress), 0, 0)
 	return true
 }
 
