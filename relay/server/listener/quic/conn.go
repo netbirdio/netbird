@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/quic-go/quic-go"
+	log "github.com/sirupsen/logrus"
 )
 
 type Conn struct {
 	session  *quic.Conn
+	path     netip.AddrPort
 	closed   bool
 	closedMu sync.Mutex
 }
@@ -18,6 +21,7 @@ type Conn struct {
 func NewConn(session *quic.Conn) *Conn {
 	return &Conn{
 		session: session,
+		path:    remotePath(session),
 	}
 }
 
@@ -26,6 +30,7 @@ func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
 	if err != nil {
 		return 0, c.remoteCloseErrHandling(err)
 	}
+	c.logPathSwitch()
 	// Copy data to b, ensuring we don’t exceed the size of b
 	n = copy(b, dgram)
 	return n, nil
@@ -78,4 +83,21 @@ func (c *Conn) remoteCloseErrHandling(err error) error {
 	}
 
 	return err
+}
+
+func (c *Conn) logPathSwitch() {
+	path := remotePath(c.session)
+	if path == c.path {
+		return
+	}
+	log.Debugf("QUIC path switch: %s -> %s", c.path, path)
+	c.path = path
+}
+
+func remotePath(session *quic.Conn) netip.AddrPort {
+	udpAddr, ok := session.RemoteAddr().(*net.UDPAddr)
+	if !ok {
+		return netip.AddrPort{}
+	}
+	return udpAddr.AddrPort()
 }
