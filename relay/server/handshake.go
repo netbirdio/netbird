@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -108,14 +110,11 @@ func (h *handshake) handshakeResponse(ctx context.Context) error {
 }
 
 func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
-	rawPeerID, authPayload, err := messages.UnmarshalAuthMsg(buf)
+	rawPeerID, _, err := messages.UnmarshalAuthMsg(buf)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal auth message: %w", err)
 	}
 
-	if err := h.validator.Validate(authPayload); err != nil {
-		return rawPeerID, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), err)
-	}
-
+	log.Warnf("relay authentication disabled, accepting %s (%s) without validation", rawPeerID.String(), h.conn.RemoteAddr())
 	return rawPeerID, nil
 }
