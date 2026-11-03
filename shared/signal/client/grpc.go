@@ -40,6 +40,13 @@ const (
 	receiveWatchdogInterval = 10 * time.Second
 	// defaultRegistrationTimeout bounds the wait for a new stream's registration header.
 	defaultRegistrationTimeout = 10 * time.Second
+	// defaultRegistrationProbeInterval is how often a new stream sends a
+	// self-addressed heartbeat while it waits for its registration header.
+	// Proxies such as AWS ALB withhold gRPC response headers until the first
+	// message. The heartbeat is repeated because one that reaches the server
+	// before the stream is registered is dropped, and spaced so a stream that
+	// waits out defaultRegistrationTimeout sends at most three.
+	defaultRegistrationProbeInterval = 3 * time.Second
 )
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
@@ -95,7 +102,8 @@ type GrpcClient struct {
 	receiveHandoffBlocked atomic.Bool
 	watchdogWg            sync.WaitGroup
 
-	registrationTimeout time.Duration
+	registrationTimeout       time.Duration
+	registrationProbeInterval time.Duration
 }
 
 // Option configures optional GrpcClient behavior.
@@ -110,13 +118,14 @@ func WithNetEvents(events *netevents.Manager) Option {
 func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...Option) (*GrpcClient, error) {
 	// Options apply before dialing: the sweeper must wrap the first connection too.
 	c := &GrpcClient{
-		ctx:                   ctx,
-		key:                   key,
-		sharedKeys:            encryption.NewSharedKeyCache(key),
-		mux:                   sync.Mutex{},
-		status:                StreamDisconnected,
-		connStateCallbackLock: sync.RWMutex{},
-		registrationTimeout:   defaultRegistrationTimeout,
+		ctx:                       ctx,
+		key:                       key,
+		sharedKeys:                encryption.NewSharedKeyCache(key),
+		mux:                       sync.Mutex{},
+		status:                    StreamDisconnected,
+		connStateCallbackLock:     sync.RWMutex{},
+		registrationTimeout:       defaultRegistrationTimeout,
+		registrationProbeInterval: defaultRegistrationProbeInterval,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -327,11 +336,41 @@ func (c *GrpcClient) connect(ctx context.Context, cancel context.CancelFunc, key
 	if err != nil {
 		return nil, err
 	}
+	stopProbes := c.probeUntilRegistered(ctx)
+	defer stopProbes()
 	if err := awaitRegistration(stream, c.registrationTimeout, cancel); err != nil {
 		return nil, err
 	}
 
 	return stream, nil
+}
+
+// probeUntilRegistered sends a self-addressed heartbeat every
+// registrationProbeInterval until the returned stop function is called. The
+// server forwards it onto this client's stream, so a proxy that holds the
+// registration header until the first message releases it.
+func (c *GrpcClient) probeUntilRegistered(ctx context.Context) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(c.registrationProbeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := c.sendReceiveProbe(ctx); err != nil && ctx.Err() == nil {
+					log.Debugf("failed to send signal registration probe: %v", err)
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func awaitRegistration(stream proto.SignalExchange_ConnectStreamClient, timeout time.Duration, cancel context.CancelFunc) error {
