@@ -210,6 +210,8 @@ func getSystemDNSKeys() (string, error) {
 	return string(out), nil
 }
 
+// removeKeyFromSystemConfig removes key from scutil, including any AAAA overlay
+// entities that were published alongside it.
 func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	line := buildRemoveKeyOperation(key)
 	if serviceID, ok := serviceIDFromDNSKey(key); ok {
@@ -226,6 +228,8 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	return nil
 }
 
+// addLocalDNS publishes the physical upstream resolver under a NetBird-Local
+// scutil key so that its domains continue to resolve when NetBird is active.
 func (s *systemConfigurator) addLocalDNS() error {
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
 		if err := s.recordSystemDNSSettings(true); err != nil {
