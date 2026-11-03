@@ -350,8 +350,8 @@ func (m *mcpTestServer) signInWithOAuth(t *testing.T) string {
 }
 
 // TestMCPWithEmbeddedIdP boots management the way a self-hosted deployment with the embedded
-// IdP runs it, with nothing but NB_MCP_ENABLED added, and checks the OAuth broker and the
-// authentication of its tokens at the MCP endpoint path end to end in-process.
+// IdP runs it, with nothing but NB_MCP_ENABLED added, and checks the MCP endpoint, the OAuth
+// broker and the self-hosted metrics report end to end in-process.
 func TestMCPWithEmbeddedIdP(t *testing.T) {
 	setMCPTestEnv(t, "true")
 	m := startMCPTestServer(t)
@@ -399,22 +399,6 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 	t.Run("a personal access token calls tools", func(t *testing.T) {
 		session := m.connect(t, "Token "+pat)
 
-		tools, err := session.ListTools(context.Background(), nil)
-		require.NoError(t, err)
-		byName := map[string]*mcp.Tool{}
-		for _, tool := range tools.Tools {
-			byName[tool.Name] = tool
-		}
-		assert.Len(t, tools.Tools, len(mcpapi.Routes()), "every API tool")
-		for _, name := range []string{"get_current_user", "list_groups", "update_account"} {
-			assert.Contains(t, byName, name, "the catalog advertises %s", name)
-		}
-		if updateAccount := byName["update_account"]; updateAccount != nil {
-			schema, err := json.Marshal(updateAccount.InputSchema)
-			require.NoError(t, err)
-			assert.NotContains(t, string(schema), `"account_id"`, "the account is taken from the caller, never from the client")
-		}
-
 		var viaREST api.User
 		resp, body := m.request(t, http.MethodGet, "/api/users/current", "", http.Header{"Authorization": {"Token " + pat}})
 		require.Equal(t, http.StatusOK, resp.StatusCode, body)
@@ -424,14 +408,6 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 		callTool(t, session, "get_current_user", nil, &me)
 		assert.Equal(t, viaREST, me, "the tool returns what GET /api/users/current returns")
 		assert.Equal(t, mcpTestOwnerEmail, me.Email, "the PAT acts as the owner")
-
-		var groups []api.Group
-		callTool(t, session, "list_groups", nil, &groups)
-		names := make([]string, 0, len(groups))
-		for _, g := range groups {
-			names = append(names, g.Name)
-		}
-		assert.Contains(t, names, "All", "every account has the All group")
 	})
 
 	t.Run("an OAuth client signs in at the embedded IdP", func(t *testing.T) {

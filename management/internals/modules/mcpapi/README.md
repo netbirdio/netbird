@@ -18,7 +18,8 @@ without a personal access token. Both are off unless `NB_MCP_ENABLED` is true.
   properties. Arguments are validated against the schema before the request is built,
   so a misspelled, missing or mistyped field fails the call instead of reaching an
   update as a zero value. A path argument containing `/` or `\`, or `.` or `..`, is
-  refused.
+  refused, and so is one that lands the request on another API route, such as
+  `routers` for `get_network`.
 - `account_id` is never taken from the client. Dispatch fills it from the caller's
   identity (`callerBound` in `catalog.go`), so `update_account` only acts on the
   account the request is authenticated for.
