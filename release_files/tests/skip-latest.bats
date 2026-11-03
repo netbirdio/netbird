@@ -29,11 +29,32 @@ v0.81.0-rc.2
 v0.81.0'
 }
 
+teardown() {
+  if [[ -n "${tmp:-}" ]]; then rm -rf "$tmp"; fi
+}
+
 # decide <tag> [tags]  -- tags default to $TAGS
 decide() {
   local tag=$1
   local tags=${2-$TAGS}
   SKIP_LATEST_TAGS="$tags" run "$SCRIPT" "$tag"
+}
+
+# make_repo <tag>...  -- a repository of the test's own at $repo, holding the
+# given tags; teardown removes it.
+make_repo() {
+  tmp=$(mktemp -d)
+  repo="$tmp/repo"
+  mkdir -p "$repo"
+  # No `|| ...` after this subshell: it would switch off bats' set -e inside,
+  # and a failed cd or git init would let the commit and tags land in
+  # whatever repository encloses the current directory.
+  (
+    cd "$repo" || exit
+    git init -q .
+    git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+    for tag in "$@"; do git tag "$tag"; done
+  )
 }
 
 @test "the newest release moves latest" {
@@ -119,35 +140,15 @@ v0.1.0'
   # and find v0.80.0 there, letting the script succeed. The tag lives in a
   # repository made here, not this one: CI checks this one out without tags,
   # where git would find nothing either and the test could not tell.
-  tmp=$(mktemp -d)
-  repo="$tmp/repo"
-  mkdir -p "$repo"
-  (
-    cd "$repo"
-    git init -q .
-    git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
-    git tag v0.80.0
-  ) || return 1
+  make_repo v0.80.0
   SKIP_LATEST_TAGS='' run sh -c "cd '$repo' && '$SCRIPT' v0.80.0 </dev/null"
-  rm -rf "$tmp"
   [ "$status" -eq 1 ]
 }
 
 @test "falls back to git tag when SKIP_LATEST_TAGS is unset" {
   # The CI path.
-  tmp=$(mktemp -d)
-  repo="$tmp/repo"
-  mkdir -p "$repo"
-  (
-    cd "$repo"
-    git init -q .
-    git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
-    git tag v0.80.1
-    git tag v0.81.0
-    git tag v0.80.2
-  ) || return 1
+  make_repo v0.80.1 v0.81.0 v0.80.2
   run env -u SKIP_LATEST_TAGS sh -c "cd '$repo' && '$SCRIPT' v0.80.2 </dev/null"
-  rm -rf "$tmp"
   [ "$status" -eq 0 ]
   [ "${lines[-1]}" = "true" ]
 }
