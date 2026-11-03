@@ -413,7 +413,11 @@ func (d *DnsInterceptor) routablePrefixes(answers []dns.RR, resolvedDomain domai
 			continue
 		}
 
-		prefixes = append(prefixes, netip.PrefixFrom(ip, ip.BitLen()))
+		// A repeated address must be counted once, the route counter is incremented per prefix
+		prefix := netip.PrefixFrom(ip, ip.BitLen())
+		if !slices.Contains(prefixes, prefix) {
+			prefixes = append(prefixes, prefix)
+		}
 	}
 	return prefixes, rejected
 }
@@ -475,33 +479,24 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	}
 	d.addDNATMappings(dnatMappings, logger)
 
+	var removed []netip.Prefix
 	if !d.route.KeepRoute {
-		// Remove old prefixes
-		for _, prefix := range toRemove {
-			// Routes use fake IPs
-			routePrefix := d.transformRealToFakePrefix(prefix)
-			if _, err := d.routeRefCounter.Decrement(routePrefix); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("remove route for IP %s: %v", routePrefix, err))
-			}
-			// AllowedIPs use real IPs
-			if err := d.removeAllowedIP(prefix); err != nil {
-				merr = multierror.Append(merr, err)
-			}
+		var removeErr error
+		removed, removeErr = d.removePrefixes(toRemove, logger)
+		if removeErr != nil {
+			merr = multierror.Append(merr, removeErr)
 		}
-
-		d.removeDNATMappings(toRemove, logger)
 	}
 
 	// Update domain prefixes using resolved domain as key - store real IPs,
 	// but only the ones that were accepted, so that a refused prefix is never
-	// replayed by AddAllowedIPs
-	if len(added) > 0 || len(toRemove) > 0 {
+	// replayed by AddAllowedIPs. A prefix whose route could not be removed stays
+	// tracked, the route counter still holds its reference.
+	if len(added) > 0 || len(removed) > 0 {
 		newPrefixes = slices.Clone(oldPrefixes)
-		if !d.route.KeepRoute {
-			newPrefixes = slices.DeleteFunc(newPrefixes, func(prefix netip.Prefix) bool {
-				return slices.Contains(toRemove, prefix)
-			})
-		}
+		newPrefixes = slices.DeleteFunc(newPrefixes, func(prefix netip.Prefix) bool {
+			return slices.Contains(removed, prefix)
+		})
 		newPrefixes = append(newPrefixes, added...)
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
@@ -509,10 +504,34 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 		// Store real IPs for status (user-facing), not fake IPs
 		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
 
-		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, toRemove, logger)
+		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, removed, logger)
 	}
 
 	return slices.Clone(d.interceptedDomains[resolvedDomain]), nberrors.FormatErrorOrNil(merr)
+}
+
+// removePrefixes withdraws the route, the AllowedIP and the DNAT mapping of each prefix and
+// returns the prefixes whose route was removed. A prefix whose route removal failed keeps all
+// of its state, so a later answer or removal still sees the reference the counter holds.
+func (d *DnsInterceptor) removePrefixes(toRemove []netip.Prefix, logger *log.Entry) ([]netip.Prefix, error) {
+	var merr *multierror.Error
+	var removed []netip.Prefix
+	for _, prefix := range toRemove {
+		// Routes use fake IPs
+		routePrefix := d.transformRealToFakePrefix(prefix)
+		if _, err := d.routeRefCounter.Decrement(routePrefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove route for IP %s: %v", routePrefix, err))
+			continue
+		}
+		removed = append(removed, prefix)
+		// AllowedIPs use real IPs
+		if err := d.removeAllowedIP(prefix); err != nil {
+			merr = multierror.Append(merr, err)
+		}
+	}
+
+	d.removeDNATMappings(removed, logger)
+	return removed, nberrors.FormatErrorOrNil(merr)
 }
 
 // removeDNATMappings removes DNAT mappings from the firewall for real IP prefixes

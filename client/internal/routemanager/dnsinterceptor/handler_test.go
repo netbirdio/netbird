@@ -313,3 +313,63 @@ func TestRewriteToFakeIPs_OnlyAcceptedPrefixes(t *testing.T) {
 	assert.Equal(t, net.IP(acceptedFake.AsSlice()), reply.Answer[0].(*dns.A).A, "accepted address must be swapped for its fake IP")
 	assert.Equal(t, net.IP(testRemoteAddr2.Addr().AsSlice()), reply.Answer[1].(*dns.A).A, "refused address must keep its real IP")
 }
+
+// A repeated address in one answer must increment the route counter once: the removal
+// decrements once per tracked prefix, so a second increment would leave a stale route.
+func TestWriteMsg_RepeatedAnswerAddressIsCountedOnce(t *testing.T) {
+	adds := 0
+	routeCounter := refcounter.New(
+		func(netip.Prefix, struct{}) (struct{}, error) { adds++; return struct{}{}, nil },
+		func(netip.Prefix, struct{}) error { return nil },
+	)
+	d := newTestInterceptor(t, routeCounter, &allowedIPsRecorder{})
+	require.NoError(t, d.AddAllowedIPs(testRoutingPeer))
+
+	reply := new(dns.Msg)
+	reply.SetQuestion("app.corp.example.", dns.TypeA)
+	for range 2 {
+		reply.Answer = append(reply.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: "app.corp.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   testRemoteAddr.Addr().AsSlice(),
+		})
+	}
+
+	require.NoError(t, d.writeMsg(&mockResponseWriter{}, reply, log.NewEntry(log.StandardLogger())))
+
+	assert.Equal(t, 1, adds, "the route for a repeated address must be added once")
+	assert.Equal(t, []netip.Prefix{testRemoteAddr}, d.interceptedDomains["app.corp.example."])
+}
+
+// A prefix whose route could not be removed stays tracked: the counter still holds its
+// reference, so dropping the prefix would hide it from a later answer and from the removal.
+func TestUpdateDomainPrefixes_FailedRouteRemovalKeepsPrefix(t *testing.T) {
+	failRemove := true
+	routeCounter := refcounter.New(
+		func(netip.Prefix, struct{}) (struct{}, error) { return struct{}{}, nil },
+		func(netip.Prefix, struct{}) error {
+			if failRemove {
+				return errors.New("route removal failed")
+			}
+			return nil
+		},
+	)
+	d := newTestInterceptor(t, routeCounter, &allowedIPsRecorder{})
+	require.NoError(t, d.AddAllowedIPs(testRoutingPeer))
+
+	resolved := domain.Domain("app.corp.example.")
+	logger := log.NewEntry(log.StandardLogger())
+
+	_, err := d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testRemoteAddr}, logger)
+	require.NoError(t, err)
+
+	_, err = d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testRemoteAddr2}, logger)
+	require.ErrorContains(t, err, "route removal failed")
+	assert.ElementsMatch(t, []netip.Prefix{testRemoteAddr, testRemoteAddr2}, d.interceptedDomains[resolved],
+		"the prefix whose route removal failed must stay tracked")
+
+	failRemove = false
+	_, err = d.updateDomainPrefixes(resolved, resolved, []netip.Prefix{testRemoteAddr2}, logger)
+	require.NoError(t, err)
+	assert.Equal(t, []netip.Prefix{testRemoteAddr2}, d.interceptedDomains[resolved],
+		"once the removal succeeds the prefix is dropped")
+}
