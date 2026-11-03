@@ -434,10 +434,14 @@ func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, 
 		key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
 		domainsStr := strings.Join(batch, " ")
 
+		_, preExisting := s.createdKeys[key]
+
 		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch, overlay); err != nil {
 			var merr *multierror.Error
 			merr = multierror.Append(merr, fmt.Errorf("add dns state for batch %d: %w", i, err))
-			if overlay != nil {
+			// Only clean up AAAA entities we created in this call; a pre-existing
+			// key owns its own entities and must not be disturbed on our failure.
+			if overlay != nil && !preExisting {
 				if cleanupErr := s.removeKeyFromSystemConfig(key); cleanupErr != nil {
 					// Cleanup failed: track the key so restore and
 					// removeKeysContaining can retry on the next cycle.
