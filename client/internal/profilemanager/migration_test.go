@@ -26,7 +26,9 @@ func currentUserPrincipal(t *testing.T) (string, string) {
 	}
 
 	u, err := user.Current()
-	require.NoError(t, err)
+	if err != nil {
+		t.Skipf("the running UID has no account entry: %v", err)
+	}
 	uid, err := strconv.ParseUint(u.Uid, 10, 32)
 	require.NoError(t, err)
 
