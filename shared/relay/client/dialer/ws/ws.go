@@ -19,6 +19,8 @@ import (
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
 
+const tcpKeepAliveDisabled = -1
+
 type Dialer struct {
 }
 
@@ -100,6 +102,7 @@ func withTestHB(wsURL, value string) string {
 // transport's DialContext so the caller can read its RemoteAddr.
 func httpClientNbDialer(serverName string, underlyingOut *net.Conn) *http.Client {
 	customDialer := nbnet.NewDialer()
+	customDialer.KeepAlive = tcpKeepAliveDisabled
 
 	certPool, err := x509.SystemCertPool()
 	if err != nil || certPool == nil {
