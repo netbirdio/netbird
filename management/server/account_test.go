@@ -2402,8 +2402,7 @@ func setPeerLogin(t *testing.T, manager *DefaultAccountManager, accountID, peerK
 		require.NoError(t, err)
 		return
 	}
-	require.NoError(t, manager.Store.RegisterInstance(context.Background(), "test-instance", "test-host"))
-	_, err = manager.Store.ConnectPeer(context.Background(), accountID, peer.ID, "test-instance", time.Now().UnixNano())
+	_, err = manager.Store.ConnectPeer(context.Background(), accountID, peer.ID, manager.peerLiveness.InstanceID(), time.Now().UnixNano())
 	require.NoError(t, err)
 }
 

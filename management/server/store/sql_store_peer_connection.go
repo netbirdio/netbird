@@ -39,14 +39,10 @@ func staleThresholdFor(engine types.Engine) (string, any) {
 	return "(now() - make_interval(secs => ?))", nbpeer.StaleAfter.Seconds()
 }
 
-// RegisterInstance records a management instance as alive, stamping StartedAt and
-// LastSeen with the database clock.
 func (s *SqlStore) RegisterInstance(ctx context.Context, id, hostname string) error {
 	err := s.db.WithContext(ctx).Exec(
 		`INSERT INTO management_instances (id, hostname, started_at, last_seen)
-		VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-		ON CONFLICT (id) DO UPDATE SET hostname = excluded.hostname,
-		started_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP`,
+		VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		id, hostname,
 	).Error
 	if err != nil {

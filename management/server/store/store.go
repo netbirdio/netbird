@@ -179,7 +179,7 @@ type Store interface {
 	// requests for the same peer. Returns true when the update happened.
 	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
 	// RegisterInstance records a management instance as alive, stamping StartedAt
-	// and LastSeen with the database clock.
+	// and LastSeen with the database clock. It fails when the ID is already registered.
 	RegisterInstance(ctx context.Context, id, hostname string) error
 	// HeartbeatInstance stamps the instance's LastSeen with the database clock.
 	// It returns false when the row is missing or already older than

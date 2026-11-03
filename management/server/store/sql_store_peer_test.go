@@ -1308,8 +1308,8 @@ func TestSqlStore_RegisterAndHeartbeatInstance(t *testing.T) {
 		assert.WithinDuration(t, time.Now().UTC(), got.StartedAt.UTC(), time.Minute)
 		assert.WithinDuration(t, time.Now().UTC(), got.LastSeen.UTC(), time.Minute)
 
-		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "host-b"))
-		assert.Equal(t, "host-b", getInstance("inst-1").Hostname, "registering an existing id updates it")
+		require.Error(t, store.RegisterInstance(ctx, "inst-1", "host-b"), "registering an existing id fails")
+		assert.Equal(t, "host-a", getInstance("inst-1").Hostname, "and leaves the registered instance untouched")
 
 		ageInstance(t, store, "inst-1", time.Minute)
 		alive, err := store.HeartbeatInstance(ctx, "inst-1")
