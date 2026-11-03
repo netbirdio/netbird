@@ -261,8 +261,8 @@ func upsertPeerConnections(tx *gorm.DB, instanceID string, sessions []types.Peer
 		INSERT INTO peer_connections (peer_id, account_id, instance_id, session_started_at, last_seen)
 		SELECT incoming.peer_id, incoming.account_id, incoming.instance_id, incoming.session_started_at, CURRENT_TIMESTAMP
 		FROM incoming JOIN peers ON peers.id = incoming.peer_id AND peers.account_id = incoming.account_id WHERE true
-		ON CONFLICT (peer_id) DO UPDATE SET account_id = excluded.account_id,
-		instance_id = excluded.instance_id, session_started_at = excluded.session_started_at,
+		ON CONFLICT (peer_id) DO UPDATE SET instance_id = excluded.instance_id,
+		session_started_at = excluded.session_started_at,
 		last_seen = CURRENT_TIMESTAMP
 		WHERE peer_connections.session_started_at `+fence+` excluded.session_started_at`,
 		args...,
