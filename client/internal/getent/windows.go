@@ -30,6 +30,11 @@ func GroupIDs(u *user.User) ([]string, error) {
 	return u.GroupIds()
 }
 
+// GroupIDsStrict returns the IDs of the groups the user is a member of.
+func GroupIDsStrict(u *user.User) ([]string, error) {
+	return u.GroupIds()
+}
+
 // UserShell is unanswerable on Windows, which has no login-shell database.
 func UserShell(string) (string, error) {
 	return "", errors.ErrUnsupported

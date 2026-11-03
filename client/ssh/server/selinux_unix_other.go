@@ -1,0 +1,23 @@
+//go:build unix && !linux
+
+package server
+
+// sessionExecContext has nothing to resolve on platforms without SELinux.
+func sessionExecContext(string, []string, error) (string, error) {
+	return "", nil
+}
+
+// failClosedOnGroupError is false on platforms without SELinux.
+func failClosedOnGroupError() bool {
+	return false
+}
+
+// setExecContext is a no-op on platforms without SELinux.
+func setExecContext(string) error {
+	return nil
+}
+
+// ExecInSessionContext never re-executes on platforms without SELinux.
+func (pd *PrivilegeDropper) ExecInSessionContext(ExecutorConfig, []string) (bool, error) {
+	return false, nil
+}

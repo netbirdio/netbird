@@ -108,3 +108,11 @@ func GroupIDs(u *user.User) ([]string, error) {
 	}
 	return ids, nil
 }
+
+// GroupIDsStrict returns the IDs of the groups the user is a member of, and fails when
+// the NSS-aware lookup does. It never falls back to user.GroupIds, which without cgo
+// reads only /etc/group and silently omits NSS-provided groups, so a caller that takes a
+// decision on the group list is not handed an incomplete one.
+func GroupIDsStrict(u *user.User) ([]string, error) {
+	return idGroups(u.Username)
+}

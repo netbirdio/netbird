@@ -34,3 +34,9 @@ func LookupGroupID(gid string) (*user.Group, error) {
 func GroupIDs(u *user.User) ([]string, error) {
 	return u.GroupIds()
 }
+
+// GroupIDsStrict returns the IDs of the groups the user is a member of. With cgo the
+// libc lookup is already complete, so it is the same as GroupIDs.
+func GroupIDsStrict(u *user.User) ([]string, error) {
+	return u.GroupIds()
+}
