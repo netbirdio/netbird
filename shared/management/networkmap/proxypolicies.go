@@ -50,7 +50,7 @@ func (nmd *NetworkMapData) injectProxyPolicies() {
 				continue
 			}
 			port, ok := resolveTargetPort(target)
-			if !ok {
+			if len(svc.PortMappings) == 0 && !ok {
 				continue
 			}
 			for _, proxyPeer := range proxyPeers {
@@ -106,10 +106,28 @@ func (nmd *NetworkMapData) addInjectedPolicy(policy *nmdata.Policy) {
 
 func proxyAccessPolicy(svc *nmdata.Service, target *nmdata.ServiceTarget, proxyPeer *nmdata.Peer, port uint16) *nmdata.Policy {
 	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", svc.ID, proxyPeer.ID, target.Path)
-
-	protocol := types.PolicyRuleProtocolTCP
-	if svc.Mode == serviceModeUDP {
-		protocol = types.PolicyRuleProtocolUDP
+	rules := make([]*nmdata.PolicyRule, 0, max(1, len(svc.PortMappings)))
+	if len(svc.PortMappings) > 0 {
+		for i, mapping := range svc.PortMappings {
+			if mapping == nil {
+				continue
+			}
+			protocol := types.PolicyRuleProtocolTCP
+			if mapping.Protocol == serviceModeUDP {
+				protocol = types.PolicyRuleProtocolUDP
+			}
+			ruleID := policyID
+			if len(svc.PortMappings) > 1 {
+				ruleID = fmt.Sprintf("%s-mapping-%d", policyID, i)
+			}
+			rules = append(rules, proxyAccessPolicyRule(policyID, ruleID, target, proxyPeer, protocol, nmdata.RulePortRange{Start: mapping.TargetPortStart, End: mapping.TargetPortEnd}))
+		}
+	} else {
+		protocol := types.PolicyRuleProtocolTCP
+		if svc.Mode == serviceModeUDP {
+			protocol = types.PolicyRuleProtocolUDP
+		}
+		rules = append(rules, proxyAccessPolicyRule(policyID, policyID, target, proxyPeer, protocol, nmdata.RulePortRange{Start: port, End: port}))
 	}
 
 	return &nmdata.Policy{
@@ -120,19 +138,21 @@ func proxyAccessPolicy(svc *nmdata.Service, target *nmdata.ServiceTarget, proxyP
 		// stable and unique, so it serves as both.
 		PublicID: policyID,
 		Enabled:  true,
-		Rules: []*nmdata.PolicyRule{
-			{
-				ID:                  policyID,
-				PolicyID:            policyID,
-				Enabled:             true,
-				SourceResource:      nmdata.Resource{ID: proxyPeer.ID, Type: string(types.ResourceTypePeer)},
-				DestinationResource: nmdata.Resource{ID: target.TargetID, Type: target.TargetType},
-				Bidirectional:       false,
-				Protocol:            string(protocol),
-				Action:              string(types.PolicyTrafficActionAccept),
-				PortRanges:          []nmdata.RulePortRange{{Start: port, End: port}},
-			},
-		},
+		Rules:    rules,
+	}
+}
+
+func proxyAccessPolicyRule(policyID, ruleID string, target *nmdata.ServiceTarget, proxyPeer *nmdata.Peer, protocol types.PolicyRuleProtocolType, portRange nmdata.RulePortRange) *nmdata.PolicyRule {
+	return &nmdata.PolicyRule{
+		ID:                  ruleID,
+		PolicyID:            policyID,
+		Enabled:             true,
+		SourceResource:      nmdata.Resource{ID: proxyPeer.ID, Type: string(types.ResourceTypePeer)},
+		DestinationResource: nmdata.Resource{ID: target.TargetID, Type: target.TargetType},
+		Bidirectional:       false,
+		Protocol:            string(protocol),
+		Action:              string(types.PolicyTrafficActionAccept),
+		PortRanges:          []nmdata.RulePortRange{portRange},
 	}
 }
 

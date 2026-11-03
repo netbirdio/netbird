@@ -302,10 +302,28 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 // When AddDomain returns true the caller is responsible for sending any
 // certificate-ready notifications after the surrounding operation (e.g.
 // mapping update) has committed successfully.
+// This legacy API replaces existing ownership; use AddDomainForService when
+// registration must reject a different owner.
 func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) (wildcardHit bool) {
+	wildcardHit, _ = mgr.addDomain(d, accountID, serviceID, false)
+	return wildcardHit
+}
+
+// AddDomainForService registers d only when it is unowned or already owned by
+// serviceID. The ownership check prevents a stale or conflicting mapping from
+// replacing another HTTP service's certificate lifecycle state.
+func (mgr *Manager) AddDomainForService(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) (wildcardHit bool, ok bool) {
+	return mgr.addDomain(d, accountID, serviceID, true)
+}
+
+func (mgr *Manager) addDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID, enforceOwner bool) (wildcardHit bool, ok bool) {
 	name := d.PunycodeString()
 	if e := mgr.findWildcardEntry(name); e != nil {
 		mgr.mu.Lock()
+		if existing, exists := mgr.domains[d]; exists && enforceOwner && existing.serviceID != serviceID {
+			mgr.mu.Unlock()
+			return false, false
+		}
 		mgr.domains[d] = &domainInfo{
 			accountID: accountID,
 			serviceID: serviceID,
@@ -313,10 +331,14 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, servic
 		}
 		mgr.mu.Unlock()
 		mgr.logger.Debugf("domain %q matches wildcard %q, using static certificate", name, e.pattern)
-		return true
+		return true, true
 	}
 
 	mgr.mu.Lock()
+	if existing, exists := mgr.domains[d]; exists && enforceOwner && existing.serviceID != serviceID {
+		mgr.mu.Unlock()
+		return false, false
+	}
 	mgr.domains[d] = &domainInfo{
 		accountID: accountID,
 		serviceID: serviceID,
@@ -325,7 +347,7 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, servic
 	mgr.mu.Unlock()
 
 	go mgr.prefetchCertificate(d)
-	return false
+	return false, true
 }
 
 // prefetchCertificate proactively triggers certificate generation for a domain.
@@ -584,6 +606,18 @@ func (mgr *Manager) RemoveDomain(d domain.Domain) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	delete(mgr.domains, d)
+}
+
+// RemoveDomainForService removes d only when serviceID still owns it.
+func (mgr *Manager) RemoveDomainForService(d domain.Domain, serviceID types.ServiceID) bool {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	info, ok := mgr.domains[d]
+	if !ok || info.serviceID != serviceID {
+		return false
+	}
+	delete(mgr.domains, d)
+	return true
 }
 
 // PendingCerts returns the number of certificates currently being prefetched.

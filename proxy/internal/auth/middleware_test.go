@@ -153,6 +153,22 @@ func TestAddDomain_OverwritesPreviousConfig(t *testing.T) {
 	assert.Equal(t, 2*time.Hour, config.SessionExpiration)
 }
 
+func TestAddDomainConfigRejectsDifferentServiceOwner(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	first, err := NewDomainConfig("Example.COM.", nil, "", 0, "acct", "svc-1", nil, false, nil)
+	require.NoError(t, err)
+	require.NoError(t, mw.AddDomainConfig("Example.COM.", first))
+
+	replacement, err := NewDomainConfig("example.com", nil, "", 0, "acct", "svc-2", nil, false, nil)
+	require.NoError(t, err)
+	err = mw.AddDomainConfig("example.com", replacement)
+	require.EqualError(t, err, "domain example.com is owned by service svc-1")
+
+	stored, ok := mw.getDomainConfig("example.com")
+	require.True(t, ok)
+	assert.Equal(t, types.ServiceID("svc-1"), stored.ServiceID, "conflicting snapshot must not replace the owner")
+}
+
 func TestRemoveDomain(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
@@ -234,6 +250,49 @@ func TestProtect_HostWithPortIsMatched(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	assert.False(t, backendCalled, "host with port should still match the protected domain")
+}
+
+func TestProtect_CanonicalHostCannotBypassAuthAndUsesCanonicalAudience(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("Example.COM.", []Scheme{scheme}, kp.PublicKey, time.Hour, "acct", "svc", nil, false, nil))
+
+	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "", "example.com", auth.MethodPIN, nil, nil, time.Hour)
+	require.NoError(t, err)
+
+	backendCalled := false
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled = true
+		cd := proxy.CapturedDataFromContext(r.Context())
+		require.NotNil(t, cd)
+		assert.Equal(t, "test-user", cd.GetUserID(), "the session must authenticate instead of bypassing an unknown host")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+	req.Host = "EXAMPLE.COM.:443"
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), proxy.NewCapturedData("")))
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, req)
+	require.False(t, backendCalled, "the canonical host must be protected without a session")
+
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, backendCalled, "canonical token audience must validate for case/root-dot variants")
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestRemoveDomainForServicePreservesReplacementOwner(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	require.NoError(t, mw.AddDomain("Example.COM.", nil, "", 0, "acct", "new", nil, true, nil))
+
+	assert.False(t, mw.RemoveDomainForService("example.com", "old"))
+	config, ok := mw.getDomainConfig("EXAMPLE.COM.:443")
+	require.True(t, ok)
+	assert.Equal(t, types.ServiceID("new"), config.ServiceID)
+	assert.True(t, mw.RemoveDomainForService("example.com.", "new"))
 }
 
 func TestProtect_ValidSessionCookiePassesThrough(t *testing.T) {

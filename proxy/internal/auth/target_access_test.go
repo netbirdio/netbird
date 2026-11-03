@@ -268,7 +268,7 @@ func TestAddDomainConfig_PublishesPreparedSnapshot(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	mw.AddDomainConfig("example.com", config)
+	require.NoError(t, mw.AddDomainConfig("example.com", config))
 	delete(config.AllowedGroups, "group-1")
 
 	published, exists := mw.getDomainConfig("example.com")
