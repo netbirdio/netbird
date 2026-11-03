@@ -25,7 +25,7 @@ func NewNetwork(accountId, name, description string) *Network {
 	}
 }
 
-func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string, routingPeersCount int, policyIDs []string) *api.Network {
+func (n *Network) ToAPIResponse(routerIDs, resourceIDs []string, routingPeersCount int, policyIDs []string) *api.Network {
 	return &api.Network{
 		Id:                n.ID,
 		Name:              n.Name,
@@ -53,6 +53,17 @@ func (n *Network) Copy() *Network {
 		Name:        n.Name,
 		Description: n.Description,
 	}
+}
+
+func (n *Network) Equal(other *Network) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	return n.ID == other.ID &&
+		n.AccountID == other.AccountID &&
+		n.Name == other.Name &&
+		n.Description == other.Description
 }
 
 func (n *Network) EventMeta() map[string]any {

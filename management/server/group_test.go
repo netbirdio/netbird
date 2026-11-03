@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -868,9 +869,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
+			// Renamed so the save is a real change; identical saves are skipped.
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupA",
-				Name:  "GroupA",
+				Name:  "GroupA-renamed",
 				Peers: []string{peer1.ID, peer2.ID},
 			})
 			assert.NoError(t, err)
@@ -880,6 +882,52 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			case <-time.After(peerUpdateTimeout):
 				t.Error("timeout waiting for peerShouldReceiveUpdate")
 			}
+		})
+
+		// Saving a linked group unchanged, peers in a different order, must not write
+		// or send peer update
+		step(t, "saving unchanged linked group", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+			before, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+
+			err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
+				ID:    "groupA",
+				Name:  "GroupA-renamed",
+				Peers: []string{peer2.ID, peer1.ID},
+			})
+			assert.NoError(t, err)
+
+			time.Sleep(peerUpdateSettleTime)
+			synctest.Wait()
+			assert.Empty(t, updMsg, "peer must not receive an update")
+
+			after, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			assert.Equal(t, before.Serial, after.Serial, "network serial must not change")
+		})
+
+		// Saving a linked group unchanged through the batch update must not write
+		// or send peer update
+		step(t, "saving unchanged linked group in batch", func(t *testing.T) {
+			settleAffectedUpdates(updMsg)
+			before, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+
+			err = manager.UpdateGroups(context.Background(), account.Id, userID, []*types.Group{{
+				ID:    "groupA",
+				Name:  "GroupA-renamed",
+				Peers: []string{peer1.ID, peer2.ID},
+			}})
+			assert.NoError(t, err)
+
+			time.Sleep(peerUpdateSettleTime)
+			synctest.Wait()
+			assert.Empty(t, updMsg, "peer must not receive an update")
+
+			after, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+			require.NoError(t, err)
+			assert.Equal(t, before.Serial, after.Serial, "network serial must not change")
 		})
 
 		// adding peer to a used group should update account peers and send peer update
@@ -939,9 +987,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				close(done)
 			}()
 
+			// Renamed so the save is a real change; identical saves are skipped.
 			err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 				ID:    "groupC",
-				Name:  "GroupC",
+				Name:  "GroupC-renamed",
 				Peers: []string{peer1.ID, peer3.ID},
 			})
 			assert.NoError(t, err)

@@ -465,3 +465,42 @@ func TestSqlStore_Transaction_NestedIsSavepoint(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestMigrateLegacyLivenessWithDuplicatePeerKeys(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		sqlStore := store.(*SqlStore)
+		require.NoError(t, sqlStore.db.Migrator().DropTable(&nbpeer.Connection{}))
+		require.NoError(t, sqlStore.db.Exec("ALTER TABLE peers ADD COLUMN peer_status_last_seen TIMESTAMP").Error)
+		require.NoError(t, sqlStore.db.Exec("DROP INDEX idx_peers_key_unique").Error)
+		require.NoError(t, sqlStore.db.Exec("INSERT INTO accounts (id) VALUES ('account')").Error)
+
+		newer := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+		for i, peer := range []struct {
+			id, key string
+			seen    time.Time
+		}{
+			{"peer-stale-duplicate", "dup-key", newer.Add(-time.Hour)},
+			{"peer-kept-duplicate", "dup-key", newer},
+			{"peer-unique", "unique-key", newer},
+		} {
+			require.NoError(t, sqlStore.db.Exec(
+				"INSERT INTO peers (id, account_id, key, dns_label, ip, location_connection_ip, peer_status_last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				peer.id, "account", peer.key, peer.id, fmt.Sprintf(`"100.64.0.%d"`, i+1), `"1.2.3.4"`, peer.seen,
+			).Error)
+		}
+
+		migrated, err := NewSqlStore(ctx, sqlStore.conn, nil, false)
+		require.NoError(t, err)
+
+		var connPeerIDs []string
+		require.NoError(t, migrated.db.Model(&nbpeer.Connection{}).Order("peer_id").Pluck("peer_id", &connPeerIDs).Error)
+		assert.Equal(t, []string{"peer-kept-duplicate", "peer-unique"}, connPeerIDs)
+
+		var orphans int64
+		require.NoError(t, migrated.db.Model(&nbpeer.Connection{}).
+			Where("peer_id NOT IN (?)", migrated.db.Table("peers").Select("id")).Count(&orphans).Error)
+		assert.Zero(t, orphans, "no connection row outlives a deleted duplicate peer")
+		assert.True(t, newer.Equal(peerLastSeen(t, migrated, "peer-kept-duplicate")))
+	})
+}

@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -52,12 +53,14 @@ type managerImpl struct {
 	integratedPeerValidator integrated_validator.IntegratedValidator
 	accountManager          account.Manager
 	networkMapController    network_map.Controller
+	peerLiveness            peerliveness.Controller
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, peerLiveness peerliveness.Controller) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
+		peerLiveness:       peerLiveness,
 	}
 }
 
@@ -198,6 +201,10 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 			if err = transaction.DeletePeer(ctx, accountID, peerID); err != nil {
 				return err
 			}
+
+			eventsToStore = append(eventsToStore, func() {
+				m.peerLiveness.ForgetPeer(peerID)
+			})
 
 			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 				return fmt.Errorf("increment network serial: %w", err)

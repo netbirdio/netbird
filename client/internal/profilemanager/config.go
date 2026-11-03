@@ -350,7 +350,9 @@ func newConfigSkeleton() *Config {
 // ServerSSHAllowed is the one field whose default depends on the config's age.
 // A brand-new profile gets false from newConfigSkeleton, which runs before
 // this, so what is resolved here is only the legacy case: a config written by a
-// version that had no such field keeps SSH on, for backwards compatibility.
+// version that had no such field keeps SSH on, for backwards compatibility, when
+// it carries the peer's private key. A config without one never ran an SSH
+// server and resolves to off, as does every config on Android.
 func (config *Config) resolveUnsetDefaults() (updated bool) {
 	// Fields that default to false on every platform.
 	for _, field := range []**bool{
@@ -389,11 +391,17 @@ func (config *Config) resolveUnsetDefaults() (updated bool) {
 	}
 
 	if config.ServerSSHAllowed == nil {
-		if runtime.GOOS == "android" {
+		switch {
+		case runtime.GOOS == "android":
 			// default to disabled SSH on Android for security
 			log.Infof("setting SSH server to false by default on Android")
 			config.ServerSSHAllowed = util.False()
-		} else {
+		case config.PrivateKey == "":
+			// Old versions wrote the peer's key together with the config, so a file
+			// without one never ran an SSH server and there is nothing to preserve.
+			log.Infof("setting SSH server to false by default for a configuration without identity")
+			config.ServerSSHAllowed = util.False()
+		default:
 			// enables SSH for configs from old versions to preserve backwards compatibility
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
@@ -1190,15 +1198,17 @@ func update(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
-	// A write path is a provisioning point: a stored profile can legitimately
-	// carry no identity (a mobile logout clears the keys in place), and the
-	// next config write is what has to mint a new one. Reads leave that alone.
-	identityGenerated, err := config.EnsureIdentity()
+	// apply runs first so the defaults it resolves see the identity that is
+	// stored, not one minted a moment ago.
+	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := config.apply(input)
+	// A write path is a provisioning point: a stored profile can legitimately
+	// carry no identity (a mobile logout clears the keys in place), and the
+	// next config write is what has to mint a new one. Reads leave that alone.
+	identityGenerated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, err
 	}
@@ -1393,13 +1403,13 @@ func directUpdate(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
-	// Same provisioning point as update(); see the note there.
-	identityGenerated, err := config.EnsureIdentity()
+	// Same order as update(); see the notes there.
+	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := config.apply(input)
+	identityGenerated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, err
 	}
