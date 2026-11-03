@@ -63,7 +63,10 @@ func TestHostHasIPv6PerInterface(t *testing.T) {
 	}{
 		{name: "enabled by default", all: "0", def: "0", iface: "wt0", want: true},
 		{name: "default enabled alone", all: "1", def: "0", iface: "wt0", want: true},
-		{name: "all enabled alone", all: "0", def: "1", iface: "wt0", want: true},
+		{name: "all enabled alone, interface not created yet inherits the disabled default", all: "0", def: "1", iface: "wt0", want: false},
+		{name: "existing interface disabled while all and default are enabled", all: "0", def: "0", ifaces: map[string]string{"wt0": "1"}, iface: "wt0", want: false},
+		{name: "existing interface disabled while only all is enabled", all: "0", def: "1", ifaces: map[string]string{"wt0": "1"}, iface: "wt0", want: false},
+		{name: "existing interface enabled while all and default are disabled", all: "1", def: "1", ifaces: map[string]string{"wt0": "0"}, iface: "wt0", want: true},
 		{name: "disabled everywhere", all: "1", def: "1", ifaces: map[string]string{"wt0": "1"}, iface: "wt0", want: false},
 		{name: "interface that does not exist yet inherits the default", all: "1", def: "1", iface: "wt0", want: false},
 		{name: "existing interface re-enabled after the global disable", all: "1", def: "1", ifaces: map[string]string{"wt0": "0"}, iface: "wt0", want: true},

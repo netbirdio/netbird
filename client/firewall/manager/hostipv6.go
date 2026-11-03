@@ -23,12 +23,12 @@ const (
 
 // HostHasIPv6 reports whether the named interface can receive IPv6.
 //
-// It is false only when the kernel has no IPv6 support, or IPv6 is disabled for both the
-// existing and the future interfaces and the interface itself has it disabled or, not existing
-// yet, inherits that. Writing "all" or "default" does not veto a later per-interface enable, so
-// an existing interface with IPv6 enabled counts even when both are set. Anything that cannot be
-// told, such as a procfs entry that cannot be read or an unusable name, counts as enabled, so
-// callers that use this to decide whether IPv6 has to be filtered err on the side of filtering.
+// It is false only when the kernel has no IPv6 support, or the interface has IPv6 disabled or,
+// not existing yet, inherits a disabled default. The interface's own entry decides for an
+// existing interface: writing "all" or "default" does not veto a later per-interface enable.
+// Anything that cannot be told, such as a procfs entry that cannot be read or an unusable name,
+// counts as enabled, so callers that use this to decide whether IPv6 has to be filtered err on
+// the side of filtering.
 func HostHasIPv6(ifaceName string) bool {
 	return hostHasIPv6(procIfInet6, procIPv6ConfDir, ifaceName)
 }
@@ -37,10 +37,6 @@ func hostHasIPv6(ifInet6, confDir, ifaceName string) bool {
 	if _, err := os.Stat(ifInet6); errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
-	if !sysctlIsOne(filepath.Join(confDir, "all", disableIPv6Entry)) ||
-		!sysctlIsOne(filepath.Join(confDir, "default", disableIPv6Entry)) {
-		return true
-	}
 	if ifaceName == "" || ifaceName != filepath.Base(ifaceName) || ifaceName == "." || ifaceName == ".." {
 		return true
 	}
@@ -48,8 +44,8 @@ func hostHasIPv6(ifInet6, confDir, ifaceName string) bool {
 	b, err := os.ReadFile(filepath.Join(confDir, ifaceName, disableIPv6Entry))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		// The interface is created with the default, which is disabled.
-		return false
+		// A new interface is created with the default.
+		return !sysctlIsOne(filepath.Join(confDir, "default", disableIPv6Entry))
 	case err != nil:
 		return true
 	}
