@@ -44,9 +44,10 @@ func (s *Server) executeSftpWithPrivilegeDrop(sess ssh.Session, targetUser *user
 }
 
 // createSftpCommand creates a command that spawns netbird ssh sftp as the target user.
-// The invocation goes through createCommand like a session command (su, or the executor
-// with the user's shell), so the host's account restrictions (PAM, login shell) apply to
-// SFTP as they do to shell and command sessions.
+// The invocation goes through createCommand like a session command. Through su, the host's
+// account restrictions (PAM, login shell) apply to SFTP as they do to shell and command
+// sessions. When su is not available the executor fallback is used, which starts the user's
+// shell without PAM, for SFTP and for session commands alike.
 func (s *Server) createSftpCommand(logger *log.Entry, sess ssh.Session, targetUser *user.User) (*exec.Cmd, func(), error) {
 	uid, gid, groups, err := s.parseUserCredentials(targetUser)
 	if err != nil {
