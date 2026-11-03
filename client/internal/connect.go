@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -383,7 +385,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Netbird config
 		loginStarted := time.Now()
-		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
+		loginResp, err := loginOrReRegister(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
 			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
 			log.Debug(err)
@@ -787,8 +789,56 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 	return signalClient, nil
 }
 
+// envSetupKey is read by reRegisterWithEnvSetupKey to retry a rejected login.
+const envSetupKey = "NB_SETUP_KEY"
+
+// envReRegister opts in to that retry. It is off by default because it
+// changes what deleting a peer means: with a valid reusable setup key the
+// peer enrolls again instead of staying logged out.
+const envReRegister = "NB_REREGISTER_WITH_SETUP_KEY"
+
+// isReRegisterEnabled reports whether envReRegister opts in to the retry.
+func isReRegisterEnabled() bool {
+	val := os.Getenv(envReRegister)
+	if val == "" {
+		return false
+	}
+	enabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", envReRegister, err)
+		return false
+	}
+	return enabled
+}
+
+// loginOrReRegister logs in to management and, when the login is denied and
+// envReRegister is set, retries once through Register with the setup key from
+// env. If the retry is not possible or fails, it returns the original login
+// error so the caller still treats the peer as needing a login.
+func loginOrReRegister(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
+	loginResp, err := loginToManagement(ctx, client, pubSSHKey, config)
+	if err == nil {
+		return loginResp, nil
+	}
+	if s, ok := gstatus.FromError(err); !ok || s.Code() != codes.PermissionDenied {
+		return nil, err
+	}
+	if !isReRegisterEnabled() {
+		return nil, err
+	}
+	if resp := reRegisterWithEnvSetupKey(ctx, client, pubSSHKey, config); resp != nil {
+		return resp, nil
+	}
+	return nil, err
+}
+
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
+	return client.Login(buildLoginSysInfo(ctx, config), pubSSHKey, config.DNSLabels)
+}
+
+// buildLoginSysInfo returns the system info sent with a management login request.
+func buildLoginSysInfo(ctx context.Context, config *profilemanager.Config) *system.Info {
 	sysInfo := system.GetInfo(ctx)
 	sysInfo.SetFlags(
 		config.RosenpassEnabled,
@@ -809,7 +859,25 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableSSHAuth,
 		config.RemoteJobsAllowed,
 	)
-	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
+	return sysInfo
+}
+
+// reRegisterWithEnvSetupKey retries Register once with the setup key from env.
+// Returns nil when the env var is unset or the Register call fails, so the
+// caller falls through to its existing failure handling.
+func reRegisterWithEnvSetupKey(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) *mgmProto.LoginResponse {
+	setupKey := strings.TrimSpace(os.Getenv(envSetupKey))
+	if setupKey == "" {
+		return nil
+	}
+
+	log.Infof("retrying login via %s", envSetupKey)
+	resp, err := client.Register(setupKey, "", buildLoginSysInfo(ctx, config), pubSSHKey, config.DNSLabels)
+	if err != nil {
+		log.Warnf("%s retry failed: %v", envSetupKey, err)
+		return nil
+	}
+	return resp
 }
 
 func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {
