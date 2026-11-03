@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -28,6 +29,9 @@ func newKernelIface(t *testing.T, name string, port int) *iface.WGIface {
 	if !device.WireGuardModuleIsLoaded() {
 		t.Skip("kernel WireGuard is not available here")
 	}
+
+	// The test needs a kernel device, not the userspace netstack one an inherited setting selects.
+	t.Setenv(netstack.EnvUseNetstackMode, "false")
 
 	priv, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)

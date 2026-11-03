@@ -39,6 +39,7 @@ func (w *WGIface) reserveOverlay(replace bool) error {
 		previous = w.overlayRange
 	} else {
 		w.overlayRange = nil
+		w.staleOverlay = nil
 	}
 
 	prefixes := overlayPrefixes(w.tun.WgAddress())
@@ -69,14 +70,24 @@ func (w *WGIface) addOverlayRange(prefixes []netip.Prefix) error {
 }
 
 // releaseOverlayRanges removes the prefixes of old that are not in keep from the placeholder peer.
-// A failed release only leaves a range reserved. The caller holds w.mu.
+// A prefix that could not be removed stays reserved, which only makes the placeholder claim a range
+// that is no longer the overlay. It is remembered and removed by the next release. The caller holds w.mu.
 func (w *WGIface) releaseOverlayRanges(old, keep []netip.Prefix) {
-	for _, p := range old {
+	candidates := slices.Clone(old)
+	for _, p := range w.staleOverlay {
+		if !slices.Contains(candidates, p) {
+			candidates = append(candidates, p)
+		}
+	}
+
+	w.staleOverlay = nil
+	for _, p := range candidates {
 		if slices.Contains(keep, p) {
 			continue
 		}
 		if err := w.configurer.RemoveAllowedIP(w.overlayPeerKey, p); err != nil {
-			log.Warnf("failed to release overlay range %s, it stays reserved: %v", p, err)
+			log.Warnf("failed to release overlay range %s, it stays reserved and is retried on the next address change: %v", p, err)
+			w.staleOverlay = append(w.staleOverlay, p)
 		}
 	}
 }

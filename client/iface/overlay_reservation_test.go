@@ -232,6 +232,24 @@ func TestWGIface_ReserveOverlay_StaleRangeThatCannotBeReleasedStaysReserved(t *t
 	}, cfg.peers[w.overlayPeerKey].allowedIPs)
 }
 
+func TestWGIface_ReserveOverlay_StaleRangeIsReleasedOnTheNextChange(t *testing.T) {
+	w, cfg, tun := newReservationTestIface(v4Addr("100.64.0.1/16"))
+	require.NoError(t, w.reserveOverlay(false))
+
+	cfg.removeErr = errors.New("busy")
+	tun.addr = v4Addr("100.65.0.1/16")
+	require.NoError(t, w.reserveOverlay(true))
+	require.Equal(t, []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}, w.staleOverlay)
+
+	cfg.removeErr = nil
+	tun.addr = v4Addr("100.66.0.1/16")
+	require.NoError(t, w.reserveOverlay(true))
+
+	assert.Empty(t, w.staleOverlay, "the stale range must not be remembered once it is released")
+	assert.ElementsMatch(t, []netip.Prefix{netip.MustParsePrefix("100.66.0.0/16")}, cfg.peers[w.overlayPeerKey].allowedIPs,
+		"both the stale and the previous range must be gone from the placeholder")
+}
+
 func TestWGIface_ReserveOverlay_WithoutConfigurer(t *testing.T) {
 	w := &WGIface{tun: &fakeTun{addr: v4Addr("100.64.0.1/16")}}
 

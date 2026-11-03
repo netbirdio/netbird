@@ -78,6 +78,9 @@ type WGIface struct {
 	overlayPeerKey string
 	// overlayRange is the range the placeholder owns on the device, empty while none is reserved.
 	overlayRange []netip.Prefix
+	// staleOverlay holds ranges that were no longer the overlay but could not be removed from the
+	// placeholder, to be retried when the next range is released.
+	staleOverlay []netip.Prefix
 }
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
