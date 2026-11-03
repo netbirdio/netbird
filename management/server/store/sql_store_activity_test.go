@@ -121,8 +121,8 @@ func TestPeerReadsAsDisconnectedWhenStale(t *testing.T) {
 		instanceAge   time.Duration
 		wantConnected bool
 	}{
-		{name: "instance seen within StaleAfter", instanceAge: time.Minute, wantConnected: true},
-		{name: "instance not seen for longer than StaleAfter", instanceAge: nbpeer.StaleAfter + time.Minute},
+		{name: "instance seen within InstanceStaleAfter", instanceAge: time.Minute, wantConnected: true},
+		{name: "instance not seen for longer than InstanceStaleAfter", instanceAge: nbpeer.InstanceStaleAfter + time.Minute},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

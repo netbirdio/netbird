@@ -1196,7 +1196,7 @@ func TestSqlStore_DisconnectPeerAfterSweep(t *testing.T) {
 		ctx := context.Background()
 		addPeerConnectionTestPeers(t, store, "peer-a")
 		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
-		instanceSeen := ageInstance(t, store, "inst-1", nbpeer.StaleAfter+time.Minute)
+		instanceSeen := ageInstance(t, store, "inst-1", nbpeer.InstanceStaleAfter+time.Minute)
 		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
 		require.NoError(t, err)
 		swept, err := store.SweepInstanceChunk(ctx, "inst-1", instanceSeen, 10)
@@ -1317,7 +1317,7 @@ func TestSqlStore_RegisterAndHeartbeatInstance(t *testing.T) {
 		assert.True(t, alive, "a fresh row heartbeats")
 		assert.WithinDuration(t, time.Now().UTC(), getInstance("inst-1").LastSeen.UTC(), 10*time.Second)
 
-		stale := ageInstance(t, store, "inst-1", nbpeer.StaleAfter+time.Minute)
+		stale := ageInstance(t, store, "inst-1", nbpeer.InstanceStaleAfter+time.Minute)
 		alive, err = store.HeartbeatInstance(ctx, "inst-1")
 		require.NoError(t, err)
 		assert.False(t, alive, "a stale row must not be revived")
@@ -1335,7 +1335,7 @@ func TestSqlStore_SweepInstanceChunk(t *testing.T) {
 		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b", "peer-c", "peer-d")
 		require.NoError(t, store.RegisterInstance(ctx, "inst-dead", "dead"))
 		require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
-		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.StaleAfter+time.Minute)
+		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.InstanceStaleAfter+time.Minute)
 
 		for peerID, instanceID := range map[string]string{"peer-a": "inst-dead", "peer-b": "inst-dead", "peer-c": "inst-dead", "peer-d": "inst-live"} {
 			applied, err := store.ConnectPeer(ctx, peerConnectionAccountID, peerID, instanceID, 100)
@@ -1472,7 +1472,7 @@ func TestSqlStore_SweepInstanceChunkKeepsRowsThatMoved(t *testing.T) {
 		addPeerConnectionTestPeers(t, store, "peer-a", "peer-b")
 		require.NoError(t, store.RegisterInstance(ctx, "inst-dead", "dead"))
 		require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
-		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.StaleAfter+time.Minute)
+		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.InstanceStaleAfter+time.Minute)
 		for _, id := range []string{"peer-a", "peer-b"} {
 			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, id, "inst-dead", 100)
 			require.NoError(t, err)
@@ -1699,7 +1699,7 @@ func TestSqlStore_ReRegisterPeersReclaimsSweptButNotReleased(t *testing.T) {
 		ctx := context.Background()
 		addPeerConnectionTestPeers(t, store, "peer-swept", "peer-expired", "peer-expired-newer")
 		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
-		lastSeen := ageInstance(t, store, "inst-1", nbpeer.StaleAfter+time.Minute)
+		lastSeen := ageInstance(t, store, "inst-1", nbpeer.InstanceStaleAfter+time.Minute)
 		for _, id := range []string{"peer-swept", "peer-expired", "peer-expired-newer"} {
 			_, err := store.ConnectPeer(ctx, peerConnectionAccountID, id, "inst-1", 100)
 			require.NoError(t, err)
@@ -1742,7 +1742,7 @@ func TestSqlStore_LivenessWritesLeavePeersRowAlone(t *testing.T) {
 
 		require.NoError(t, store.RegisterInstance(ctx, "inst-1", "one"))
 		require.NoError(t, store.RegisterInstance(ctx, "inst-dead", "dead"))
-		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.StaleAfter+time.Minute)
+		deadSeen := ageInstance(t, store, "inst-dead", nbpeer.InstanceStaleAfter+time.Minute)
 
 		_, err := store.ConnectPeer(ctx, peerConnectionAccountID, "peer-a", "inst-1", 100)
 		require.NoError(t, err)
@@ -1836,7 +1836,7 @@ func seedPeerConnectionStates(t *testing.T, store Store) map[string]time.Time {
 	require.NoError(t, store.RegisterInstance(ctx, "inst-live", "live"))
 	require.NoError(t, store.RegisterInstance(ctx, "inst-stale", "stale"))
 	liveSeen := ageInstance(t, store, "inst-live", time.Minute)
-	staleSeen := ageInstance(t, store, "inst-stale", nbpeer.StaleAfter+time.Minute)
+	staleSeen := ageInstance(t, store, "inst-stale", nbpeer.InstanceStaleAfter+time.Minute)
 
 	for peerID, session := range map[string]int64{"peer-a": 100, "peer-b": 200} {
 		instance := map[string]string{"peer-a": "inst-live", "peer-b": "inst-stale"}[peerID]

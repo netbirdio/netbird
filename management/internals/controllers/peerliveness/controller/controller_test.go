@@ -168,7 +168,7 @@ func TestController_HeartbeatKeepsInstance(t *testing.T) {
 		require.NoError(t, c.Start(context.Background()))
 		id := c.InstanceID()
 
-		time.Sleep(3*nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(3*nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 
 		assert.Equal(t, id, c.InstanceID())
@@ -192,7 +192,7 @@ func TestController_HeartbeatErrorKeepsLooping(t *testing.T) {
 		require.NoError(t, c.Start(context.Background()))
 		id := c.InstanceID()
 
-		time.Sleep(2*nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(2*nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 
 		assert.Equal(t, []string{id}, regs.all())
@@ -234,7 +234,7 @@ func TestController_HeartbeatLapseReRegistersPeers(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		time.Sleep(nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 
 		newID := c.InstanceID()
@@ -285,7 +285,7 @@ func TestController_FailedReRegisterPeersIsRetried(t *testing.T) {
 		_, err := c.Connect(context.Background(), "acc", "peer", 10)
 		require.NoError(t, err)
 
-		time.Sleep(3*nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(3*nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 
 		newID := c.InstanceID()
@@ -330,13 +330,13 @@ func TestController_SweepSchedule(t *testing.T) {
 
 		require.NoError(t, c.Start(context.Background()))
 
-		time.Sleep(7*nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(7*nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 
 		mu.Lock()
 		assert.Equal(t, 7, ticks)
 		assert.Equal(t, []int{0, 7}, sweptAtTick, "startup sweep, then tick 7: tick 5 lapsed and tick 6 follows the gap")
-		assert.Equal(t, []time.Duration{0, 7 * nbpeer.HeartbeatInterval}, sweepAt)
+		assert.Equal(t, []time.Duration{0, 7 * nbpeer.InstanceHeartbeatInterval}, sweepAt)
 		mu.Unlock()
 
 		st.EXPECT().ReleaseInstance(gomock.Any(), gomock.Any()).Return(nil)
@@ -361,11 +361,11 @@ func TestController_SweepEveryStaleAfter(t *testing.T) {
 
 		require.NoError(t, c.Start(context.Background()))
 
-		time.Sleep(2*nbpeer.StaleAfter + time.Second)
+		time.Sleep(2*nbpeer.InstanceStaleAfter + time.Second)
 		synctest.Wait()
 
 		mu.Lock()
-		assert.Equal(t, []time.Duration{0, nbpeer.StaleAfter, 2 * nbpeer.StaleAfter}, sweepAt)
+		assert.Equal(t, []time.Duration{0, nbpeer.InstanceStaleAfter, 2 * nbpeer.InstanceStaleAfter}, sweepAt)
 		mu.Unlock()
 
 		st.EXPECT().ReleaseInstance(gomock.Any(), gomock.Any()).Return(nil)
@@ -402,7 +402,7 @@ func TestController_SweepSkipsOwnInstance(t *testing.T) {
 		require.NoError(t, c.Start(context.Background()))
 		id := c.InstanceID()
 
-		time.Sleep(nbpeer.StaleAfter + time.Second)
+		time.Sleep(nbpeer.InstanceStaleAfter + time.Second)
 		synctest.Wait()
 
 		st.EXPECT().ReleaseInstance(gomock.Any(), id).Return(nil)
@@ -458,19 +458,19 @@ func TestController_FailedDisconnectIsRetriedUntilApplied(t *testing.T) {
 		assert.Equal(t, map[string]pendingEnd{"peer": {connection: connection{accountID: "acc", session: 5}}}, c.pending)
 		c.registryMu.Unlock()
 
-		time.Sleep(nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 		c.registryMu.Lock()
 		assert.Contains(t, c.pending, "peer", "a failing retry keeps the entry")
 		c.registryMu.Unlock()
 
-		time.Sleep(nbpeer.HeartbeatInterval)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 		c.registryMu.Lock()
 		assert.Empty(t, c.pending)
 		c.registryMu.Unlock()
 
-		time.Sleep(2 * nbpeer.HeartbeatInterval)
+		time.Sleep(2 * nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 
 		st.EXPECT().ReleaseInstance(gomock.Any(), gomock.Any()).Return(nil)
@@ -492,7 +492,7 @@ func TestController_RetriedDisconnectNotAppliedIsDropped(t *testing.T) {
 		_, err := c.Disconnect(context.Background(), "acc", "peer", 5)
 		require.Error(t, err)
 
-		time.Sleep(3*nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(3*nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 
 		c.registryMu.Lock()
@@ -603,19 +603,19 @@ func TestController_FailedReleaseConnectionIsRetried(t *testing.T) {
 		assert.Equal(t, map[string]pendingEnd{"peer": {connection: connection{accountID: "acc", session: 5}, release: true}}, c.pending)
 		c.registryMu.Unlock()
 
-		time.Sleep(nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 		c.registryMu.Lock()
 		assert.Contains(t, c.pending, "peer", "a failing retry keeps the entry")
 		c.registryMu.Unlock()
 
-		time.Sleep(nbpeer.HeartbeatInterval)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 		c.registryMu.Lock()
 		assert.Empty(t, c.pending)
 		c.registryMu.Unlock()
 
-		time.Sleep(2 * nbpeer.HeartbeatInterval)
+		time.Sleep(2 * nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 
 		st.EXPECT().ReleaseInstance(gomock.Any(), gomock.Any()).Return(nil)
@@ -704,7 +704,7 @@ func TestController_ReleaseStopsLoopAndReleasesCurrentID(t *testing.T) {
 		require.NoError(t, c.Start(context.Background()))
 		oldID := c.InstanceID()
 
-		time.Sleep(nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 		newID := c.InstanceID()
 		require.NotEqual(t, oldID, newID)
@@ -712,7 +712,7 @@ func TestController_ReleaseStopsLoopAndReleasesCurrentID(t *testing.T) {
 		st.EXPECT().ReleaseInstance(gomock.Any(), newID).Return(nil)
 		require.NoError(t, c.Release(context.Background()))
 
-		time.Sleep(3 * nbpeer.HeartbeatInterval)
+		time.Sleep(3 * nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 	})
 }
@@ -736,7 +736,7 @@ func TestController_ContextCancelStopsLoop(t *testing.T) {
 		cancel()
 		synctest.Wait()
 
-		time.Sleep(3 * nbpeer.HeartbeatInterval)
+		time.Sleep(3 * nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 
 		st.EXPECT().ReleaseInstance(gomock.Any(), c.InstanceID()).Return(nil)
@@ -913,12 +913,12 @@ func TestController_FailedReRegisterIsRetriedOnNextHeartbeat(t *testing.T) {
 		require.NoError(t, c.Start(context.Background()))
 		oldID := c.InstanceID()
 
-		time.Sleep(nbpeer.HeartbeatInterval + time.Second)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval + time.Second)
 		synctest.Wait()
 		assert.Equal(t, oldID, c.InstanceID(), "the failed registration keeps the old ID")
 		assert.Empty(t, reRegistered.all())
 
-		time.Sleep(nbpeer.HeartbeatInterval)
+		time.Sleep(nbpeer.InstanceHeartbeatInterval)
 		synctest.Wait()
 		newID := c.InstanceID()
 		require.NotEqual(t, oldID, newID, "the next heartbeat registers again")

@@ -226,7 +226,7 @@ func (c *Controller) InstanceID() string {
 func (c *Controller) run(ctx context.Context, done chan<- struct{}, lastSweep time.Time) {
 	defer close(done)
 
-	ticker := time.NewTicker(nbpeer.HeartbeatInterval)
+	ticker := time.NewTicker(nbpeer.InstanceHeartbeatInterval)
 	defer ticker.Stop()
 
 	previousOK := true
@@ -239,7 +239,7 @@ func (c *Controller) run(ctx context.Context, done chan<- struct{}, lastSweep ti
 
 		ok := c.heartbeat(ctx)
 		c.retryPendingReleases(ctx)
-		if ok && previousOK && time.Since(lastSweep) >= nbpeer.StaleAfter {
+		if ok && previousOK && time.Since(lastSweep) >= nbpeer.InstanceStaleAfter {
 			if err := c.sweep(ctx, c.InstanceID()); err != nil {
 				log.WithContext(ctx).Errorf("sweep stale instances: %v", err)
 			}

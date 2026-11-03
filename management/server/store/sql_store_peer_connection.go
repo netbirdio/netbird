@@ -26,7 +26,7 @@ const (
 )
 
 // staleThreshold returns an SQL expression for the database's current time minus
-// nbpeer.StaleAfter, with its bound argument.
+// nbpeer.InstanceStaleAfter, with its bound argument.
 func (s *SqlStore) staleThreshold() (string, any) {
 	return staleThresholdFor(s.conn.Engine())
 }
@@ -34,9 +34,9 @@ func (s *SqlStore) staleThreshold() (string, any) {
 // staleThresholdFor is staleThreshold for the given engine.
 func staleThresholdFor(engine types.Engine) (string, any) {
 	if engine == types.SqliteStoreEngine {
-		return "datetime('now', ?)", fmt.Sprintf("-%d seconds", int(nbpeer.StaleAfter.Seconds()))
+		return "datetime('now', ?)", fmt.Sprintf("-%d seconds", int(nbpeer.InstanceStaleAfter.Seconds()))
 	}
-	return "(now() - make_interval(secs => ?))", nbpeer.StaleAfter.Seconds()
+	return "(now() - make_interval(secs => ?))", nbpeer.InstanceStaleAfter.Seconds()
 }
 
 func (s *SqlStore) RegisterInstance(ctx context.Context, id, hostname string) error {
@@ -82,7 +82,7 @@ const orphanedInstanceIDsQuery = `WITH RECURSIVE ids(id) AS (
 )
 SELECT id FROM ids WHERE id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM management_instances mi WHERE mi.id = ids.id)`
 
-// ListStaleInstances returns the instances whose LastSeen is older than nbpeer.StaleAfter
+// ListStaleInstances returns the instances whose LastSeen is older than nbpeer.InstanceStaleAfter
 // by the database clock, followed by the instance IDs that hold connections but have no
 // instance row. The latter carry a zero LastSeen.
 func (s *SqlStore) ListStaleInstances(ctx context.Context) ([]nbpeer.ManagementInstance, error) {
@@ -136,7 +136,7 @@ func (s *SqlStore) SweepInstanceChunk(ctx context.Context, instanceID string, la
 }
 
 // DeleteInstanceIfStale removes the instance row when its LastSeen is still older than
-// nbpeer.StaleAfter. It returns true when the row was deleted.
+// nbpeer.InstanceStaleAfter. It returns true when the row was deleted.
 func (s *SqlStore) DeleteInstanceIfStale(ctx context.Context, id string) (bool, error) {
 	threshold, arg := s.staleThreshold()
 	result := s.db.WithContext(ctx).Exec(

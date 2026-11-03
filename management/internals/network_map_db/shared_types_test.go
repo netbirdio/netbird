@@ -81,7 +81,7 @@ func TestConvertToNmdataPeers_StaleEmbeddedProxyIsNotACandidate(t *testing.T) {
 
 	peers, clusterToPeers, err := ConvertToNmdataPeers([]Peer{
 		embedded("live", session, time.Now().Add(-time.Minute)),
-		embedded("stale", session, time.Now().Add(-nbpeer.StaleAfter-time.Minute)),
+		embedded("stale", session, time.Now().Add(-nbpeer.InstanceStaleAfter-time.Minute)),
 		embedded("no-instance", session, time.Time{}),
 		embedded("no-row", sql.NullInt64{}, time.Time{}),
 	})
@@ -89,7 +89,7 @@ func TestConvertToNmdataPeers_StaleEmbeddedProxyIsNotACandidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, peers, 4)
 	assert.True(t, peers[0].Connected)
-	assert.False(t, peers[1].Connected, "a peer on an instance silent for longer than StaleAfter must read as disconnected")
+	assert.False(t, peers[1].Connected, "a peer on an instance silent for longer than InstanceStaleAfter must read as disconnected")
 	assert.False(t, peers[2].Connected, "a peer on a missing instance must read as disconnected")
 	assert.False(t, peers[3].Connected, "a peer without a connection row must read as disconnected")
 	require.Len(t, clusterToPeers["cluster"], 1)

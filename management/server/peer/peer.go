@@ -101,25 +101,15 @@ type PeerStatus struct { //nolint:revive
 	RequiresApproval bool
 }
 
-const (
-	// HeartbeatInterval is how often a management instance refreshes its own LastSeen,
-	// which keeps every peer connection it owns alive.
-	HeartbeatInterval = time.Minute
-	// StaleAfter is how long a management instance may go without a heartbeat before the
-	// peers connected through it read as disconnected. It spans several heartbeats so one
-	// missed refresh does not disconnect live peers.
-	StaleAfter = 5 * time.Minute
-)
-
 // ApplyConnection derives Connected, LastSeen and SessionStartedAt from the peer's
 // connection record: its session token, its own LastSeen, and the LastSeen of the instance
 // holding the connection. Each is invalid when the record, or the instance, is missing. A
-// peer is connected only while an instance that heartbeated within StaleAfter holds it.
-// LastSeen is the later of the record's and the instance's.
+// peer is connected only while an instance that heartbeated within InstanceStaleAfter
+// holds it. LastSeen is the later of the record's and the instance's.
 func (s *PeerStatus) ApplyConnection(session sql.NullInt64, lastSeen, instanceLastSeen sql.NullTime) {
 	s.SessionStartedAt = session.Int64
 	s.LastSeen = lastSeen.Time
-	s.Connected = instanceLastSeen.Valid && time.Since(instanceLastSeen.Time) < StaleAfter
+	s.Connected = instanceLastSeen.Valid && time.Since(instanceLastSeen.Time) < InstanceStaleAfter
 	if instanceLastSeen.Valid && instanceLastSeen.Time.After(s.LastSeen) {
 		s.LastSeen = instanceLastSeen.Time
 	}

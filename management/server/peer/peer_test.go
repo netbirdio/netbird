@@ -170,7 +170,7 @@ func TestPeerCapabilities(t *testing.T) {
 func TestPeerStatus_ApplyConnection(t *testing.T) {
 	own := time.Now().Add(-time.Hour).UTC()
 	fresh := time.Now().Add(-time.Minute).UTC()
-	stale := time.Now().Add(-StaleAfter - time.Minute).UTC()
+	stale := time.Now().Add(-InstanceStaleAfter - time.Minute).UTC()
 	session := sql.NullInt64{Int64: 42, Valid: true}
 	ownSeen := sql.NullTime{Time: own, Valid: true}
 

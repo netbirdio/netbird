@@ -178,10 +178,10 @@ type Store interface {
 	RegisterInstance(ctx context.Context, id, hostname string) error
 	// HeartbeatInstance stamps the instance's LastSeen with the database clock.
 	// It returns false when the row is missing or already older than
-	// nbpeer.StaleAfter, in which case the instance must register under a new ID.
+	// nbpeer.InstanceStaleAfter, in which case the instance must register under a new ID.
 	HeartbeatInstance(ctx context.Context, id string) (bool, error)
 	// ListStaleInstances returns the instances whose LastSeen is older than
-	// nbpeer.StaleAfter by the database clock, followed by the instance IDs that
+	// nbpeer.InstanceStaleAfter by the database clock, followed by the instance IDs that
 	// hold connections but have no instance row, with a zero LastSeen.
 	ListStaleInstances(ctx context.Context) ([]nbpeer.ManagementInstance, error)
 	// SweepInstanceChunk releases up to limit connections of a stale instance and
@@ -192,7 +192,7 @@ type Store interface {
 	// instance is drained.
 	SweepInstanceChunk(ctx context.Context, instanceID string, lastSeen time.Time, limit int) (int, error)
 	// DeleteInstanceIfStale removes the instance row when it is still older than
-	// nbpeer.StaleAfter. It returns true when the row was deleted.
+	// nbpeer.InstanceStaleAfter. It returns true when the row was deleted.
 	DeleteInstanceIfStale(ctx context.Context, id string) (bool, error)
 	// ReleaseInstance releases the connections the instance holds, stamping their
 	// LastSeen with the database clock, then deletes its instance row.

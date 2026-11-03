@@ -13,6 +13,15 @@ type ManagementInstance struct {
 	LastSeen  time.Time `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 
+// InstanceHeartbeatInterval is how often a management instance refreshes its LastSeen.
+const InstanceHeartbeatInterval = time.Minute
+
+// InstanceStaleAfter is how long a management instance may go without a heartbeat before
+// it counts as dead: the connections it holds read as disconnected and other instances
+// sweep them. It spans several heartbeats so one missed refresh does not disconnect live
+// peers.
+const InstanceStaleAfter = 5 * time.Minute
+
 // Connection is a peer's liveness record. It is created with the peer and lives until the
 // peer is deleted. A peer counts as connected while InstanceID names a fresh management
 // instance.
