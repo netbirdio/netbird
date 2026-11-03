@@ -189,6 +189,11 @@ func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
 			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer1, group2ID))
 			require.NoError(t, store.AddPeerToGroup(ctx, accountID, foreignPeer.ID, group1ID))
 
+			require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host-1"))
+			applied, err := store.ConnectPeer(ctx, accountID, peer1, "instance-1", 100)
+			require.NoError(t, err)
+			require.True(t, applied)
+
 			peers, err := store.GetPeersByGroupIDs(ctx, accountID, tt.groupIDs)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
@@ -203,6 +208,8 @@ func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
 				// Verify all returned peers belong to the correct account
 				for _, peer := range peers {
 					assert.Equal(t, accountID, peer.AccountID)
+					require.NotNil(t, peer.Status)
+					assert.Equal(t, peer.ID == peer1, peer.Status.Connected, "only the peer held by a live instance is connected: %s", peer.ID)
 				}
 			}
 		})
