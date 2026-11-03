@@ -3701,6 +3701,42 @@ func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *up
 	return manager, updateManager
 }
 
+func TestNetworkMapStore_LoginExpiredFlagPeerIsOffline(t *testing.T) {
+	manager, _ := createManagerWithNetworkMapStore(t)
+	ctx := context.Background()
+
+	account, err := createAccount(manager, "login_expired_flag", userID, "")
+	require.NoError(t, err)
+	account.Settings.PeerLoginExpirationEnabled = false
+	require.NoError(t, manager.Store.SaveAccountSettings(ctx, account.Id, account.Settings))
+
+	setupKey, err := manager.CreateSetupKey(ctx, account.Id, "expired-flag-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false, false)
+	require.NoError(t, err)
+	peer1 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
+	peer2 := addPeerToAccount(t, manager, account.Id, setupKey.Key)
+
+	syncPeers := func() ([]string, []string) {
+		_, networkMap, _, _, err := manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peer1.Key, Meta: peer1.Meta}, account.Id)
+		require.NoError(t, err)
+		var online, offline []string
+		for _, p := range networkMap.Peers {
+			online = append(online, p.ID)
+		}
+		for _, p := range networkMap.OfflinePeers {
+			offline = append(offline, p.ID)
+		}
+		return online, offline
+	}
+	online, _ := syncPeers()
+	require.Contains(t, online, peer2.ID, "the default policy connects the peers")
+
+	require.NoError(t, manager.Store.SavePeerStatus(ctx, account.Id, peer2.ID, nbpeer.PeerStatus{LoginExpired: true}))
+
+	online, offline := syncPeers()
+	assert.NotContains(t, online, peer2.ID, "a peer flagged login-expired must not be connectable")
+	assert.Contains(t, offline, peer2.ID, "a peer flagged login-expired is listed offline")
+}
+
 func newSettingsMockManager(t testing.TB) *settings.MockManager {
 	t.Helper()
 

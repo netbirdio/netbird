@@ -63,6 +63,20 @@ func TestConvertToNmdataPeers_RejectsMalformedCertificates(t *testing.T) {
 	assert.Error(t, err, "a stored value that is not a list of chains must not load as no certificates")
 }
 
+func TestConvertToNmdataPeers_CarriesTheLoginExpiredFlag(t *testing.T) {
+	peers, _, err := ConvertToNmdataPeers([]Peer{
+		{PeerStatusLoginExpired: sql.NullBool{Bool: true, Valid: true}},
+		{PeerStatusLoginExpired: sql.NullBool{Bool: false, Valid: true}},
+		{},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, peers, 3)
+	assert.True(t, peers[0].StatusLoginExpired)
+	assert.False(t, peers[1].StatusLoginExpired)
+	assert.False(t, peers[2].StatusLoginExpired, "an unset column is not expired")
+}
+
 // TestConvertToNmdataPeers_StaleEmbeddedProxyIsNotACandidate: a management instance that
 // stops without marking its peers disconnected leaves the connected flag set. An embedded
 // proxy peer in that state must not become a private service DNS target, or clients

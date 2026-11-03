@@ -33,6 +33,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"net/netip"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -226,6 +227,8 @@ func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, n
 			ctx, peer, legacyNM, equivDNSName, settings, nil, &cache.DNSConfigCache{}, 0,
 		)
 
+		alignExpiredPeersInLegacy(t, legacyProto, storeProto, account, peerID)
+
 		canonicalize(legacyProto)
 		canonicalize(storeProto)
 		canonicalize(acctProto)
@@ -306,6 +309,98 @@ func envInt(name string, def int) int {
 		}
 	}
 	return def
+}
+
+// alignExpiredPeersInLegacy applies the intentional divergences from main for login-expired
+// peers other than the target (flag or time based): this tree lists every one of them offline,
+// while main keeps a flag-only expired peer and an expired network-resource router connectable,
+// and it excludes them as route firewall sources, while main lists them. The legacy result is
+// aligned to that, and the new result must not offer an expired peer as a remote peer.
+func alignExpiredPeersInLegacy(t *testing.T, legacy, updated *proto.NetworkMap, account *types.Account, targetID string) {
+	settings := account.Settings
+	keys := make(map[string]struct{})
+	ips := make(map[string]struct{})
+	for id, p := range account.Peers {
+		if id == targetID {
+			continue
+		}
+		expired := p.Status != nil && p.Status.LoginExpired
+		if !expired && settings != nil && settings.PeerLoginExpirationEnabled {
+			expired, _ = p.LoginExpired(settings.PeerLoginExpiration)
+		}
+		if expired {
+			keys[p.Key] = struct{}{}
+			ips[p.IP.String()] = struct{}{}
+			if p.IPv6.IsValid() {
+				ips[p.IPv6.String()] = struct{}{}
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+
+	resourceIDs := make(map[string]struct{}, len(account.NetworkResources))
+	for _, res := range account.NetworkResources {
+		resourceIDs[res.ID] = struct{}{}
+	}
+
+	alignExpiredInLegacyMap(legacy, keys, ips, resourceIDs)
+
+	for _, r := range updated.RemotePeers {
+		_, expired := keys[r.WgPubKey]
+		require.False(t, expired, "account=%s peer=%s: expired peer %s offered as remote peer", account.Id, targetID, r.WgPubKey)
+	}
+}
+
+// alignExpiredInLegacyMap moves the peers with the given keys from a legacy map's remote
+// peers to its offline peers and removes the classic routes through them; network-resource
+// routes (route ID resourceID:peerID) stay. Route firewall rules only exist for the target's
+// own routes, so they are narrowed by source range. A rule left without sources disappears
+// only where the new code never emits it: any network-resource rule and the IPv6 counterpart
+// of a dynamic or default route. An emptied classic-route IPv4 rule stays.
+func alignExpiredInLegacyMap(legacy *proto.NetworkMap, keys, ips, resourceIDs map[string]struct{}) {
+	legacy.RemotePeers = slices.DeleteFunc(legacy.RemotePeers, func(r *proto.RemotePeerConfig) bool {
+		_, expired := keys[r.WgPubKey]
+		if expired && !slices.ContainsFunc(legacy.OfflinePeers, func(o *proto.RemotePeerConfig) bool { return o.WgPubKey == r.WgPubKey }) {
+			legacy.OfflinePeers = append(legacy.OfflinePeers, r)
+		}
+		return expired
+	})
+	legacy.Routes = slices.DeleteFunc(legacy.Routes, func(r *proto.Route) bool {
+		if _, drop := keys[r.Peer]; !drop {
+			return false
+		}
+		resourceID, _, _ := strings.Cut(r.ID, ":")
+		_, isResource := resourceIDs[resourceID]
+		return !isResource
+	})
+	legacy.RoutesFirewallRules = slices.DeleteFunc(legacy.RoutesFirewallRules, func(r *proto.RouteFirewallRule) bool {
+		before := len(r.SourceRanges)
+		allV6 := before > 0
+		for _, sr := range r.SourceRanges {
+			allV6 = allV6 && strings.Contains(sr, ":")
+		}
+		r.SourceRanges = slices.DeleteFunc(r.SourceRanges, func(sr string) bool {
+			prefix, err := netip.ParsePrefix(sr)
+			if err != nil || prefix.Bits() != prefix.Addr().BitLen() {
+				return false
+			}
+			_, drop := ips[prefix.Addr().String()]
+			return drop
+		})
+		if before == 0 || len(r.SourceRanges) > 0 {
+			return false
+		}
+		resourceID, _, _ := strings.Cut(r.RouteID, ":")
+		if _, isResource := resourceIDs[resourceID]; isResource {
+			return true
+		}
+		return allV6 && (r.IsDynamic || strings.HasSuffix(r.RouteID, "-v6-default"))
+	})
+
+	legacy.RemotePeersIsEmpty = len(legacy.RemotePeers) == 0
+	legacy.RoutesFirewallRulesIsEmpty = len(legacy.RoutesFirewallRules) == 0
 }
 
 // canonicalize sorts every repeated field by a stable key. Both paths iterate Go
@@ -665,4 +760,41 @@ func protoStr(m goproto.Message) string {
 		return s[:maxLen] + "...(truncated)"
 	}
 	return s
+}
+
+func TestAlignExpiredInLegacyMap(t *testing.T) {
+	keys := map[string]struct{}{"key-x": {}}
+	ips := map[string]struct{}{"100.64.0.9": {}, "fd00::9": {}}
+	legacy := &proto.NetworkMap{
+		RemotePeers:   []*proto.RemotePeerConfig{{WgPubKey: "key-x"}, {WgPubKey: "key-y"}},
+		FirewallRules: []*proto.FirewallRule{{PeerIP: "100.64.0.9"}},
+		Routes:        []*proto.Route{{ID: "r1", Peer: "key-x"}, {ID: "r2", Peer: "key-y"}, {ID: "res1:router-x", Peer: "key-x"}},
+		RoutesFirewallRules: []*proto.RouteFirewallRule{
+			{RouteID: "r1", SourceRanges: []string{"100.64.0.9/32", "100.64.0.8/32"}},
+			{RouteID: "r2", SourceRanges: []string{"100.64.0.9/32"}},
+			{RouteID: "r3", IsDynamic: true, SourceRanges: []string{"fd00::9/128"}},
+			{RouteID: "r4-v6-default", SourceRanges: []string{"fd00::9/128", "fd00::8/128"}},
+			{RouteID: "r5-v6-default", SourceRanges: []string{"fd00::9/128"}},
+			{RouteID: "res1:router-1", SourceRanges: []string{"100.64.0.9/32"}},
+			{RouteID: "res1:router-2", SourceRanges: []string{"100.64.0.9/32", "100.64.0.8/32"}},
+		},
+	}
+
+	alignExpiredInLegacyMap(legacy, keys, ips, map[string]struct{}{"res1": {}})
+
+	require.Len(t, legacy.RemotePeers, 1)
+	require.Equal(t, "key-y", legacy.RemotePeers[0].WgPubKey)
+	require.Len(t, legacy.OfflinePeers, 1)
+	require.Equal(t, "key-x", legacy.OfflinePeers[0].WgPubKey)
+	require.False(t, legacy.RemotePeersIsEmpty)
+	require.Len(t, legacy.FirewallRules, 1, "firewall rules for an offline peer stay")
+	require.Len(t, legacy.Routes, 2)
+	require.Equal(t, "r2", legacy.Routes[0].ID)
+	require.Equal(t, "res1:router-x", legacy.Routes[1].ID, "network-resource routes stay")
+	require.False(t, legacy.RoutesFirewallRulesIsEmpty)
+	require.Len(t, legacy.RoutesFirewallRules, 4)
+	require.Equal(t, []string{"100.64.0.8/32"}, legacy.RoutesFirewallRules[0].SourceRanges)
+	require.Empty(t, legacy.RoutesFirewallRules[1].SourceRanges, "an IPv4 rule stays even without sources")
+	require.Equal(t, []string{"fd00::8/128"}, legacy.RoutesFirewallRules[2].SourceRanges)
+	require.Equal(t, "res1:router-2", legacy.RoutesFirewallRules[3].RouteID)
 }

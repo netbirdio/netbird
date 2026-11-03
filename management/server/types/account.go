@@ -936,7 +936,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
 
-			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+			if peerInDestinations && rule.Action == PolicyTrafficActionAccept && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 				sshEnabled = true
 				switch {
 				case len(rule.AuthorizedGroups) > 0:
@@ -968,7 +968,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 				default:
 					authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && PolicyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+			} else if peerInDestinations && rule.Action == PolicyTrafficActionAccept && PolicyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 			}
@@ -1079,7 +1079,7 @@ func PeerSSHEnabledFromPolicies(policies []*Policy, peerID string, peerGroupIDs 
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if !rule.Enabled || rule.Action != PolicyTrafficActionAccept {
 				continue
 			}
 

@@ -10,6 +10,25 @@ type sshRequirements struct {
 	needAllowedUserIDs bool
 }
 
+// collect records which SSH authorization data an accept rule makes necessary for the target peer.
+func (r *sshRequirements) collect(rule *nmdata.PolicyRule, peerSSHEnabled bool) {
+	if !rule.IsAccept() {
+		return
+	}
+	switch {
+	case rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH):
+		if len(rule.AuthorizedGroups) == 0 {
+			r.needAllowedUserIDs = true
+			return
+		}
+		for groupID := range rule.AuthorizedGroups {
+			r.neededGroupIDs[groupID] = struct{}{}
+		}
+	case nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled:
+		r.needAllowedUserIDs = true
+	}
+}
+
 // GetPeerNetworkMapComponents computes the peer's NetworkMapComponents from the
 // slim twin store. It mirrors the former Account.GetPeerNetworkMapComponents
 // exactly, operating on nmdata twins throughout — no Account reference and no
@@ -341,19 +360,7 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					}
 				}
 
-				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
-					switch {
-					case len(rule.AuthorizedGroups) > 0:
-						for groupID := range rule.AuthorizedGroups {
-							sshReqs.neededGroupIDs[groupID] = struct{}{}
-						}
-					case rule.AuthorizedUser != "":
-					default:
-						sshReqs.needAllowedUserIDs = true
-					}
-				} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
-					sshReqs.needAllowedUserIDs = true
-				}
+				sshReqs.collect(rule, peerSSHEnabled)
 			}
 		}
 		if policyRelevant {

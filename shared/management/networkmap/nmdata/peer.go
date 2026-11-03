@@ -28,6 +28,7 @@ type Peer struct {
 	IPv6                   netip.Addr
 	RequiresApproval       bool
 	Connected              bool
+	StatusLoginExpired     bool
 	ExtraDNSLabels         []string
 	Meta                   PeerSystemMeta
 	ProxyMeta              ProxyMeta

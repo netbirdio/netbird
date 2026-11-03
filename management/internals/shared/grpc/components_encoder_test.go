@@ -468,6 +468,7 @@ func TestEncodeNetworkMapEnvelope_PeerLoginExpirationFields(t *testing.T) {
 	c.Peers["peer-a"].UserID = "user-1"
 	c.Peers["peer-a"].LoginExpirationEnabled = true
 	c.Peers["peer-a"].LastLogin = &now
+	c.Peers["peer-a"].StatusLoginExpired = true
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
@@ -481,6 +482,7 @@ func TestEncodeNetworkMapEnvelope_PeerLoginExpirationFields(t *testing.T) {
 	assert.True(t, pa.AddedWithSsoLogin)
 	assert.True(t, pa.LoginExpirationEnabled)
 	assert.Equal(t, now.UnixNano(), pa.LastLoginUnixNano)
+	assert.True(t, pa.LoginExpired)
 
 	// peer-b has no UserID and no LastLogin → all fields zero-value.
 	var pb *proto.PeerCompact
@@ -493,6 +495,7 @@ func TestEncodeNetworkMapEnvelope_PeerLoginExpirationFields(t *testing.T) {
 	assert.False(t, pb.AddedWithSsoLogin)
 	assert.False(t, pb.LoginExpirationEnabled)
 	assert.Zero(t, pb.LastLoginUnixNano)
+	assert.False(t, pb.LoginExpired)
 }
 
 func TestEncodeNetworkMapEnvelope_RoutesRoundTrip(t *testing.T) {

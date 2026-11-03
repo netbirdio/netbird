@@ -188,6 +188,7 @@ type Peer struct {
 	PeerStatusRequiresApproval sql.NullBool   `nmap:"map_to:RequiresApproval"`
 	PeerStatusConnected        sql.NullBool   `nmap:"skip"`
 	PeerStatusLastSeen         sql.NullTime   `nmap:"skip"`
+	PeerStatusLoginExpired     sql.NullBool   `nmap:"skip"`
 	ProxyMetaEmbedded          sql.NullBool   `nmap:"skip"`
 	ProxyMetaCluster           sql.NullString `nmap:"skip"`
 	MetaWtVersion              sql.NullString `nmap:"skip"`
@@ -321,6 +322,7 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		dp.ProxyMeta.Cluster = p.ProxyMetaCluster.String
 		// This is only used to build private service candidates, not connected peers are skipped
 		dp.Connected = nbpeer.IsConnected(p.PeerStatusConnected.Bool, p.PeerStatusLastSeen.Time)
+		dp.StatusLoginExpired = p.PeerStatusLoginExpired.Bool
 		if dp.ProxyMeta.Embedded && dp.Connected {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}

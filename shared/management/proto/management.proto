@@ -1065,6 +1065,11 @@ message PeerCompact {
   // ephemeral proxy peer on either endpoint default to lazy, so this bit
   // feeds the per-peer lazyState emitted in RemotePeerConfig.
   bool proxy_embedded = 14;
+
+  // Mirror of types.Peer.Status.LoginExpired. A flagged peer is expired
+  // regardless of last_login_unix_nano and the account's expiration settings,
+  // so the local peer's Calculate() lists it among the offline peers.
+  bool login_expired = 15;
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use

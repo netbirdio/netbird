@@ -13,6 +13,7 @@
       "IPv6": "fdf4:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
       "Connected": true,
+      "StatusLoginExpired": false,
       "ExtraDNSLabels": [
         "extra-peer-1"
       ],
@@ -69,6 +70,7 @@
       "IPv6": "fdf5:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
       "Connected": true,
+      "StatusLoginExpired": false,
       "ExtraDNSLabels": [
         "extra-peer-2"
       ],
@@ -125,6 +127,7 @@
       "IPv6": "fdf6:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
       "Connected": true,
+      "StatusLoginExpired": false,
       "ExtraDNSLabels": [
         "extra-peer-3"
       ],

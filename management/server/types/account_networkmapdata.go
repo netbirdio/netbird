@@ -189,6 +189,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 		IPv6:                   p.IPv6,
 		RequiresApproval:       p.Status != nil && p.Status.RequiresApproval,
 		Connected:              p.Status != nil && p.Status.Connected,
+		StatusLoginExpired:     p.Status != nil && p.Status.LoginExpired,
 		ExtraDNSLabels:         p.ExtraDNSLabels,
 		ProxyMeta:              nmdata.ProxyMeta{Embedded: p.ProxyMeta.Embedded, Cluster: p.ProxyMeta.Cluster},
 		Meta: nmdata.PeerSystemMeta{
