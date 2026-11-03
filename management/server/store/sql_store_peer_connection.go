@@ -72,9 +72,11 @@ func raiseLastSeenTo(stamp string) string {
 	return "CASE WHEN last_seen IS NULL OR last_seen < " + stamp + " THEN " + stamp + " ELSE last_seen END"
 }
 
-// orphanedInstanceIDsQuery walks the distinct non-NULL instance_id values of
-// peer_connections through the instance_id index, one probe per distinct value, and keeps
-// those without an instance row.
+// orphanedInstanceIDsQuery finds instance IDs that connections still point to but that no
+// longer have an instance row. A plain SELECT DISTINCT would be simpler, but Postgres
+// cannot skip duplicates in an index, so it would read one entry per connected peer on
+// every sweep. This query jumps from one instance ID to the next instead and reads one
+// entry per instance.
 const orphanedInstanceIDsQuery = `WITH RECURSIVE ids(id) AS (
 	SELECT MIN(instance_id) FROM peer_connections
 	UNION ALL
