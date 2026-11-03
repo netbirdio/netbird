@@ -1,7 +1,7 @@
 package types
 
 import (
-	"slices"
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 // PolicyUpdateOperationType operation type
@@ -111,72 +111,11 @@ func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 		return false
 	}
 
-	if !stringSlicesEqualUnordered(pm.Sources, other.Sources) {
-		return false
-	}
-	if !stringSlicesEqualUnordered(pm.Destinations, other.Destinations) {
-		return false
-	}
-	if !stringSlicesEqualUnordered(pm.Ports, other.Ports) {
-		return false
-	}
-	if !portRangeSlicesEqualUnordered(pm.PortRanges, other.PortRanges) {
-		return false
-	}
-	if !authorizedGroupsEqual(pm.AuthorizedGroups, other.AuthorizedGroups) {
-		return false
-	}
-
-	return true
-}
-
-func stringSlicesEqualUnordered(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	if len(a) == 0 {
-		return true
-	}
-	sorted1 := make([]string, len(a))
-	sorted2 := make([]string, len(b))
-	copy(sorted1, a)
-	copy(sorted2, b)
-	slices.Sort(sorted1)
-	slices.Sort(sorted2)
-	return slices.Equal(sorted1, sorted2)
-}
-
-func portRangeSlicesEqualUnordered(a, b []RulePortRange) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	if len(a) == 0 {
-		return true
-	}
-	cmp := func(x, y RulePortRange) int {
-		if x.Start != y.Start {
-			if x.Start < y.Start {
-				return -1
-			}
-			return 1
-		}
-		if x.End != y.End {
-			if x.End < y.End {
-				return -1
-			}
-			return 1
-		}
-		return 0
-	}
-	sorted1 := make([]RulePortRange, len(a))
-	sorted2 := make([]RulePortRange, len(b))
-	copy(sorted1, a)
-	copy(sorted2, b)
-	slices.SortFunc(sorted1, cmp)
-	slices.SortFunc(sorted2, cmp)
-	return slices.EqualFunc(sorted1, sorted2, func(x, y RulePortRange) bool {
-		return x.Start == y.Start && x.End == y.End
-	})
+	return util.ElementsMatch(pm.Sources, other.Sources) &&
+		util.ElementsMatch(pm.Destinations, other.Destinations) &&
+		util.ElementsMatch(pm.Ports, other.Ports) &&
+		util.ElementsMatch(pm.PortRanges, other.PortRanges) &&
+		authorizedGroupsEqual(pm.AuthorizedGroups, other.AuthorizedGroups)
 }
 
 func authorizedGroupsEqual(a, b map[string][]string) bool {
@@ -185,10 +124,7 @@ func authorizedGroupsEqual(a, b map[string][]string) bool {
 	}
 	for k, va := range a {
 		vb, ok := b[k]
-		if !ok {
-			return false
-		}
-		if !stringSlicesEqualUnordered(va, vb) {
+		if !ok || !util.ElementsMatch(va, vb) {
 			return false
 		}
 	}
