@@ -31,8 +31,8 @@ func TestDefaultClaimOwner(t *testing.T) {
 	}
 }
 
-// InvokingUser falls back to the numeric UID as the username when the UID has
-// no account entry. The owner must still come out as that UID's principal.
+// A user shaped like InvokingUser's fallback for a UID with no account entry,
+// where the username is the numeric UID, must still map to that UID's principal.
 func TestUserPrincipal_UnmappedUID(t *testing.T) {
 	got, err := userPrincipal(&user.User{Username: "4242", Uid: "4242", Gid: "4242"})
 	require.NoError(t, err)

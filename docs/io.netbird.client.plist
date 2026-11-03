@@ -150,8 +150,10 @@
     <!-- ===== Daemon socket restriction =====
          Restricts the daemon control socket, and the JSON socket where it is
          enabled, to the listed principals. Accounts outside them cannot connect
-         at all. Overrides the install-time allow-group flag in both directions;
-         an empty string lifts a restriction the install-time flag set.
+         at all, except the daemon's own account, and on Windows also
+         LocalSystem and elevated administrators. Overrides the install-time
+         allow-group flag in both directions; an empty string lifts a
+         restriction the install-time flag set.
 
          Exactly one Unix group ID, in gid:<id> form. A Unix socket carries one
          owning group, so a second entry is refused and the daemon does not
