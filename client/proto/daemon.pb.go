@@ -4929,8 +4929,7 @@ type ClaimProfileRequest struct {
 	// handle is an exact ID, a unique ID prefix, or a unique display name.
 	// Resolution happens server-side.
 	Handle string `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	// owner is either principal to record ("uid:1000" or "sid:S-1-5-21-...") or
-	// an account the daemon resolves.
+	// owner is the principal to record ("uid:1000" or "sid:S-1-5-21-...").
 	Owner         string `protobuf:"bytes,2,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

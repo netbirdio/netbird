@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/user"
 	"runtime"
 	"strings"
 	"text/tabwriter"
@@ -77,7 +78,7 @@ var profileSelectCmd = &cobra.Command{
 var profileClaimCmd = &cobra.Command{
 	Use:   "claim <profile>",
 	Short: "Record an owner on a profile",
-	Long:  `Record who owns a profile. Requires root or administrator privileges. Accepts the owner is given as a principal ("uid:1000", "sid:S-1-5-21-...") or an account name. Without --owner the profile is claimed for the user who ran sudo. On Windows --owner is required.`,
+	Long:  `Record who owns a profile. Requires root or administrator privileges. The owner is given as a principal ("uid:1000", "sid:S-1-5-21-...") or an account name. Without --owner the profile is claimed for the user who ran sudo. On Windows --owner is required.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  claimProfileFunc,
 }
@@ -192,11 +193,11 @@ func resolveOwnerUsername(owner string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("parsing owner field failed: %s", owner)
 	}
-	user, err := getent.LookupUserID(principal.Value)
+	u, err := getent.LookupUserID(principal.Value)
 	if err != nil {
 		return "", err
 	}
-	return user.Username, nil
+	return u.Username, nil
 }
 
 func claimProfileFunc(cmd *cobra.Command, args []string) error {
@@ -204,14 +205,9 @@ func claimProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// The daemon resolves and validates the owner. All that happens here is
-	// filling in who "me" is when the flag is omitted.
-	owner := profileClaimOwner
-	if owner == "" {
-		var err error
-		if owner, err = defaultClaimOwner(); err != nil {
-			return err
-		}
+	owner, err := claimOwner(profileClaimOwner)
+	if err != nil {
+		return err
 	}
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
@@ -235,6 +231,30 @@ func claimProfileFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// claimOwner turns the --owner value into the principal sent to the daemon.
+func claimOwner(value string) (string, error) {
+	if value == "" {
+		return defaultClaimOwner()
+	}
+	if _, ok := ipcauth.ParsePrincipal(value); ok {
+		return value, nil
+	}
+
+	u, err := getent.LookupUser(value)
+	if err != nil {
+		return "", fmt.Errorf("resolve account %q: %w", value, err)
+	}
+	return userPrincipal(u)
+}
+
+func userPrincipal(u *user.User) (string, error) {
+	principal, ok := profilemanager.PrincipalForUser(u)
+	if !ok {
+		return "", fmt.Errorf("account %q has no usable id %q", u.Username, u.Uid)
+	}
+	return principal, nil
+}
+
 // defaultClaimOwner names who to claim for when --owner is omitted.
 //
 // Unix has SUDO_USER,  Windows has no equivalent.
@@ -253,7 +273,7 @@ func defaultClaimOwner() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get current user: %w", err)
 	}
-	return u.Username, nil
+	return userPrincipal(u)
 }
 
 func addProfileFunc(cmd *cobra.Command, args []string) error {

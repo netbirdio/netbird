@@ -24,7 +24,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
-	"github.com/netbirdio/netbird/client/internal/getent"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -2620,8 +2619,8 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 // ClaimProfile records an owner on a profile.
 //
 // Root or administrator only, enforced by the gate. The owner is whoever the
-// caller names rather than the caller's own identity, so it is turned into a
-// principal by ownerPrincipal and validated before anything is written.
+// caller names rather than the caller's own identity, so it is validated
+// before anything is written.
 func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileRequest) (*proto.ClaimProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -2637,7 +2636,7 @@ func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileReques
 		return nil, gstatus.Errorf(codes.InvalidArgument, "owner must be provided")
 	}
 
-	principal, err := ownerPrincipal(msg.Owner)
+	principal, err := ipcauth.ValidatePrincipal(msg.Owner)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "%v", err)
 	}
@@ -2657,33 +2656,6 @@ func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileReques
 		Id:    resolved.ID.String(),
 		Owner: principal.String(),
 	}, nil
-}
-
-// ownerPrincipal turns what the caller supplied into an owner principal.
-//
-// A principal is taken as given and never looked up. A machine-wide profile is
-// routinely configured before the account that will own it exists, and a
-// directory service that is briefly unreachable cannot be told apart from an
-// account that is not there, so requiring a lookup would refuse both. Only its
-// shape is checked. Anything else is an account name, which nothing but a lookup
-// turns into a principal.
-//
-// Names resolve here rather than on the client so the daemon's own account
-// database is the one consulted.
-func ownerPrincipal(owner string) (ipcauth.Principal, error) {
-	candidate := owner
-	if _, ok := ipcauth.ParsePrincipal(owner); !ok {
-		u, err := getent.LookupUser(owner)
-		if err != nil {
-			return ipcauth.Principal{}, fmt.Errorf("resolve account %q: %w", owner, err)
-		}
-		resolved, ok := profilemanager.PrincipalForUser(u)
-		if !ok {
-			return ipcauth.Principal{}, fmt.Errorf("account %q has no usable id %q", owner, u.Uid)
-		}
-		candidate = resolved
-	}
-	return ipcauth.ValidatePrincipal(candidate)
 }
 
 // publishProfileListChanged nudges the desktop UI to refresh its profile list

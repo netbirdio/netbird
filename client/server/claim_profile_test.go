@@ -151,21 +151,20 @@ func TestClaimProfile_TakesAPrincipalWithoutResolvingIt(t *testing.T) {
 	}
 }
 
-func TestClaimProfile_ResolvesAnAccountName(t *testing.T) {
+// The CLI resolves names before calling, so the daemon refuses anything that
+// is not already a principal, including the name of an account that exists.
+func TestClaimProfile_RefusesAnAccountName(t *testing.T) {
 	srv := claimTestServer(t)
 
 	u, err := user.Current()
 	require.NoError(t, err)
-	want, ok := profilemanager.PrincipalForUser(u)
-	require.True(t, ok)
 
-	resp, err := srv.ClaimProfile(withTarget(rootCtx(), profilemanager.DefaultConfigPath), &proto.ClaimProfileRequest{
+	_, err = srv.ClaimProfile(withTarget(rootCtx(), profilemanager.DefaultConfigPath), &proto.ClaimProfileRequest{
 		Handle: "default",
 		Owner:  u.Username,
 	})
-	require.NoError(t, err)
-	assert.Equal(t, want, resp.GetOwner(),
-		"a name has no shortcut, only a lookup turns it into a principal")
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, gstatus.Convert(err).Code(), "a bare name must be rejected")
 }
 
 func TestClaimProfile_RefusesAnUnknownAccountName(t *testing.T) {
