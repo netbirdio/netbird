@@ -21,6 +21,8 @@ import (
 const (
 	Proto   protocol.Protocol = "ws"
 	URLPath                   = relay.WebSocketURLPath
+
+	tcpKeepAliveIdle = 10 * time.Minute
 )
 
 type Listener struct {
@@ -46,7 +48,16 @@ func (l *Listener) Bind() error {
 		}
 	}
 
-	listener, err := net.Listen("tcp", addr)
+	lc := net.ListenConfig{
+		KeepAliveConfig: net.KeepAliveConfig{
+			Enable: true,
+			Idle:   tcpKeepAliveIdle,
+		},
+		Control: controlTCP,
+	}
+	lc.SetMultipathTCP(false)
+
+	listener, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return err
 	}
