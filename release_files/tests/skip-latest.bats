@@ -5,6 +5,10 @@
 #
 # Run with:  bats release_files/tests/
 
+# The sh -c scripts below take their paths as $1 and $2 rather than having
+# them spliced in, where an apostrophe in a path would break the quoting.
+# shellcheck disable=SC2016 # so $1 in single quotes is meant for sh
+
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../skip-latest.sh"
 
@@ -51,7 +55,9 @@ make_repo() {
   # whatever repository encloses the current directory.
   (
     cd "$repo" || exit
-    git init -q .
+    # An empty --template copies no hooks into the repository, whatever
+    # GIT_TEMPLATE_DIR the caller has; init.templateDir is already off.
+    git init -q --template= .
     git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
     for tag in "$@"; do git tag "$tag"; done
   )
@@ -141,14 +147,14 @@ v0.1.0'
   # repository made here, not this one: CI checks this one out without tags,
   # where git would find nothing either and the test could not tell.
   make_repo v0.80.0
-  SKIP_LATEST_TAGS='' run sh -c "cd '$repo' && '$SCRIPT' v0.80.0 </dev/null"
+  SKIP_LATEST_TAGS='' run sh -c 'cd "$1" && "$2" v0.80.0 </dev/null' sh "$repo" "$SCRIPT"
   [ "$status" -eq 1 ]
 }
 
 @test "falls back to git tag when SKIP_LATEST_TAGS is unset" {
   # The CI path.
   make_repo v0.80.1 v0.81.0 v0.80.2
-  run env -u SKIP_LATEST_TAGS sh -c "cd '$repo' && '$SCRIPT' v0.80.2 </dev/null"
+  run env -u SKIP_LATEST_TAGS sh -c 'cd "$1" && "$2" v0.80.2 </dev/null' sh "$repo" "$SCRIPT"
   [ "$status" -eq 0 ]
   [ "${lines[-1]}" = "true" ]
 }
@@ -159,7 +165,7 @@ v0.1.0'
 }
 
 @test "the decision goes to stdout and the reasoning to stderr" {
-  SKIP_LATEST_TAGS='v0.81.0' run sh -c "'$SCRIPT' v0.81.0 2>/dev/null"
+  SKIP_LATEST_TAGS='v0.81.0' run sh -c '"$1" v0.81.0 2>/dev/null' sh "$SCRIPT"
   [ "$status" -eq 0 ]
   [ "$output" = "false" ]
 }
