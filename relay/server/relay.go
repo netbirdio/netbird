@@ -73,8 +73,8 @@ func (c *Config) validate() error {
 	}
 	c.instanceURL = *instanceURL
 
-	if c.AuthValidator == nil {
-		return fmt.Errorf("auth validator is required")
+	if c.AuthValidator == nil && !c.PeerAuth.Required {
+		return fmt.Errorf("an auth validator is required unless peer auth is required")
 	}
 	return nil
 }
@@ -106,7 +106,7 @@ type Relay struct {
 //	  - Meter: A metric.Meter used for emitting metrics. If not set, a default no-op meter will be used.
 //	  - ExposedAddress: The external address clients use to reach this relay. Required.
 //	  - TLSSupport: A boolean indicating if the relay uses TLS. Affects the generated instance URL.
-//	  - AuthValidator: A Validator implementation used to authenticate peers. Required.
+//	  - AuthValidator: A Validator for legacy tokens. Required unless PeerAuth.Required is set.
 //
 // Returns:
 //

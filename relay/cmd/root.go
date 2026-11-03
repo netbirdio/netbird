@@ -65,8 +65,12 @@ func (c Config) Validate() error {
 	if c.ExposedAddress == "" {
 		return fmt.Errorf("exposed address is required")
 	}
-	if c.AuthSecret == "" {
-		return fmt.Errorf("auth secret is required")
+	// Legacy tokens need the secret; after the flag day only bound tokens are accepted.
+	if c.AuthSecret == "" && !c.PeerAuthRequired {
+		return fmt.Errorf("--auth-secret is required unless --peer-auth-required is set")
+	}
+	if c.AuthSecret != "" && c.PeerAuthRequired {
+		return fmt.Errorf("--auth-secret and --peer-auth-required are mutually exclusive: drop the secret on the flag day")
 	}
 
 	// Validate STUN configuration
@@ -122,7 +126,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.LetsencryptAWSRoute53, "letsencrypt-aws-route53", false, "use AWS Route 53 for Let's Encrypt DNS challenge")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsCertFile, "tls-cert-file", "c", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsKeyFile, "tls-key-file", "k", "", "")
-	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
+	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "secret Management signs legacy relay tokens with; required unless --peer-auth-required is set, and not allowed with it")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
@@ -132,7 +136,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
 	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.PeerAuthPublicKeys, "peer-auth-public-keys", nil, "base64 Ed25519 public keys of Management, as it logs them, that peer auth tokens are verified with; unset, peers presenting one are refused. List two keys during a rotation")
 	rootCmd.PersistentFlags().StringSliceVar(&cobraConfig.PeerAuthHostnames, "peer-auth-hostnames", nil, "if set, the only hostnames accepted in peer auth proofs: list the exposed address hostname and any global name behind a load balancer")
-	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthRequired, "peer-auth-required", false, "refuse peers that present no token bound to their keys")
+	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthRequired, "peer-auth-required", false, "refuse peers that present no token bound to their keys; replaces --auth-secret on the flag day")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.PeerAuthCheckTime, "peer-auth-check-time", false, "refuse peer auth proofs signed more than 10 minutes away from this Relay's clock; enable only when every peer clock is in sync. Off, a proof is valid as long as its token")
 
 	setFlagsFromEnvVars(rootCmd)
@@ -194,8 +198,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
+	authenticator := legacyValidator(cobraConfig.AuthSecret)
 
 	peerAuthKeys, err := peerAuthTokenKeys(cobraConfig)
 	if err != nil {
@@ -332,6 +335,16 @@ func createRelayServer(cfg server.Config) (*server.Server, error) {
 		return nil, fmt.Errorf("failed to create relay server: %v", err)
 	}
 	return srv, nil
+}
+
+// legacyValidator returns the validator of legacy relay tokens, or nil after the flag day, when
+// there is no secret and peers without a bound token are refused.
+func legacyValidator(secret string) server.Validator {
+	if secret == "" {
+		return nil
+	}
+	hashedSecret := sha256.Sum256([]byte(secret))
+	return auth.NewTimedHMACValidator(hashedSecret[:])
 }
 
 // peerAuthTokenKeys returns the Management public keys bound tokens are verified with. Without

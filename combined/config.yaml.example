@@ -45,7 +45,8 @@ server:
       email: ""
       awsRoute53: false
 
-  # Shared secret for relay authentication (required when running local relay).
+  # Shared secret for relay authentication (required when running local relay, until
+  # peerAuth.required replaces it on the flag day).
   # Can also be set via NB_AUTH_SECRET; a non-empty value overrides this field.
   authSecret: "your-secret-key-here"
 
@@ -144,7 +145,7 @@ server:
   # peerAuth:
   #   signingKeyFile: "/var/lib/netbird/peer_auth_signing.pem" # PEM PKCS#8 Ed25519 key; generated if missing
   #   hostnames: []        # if set, the only names accepted in proofs (local Relay and Signal)
-  #   required: false      # local Relay and Signal refuse peers without a bound token
+  #   required: false      # local Relay and Signal refuse peers without a bound token; remove authSecret when enabling
   #   checkTime: false     # refuse proofs signed >10 min from the local clock; only with synced peer clocks
 
   # Reverse proxy settings (optional)

@@ -195,6 +195,31 @@ func TestRelay_PeerAuthRequiredWithoutKeysFailsStartup(t *testing.T) {
 	assert.Error(t, err, "a relay requiring peer auth without keys would refuse every peer")
 }
 
+// After the flag day the relay runs without the auth secret: legacy peers are refused and bound
+// tokens are the only way in. Without the requirement there would be nothing to check legacy
+// tokens with, so startup fails.
+func TestRelay_FlagDayWithoutValidator(t *testing.T) {
+	_, err := NewRelay(Config{ExposedAddress: "rels://relay-1.example.com:443"})
+	assert.Error(t, err, "a relay without a validator must require peer auth")
+
+	relay := newPeerAuthTestRelay(t, nil, PeerAuthConfig{Required: true})
+
+	legacy, err := messages.MarshalAuthMsg(messages.HashID("legacy"), []byte("legacy-token"))
+	require.NoError(t, err)
+	legacyConn := newScriptedConn()
+	legacyConn.deliver(t, legacy)
+	relay.Accept(legacyConn)
+	assert.True(t, legacyConn.isClosed(), "a legacy peer must be refused")
+
+	peer := newBoundPeer(t)
+	conn := newScriptedConn()
+	conn.deliver(t, peer.authMsg(t, peer.id, "relay-1.example.com", time.Now()))
+	relay.Accept(conn)
+	conn.waitFrames(t, 1)
+	_, ok := relay.store.Peer(peer.id)
+	assert.True(t, ok, "a peer with a bound token must be accepted")
+}
+
 func TestRelay_PeerAuthRequiredRefusesLegacy(t *testing.T) {
 	validator := &recordingValidator{}
 	relay := newPeerAuthTestRelay(t, validator, PeerAuthConfig{Required: true})

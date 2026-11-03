@@ -12,6 +12,31 @@ import (
 	"github.com/netbirdio/netbird/shared/peerauth"
 )
 
+// The relay checks legacy tokens with the auth secret until the flag day, when
+// --peer-auth-required replaces it: exactly one of the two is set.
+func TestConfigValidate_AuthSecretOrRequired(t *testing.T) {
+	for name, tc := range map[string]struct {
+		secret   string
+		required bool
+		wantErr  bool
+	}{
+		"auth secret":        {secret: "relay-secret"},
+		"peer auth required": {required: true},
+		"both":               {secret: "relay-secret", required: true, wantErr: true},
+		"neither":            {wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Config{ExposedAddress: "rels://relay.example.com:443", AuthSecret: tc.secret, PeerAuthRequired: tc.required}
+			err := cfg.Validate()
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestPeerAuthTokenKeys(t *testing.T) {
 	t.Run("no public keys", func(t *testing.T) {
 		keys, err := peerAuthTokenKeys(&Config{AuthSecret: "relay-secret"})

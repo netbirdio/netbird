@@ -114,6 +114,39 @@ func TestLoadConfigRelayAuthSecretEnv(t *testing.T) {
 	}
 }
 
+// The local relay takes the same flag day as a standalone one: peerAuth.required replaces
+// authSecret, and the two cannot be set together.
+func TestValidate_LocalRelayAuthSecretOrRequired(t *testing.T) {
+	for name, tc := range map[string]struct {
+		secret     string
+		required   bool
+		signingKey string
+		wantErr    string
+	}{
+		"auth secret":                    {secret: "relay-secret"},
+		"peer auth required":             {required: true, signingKey: "peer_auth.pem"},
+		"both":                           {secret: "relay-secret", required: true, signingKey: "peer_auth.pem", wantErr: "mutually exclusive"},
+		"neither":                        {wantErr: "server.authSecret is required"},
+		"peer auth required without key": {required: true, wantErr: "server.peerAuth.signingKeyFile"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			unsetSecretEnvs(t)
+			cfg, err := LoadConfig(writeCombinedConfig(t, tc.secret, "yaml-store-key"))
+			require.NoError(t, err)
+			cfg.Server.PeerAuth.Required = tc.required
+			cfg.Server.PeerAuth.SigningKeyFile = tc.signingKey
+
+			err = cfg.Validate()
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr, "validation error")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestLoadConfigStoreEncryptionKeyEnv(t *testing.T) {
 	envKey := "env-store-encryption-key"
 	yamlKey := "yaml-store-encryption-key"

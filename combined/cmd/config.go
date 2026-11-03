@@ -528,10 +528,17 @@ func (c *CombinedConfig) Validate() error {
 		seen[port] = true
 	}
 
-	// authSecret is required only if running local relay (no external relay configured)
+	// The local relay verifies legacy tokens with authSecret until the flag day, when
+	// peerAuth.required replaces it.
 	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
-	if !hasExternalRelay && c.Server.AuthSecret == "" {
-		return fmt.Errorf("server.authSecret is required when running local relay")
+	if !hasExternalRelay && c.Server.AuthSecret == "" && !c.Server.PeerAuth.Required {
+		return fmt.Errorf("server.authSecret is required when running local relay, unless server.peerAuth.required is set")
+	}
+	if !hasExternalRelay && c.Server.AuthSecret != "" && c.Server.PeerAuth.Required {
+		return fmt.Errorf("server.authSecret and server.peerAuth.required are mutually exclusive for the local relay: drop the secret on the flag day")
+	}
+	if c.Server.PeerAuth.Required && c.Server.PeerAuth.SigningKeyFile == "" {
+		return fmt.Errorf("server.peerAuth.required needs server.peerAuth.signingKeyFile")
 	}
 
 	return nil

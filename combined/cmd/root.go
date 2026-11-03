@@ -257,9 +257,6 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		return err
 	}
 
-	hashedSecret := sha256.Sum256([]byte(cfg.Relay.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
-
 	peerAuthKeys, err := localPeerAuthKeys(cfg)
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
@@ -269,7 +266,7 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 	relayCfg := relayServer.Config{
 		Meter:          s.metricsServer.Meter,
 		ExposedAddress: cfg.Relay.ExposedAddress,
-		AuthValidator:  authenticator,
+		AuthValidator:  localLegacyValidator(cfg.Relay.AuthSecret),
 		TLSSupport:     tlsSupport,
 		PeerAuth: relayServer.PeerAuthConfig{
 			Keys:      peerAuthKeys,
@@ -368,6 +365,16 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 
 	log.Infof("Signal server created")
 	return nil
+}
+
+// localLegacyValidator returns the local Relay's validator of legacy relay tokens, or nil after the
+// flag day, when there is no secret and peers without a bound token are refused.
+func localLegacyValidator(secret string) relayServer.Validator {
+	if secret == "" {
+		return nil
+	}
+	hashedSecret := sha256.Sum256([]byte(secret))
+	return auth.NewTimedHMACValidator(hashedSecret[:])
 }
 
 // localPeerAuthKeys returns the public key of the local Management's signing key, which the local
