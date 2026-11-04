@@ -64,6 +64,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tpm v0.9.8
 	github.com/google/gopacket v1.1.19
+	github.com/google/jsonschema-go v0.4.3
 	github.com/google/nftables v0.3.0
 	github.com/gopacket/gopacket v1.4.0
 	github.com/grafana/pyroscope-go v1.4.2
@@ -150,7 +151,6 @@ require (
 )
 
 require (
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect

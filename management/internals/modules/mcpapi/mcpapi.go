@@ -1,7 +1,10 @@
-// Package mcpapi holds the OAuth 2.1 authorization server Model Context Protocol clients sign
-// in with to reach management's MCP endpoint at /api/mcp. It renders its own consent, logs
-// users in at the configured identity provider, and issues tokens bound to the endpoint and
-// re-checked against the user on every call.
+// Package mcpapi serves the management REST API as a Model Context Protocol server, together
+// with the OAuth 2.1 authorization server MCP clients sign in with.
+//
+// Every tool maps onto one REST operation and is executed by replaying the call in-process
+// against the API router, so a tool call and the matching HTTP request run the same handler,
+// the same permission checks and return the same JSON. The endpoint is mounted behind the API
+// authentication middleware and takes the caller identity from the request context.
 package mcpapi
 
 import (
@@ -12,7 +15,8 @@ import (
 )
 
 const (
-	// EnvEnabled switches MCP support on. It is off unless set to a true value.
+	// EnvEnabled switches the MCP endpoint and its authorization server on. They are off
+	// unless it is set to a true value.
 	EnvEnabled = "NB_MCP_ENABLED"
 
 	// Path is where the MCP endpoint is mounted, relative to the API router.
