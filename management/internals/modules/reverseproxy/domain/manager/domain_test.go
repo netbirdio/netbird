@@ -95,8 +95,20 @@ func TestExtractClusterFromCustomDomains(t *testing.T) {
 			wantVal: "eu1.proxy.netbird.io",
 		},
 		{
+			name:    "subdomain of custom uppercase domain matches",
+			domain:  "APP.EXAMPLE.COM",
+			wantOK:  true,
+			wantVal: "eu1.proxy.netbird.io",
+		},
+		{
 			name:    "bare custom domain matches",
 			domain:  "example.com",
+			wantOK:  true,
+			wantVal: "eu1.proxy.netbird.io",
+		},
+		{
+			name:    "uppercase bare custom domain matches",
+			domain:  "EXAMPLE.COM",
 			wantOK:  true,
 			wantVal: "eu1.proxy.netbird.io",
 		},

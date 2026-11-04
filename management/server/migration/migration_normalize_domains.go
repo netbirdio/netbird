@@ -29,10 +29,27 @@ func MigrateNormalizeServiceDomains(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+func MigrateNormalizeServiceProxyCluster(ctx context.Context, db *gorm.DB) error {
+	result := db.WithContext(ctx).Model(&rpservice.Service{}).
+		Where("proxy_cluster <> lower(proxy_cluster)").
+		UpdateColumn("proxy_cluster", gorm.Expr("lower(proxy_cluster)"))
+	if result.Error != nil {
+		return fmt.Errorf("lowercase service proxy_cluster: %w", result.Error)
+	}
+
+	var conflicting []string
+	if err := db.WithContext(ctx).Model(&rpservice.Service{}).Where("proxy_cluster <> lower(proxy_cluster)").Pluck("proxy_cluster", &conflicting).Error; err != nil {
+		return fmt.Errorf("list conflicting service proxy_cluster: %w", err)
+	}
+	if len(conflicting) > 0 {
+		log.WithContext(ctx).Warnf("found service proxy_cluster using the same domain name with different spelling: %v", conflicting)
+	}
+	return nil
+}
+
 func MigrateNormalizeProxyClusterDomains(ctx context.Context, db *gorm.DB) error {
 	result := db.WithContext(ctx).Model(&proxy.Proxy{}).
 		Where("cluster_address <> lower(cluster_address)").
-		Where("not exists (select 1 from proxies other where other.id <> proxies.id AND lower(other.cluster_address) = lower(proxies.cluster_address))").
 		UpdateColumn("cluster_address", gorm.Expr("lower(cluster_address)"))
 	if result.Error != nil {
 		return fmt.Errorf("lowercase proxy cluster address: %w", result.Error)

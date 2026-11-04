@@ -62,10 +62,9 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		tx = tx.Where("account_id = ?", *p.AccountID)
 	}
 
-	pcopy := *p
-	pcopy.ClusterAddress = strings.ToLower(pcopy.ClusterAddress)
+	p.ClusterAddress = strings.ToLower(p.ClusterAddress)
 
-	result := tx.Select("*").Updates(&pcopy)
+	result := tx.Select("*").Updates(p)
 	if result.Error != nil {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
@@ -81,7 +80,7 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		return nil
 	}
 
-	result = tx.Create(&pcopy)
+	result = tx.Create(p)
 	if result.Error != nil {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
@@ -178,6 +177,7 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) err
 		p.LastSeen = now
 		p.ConnectedAt = &now
 		p.Status = proxy.StatusConnected
+		p.ClusterAddress = strings.ToLower(p.ClusterAddress)
 		if err := s.db.Create(p).Error; err != nil {
 			log.WithContext(ctx).Debugf("proxy %s session %s: heartbeat fallback insert skipped: %v", p.ID, p.SessionID, err)
 		}
@@ -271,7 +271,7 @@ func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddre
 	var count int64
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("cluster_address = ? AND (account_id IS NULL OR account_id != ?)", clusterAddress, accountID).
+		Where("lower(cluster_address) = lower(?) AND (account_id IS NULL OR account_id != ?)", clusterAddress, accountID).
 		Count(&count)
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "check cluster address conflict: %v", result.Error)
@@ -300,7 +300,7 @@ func (s *SqlStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accou
 
 func (s *SqlStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
 	result := s.db.
-		Where("cluster_address = ? AND account_id = ?", clusterAddress, accountID).
+		Where("lower(cluster_address) = lower(?) AND account_id = ?", clusterAddress, accountID).
 		Delete(&proxy.Proxy{})
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "delete account cluster: %v", result.Error)
@@ -460,7 +460,7 @@ func (s *SqlStore) getClusterUnanimousCapability(ctx context.Context, clusterAdd
 		Select("COUNT(*) AS total, "+
 			"COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) AS reported, "+
 			"COUNT(*) > 0 AND COUNT(*) = COUNT(CASE WHEN "+column+" = true THEN 1 END) AS all_true").
-		Where("cluster_address = ? AND status = ? AND last_seen > ?",
+		Where("lower(cluster_address) = lower(?) AND status = ? AND last_seen > ?",
 			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
 		Scan(&result).Error
 	if err != nil {
@@ -502,7 +502,7 @@ func (s *SqlStore) getClusterCapability(ctx context.Context, clusterAddr, column
 		Model(&proxy.Proxy{}).
 		Select("COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) > 0 AS has_capability, "+
 			"COALESCE(MAX(CASE WHEN "+column+" = true THEN 1 ELSE 0 END), 0) = 1 AS any_true").
-		Where("cluster_address = ? AND status = ? AND last_seen > ?",
+		Where("lower(cluster_address) = lower(?) AND status = ? AND last_seen > ?",
 			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
 		Scan(&result).Error
 	if err != nil {

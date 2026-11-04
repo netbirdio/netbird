@@ -736,6 +736,9 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 			return migration.MigrateNormalizeServiceDomains(ctx, db)
 		},
 		func(db *gorm.DB) error {
+			return migration.MigrateNormalizeServiceProxyCluster(ctx, db)
+		},
+		func(db *gorm.DB) error {
 			return migration.MigrateNormalizeProxyClusterDomains(ctx, db)
 		},
 	}
