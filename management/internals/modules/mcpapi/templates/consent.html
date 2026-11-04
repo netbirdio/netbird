@@ -1,8 +1,8 @@
 {{define "title"}}Authorize {{with .ClientName}}“{{.}}”{{else}}an unnamed application{{end}} - NetBird{{end}}
 
-{{/* The name is chosen by whoever registered the client, so it is always quoted and
-     never stands alone where it could pass for NetBird's own text. */}}
-{{define "client"}}{{with .ClientName}}<span class="nb-client">“{{.}}”</span>{{else}}an unnamed application{{end}}{{end}}
+{{/* The name is chosen by whoever registered the client, so it is quoted and
+     emphasized, and bdi stops right-to-left text in it from reordering the page's words. */}}
+{{define "client"}}{{with .ClientName}}<span class="nb-client">“<bdi>{{.}}</bdi>”</span>{{else}}an unnamed application{{end}}{{end}}
 
 {{define "content"}}
 <h1 class="nb-heading">Allow {{template "client" .}} to access NetBird?</h1>
@@ -14,6 +14,10 @@
 {{if .Loopback}}<p class="nb-warn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span>This is an application on your own computer. Continue only if you started this connection yourself just now.</span></p>{{end}}
 <form method="post" action="{{.Action}}">
 <input type="hidden" name="request" value="{{.Request}}">
+{{/* Enter in a form control clicks the first submit button, so this invisible one
+     makes a stray Enter deny. It is hidden with visibility, not display:none, because
+     older WebKit skipped a default button that was not rendered. */}}
+<button type="submit" name="action" value="deny" class="nb-default" tabindex="-1"></button>
 <fieldset>
 <legend class="nb-label">Permissions</legend>
 <label class="nb-perm nb-perm-fixed">

@@ -17,6 +17,7 @@ html,body{margin:0;padding:0;min-height:100vh;background-color:#18191d;color:#e4
 .nb-label{display:block;margin:0 0 8px;font-size:13px;font-weight:500;color:#a7b1b9}
 .nb-panel{margin-bottom:16px;padding:12px 14px;background-color:rgba(63,68,75,.25);border:1px solid rgba(63,68,75,.8);border-radius:8px}
 .nb-panel-label{margin-bottom:2px}
+.nb-panel+form{margin-top:24px}
 .nb-host{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:500;color:#fff;overflow-wrap:anywhere}
 .nb-warn{display:flex;gap:10px;align-items:flex-start;margin-bottom:24px;padding:12px 14px;font-size:13px;color:#fbbf24;background-color:rgba(146,64,14,.2);border:1px solid rgba(146,64,14,.5);border-radius:8px}
 .nb-warn svg{flex-shrink:0;margin-top:2px}
@@ -39,6 +40,7 @@ legend{padding:0}
 .nb-check svg{position:absolute;top:1px;left:1px;display:none;color:#fff;pointer-events:none}
 .nb-check input:checked+svg{display:block}
 .nb-check input:disabled+svg{color:#a7b1b9}
+.nb-default{position:absolute;width:0;height:0;padding:0;border:0;visibility:hidden}
 .nb-actions{display:flex;flex-direction:column;gap:12px;margin-top:24px}
 .nb-btn{width:100%;padding:12px 20px;font:inherit;font-weight:500;color:#fff;background-color:#f68330;border:1px solid #f68330;border-radius:8px;cursor:pointer;transition:background-color .2s,border-color .2s}
 .nb-btn:hover:enabled{background-color:#e5722a;border-color:#e5722a}

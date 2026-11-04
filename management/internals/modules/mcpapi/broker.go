@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -458,7 +459,7 @@ func (b *Broker) authorize(w http.ResponseWriter, r *http.Request) {
 
 	b.setCookie(w, r, consentCookie, req.Nonce, consentTTL, http.SameSiteStrictMode)
 	renderConsent(w, consentPage{
-		ClientName:     strings.TrimSpace(client.Name),
+		ClientName:     displayName(client.Name),
 		RedirectHost:   redirectHost(redirectURI),
 		Loopback:       isLoopbackRedirect(redirectURI),
 		WriteRequested: req.WriteRequested,
@@ -1093,4 +1094,16 @@ func truncate(s string, n int) string {
 		n--
 	}
 	return s[:n]
+}
+
+// displayName drops Unicode format characters, such as bidi overrides and zero-width
+// spaces, from a client-chosen name, so the name cannot reorder the consent page's own
+// words or pass a blank name off as a real one.
+func displayName(name string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name))
 }
