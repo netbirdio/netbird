@@ -251,7 +251,12 @@ func TestPublicAPISpecIsCoveredByTheCatalog(t *testing.T) {
 
 	tools := map[string]string{}
 	for _, op := range catalog {
-		tools[operationKey(op.method, op.path)] = op.name
+		key := operationKey(op.method, op.path)
+		if other, ok := tools[key]; ok {
+			assert.Fail(t, "operation has two tools",
+				"%s is served by both %s and %s. Keep one tool per operation in catalog.go.", key, other, op.name)
+		}
+		tools[key] = op.name
 	}
 	excluded := map[string]bool{}
 	for _, area := range notExposed {
