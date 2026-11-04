@@ -39,11 +39,18 @@ func (b *Broker) clientName(clientID string) string {
 	return client.Name
 }
 
-// auditClientName drops control and format characters, such as bidi overrides and zero-width
-// spaces, which a self-chosen name could use to reorder or hide text where the log is shown.
+// hiddenRunes render as nothing or move the text around them: format characters such as bidi
+// overrides and zero-width spaces, line and paragraph separators, variation selectors and the
+// other default-ignorable code points such as Hangul fillers.
+var hiddenRunes = []*unicode.RangeTable{
+	unicode.Cf, unicode.Zl, unicode.Zp, unicode.Variation_Selector, unicode.Other_Default_Ignorable_Code_Point,
+}
+
+// auditClientName drops control and hidden characters, which a self-chosen name could use to
+// reorder or hide text where the log is shown.
 func auditClientName(name string) string {
 	return strings.TrimSpace(strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+		if unicode.IsControl(r) || unicode.In(r, hiddenRunes...) {
 			return -1
 		}
 		return r

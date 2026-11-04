@@ -219,7 +219,7 @@ log. Meta holds:
 - `access`: `read` or `read and write`, the scopes the user approved. The user's role still
   limits what the session can do.
 - `client_name`, when the request carries the client ID: the name the client registered,
-  with control and format characters removed. It proves nothing.
+  with control characters and characters that render as nothing removed. It proves nothing.
 - `redirect_host`, on the two events a code redemption records.
 
 ### Security notes

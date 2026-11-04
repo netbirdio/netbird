@@ -63,7 +63,7 @@ func TestBrokerRecordsSignIns(t *testing.T) {
 		})}, env.accounts.takeEvents())
 	})
 
-	t.Run("a client's name is stored without control or format characters", func(t *testing.T) {
+	t.Run("a client's name is stored without control or hidden characters", func(t *testing.T) {
 		env := newBrokerEnv(t)
 		signInAs := func(name string) []storedEvent {
 			status, reg := env.registerClient(map[string]any{"client_name": name, "redirect_uris": []string{clientCallback}})
@@ -82,6 +82,26 @@ func TestBrokerRecordsSignIns(t *testing.T) {
 		assert.Equal(t, []storedEvent{userEvent(activity.MCPClientSignedIn, map[string]any{
 			"redirect_host": "localhost:3118", "access": "read",
 		})}, signInAs("\u202E\u200b\t"), "a name with nothing visible is left out")
+
+		// Each input below is only cleaned by one branch: an inner control character, inner
+		// line and paragraph separators (U+2028, U+2029), spaces left at the ends once the
+		// hidden characters around them are gone, and a variation selector (U+E0100).
+		for input, want := range map[string]string{
+			"Edit\u0007or":         "Editor",
+			"Ed\u2028it\u2029or":   "Editor",
+			"\u200b Editor \u202E": "Editor",
+			"Edit\U000E0100or":     "Editor",
+		} {
+			assert.Equal(t, []storedEvent{userEvent(activity.MCPClientSignedIn, map[string]any{
+				"client_name": want, "redirect_host": "localhost:3118", "access": "read",
+			})}, signInAs(input), "client name %q", input)
+		}
+
+		// Hangul fillers (U+3164), the combining grapheme joiner (U+034F), a variation
+		// selector (U+FE0F) and an unassigned tag (U+E0000) all render as nothing.
+		assert.Equal(t, []storedEvent{userEvent(activity.MCPClientSignedIn, map[string]any{
+			"redirect_host": "localhost:3118", "access": "read",
+		})}, signInAs("\u3164\u034f\ufe0f\U000E0000"), "default-ignorable characters are left out")
 	})
 }
 
