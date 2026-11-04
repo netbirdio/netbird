@@ -29,6 +29,7 @@ func (b *Broker) AuthMiddleware(apiAuth mux.MiddlewareFunc) mux.MiddlewareFunc {
 				fallback.ServeHTTP(w, r)
 				return
 			}
+			r = r.WithContext(mcpSource(r.Context()))
 
 			userAuth, scopes, err := b.authenticate(r, token)
 			if errors.Is(err, errStoreUnavailable) {

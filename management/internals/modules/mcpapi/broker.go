@@ -205,18 +205,21 @@ func (b *Broker) RegisterEndpoints(root, api *mux.Router) error {
 		}
 	}
 
-	root.HandleFunc(ProtectedResourcePath, b.protectedResource).Methods(http.MethodGet, http.MethodOptions)
-	root.HandleFunc(authServerMetadataPath, b.authorizationServer).Methods(http.MethodGet, http.MethodOptions)
-	root.HandleFunc(openIDConfigurationPath, b.authorizationServer).Methods(http.MethodGet, http.MethodOptions)
-	api.HandleFunc(openIDConfigurationAPIPath, b.authorizationServer).Methods(http.MethodGet, http.MethodOptions)
-	api.HandleFunc(resourceMetadataAPIPath, b.protectedResource).Methods(http.MethodGet, http.MethodOptions)
-	api.HandleFunc(registrationPath, b.register).Methods(http.MethodPost, http.MethodOptions)
-	api.HandleFunc(authorizePath, b.authorize).Methods(http.MethodGet)
-	api.HandleFunc(authorizePath, b.decide).Methods(http.MethodPost)
-	api.Handle(callbackPath, b.callbacks.Middleware(http.HandlerFunc(b.callback))).Methods(http.MethodGet)
-	api.HandleFunc(tokenPath, b.token).Methods(http.MethodPost, http.MethodOptions)
-	api.HandleFunc(revokePath, b.revoke).Methods(http.MethodPost, http.MethodOptions)
-	api.HandleFunc(jwksPath, b.jwks).Methods(http.MethodGet, http.MethodOptions)
+	handle := func(router *mux.Router, path string, h http.Handler) *mux.Route {
+		return router.Handle(path, withMCPSource(h))
+	}
+	handle(root, ProtectedResourcePath, http.HandlerFunc(b.protectedResource)).Methods(http.MethodGet, http.MethodOptions)
+	handle(root, authServerMetadataPath, http.HandlerFunc(b.authorizationServer)).Methods(http.MethodGet, http.MethodOptions)
+	handle(root, openIDConfigurationPath, http.HandlerFunc(b.authorizationServer)).Methods(http.MethodGet, http.MethodOptions)
+	handle(api, openIDConfigurationAPIPath, http.HandlerFunc(b.authorizationServer)).Methods(http.MethodGet, http.MethodOptions)
+	handle(api, resourceMetadataAPIPath, http.HandlerFunc(b.protectedResource)).Methods(http.MethodGet, http.MethodOptions)
+	handle(api, registrationPath, http.HandlerFunc(b.register)).Methods(http.MethodPost, http.MethodOptions)
+	handle(api, authorizePath, http.HandlerFunc(b.authorize)).Methods(http.MethodGet)
+	handle(api, authorizePath, http.HandlerFunc(b.decide)).Methods(http.MethodPost)
+	handle(api, callbackPath, b.callbacks.Middleware(http.HandlerFunc(b.callback))).Methods(http.MethodGet)
+	handle(api, tokenPath, http.HandlerFunc(b.token)).Methods(http.MethodPost, http.MethodOptions)
+	handle(api, revokePath, http.HandlerFunc(b.revoke)).Methods(http.MethodPost, http.MethodOptions)
+	handle(api, jwksPath, http.HandlerFunc(b.jwks)).Methods(http.MethodGet, http.MethodOptions)
 	return nil
 }
 
