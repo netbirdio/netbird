@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -422,6 +423,32 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 		// middleware so they reach the broker there; anywhere else they must stay useless.
 		resp, _ := m.request(t, http.MethodGet, "/api/users", "", http.Header{"Authorization": {"Bearer " + access}})
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "a broker token is refused outside /api/mcp")
+
+		// The account manager stores events in the background, so the audit log is polled.
+		assert.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, body := m.request(t, http.MethodGet, "/api/events/audit", "", http.Header{"Authorization": {"Token " + pat}})
+			var events []api.Event
+			if !assert.Equal(c, http.StatusOK, resp.StatusCode, body) || !assert.NoError(c, json.Unmarshal([]byte(body), &events)) {
+				return
+			}
+			var signIn *api.Event
+			for i := range events {
+				if events[i].ActivityCode == "mcp.session.start" {
+					signIn = &events[i]
+				}
+			}
+			if !assert.NotNil(c, signIn, "the OAuth sign-in is in the audit log") {
+				return
+			}
+			assert.Equal(c, "MCP client signed in", signIn.Activity)
+			assert.Equal(c, mcpTestOwnerEmail, signIn.InitiatorEmail, "the user who signed in is the initiator")
+			assert.Equal(c, signIn.InitiatorId, signIn.TargetId, "and the target")
+			// The handler adds the target user's email and name to what the broker stored.
+			want := map[string]string{"client_name": "server-test", "redirect_host": mcpTestClientRedirectHost, "access": "read and write"}
+			for key, value := range want {
+				assert.Equal(c, value, signIn.Meta[key], "meta %s", key)
+			}
+		}, 10*time.Second, 50*time.Millisecond)
 	})
 
 	t.Run("self-hosted metrics report the endpoint and its use", func(t *testing.T) {

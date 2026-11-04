@@ -60,8 +60,8 @@ type GrantStore interface {
 	load(ctx context.Context, grantID string) (record grantRecord, ok bool, err error)
 	// rotate applies rotateGrant to the grant and returns the refresh ID to issue.
 	rotate(ctx context.Context, grantID, presented, next string, now time.Time) (rotationOutcome, string, error)
-	// revoke deletes the grant.
-	revoke(ctx context.Context, grantID string) error
+	// revoke deletes the grant and reports whether it was still there.
+	revoke(ctx context.Context, grantID string) (bool, error)
 }
 
 // NewGrantStore keeps the grants in Redis at redisURL, the address management's shared cache

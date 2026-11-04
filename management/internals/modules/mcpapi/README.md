@@ -206,6 +206,16 @@ refresh more than 10 seconds apart: the later of the two presents a replaced tok
 which is a replay and revokes the session for both. A stolen code is useless without
 the client's PKCE verifier.
 
+### Activity log
+
+The broker records three events in the account the user signed in to, with that user as
+initiator and target: `mcp.session.start` when a code redemption starts a session,
+`mcp.session.revoke` when the revocation endpoint ends one that still existed, and
+`mcp.session.replay` when a replayed refresh token or a second redemption of a code revokes
+one. Meta holds `access` (`read` or `read and write`), `client_name` when the request
+carries the client ID (the name the client registered, which proves nothing), and
+`redirect_host` on the two events a code redemption records.
+
 ### Security notes
 
 - **Consent** is asked on every authorization. The client name is self-chosen and

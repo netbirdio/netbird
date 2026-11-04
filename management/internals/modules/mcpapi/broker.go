@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -67,13 +68,14 @@ type Identity interface {
 	EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error)
 }
 
-// Accounts resolves the NetBird user behind a login and re-checks it on every MCP call. The
-// account manager satisfies it.
+// Accounts resolves the NetBird user behind a login, re-checks it on every MCP call and
+// records sign-ins in the activity log. The account manager satisfies it.
 type Accounts interface {
 	GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error
 	GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
+	StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 }
 
 // Limiter rate limits MCP calls per user. The API rate limiter satisfies it.
@@ -733,11 +735,12 @@ func (b *Broker) token(w http.ResponseWriter, r *http.Request) {
 	form := r.PostForm
 	switch form.Get("grant_type") {
 	case "authorization_code":
-		if _, ok := b.lookupClient(form.Get("client_id")); !ok {
+		client, ok := b.lookupClient(form.Get("client_id"))
+		if !ok {
 			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "unknown client, register again")
 			return
 		}
-		b.redeemCode(w, r, form)
+		b.redeemCode(w, r, form, client)
 	case "refresh_token":
 		// Every refresh failure, an unknown client included, answers invalid_grant: it is the
 		// only error on which the Go SDK drops its token and signs in again.
@@ -762,21 +765,29 @@ func (b *Broker) revoke(w http.ResponseWriter, r *http.Request) {
 	opened := b.seal.open(purposeRefresh, refreshTokenPrefix, token, &g) == nil ||
 		b.seal.open(purposeAccess, accessTokenPrefix, token, &g) == nil
 	if opened {
-		if id := r.PostForm.Get("client_id"); id != "" && clientKey(id) != g.ClientKey {
+		clientID := r.PostForm.Get("client_id")
+		if clientID != "" && clientKey(clientID) != g.ClientKey {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "the token was issued to another client")
 			return
 		}
-		if err := b.grants.revoke(r.Context(), g.GrantID); err != nil {
+		revoked, err := b.grants.revoke(r.Context(), g.GrantID)
+		if err != nil {
 			// Section 2.2.1: 503 tells the client the token may still be valid and to retry.
 			writeStoreError(w, r, err)
 			return
+		}
+		// Clients often revoke both of their tokens; only the call that ended the session counts.
+		if revoked {
+			b.recordSession(r.Context(), activity.MCPClientSignedOut, sessionEvent{
+				identity: g.Identity, clientName: b.clientName(clientID), scopes: g.Scopes,
+			})
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 }
 
-func (b *Broker) redeemCode(w http.ResponseWriter, r *http.Request, form url.Values) {
+func (b *Broker) redeemCode(w http.ResponseWriter, r *http.Request, form url.Values, client clientInfo) {
 	var code authCode
 	if err := b.seal.open(purposeCode, codePrefix, form.Get("code"), &code); err != nil || b.expired(code.Expires) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the authorization code is invalid or expired")
@@ -811,20 +822,30 @@ func (b *Broker) redeemCode(w http.ResponseWriter, r *http.Request, form url.Val
 		writeStoreError(w, r, err)
 		return
 	}
+	event := sessionEvent{identity: code.Identity, clientName: client.Name, redirectURI: code.RedirectURI, scopes: code.Scopes}
 	if reused {
 		// OAuth 2.1 section 4.1.3: a code redeemed twice may have been stolen, so the session
 		// the first redemption started is revoked as well.
-		if err := b.grants.revoke(r.Context(), previous); err != nil {
+		revoked, err := b.grants.revoke(r.Context(), previous)
+		if err != nil {
 			writeStoreError(w, r, err)
 			return
+		}
+		// Recording only the redemption that ended the session keeps a client that holds the
+		// verifier from filling the activity log until the code expires.
+		if revoked {
+			b.recordSession(r.Context(), activity.MCPSessionRevokedOnTokenReuse, event)
 		}
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the authorization code was already used")
 		return
 	}
-	b.issueTokens(w, r, grant{
+	issued := b.issueTokens(w, r, grant{
 		GrantID: grantID, Identity: code.Identity, ClientKey: code.ClientKey, Resource: code.Resource,
 		Scopes: code.Scopes, Expires: expires,
 	}, refreshID)
+	if issued {
+		b.recordSession(r.Context(), activity.MCPClientSignedIn, event)
+	}
 }
 
 func (b *Broker) refresh(w http.ResponseWriter, r *http.Request, form url.Values) {
@@ -872,6 +893,9 @@ func (b *Broker) refresh(w http.ResponseWriter, r *http.Request, form url.Values
 		b.issueTokens(w, r, g, refreshID)
 	case grantReplayed:
 		log.WithContext(r.Context()).Warnf("MCP refresh token reused for user %s, session revoked", g.Identity.UserID)
+		b.recordSession(r.Context(), activity.MCPSessionRevokedOnTokenReuse, sessionEvent{
+			identity: g.Identity, clientName: b.clientName(form.Get("client_id")), scopes: g.Scopes,
+		})
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the refresh token was already used")
 	default:
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the session was revoked or has ended, sign in again")
@@ -880,8 +904,8 @@ func (b *Broker) refresh(w http.ResponseWriter, r *http.Request, form url.Values
 
 // issueTokens mints an access and a refresh token for a session whose end is g.Expires. The
 // refresh token keeps that end, and the access token never outlives it. refreshID is the ID
-// the grant record already holds as current.
-func (b *Broker) issueTokens(w http.ResponseWriter, r *http.Request, g grant, refreshID string) {
+// the grant record already holds as current. It reports whether the tokens were sent.
+func (b *Broker) issueTokens(w http.ResponseWriter, r *http.Request, g grant, refreshID string) bool {
 	now := b.now()
 	access := g
 	access.ID = ""
@@ -893,13 +917,13 @@ func (b *Broker) issueTokens(w http.ResponseWriter, r *http.Request, g grant, re
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("seal MCP access token: %v", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "")
-		return
+		return false
 	}
 	refreshToken, err := b.seal.seal(purposeRefresh, refreshTokenPrefix, refresh)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("seal MCP refresh token: %v", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "")
-		return
+		return false
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -912,6 +936,7 @@ func (b *Broker) issueTokens(w http.ResponseWriter, r *http.Request, g grant, re
 		RefreshToken: refreshToken,
 		Scope:        strings.Join(g.Scopes, " "),
 	})
+	return true
 }
 
 // userCreationSlack covers the time between a user's creation at the identity provider

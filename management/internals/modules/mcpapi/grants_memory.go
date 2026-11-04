@@ -88,11 +88,12 @@ func (m *memoryGrants) rotate(_ context.Context, grantID, presented, next string
 	return outcome, entry.value.Current, nil
 }
 
-func (m *memoryGrants) revoke(_ context.Context, grantID string) error {
+func (m *memoryGrants) revoke(_ context.Context, grantID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	entry, ok := m.grants[grantID]
 	delete(m.grants, grantID)
-	return nil
+	return ok && entry.live(time.Now()), nil
 }
 
 // sweep drops expired entries at most once per memorySweepInterval. Callers hold mu.

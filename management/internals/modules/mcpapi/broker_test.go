@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -129,6 +130,16 @@ type stubAccounts struct {
 	mu        sync.Mutex
 	users     map[string]*types.User
 	storeDown bool
+	events    []storedEvent
+}
+
+// storedEvent is one activity event the broker stored.
+type storedEvent struct {
+	activity  activity.ActivityDescriber
+	initiator string
+	target    string
+	account   string
+	meta      map[string]any
 }
 
 func (a *stubAccounts) GetAccountIDFromUserAuth(context.Context, auth.UserAuth) (string, string, error) {
@@ -153,6 +164,21 @@ func (a *stubAccounts) GetUserByID(_ context.Context, id string) (*types.User, e
 	}
 	copied := *u
 	return &copied, nil
+}
+
+func (a *stubAccounts) StoreEvent(_ context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.events = append(a.events, storedEvent{activity: activityID, initiator: initiatorID, target: targetID, account: accountID, meta: meta})
+}
+
+// takeEvents returns the events stored since the last call.
+func (a *stubAccounts) takeEvents() []storedEvent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	events := a.events
+	a.events = nil
+	return events
 }
 
 func (a *stubAccounts) set(fn func(u *types.User)) {

@@ -134,7 +134,12 @@ func TestGrantStoresRotate(t *testing.T) {
 		assert.Equal(t, grantReplayed, outcome, "a token the grant never issued is a replay")
 
 		id = newStoredGrant(t, grants, "r0")
-		require.NoError(t, grants.revoke(ctx, id))
+		revoked, err := grants.revoke(ctx, id)
+		require.NoError(t, err)
+		assert.True(t, revoked, "revoking a live grant reports it")
+		revoked, err = grants.revoke(ctx, id)
+		require.NoError(t, err)
+		assert.False(t, revoked, "revoking it again finds nothing to revoke")
 		outcome, _ = rotate(id, "r0", "r1", start)
 		assert.Equal(t, grantGone, outcome, "a revoked grant does not rotate")
 		_, ok, err = grants.load(ctx, id)
@@ -236,7 +241,8 @@ func TestGrantStoresAreAtomic(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					assert.NoError(t, grants.revoke(ctx, id))
+					_, err := grants.revoke(ctx, id)
+					assert.NoError(t, err)
 				}()
 				wg.Wait()
 				_, ok, err := grants.load(ctx, id)
