@@ -1,0 +1,37 @@
+{{define "title"}}Authorize {{with .ClientName}}“{{.}}”{{else}}an unnamed application{{end}} - NetBird{{end}}
+
+{{/* The name is chosen by whoever registered the client, so it is always quoted and
+     never stands alone where it could pass for NetBird's own text. */}}
+{{define "client"}}{{with .ClientName}}<span class="nb-client">“{{.}}”</span>{{else}}an unnamed application{{end}}{{end}}
+
+{{define "content"}}
+<h1 class="nb-heading">Allow {{template "client" .}} to access NetBird?</h1>
+<p class="nb-subheading">It will be able to use the NetBird management API as you, limited to what your role allows.</p>
+<div class="nb-panel">
+<span class="nb-label nb-panel-label">After you sign in you will be sent back to</span>
+<span class="nb-host">{{.RedirectHost}}</span>
+</div>
+{{if .Loopback}}<p class="nb-warn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span>This is an application on your own computer. Continue only if you started this connection yourself just now.</span></p>{{end}}
+<form method="post" action="{{.Action}}">
+<input type="hidden" name="request" value="{{.Request}}">
+<fieldset>
+<legend class="nb-label">Permissions</legend>
+<label class="nb-perm nb-perm-fixed">
+<span class="nb-check"><input type="checkbox" checked disabled>{{template "tick"}}</span>
+<span><span class="nb-perm-title">Read your NetBird configuration</span><span class="nb-perm-desc">Always included</span></span>
+</label>
+{{if .WriteRequested}}<label class="nb-perm">
+<span class="nb-check"><input type="checkbox" name="write" value="on">{{template "tick"}}</span>
+<span><span class="nb-perm-title">Make changes</span><span class="nb-perm-desc">Create, update and delete</span></span>
+</label>{{end}}
+</fieldset>
+<div class="nb-actions">
+<button type="submit" name="action" value="approve" class="nb-btn" id="approve">Continue to sign in</button>
+<button type="submit" name="action" value="deny" class="nb-btn nb-btn-secondary">Cancel</button>
+</div>
+</form>
+{{end}}
+
+{{define "tick"}}<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>{{end}}
+
+{{define "script"}}<script nonce="{{.Nonce}}">{{armScript}}</script>{{end}}

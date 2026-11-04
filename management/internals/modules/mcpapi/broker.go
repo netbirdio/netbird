@@ -458,7 +458,7 @@ func (b *Broker) authorize(w http.ResponseWriter, r *http.Request) {
 
 	b.setCookie(w, r, consentCookie, req.Nonce, consentTTL, http.SameSiteStrictMode)
 	renderConsent(w, consentPage{
-		ClientName:     displayName(client.Name),
+		ClientName:     strings.TrimSpace(client.Name),
 		RedirectHost:   redirectHost(redirectURI),
 		Loopback:       isLoopbackRedirect(redirectURI),
 		WriteRequested: req.WriteRequested,
@@ -1093,11 +1093,4 @@ func truncate(s string, n int) string {
 		n--
 	}
 	return s[:n]
-}
-
-func displayName(name string) string {
-	if strings.TrimSpace(name) == "" {
-		return "An application"
-	}
-	return name
 }

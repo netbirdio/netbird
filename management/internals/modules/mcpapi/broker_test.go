@@ -428,7 +428,7 @@ func TestBrokerFullLogin(t *testing.T) {
 
 	browser := env.browser()
 	page, sealed := env.consent(browser, req)
-	assert.Contains(t, page, "Allow Test &lt;Client&gt; to access NetBird?", "the client is named, HTML-escaped")
+	assert.Contains(t, page, `Allow <span class="nb-client">“Test &lt;Client&gt;”</span> to access NetBird?`, "the client is named, quoted and HTML-escaped")
 	assert.Contains(t, page, "localhost:3118", "the redirect host is shown")
 	assert.Contains(t, page, "application on your own computer", "loopback clients get a warning")
 
@@ -866,7 +866,7 @@ func TestBrokerRegistrationKeepsUsableRedirects(t *testing.T) {
 	require.Equal(t, http.StatusCreated, status)
 	assert.Equal(t, strings.Repeat("a", 99), named.ClientName, "the response echoes the stored name, cut before the split character")
 	page, _ := env.consent(env.browser(), env.newRequest(named.ClientID))
-	assert.Contains(t, page, "Allow "+strings.Repeat("a", 99)+" to access")
+	assert.Contains(t, page, "“"+strings.Repeat("a", 99)+"”")
 
 	status, _ = env.registerClient(map[string]any{"redirect_uris": []string{"http://evil.example/cb"}})
 	assert.Equal(t, http.StatusBadRequest, status, "a client with no usable redirect is refused")
