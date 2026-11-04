@@ -63,6 +63,7 @@ var (
 )
 
 func init() {
+	addLoginFlags(upCmd)
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
@@ -529,7 +530,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		req.OptionalPreSharedKey = &preSharedKey
 	}
 	if cmd.Flag(disableAutoConnectFlag).Changed {
@@ -648,7 +649,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.NetworkMonitor = &networkMonitor
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
 
@@ -746,7 +747,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 

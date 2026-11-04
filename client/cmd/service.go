@@ -93,6 +93,12 @@ func init() {
 		`Use --service-env "" to clear all saved env vars. ` +
 		`E.g. --service-env NB_LOG_LEVEL=debug,CUSTOM_VAR=value`
 
+	addManagementURLFlag(installCmd)
+	addManagementURLFlag(reconfigureCmd)
+	// Installed services pass the management URL to run, so keep accepting it.
+	addManagementURLFlag(runCmd)
+	_ = runCmd.PersistentFlags().MarkHidden(managementURLFlag)
+
 	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 

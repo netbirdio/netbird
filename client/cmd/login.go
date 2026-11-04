@@ -28,6 +28,7 @@ import (
 var extendSessionFlag bool
 
 func init() {
+	addLoginFlags(loginCmd)
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
@@ -132,7 +133,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		loginRequest.Hint = &profileState.Email
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+	if cmd.Flags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
@@ -510,6 +511,7 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 
 func setEnvAndFlags(cmd *cobra.Command) error {
 	SetFlagsFromEnvVars(rootCmd)
+	SetFlagsFromEnvVars(cmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
 

@@ -37,6 +37,7 @@ const (
 	enableLocalMetricsFlag   = "enable-local-metrics"
 	localMetricsAddressFlag  = "local-metrics-address"
 	preSharedKeyFlag         = "preshared-key"
+	managementURLFlag        = "management-url"
 	interfaceNameFlag        = "interface-name"
 	wireguardPortFlag        = "wireguard-port"
 	networkMonitorFlag       = "network-monitor"
@@ -156,16 +157,10 @@ func init() {
 	}
 
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
-	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", "(DEPRECATED) Admin Panel URL - This flag is no longer functional")
 	_ = rootCmd.PersistentFlags().MarkDeprecated("admin-url", "the admin-url flag is no longer functional and will be removed in a future version")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
 	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets NetBird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
-	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
-	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
-	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
-	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
-	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
 	rootCmd.PersistentFlags().StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
@@ -356,6 +351,21 @@ func effectiveAnonymize() (bool, anonymize.Level, error) {
 		return false, anonymize.LevelDefault, fmt.Errorf("invalid anonymize level %q: use %q or %q", anonymizeLevelFlag, anonymize.LevelDefault.String(), anonymize.LevelStrict.String())
 	}
 	return true, level, nil
+}
+
+// addManagementURLFlag registers the management URL flag on cmd.
+func addManagementURLFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVarP(&managementURL, managementURLFlag, "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
+}
+
+// addLoginFlags registers the flags shared by the commands that log in a peer.
+func addLoginFlags(cmd *cobra.Command) {
+	addManagementURLFlag(cmd)
+	cmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
+	cmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
+	cmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
+	cmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
+	cmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 }
 
 func getSetupKey() (string, error) {
