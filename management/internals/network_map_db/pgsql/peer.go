@@ -10,12 +10,14 @@ import (
 
 const (
 	GetPeersQuery = `
-	select id, key, ssh_key, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
-	peer_status_requires_approval, peer_status_connected, peer_status_last_seen, proxy_meta_embedded, proxy_meta_cluster,
+	select peers.id, key, ssh_key, dns_label, extra_dns_labels, user_id, ssh_enabled, login_expiration_enabled, last_login, ip, ipv6,
+	peer_status_requires_approval, pc.last_seen as peer_last_seen, pc.session_started_at as peer_session_started_at, mi.last_seen as instance_last_seen, proxy_meta_embedded, proxy_meta_cluster,
 	meta_wt_version, meta_go_os, meta_os_version, meta_kernel_version, meta_network_addresses, meta_files, meta_certificates, meta_capabilities, meta_flags, meta_sync_message_version,
 	location_country_code, location_city_name, location_connection_ip
 	from peers
-	where account_id = $1
+	left join peer_connections pc on pc.peer_id = peers.id
+	left join management_instances mi on mi.id = pc.instance_id
+	where peers.account_id = $1
 	`
 )
 
