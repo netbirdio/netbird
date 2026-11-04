@@ -85,8 +85,15 @@ func RegisterEndpoints(router, api *mux.Router, opts Options) error {
 // including by the REST handlers a tool call replays, reads context=MCP instead of HTTP.
 func withMCPSource(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(mcpSource(r.Context())))
+		markMCP(r)
+		next.ServeHTTP(w, r)
 	})
+}
+
+// markMCP marks r in place, as the API auth hands back the caller, because the HTTP metrics
+// middleware logs each response from the request it passed down, after the handlers return.
+func markMCP(r *http.Request) {
+	*r = *r.WithContext(mcpSource(r.Context()))
 }
 
 func mcpSource(ctx context.Context) context.Context {

@@ -20,11 +20,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"golang.org/x/oauth2"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -197,9 +199,9 @@ type brokerEnv struct {
 	now      time.Time
 }
 
-// newBrokerEnv mounts the broker like BaseServer.Router does: the challenge outermost, then
-// a stand-in for the API auth middleware that only lets bypass paths through, wrapped by the
-// broker, and an MCP endpoint that echoes the caller it was handed.
+// newBrokerEnv mounts the broker like BaseServer.Router does: the challenge outermost, then the
+// HTTP metrics middleware, then a stand-in for the API auth middleware that only lets bypass
+// paths through, wrapped by the broker, and an MCP endpoint that echoes the caller it was handed.
 func newBrokerEnv(t *testing.T) *brokerEnv {
 	t.Helper()
 	return newBrokerEnvWith(t, httptest.NewServer, nil)
@@ -242,8 +244,11 @@ func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, e
 			w.WriteHeader(http.StatusUnauthorized)
 		})
 	}
+	metrics, err := telemetry.NewMetricsMiddleware(context.Background(), noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
 	root := mux.NewRouter()
 	root.Use(broker.ChallengeMiddleware())
+	root.Use(metrics.Handler)
 	root.Use(broker.AuthMiddleware(apiAuth))
 	api := root.PathPrefix(apiPrefix).Subrouter()
 	require.NoError(t, broker.RegisterEndpoints(root, api))

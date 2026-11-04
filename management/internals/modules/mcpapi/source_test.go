@@ -39,8 +39,16 @@ func TestBrokerRequestsLogAsMCP(t *testing.T) {
 	// before the MCP handler runs.
 	require.Equal(t, http.StatusUnauthorized, env.callMCP("/api/mcp", accessTokenPrefix+"not-a-token", nil).status)
 
+	// Discovery is served from the root router rather than the API one.
+	env.getJSON(ProtectedResourcePath, nil, &map[string]any{})
+
 	assert.Equal(t, hook.MCPSource, sourceOf(t, logs, "MCP refresh token reused"), "the token endpoint logs as MCP")
 	assert.Equal(t, hook.MCPSource, sourceOf(t, logs, "MCP access token rejected"), "the access token check logs as MCP")
+	// The HTTP metrics middleware logs each response after the handlers return, from the
+	// request they marked.
+	for _, path := range []string{"POST " + apiPrefix + tokenPath, "POST " + apiPrefix + Path, "GET " + ProtectedResourcePath} {
+		assert.Equal(t, hook.MCPSource, sourceOf(t, logs, "request "+path+" took"), "the metrics log of %s reads MCP", path)
+	}
 }
 
 // TestAuthMiddlewareMarksOnlyTheMCPEndpoint checks that a PAT or dashboard login on the MCP
@@ -65,38 +73,52 @@ func TestAuthMiddlewareMarksOnlyTheMCPEndpoint(t *testing.T) {
 }
 
 // TestMetricsLogKeepsTheMCPCaller checks that the HTTP metrics middleware, which logs every
-// response after the handlers return, sees both the MCP mark and the caller the API auth found.
-// The API auth hands the caller back by overwriting the request it was given, so the broker
-// must pass that same request on rather than a copy.
+// response after the handlers return, sees both the MCP mark and the caller, whichever
+// credential signed in. The API auth and the broker hand the caller back by overwriting the
+// request they were given, so nothing between them and the metrics middleware may copy it.
 func TestMetricsLogKeepsTheMCPCaller(t *testing.T) {
 	logs := captureLogs(t)
-
 	env := newBrokerEnv(t)
-	metrics, err := telemetry.NewMetricsMiddleware(context.Background(), noop.NewMeterProvider().Meter(""))
-	require.NoError(t, err)
-	// Stands in for the API auth accepting a PAT, updating the request in place as it does.
-	apiAuth := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			*r = *nbcontext.SetUserAuthInRequest(r, auth.UserAuth{UserId: "user-1", AccountId: "account-1", IsPAT: true})
-			next.ServeHTTP(w, r)
-		})
-	}
-	handler := metrics.Handler(env.broker.AuthMiddleware(apiAuth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})))
 
-	for path, want := range map[string]hook.ExecutionContext{apiPrefix + Path: hook.MCPSource, apiPrefix + "/peers": hook.HTTPSource} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
-		req.Header.Set("Authorization", "Token nbp_example")
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code, "status on %s", path)
+	t.Run("PAT", func(t *testing.T) {
+		logs.Reset()
+		metrics, err := telemetry.NewMetricsMiddleware(context.Background(), noop.NewMeterProvider().Meter(""))
+		require.NoError(t, err)
+		// Stands in for the API auth accepting a PAT, updating the request in place as it does.
+		apiAuth := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				*r = *nbcontext.SetUserAuthInRequest(r, auth.UserAuth{UserId: "user-1", AccountId: "account-1", IsPAT: true})
+				next.ServeHTTP(w, r)
+			})
+		}
+		handler := metrics.Handler(env.broker.AuthMiddleware(apiAuth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})))
 
-		entry := entryOf(t, logs, "request POST "+path+" took")
-		assert.Equal(t, want, entry.Data["context"], "source the metrics log reads on %s", path)
-		assert.Equal(t, "user-1", entry.Data[nbcontext.UserIDKey], "user the metrics log reads on %s", path)
-		assert.Equal(t, "account-1", entry.Data[nbcontext.AccountIDKey], "account the metrics log reads on %s", path)
-	}
+		for path, want := range map[string]hook.ExecutionContext{apiPrefix + Path: hook.MCPSource, apiPrefix + "/peers": hook.HTTPSource} {
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			req.Header.Set("Authorization", "Token nbp_example")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code, "status on %s", path)
+			assertMetricsCaller(t, entryOf(t, logs, "request POST "+path+" took"), want)
+		}
+	})
+
+	t.Run("broker token", func(t *testing.T) {
+		s := env.signIn()
+		logs.Reset()
+		require.Equal(t, http.StatusOK, env.callMCP(apiPrefix+Path, s.access, nil).status)
+		assertMetricsCaller(t, entryOf(t, logs, "request POST "+apiPrefix+Path+" took"), hook.MCPSource)
+	})
+}
+
+// assertMetricsCaller checks the source and the caller a metrics log line carries.
+func assertMetricsCaller(t *testing.T, entry log.Entry, source hook.ExecutionContext) {
+	t.Helper()
+	assert.Equal(t, source, entry.Data["context"], "source the metrics log reads for %q", entry.Message)
+	assert.Equal(t, "user-1", entry.Data[nbcontext.UserIDKey], "user the metrics log reads for %q", entry.Message)
+	assert.Equal(t, "account-1", entry.Data[nbcontext.AccountIDKey], "account the metrics log reads for %q", entry.Message)
 }
 
 // captureLogs records what the standard logger writes at debug level, with the production
