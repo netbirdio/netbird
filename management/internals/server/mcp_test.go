@@ -460,8 +460,9 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 				return
 			}
 			assert.Equal(c, "MCP client signed in", signIn.Activity)
-			assert.Equal(c, mcpTestOwnerEmail, signIn.InitiatorEmail, "the user who signed in is the initiator")
-			assert.Equal(c, signIn.InitiatorId, signIn.TargetId, "and the target")
+			assert.Equal(c, me.Id, signIn.InitiatorId, "the user who signed in is the initiator")
+			assert.Equal(c, me.Id, signIn.TargetId, "the user who signed in is the target")
+			assert.Equal(c, mcpTestOwnerEmail, signIn.InitiatorEmail, "the initiator resolves to the user's email")
 			// The handler adds the target user's email and name to what the broker stored.
 			want := map[string]string{"client_name": "server-test", "redirect_host": mcpTestClientRedirectHost, "access": "read and write"}
 			for key, value := range want {
