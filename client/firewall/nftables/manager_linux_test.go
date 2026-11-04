@@ -107,12 +107,7 @@ func TestNftablesManager(t *testing.T) {
 	}
 	// Since DROP rules are inserted at position 0, the DROP rule comes first
 	expectedDropExprs := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
-			Len:          uint32(1),
-		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 		&expr.Cmp{
 			Register: 1,
 			Op:       expr.CmpOpEq,
