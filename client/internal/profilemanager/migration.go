@@ -3,6 +3,7 @@
 package profilemanager
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/user"
@@ -14,7 +15,19 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/getent"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/util"
 )
+
+// migrationMarkerName is the file in the shared profile directory that records
+// a finished migration.
+const migrationMarkerName = ".migrated"
+
+// migrationVersion is the layout version the marker records.
+const migrationVersion = 1
+
+type migrationMarker struct {
+	Version int `json:"version"`
+}
 
 // MigrateLegacyProfiles prepares the per-username layout for a daemon that
 // addresses profiles by ID and owner.
@@ -25,12 +38,14 @@ import (
 // the machine last ran as need their owner recorded, which the active profile
 // state is the only lossless record of.
 //
-// The profiles.v1 directory is the marker and is created only once both are
+// A marker file in the shared profile directory is written only once both are
 // done, so a run that fails leaves no marker and is retried on the next start.
+// The directory itself is no marker, since adding a profile creates it.
 // Callers log a failure and carry on rather than refusing to start.
 func (s *ServiceManager) MigrateLegacyProfiles() error {
 	dest := s.profilesDirPath()
-	if _, err := os.Stat(dest); err == nil {
+	marker := filepath.Join(dest, migrationMarkerName)
+	if _, err := os.Stat(marker); err == nil {
 		return nil
 	}
 
@@ -61,8 +76,11 @@ func (s *ServiceManager) MigrateLegacyProfiles() error {
 	if err := os.MkdirAll(dest, 0700); err != nil {
 		return fmt.Errorf("create shared profile directory: %w", err)
 	}
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), marker, migrationMarker{Version: migrationVersion}); err != nil {
+		return fmt.Errorf("write migration marker: %w", err)
+	}
 
-	log.Infof("profile migration complete, %s now marks it done", dest)
+	log.Infof("profile migration complete, %s now marks it done", marker)
 	return nil
 }
 

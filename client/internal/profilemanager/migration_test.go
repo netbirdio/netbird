@@ -14,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 // currentUserPrincipal returns the running account's name and the owner
@@ -49,7 +51,7 @@ func TestMigrate_StampsTheActiveAccountsDirectory(t *testing.T) {
 		assert.Equal(t, []string{principal}, readOwners(t, mine))
 		assert.Empty(t, readOwners(t, theirs),
 			"only the account the active state names has a directory we can attribute")
-		assert.DirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+		assert.FileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName),
 			"the marker is written once both halves are done")
 	})
 }
@@ -112,6 +114,31 @@ func TestMigrate_RekeysDuplicateIDsAndKeepsTheActiveOne(t *testing.T) {
 	})
 }
 
+// Adding a profile creates the shared directory, so a run that failed before it
+// must still be retried once the directory exists.
+func TestMigrate_RunsWhenTheDirectoryExistsWithoutTheMarker(t *testing.T) {
+	username, _ := currentUserPrincipal(t)
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		writeLegacyProfile(t, configDir, dir, "work", nil)
+		writeLegacyProfile(t, configDir, dir+"-other", "work", nil)
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
+		require.NoError(t, os.MkdirAll(filepath.Join(configDir, DefaultProfilePathDir), 0700))
+
+		require.NoError(t, sm.MigrateLegacyProfiles())
+
+		profiles, err := sm.loadAllProfiles()
+		require.NoError(t, err)
+		assert.Equal(t, 0, countID(profiles, "work"), "the namesakes must be rekeyed despite the existing directory")
+
+		var marker migrationMarker
+		_, err = util.ReadJson(filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName), &marker)
+		require.NoError(t, err, "a finished run writes the marker")
+		assert.Equal(t, migrationVersion, marker.Version, "the marker records the layout version")
+	})
+}
+
 func TestMigrate_UnresolvableAccountLeavesNoMarker(t *testing.T) {
 	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
 		path := writeLegacyProfile(t, configDir, "ghost", "work", nil)
@@ -121,7 +148,7 @@ func TestMigrate_UnresolvableAccountLeavesNoMarker(t *testing.T) {
 
 		require.Error(t, sm.MigrateLegacyProfiles())
 		assert.Empty(t, readOwners(t, path))
-		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+		assert.NoFileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName),
 			"an unfinished run leaves no marker, so the next start tries again")
 	})
 }
@@ -159,7 +186,7 @@ func TestMigrate_AStateFileThatCannotFollowRollsBackTheRekey(t *testing.T) {
 		allowRenames := failRenamesOf(t, prefsFileSuffix)
 
 		require.Error(t, sm.MigrateLegacyProfiles())
-		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+		assert.NoFileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName),
 			"a rekey that could not finish leaves no marker, so the next start tries again")
 		assert.FileExists(t, mine, "the profile is back under the ID its state file still carry")
 		assert.FileExists(t, state, "and so is the state file that had already moved")
@@ -214,7 +241,7 @@ func TestMigrate_AnActiveStateThatCannotFollowRollsBackTheRekey(t *testing.T) {
 		t.Cleanup(func() { writeActiveState = orig })
 
 		require.Error(t, sm.MigrateLegacyProfiles())
-		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+		assert.NoFileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName),
 			"a repoint that could not finish leaves no marker, so the next start tries again")
 		assert.FileExists(t, mine, "the active profile is back under the ID the active state names")
 		assert.FileExists(t, state, "and so is its state file")
@@ -247,7 +274,7 @@ func TestMigrate_NamesakesTheStateCannotTellApartLeaveNoMarker(t *testing.T) {
 		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work"}))
 
 		require.ErrorIs(t, sm.MigrateLegacyProfiles(), ErrAmbiguousActiveProfile)
-		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+		assert.NoFileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName),
 			"the marker would retire the only pass that can still separate them")
 		assert.FileExists(t, mine, "so both namesakes are left as they are")
 		assert.FileExists(t, theirs)
@@ -268,7 +295,7 @@ func TestMigrate_NamesakesTheStateCannotTellApartLeaveNoMarker(t *testing.T) {
 		// the start after that finishes the job.
 		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
 		require.NoError(t, sm.MigrateLegacyProfiles())
-		assert.DirExists(t, filepath.Join(configDir, DefaultProfilePathDir))
+		assert.FileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName))
 
 		state, err = sm.GetActiveProfileState()
 		require.NoError(t, err)
@@ -329,7 +356,7 @@ func TestMigrate_SkipsAProfileItCannotStamp(t *testing.T) {
 
 		assert.Equal(t, []string{principal}, readOwners(t, good),
 			"one profile that cannot be stamped does not hold up the rest")
-		assert.DirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+		assert.FileExists(t, filepath.Join(configDir, DefaultProfilePathDir, migrationMarkerName),
 			"and the marker still lands, since the claim path retries the one left behind")
 
 		data, err := os.ReadFile(broken)
