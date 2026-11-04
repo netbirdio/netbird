@@ -1316,7 +1316,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	var peer *nbpeer.Peer
-	var shouldStorePeer, shouldUpdatePeers bool
+	var shouldUpdatePeers bool
 	var peerGroupIDs []string
 	var prevAuthPubKey string
 
@@ -1330,49 +1330,8 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 	if peerLoginChangesPeer(ctx, peer, login, settings) {
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
-			if err != nil {
-				return err
-			}
-			if err = am.checkPeerLogin(ctx, transaction, peer, login); err != nil {
-				return err
-			}
-
-			if login.UserID != "" {
-				changed, err := am.handleUserPeer(ctx, transaction, peer, settings)
-				if err != nil {
-					return err
-				}
-
-				if changed {
-					shouldStorePeer = true
-					shouldUpdatePeers = true
-				}
-			}
-
-			if peer.SSHKey != login.SSHKey {
-				peer.SSHKey = login.SSHKey
-				shouldStorePeer = true
-			}
-
-			prevAuthPubKey = peer.AuthPubKey
-			authKeyChanged := peer.AuthPubKey != login.AuthPubKey
-			peer.AuthPubKey = login.AuthPubKey
-			if !shouldStorePeer && !authKeyChanged {
-				return nil
-			}
-
-			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
-				return err
-			}
-			// The auth key is in no other peer's network map, so it alone does not bump the serial.
-			if shouldStorePeer {
-				if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-					return fmt.Errorf("increment network serial: %w", err)
-				}
-			}
-
-			return nil
+			peer, shouldUpdatePeers, prevAuthPubKey, err = am.applyPeerLoginChanges(ctx, transaction, accountID, login, settings)
+			return err
 		})
 		if err != nil {
 			return nil, nil, nil, false, err
@@ -1407,6 +1366,56 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	return peer, network, postureChecks, enableSSH, nil
+}
+
+// applyPeerLoginChanges re-reads the peer under lock and saves what the login changes on it. It
+// returns the peer, whether other peers must be told about the change, and the auth key the peer
+// had before the login.
+func (am *DefaultAccountManager) applyPeerLoginChanges(ctx context.Context, transaction store.Store, accountID string, login types.PeerLogin, settings *types.Settings) (*nbpeer.Peer, bool, string, error) {
+	peer, err := transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
+	if err != nil {
+		return nil, false, "", err
+	}
+	if err = am.checkPeerLogin(ctx, transaction, peer, login); err != nil {
+		return nil, false, "", err
+	}
+
+	var shouldStorePeer, shouldUpdatePeers bool
+	if login.UserID != "" {
+		changed, err := am.handleUserPeer(ctx, transaction, peer, settings)
+		if err != nil {
+			return nil, false, "", err
+		}
+
+		if changed {
+			shouldStorePeer = true
+			shouldUpdatePeers = true
+		}
+	}
+
+	if peer.SSHKey != login.SSHKey {
+		peer.SSHKey = login.SSHKey
+		shouldStorePeer = true
+	}
+
+	prevAuthPubKey := peer.AuthPubKey
+	authKeyChanged := peer.AuthPubKey != login.AuthPubKey
+	peer.AuthPubKey = login.AuthPubKey
+	if !shouldStorePeer && !authKeyChanged {
+		return peer, shouldUpdatePeers, prevAuthPubKey, nil
+	}
+
+	if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
+		return nil, false, "", err
+	}
+	// The auth key is in no other peer's network map, so it alone does not bump the serial.
+	if shouldStorePeer {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, false, "", fmt.Errorf("increment network serial: %w", err)
+		}
+	}
+
+	return peer, shouldUpdatePeers, prevAuthPubKey, nil
 }
 
 // checkPeerLogin rejects a login whose user does not own the peer, whose owner is
