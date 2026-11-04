@@ -2915,8 +2915,14 @@ type EDRFalconRequest struct {
 	// Groups The Groups this integration applies to
 	Groups []string `json:"groups"`
 
+	// LastSyncedInterval The devices last seen requirement interval in hours. Minimum value is 24 hours.
+	LastSyncedInterval *int `json:"last_synced_interval,omitempty"`
+
 	// Secret CrowdStrike API client secret
 	Secret string `json:"secret"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -2951,6 +2957,12 @@ type EDRFalconResponse struct {
 	// LastSyncedAt Timestamp of when the integration was last synced.
 	LastSyncedAt time.Time `json:"last_synced_at"`
 
+	// LastSyncedInterval The devices last seen requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+	StaleGraceMinutes int `json:"stale_grace_minutes"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -2980,6 +2992,9 @@ type EDRFleetDMRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3017,6 +3032,9 @@ type EDRFleetDMResponse struct {
 	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+	StaleGraceMinutes int `json:"stale_grace_minutes"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3043,6 +3061,9 @@ type EDRHuntressRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3077,6 +3098,9 @@ type EDRHuntressResponse struct {
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
 
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+	StaleGraceMinutes int `json:"stale_grace_minutes"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3100,6 +3124,9 @@ type EDRIntuneRequest struct {
 
 	// Secret The Azure application client secret
 	Secret string `json:"secret"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3137,6 +3164,9 @@ type EDRIntuneResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+	StaleGraceMinutes int `json:"stale_grace_minutes"`
+
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`
 
@@ -3166,6 +3196,9 @@ type EDRSentinelOneRequest struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+	StaleGraceMinutes *int `json:"stale_grace_minutes,omitempty"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
 	SyncInterval *int `json:"sync_interval,omitempty"`
@@ -3202,6 +3235,9 @@ type EDRSentinelOneResponse struct {
 
 	// MatchAttributes Attribute conditions to match when approving agents
 	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// StaleGraceMinutes Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
+	StaleGraceMinutes int `json:"stale_grace_minutes"`
 
 	// SyncInterval How often devices are synced from the integration, in minutes.
 	SyncInterval int `json:"sync_interval"`

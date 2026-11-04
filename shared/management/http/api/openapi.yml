@@ -3966,6 +3966,12 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -3985,6 +3991,7 @@ components:
         - groups
         - last_synced_interval
         - sync_interval
+        - stale_grace_minutes
         - enabled
       properties:
         id:
@@ -4034,6 +4041,9 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4061,6 +4071,12 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4088,6 +4104,7 @@ components:
         - last_synced_interval
         - match_attributes
         - sync_interval
+        - stale_grace_minutes
         - enabled
       properties:
         id:
@@ -4133,6 +4150,9 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4192,11 +4212,21 @@ components:
           minimum: 0
           maximum: 100
           example: 75
+        last_synced_interval:
+          type: integer
+          description: The devices last seen requirement interval in hours. Minimum value is 24 hours.
+          minimum: 24
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4221,6 +4251,8 @@ components:
         - groups
         - zta_score_threshold
         - sync_interval
+        - stale_grace_minutes
+        - last_synced_interval
         - enabled
       properties:
         id:
@@ -4261,9 +4293,15 @@ components:
         zta_score_threshold:
           type: integer
           description: The minimum Zero Trust Assessment score required for agent approval (0-100)
+        last_synced_interval:
+          type: integer
+          description: The devices last seen requirement interval in hours.
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4292,6 +4330,12 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4318,6 +4362,7 @@ components:
         - last_synced_interval
         - match_attributes
         - sync_interval
+        - stale_grace_minutes
         - enabled
       properties:
         id:
@@ -4358,6 +4403,9 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4411,6 +4459,12 @@ components:
           description: How often devices are synced from the integration, in minutes. Minimum value is 1 minute, maximum is 1440 minutes.
           minimum: 1
           maximum: 1440
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 disables it, maximum is 240.
+          minimum: 0
+          maximum: 240
+          default: 0
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
@@ -4438,6 +4492,7 @@ components:
         - last_synced_interval
         - match_attributes
         - sync_interval
+        - stale_grace_minutes
         - enabled
       properties:
         id:
@@ -4481,6 +4536,9 @@ components:
         sync_interval:
           type: integer
           description: How often devices are synced from the integration, in minutes.
+        stale_grace_minutes:
+          type: integer
+          description: Minutes a previously approved device keeps access after a stale check-in. 0 means disabled.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
