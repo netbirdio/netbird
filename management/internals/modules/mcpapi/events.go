@@ -3,6 +3,8 @@ package mcpapi
 import (
 	"context"
 	"slices"
+	"strings"
+	"unicode"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 )
@@ -21,8 +23,8 @@ type sessionEvent struct {
 // the account the user signed in to.
 func (b *Broker) recordSession(ctx context.Context, code activity.Activity, e sessionEvent) {
 	meta := map[string]any{"access": accessGranted(e.scopes)}
-	if e.clientName != "" {
-		meta["client_name"] = e.clientName
+	if name := auditClientName(e.clientName); name != "" {
+		meta["client_name"] = name
 	}
 	if e.redirectURI != "" {
 		meta["redirect_host"] = redirectHost(e.redirectURI)
@@ -37,6 +39,19 @@ func (b *Broker) clientName(clientID string) string {
 	return client.Name
 }
 
+// auditClientName drops control and format characters, such as bidi overrides and zero-width
+// spaces, which a self-chosen name could use to reorder or hide text where the log is shown.
+func auditClientName(name string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+			return -1
+		}
+		return r
+	}, name))
+}
+
+// accessGranted names the scopes the user approved at consent. The user's role still limits
+// the session, so "read and write" does not mean the user may write.
 func accessGranted(scopes []string) string {
 	if slices.Contains(scopes, scopeWrite) {
 		return "read and write"

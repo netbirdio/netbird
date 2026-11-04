@@ -189,6 +189,10 @@ func TestGrantStoresExpire(t *testing.T) {
 		outcome, _, err := grants.rotate(ctx, grantID, "r0", "r1", time.Now())
 		require.NoError(t, err)
 		assert.Equal(t, grantGone, outcome)
+		// The memory store keeps an ended grant until its next sweep, so this is not a no-op.
+		revoked, err := grants.revoke(ctx, grantID)
+		require.NoError(t, err)
+		assert.False(t, revoked, "an ended session is not revoked again")
 		_, reused, err := grants.start(ctx, codeID, time.Minute, "again-"+codeID, grantRecord{Current: "r0"}, time.Minute)
 		require.NoError(t, err)
 		assert.False(t, reused, "a code's use marker lasts only as long as the code")

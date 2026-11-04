@@ -292,6 +292,9 @@ const (
 	// AccountPeerHostnameCollisionRejectionDisabled indicates that a user disabled rejecting peer hostname collisions for the account
 	AccountPeerHostnameCollisionRejectionDisabled Activity = 145
 
+	// The MCP session events' client_name meta is chosen by the client, and their access meta is
+	// what the user approved at consent, still limited by the user's role.
+
 	// MCPClientSignedIn indicates that a user signed an MCP client in through the MCP OAuth broker
 	MCPClientSignedIn Activity = 146
 	// MCPClientSignedOut indicates that an MCP client ended its session at the revocation endpoint

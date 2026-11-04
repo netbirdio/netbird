@@ -62,6 +62,27 @@ func TestBrokerRecordsSignIns(t *testing.T) {
 			"client_name": "Test <Client>", "redirect_host": "localhost:3118", "access": "read",
 		})}, env.accounts.takeEvents())
 	})
+
+	t.Run("a client's name is stored without control or format characters", func(t *testing.T) {
+		env := newBrokerEnv(t)
+		signInAs := func(name string) []storedEvent {
+			status, reg := env.registerClient(map[string]any{"client_name": name, "redirect_uris": []string{clientCallback}})
+			require.Equal(t, http.StatusCreated, status)
+			req := env.newRequest(reg.ClientID)
+			status, tokens := env.exchange(req, env.login(req, false).Query().Get("code"))
+			require.Equal(t, http.StatusOK, status, tokens)
+			return env.accounts.takeEvents()
+		}
+
+		// A right-to-left override (U+202E) shows "Editor", the override and "exe.txt" as
+		// "Editortxt.exe" in a viewer that honors it, and zero-width spaces and newlines hide.
+		assert.Equal(t, []storedEvent{userEvent(activity.MCPClientSignedIn, map[string]any{
+			"client_name": "Editorexe.txt Code", "redirect_host": "localhost:3118", "access": "read",
+		})}, signInAs("\u200bEditor\u202Eexe.txt\u202C Code\n"), "only the visible characters remain")
+		assert.Equal(t, []storedEvent{userEvent(activity.MCPClientSignedIn, map[string]any{
+			"redirect_host": "localhost:3118", "access": "read",
+		})}, signInAs("\u202E\u200b\t"), "a name with nothing visible is left out")
+	})
 }
 
 func TestBrokerRecordsSignOuts(t *testing.T) {

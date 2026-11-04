@@ -178,6 +178,26 @@ func (m *mcpTestServer) request(t *testing.T, method, path, body string, header 
 	return readReply(t, resp)
 }
 
+// auditEvents lists the account's audit log. It reports failures to c rather than to the
+// test, since EventuallyWithT runs its condition outside the test goroutine.
+func (m *mcpTestServer) auditEvents(c *assert.CollectT, pat string) ([]api.Event, bool) {
+	req, err := http.NewRequest(http.MethodGet, m.base+"/api/events/audit", nil)
+	if !assert.NoError(c, err) {
+		return nil, false
+	}
+	req.Header.Set("Authorization", "Token "+pat)
+	resp, err := m.web.Client().Do(req)
+	if !assert.NoError(c, err) {
+		return nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var events []api.Event
+	if !assert.Equal(c, http.StatusOK, resp.StatusCode) || !assert.NoError(c, json.NewDecoder(resp.Body).Decode(&events)) {
+		return nil, false
+	}
+	return events, true
+}
+
 // setupOwner creates the instance owner through /api/setup, the way the dashboard's first
 // run does, and returns the personal access token setup issues for it.
 func (m *mcpTestServer) setupOwner(t *testing.T) string {
@@ -426,9 +446,8 @@ func TestMCPWithEmbeddedIdP(t *testing.T) {
 
 		// The account manager stores events in the background, so the audit log is polled.
 		assert.EventuallyWithT(t, func(c *assert.CollectT) {
-			resp, body := m.request(t, http.MethodGet, "/api/events/audit", "", http.Header{"Authorization": {"Token " + pat}})
-			var events []api.Event
-			if !assert.Equal(c, http.StatusOK, resp.StatusCode, body) || !assert.NoError(c, json.Unmarshal([]byte(body), &events)) {
+			events, ok := m.auditEvents(c, pat)
+			if !ok {
 				return
 			}
 			var signIn *api.Event
