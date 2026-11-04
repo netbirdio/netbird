@@ -234,6 +234,7 @@ func (p *Peer) handleKeepaliveRequest(ctx context.Context) {
 		return
 	}
 
+	p.log.Debugf("received keepalive request from %s", p.conn.RemoteAddr())
 	p.kaReceiver.Refresh()
 	if _, err := p.Write(ctx, p.enc.KeepaliveResponse()); err != nil {
 		p.log.Errorf("failed to send keepalive response: %s", err)
