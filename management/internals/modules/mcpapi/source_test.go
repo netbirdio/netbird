@@ -2,6 +2,7 @@ package mcpapi
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,27 @@ func TestBrokerRequestsLogAsMCP(t *testing.T) {
 
 	assert.Equal(t, hook.MCPSource, sourceOf(t, logs, "MCP refresh token reused"), "the token endpoint logs as MCP")
 	assert.Equal(t, hook.MCPSource, sourceOf(t, logs, "MCP access token rejected"), "the access token check logs as MCP")
+}
+
+// TestAuthMiddlewareMarksOnlyTheMCPEndpoint checks that a PAT or dashboard login on the MCP
+// endpoint reaches the API auth already marked as MCP, and other API paths stay unmarked.
+func TestAuthMiddlewareMarksOnlyTheMCPEndpoint(t *testing.T) {
+	env := newBrokerEnv(t)
+	var seen any
+	apiAuth := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seen = r.Context().Value(hook.ExecutionContextKey)
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+	}
+	handler := env.broker.AuthMiddleware(apiAuth)(http.NotFoundHandler())
+	for path, want := range map[string]any{apiPrefix + Path: hook.MCPSource, apiPrefix + "/peers": nil} {
+		seen = "not reached"
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Token nbp_example")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		assert.Equal(t, want, seen, "source the API auth sees on %s", path)
+	}
 }
 
 // sourceOf returns the execution context of the first log entry whose message starts with prefix.

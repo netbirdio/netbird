@@ -24,12 +24,18 @@ func (b *Broker) AuthMiddleware(apiAuth mux.MiddlewareFunc) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		fallback := apiAuth(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, ok := brokerToken(r)
-			if !ok || r.URL.Path != apiPrefix+Path {
+			if r.URL.Path != apiPrefix+Path {
 				fallback.ServeHTTP(w, r)
 				return
 			}
+			// Marked before the credential is checked, so a refused PAT or dashboard login on
+			// the MCP endpoint also logs as MCP.
 			r = r.WithContext(mcpSource(r.Context()))
+			token, ok := brokerToken(r)
+			if !ok {
+				fallback.ServeHTTP(w, r)
+				return
+			}
 
 			userAuth, scopes, err := b.authenticate(r, token)
 			if errors.Is(err, errStoreUnavailable) {
