@@ -102,8 +102,12 @@ func TestTokenMetrics_AnthropicBuffered(t *testing.T) {
 	)
 	assert.Equal(t, map[string]int64{"input": 123, "output": 45}, got,
 		"zero cache buckets must not create series; input/output must match fixture")
-	assert.Equal(t, map[string]int64{resultParsed: 1}, responseSums(t, reader, attribute.String("mode", modeBuffered)),
-		"a parsed JSON response must count once as buffered/parsed")
+	assert.Equal(t, map[string]int64{resultParsed: 1}, responseSums(t, reader,
+		attribute.String("account_id", "acct-1"),
+		attribute.String("provider", "anthropic"),
+		attribute.String("model", "claude-sonnet-4-5"),
+		attribute.String("mode", modeBuffered),
+	), "a parsed JSON response must count once as buffered/parsed, with its account, provider and model")
 }
 
 func TestTokenMetrics_AnthropicStreaming(t *testing.T) {
@@ -114,8 +118,12 @@ func TestTokenMetrics_AnthropicStreaming(t *testing.T) {
 
 	assert.Equal(t, map[string]int64{"input": 123, "output": 45}, tokenSums(t, reader),
 		"input from message_start and output from the final message_delta must both count")
-	assert.Equal(t, map[string]int64{resultParsed: 1}, responseSums(t, reader, attribute.String("mode", modeStreaming)),
-		"a complete stream must count once as streaming/parsed")
+	assert.Equal(t, map[string]int64{resultParsed: 1}, responseSums(t, reader,
+		attribute.String("account_id", "acct-1"),
+		attribute.String("provider", "anthropic"),
+		attribute.String("model", "claude-sonnet-4-5"),
+		attribute.String("mode", modeStreaming),
+	), "a complete stream must count once as streaming/parsed, with its account, provider and model")
 }
 
 func TestTokenMetrics_TruncatedStreamCountsPrefix(t *testing.T) {
@@ -253,11 +261,13 @@ func TestTokenMetrics_TruncatedStreamWithOnlyCacheUsage(t *testing.T) {
 	in := anthropicInput(200, "text/event-stream", body)
 	in.RespBodyTruncated = true
 
-	_, err := m.Invoke(context.Background(), in)
+	out, err := m.Invoke(context.Background(), in)
 	require.NoError(t, err, "Invoke must not error")
 
 	assert.Equal(t, map[string]int64{"cached_input": 50, "cache_creation": 7}, tokenSums(t, reader),
 		"cache counts alone must still count as usage")
+	assert.Empty(t, lookupKV(out.Metadata, middleware.KeyLLMCachedInputTokens),
+		"the metadata the cost meter reads must keep its rule: no usage keys without input or output")
 	assert.Equal(t, map[string]int64{resultTruncated: 1}, responseSums(t, reader), "the response must count as truncated")
 }
 
@@ -280,4 +290,19 @@ func TestTokenMetrics_OnlyResponsesWithUsageAdmitModels(t *testing.T) {
 	assert.Equal(t, map[string]int64{resultParsed: 1, resultErrorStatus: 1},
 		responseSums(t, reader, attribute.String("model", "claude")),
 		"an admitted model must keep its label on responses without usage")
+}
+
+func TestTokenMetrics_ReservedModelNamesAreNotAdmitted(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	tm := newTokenMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+
+	usage := llm.Usage{InputTokens: 1}
+	tm.record(context.Background(), response{provider: "openai", model: modelUnknown, mode: modeBuffered, result: resultParsed, usage: usage})
+	tm.record(context.Background(), response{provider: "openai", model: modelOverflow, mode: modeBuffered, result: resultParsed, usage: usage})
+
+	assert.Equal(t, map[string]int64{resultParsed: 2}, responseSums(t, reader, attribute.String("model", modelOverflow)),
+		"a model named after a reserved label must be reported as overflow")
+	assert.Empty(t, responseSums(t, reader, attribute.String("model", modelUnknown)),
+		"unknown must mean only a request without a model")
+	assert.Empty(t, tm.models, "reserved names must not take a slot")
 }

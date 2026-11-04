@@ -242,9 +242,11 @@ func (m *Middleware) invokeStreaming(parser llm.Parser, body []byte) (md []middl
 
 	usage, completion := accumulateStream(parser.ProviderName(), body)
 
-	if hasUsage(usage) {
+	// The metrics count cache-only usage too; the metadata keeps its own
+	// rule, since the cost meter and the limits read it.
+	ok = hasUsage(usage)
+	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.TotalTokens > 0 {
 		md = appendUsage(md, usage)
-		ok = true
 	}
 	if c := truncateCompletion(completion); c != "" && m.captureCompletion {
 		if m.redactPii {

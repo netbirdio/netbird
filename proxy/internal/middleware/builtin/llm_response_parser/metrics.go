@@ -133,6 +133,11 @@ func (tm *tokenMetrics) modelLabel(model string, admit bool) string {
 	if model == "" {
 		return modelUnknown
 	}
+	// The reserved labels are never a model's own, so they stay
+	// unambiguous even if an upstream serves a model by that name.
+	if model == modelOverflow || model == modelUnknown {
+		return modelOverflow
+	}
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	if _, ok := tm.models[model]; ok {
