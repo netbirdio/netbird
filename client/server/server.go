@@ -2810,23 +2810,34 @@ func (s *Server) checkDisableAdvancedView() *bool {
 	return nil
 }
 
-// profileOwnerOption passes the OS account of the active profile to the connect client,
-// which reads that account's certificate store for user certificate posture checks.
-func (s *Server) profileOwnerOption() []internal.ConnectClientOption {
-	if s.profileManager == nil {
-		return nil
+// profileOwnerOption names the owner of the profile being connected, whose certificate
+// store answers user certificate posture checks.
+func profileOwnerOption(config *profilemanager.Config) internal.ConnectClientOption {
+	owner, known := profileOwner(config)
+	if !known {
+		return internal.WithUnknownProfileOwner()
 	}
-	activeProf, err := s.profileManager.GetActiveProfileState()
+	return internal.WithProfileOwner(owner)
+}
+
+// profileOwner returns the owner principal's value, a numeric uid or a SID. An unowned
+// profile yields an empty owner. An owner that names no account on this platform is
+// not known.
+func profileOwner(config *profilemanager.Config) (string, bool) {
+	if len(config.Owners) == 0 {
+		return "", true
+	}
+	principal, err := ipcauth.ValidatePrincipal(config.Owners[0])
 	if err != nil {
-		log.Warnf("failed to read the active profile owner, no user certificate store is used for certificate posture: %v", err)
-		return []internal.ConnectClientOption{internal.WithUnknownProfileOwner()}
+		log.Warnf("no user certificate store is used for certificate posture: %v", err)
+		return "", false
 	}
-	return []internal.ConnectClientOption{internal.WithProfileOwner(activeProf.Username)}
+	return principal.Value, true
 }
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder, s.profileOwnerOption()...)
+	client := internal.NewConnectClient(ctx, config, statusRecorder, profileOwnerOption(config))
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 
