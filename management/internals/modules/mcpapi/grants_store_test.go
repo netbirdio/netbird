@@ -230,6 +230,35 @@ func TestGrantStoresAreAtomic(t *testing.T) {
 			assert.Equal(t, 1, rotated, "exactly one racer rotates, the rest are served: %v", outcomes)
 		})
 
+		// The broker records a sign-out or a reuse revocation only for the revoke call that
+		// reports the session was still there, so exactly one of racing calls may report it.
+		t.Run("racing revocations report one", func(t *testing.T) {
+			id := newStoredGrant(t, grants, "r0")
+			const racers = 16
+			var wg sync.WaitGroup
+			start := make(chan struct{})
+			revoked := make([]bool, racers)
+			for i := range racers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					var err error
+					revoked[i], err = grants.revoke(ctx, id)
+					assert.NoError(t, err)
+				}()
+			}
+			close(start)
+			wg.Wait()
+			ended := 0
+			for _, r := range revoked {
+				if r {
+					ended++
+				}
+			}
+			assert.Equal(t, 1, ended, "exactly one revocation ends the session: %v", revoked)
+		})
+
 		t.Run("a revocation racing rotations stays revoked", func(t *testing.T) {
 			for range 20 {
 				id := newStoredGrant(t, grants, "r0")
