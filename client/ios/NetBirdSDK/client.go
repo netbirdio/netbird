@@ -360,6 +360,15 @@ func (c *Client) SetTraceLogLevel() {
 	log.SetLevel(log.TraceLevel)
 }
 
+// RefreshWireGuardStats updates handshake times and transfer counters for the next
+// GetStatusDetails call. The recorder only caches them and nothing refreshes them on its own.
+func (c *Client) RefreshWireGuardStats() error {
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		return fmt.Errorf("refresh wireguard stats: %w", err)
+	}
+	return nil
+}
+
 // GetStatusDetails return with the list of the PeerInfos
 func (c *Client) GetStatusDetails() *StatusDetails {
 
