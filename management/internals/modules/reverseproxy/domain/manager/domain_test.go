@@ -9,7 +9,7 @@ import (
 )
 
 func TestExtractClusterFromFreeDomain(t *testing.T) {
-	clusters := []string{"eu1.proxy.netbird.io", "us1.proxy.netbird.io"}
+	clusters := []string{"eu1.proxy.netbird.io", "us1.proxy.netbird.io", "US2.PROXY.NETBIRD.IO"}
 
 	tests := []struct {
 		name    string
@@ -50,6 +50,18 @@ func TestExtractClusterFromFreeDomain(t *testing.T) {
 			domain:  "app.us1.proxy.netbird.io",
 			wantOK:  true,
 			wantVal: "us1.proxy.netbird.io",
+		},
+		{
+			name:    "upper-case domain matches",
+			domain:  "app.US1.PROXY.NETBIRD.IO",
+			wantOK:  true,
+			wantVal: "us1.proxy.netbird.io",
+		},
+		{
+			name:    "upper-case cluster matches",
+			domain:  "app.us2.proxy.netbird.io",
+			wantOK:  true,
+			wantVal: "US2.PROXY.NETBIRD.IO",
 		},
 	}
 

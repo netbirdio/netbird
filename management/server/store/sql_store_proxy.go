@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -61,7 +62,10 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		tx = tx.Where("account_id = ?", *p.AccountID)
 	}
 
-	result := tx.Select("*").Updates(p)
+	pcopy := *p
+	pcopy.ClusterAddress = strings.ToLower(pcopy.ClusterAddress)
+
+	result := tx.Select("*").Updates(&pcopy)
 	if result.Error != nil {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
@@ -77,7 +81,7 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		return nil
 	}
 
-	result = tx.Create(p)
+	result = tx.Create(&pcopy)
 	if result.Error != nil {
 		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
 		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)

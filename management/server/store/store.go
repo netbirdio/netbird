@@ -715,6 +715,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNormalizeServiceDomains(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNormalizeProxyClusterDomains(ctx, db)
+		},
 	}
 }
 

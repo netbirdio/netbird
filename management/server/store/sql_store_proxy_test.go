@@ -104,3 +104,30 @@ func TestSaveProxy_EnforcesAccountIDMatch(t *testing.T) {
 		}
 	})
 }
+
+func TestSaveProxy_NormalizesProxyCluster(t *testing.T) {
+	runTestForAllEnginesNoSqliteSeed(t, "", func(t *testing.T, engine string, store Store) {
+		ctx := context.Background()
+
+		p := rpproxy.Proxy{ID: "proxy-account-id-1", ClusterAddress: "PROXY.EXAMPLE"}
+
+		var pFromDb rpproxy.Proxy
+		{
+			err := store.SaveProxy(ctx, &p)
+			assert.NoError(t, err)
+			err = store.(*SqlStore).db.Where("id = ?", "proxy-account-id-1").First(&pFromDb).Error
+			assert.NoError(t, err)
+			assert.Equal(t, "proxy.example", pFromDb.ClusterAddress)
+		}
+		{
+			// update cluster address
+			p.ClusterAddress = "PROXY-1.EXAMPLE"
+			err := store.SaveProxy(ctx, &p)
+			assert.NoError(t, err)
+
+			err = store.(*SqlStore).db.Where("id = ?", "proxy-account-id-1").First(&pFromDb).Error
+			assert.NoError(t, err)
+			assert.Equal(t, "proxy-1.example", pFromDb.ClusterAddress)
+		}
+	})
+}
