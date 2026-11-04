@@ -161,8 +161,6 @@ func init() {
 	_ = rootCmd.PersistentFlags().MarkDeprecated("admin-url", "the admin-url flag is no longer functional and will be removed in a future version")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
 	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets NetBird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
-	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
-	rootCmd.PersistentFlags().StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
 
 	rootCmd.AddCommand(upCmd)
@@ -244,7 +242,10 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 
 // SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
 func SetFlagsFromEnvVars(cmd *cobra.Command) {
-	flags := cmd.PersistentFlags()
+	setFlagSetFromEnvVars(cmd.PersistentFlags())
+}
+
+func setFlagSetFromEnvVars(flags *pflag.FlagSet) {
 	flags.VisitAll(func(f *pflag.Flag) {
 		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
 
@@ -338,6 +339,16 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	MaxElapsedTime:      30 * time.Second,
 	Stop:                backoff.Stop,
 	Clock:               backoff.SystemClock,
+}
+
+// anonymizeFlags holds the anonymization flags shared by status and the debug bundle commands.
+var anonymizeFlags = newAnonymizeFlagSet()
+
+func newAnonymizeFlagSet() *pflag.FlagSet {
+	flags := pflag.NewFlagSet("anonymize", pflag.ContinueOnError)
+	flags.BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
+	flags.StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
+	return flags
 }
 
 // effectiveAnonymize resolves the --anonymize and --anonymize-level flags:

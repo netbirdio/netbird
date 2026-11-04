@@ -54,11 +54,13 @@ func init() {
 	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
 	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.Flags().AddFlagSet(anonymizeFlags)
 	statusCmd.PersistentFlags().StringVarP(&checkFlag, "check", "C", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
 	SetFlagsFromEnvVars(rootCmd)
+	setFlagSetFromEnvVars(anonymizeFlags)
 
 	cmd.SetOut(cmd.OutOrStdout())
 
