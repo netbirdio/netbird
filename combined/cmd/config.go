@@ -90,11 +90,11 @@ type ServerConfig struct {
 	PeerAuth PeerAuthConfig `yaml:"peerAuth"`
 }
 
-// PeerAuthConfig controls the Signal and Relay tokens bound to the peer keys, signed with authSecret.
+// PeerAuthConfig controls the Signal and Relay tokens bound to the peer keys.
 type PeerAuthConfig struct {
-	// Enabled issues the bound token to peers that send an auth key. Turn it on only once every
-	// Relay verifies the bound token.
-	Enabled bool `yaml:"enabled"`
+	// SigningKeyFile is Management's PEM PKCS#8 Ed25519 signing key. Set, peers that send an auth
+	// key get the bound token, and the local Relay and Signal verify it with the derived public key.
+	SigningKeyFile string `yaml:"signingKeyFile"`
 	// Required makes the local Relay and Signal refuse peers that present no bound token.
 	Required bool `yaml:"required"`
 }
@@ -769,7 +769,7 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 			PricingDefaultsFile: c.Server.AgentNetwork.PricingDefaultsFile,
 		},
 		PeerAuth: nbconfig.PeerAuth{
-			Enabled: c.Server.PeerAuth.Enabled,
+			SigningKeyFile: c.Server.PeerAuth.SigningKeyFile,
 		},
 	}, nil
 }

@@ -7,11 +7,18 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"hash"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -266,27 +273,40 @@ func newPeerAuthTestKeys(t *testing.T) (PeerAuthKeys, wgtypes.Key, ed25519.Publi
 	return keys, wgKey.PublicKey(), authPub
 }
 
-// verifyPeerAuthToken checks the token the way a Signal or Relay verifier holding the relay
-// secret does.
-func verifyPeerAuthToken(t *testing.T, token []byte) *peerauth.Token {
+func writePeerAuthSigningKey(t *testing.T) (string, ed25519.PublicKey) {
 	t.Helper()
-	secret := sha256.Sum256([]byte(peerAuthTestSecret))
-	verified, err := peerauth.VerifyToken(token, peerauth.TokenKeys{HMAC: secret[:]}, time.Now())
-	require.NoError(t, err, "a verifier holding the relay secret must accept the token")
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "peer_auth.pem")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
+	return path, pub
+}
+
+// verifyPeerAuthToken checks the token the way a Signal or Relay verifier holding Management's
+// public key does.
+func verifyPeerAuthToken(t *testing.T, mgmtPub ed25519.PublicKey, token []byte) *peerauth.Token {
+	t.Helper()
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
+	verified, err := peerauth.VerifyToken(token, keys, time.Now())
+	require.NoError(t, err, "a verifier holding Management's public key must accept the token")
 	return verified
 }
 
 func TestTimeBasedAuthSecretsManager_GenerateAuthToken(t *testing.T) {
 	keys, wgPub, authPub := newPeerAuthTestKeys(t)
 
-	t.Run("disabled", func(t *testing.T) {
+	t.Run("no signing key", func(t *testing.T) {
 		tested, _ := newPeerAuthTestManager(t, config.PeerAuth{})
 		token, err := tested.GenerateAuthToken(keys)
 		require.NoError(t, err)
-		assert.Nil(t, token, "with peer auth disabled every peer keeps the legacy relay token")
+		assert.Nil(t, token, "without a signing key every peer keeps the legacy relay token")
 	})
 
-	tested, _ := newPeerAuthTestManager(t, config.PeerAuth{Enabled: true})
+	keyFile, mgmtPub := writePeerAuthSigningKey(t)
+	tested, _ := newPeerAuthTestManager(t, config.PeerAuth{SigningKeyFile: keyFile})
 
 	t.Run("peer without auth key", func(t *testing.T) {
 		token, err := tested.GenerateAuthToken(PeerAuthKeys{WGPubKey: keys.WGPubKey})
@@ -297,10 +317,15 @@ func TestTimeBasedAuthSecretsManager_GenerateAuthToken(t *testing.T) {
 	t.Run("peer with auth key", func(t *testing.T) {
 		token, err := tested.GenerateAuthToken(keys)
 		require.NoError(t, err)
-		verified := verifyPeerAuthToken(t, token)
+		verified := verifyPeerAuthToken(t, mgmtPub, token)
+		assert.Equal(t, peerauth.AlgoEd25519, verified.Algo, "the token must be signed with Ed25519")
 		assert.Equal(t, wgPub, verified.WGPub, "the token must be bound to the peer WireGuard key")
 		assert.Equal(t, authPub, verified.AuthPub, "the token must be bound to the peer auth key")
 		assert.WithinDuration(t, time.Now().Add(time.Hour), verified.Expiry, time.Minute, "the token must live as long as the relay credentials")
+
+		secret := sha256.Sum256([]byte(peerAuthTestSecret))
+		_, err = peerauth.VerifyToken(token, peerauth.TokenKeys{HMAC: secret[:]}, time.Now())
+		assert.Error(t, err, "the token must not verify with the relay secret")
 	})
 
 	t.Run("malformed auth key", func(t *testing.T) {
@@ -309,18 +334,49 @@ func TestTimeBasedAuthSecretsManager_GenerateAuthToken(t *testing.T) {
 	})
 }
 
-func TestNewTimeBasedAuthSecretsManager_PeerAuthNeedsRelaySecret(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	_, err := NewTimeBasedAuthSecretsManager(update_channel.NewPeersUpdateManager(nil), nil, &config.Relay{Addresses: []string{"rels://relay.netbird.io:443"}},
-		settings.NewMockManager(ctrl), groups.NewManagerMock(), WithPeerAuth(config.PeerAuth{Enabled: true}))
-	assert.Error(t, err, "peer auth cannot be enabled without the secret that signs the tokens")
+func TestNewTimeBasedAuthSecretsManager_PeerAuthSigningKeyFile(t *testing.T) {
+	newManager := func(cfg config.PeerAuth) error {
+		_, err := NewTimeBasedAuthSecretsManager(update_channel.NewPeersUpdateManager(nil), nil, nil,
+			settings.NewMockManager(gomock.NewController(t)), groups.NewManagerMock(), WithPeerAuth(cfg))
+		return err
+	}
+	junk := filepath.Join(t.TempDir(), "junk.pem")
+	require.NoError(t, os.WriteFile(junk, []byte("not a key"), 0o600))
+
+	// A configured key must never be silently replaced: on a multi-instance Management a missing file
+	// would otherwise mean instances signing with different keys.
+	for name, path := range map[string]string{
+		"missing file":   filepath.Join(t.TempDir(), "missing.pem"),
+		"malformed file": junk,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Error(t, newManager(config.PeerAuth{SigningKeyFile: path}), "a configured but unusable signing key must fail startup")
+		})
+	}
+
+	t.Run("logs the public key, no relay secret needed", func(t *testing.T) {
+		keyFile, pub := writePeerAuthSigningKey(t)
+		hook := logtest.NewGlobal()
+		t.Cleanup(hook.Reset)
+
+		require.NoError(t, newManager(config.PeerAuth{SigningKeyFile: keyFile}))
+
+		var logged bool
+		for _, e := range hook.AllEntries() {
+			if e.Level == log.InfoLevel && strings.Contains(e.Message, base64.StdEncoding.EncodeToString(pub)) {
+				logged = true
+			}
+		}
+		assert.True(t, logged, "the public key must be logged at info, for troubleshooting")
+	})
 }
 
 // While peer auth is on, every credentials refresh must carry the auth token and no legacy relay
 // token: a NetbirdConfig without it makes the client fall back to legacy credentials.
 func TestTimeBasedAuthSecretsManager_RefreshCarriesAuthToken(t *testing.T) {
 	keys, _, _ := newPeerAuthTestKeys(t)
-	tested, peersManager := newPeerAuthTestManager(t, config.PeerAuth{Enabled: true})
+	keyFile, mgmtPub := writePeerAuthSigningKey(t)
+	tested, peersManager := newPeerAuthTestManager(t, config.PeerAuth{SigningKeyFile: keyFile})
 	ctx := context.Background()
 
 	for name, keys := range map[string]PeerAuthKeys{"with auth key": keys, "without auth key": {WGPubKey: keys.WGPubKey}} {
@@ -345,12 +401,83 @@ func TestTimeBasedAuthSecretsManager_RefreshCarriesAuthToken(t *testing.T) {
 					assert.NotEmpty(t, cfg.GetRelay().GetTokenPayload(), "%s must carry the legacy relay token", kind)
 					continue
 				}
-				verifyPeerAuthToken(t, cfg.GetAuthToken())
+				verifyPeerAuthToken(t, mgmtPub, cfg.GetAuthToken())
 				assert.Empty(t, cfg.GetRelay().GetTokenPayload(), "%s must not carry the legacy relay token too", kind)
 				assert.Empty(t, cfg.GetRelay().GetTokenSignature(), "%s must not carry the legacy relay token too", kind)
 			}
 		})
 	}
+}
+
+// Signal verifies the auth token too, so a Management without a Relay must still send it on the
+// TURN refresh: dropping it would make the client call Signal as a legacy peer.
+func TestTimeBasedAuthSecretsManager_TURNRefreshWithoutRelayCarriesAuthToken(t *testing.T) {
+	keys, _, _ := newPeerAuthTestKeys(t)
+	keyFile, mgmtPub := writePeerAuthSigningKey(t)
+	ctrl := gomock.NewController(t)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
+	peersManager := update_channel.NewPeersUpdateManager(nil)
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
+		CredentialsTTL:       util.Duration{Duration: time.Hour},
+		Secret:               "turn_secret",
+		Turns:                []*config.Host{TurnTestHost},
+		TimeBasedCredentials: true,
+	}, nil, settingsMockManager, groups.NewManagerMock(), WithPeerAuth(config.PeerAuth{SigningKeyFile: keyFile}))
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	updates := peersManager.CreateChannel(ctx, "peer")
+	t.Cleanup(func() { peersManager.CloseChannel(ctx, "peer") })
+
+	tested.pushNewTURNAndRelayTokens(ctx, "account", "peer", keys)
+
+	var update *network_map.UpdateMessage
+	select {
+	case update = <-updates:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no TURN refresh sent")
+	}
+	cfg := update.Update.GetNetbirdConfig()
+	assert.Nil(t, cfg.GetRelay(), "no relay config without a Relay")
+	verifyPeerAuthToken(t, mgmtPub, cfg.GetAuthToken())
+}
+
+// Without a Relay or TURN config no other refresh carries the auth token, so Signal would refuse
+// the peer once the token expired: Management renews it on its own.
+func TestTimeBasedAuthSecretsManager_AuthTokenRefreshWithoutRelay(t *testing.T) {
+	keys, _, _ := newPeerAuthTestKeys(t)
+	keyFile, mgmtPub := writePeerAuthSigningKey(t)
+	ctrl := gomock.NewController(t)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
+	peersManager := update_channel.NewPeersUpdateManager(nil)
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, nil, nil, settingsMockManager, groups.NewManagerMock(),
+		WithPeerAuth(config.PeerAuth{SigningKeyFile: keyFile}))
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	tested.SetupRefresh(ctx, "account", "peer", keys)
+	t.Cleanup(func() { tested.CancelRefresh("peer") })
+	tested.mux.Lock()
+	_, running := tested.relayCancelMap["peer"]
+	tested.mux.Unlock()
+	assert.True(t, running, "an auth token refresh must run without a Relay config")
+
+	updates := peersManager.CreateChannel(ctx, "peer")
+	t.Cleanup(func() { peersManager.CloseChannel(ctx, "peer") })
+	tested.pushNewAuthToken(ctx, "account", "peer", keys)
+
+	var update *network_map.UpdateMessage
+	select {
+	case update = <-updates:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no auth token refresh sent")
+	}
+	cfg := update.Update.GetNetbirdConfig()
+	assert.Nil(t, cfg.GetRelay(), "no relay config without a Relay")
+	assert.Empty(t, cfg.GetTurns(), "no TURN config without TURN")
+	verifyPeerAuthToken(t, mgmtPub, cfg.GetAuthToken())
 }
 
 func validateMAC(t *testing.T, algo func() hash.Hash, username string, actualMAC string, key []byte) {

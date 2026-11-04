@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/shared/peerauth"
 )
 
 func unsetSecretEnvs(t *testing.T) {
@@ -241,10 +245,17 @@ func captureLogOutput(t *testing.T) *bytes.Buffer {
 
 func TestToManagementConfigPeerAuth(t *testing.T) {
 	unsetSecretEnvs(t)
+	mgmtPub, mgmtPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(mgmtPriv)
+	require.NoError(t, err)
+	keyFile := filepath.Join(t.TempDir(), "peer_auth.pem")
+	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
+
 	path := writeCombinedConfig(t, "relay-secret", "")
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
-	content = append(content, []byte("  peerAuth:\n    enabled: true\n")...)
+	content = append(content, []byte("  peerAuth:\n    signingKeyFile: "+keyFile+"\n")...)
 	require.NoError(t, os.WriteFile(path, content, 0o600))
 
 	cfg, err := LoadConfig(path)
@@ -253,11 +264,18 @@ func TestToManagementConfigPeerAuth(t *testing.T) {
 	mgmt, err := cfg.ToManagementConfig()
 	require.NoError(t, err)
 
-	assert.Equal(t, nbconfig.PeerAuth{Enabled: true}, mgmt.PeerAuth, "server.peerAuth must reach the Management config")
-	require.NotNil(t, mgmt.Relay, "the local relay must give Management the secret to sign with")
-	assert.Equal(t, "relay-secret", mgmt.Relay.Secret, "Management signs peer auth tokens with server.authSecret")
+	assert.Equal(t, nbconfig.PeerAuth{SigningKeyFile: keyFile}, mgmt.PeerAuth, "server.peerAuth must reach the Management config")
 
-	hashed := sha256.Sum256([]byte("relay-secret"))
-	assert.Equal(t, hashed[:], signalPeerAuthConfig(cfg).Keys.HMAC,
-		"the local Signal must verify with the key Management signs with")
+	keys, err := localPeerAuthKeys(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, map[peerauth.KeyID]ed25519.PublicKey{peerauth.Ed25519KeyID(mgmtPub): mgmtPub}, keys.Ed25519,
+		"the local Relay and Signal must verify with the public key of the key Management signs with")
+	assert.Empty(t, keys.HMAC, "the local Relay and Signal must not verify bound tokens with the auth secret")
+}
+
+func TestLocalPeerAuthKeys_NoSigningKey(t *testing.T) {
+	keys, err := localPeerAuthKeys(&CombinedConfig{})
+	require.NoError(t, err)
+	assert.Empty(t, keys.HMAC, "without a signing key no bound token is issued, so none is verified")
+	assert.Empty(t, keys.Ed25519, "without a signing key no bound token is issued, so none is verified")
 }

@@ -138,11 +138,12 @@ server:
   #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/idp.db)
 
   # Peer authentication for Signal and Relay (optional, off by default).
-  # Peers that send an auth key get a token bound to their keys, signed with authSecret.
-  # Enable only once every Relay verifies these tokens, or peers lose relayed connections.
+  # With a signing key, peers that send an auth key get a token bound to their keys, signed with
+  # it; the local Relay and Signal verify it with the derived public key. Any external Relay must
+  # list that public key in --peer-auth-public-keys first, or peers lose relayed connections.
   # peerAuth:
-  #   enabled: false
-  #   required: false   # local Relay and Signal refuse peers without a bound token
+  #   signingKeyFile: ""   # PEM PKCS#8 Ed25519 key, e.g. from `openssl genpkey -algorithm ed25519`
+  #   required: false      # local Relay and Signal refuse peers without a bound token
 
   # Reverse proxy settings (optional)
   # reverseProxy:

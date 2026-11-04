@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -623,15 +625,22 @@ func TestClient_LoginSendsAuthKey(t *testing.T) {
 	}
 }
 
-// With peer auth on, a peer that sends its auth key gets only the bound token, on Login and on
+// With a signing key, a peer that sends its auth key gets only the bound token, on Login and on
 // Sync; a peer without one keeps getting only the legacy relay token.
 func TestClient_PeerAuthTokenIssuance(t *testing.T) {
+	mgmtPub, mgmtPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(mgmtPriv)
+	require.NoError(t, err)
+	keyFile := filepath.Join(t.TempDir(), "peer_auth.pem")
+	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
+	verifierKeys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
+
 	s, listener := startManagement(t, func(c *config.Config) {
-		c.PeerAuth = config.PeerAuth{Enabled: true}
+		c.PeerAuth = config.PeerAuth{SigningKeyFile: keyFile}
 	})
 	t.Cleanup(func() { closeManagementSilently(s, listener) })
-	relaySecret := sha256.Sum256([]byte("netbird"))
-	verifierKeys := peerauth.TokenKeys{HMAC: relaySecret[:]}
 
 	authPub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)

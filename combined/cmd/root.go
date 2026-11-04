@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
 	"errors"
@@ -255,13 +256,19 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 	hashedSecret := sha256.Sum256([]byte(cfg.Relay.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
 
+	peerAuthKeys, err := localPeerAuthKeys(cfg)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return err
+	}
+
 	relayCfg := relayServer.Config{
 		Meter:          s.metricsServer.Meter,
 		ExposedAddress: cfg.Relay.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
 		PeerAuth: relayServer.PeerAuthConfig{
-			Keys:     peerauth.TokenKeys{HMAC: hashedSecret[:]},
+			Keys:     peerAuthKeys,
 			Required: cfg.Server.PeerAuth.Required,
 		},
 	}
@@ -336,8 +343,13 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 		return nil
 	}
 
-	var err error
-	s.signalSrv, err = signalServer.NewServerWithPeerAuth(ctx, s.metricsServer.Meter, signalPeerAuthConfig(cfg), "signal_")
+	peerAuthKeys, err := localPeerAuthKeys(cfg)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return err
+	}
+	pa := signalServer.PeerAuthConfig{Keys: peerAuthKeys, Required: cfg.Server.PeerAuth.Required}
+	s.signalSrv, err = signalServer.NewServerWithPeerAuth(ctx, s.metricsServer.Meter, pa, "signal_")
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to create signal server: %w", err)
@@ -347,14 +359,17 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 	return nil
 }
 
-// signalPeerAuthConfig verifies tokens with the secret Management signs them with.
-func signalPeerAuthConfig(cfg *CombinedConfig) signalServer.PeerAuthConfig {
-	pa := signalServer.PeerAuthConfig{Required: cfg.Server.PeerAuth.Required}
-	if secret := cfg.Management.Relays.Secret; secret != "" {
-		hashedSecret := sha256.Sum256([]byte(secret))
-		pa.Keys.HMAC = hashedSecret[:]
+// localPeerAuthKeys returns the public key of the local Management's signing key, which the local
+// Relay and Signal verify bound tokens with. Without a signing key no bound token is issued.
+func localPeerAuthKeys(cfg *CombinedConfig) (peerauth.TokenKeys, error) {
+	if cfg.Server.PeerAuth.SigningKeyFile == "" {
+		return peerauth.TokenKeys{}, nil
 	}
-	return pa
+	key, err := peerauth.LoadSigningKeyFile(cfg.Server.PeerAuth.SigningKeyFile)
+	if err != nil {
+		return peerauth.TokenKeys{}, err
+	}
+	return peerauth.NewEd25519Keys([]ed25519.PublicKey{key.Public().(ed25519.PublicKey)})
 }
 
 func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {
