@@ -174,7 +174,7 @@ var notExposed = []struct {
 		},
 	},
 	{
-		reason: "Invite links and passwords are secrets.",
+		reason: "Invite links and passwords are secrets, and resending an invitation emails the user.",
 		operations: []string{
 			"GET /api/users/invites",
 			"POST /api/users/invites",
@@ -187,7 +187,7 @@ var notExposed = []struct {
 		},
 	},
 	{
-		reason: "Identity provider configurations carry client secrets.",
+		reason: "Creating or updating an identity provider takes its client secret, and identity provider setup is not exposed yet.",
 		operations: []string{
 			"GET /api/identity-providers",
 			"POST /api/identity-providers",

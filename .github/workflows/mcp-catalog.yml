@@ -1,20 +1,24 @@
 name: MCP Catalog
 
+# Routes on the API router are registered from management/server/http and from modules
+# such as zones, so any management change can move one; go.mod pins the router itself.
 on:
   push:
     branches:
       - main
     paths:
       - '.github/workflows/mcp-catalog.yml'
-      - 'shared/management/http/api/openapi.yml'
-      - 'management/internals/modules/mcpapi/**'
-      - 'management/server/http/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'shared/management/http/api/**'
+      - 'management/**'
   pull_request:
     paths:
       - '.github/workflows/mcp-catalog.yml'
-      - 'shared/management/http/api/openapi.yml'
-      - 'management/internals/modules/mcpapi/**'
-      - 'management/server/http/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'shared/management/http/api/**'
+      - 'management/**'
 
 permissions:
   contents: read
