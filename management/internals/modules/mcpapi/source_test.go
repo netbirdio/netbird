@@ -1,6 +1,7 @@
 package mcpapi
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,22 +12,18 @@ import (
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/netbirdio/netbird/formatter/hook"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 // TestBrokerRequestsLogAsMCP checks that the broker's endpoints and its access token check
 // mark their requests as MCP, so what they log reads context=MCP rather than HTTP.
 func TestBrokerRequestsLogAsMCP(t *testing.T) {
-	logger := log.StandardLogger()
-	level := logger.GetLevel()
-	hooks := logger.ReplaceHooks(make(log.LevelHooks))
-	t.Cleanup(func() {
-		logger.SetLevel(level)
-		logger.ReplaceHooks(hooks)
-	})
-	logger.SetLevel(log.DebugLevel)
-	logs := logtest.NewLocal(logger)
+	logs := captureLogs(t)
 
 	env := newBrokerEnv(t)
 	s := env.signIn()
@@ -67,15 +64,72 @@ func TestAuthMiddlewareMarksOnlyTheMCPEndpoint(t *testing.T) {
 	}
 }
 
-// sourceOf returns the execution context of the first log entry whose message starts with prefix.
-func sourceOf(t *testing.T, logs *logtest.Hook, prefix string) any {
+// TestMetricsLogKeepsTheMCPCaller checks that the HTTP metrics middleware, which logs every
+// response after the handlers return, sees both the MCP mark and the caller the API auth found.
+// The API auth hands the caller back by overwriting the request it was given, so the broker
+// must pass that same request on rather than a copy.
+func TestMetricsLogKeepsTheMCPCaller(t *testing.T) {
+	logs := captureLogs(t)
+
+	env := newBrokerEnv(t)
+	metrics, err := telemetry.NewMetricsMiddleware(context.Background(), noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
+	// Stands in for the API auth accepting a PAT, updating the request in place as it does.
+	apiAuth := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			*r = *nbcontext.SetUserAuthInRequest(r, auth.UserAuth{UserId: "user-1", AccountId: "account-1", IsPAT: true})
+			next.ServeHTTP(w, r)
+		})
+	}
+	handler := metrics.Handler(env.broker.AuthMiddleware(apiAuth)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	for path, want := range map[string]hook.ExecutionContext{apiPrefix + Path: hook.MCPSource, apiPrefix + "/peers": hook.HTTPSource} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Token nbp_example")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, "status on %s", path)
+
+		entry := entryOf(t, logs, "request POST "+path+" took")
+		assert.Equal(t, want, entry.Data["context"], "source the metrics log reads on %s", path)
+		assert.Equal(t, "user-1", entry.Data[nbcontext.UserIDKey], "user the metrics log reads on %s", path)
+		assert.Equal(t, "account-1", entry.Data[nbcontext.AccountIDKey], "account the metrics log reads on %s", path)
+	}
+}
+
+// captureLogs records what the standard logger writes at debug level, with the production
+// context hook installed so entries carry the fields it adds.
+func captureLogs(t *testing.T) *logtest.Hook {
+	t.Helper()
+	logger := log.StandardLogger()
+	level := logger.GetLevel()
+	hooks := logger.ReplaceHooks(make(log.LevelHooks))
+	t.Cleanup(func() {
+		logger.SetLevel(level)
+		logger.ReplaceHooks(hooks)
+	})
+	logger.SetLevel(log.DebugLevel)
+	logger.AddHook(hook.NewContextHook())
+	return logtest.NewLocal(logger)
+}
+
+// entryOf returns the first log entry whose message starts with prefix.
+func entryOf(t *testing.T, logs *logtest.Hook, prefix string) log.Entry {
 	t.Helper()
 	for _, entry := range logs.AllEntries() {
 		if strings.HasPrefix(entry.Message, prefix) {
-			require.NotNil(t, entry.Context, "%q is logged with the request context", prefix)
-			return entry.Context.Value(hook.ExecutionContextKey)
+			return *entry
 		}
 	}
 	require.Failf(t, "log line not found", "no log entry starts with %q", prefix)
-	return nil
+	return log.Entry{}
+}
+
+// sourceOf returns the context field the log hook added to the first entry whose message
+// starts with prefix.
+func sourceOf(t *testing.T, logs *logtest.Hook, prefix string) any {
+	t.Helper()
+	return entryOf(t, logs, prefix).Data["context"]
 }
