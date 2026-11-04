@@ -72,6 +72,7 @@ func (r *family) createContainers() error {
 	})
 
 	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
+	r.addHairpinDropRule(r.chains[chainNameRoutingFw])
 
 	r.addPostroutingRules()
 
@@ -736,6 +737,34 @@ func (r *family) addFwmarkToForward(chainFwFilter *nftables.Chain) {
 				Kind: expr.VerdictAccept,
 			},
 		},
+	})
+}
+
+// addHairpinDropRule drops routed traffic that would leave through the wg interface it arrived on, before the
+// route ACLs see it. A default route rule also matches the overlay and the networks we're a client of, and
+// masquerading would present the traffic there under our own overlay address. It sits right after the
+// established accept: a dropped packet never creates an established flow, so established traffic skips the check.
+func (r *family) addHairpinDropRule(chain *nftables.Chain) {
+	expressions := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Verdict{Kind: expr.VerdictDrop},
+	}
+
+	_ = r.conn.AddRule(&nftables.Rule{
+		Table: r.workTable,
+		Chain: chain,
+		Exprs: expressions,
 	})
 }
 
