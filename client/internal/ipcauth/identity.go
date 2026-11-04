@@ -144,8 +144,8 @@ func (i Identity) IsPrivileged() bool {
 // the account is compared: the group set and the elevation flag describe what a
 // token may do, not who it belongs to. A SID on either side decides the
 // comparison, so a Windows principal never matches a Unix one on the UID both
-// happen to leave at zero. The zero Identity carries uid 0, so callers must
-// establish that both identities are real before the answer means anything.
+// happen to leave at zero. An identity the kernel did not vouch for matches
+// nobody, so the zero Identity never matches uid 0.
 func (i Identity) SameUser(other Identity) bool {
 	if !i.known || !other.known {
 		return false

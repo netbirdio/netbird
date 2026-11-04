@@ -553,7 +553,7 @@ func (s *ServiceManager) GetStatePath() string {
 	return filepath.Join(filepath.Dir(configPath), activeProf.ID.String()+".state.json")
 }
 
-// getConfigDirLegacy returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUser
+// getConfigDirLegacy returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUserLegacy
 func (s *ServiceManager) getConfigDirLegacy(username string) (string, error) {
 	if s.profilesDir != "" {
 		return s.profilesDir, nil
@@ -587,12 +587,8 @@ func (s *ServiceManager) profilesDirPath() string {
 	return filepath.Join(DefaultConfigPathDir, DefaultProfilePathDir)
 }
 
-// loadAllProfiles returns every profile accessible by a given kernel attested
-// user. The returned slice is sorted by ID for a stable display order.
-//
-// Each Profile is fully populated: ID is the filename stem, Name comes
-// from the JSON's "name" field (falling back to the filename stem when absent)
-// and Path is built from a basename read off disk.
+// loadAllProfilesForIdentity returns every profile the kernel-attested identity
+// can access. An unknown identity gets none.
 func (s *ServiceManager) loadAllProfilesForIdentity(userID ipcauth.Identity) ([]Profile, error) {
 	if !userID.Known() {
 		return []Profile{}, nil
@@ -785,6 +781,12 @@ func resolveLegacyDir(id ipcauth.Identity) (string, bool) {
 	return dir, dir != ""
 }
 
+// loadAllProfiles returns every profile on disk, the default profile first and
+// the rest sorted by name, then ID.
+//
+// Each Profile is fully populated: ID is the filename stem, Name comes
+// from the JSON's "name" field (falling back to the filename stem when absent)
+// and Path is built from a basename read off disk.
 func (s *ServiceManager) loadAllProfiles() ([]Profile, error) {
 	_, activeIsDefault := s.activeProfileID()
 

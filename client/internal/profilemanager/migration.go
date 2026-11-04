@@ -156,8 +156,8 @@ type movedFile struct{ at, was string }
 // rekeyProfile renames a profile and its state file to a fresh ID and returns
 // the completed moves so a caller can undo them.
 //
-// The state file move first and the profile file last, we try to restore if
-// renaming the profile file.
+// The state and prefs files move first and the profile file last. A failed
+// move puts back the files already moved.
 func rekeyProfile(p *Profile, fresh ID) ([]movedFile, error) {
 	// A legacy profile's display name is its filename, so it has to be in the
 	// file before the filename stops meaning anything. The loader already

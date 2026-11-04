@@ -6,7 +6,7 @@ import (
 )
 
 // AuthzLevel is the authority a caller holds over the daemon's current state.
-// The values are ordered, and each level can do everything the levles below
+// The values are ordered, and each level can do everything the levels below
 // it can. A MethodPolicy is satisfied when the caller's level is at least
 // the level the method requires.
 type AuthzLevel uint8

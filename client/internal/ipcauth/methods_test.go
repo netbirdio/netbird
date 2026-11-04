@@ -53,7 +53,7 @@ func TestMethodPoliciesCoverService(t *testing.T) {
 	}
 }
 
-// A key without the service prefix can never matched.
+// A key without the service prefix can never match.
 func TestMethodPolicyKeysAreFullMethodNames(t *testing.T) {
 	for method := range methodPolicies {
 		assert.True(t, strings.HasPrefix(method, servicePath),

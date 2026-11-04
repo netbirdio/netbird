@@ -36,7 +36,7 @@ func NewAuthzGate() *AuthzGate {
 	return &AuthzGate{}
 }
 
-// SetState attaches the daemon state. Musy be called before serving RPCs.
+// SetState attaches the daemon state. Must be called before serving RPCs.
 func (g *AuthzGate) SetState(st DaemonState) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

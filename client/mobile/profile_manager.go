@@ -69,8 +69,7 @@ type ProfileManager struct {
 
 // NewProfileManager creates a profile manager rooted at configDir, the
 // app-writable directory that every process of the app can reach. username is
-// the platform's fixed single-user context (a non-empty username is required
-// by ServiceManager for non-default profiles).
+// the platform's fixed single-user context.
 func NewProfileManager(configDir, username string) *ProfileManager {
 	// The default profile is stored in the root configDir, not under profiles/.
 	defaultConfigPath := filepath.Join(configDir, defaultConfigFilename)

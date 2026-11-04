@@ -597,9 +597,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 // fields (DNS labels, NAT external IPs). Extracted from SetConfig to
 // keep the handler's cognitive complexity below the SonarCube
 // threshold; the body is intentionally linear because each proto
-// field is its own optional case. Returns the resolved ConfigInput
-// and a non-nil error only when the active profile file path cannot
-// be determined.
+// field is its own optional case. Returns the resolved ConfigInput.
 func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest, resolved *profilemanager.Profile) (profilemanager.ConfigInput, error) {
 	var config profilemanager.ConfigInput
 

@@ -64,7 +64,8 @@ func NewProfiles(conn DaemonConn, translator ErrorTranslator, prefs LanguagePref
 	return &Profiles{conn: conn, classifier: errorClassifier{translator: translator, prefs: prefs}}
 }
 
-// Username returns the OS username the daemon expects for profile lookups.
+// Username returns the OS username of the UI process. The daemon identifies the
+// caller from the connection, not from this value.
 func (s *Profiles) Username() (string, error) {
 	u, err := user.Current()
 	if err != nil {
