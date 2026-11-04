@@ -73,21 +73,12 @@ func (p *Profile) FilePath() (string, error) {
 		return DefaultConfigPath, nil
 	}
 
-	if !IsValidProfileFilenameStem(id) {
-		return "", fmt.Errorf("invalid profile ID: %q", id)
-	}
-
 	username, err := InvokingUser()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	configDir, err := getConfigDirForUserLegacy(username.Username)
-	if err != nil {
-		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
-	}
-
-	return filepath.Join(configDir, id.String()+".json"), nil
+	return (&ServiceManager{}).ActiveProfilePath(&ActiveProfileState{ID: id, Username: username.Username})
 }
 
 func (p *Profile) IsDefault() bool {

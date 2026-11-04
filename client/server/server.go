@@ -1660,8 +1660,8 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 // key that stays in memory would come back different on the next start and
 // re-register the peer. Reads themselves are pure, so the write is here, in
 // the open, instead of hiding inside the reader.
-func provisionProfileIdentity(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
-	cfgPath, err := activeProf.FilePath()
+func provisionProfileIdentity(sm *profilemanager.ServiceManager, activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
+	cfgPath, err := sm.ActiveProfilePath(activeProf)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get active profile file path: %w", err)
 	}
@@ -1693,7 +1693,7 @@ func provisionProfileIdentity(activeProf *profilemanager.ActiveProfileState) (*p
 // getConfig resolves the active profile's config, provisions its identity and
 // reports whether the config file already existed.
 func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
-	config, configExisted, err := provisionProfileIdentity(activeProf)
+	config, configExisted, err := provisionProfileIdentity(s.profileManager, activeProf)
 	if err != nil {
 		return nil, false, err
 	}
@@ -3053,7 +3053,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	// it once this returns: between its read and its write, a SetConfig that
 	// had already answered its caller would be overwritten by the config this
 	// login read before it landed.
-	if _, _, err := provisionProfileIdentity(activeProf); err != nil {
+	if _, _, err := provisionProfileIdentity(s.profileManager, activeProf); err != nil {
 		return nil, nil, false, err
 	}
 
