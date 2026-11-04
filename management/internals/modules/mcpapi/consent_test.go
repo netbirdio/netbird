@@ -86,7 +86,7 @@ func TestConsentPageClientName(t *testing.T) {
 	}
 
 	body := render(`<b>NetBird</b>`)
-	assert.Contains(t, body, `<title>Authorize “&lt;b&gt;NetBird&lt;/b&gt;” - NetBird</title>`, "the title quotes and escapes the name")
+	assert.Contains(t, body, `<title>Authorize &#x2068;“&lt;b&gt;NetBird&lt;/b&gt;”&#x2069; - NetBird</title>`, "the title quotes, escapes and isolates the name")
 	assert.Contains(t, body, `<span class="nb-client">“<bdi>&lt;b&gt;NetBird&lt;/b&gt;</bdi>”</span>`, "the heading quotes and escapes the name")
 
 	body = render("")
@@ -110,7 +110,7 @@ func TestDisplayName(t *testing.T) {
 		{"plain", "Claude Code", "Claude Code"},
 		{"surrounding space", "  Claude Code\n", "Claude Code"},
 		{"non-latin text is kept", "Café 日本語 Клиент", "Café 日本語 Клиент"},
-		{"bidi override", "Evil\u202e?driBteN ssecca ot", "Evil?driBteN ssecca ot"},
+		{"bidi override", "Evil\u202eabc def", "Evilabc def"},
 		{"bidi isolates and marks", "\u2066a\u2069\u200eb\u200f\u061c", "ab"},
 		{"zero width only", "\u200b", ""},
 		{"zero width around space", "\ufeff \u200b \u2060", ""},

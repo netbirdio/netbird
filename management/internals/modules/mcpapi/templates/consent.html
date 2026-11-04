@@ -1,4 +1,5 @@
-{{define "title"}}Authorize {{with .ClientName}}“{{.}}”{{else}}an unnamed application{{end}} - NetBird{{end}}
+{{/* A title cannot hold bdi, so the name is isolated with FSI and PDI characters instead. */}}
+{{define "title"}}Authorize {{with .ClientName}}&#x2068;“{{.}}”&#x2069;{{else}}an unnamed application{{end}} - NetBird{{end}}
 
 {{/* The name is chosen by whoever registered the client, so it is quoted and
      emphasized, and bdi stops right-to-left text in it from reordering the page's words. */}}
@@ -38,4 +39,29 @@
 
 {{define "tick"}}<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>{{end}}
 
-{{define "script"}}<script nonce="{{.Nonce}}">{{armScript}}</script>{{end}}
+{{/* The approve button stays disabled until the page sees the pointer move, a key press or
+     a tap, and briefly after. A window opened under a mouse that keeps clicking, as in a
+     double-click, cannot take those clicks. Without scripts the button stays usable. */}}
+{{define "script"}}<script nonce="{{.Nonce}}">
+(function () {
+  const approve = document.getElementById("approve");
+  let armed = false;
+  approve.disabled = true;
+  function arm() {
+    if (armed) {
+      return;
+    }
+    armed = true;
+    setTimeout(function () {
+      approve.disabled = false;
+    }, 600);
+  }
+  addEventListener("pointermove", arm);
+  addEventListener("keydown", arm);
+  addEventListener("pointerdown", function (e) {
+    if (e.pointerType !== "mouse") {
+      arm();
+    }
+  });
+})();
+</script>{{end}}

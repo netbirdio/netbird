@@ -19,17 +19,8 @@ var (
 // parsePage pairs a page with the shared layout. Each page gets its own set because every
 // page defines the same blocks.
 func parsePage(name string) *template.Template {
-	funcs := template.FuncMap{"armScript": func() template.JS { return armScript }}
-	return template.Must(template.New(name).Funcs(funcs).ParseFS(templateFiles, "templates/layout.html", "templates/"+name))
+	return template.Must(template.New(name).ParseFS(templateFiles, "templates/layout.html", "templates/"+name))
 }
-
-// armScript keeps the approve button disabled until the page sees the pointer move, a key
-// press or a tap, and briefly after. A window opened under a mouse that keeps clicking, as
-// in a double-click, cannot take those clicks. Without scripts the button stays usable.
-const armScript = `(function(){var b=document.getElementById("approve"),armed=false;b.disabled=true;` +
-	`function arm(){if(armed)return;armed=true;setTimeout(function(){b.disabled=false},600)}` +
-	`addEventListener("pointermove",arm);addEventListener("keydown",arm);` +
-	`addEventListener("pointerdown",function(e){if(e.pointerType!=="mouse")arm()})})();`
 
 type consentPage struct {
 	ClientName     string
