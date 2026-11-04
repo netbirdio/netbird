@@ -2,7 +2,6 @@ package manager
 
 import (
 	"context"
-	"strings"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -50,7 +49,7 @@ func (c *GRPCController) RegisterProxyToCluster(ctx context.Context, clusterAddr
 	if clusterAddr == "" {
 		return nil
 	}
-	proxySet, _ := c.clusterProxies.LoadOrStore(strings.ToLower(clusterAddr), &sync.Map{})
+	proxySet, _ := c.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
 	proxySet.(*sync.Map).Store(proxyID, struct{}{})
 	log.WithContext(ctx).Debugf("Registered proxy %s to cluster %s", proxyID, clusterAddr)
 

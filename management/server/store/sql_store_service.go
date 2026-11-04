@@ -130,7 +130,7 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 
 	s.Meta = serviceMetaFromRow(createdAt, certIssuedAt, lastRenewedAt, status)
 	if proxyCluster.Valid {
-		s.ProxyCluster = proxyCluster.String
+		s.ProxyCluster = strings.ToLower(proxyCluster.String)
 	}
 	if sessionPrivateKey.Valid {
 		s.SessionPrivateKey = sessionPrivateKey.String
@@ -438,7 +438,7 @@ func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength
 	}
 
 	var services []*rpservice.Service
-	result := tx.Where("proxy_cluster = ? AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
+	result := tx.Where("lower(proxy_cluster) = lower(?) AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
 	if result.Error != nil {
 		return nil, status.Errorf(status.Internal, "query services by cluster and port")
 	}
@@ -454,7 +454,7 @@ func (s *SqlStore) GetServicesByCluster(ctx context.Context, lockStrength Lockin
 	}
 
 	var services []*rpservice.Service
-	result := tx.Where("proxy_cluster = ?", proxyCluster).Find(&services)
+	result := tx.Where("lower(proxy_cluster) = lower(?)", proxyCluster).Find(&services)
 	if result.Error != nil {
 		return nil, status.Errorf(status.Internal, "query services by cluster")
 	}
