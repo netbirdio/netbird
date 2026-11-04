@@ -205,3 +205,20 @@ func TestPrivilegeDropper_ExecuteWithPrivilegeDrop_Validation(t *testing.T) {
 		assert.Contains(t, err.Error(), "cannot drop privileges")
 	}
 }
+
+func TestPrivilegeDropper_CreateExecutorCommand_NoLoginShell(t *testing.T) {
+	uid := uint32(os.Geteuid())
+	gid := uint32(os.Getegid())
+	pd := NewPrivilegeDropper()
+
+	base := ExecutorConfig{UID: uid, GID: gid, Shell: "/bin/sh", Command: "true"}
+
+	cmd, err := pd.CreateExecutorCommand(context.Background(), base)
+	require.NoError(t, err)
+	assert.NotContains(t, cmd.Args, "--no-login-shell", "a regular command keeps login shell semantics")
+
+	base.NoLoginShell = true
+	cmd, err = pd.CreateExecutorCommand(context.Background(), base)
+	require.NoError(t, err)
+	assert.Contains(t, cmd.Args, "--no-login-shell", "a protocol stream must not go through a login shell")
+}
