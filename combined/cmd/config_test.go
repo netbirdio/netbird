@@ -204,6 +204,10 @@ server:
 func clearCombinedConfigEnvironment(t *testing.T) {
 	t.Helper()
 	clearCombinedEnvironmentType(t, reflect.TypeOf(CombinedConfig{}), "", make(map[reflect.Type]bool))
+	for _, override := range serverEnvOverrides(&ServerConfig{}) {
+		t.Setenv(override.env, "")
+		require.NoError(t, os.Unsetenv(override.env))
+	}
 }
 
 func clearCombinedEnvironmentType(t *testing.T, configType reflect.Type, prefix string, visiting map[reflect.Type]bool) {
@@ -254,239 +258,6 @@ const legacyCombinedServerFile = `server:
   authSecret: "file-secret"
 `
 
-func TestLoadConfigPreservesLegacyEnvironmentIsNotAConfigSource(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	tests := []struct {
-		name     string
-		contents string
-		env      map[string]string
-		validate func(*testing.T, *CombinedConfig)
-	}{
-		{
-			name:     "NB_SERVER_LOGLEVEL does not override file",
-			contents: legacyCombinedServerFile + "  logLevel: info\n",
-			env:      map[string]string{"NB_SERVER_LOGLEVEL": "debug"},
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "info", cfg.Server.LogLevel, "Legacy loader consulted no environment variables; the file value must win")
-				assert.Equal(t, "info", cfg.Relay.LogLevel, "Legacy relay log level was inherited from the file value")
-				assert.Equal(t, "info", cfg.Signal.LogLevel, "Legacy signal log level was inherited from the file value")
-				assert.Equal(t, "info", cfg.Management.LogLevel, "Legacy management log level was inherited from the file value")
-			},
-		},
-		{
-			name:     "NB_SERVER_AUTHSECRET does not override file",
-			contents: legacyCombinedServerFile,
-			env:      map[string]string{"NB_SERVER_AUTHSECRET": "env-secret"},
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "file-secret", cfg.Server.AuthSecret, "Legacy loader consulted no environment variables; the file secret must win")
-				assert.Equal(t, "file-secret", cfg.Relay.AuthSecret, "Legacy relay secret was copied from the file value")
-			},
-		},
-		{
-			name:     "NB_SERVER_METRICSPORT does not override default",
-			contents: legacyCombinedServerFile,
-			env:      map[string]string{"NB_SERVER_METRICSPORT": "9191"},
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, 9090, cfg.Server.MetricsPort, "Legacy loader consulted no environment variables; the default must be kept")
-			},
-		},
-		{
-			name:     "NB_SERVER_AUTH_ISSUER does not set nested field",
-			contents: legacyCombinedServerFile,
-			env:      map[string]string{"NB_SERVER_AUTH_ISSUER": "https://idp.example.com"},
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Empty(t, cfg.Server.Auth.Issuer, "Legacy loader consulted no environment variables for nested fields")
-				assert.Empty(t, cfg.Management.Auth.Issuer, "Legacy management auth was not populated from the environment")
-			},
-		},
-		{
-			name:     "NB_SERVER_TLS_LETSENCRYPT_DOMAINS does not set list field",
-			contents: legacyCombinedServerFile,
-			env:      map[string]string{"NB_SERVER_TLS_LETSENCRYPT_DOMAINS": "a.com"},
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Nil(t, cfg.Server.TLS.LetsEncrypt.Domains, "Legacy loader consulted no environment variables for list fields")
-			},
-		},
-		{
-			name:     "NB_SERVER_LOG_LEVEL with word separator is ignored",
-			contents: legacyCombinedServerFile,
-			env:      map[string]string{"NB_SERVER_LOG_LEVEL": "debug"},
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "info", cfg.Server.LogLevel, "Legacy loader consulted no environment variables")
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			for name, value := range test.env {
-				t.Setenv(name, value)
-			}
-			configPath := writeCombinedConfig(t, "config.yaml", test.contents)
-			cfg, err := LoadConfig(configPath)
-			require.NoError(t, err)
-			test.validate(t, cfg)
-		})
-	}
-}
-
-func TestLoadConfigPreservesLegacyEmptyPathReturnsPlainDefaults(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	t.Setenv("NB_SERVER_EXPOSEDADDRESS", "https://env.example.com")
-	t.Setenv("NB_SERVER_AUTHSECRET", "env-secret")
-
-	cfg, err := LoadConfig("")
-	require.NoError(t, err)
-	assert.Equal(t, DefaultConfig(), cfg,
-		"Legacy LoadConfig(\"\") returned DefaultConfig() before consulting anything else, including ApplySimplifiedDefaults")
-	assert.False(t, cfg.Relay.Enabled, "Legacy empty path never enabled the embedded relay")
-	assert.False(t, cfg.Signal.Enabled, "Legacy empty path never enabled the embedded signal")
-	assert.False(t, cfg.Management.Enabled, "Legacy empty path never enabled management")
-	assert.EqualError(t, cfg.Validate(), "server.exposedAddress is required",
-		"Legacy empty path produced a config that failed validation because the environment was not consulted")
-}
-
-func TestLoadConfigPreservesLegacyEmptyStringEnvironmentIgnored(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	tests := []struct {
-		name     string
-		envName  string
-		contents string
-		validate func(*testing.T, *CombinedConfig)
-	}{
-		{
-			name:     "empty NB_SERVER_LOGLEVEL keeps log level",
-			envName:  "NB_SERVER_LOGLEVEL",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "info", cfg.Server.LogLevel, "Legacy loader ignored the environment; an empty variable must not blank the log level")
-				assert.Equal(t, "info", cfg.Relay.LogLevel, "Legacy relay log level inherited info")
-				assert.Equal(t, "info", cfg.Management.LogLevel, "Legacy management log level inherited info")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_EXPOSEDADDRESS keeps file value",
-			envName:  "NB_SERVER_EXPOSEDADDRESS",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "https://netbird.example.com", cfg.Server.ExposedAddress, "Legacy loader ignored the environment; the file exposed address must be kept")
-				assert.True(t, cfg.Management.Enabled, "Legacy ApplySimplifiedDefaults ran with the file exposed address")
-				assert.NoError(t, cfg.Validate(), "Legacy config remained valid")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_DATADIR keeps default",
-			envName:  "NB_SERVER_DATADIR",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "/var/lib/netbird/", cfg.Server.DataDir, "Legacy loader ignored the environment; the default data dir must be kept")
-				assert.Equal(t, "/var/lib/netbird/", cfg.Management.DataDir, "Legacy management data dir came from the default")
-				assert.NoError(t, cfg.Validate(), "Legacy config remained valid")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_AUTHSECRET keeps file value",
-			envName:  "NB_SERVER_AUTHSECRET",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "file-secret", cfg.Server.AuthSecret, "Legacy loader ignored the environment; the file secret must be kept")
-				assert.NoError(t, cfg.Validate(), "Legacy config remained valid")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_LISTENADDRESS keeps default",
-			envName:  "NB_SERVER_LISTENADDRESS",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, ":443", cfg.Server.ListenAddress, "Legacy loader ignored the environment; the default listen address must be kept")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_HEALTHCHECKADDRESS keeps default",
-			envName:  "NB_SERVER_HEALTHCHECKADDRESS",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, ":9000", cfg.Server.HealthcheckAddress, "Legacy loader ignored the environment; the default healthcheck address must be kept")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_STORE_ENGINE keeps default",
-			envName:  "NB_SERVER_STORE_ENGINE",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "sqlite", cfg.Server.Store.Engine, "Legacy loader ignored the environment; the default store engine must be kept")
-				assert.Equal(t, "sqlite", cfg.Management.Store.Engine, "Legacy management store engine came from the default")
-			},
-		},
-		{
-			name:     "empty NB_SERVER_LOGFILE keeps default",
-			envName:  "NB_SERVER_LOGFILE",
-			contents: legacyCombinedServerFile,
-			validate: func(t *testing.T, cfg *CombinedConfig) {
-				assert.Equal(t, "console", cfg.Server.LogFile, "Legacy loader ignored the environment; the default console log target must be kept")
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv(test.envName, "")
-			configPath := writeCombinedConfig(t, "config.yaml", test.contents)
-			cfg, err := LoadConfig(configPath)
-			require.NoError(t, err)
-			test.validate(t, cfg)
-		})
-	}
-}
-
-func TestLoadConfigPreservesLegacyUnparsableEnvironmentIgnored(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	tests := []struct {
-		name     string
-		envName  string
-		envValue string
-		validate func(*testing.T, *CombinedConfig)
-	}{
-		{name: "metrics port word", envName: "NB_SERVER_METRICSPORT", envValue: "abc", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Equal(t, 9090, cfg.Server.MetricsPort, "Legacy loader ignored the environment; default metrics port must be kept")
-		}},
-		{name: "metrics port padded", envName: "NB_SERVER_METRICSPORT", envValue: " 9191 ", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Equal(t, 9090, cfg.Server.MetricsPort, "Legacy loader ignored the environment; default metrics port must be kept")
-		}},
-		{name: "metrics port float", envName: "NB_SERVER_METRICSPORT", envValue: "9191.0", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Equal(t, 9090, cfg.Server.MetricsPort, "Legacy loader ignored the environment; default metrics port must be kept")
-		}},
-		{name: "metrics port leading zero", envName: "NB_SERVER_METRICSPORT", envValue: "09090", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Equal(t, 9090, cfg.Server.MetricsPort, "Legacy loader ignored the environment; default metrics port must be kept")
-		}},
-		{name: "metrics port hex", envName: "NB_SERVER_METRICSPORT", envValue: "0x10", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Equal(t, 9090, cfg.Server.MetricsPort, "Legacy loader ignored the environment; default metrics port must be kept")
-		}},
-		{name: "negative uint", envName: "NB_SERVER_REVERSEPROXY_TRUSTEDHTTPPROXIESCOUNT", envValue: "-1", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Equal(t, uint(0), cfg.Server.ReverseProxy.TrustedHTTPProxiesCount, "Legacy loader ignored the environment; default proxy count must be kept")
-		}},
-		{name: "sync version word", envName: "NB_SERVER_SUPPORTEDSYNCMESSAGEVERSIONS", envValue: "x", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.Nil(t, cfg.Server.SupportedSyncMessageVersions, "Legacy loader ignored the environment; sync version pointer must remain nil")
-		}},
-		{name: "boolean word", envName: "NB_SERVER_DISABLEANONYMOUSMETRICS", envValue: "maybe", validate: func(t *testing.T, cfg *CombinedConfig) {
-			assert.False(t, cfg.Server.DisableAnonymousMetrics, "Legacy loader ignored the environment; default boolean must be kept")
-		}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv(test.envName, test.envValue)
-			configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-			cfg, err := LoadConfig(configPath)
-			if !assert.NoError(t, err, "Legacy loader never failed because of an environment variable") {
-				return
-			}
-			test.validate(t, cfg)
-			assert.NoError(t, cfg.Validate(), "Legacy config remained valid")
-		})
-	}
-}
-
 func TestLoadConfigPreservesLegacyEmptyBooleanEnvironmentIgnored(t *testing.T) {
 	clearCombinedConfigEnvironment(t)
 	tests := []struct {
@@ -532,30 +303,6 @@ func TestLoadConfigPreservesLegacyEmptyBooleanEnvironmentIgnored(t *testing.T) {
 			cfg, err := LoadConfig(configPath)
 			require.NoError(t, err)
 			assert.True(t, test.value(cfg), "Legacy loader ignored the environment; a boolean set to true in the file must stay true")
-		})
-	}
-}
-
-func TestLoadConfigPreservesLegacyBooleanEnvironmentSpellingsIgnored(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	for _, value := range []string{"1", "0", "t", "f", "T", "F", "TRUE", "true", "True", "FALSE", "yes", "no", "y", "n", "on", "off", "ON", "Y"} {
-		t.Run("default_"+value, func(t *testing.T) {
-			t.Setenv("NB_SERVER_DISABLEANONYMOUSMETRICS", value)
-			configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-			cfg, err := LoadConfig(configPath)
-			require.NoError(t, err)
-			assert.False(t, cfg.Server.DisableAnonymousMetrics,
-				"Legacy booleans came only from YAML or the false default; environment spellings were not consulted")
-		})
-	}
-	for _, value := range []string{"0", "f", "off", "no", "FALSE"} {
-		t.Run("file_true_"+value, func(t *testing.T) {
-			t.Setenv("NB_SERVER_DISABLEANONYMOUSMETRICS", value)
-			configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+"  disableAnonymousMetrics: true\n")
-			cfg, err := LoadConfig(configPath)
-			require.NoError(t, err)
-			assert.True(t, cfg.Server.DisableAnonymousMetrics,
-				"Legacy booleans came only from YAML; an environment false spelling must not override the file")
 		})
 	}
 }
@@ -686,160 +433,6 @@ func TestLoadConfigPreservesLegacyStunsEnvironmentIgnored(t *testing.T) {
 				"Legacy clients were pointed at the local STUN server")
 		})
 	}
-}
-
-func TestLoadConfigPreservesLegacyOwnerEnvironmentIgnored(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	tests := []struct {
-		name string
-		env  map[string]string
-	}{
-		{name: "email and password", env: map[string]string{"NB_SERVER_AUTH_OWNER_EMAIL": "a@b", "NB_SERVER_AUTH_OWNER_PASSWORD": "hash"}},
-		{name: "empty email", env: map[string]string{"NB_SERVER_AUTH_OWNER_EMAIL": ""}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			for name, value := range test.env {
-				t.Setenv(name, value)
-			}
-			configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-			cfg, err := LoadConfig(configPath)
-			require.NoError(t, err)
-			assert.Nil(t, cfg.Server.Auth.Owner, "Legacy owner was nil unless server.auth.owner was present in YAML")
-		})
-	}
-}
-
-func TestLoadConfigPreservesLegacyEmbeddedTopologyIgnoresEnvironment(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-
-	t.Run("relay addresses", func(t *testing.T) {
-		t.Setenv("NB_SERVER_RELAYS_ADDRESSES", "rels://r1:443,rels://r2:443")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		assert.True(t, cfg.Relay.Enabled, "Legacy embedded relay stayed enabled because the environment was not consulted")
-		assert.Equal(t, []string{"rels://netbird.example.com"}, cfg.Management.Relays.Addresses,
-			"Legacy clients were pointed at the embedded relay")
-	})
-
-	t.Run("signal uri", func(t *testing.T) {
-		t.Setenv("NB_SERVER_SIGNALURI", "https://sig.example.com:443")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		assert.True(t, cfg.Signal.Enabled, "Legacy embedded signal stayed enabled because the environment was not consulted")
-		assert.Equal(t, "https://netbird.example.com", cfg.Management.SignalURI,
-			"Legacy clients were pointed at the embedded signal")
-	})
-}
-
-func TestLoadConfigPreservesLegacyStoreEnvironmentIgnored(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	for _, name := range []string{"NB_STORE_ENGINE_POSTGRES_DSN", "NB_STORE_ENGINE_SQLITE_FILE", "NB_ACTIVITY_EVENT_STORE_ENGINE", "NB_ACTIVITY_EVENT_POSTGRES_DSN", "NB_ACTIVITY_EVENT_SQLITE_FILE"} {
-		t.Setenv(name, "")
-		require.NoError(t, os.Unsetenv(name))
-	}
-
-	t.Run("store engine and dsn", func(t *testing.T) {
-		t.Setenv("NB_SERVER_STORE_ENGINE", "postgres")
-		t.Setenv("NB_SERVER_STORE_DSN", "host=x")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		assert.Equal(t, StoreConfig{Engine: "sqlite"}, cfg.Server.Store, "Legacy store engine came only from YAML")
-		assert.Equal(t, StoreConfig{Engine: "sqlite"}, cfg.Management.Store, "Legacy management store came only from YAML")
-		applyServerStoreEnv(cfg.Server.Store)
-		assert.Empty(t, os.Getenv("NB_STORE_ENGINE_POSTGRES_DSN"), "Legacy chained NB_STORE_ENGINE_POSTGRES_DSN export was derived from the file only")
-	})
-
-	t.Run("store file", func(t *testing.T) {
-		t.Setenv("NB_SERVER_STORE_FILE", "/db/x.db")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		assert.Empty(t, cfg.Management.Store.File, "Legacy store file came only from YAML")
-		applyServerStoreEnv(cfg.Server.Store)
-		assert.Empty(t, os.Getenv("NB_STORE_ENGINE_SQLITE_FILE"), "Legacy chained NB_STORE_ENGINE_SQLITE_FILE export was derived from the file only")
-	})
-
-	t.Run("encryption key", func(t *testing.T) {
-		t.Setenv("NB_SERVER_STORE_ENCRYPTIONKEY", "k")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		mgmtConfig, err := cfg.ToManagementConfig()
-		require.NoError(t, err)
-		assert.Empty(t, mgmtConfig.DataStoreEncryptionKey, "Legacy encryption key came only from YAML, so one was auto-generated")
-	})
-
-	t.Run("activity store engine without dsn", func(t *testing.T) {
-		t.Setenv("NB_SERVER_ACTIVITYSTORE_ENGINE", "postgres")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		assert.Empty(t, cfg.Server.ActivityStore.Engine, "Legacy activity store engine came only from YAML")
-		assert.NoError(t, applyActivityStoreEnv(cfg.Server.ActivityStore), "Legacy startup did not fail on an environment-only activity store engine")
-	})
-
-	t.Run("auth store engine without dsn", func(t *testing.T) {
-		t.Setenv("NB_SERVER_AUTHSTORE_ENGINE", "postgres")
-		configPath := writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-		cfg, err := LoadConfig(configPath)
-		require.NoError(t, err)
-		assert.Empty(t, cfg.Server.AuthStore.Engine, "Legacy auth store engine came only from YAML")
-		_, err = cfg.ToManagementConfig()
-		assert.NoError(t, err, "Legacy management config did not fail on an environment-only auth store engine")
-	})
-}
-
-func TestLoadConfigPreservesLegacyAdminCommandsIgnoreEnvironment(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	for _, name := range []string{"NB_STORE_ENGINE_POSTGRES_DSN", "NB_STORE_ENGINE_SQLITE_FILE"} {
-		t.Setenv(name, "")
-		require.NoError(t, os.Unsetenv(name))
-	}
-
-	previousConfigPath := configPath
-	previousLevel := log.GetLevel()
-	t.Cleanup(func() {
-		configPath = previousConfigPath
-		log.SetLevel(previousLevel)
-	})
-
-	runAdmin := func(t *testing.T) (*CombinedConfig, error) {
-		t.Helper()
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.Background())
-		var loaded *CombinedConfig
-		err := withAdminConfig(cmd, func(_ context.Context, cfg *CombinedConfig) error {
-			loaded = cfg
-			return nil
-		})
-		return loaded, err
-	}
-
-	t.Run("store and data dir", func(t *testing.T) {
-		t.Setenv("NB_SERVER_STORE_ENGINE", "postgres")
-		t.Setenv("NB_SERVER_STORE_DSN", "host=x")
-		t.Setenv("NB_SERVER_DATADIR", "/other")
-		configPath = writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+"  dataDir: /srv/netbird\n")
-
-		cfg, err := runAdmin(t)
-		require.NoError(t, err)
-		assert.Equal(t, "/srv/netbird", cfg.Management.DataDir, "Legacy admin commands operated on the data dir named in the file")
-		assert.Equal(t, StoreConfig{Engine: "sqlite"}, cfg.Management.Store, "Legacy admin commands operated on the store named in the file")
-		assert.Empty(t, os.Getenv("NB_STORE_ENGINE_POSTGRES_DSN"), "Legacy admin commands derived NB_STORE_ENGINE_POSTGRES_DSN from the file only")
-	})
-
-	t.Run("malformed numeric environment", func(t *testing.T) {
-		t.Setenv("NB_SERVER_METRICSPORT", "abc")
-		configPath = writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
-
-		_, err := runAdmin(t)
-		assert.NoError(t, err, "Legacy admin commands never failed because of an environment variable")
-	})
 }
 
 func TestLoadConfigPreservesLegacySectionNamedEnvironmentIgnored(t *testing.T) {
@@ -1214,4 +807,301 @@ metricsPort = 9191
 	assert.ErrorContains(t, err, "failed to parse config file:", "Legacy parse errors were prefixed with 'failed to parse config file:'")
 	assert.ErrorContains(t, err, "cannot unmarshal !!seq into cmd.CombinedConfig",
 		"Legacy yaml.v3 rejected the TOML table header '[server]' as a sequence at the document root")
+}
+
+func TestLoadConfigLogLevelPrecedence(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	tests := []struct {
+		name     string
+		contents string
+		env      string
+		want     string
+	}{
+		{name: "default only", contents: legacyCombinedServerFile, want: "info"},
+		{name: "file beats default", contents: legacyCombinedServerFile + "  logLevel: warn\n", want: "warn"},
+		{name: "environment beats file", contents: legacyCombinedServerFile + "  logLevel: warn\n", env: "debug", want: "debug"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.env != "" {
+				t.Setenv("NB_SERVER_LOGLEVEL", test.env)
+			}
+			cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", test.contents))
+			require.NoError(t, err)
+			assert.Equal(t, test.want, cfg.Server.LogLevel, "server.logLevel")
+			// The embedded services inherit the resolved level, not the file value.
+			assert.Equal(t, test.want, cfg.Relay.LogLevel, "relay log level")
+			assert.Equal(t, test.want, cfg.Signal.LogLevel, "signal log level")
+			assert.Equal(t, test.want, cfg.Management.LogLevel, "management log level")
+		})
+	}
+}
+
+func TestLoadConfigEnvironmentSetsTaggedFields(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	t.Setenv("NB_SERVER_METRICSPORT", "9191")
+	t.Setenv("NB_SERVER_DISABLEANONYMOUSMETRICS", "true")
+	t.Setenv("NB_SERVER_TLS_LETSENCRYPT_EMAIL", "acme@example.com")
+	t.Setenv("NB_SERVER_AUTH_ISSUER", "https://idp.example.com/oauth2")
+	t.Setenv("NB_SERVER_AUTH_OWNER_EMAIL", "owner@example.com")
+	t.Setenv("NB_SERVER_AUTH_OWNER_PASSWORD", "hash")
+	t.Setenv("NB_SERVER_RELAYS_SECRET", "relay-secret")
+	t.Setenv("NB_SERVER_REVERSEPROXY_TRUSTEDHTTPPROXIESCOUNT", "2")
+	t.Setenv("NB_SERVER_SUPPORTEDSYNCMESSAGEVERSIONS", "3")
+	t.Setenv("NB_SERVER_SIGNALURI", "https://sig.example.com:443")
+
+	cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+"  metricsPort: 9292\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 9191, cfg.Server.MetricsPort, "integer from the environment should beat the file")
+	assert.True(t, cfg.Server.DisableAnonymousMetrics, "boolean from the environment")
+	assert.True(t, cfg.Management.DisableAnonymousMetrics, "boolean should reach management")
+	assert.Equal(t, "acme@example.com", cfg.Server.TLS.LetsEncrypt.Email, "nested string from the environment")
+	assert.Equal(t, "https://idp.example.com/oauth2", cfg.Management.Auth.Issuer, "auth from the environment should reach management")
+	require.NotNil(t, cfg.Server.Auth.Owner, "owner env vars should create the optional owner section")
+	assert.Equal(t, AuthOwnerConfig{Email: "owner@example.com", Password: "hash"}, *cfg.Server.Auth.Owner, "owner")
+	assert.Equal(t, "relay-secret", cfg.Server.Relays.Secret, "relays secret")
+	assert.Equal(t, uint(2), cfg.Server.ReverseProxy.TrustedHTTPProxiesCount, "unsigned integer from the environment")
+	require.NotNil(t, cfg.Server.SupportedSyncMessageVersions, "pointer field from the environment")
+	assert.Equal(t, 3, *cfg.Server.SupportedSyncMessageVersions, "pointer field value")
+	assert.False(t, cfg.Signal.Enabled, "an external signal URI from the environment disables the embedded signal")
+	assert.Equal(t, "https://sig.example.com:443", cfg.Management.SignalURI, "clients should be pointed at the external signal")
+}
+
+// TestCombinedConfigEnvironmentNames pins the naming rule: NB_ followed by the
+// YAML path with dots as underscores, upper-cased, without splitting camelCase.
+func TestCombinedConfigEnvironmentNames(t *testing.T) {
+	var walk func(configType reflect.Type, prefix string)
+	tagged := 0
+	walk = func(configType reflect.Type, prefix string) {
+		for configType.Kind() == reflect.Pointer {
+			configType = configType.Elem()
+		}
+		for i := range configType.NumField() {
+			field := configType.Field(i)
+			key := strings.Split(field.Tag.Get("yaml"), ",")[0]
+			if key == "-" {
+				continue
+			}
+			path := prefix + key
+			if env := field.Tag.Get("env"); env != "" {
+				tagged++
+				want := "NB_" + strings.ToUpper(strings.ReplaceAll(path, ".", "_"))
+				assert.Equal(t, want, env, "env tag of %s", path)
+			}
+			if indirect := field.Type; indirect.Kind() == reflect.Struct ||
+				(indirect.Kind() == reflect.Pointer && indirect.Elem().Kind() == reflect.Struct) {
+				walk(indirect, path+".")
+			}
+		}
+	}
+	walk(reflect.TypeOf(CombinedConfig{}), "")
+	assert.Greater(t, tagged, 0, "at least one field should be tagged")
+}
+
+func TestLoadConfigIgnoresUntaggedEnvironmentNames(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	tests := []struct {
+		name  string
+		env   string
+		value string
+	}{
+		// camelCase is not split into words.
+		{name: "word separator", env: "NB_SERVER_LOG_LEVEL", value: "debug"},
+		// server.authSecret keeps the relay's NB_AUTH_SECRET as its only name.
+		{name: "auth secret path name", env: "NB_SERVER_AUTHSECRET", value: "env-secret"},
+		// server.store.dsn keeps NB_STORE_ENGINE_POSTGRES_DSN as its only name.
+		{name: "store dsn path name", env: "NB_SERVER_STORE_DSN", value: "host=x"},
+		{name: "store encryption key path name", env: "NB_SERVER_STORE_ENCRYPTIONKEY", value: "k"},
+		{name: "activity store path name", env: "NB_SERVER_ACTIVITYSTORE_ENGINE", value: "postgres"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.env, test.value)
+			cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile))
+			require.NoError(t, err)
+			assert.Equal(t, "info", cfg.Server.LogLevel, "log level")
+			assert.Equal(t, "file-secret", cfg.Server.AuthSecret, "auth secret")
+			assert.Equal(t, StoreConfig{Engine: "sqlite"}, cfg.Server.Store, "store")
+			assert.Equal(t, StoreConfig{}, cfg.Server.ActivityStore, "activity store")
+		})
+	}
+}
+
+func TestLoadConfigEmptyEnvironmentValues(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+
+	t.Run("tagged string is cleared", func(t *testing.T) {
+		t.Setenv("NB_SERVER_LOGFILE", "")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+"  logFile: /var/log/netbird.log\n"))
+		require.NoError(t, err)
+		assert.Empty(t, cfg.Server.LogFile, "an explicitly empty tagged variable clears the file value")
+	})
+
+	t.Run("override name is ignored", func(t *testing.T) {
+		t.Setenv("NB_SERVER_STORE_ENGINE", "")
+		t.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", "")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+"  store:\n    engine: postgres\n    dsn: host=file\n"))
+		require.NoError(t, err)
+		assert.Equal(t, StoreConfig{Engine: "postgres", DSN: "host=file"}, cfg.Server.Store, "empty store variables keep the file values")
+	})
+}
+
+func TestLoadConfigRejectsUnparsableEnvironment(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	tests := []struct {
+		env   string
+		value string
+	}{
+		{env: "NB_SERVER_METRICSPORT", value: "abc"},
+		{env: "NB_SERVER_METRICSPORT", value: " 9191 "},
+		{env: "NB_SERVER_REVERSEPROXY_TRUSTEDHTTPPROXIESCOUNT", value: "-1"},
+		{env: "NB_SERVER_SUPPORTEDSYNCMESSAGEVERSIONS", value: "x"},
+		{env: "NB_SERVER_DISABLEANONYMOUSMETRICS", value: "maybe"},
+		{env: "NB_SERVER_DISABLEANONYMOUSMETRICS", value: "yes"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.env+"="+test.value, func(t *testing.T) {
+			t.Setenv(test.env, test.value)
+			_, err := LoadConfig(writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), test.env, "the error should name the variable")
+		})
+	}
+}
+
+func TestLoadConfigBooleanEnvironmentSpellings(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	for value, want := range map[string]bool{"1": true, "t": true, "TRUE": true, "True": true, "0": false, "f": false, "FALSE": false} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("NB_SERVER_DISABLEANONYMOUSMETRICS", value)
+			contents := legacyCombinedServerFile
+			if !want {
+				contents += "  disableAnonymousMetrics: true\n"
+			}
+			cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", contents))
+			require.NoError(t, err)
+			assert.Equal(t, want, cfg.Server.DisableAnonymousMetrics, "strconv.ParseBool spelling should beat the file")
+		})
+	}
+}
+
+func TestLoadConfigEnvironmentWithoutFile(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	t.Setenv("NB_SERVER_EXPOSEDADDRESS", "https://env.example.com")
+	t.Setenv(envRelayAuthSecret, "env-secret")
+
+	cfg, err := LoadConfig("")
+	require.NoError(t, err)
+	assert.NoError(t, cfg.Validate(), "the environment alone should produce a valid config")
+	assert.True(t, cfg.Management.Enabled, "simplified defaults should run on the environment values")
+	assert.Equal(t, "rels://env.example.com", cfg.Relay.ExposedAddress, "relay address should derive from the environment")
+}
+
+func TestLoadConfigStoreEnvironment(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	const storeFile = legacyCombinedServerFile + `  store:
+    engine: sqlite
+    dsn: host=file
+    file: /file/store.db
+  activityStore:
+    engine: sqlite
+    file: /file/events.db
+  accessLogStore:
+    engine: sqlite
+`
+
+	t.Run("main store", func(t *testing.T) {
+		t.Setenv("NB_SERVER_STORE_ENGINE", "postgres")
+		t.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", "host=env")
+		t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "/env/store.db")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		assert.Equal(t, StoreConfig{Engine: "postgres", DSN: "host=env", File: "/env/store.db"}, cfg.Server.Store, "environment should beat the file")
+		assert.Equal(t, "postgres", cfg.Management.Store.Engine, "management should use the environment engine")
+		applyServerStoreEnv(cfg.Server.Store)
+		assert.Equal(t, "host=env", os.Getenv("NB_STORE_ENGINE_POSTGRES_DSN"), "the export should keep the environment value")
+	})
+
+	t.Run("main store file value is exported", func(t *testing.T) {
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		applyServerStoreEnv(cfg.Server.Store)
+		assert.Equal(t, "/file/store.db", os.Getenv("NB_STORE_ENGINE_SQLITE_FILE"), "without an environment value the file value is exported")
+	})
+
+	t.Run("activity store", func(t *testing.T) {
+		t.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", "/env/events.db")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		assert.Equal(t, "/env/events.db", cfg.Server.ActivityStore.File, "environment should beat the file")
+	})
+
+	t.Run("activity store postgres without dsn", func(t *testing.T) {
+		t.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", "postgres")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		assert.Error(t, applyActivityStoreEnv(cfg.Server.ActivityStore), "an environment engine is validated like a file engine")
+	})
+
+	t.Run("access log store", func(t *testing.T) {
+		t.Setenv("NB_ACCESS_LOG_STORE_ENGINE", "postgres")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		assert.Equal(t, "postgres", cfg.Server.AccessLogStore.Engine, "environment should beat the file")
+	})
+
+	t.Run("auth store", func(t *testing.T) {
+		t.Setenv("NB_SERVER_AUTHSTORE_ENGINE", "postgres")
+		cfg, err := LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		_, err = cfg.ToManagementConfig()
+		assert.ErrorContains(t, err, "authStore.dsn is required", "an environment engine is validated like a file engine")
+
+		t.Setenv("NB_SERVER_AUTHSTORE_DSN", "host=auth")
+		cfg, err = LoadConfig(writeCombinedConfig(t, "config.yaml", storeFile))
+		require.NoError(t, err)
+		mgmt, err := cfg.ToManagementConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "host=auth", mgmt.EmbeddedIdP.Storage.Config.DSN, "auth store DSN from the environment")
+	})
+}
+
+func TestAdminCommandsReadEnvironment(t *testing.T) {
+	clearCombinedConfigEnvironment(t)
+	previousConfigPath := configPath
+	previousLevel := log.GetLevel()
+	t.Cleanup(func() {
+		configPath = previousConfigPath
+		log.SetLevel(previousLevel)
+	})
+
+	runAdmin := func(t *testing.T) (*CombinedConfig, error) {
+		t.Helper()
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		var loaded *CombinedConfig
+		err := withAdminConfig(cmd, func(_ context.Context, cfg *CombinedConfig) error {
+			loaded = cfg
+			return nil
+		})
+		return loaded, err
+	}
+
+	t.Run("data dir", func(t *testing.T) {
+		t.Setenv("NB_SERVER_DATADIR", "/other")
+		configPath = writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile+"  dataDir: /srv/netbird\n")
+		cfg, err := runAdmin(t)
+		require.NoError(t, err)
+		assert.Equal(t, "/other", cfg.Management.DataDir, "admin commands should operate on the environment data dir")
+	})
+
+	t.Run("malformed numeric environment", func(t *testing.T) {
+		t.Setenv("NB_SERVER_METRICSPORT", "abc")
+		configPath = writeCombinedConfig(t, "config.yaml", legacyCombinedServerFile)
+		_, err := runAdmin(t)
+		assert.ErrorContains(t, err, "NB_SERVER_METRICSPORT", "admin commands should fail on an unparsable variable")
+	})
 }
