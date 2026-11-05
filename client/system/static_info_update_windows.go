@@ -25,6 +25,7 @@ type Win32_ComputerSystem struct {
 
 type Win32_ComputerSystemProduct struct {
 	Name string
+	UUID string
 }
 
 type Win32_BIOS struct {
@@ -40,6 +41,7 @@ func newStaticInfo() StaticInfo {
 	wg.Add(1)
 	go func() {
 		si.SystemSerialNumber, si.SystemProductName, si.SystemManufacturer = sysInfo()
+		si.SystemHardwareUUID = sysHardwareUUID()
 		wg.Done()
 	}()
 	wg.Add(1)
@@ -108,6 +110,20 @@ func sysProductName() (string, error) {
 		return "unknown", nil
 	}
 	return dst[0].Name, nil
+}
+
+// sysHardwareUUID reads the SMBIOS UUID from the same WMI class osquery uses for
+// system_info.uuid.
+func sysHardwareUUID() string {
+	var dst []Win32_ComputerSystemProduct
+	if err := wmi.Query(wmi.CreateQuery(&dst, ""), &dst); err != nil {
+		log.Warnf("failed to get system hardware UUID: %s", err)
+		return ""
+	}
+	if len(dst) < 1 {
+		return ""
+	}
+	return cleanHardwareUUID(dst[0].UUID)
 }
 
 func sysManufacturer() (string, error) {

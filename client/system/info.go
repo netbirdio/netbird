@@ -60,6 +60,7 @@ type Info struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	SystemHardwareUUID string
 	Environment        Environment
 	Files              []File // for posture checks
 	CertificateProofs  []certposture.Proof
