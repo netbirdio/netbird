@@ -53,6 +53,7 @@ var forbiddenServiceEnvPrefixes = []string{"LD_", "DYLD_"}
 
 var (
 	serviceName      string
+	configPath       string
 	serviceEnvVars   []string
 	jsonSocket       string
 	enableJSONSocket bool
@@ -111,6 +112,10 @@ func init() {
 		`New keys are merged with previously saved env vars; existing keys are overwritten. ` +
 		`Use --service-env "" to clear all saved env vars. ` +
 		`E.g. --service-env NB_LOG_LEVEL=debug,CUSTOM_VAR=value`
+
+	addConfigFlag(runCmd)
+	addConfigFlag(installCmd)
+	addConfigFlag(reconfigureCmd)
 
 	addManagementURLFlag(installCmd)
 	addManagementURLFlag(reconfigureCmd)

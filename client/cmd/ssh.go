@@ -271,7 +271,6 @@ func findSSHCommandPosition(args []string) int {
 }
 
 const (
-	configFlag   = "config"
 	logLevelFlag = "log-level"
 	logFileFlag  = "log-file"
 )
@@ -279,7 +278,6 @@ const (
 // parseGlobalArgs processes the global arguments and sets the corresponding variables
 func parseGlobalArgs(globalArgs []string) {
 	flagHandlers := map[string]func(string){
-		configFlag:   func(value string) { configPath = value },
 		logLevelFlag: func(value string) { logLevel = value },
 		logFileFlag: func(value string) {
 			if !slices.Contains(logFiles, value) {
@@ -289,7 +287,6 @@ func parseGlobalArgs(globalArgs []string) {
 	}
 
 	shortFlags := map[string]string{
-		"c": configFlag,
 		"l": logLevelFlag,
 	}
 
@@ -389,7 +386,6 @@ type sshFlags struct {
 	IdentityFile          string
 	SkipCachedToken       bool
 	NoBrowser             bool
-	ConfigPath            string
 	LogLevel              string
 	LocalForwards         []string
 	RemoteForwards        []string
@@ -398,7 +394,6 @@ type sshFlags struct {
 }
 
 func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
-	defaultConfigPath := getEnvOrDefault("CONFIG", configPath)
 	defaultLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
 	defaultNoBrowser := getBoolEnvOrDefault("NO_BROWSER", false)
 
@@ -423,8 +418,6 @@ func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	fs.BoolVar(&flags.SkipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
 	fs.BoolVar(&flags.NoBrowser, "no-browser", defaultNoBrowser, noBrowserDesc)
 
-	fs.StringVar(&flags.ConfigPath, "c", defaultConfigPath, "Netbird config file location")
-	fs.StringVar(&flags.ConfigPath, "config", defaultConfigPath, "Netbird config file location")
 	fs.StringVar(&flags.LogLevel, "l", defaultLogLevel, "sets Netbird log level")
 	fs.StringVar(&flags.LogLevel, "log-level", defaultLogLevel, "sets Netbird log level")
 
@@ -472,9 +465,6 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 	skipCachedToken = flags.SkipCachedToken
 	sshNoBrowser = flags.NoBrowser
 
-	if flags.ConfigPath != getEnvOrDefault("CONFIG", configPath) {
-		configPath = flags.ConfigPath
-	}
 	if flags.LogLevel != getEnvOrDefault("LOG_LEVEL", logLevel) {
 		logLevel = flags.LogLevel
 	}
