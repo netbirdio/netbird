@@ -39,6 +39,13 @@ request carries at most one tool call. `GET` and `DELETE` answer 405.
 `mcpapi_test.go` fails when a tool description or the server instructions name a tool
 the catalog does not have.
 
+A new public endpoint, one `openapi.yml` documents without `x-cloud-only`, needs either a
+tool in `catalog.go` or an entry with its reason in `notExposed` in `openapi_test.go`,
+which lists what is left out today and why. The MCP Catalog check
+(`.github/workflows/mcp-catalog.yml`) enforces this on pull requests and pushes to main,
+along with the reverse: every tool is a public operation, and the API router serves it on
+its own route.
+
 ## Enabling
 
 | Variable | Meaning |

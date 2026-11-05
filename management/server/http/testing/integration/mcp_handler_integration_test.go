@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -66,14 +68,16 @@ var (
 // it: behind the API authentication, replaying tool calls against the API router.
 type mcpServer struct {
 	handler http.Handler
-	store   store.Store
+	// api is the REST API router tool calls are replayed against.
+	api   *mux.Router
+	store store.Store
 }
 
 func newMCPServer(t *testing.T) mcpServer {
 	t.Helper()
 	root, apiRouter, am := channel.BuildApiBlackBoxWithRouters(t, mcpTestData)
 	require.NoError(t, mcpapi.RegisterEndpoints(apiRouter, apiRouter, mcpapi.Options{}), "mount the MCP endpoint")
-	return mcpServer{handler: root, store: am.GetStore()}
+	return mcpServer{handler: root, api: apiRouter, store: am.GetStore()}
 }
 
 func bearer(token string) string {
@@ -526,4 +530,28 @@ func Test_MCP_PathArgumentStaysOnToolRoute(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(created), &network), "create_network returns the network: %s", created)
 	got := srv.callToolOK(t, admin, "get_network", map[string]any{"network_id": network.ID})
 	assert.Contains(t, got, `"name":"office"`, "an ID still reaches get_network's own route")
+}
+
+var pathTemplateVariable = regexp.MustCompile(`\{[^}]*\}`)
+
+// Test_MCP_CatalogMatchesAPIRoutes requires the API router to serve every tool on the route
+// the tool names, method included. Dispatch lets a request no route matches through to the
+// router's 404, so a tool whose path drifted from the API would otherwise fail only when called.
+func Test_MCP_CatalogMatchesAPIRoutes(t *testing.T) {
+	srv := newMCPServer(t)
+	routes := mcpapi.Routes()
+	require.NotEmpty(t, routes, "the catalog lists tools")
+
+	for _, route := range routes {
+		req := httptest.NewRequest(route.Method, pathTemplateVariable.ReplaceAllString(route.Path, "placeholder-id"), nil)
+		var match mux.RouteMatch
+		matched := srv.api.Match(req, &match) && match.MatchErr == nil && match.Route != nil
+		if !assert.True(t, matched, "%s: the API router serves no %s %s: %v", route.Tool, route.Method, route.Path, match.MatchErr) {
+			continue
+		}
+		template, err := match.Route.GetPathTemplate()
+		require.NoError(t, err, "%s: path template of the matched route", route.Tool)
+		assert.Equal(t, pathTemplateVariable.ReplaceAllString(route.Path, "{}"), pathTemplateVariable.ReplaceAllString(template, "{}"),
+			"%s: %s %s reaches the route %s instead of its own", route.Tool, route.Method, route.Path, template)
+	}
 }
