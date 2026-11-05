@@ -12,6 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -51,29 +52,29 @@ type CombinedConfig struct {
 // ServerConfig contains server-wide settings
 // In simplified mode, this contains all configuration
 type ServerConfig struct {
-	ListenAddress      string    `yaml:"listenAddress"`
-	MetricsPort        int       `yaml:"metricsPort"`
-	HealthcheckAddress string    `yaml:"healthcheckAddress"`
-	LogLevel           string    `yaml:"logLevel"`
-	LogFile            string    `yaml:"logFile"`
+	ListenAddress      string    `yaml:"listenAddress" env:"NB_SERVER_LISTENADDRESS"`
+	MetricsPort        int       `yaml:"metricsPort" env:"NB_SERVER_METRICSPORT"`
+	HealthcheckAddress string    `yaml:"healthcheckAddress" env:"NB_SERVER_HEALTHCHECKADDRESS"`
+	LogLevel           string    `yaml:"logLevel" env:"NB_SERVER_LOGLEVEL"`
+	LogFile            string    `yaml:"logFile" env:"NB_SERVER_LOGFILE"`
 	TLS                TLSConfig `yaml:"tls"`
 
 	// Simplified config fields (used when relay/signal/management sections are omitted)
-	ExposedAddress string `yaml:"exposedAddress"` // Public address with protocol (e.g., "https://example.com:443")
-	StunPorts      []int  `yaml:"stunPorts"`      // STUN ports (empty to disable local STUN)
-	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
-	DataDir        string `yaml:"dataDir"`        // Data directory for all services
+	ExposedAddress string `yaml:"exposedAddress" env:"NB_SERVER_EXPOSEDADDRESS"` // Public address with protocol (e.g., "https://example.com:443")
+	StunPorts      []int  `yaml:"stunPorts"`                                     // STUN ports (empty to disable local STUN)
+	AuthSecret     string `yaml:"authSecret"`                                    // Shared secret for relay authentication
+	DataDir        string `yaml:"dataDir" env:"NB_SERVER_DATADIR"`               // Data directory for all services
 
 	// External service overrides (simplified mode)
 	// When these are set, the corresponding local service is NOT started
 	// and these values are used for client configuration instead
-	Stuns     []HostConfig `yaml:"stuns"`     // External STUN servers (disables local STUN)
-	Relays    RelaysConfig `yaml:"relays"`    // External relay servers (disables local relay)
-	SignalURI string       `yaml:"signalUri"` // External signal server (disables local signal)
+	Stuns     []HostConfig `yaml:"stuns"`                               // External STUN servers (disables local STUN)
+	Relays    RelaysConfig `yaml:"relays"`                              // External relay servers (disables local relay)
+	SignalURI string       `yaml:"signalUri" env:"NB_SERVER_SIGNALURI"` // External signal server (disables local signal)
 
 	// Management settings (simplified mode)
-	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
-	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
+	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics" env:"NB_SERVER_DISABLEANONYMOUSMETRICS"`
+	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate" env:"NB_SERVER_DISABLEGEOLITEUPDATE"`
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
@@ -81,7 +82,7 @@ type ServerConfig struct {
 	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 
-	SupportedSyncMessageVersions           *int           `yaml:"supportedSyncMessageVersions,omitempty"`
+	SupportedSyncMessageVersions           *int           `yaml:"supportedSyncMessageVersions,omitempty" env:"NB_SERVER_SUPPORTEDSYNCMESSAGEVERSIONS"`
 	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
 
 	AgentNetwork AgentNetworkConfig `yaml:"agentNetwork"`
@@ -89,23 +90,23 @@ type ServerConfig struct {
 
 // AgentNetworkConfig contains agent-network (LLM gateway) configuration.
 type AgentNetworkConfig struct {
-	PricingDefaultsFile string `yaml:"pricingDefaultsFile"`
+	PricingDefaultsFile string `yaml:"pricingDefaultsFile" env:"NB_SERVER_AGENTNETWORK_PRICINGDEFAULTSFILE"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
 type TLSConfig struct {
-	CertFile    string            `yaml:"certFile"`
-	KeyFile     string            `yaml:"keyFile"`
+	CertFile    string            `yaml:"certFile" env:"NB_SERVER_TLS_CERTFILE"`
+	KeyFile     string            `yaml:"keyFile" env:"NB_SERVER_TLS_KEYFILE"`
 	LetsEncrypt LetsEncryptConfig `yaml:"letsencrypt"`
 }
 
 // LetsEncryptConfig contains Let's Encrypt settings
 type LetsEncryptConfig struct {
-	Enabled    bool     `yaml:"enabled"`
-	DataDir    string   `yaml:"dataDir"`
+	Enabled    bool     `yaml:"enabled" env:"NB_SERVER_TLS_LETSENCRYPT_ENABLED"`
+	DataDir    string   `yaml:"dataDir" env:"NB_SERVER_TLS_LETSENCRYPT_DATADIR"`
 	Domains    []string `yaml:"domains"`
-	Email      string   `yaml:"email"`
-	AWSRoute53 bool     `yaml:"awsRoute53"`
+	Email      string   `yaml:"email" env:"NB_SERVER_TLS_LETSENCRYPT_EMAIL"`
+	AWSRoute53 bool     `yaml:"awsRoute53" env:"NB_SERVER_TLS_LETSENCRYPT_AWSROUTE53"`
 }
 
 // RelayConfig contains relay service settings
@@ -149,13 +150,13 @@ type ManagementConfig struct {
 
 // AuthConfig contains authentication/identity provider settings
 type AuthConfig struct {
-	Issuer                          string            `yaml:"issuer"`
-	LocalAuthDisabled               bool              `yaml:"localAuthDisabled"`
-	SignKeyRefreshEnabled           bool              `yaml:"signKeyRefreshEnabled"`
-	MfaSessionMaxLifetime           string            `yaml:"mfaSessionMaxLifetime"`
-	MfaSessionIdleTimeout           string            `yaml:"mfaSessionIdleTimeout"`
-	MfaSessionRememberMe            bool              `yaml:"mfaSessionRememberMe"`
-	SessionCookieEncryptionKey      string            `yaml:"sessionCookieEncryptionKey"`
+	Issuer                          string            `yaml:"issuer" env:"NB_SERVER_AUTH_ISSUER"`
+	LocalAuthDisabled               bool              `yaml:"localAuthDisabled" env:"NB_SERVER_AUTH_LOCALAUTHDISABLED"`
+	SignKeyRefreshEnabled           bool              `yaml:"signKeyRefreshEnabled" env:"NB_SERVER_AUTH_SIGNKEYREFRESHENABLED"`
+	MfaSessionMaxLifetime           string            `yaml:"mfaSessionMaxLifetime" env:"NB_SERVER_AUTH_MFASESSIONMAXLIFETIME"`
+	MfaSessionIdleTimeout           string            `yaml:"mfaSessionIdleTimeout" env:"NB_SERVER_AUTH_MFASESSIONIDLETIMEOUT"`
+	MfaSessionRememberMe            bool              `yaml:"mfaSessionRememberMe" env:"NB_SERVER_AUTH_MFASESSIONREMEMBERME"`
+	SessionCookieEncryptionKey      string            `yaml:"sessionCookieEncryptionKey" env:"NB_SERVER_AUTH_SESSIONCOOKIEENCRYPTIONKEY"`
 	Storage                         AuthStorageConfig `yaml:"storage"`
 	DashboardRedirectURIs           []string          `yaml:"dashboardRedirectURIs"`
 	CLIRedirectURIs                 []string          `yaml:"cliRedirectURIs"`
@@ -166,14 +167,14 @@ type AuthConfig struct {
 
 // AuthStorageConfig contains auth storage settings
 type AuthStorageConfig struct {
-	Type string `yaml:"type"`
-	File string `yaml:"file"`
+	Type string `yaml:"type" env:"NB_SERVER_AUTH_STORAGE_TYPE"`
+	File string `yaml:"file" env:"NB_SERVER_AUTH_STORAGE_FILE"`
 }
 
 // AuthOwnerConfig contains initial admin user settings
 type AuthOwnerConfig struct {
-	Email    string `yaml:"email"`
-	Password string `yaml:"password"`
+	Email    string `yaml:"email" env:"NB_SERVER_AUTH_OWNER_EMAIL"`
+	Password string `yaml:"password" env:"NB_SERVER_AUTH_OWNER_PASSWORD"`
 }
 
 // HostConfig represents a STUN/TURN/Signal host
@@ -187,8 +188,8 @@ type HostConfig struct {
 // RelaysConfig contains external relay server settings for clients
 type RelaysConfig struct {
 	Addresses      []string `yaml:"addresses"`
-	CredentialsTTL string   `yaml:"credentialsTTL"`
-	Secret         string   `yaml:"secret"`
+	CredentialsTTL string   `yaml:"credentialsTTL" env:"NB_SERVER_RELAYS_CREDENTIALSTTL"`
+	Secret         string   `yaml:"secret" env:"NB_SERVER_RELAYS_SECRET"`
 }
 
 // StoreConfig contains database settings
@@ -202,10 +203,10 @@ type StoreConfig struct {
 // ReverseProxyConfig contains reverse proxy settings
 type ReverseProxyConfig struct {
 	TrustedHTTPProxies            []string `yaml:"trustedHTTPProxies"`
-	TrustedHTTPProxiesCount       uint     `yaml:"trustedHTTPProxiesCount"`
+	TrustedHTTPProxiesCount       uint     `yaml:"trustedHTTPProxiesCount" env:"NB_SERVER_REVERSEPROXY_TRUSTEDHTTPPROXIESCOUNT"`
 	TrustedPeers                  []string `yaml:"trustedPeers"`
-	AccessLogRetentionDays        int      `yaml:"accessLogRetentionDays"`
-	AccessLogCleanupIntervalHours int      `yaml:"accessLogCleanupIntervalHours"`
+	AccessLogRetentionDays        int      `yaml:"accessLogRetentionDays" env:"NB_SERVER_REVERSEPROXY_ACCESSLOGRETENTIONDAYS"`
+	AccessLogCleanupIntervalHours int      `yaml:"accessLogCleanupIntervalHours" env:"NB_SERVER_REVERSEPROXY_ACCESSLOGCLEANUPINTERVALHOURS"`
 }
 
 // DefaultConfig returns a CombinedConfig with default values
@@ -447,7 +448,8 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	}
 }
 
-// LoadConfig loads the combined server configuration.
+// LoadConfig loads the combined server configuration. Precedence is environment,
+// then file, then defaults; see the root command help for the variable names.
 func LoadConfig(configPath string) (*CombinedConfig, error) {
 	cfg, err := configloader.Load(configPath, DefaultConfig(), configloader.Options{
 		TagName:           "yaml",
@@ -458,22 +460,49 @@ func LoadConfig(configPath string) (*CombinedConfig, error) {
 		return nil, err
 	}
 
-	applyServerSecretEnv(cfg)
+	applyServerEnvOverrides(cfg)
 
 	cfg.ApplySimplifiedDefaults()
 	return cfg, nil
 }
 
-// applyServerSecretEnv copies non-empty environment overrides onto the parsed
-// YAML values before defaults and validation run.
-func applyServerSecretEnv(cfg *CombinedConfig) {
-	if secret := os.Getenv(envRelayAuthSecret); secret != "" {
-		cfg.Server.AuthSecret = secret
-		log.Infof("server.authSecret taken from %s", envRelayAuthSecret)
+// serverEnvOverride names a setting whose environment variable predates the
+// loader, or belongs to StoreConfig, which four sections share so a struct tag
+// cannot name it.
+type serverEnvOverride struct {
+	key    string
+	env    string
+	target *string
+}
+
+func serverEnvOverrides(s *ServerConfig) []serverEnvOverride {
+	return []serverEnvOverride{
+		{"server.authSecret", envRelayAuthSecret, &s.AuthSecret},
+		{"server.store.engine", "NB_SERVER_STORE_ENGINE", &s.Store.Engine},
+		{"server.store.encryptionKey", envStoreEncryptionKey, &s.Store.EncryptionKey},
+		{"server.store.dsn", "NB_STORE_ENGINE_POSTGRES_DSN", &s.Store.DSN},
+		{"server.store.file", "NB_STORE_ENGINE_SQLITE_FILE", &s.Store.File},
+		{"server.activityStore.engine", "NB_ACTIVITY_EVENT_STORE_ENGINE", &s.ActivityStore.Engine},
+		{"server.activityStore.dsn", "NB_ACTIVITY_EVENT_POSTGRES_DSN", &s.ActivityStore.DSN},
+		{"server.activityStore.file", "NB_ACTIVITY_EVENT_SQLITE_FILE", &s.ActivityStore.File},
+		{"server.accessLogStore.engine", accesslogsmanager.StoreEngineEnv, &s.AccessLogStore.Engine},
+		{"server.accessLogStore.dsn", accesslogsmanager.PostgresDSNEnv, &s.AccessLogStore.DSN},
+		{"server.accessLogStore.file", accesslogsmanager.SqliteFileEnv, &s.AccessLogStore.File},
+		{"server.authStore.engine", "NB_SERVER_AUTHSTORE_ENGINE", &s.AuthStore.Engine},
+		{"server.authStore.dsn", "NB_SERVER_AUTHSTORE_DSN", &s.AuthStore.DSN},
+		{"server.authStore.file", "NB_SERVER_AUTHSTORE_FILE", &s.AuthStore.File},
 	}
-	if key := os.Getenv(envStoreEncryptionKey); key != "" {
-		cfg.Server.Store.EncryptionKey = key
-		log.Infof("server.store.encryptionKey taken from %s", envStoreEncryptionKey)
+}
+
+// applyServerEnvOverrides copies non-empty environment values over the file
+// values. Empty values are ignored, as they were before these variables were
+// read here, so a compose file passing an unset variable keeps the file value.
+func applyServerEnvOverrides(cfg *CombinedConfig) {
+	for _, o := range serverEnvOverrides(&cfg.Server) {
+		if value := os.Getenv(o.env); value != "" {
+			*o.target = value
+			log.Infof("%s taken from %s", o.key, o.env)
+		}
 	}
 }
 
