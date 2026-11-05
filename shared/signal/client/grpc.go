@@ -598,27 +598,43 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if c.receiveAlive() {
-				probeSentAt = time.Time{}
-				continue
-			}
-
-			if !probeSentAt.IsZero() && time.Since(probeSentAt) >= receiveProbeTimeout {
-				log.Warnf("signal receive stream stalled: no messages for %s and probe did not return, reconnecting", c.idleSinceReceive().Round(time.Second))
-				c.receiveStalled.Store(true)
-				c.notifyDisconnected(errReceiveStreamStalled)
+			var stalled bool
+			probeSentAt, stalled = c.checkReceive(ctx, probeSentAt)
+			if stalled {
 				cancelStream()
 				return
 			}
-
-			if probeSentAt.IsZero() {
-				if err := c.sendReceiveProbe(ctx); err != nil {
-					log.Debugf("failed to send signal receive probe: %v", err)
-				}
-				probeSentAt = time.Now()
-			}
 		}
 	}
+}
+
+func (c *GrpcClient) checkReceive(ctx context.Context, probeSentAt time.Time) (time.Time, bool) {
+	if c.receiveAlive() {
+		return time.Time{}, false
+	}
+
+	if c.probeReturned(probeSentAt) {
+		probeSentAt = time.Time{}
+	}
+
+	if !probeSentAt.IsZero() && time.Since(probeSentAt) >= receiveProbeTimeout {
+		log.Warnf("signal receive stream stalled: no messages for %s and probe did not return, reconnecting", c.idleSinceReceive().Round(time.Second))
+		c.receiveStalled.Store(true)
+		c.notifyDisconnected(errReceiveStreamStalled)
+		return probeSentAt, true
+	}
+
+	if probeSentAt.IsZero() {
+		probeSentAt = time.Now()
+		if err := c.sendReceiveProbe(ctx); err != nil {
+			log.Debugf("failed to send signal receive probe: %v", err)
+		}
+	}
+	return probeSentAt, false
+}
+
+func (c *GrpcClient) probeReturned(probeSentAt time.Time) bool {
+	return !probeSentAt.IsZero() && c.lastReceived.Load() >= probeSentAt.UnixNano()
 }
 
 // sendReceiveProbe sends a self-addressed heartbeat bound to ctx, so cancelStream

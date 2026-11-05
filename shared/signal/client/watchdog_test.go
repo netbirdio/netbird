@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -182,4 +183,75 @@ func TestReceiveLoopRefreshesLivenessAfterBlockedHandoff(t *testing.T) {
 		"handoff should drain once the worker is released")
 	require.True(t, c.receiveAlive(),
 		"the loop must refresh liveness when the handoff drains, before the next Recv")
+}
+
+// newConnectedTestClient returns a client with a registered receive stream against
+// a local signal server, so a probe sent by the watchdog really goes out.
+func newConnectedTestClient(t *testing.T) *GrpcClient {
+	t.Helper()
+
+	addr := startTestSignalServer(t)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	client, err := NewClient(ctx, addr, key, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	go func() {
+		_ = client.Receive(ctx, func(*sigProto.Message) error { return nil })
+	}()
+
+	streamReady := make(chan struct{})
+	go func() {
+		client.WaitStreamConnected(ctx)
+		close(streamReady)
+	}()
+	select {
+	case <-streamReady:
+	case <-time.After(5 * time.Second):
+		t.Fatal("signal stream did not connect within timeout")
+	}
+
+	// The receive loop records the first frame right after announcing the stream
+	// as connected; wait for it so the tests below own lastReceived from here on.
+	require.Eventually(t, func() bool { return client.lastReceived.Load() != 0 },
+		5*time.Second, 10*time.Millisecond, "the connect-time liveness mark must be recorded")
+
+	return client
+}
+
+// TestCheckReceiveRecognizesLateProbeReply reproduces the false stall seen on a
+// sleeping phone: the probe went out, its reply arrived right away, but the
+// watchdog ticker (which runs on awake time) evaluates only much later, when the
+// reply is already older than the inactivity threshold. The reply must still
+// count as the probe returning.
+func TestCheckReceiveRecognizesLateProbeReply(t *testing.T) {
+	c := newConnectedTestClient(t)
+
+	probeSentAt := time.Now().Add(-100 * time.Second)
+	c.lastReceived.Store(probeSentAt.Add(10 * time.Second).UnixNano())
+	require.False(t, c.receiveAlive(), "the stream must look silent at this tick")
+
+	next, stalled := c.checkReceive(context.Background(), probeSentAt)
+	assert.False(t, stalled, "a frame received after the probe proves the receive direction alive")
+	assert.False(t, c.receiveStalled.Load(), "the stalled flag must stay clear")
+	assert.WithinDuration(t, time.Now(), next, time.Second, "a fresh probe must go out while the stream is still silent")
+}
+
+// TestCheckReceiveStallsWithoutProbeReply keeps the genuine failure: nothing was
+// received since the probe went out and the probe timeout passed.
+func TestCheckReceiveStallsWithoutProbeReply(t *testing.T) {
+	c := newConnectedTestClient(t)
+
+	probeSentAt := time.Now().Add(-100 * time.Second)
+	c.lastReceived.Store(probeSentAt.Add(-10 * time.Second).UnixNano())
+
+	_, stalled := c.checkReceive(context.Background(), probeSentAt)
+	assert.True(t, stalled, "no frame since the probe went out means the receive direction is dead")
+	assert.True(t, c.receiveStalled.Load(), "the stalled flag must be set for IsHealthy")
 }
