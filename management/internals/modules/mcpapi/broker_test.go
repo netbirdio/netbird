@@ -20,10 +20,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"golang.org/x/oauth2"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -129,6 +132,16 @@ type stubAccounts struct {
 	mu        sync.Mutex
 	users     map[string]*types.User
 	storeDown bool
+	events    []storedEvent
+}
+
+// storedEvent is one activity event the broker stored.
+type storedEvent struct {
+	activity  activity.ActivityDescriber
+	initiator string
+	target    string
+	account   string
+	meta      map[string]any
 }
 
 func (a *stubAccounts) GetAccountIDFromUserAuth(context.Context, auth.UserAuth) (string, string, error) {
@@ -155,6 +168,21 @@ func (a *stubAccounts) GetUserByID(_ context.Context, id string) (*types.User, e
 	return &copied, nil
 }
 
+func (a *stubAccounts) StoreEvent(_ context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.events = append(a.events, storedEvent{activity: activityID, initiator: initiatorID, target: targetID, account: accountID, meta: meta})
+}
+
+// takeEvents returns the events stored since the last call.
+func (a *stubAccounts) takeEvents() []storedEvent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	events := a.events
+	a.events = nil
+	return events
+}
+
 func (a *stubAccounts) set(fn func(u *types.User)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -171,9 +199,9 @@ type brokerEnv struct {
 	now      time.Time
 }
 
-// newBrokerEnv mounts the broker like BaseServer.Router does: the challenge outermost, then
-// a stand-in for the API auth middleware that only lets bypass paths through, wrapped by the
-// broker, and an MCP endpoint that echoes the caller it was handed.
+// newBrokerEnv mounts the broker like BaseServer.Router does: the challenge outermost, then the
+// HTTP metrics middleware, then a stand-in for the API auth middleware that only lets bypass
+// paths through, wrapped by the broker, and an MCP endpoint that echoes the caller it was handed.
 func newBrokerEnv(t *testing.T) *brokerEnv {
 	t.Helper()
 	return newBrokerEnvWith(t, httptest.NewServer, nil)
@@ -216,8 +244,11 @@ func newBrokerEnvWith(t *testing.T, serve func(http.Handler) *httptest.Server, e
 			w.WriteHeader(http.StatusUnauthorized)
 		})
 	}
+	metrics, err := telemetry.NewMetricsMiddleware(context.Background(), noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
 	root := mux.NewRouter()
 	root.Use(broker.ChallengeMiddleware())
+	root.Use(metrics.Handler)
 	root.Use(broker.AuthMiddleware(apiAuth))
 	api := root.PathPrefix(apiPrefix).Subrouter()
 	require.NoError(t, broker.RegisterEndpoints(root, api))

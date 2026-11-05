@@ -226,9 +226,9 @@ func (f *faultyGrants) rotate(ctx context.Context, grantID, presented, next stri
 	return f.GrantStore.rotate(ctx, grantID, presented, next, now)
 }
 
-func (f *faultyGrants) revoke(ctx context.Context, grantID string) error {
+func (f *faultyGrants) revoke(ctx context.Context, grantID string) (bool, error) {
 	if f.down.Load() {
-		return errDown
+		return false, errDown
 	}
 	return f.GrantStore.revoke(ctx, grantID)
 }

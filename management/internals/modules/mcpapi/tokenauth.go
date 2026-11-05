@@ -24,8 +24,15 @@ func (b *Broker) AuthMiddleware(apiAuth mux.MiddlewareFunc) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		fallback := apiAuth(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != apiPrefix+Path {
+				fallback.ServeHTTP(w, r)
+				return
+			}
+			// Marked before the credential is checked, so a refused PAT or dashboard login on
+			// the MCP endpoint also logs as MCP.
+			markMCP(r)
 			token, ok := brokerToken(r)
-			if !ok || r.URL.Path != apiPrefix+Path {
+			if !ok {
 				fallback.ServeHTTP(w, r)
 				return
 			}
@@ -47,8 +54,9 @@ func (b *Broker) AuthMiddleware(apiAuth mux.MiddlewareFunc) mux.MiddlewareFunc {
 				return
 			}
 
-			ctx := context.WithValue(nbcontext.SetUserAuthInContext(r.Context(), userAuth), scopesKey{}, scopes)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			// In place, like the API auth, so the HTTP metrics middleware logs the caller too.
+			*r = *r.WithContext(context.WithValue(nbcontext.SetUserAuthInContext(r.Context(), userAuth), scopesKey{}, scopes))
+			next.ServeHTTP(w, r)
 		})
 	}
 }

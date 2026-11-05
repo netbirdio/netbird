@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/formatter/hook"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
 )
@@ -116,6 +117,7 @@ type echo struct {
 	Vars   map[string]string `json:"vars"`
 	Query  map[string]string `json:"query"`
 	Body   json.RawMessage   `json:"body,omitempty"`
+	Source string            `json:"source,omitempty"`
 }
 
 func echoRouter(t *testing.T) *mux.Router {
@@ -131,7 +133,8 @@ func echoRouter(t *testing.T) *mux.Router {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		w.Header().Set("X-Account", userAuth.AccountId)
-		require.NoError(t, json.NewEncoder(w).Encode(echo{Method: r.Method, Path: r.URL.Path, Vars: mux.Vars(r), Query: query, Body: body}))
+		source, _ := r.Context().Value(hook.ExecutionContextKey).(hook.ExecutionContext)
+		require.NoError(t, json.NewEncoder(w).Encode(echo{Method: r.Method, Path: r.URL.Path, Vars: mux.Vars(r), Query: query, Body: body, Source: string(source)}))
 	}
 	router.HandleFunc("/api/peers", handler).Methods(http.MethodGet)
 	router.HandleFunc("/api/peers/accessible", handler).Methods(http.MethodGet)
@@ -370,6 +373,9 @@ func TestServeOverHTTP(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
+			// The HTTP metrics middleware marks every API request as HTTP before it gets here.
+			//nolint:staticcheck // the log hook looks the source up by this string key
+			r = r.WithContext(context.WithValue(r.Context(), hook.ExecutionContextKey, hook.HTTPSource))
 			next.ServeHTTP(w, nbcontext.SetUserAuthInRequest(r, auth.UserAuth{AccountId: "acc-1", UserId: "user-1"}))
 		})
 	})
@@ -408,6 +414,7 @@ func TestServeOverHTTP(t *testing.T) {
 	got := echoOf(t, res)
 	assert.Equal(t, "/api/peers/p1", got.Path)
 	assert.Equal(t, "p1", got.Vars["peerId"], "the caller identity from the HTTP request reaches the REST handler")
+	assert.Equal(t, string(hook.MCPSource), got.Source, "the REST handler a tool call replays logs as MCP, not HTTP")
 
 	res, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "get_peer", Arguments: map[string]any{}})
 	require.NoError(t, err)

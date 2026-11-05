@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/netbirdio/netbird/formatter/hook"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/version"
 )
@@ -76,8 +77,28 @@ func RegisterEndpoints(router, api *mux.Router, opts Options) error {
 		// page cannot obtain, and a reverse proxy on the same host connects over loopback.
 		DisableLocalhostProtection: true,
 	})
-	router.Handle(Path, requireTenant(rejectBatches(handler))).Methods(http.MethodPost, http.MethodGet, http.MethodDelete, http.MethodOptions)
+	router.Handle(Path, withMCPSource(requireTenant(rejectBatches(handler)))).Methods(http.MethodPost, http.MethodGet, http.MethodDelete, http.MethodOptions)
 	return nil
+}
+
+// withMCPSource marks the request as MCP traffic, so every log line written while serving it,
+// including by the REST handlers a tool call replays, reads context=MCP instead of HTTP.
+func withMCPSource(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		markMCP(r)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// markMCP marks r in place, as the API auth hands back the caller, because the HTTP metrics
+// middleware logs each response from the request it passed down, after the handlers return.
+func markMCP(r *http.Request) {
+	*r = *r.WithContext(mcpSource(r.Context()))
+}
+
+func mcpSource(ctx context.Context) context.Context {
+	//nolint:staticcheck // the log hook looks the source up by this string key
+	return context.WithValue(ctx, hook.ExecutionContextKey, hook.MCPSource)
 }
 
 // rejectBatches refuses JSON-RPC batches before they reach the SDK. MCP dropped batching in

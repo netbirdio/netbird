@@ -134,7 +134,12 @@ func TestGrantStoresRotate(t *testing.T) {
 		assert.Equal(t, grantReplayed, outcome, "a token the grant never issued is a replay")
 
 		id = newStoredGrant(t, grants, "r0")
-		require.NoError(t, grants.revoke(ctx, id))
+		revoked, err := grants.revoke(ctx, id)
+		require.NoError(t, err)
+		assert.True(t, revoked, "revoking a live grant reports it")
+		revoked, err = grants.revoke(ctx, id)
+		require.NoError(t, err)
+		assert.False(t, revoked, "revoking it again finds nothing to revoke")
 		outcome, _ = rotate(id, "r0", "r1", start)
 		assert.Equal(t, grantGone, outcome, "a revoked grant does not rotate")
 		_, ok, err = grants.load(ctx, id)
@@ -184,6 +189,10 @@ func TestGrantStoresExpire(t *testing.T) {
 		outcome, _, err := grants.rotate(ctx, grantID, "r0", "r1", time.Now())
 		require.NoError(t, err)
 		assert.Equal(t, grantGone, outcome)
+		// The memory store keeps an ended grant until its next sweep, so this is not a no-op.
+		revoked, err := grants.revoke(ctx, grantID)
+		require.NoError(t, err)
+		assert.False(t, revoked, "an ended session is not revoked again")
 		_, reused, err := grants.start(ctx, codeID, time.Minute, "again-"+codeID, grantRecord{Current: "r0"}, time.Minute)
 		require.NoError(t, err)
 		assert.False(t, reused, "a code's use marker lasts only as long as the code")
@@ -221,6 +230,35 @@ func TestGrantStoresAreAtomic(t *testing.T) {
 			assert.Equal(t, 1, rotated, "exactly one racer rotates, the rest are served: %v", outcomes)
 		})
 
+		// The broker records a sign-out or a reuse revocation only for the revoke call that
+		// reports the session was still there, so exactly one of racing calls may report it.
+		t.Run("racing revocations report one", func(t *testing.T) {
+			id := newStoredGrant(t, grants, "r0")
+			const racers = 16
+			var wg sync.WaitGroup
+			start := make(chan struct{})
+			revoked := make([]bool, racers)
+			for i := range racers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					var err error
+					revoked[i], err = grants.revoke(ctx, id)
+					assert.NoError(t, err)
+				}()
+			}
+			close(start)
+			wg.Wait()
+			ended := 0
+			for _, r := range revoked {
+				if r {
+					ended++
+				}
+			}
+			assert.Equal(t, 1, ended, "exactly one revocation ends the session: %v", revoked)
+		})
+
 		t.Run("a revocation racing rotations stays revoked", func(t *testing.T) {
 			for range 20 {
 				id := newStoredGrant(t, grants, "r0")
@@ -236,7 +274,8 @@ func TestGrantStoresAreAtomic(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					assert.NoError(t, grants.revoke(ctx, id))
+					_, err := grants.revoke(ctx, id)
+					assert.NoError(t, err)
 				}()
 				wg.Wait()
 				_, ok, err := grants.load(ctx, id)

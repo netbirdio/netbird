@@ -129,11 +129,12 @@ func (s *redisGrants) rotate(ctx context.Context, grantID, presented, next strin
 	return rotationOutcome(outcome), current, nil
 }
 
-func (s *redisGrants) revoke(ctx context.Context, grantID string) error {
-	if err := s.client.Del(ctx, grantKeyPrefix+grantID).Err(); err != nil {
-		return fmt.Errorf("%w: revoke grant: %v", errStoreUnavailable, err)
+func (s *redisGrants) revoke(ctx context.Context, grantID string) (bool, error) {
+	deleted, err := s.client.Del(ctx, grantKeyPrefix+grantID).Result()
+	if err != nil {
+		return false, fmt.Errorf("%w: revoke grant: %v", errStoreUnavailable, err)
 	}
-	return nil
+	return deleted > 0, nil
 }
 
 // grantFields are a record's hash fields, in HSET's field, value order.
