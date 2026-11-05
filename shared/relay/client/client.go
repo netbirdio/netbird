@@ -404,7 +404,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	defer dial.Release()
 	ctx = dial.Ctx()
 
-	mode := transportModeFromEnv()
+	mode := TransportModeWS
 	dialers := c.getDialers(mode)
 
 	var conn net.Conn
