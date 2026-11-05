@@ -101,6 +101,15 @@ This is the quickest way to try self-hosted NetBird. It should take around 5 min
 export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash
 ```
 
+### Deploy the NetBird client with Easypanel
+
+[Easypanel](https://easypanel.io) is a self-hosted Docker deployment platform, and the NetBird client has a one-click deployment template there:
+
+[![Deploy on Easypanel][easypanel-btn]][easypanel-deploy]
+
+[easypanel-btn]: https://easypanel.io/img/deploy-on-easypanel-40.svg
+[easypanel-deploy]: https://easypanel.io/templates/netbird
+
 ### A bit on NetBird internals
 - Every machine in the network runs the [NetBird agent](client/), which manages WireGuard.
 - Every agent connects to the [Management Service](management/), which holds network state, manages peer IPs, and distributes updates to agents.
