@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+	go_sqlite "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
@@ -21,8 +23,8 @@ func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
 	var m ProxyMetrics
 	activeCutoff := time.Now().Add(-proxyActiveThreshold)
 
-	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite/postgres
-	// (MySQL too) and keeps the round-trip to one. proxy.StatusConnected
+	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite and postgres
+	// and keeps the round-trip to one. proxy.StatusConnected
 	// is the same string the cluster-capability queries use; the active
 	// window matches the cluster-capability semantics (only proxies
 	// heartbeating within ~2 * heartbeat interval count as connected).
@@ -47,12 +49,54 @@ func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
 
 // SaveProxy saves or updates a proxy in the database
 func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
-	result := s.db.Save(p)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to save proxy: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to save proxy")
+	tx := s.db
+
+	if p.ID == "" {
+		return status.Errorf(status.InvalidArgument, "ID is a required field on proxy create/update")
 	}
+
+	if p.AccountID == nil {
+		tx = tx.Where("account_id is null")
+	} else {
+		tx = tx.Where("account_id = ?", *p.AccountID)
+	}
+
+	result := tx.Select("*").Updates(p)
+	if result.Error != nil {
+		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
+		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
+
+		// constraint violation errors in sqlite and postgres
+		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
+			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
+		}
+
+		return fmt.Errorf("%w, %w", status.Errorf(status.Internal, "failed to save proxy"), result.Error)
+	}
+	if result.RowsAffected != 0 {
+		return nil
+	}
+
+	result = tx.Create(p)
+	if result.Error != nil {
+		sqliteErr, sqliteErrOk := result.Error.(go_sqlite.Error)
+		pgxErr, pgxErrOk := result.Error.(*pgconn.PgError)
+
+		// constraint violation errors in sqlite and postgres
+		if (sqliteErrOk && sqliteErr.ExtendedCode == 1555) || (pgxErrOk && pgxErr.Code == "23505") {
+			return status.Errorf(status.PermissionDenied, "cannot save proxy, permission denied: id: %s, account_id: %s", p.ID, valOrNull(p.AccountID))
+		}
+		return fmt.Errorf("%w, %w", status.Errorf(status.Internal, "failed to save proxy"), result.Error)
+	}
+
 	return nil
+}
+
+func valOrNull(v *string) string {
+	if v == nil {
+		return "null"
+	}
+	return *v
 }
 
 // DisconnectProxy marks a proxy as disconnected only if the session ID matches.
@@ -292,7 +336,7 @@ func (s *SqlStore) GetProxyClusters(ctx context.Context, accountID string) ([]pr
 				"cluster_address AS address, "+
 				// COUNT(CASE WHEN ... THEN 1 END) counts only non-NULL — i.e. only
 				// rows that satisfy the predicate — so it works portably across
-				// sqlite/postgres/mysql without dialect-specific FILTER syntax.
+				// sqlite and postgres without dialect-specific FILTER syntax.
 				"COUNT(CASE WHEN status = ? AND last_seen > ? THEN 1 END) AS connected_proxies, "+
 				// MAX(CASE …) > 0 expresses BOOL_OR in a way Postgres tolerates
 				// (Postgres can't MAX a boolean column).

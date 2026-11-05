@@ -4,8 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -328,4 +331,53 @@ func Test_UpdateRouterFailsWithPermissionDenied(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, status.NewPermissionDeniedError(), err)
 	require.Nil(t, updatedRouter)
+}
+
+func Test_UpdateRouterUnchangedSkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	accountID := "testAccountId"
+	userID := "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	var events, fanOuts int
+	am := mock_server.MockAccountManager{
+		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {
+			events++
+		},
+		ExpandAndUpdateAffectedFunc: func(context.Context, string, *affectedpeers.Snapshot, affectedpeers.Change) {
+			fanOuts++
+		},
+	}
+	manager := NewManager(s, permissions.NewManager(s), &am)
+
+	serial := func() uint64 {
+		network, err := s.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+		require.NoError(t, err)
+		return network.Serial
+	}
+
+	router := &types.NetworkRouter{
+		ID:         "testRouterId",
+		NetworkID:  "testNetworkId",
+		AccountID:  accountID,
+		PeerGroups: []string{"csquuo4jcko732k1ag00"},
+		Masquerade: true,
+		Metric:     100,
+		Enabled:    true,
+	}
+
+	_, err = manager.UpdateRouter(ctx, userID, router.Copy())
+	require.NoError(t, err)
+	require.Equal(t, 1, events, "real update must log an event")
+	require.Equal(t, 1, fanOuts, "real update must update affected peers")
+
+	serialBefore := serial()
+	_, err = manager.UpdateRouter(ctx, userID, router.Copy())
+	require.NoError(t, err)
+	assert.Equal(t, 2, events, "unchanged update must still log an event")
+	assert.Equal(t, 1, fanOuts, "unchanged update must not update affected peers")
+	assert.Equal(t, serialBefore, serial(), "unchanged update must not bump the network serial")
 }

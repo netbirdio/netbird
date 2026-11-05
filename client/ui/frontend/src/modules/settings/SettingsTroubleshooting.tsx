@@ -79,7 +79,7 @@ export function SettingsTroubleshooting() {
                             {t("settings.troubleshooting.anonymize.label")}
                             <Tooltip
                                 content={
-                                    <div className={"max-w-xs whitespace-normal leading-relaxed"}>
+                                    <div className={"max-w-xs leading-relaxed whitespace-normal"}>
                                         {t("settings.troubleshooting.anonymize.info")}
                                     </div>
                                 }
@@ -213,7 +213,7 @@ function ProgressSection({
             {stage.kind === "capturing" && (
                 <div
                     className={
-                        "font-mono text-2xl font-semibold tabular-nums tracking-wider text-nb-gray-50"
+                        "font-mono text-2xl font-semibold tracking-wider text-nb-gray-50 tabular-nums"
                     }
                     aria-live={"polite"}
                 >

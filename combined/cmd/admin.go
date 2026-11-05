@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dexidp/dex/storage"
+	"github.com/netbirdio/dex/storage"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 

@@ -19,13 +19,20 @@ import (
 func startTestSignalServer(t *testing.T) string {
 	t.Helper()
 
+	srv, err := server.NewServer(context.Background(), otel.Meter(""))
+	require.NoError(t, err)
+
+	return serveTestSignalExchange(t, srv)
+}
+
+func serveTestSignalExchange(t *testing.T, impl sigProto.SignalExchangeServer) string {
+	t.Helper()
+
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	s := grpc.NewServer()
-	srv, err := server.NewServer(context.Background(), otel.Meter(""))
-	require.NoError(t, err)
-	sigProto.RegisterSignalExchangeServer(s, srv)
+	sigProto.RegisterSignalExchangeServer(s, impl)
 
 	go func() {
 		_ = s.Serve(lis)

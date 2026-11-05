@@ -75,7 +75,18 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 		if result.Error != nil {
 			return result.Error
 		}
-		return nil
+
+		err := tx.Where("account_id = ? AND NOT EXISTS (SELECT 1 FROM peers WHERE peers.id = peer_connections.peer_id AND peers.account_id = peer_connections.account_id)", account.Id).
+			Delete(&nbpeer.Connection{}).Error
+		if err != nil {
+			return fmt.Errorf("delete orphaned peer connections: %w", err)
+		}
+
+		peers := make([]*nbpeer.Peer, 0, len(account.PeersG))
+		for i := range account.PeersG {
+			peers = append(peers, &account.PeersG[i])
+		}
+		return createPeerConnections(tx, peers...)
 	})
 
 	took := time.Since(start)
@@ -165,6 +176,11 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 
 		if err := deleteAgentNetworkAccountConfig(tx, account.Id); err != nil {
 			return err
+		}
+
+		result = tx.Delete(&nbpeer.Connection{}, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
 		}
 
 		result = tx.Select(clause.Associations).Delete(account)
@@ -324,6 +340,29 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 	}()
 
+	account, err := s.preloadAccountGorm(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.attachAccountPeerConnections(ctx, accountID, account.PeersG); err != nil {
+		log.WithContext(ctx).Errorf("error when getting peer connections of account %s from the store: %s", accountID, err)
+		return nil, status.NewGetAccountFromStoreError(err)
+	}
+
+	indexSetupKeys(account)
+	indexPeers(account)
+	if err := s.indexUsers(account); err != nil {
+		return nil, err
+	}
+	indexGroups(account)
+	indexRoutes(account)
+	indexNameServerGroups(account)
+	return account, nil
+}
+
+// preloadAccountGorm loads the account with all its associations.
+func (s *SqlStore) preloadAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
 	var account types.Account
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
@@ -349,7 +388,10 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
+	return &account, nil
+}
 
+func indexSetupKeys(account *types.Account) {
 	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
 	for _, key := range account.SetupKeysG {
 		if key.UpdatedAt.IsZero() {
@@ -361,12 +403,17 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.SetupKeys[key.Key] = &key
 	}
 	account.SetupKeysG = nil
+}
 
+func indexPeers(account *types.Account) {
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {
 		account.Peers[peer.ID] = &peer
 	}
 	account.PeersG = nil
+}
+
+func (s *SqlStore) indexUsers(account *types.Account) error {
 	account.Users = make(map[string]*types.User, len(account.UsersG))
 	for _, user := range account.UsersG {
 		user.PATs = make(map[string]*types.PersonalAccessToken, len(user.PATs))
@@ -378,12 +425,16 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 			user.AutoGroups = []string{}
 		}
 		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
-			return nil, fmt.Errorf("decrypt user: %w", err)
+			return fmt.Errorf("decrypt user: %w", err)
 		}
 		account.Users[user.Id] = &user
 		user.PATsG = nil
 	}
 	account.UsersG = nil
+	return nil
+}
+
+func indexGroups(account *types.Account) {
 	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
 		group.Peers = make([]string, len(group.GroupPeers))
@@ -396,12 +447,17 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.Groups[group.ID] = group
 	}
 	account.GroupsG = nil
+}
 
+func indexRoutes(account *types.Account) {
 	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
 	for _, route := range account.RoutesG {
 		account.Routes[route.ID] = &route
 	}
 	account.RoutesG = nil
+}
+
+func indexNameServerGroups(account *types.Account) {
 	account.NameServerGroups = make(map[string]*nbdns.NameServerGroup, len(account.NameServerGroupsG))
 	for _, ns := range account.NameServerGroupsG {
 		ns.AccountID = ""
@@ -417,7 +473,6 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
-	return &account, nil
 }
 
 func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.Account, error) {
@@ -746,6 +801,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
+			settings_peer_hostname_collision_rejected,
 			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
 			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
@@ -771,6 +827,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
 		sMetricsPushEnabled              sql.NullBool
+		sPeerHostnameCollisionRejected   sql.NullBool
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
 		autoUpdateVersion                sql.NullString
@@ -800,6 +857,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
+		&sPeerHostnameCollisionRejected,
 		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
 		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
@@ -869,6 +927,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sMetricsPushEnabled.Valid {
 		account.Settings.MetricsPushEnabled = sMetricsPushEnabled.Bool
+	}
+	if sPeerHostnameCollisionRejected.Valid {
+		account.Settings.PeerHostnameCollisionRejected = sPeerHostnameCollisionRejected.Bool
 	}
 	if sAgentNetworkOnly.Valid {
 		account.Settings.AgentNetworkOnly = sAgentNetworkOnly.Bool
@@ -1078,10 +1139,8 @@ func (s *SqlStore) SaveAccountSettings(ctx context.Context, accountID string, se
 		return status.Errorf(status.Internal, "failed to save account settings to store")
 	}
 
-	// MySQL reports RowsAffected=0 for no-op updates where values don't change,
-	// unlike SQLite/Postgres which report matched rows. Skip the check since the
-	// caller (UpdateAccountSettings) already verified the account exists via
-	// GetAccountSettings with LockingStrengthUpdate.
+	// No RowsAffected check: the caller (UpdateAccountSettings) already verified
+	// the account exists via GetAccountSettings with LockingStrengthUpdate.
 
 	return nil
 }

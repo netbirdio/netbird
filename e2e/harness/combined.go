@@ -332,6 +332,14 @@ func (c *Combined) Restart(ctx context.Context) error {
 	return nil
 }
 
+// NetworkName returns the Docker network the deployment runs on. Peers reach
+// management, signal and relay at the combined server's alias on this network
+// only, so a suite running agents outside the harness, such as in a Kind
+// cluster, attaches them here.
+func (c *Combined) NetworkName() string {
+	return c.network.Name
+}
+
 // Logs returns the combined server container logs, for diagnostics.
 func (c *Combined) Logs(ctx context.Context) string {
 	return containerLogs(ctx, c.container)

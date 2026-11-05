@@ -472,12 +472,6 @@ detect_store_config() {
     if [[ -n "$pg_dsn" ]]; then
       STORE_DSN="$pg_dsn"
     fi
-
-    local mysql_dsn
-    mysql_dsn=$(grep '^NETBIRD_STORE_ENGINE_MYSQL_DSN=' "$INSTALL_DIR/setup.env" 2>/dev/null | sed 's/^NETBIRD_STORE_ENGINE_MYSQL_DSN=//' | tr -d '"' || echo "")
-    if [[ -n "$mysql_dsn" ]]; then
-      STORE_DSN="$mysql_dsn"
-    fi
   fi
 
   # Also check base.setup.env
@@ -486,12 +480,6 @@ detect_store_config() {
     pg_dsn=$(grep '^NETBIRD_STORE_ENGINE_POSTGRES_DSN=' "$INSTALL_DIR/base.setup.env" 2>/dev/null | sed 's/^NETBIRD_STORE_ENGINE_POSTGRES_DSN=//' | tr -d '"' || echo "")
     if [[ -n "$pg_dsn" ]]; then
       STORE_DSN="$pg_dsn"
-    fi
-
-    local mysql_dsn
-    mysql_dsn=$(grep '^NETBIRD_STORE_ENGINE_MYSQL_DSN=' "$INSTALL_DIR/base.setup.env" 2>/dev/null | sed 's/^NETBIRD_STORE_ENGINE_MYSQL_DSN=//' | tr -d '"' || echo "")
-    if [[ -n "$mysql_dsn" ]]; then
-      STORE_DSN="$mysql_dsn"
     fi
   fi
 
@@ -838,7 +826,7 @@ generate_docker_compose_traefik() {
 services:
   # Traefik reverse proxy (automatic TLS via Let's Encrypt)
   traefik:
-    image: traefik:v3.6
+    image: traefik:v3.7.14
     container_name: netbird-traefik
     restart: unless-stopped
     networks:
@@ -851,11 +839,13 @@ services:
       # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=netbird"
+      - "--providers.docker.network=\${COMPOSE_PROJECT_NAME:-}_netbird"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.allowACMEByPass=true"
+      - "--entrypoints.web.http.aliasHeadersStrategy=delete"
+      - "--entrypoints.websecure.http.aliasHeadersStrategy=delete"
       # Disable timeouts for long-lived gRPC streams
       - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
       - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
@@ -1283,4 +1273,6 @@ main() {
   return 0
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+  main "$@"
+fi

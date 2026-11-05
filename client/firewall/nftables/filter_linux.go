@@ -118,9 +118,10 @@ func (r *family) AddFilterRule(
 }
 
 // buildPeerFilterExprs assembles the input-chain (peer ACL) match: the
-// IP-header protocol byte read via Payload, then source, then ports
-// (no counter), matching the historical peer shape so per-rule kernel
-// state is identical to pre-unification.
+// transport protocol via meta l4proto, then source, then ports (no counter).
+// The protocol must be the one the kernel finds after walking any IPv6
+// extension headers; the fixed header's Next Header byte only names it when
+// there are none.
 func (r *family) buildPeerFilterExprs(
 	srcExprs []expr.Any,
 	proto firewall.Protocol,
@@ -134,12 +135,7 @@ func (r *family) buildPeerFilterExprs(
 			return nil, fmt.Errorf("convert protocol to number: %w", err)
 		}
 		exprs = append(exprs,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       r.af.protoOffset,
-				Len:          1,
-			},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protoNum}},
 		)
 	}

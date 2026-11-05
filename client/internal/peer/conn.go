@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v4"
+	"github.com/netbirdio/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -341,7 +341,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 
-	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
+	if conn.onDisconnected != nil {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 	}
 

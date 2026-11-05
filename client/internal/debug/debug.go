@@ -174,7 +174,6 @@ The IP addresses in the interfaces file are anonymized using the same process as
 Configuration
 The config.txt file contains anonymized configuration information of the NetBird client. Sensitive information such as private keys and SSH keys are excluded. The following fields are anonymized:
 - ManagementURL
-- AdminURL
 - NATExternalIPs
 - CustomDNSAddress
 
@@ -602,9 +601,6 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String())))
 		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String())))
-		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", anonymizeNATExternalIPs(g.internalConfig.NATExternalIPs, g.anonymizer)))
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress)))
@@ -612,9 +608,6 @@ func (g *BundleGenerator) addConfig() error {
 	} else {
 		if g.internalConfig.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", g.internalConfig.ManagementURL.String()))
-		}
-		if g.internalConfig.AdminURL != nil {
-			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", g.internalConfig.AdminURL.String()))
 		}
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", g.internalConfig.NATExternalIPs))
 		if g.internalConfig.CustomDNSAddress != "" {
@@ -647,7 +640,7 @@ const (
 	jsonKeyServiceEnv    = "service_env_vars"
 )
 
-var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential", "pin", "pkcs11"}
 
 // addServiceParams reads the service.json file and adds a sanitized version to the bundle.
 // Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.

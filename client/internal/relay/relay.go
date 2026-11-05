@@ -201,7 +201,7 @@ func (p *StunTurnProbe) probeSTUN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	net := stdnet.NewNet(ctx, nil)
+	net := stdnet.NewNet(ctx, nil, nil)
 
 	client, err := stun.DialURI(uri, &stun.DialConfig{
 		Net: net,
@@ -286,7 +286,7 @@ func (p *StunTurnProbe) probeTURN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	net := stdnet.NewNet(ctx, nil)
+	net := stdnet.NewNet(ctx, nil, nil)
 	cfg := &turn.ClientConfig{
 		STUNServerAddr: turnServerAddr,
 		TURNServerAddr: turnServerAddr,

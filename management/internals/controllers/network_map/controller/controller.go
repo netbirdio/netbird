@@ -110,7 +110,7 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 	if nmdataStore != nil {
 		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
 		log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
-		c.nmdataBuffer = requestbuffer.New(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
+		c.nmdataBuffer = requestbuffer.NewSerialized(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
 	}
 
 	return c
@@ -127,14 +127,20 @@ func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peer
 	return c.peersUpdateManager.CreateChannel(ctx, peerID), nil
 }
 
-func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string) {
-	c.peersUpdateManager.CloseChannel(ctx, peerID)
+// OnPeerDisconnected closes the session's updates channel and schedules an ephemeral peer for
+// cleanup. It returns false without touching anything when a newer session owns the peer. A nil
+// session closes any registered channel.
+func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string, session chan *network_map.UpdateMessage) bool {
+	if !c.peersUpdateManager.CloseSessionChannel(ctx, peerID, session) {
+		return false
+	}
 	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer %s: %v", peerID, err)
-		return
+		return true
 	}
 	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
+	return true
 }
 
 // injectAllProxyPolicies prepares an account for the per-peer network-map
@@ -483,9 +489,8 @@ func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) *n
 
 // fetchNetworkMapData reads the twin once per buffer window. Its result is
 // shared by every waiter of that window, so the mutating steps run here, before
-// it is handed out: the twin the callers see is read-only. Injected proxy
-// policies carry no posture checks, so precomputing after the injection yields
-// the same validation as precomputing before it.
+// it is handed out: the twin the callers see is read-only. Posture checks are
+// evaluated lazily by the components calculation.
 func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) (*networkmap.NetworkMapData, error) {
 	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID)
 	if err != nil {
@@ -495,7 +500,6 @@ func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) 
 	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
 	nmData.BuildPrivateServiceCandidates()
 	nmData.InjectProxyPolicies()
-	nmData.PrecomputePostureValidation()
 
 	return nmData, nil
 }
@@ -927,7 +931,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	}
 
 	// it's possible that the peer gets deleted between the call to "sendInitialSync()" and here, bail out in this case
-	if _, ok := account.Peers[peer.ID]; !ok {
+	if p, _ := account.Peers[peer.ID]; p == nil {
 		return nil, nil, nil, 0, fmt.Errorf("peer '%s' no longer exists", peer.ID)
 	}
 

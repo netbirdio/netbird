@@ -10,21 +10,76 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.1.8"
+  SIGN_PIPE_VER: "v0.1.9"
   GORELEASER_VER: "v2.16.0"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
   flags: ""
   SKIP_PUBLISH: "true"
+  SKIP_LATEST: "true"
   SKIP_DOCKER_PUSH: "false"
+  # GoReleaser otherwise picks its own tag among those on HEAD, so a release
+  # tag sharing a commit with an rc tag would be built and published as the rc.
+  GORELEASER_CURRENT_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
 
 jobs:
+  freebsd_port_trigger:
+    name: "FreeBSD Port / Trigger"
+    runs-on: ubuntu-22.04
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Decide whether the port job runs
+        id: decide
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          run=false
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+                run=true
+              elif [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                # The port tracks stable releases only, so a canary or rc tag has nothing to submit,
+                # and neither does a patch on an older release line. ls-remote rather than a full
+                # tag fetch, which would pull the history behind every tag.
+                SKIP_LATEST_TAGS=$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##')
+                export SKIP_LATEST_TAGS
+                # An assignment, so a refused tag list fails the step; set -e ignores a
+                # substitution inside [[ ]].
+                skip_latest=$(release_files/skip-latest.sh "$GITHUB_REF_NAME")
+                if [[ "$skip_latest" == "false" ]]; then
+                  run=true
+                  echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+                fi
+              fi
+              ;;
+            pull_request)
+              git fetch --depth=1 origin "$BASE_SHA"
+              if git diff --name-only "$BASE_SHA" HEAD | \
+                  grep -qE '^(release_files/freebsd-port-.*\.sh|\.github/workflows/release\.yml)$'; then
+                run=true
+              fi
+              ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "FreeBSD port job runs: $run"
+
   release_freebsd_port:
     name: "FreeBSD Port / Build & Test"
+    needs: freebsd_port_trigger
+    if: needs.freebsd_port_trigger.outputs.run == 'true'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -33,18 +88,19 @@ jobs:
           persist-credentials: false
 
       - name: Generate FreeBSD port diff
-        run: bash -x release_files/freebsd-port-diff.sh
-
-      - name: Generate FreeBSD port issue body
-        run: bash -x release_files/freebsd-port-issue-body.sh
+        env:
+          TARGET_VERSION: ${{ needs.freebsd_port_trigger.outputs.version }}
+        run: bash -x release_files/freebsd-port-diff.sh "$TARGET_VERSION"
 
       - name: Check if diff was generated
         id: check_diff
         run: |
-          if ls netbird-*.diff 1> /dev/null 2>&1; then
-            echo "diff_exists=true" >> $GITHUB_OUTPUT
+          shopt -s nullglob
+          diffs=(netbird-*.diff)
+          if [[ ${#diffs[@]} -gt 0 ]]; then
+            echo "diff_exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "diff_exists=false" >> $GITHUB_OUTPUT
+            echo "diff_exists=false" >> "$GITHUB_OUTPUT"
             echo "No diff file generated (port may already be up to date)"
           fi
 
@@ -52,10 +108,18 @@ jobs:
         if: steps.check_diff.outputs.diff_exists == 'true'
         id: version
         run: |
-          VERSION=$(ls netbird-*.diff | sed 's/netbird-\(.*\)\.diff/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          diffs=(netbird-*.diff)
+          VERSION="${diffs[0]#netbird-}"
+          VERSION="${VERSION%.diff}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Generated files for version: $VERSION"
-          cat netbird-*.diff
+          cat "${diffs[0]}"
+
+      - name: Generate FreeBSD port issue body
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.version }}
+        run: bash -x release_files/freebsd-port-issue-body.sh "" "$TARGET_VERSION"
 
       - name: Read Go version from go.mod
         id: goversion
@@ -166,6 +230,16 @@ jobs:
             echo "SKIP_DOCKER_PUSH=true" >> $GITHUB_ENV
           fi
 
+      # The Docker latest tags and the Homebrew formula are gated on
+      # SKIP_LATEST (default: skip). Only a published tag that sorts highest
+      # among all release tags moves them, so a patch on an older release line
+      # can't drag them backwards. See release_files/skip-latest.sh.
+      - name: Decide whether this release moves latest
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.SKIP_PUBLISH == 'false' }}
+        run: |
+          skip=$(release_files/skip-latest.sh "${GITHUB_REF_NAME}")
+          echo "SKIP_LATEST=$skip" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -254,6 +328,7 @@ jobs:
           NFPM_NETBIRD_RPM_ARM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           NFPM_NETBIRD_RPM_386_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
           SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+          SKIP_LATEST: ${{ env.SKIP_LATEST }}
           SKIP_DOCKER_PUSH: ${{ env.SKIP_DOCKER_PUSH }}
       - name: Verify RPM signatures
         run: |
@@ -363,7 +438,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
         with:
           name: linux-packages
-          path: dist/netbird_linux**
+          path: |
+            dist/netbird_linux**
+            dist/netbird-pkcs11_linux**
+            dist/netbird-deb-32bit_linux**
+            dist/netbird-rpm-*_linux**
           retention-days: 7
       - name: upload windows packages
         id: upload_windows_packages
