@@ -14,6 +14,7 @@ import (
 func TestMigrateNormalizeServiceDomains(t *testing.T) {
 	db := setupDatabase(t)
 	require.NoError(t, db.AutoMigrate(&rpservice.Service{}))
+	require.NoError(t, db.Migrator().DropIndex(&rpservice.Service{}, "idx_services_domain")) // this is needed so we can create non-unique domain names for this test
 	t.Cleanup(func() { require.NoError(t, db.Migrator().DropTable(&rpservice.Service{})) })
 
 	ctx := context.Background()
