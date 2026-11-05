@@ -100,7 +100,6 @@ render_proxy_stack() {
     NETBIRD_DOMAIN=netbird.test
     NETBIRD_NON_INTERACTIVE=true
     NETBIRD_REVERSE_PROXY_TYPE=0
-    NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
     NETBIRD_ENABLE_PROXY=true
     NETBIRD_ENABLE_CROWDSEC="$2"
     unset NETBIRD_ENABLE_CROWDSEC_APPSEC
@@ -252,7 +251,6 @@ assert_appsec_requires_crowdsec() {
     initialize_default_values
     NETBIRD_NON_INTERACTIVE=true
     NETBIRD_REVERSE_PROXY_TYPE=0
-    NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
     NETBIRD_ENABLE_PROXY=true
     NETBIRD_ENABLE_CROWDSEC=false
     NETBIRD_ENABLE_CROWDSEC_APPSEC=true
@@ -274,7 +272,6 @@ assert_appsec_rejects_invalid_value() {
       initialize_default_values
       NETBIRD_NON_INTERACTIVE=true
       NETBIRD_REVERSE_PROXY_TYPE=0
-      NETBIRD_LETSENCRYPT_EMAIL=admin@example.com
       NETBIRD_ENABLE_PROXY=true
       NETBIRD_ENABLE_CROWDSEC="$crowdsec"
       NETBIRD_ENABLE_CROWDSEC_APPSEC=yes
