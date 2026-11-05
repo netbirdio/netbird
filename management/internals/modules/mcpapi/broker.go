@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -1123,9 +1124,14 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
+// displayName drops Unicode format characters, such as bidi overrides and zero-width
+// spaces, from a client-chosen name, so the name cannot reorder the consent page's own
+// words or pass a blank name off as a real one.
 func displayName(name string) string {
-	if strings.TrimSpace(name) == "" {
-		return "An application"
-	}
-	return name
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name))
 }

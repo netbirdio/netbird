@@ -111,7 +111,8 @@ from the embedded IdP's issuer or else the request; see [Reverse proxy](#reverse
    gets an error page, since open registration would otherwise make this an open
    redirector.
 3. **Consent.** The page names the client and the host the code goes to; write access is
-   a ticked checkbox when the client asked for `mcp:write` or no scope. The request is
+   an unticked checkbox, offered when the client asked for `mcp:write` or no scope, so
+   a connection stays read-only unless the user opts in. The request is
    sealed into the form and bound to the browser by the consent cookie, a post from
    another origin (by `Sec-Fetch-Site`) gets 403, and the page is unframeable and arms
    the approve button only after pointer or keyboard input.
