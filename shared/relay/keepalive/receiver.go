@@ -2,6 +2,7 @@ package keepalive
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -13,15 +14,24 @@ type Receiver struct {
 
 	log       *log.Entry
 	allowance time.Duration
+	requests  atomic.Uint64
 	refresh   chan struct{}
 	ctx       context.Context
 	ctxCancel context.CancelFunc
+
+	seenRequests uint64
 }
 
 // NewReceiver starts the deadline for a connection whose auth response has just been sent.
 func NewReceiver(log *log.Entry) *Receiver {
+	r := newReceiver(log)
+	go r.run()
+	return r
+}
+
+func newReceiver(log *log.Entry) *Receiver {
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &Receiver{
+	return &Receiver{
 		OnTimeout: make(chan struct{}, 1),
 		log:       log,
 		allowance: durationFromEnv(envAllowance, defaultAllowance),
@@ -29,8 +39,6 @@ func NewReceiver(log *log.Entry) *Receiver {
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
-	go r.run()
-	return r
 }
 
 // Allowance returns the time a client has between two keepalive requests.
@@ -38,8 +46,9 @@ func (r *Receiver) Allowance() time.Duration {
 	return r.allowance
 }
 
-// Refresh moves the deadline after a valid keepalive request.
+// Refresh records a valid keepalive request at the moment it is read from the connection.
 func (r *Receiver) Refresh() {
+	r.requests.Add(1)
 	select {
 	case r.refresh <- struct{}{}:
 	default:
@@ -61,15 +70,34 @@ func (r *Receiver) run() {
 	for {
 		select {
 		case <-r.refresh:
-			timer.Reset(r.allowance)
+			r.checkRequests(timer)
 		case <-timer.C:
-			select {
-			case r.OnTimeout <- struct{}{}:
-			default:
+			if r.handleExpiry(timer) {
+				return
 			}
-			return
 		case <-r.ctx.Done():
 			return
 		}
 	}
+}
+
+func (r *Receiver) handleExpiry(timer *time.Timer) bool {
+	if r.checkRequests(timer) {
+		return false
+	}
+	select {
+	case r.OnTimeout <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (r *Receiver) checkRequests(timer *time.Timer) bool {
+	n := r.requests.Load()
+	if n <= r.seenRequests {
+		return false
+	}
+	r.seenRequests = n
+	timer.Reset(r.allowance)
+	return true
 }
