@@ -17,8 +17,6 @@ var downCmd = &cobra.Command{
 	Short: "Disconnect from the NetBird network",
 	Long:  "Disconnect the NetBird client from the network and management service. This will terminate all active connections with the remote peers.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		SetFlagsFromEnvVars(rootCmd)
-
 		cmd.SetOut(cmd.OutOrStdout())
 
 		if err := util.InitLog(logLevel, util.LogConsole); err != nil {

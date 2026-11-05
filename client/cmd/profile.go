@@ -91,9 +91,6 @@ func init() {
 }
 
 func setupCmd(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, "console")

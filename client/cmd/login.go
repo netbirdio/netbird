@@ -500,9 +500,6 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 }
 
 func setEnvAndFlags(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, "console")

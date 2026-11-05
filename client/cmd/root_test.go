@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
 )
@@ -79,4 +81,56 @@ func TestSetFlagsFromEnvVars(t *testing.T) {
 	if wireguardPort != 10000 {
 		t.Errorf("expected wireguardPort to be 10000, got %d", wireguardPort)
 	}
+}
+
+func TestSetFlagsFromEnvVarsOverridesCLI(t *testing.T) {
+	var (
+		parentValue string
+		localValue  string
+		sliceValue  []string
+		boolValue   bool
+	)
+
+	// Every flag is also set on the CLI except bool-value, which is set by both WT_ and NB_.
+	parent := &cobra.Command{Use: "parent"}
+	parent.PersistentFlags().StringVar(&parentValue, "parent-value", "", "")
+
+	child := &cobra.Command{
+		Use: "child",
+		Run: func(cmd *cobra.Command, _ []string) {
+			SetFlagsFromEnvVars(cmd)
+		},
+	}
+	child.Flags().StringVar(&localValue, "local-value", "", "")
+	child.Flags().StringSliceVar(&sliceValue, "slice-value", nil, "")
+	child.Flags().BoolVar(&boolValue, "bool-value", false, "")
+	parent.AddCommand(child)
+
+	t.Setenv("NB_PARENT_VALUE", "env-parent")
+	t.Setenv("NB_LOCAL_VALUE", "env-local")
+	t.Setenv("NB_SLICE_VALUE", "env-a,env-b")
+	t.Setenv("WT_BOOL_VALUE", "false")
+	t.Setenv("NB_BOOL_VALUE", "true")
+
+	parent.SetArgs([]string{"child", "--parent-value", "cli-parent", "--local-value", "cli-local", "--slice-value", "cli-a"})
+	require.NoError(t, parent.Execute())
+
+	assert.Equal(t, "env-parent", parentValue, "env should override an inherited flag set on the CLI")
+	assert.Equal(t, "env-local", localValue, "env should override a local flag set on the CLI")
+	assert.Equal(t, []string{"env-a", "env-b"}, sliceValue, "env should replace a slice flag, not append to it")
+	assert.True(t, boolValue, "NB_ should win over WT_")
+	assert.True(t, child.Flags().Changed("local-value"), "a flag set from env should count as changed")
+}
+
+func TestSetFlagsFromEnvVarsIsIdempotent(t *testing.T) {
+	var sliceValue []string
+
+	cmd := &cobra.Command{Use: "cmd", Run: func(*cobra.Command, []string) {}}
+	cmd.Flags().StringSliceVar(&sliceValue, "slice-value", nil, "")
+	t.Setenv("NB_SLICE_VALUE", "a,b")
+
+	SetFlagsFromEnvVars(cmd)
+	SetFlagsFromEnvVars(cmd)
+
+	assert.Equal(t, []string{"a", "b"}, sliceValue, "binding twice should not duplicate slice values")
 }
