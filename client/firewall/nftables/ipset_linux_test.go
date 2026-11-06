@@ -294,7 +294,7 @@ func TestRollbackFlushedFilterRuleKeepsRefsIfDeleteFails(t *testing.T) {
 func TestSourceMatchExprsKeepsPayloadBeforeLookup(t *testing.T) {
 	af := afIPv4
 	exprs := []expr.Any{
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: af.protoOffset, Len: 1},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{6}},
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: af.srcAddrOffset, Len: af.addrLen},
 		&expr.Lookup{SourceRegister: 1, SetName: "s"},
@@ -303,7 +303,7 @@ func TestSourceMatchExprsKeepsPayloadBeforeLookup(t *testing.T) {
 		&expr.Verdict{Kind: expr.VerdictAccept},
 	}
 
-	got := sourceMatchExprs(af, exprs)
+	got := sourceMatchExprs(exprs)
 	require.Len(t, got, 2)
 	payload, ok := got[0].(*expr.Payload)
 	require.True(t, ok)

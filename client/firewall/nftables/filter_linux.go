@@ -155,7 +155,7 @@ func (r *family) finishIncompleteFilter(
 	}
 	var srcExprs []expr.Any
 	if existing.nftRule != nil {
-		srcExprs = sourceMatchExprs(r.af, existing.nftRule.Exprs)
+		srcExprs = sourceMatchExprs(existing.nftRule.Exprs)
 	}
 	existing.mangleRule = r.flushPreroutingPair(srcExprs, proto, sPort, dPort, []byte(existing.id), false)
 	return nil
@@ -669,14 +669,15 @@ func findSets(rule *nftables.Rule) []string {
 
 // sourceMatchExprs copies the source IP match from a stored filter rule:
 // the network-header payload that loads the address, plus lookup or prefix
-// compare. Proto and transport-port matches are skipped so a rebuilt
-// prerouting pair still loads the packet source into the lookup register.
-func sourceMatchExprs(af addrFamily, exprs []expr.Any) []expr.Any {
+// compare. The meta l4proto match and transport-port matches are skipped
+// so a rebuilt prerouting pair still loads the packet source into the
+// lookup register.
+func sourceMatchExprs(exprs []expr.Any) []expr.Any {
 	i := 0
 	if i+1 < len(exprs) {
-		payload, isPayload := exprs[i].(*expr.Payload)
+		meta, isMeta := exprs[i].(*expr.Meta)
 		_, isCmp := exprs[i+1].(*expr.Cmp)
-		if isPayload && isCmp && payload.Len == 1 && payload.Offset == af.protoOffset {
+		if isMeta && isCmp && meta.Key == expr.MetaKeyL4PROTO {
 			i += 2
 		}
 	}
