@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,8 @@ func TestGetAgentNetworkInfo_ClientNotRunning(t *testing.T) {
 
 func TestRelayAgentNetworkInfo(t *testing.T) {
 	computedAt := timestamppb.Now()
+	windowStart := timestamppb.New(computedAt.AsTime().Truncate(time.Hour))
+	resetsAt := timestamppb.New(windowStart.AsTime().Add(time.Hour))
 	resp, err := relayAgentNetworkInfo(context.Background(), func(context.Context) (*mgmProto.GetAgentNetworkInfoResponse, error) {
 		return &mgmProto.GetAgentNetworkInfoResponse{
 			State:        mgmProto.GetAgentNetworkInfoResponse_OK,
@@ -32,6 +35,13 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 			Providers: []*mgmProto.AgentNetworkProvider{{
 				Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai",
 				AllModelsAllowed: true, Models: []string{"gpt-5.4"},
+				Exhausted: true, ExhaustedReason: "group token cap exhausted",
+				Limits: []*mgmProto.AgentNetworkLimit{{
+					Source: mgmProto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly",
+					Unit: mgmProto.AgentNetworkLimit_TOKENS, Scope: mgmProto.AgentNetworkLimit_GROUP,
+					GroupId: "grp-eng", GroupName: "Engineering", Cap: 1000, Used: 1000,
+					WindowSeconds: 3600, WindowStart: windowStart, ResetsAt: resetsAt,
+				}},
 			}},
 		}, nil
 	})
@@ -45,6 +55,13 @@ func TestRelayAgentNetworkInfo(t *testing.T) {
 	assert.Equal(t, &proto.AgentNetworkProvider{
 		Id: "prov-1", Name: "OpenAI", CatalogId: "openai_api", ApiFlavor: "openai",
 		AllModelsAllowed: true, Models: []string{"gpt-5.4"},
+		Exhausted: true, ExhaustedReason: "group token cap exhausted",
+		Limits: []*proto.AgentNetworkLimit{{
+			Source: proto.AgentNetworkLimit_ACCOUNT_RULE, SourceId: "rule-1", SourceName: "Monthly",
+			Unit: proto.AgentNetworkLimit_TOKENS, Scope: proto.AgentNetworkLimit_GROUP,
+			GroupId: "grp-eng", GroupName: "Engineering", Cap: 1000, Used: 1000,
+			WindowSeconds: 3600, WindowStart: windowStart, ResetsAt: resetsAt,
+		}},
 	}, resp.Providers[0], "provider must relay field for field")
 }
 

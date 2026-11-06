@@ -70,6 +70,9 @@ func (m *managerImpl) GetAgentNetworkInfoForPeer(ctx context.Context, accountID,
 		info.State = types.PeerAgentNetworkNotEnabled
 		return info, nil
 	}
+	if err := m.fillAllowances(ctx, accountID, user.Id, groupIDs, cfg.Providers); err != nil {
+		return nil, err
+	}
 	info.State = types.PeerAgentNetworkOK
 	info.Config = cfg
 	return info, nil
