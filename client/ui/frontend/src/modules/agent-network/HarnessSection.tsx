@@ -138,7 +138,7 @@ const HarnessCard = ({ harness, undoing, outcome, onConfigure, onUndo }: CardPro
                     </Button>
                 </div>
             </div>
-            <p className={"mt-1 truncate text-[0.7rem] text-nb-gray-400"} dir={"ltr"}>
+            <p className={"mt-1 text-[0.7rem] break-all text-nb-gray-400"} dir={"ltr"}>
                 {harness.files.join(", ")}
             </p>
             {!usable && (
@@ -177,7 +177,7 @@ const OutcomeNote = ({ outcome }: { outcome: Outcome }) => {
             </p>
             {kept.length > 0 && <p>{t("agentNetwork.harness.kept", { keys: kept.join(", ") })}</p>}
             {outcome.plan.backups.map((b) => (
-                <p key={b} className={"truncate text-[0.7rem] text-nb-gray-400"} dir={"ltr"}>
+                <p key={b} className={"text-[0.7rem] break-all text-nb-gray-400"} dir={"ltr"}>
                     {t("agentNetwork.harness.backup", { path: b })}
                 </p>
             ))}
