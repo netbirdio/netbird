@@ -122,15 +122,19 @@ func TestGoldenMissingFile(t *testing.T) {
 			}
 			want, err := os.ReadFile(golden)
 			require.NoError(t, err)
-			assert.Equal(t, string(want), h.read(t), "rendered settings must match the golden file")
+			// A Windows checkout may turn the golden file's line endings into CRLF.
+			assert.Equal(t, strings.ReplaceAll(string(want), "\r\n", "\n"), h.read(t), "rendered settings must match the golden file")
+			assert.Empty(t, h.backups(t), "nothing to back up when the file did not exist")
 
+			if runtime.GOOS == "windows" {
+				return
+			}
 			info, err := os.Stat(h.settings)
 			require.NoError(t, err)
 			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a new settings file is 0600")
 			dir, err := os.Stat(filepath.Dir(h.settings))
 			require.NoError(t, err)
 			assert.Equal(t, os.FileMode(0o700), dir.Mode().Perm(), "a new config dir is 0700")
-			assert.Empty(t, h.backups(t), "nothing to back up when the file did not exist")
 		})
 	}
 }
@@ -294,6 +298,9 @@ func TestSwitchingVariantReleasesOldKeys(t *testing.T) {
 }
 
 func TestModePreserved(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps no Unix permission bits")
+	}
 	h := newTestHost(t)
 	h.write(t, `{}`, 0o640)
 	h.apply(t, h.render(t, "anthropic", ""), false)
