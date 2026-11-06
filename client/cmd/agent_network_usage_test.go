@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,5 +130,6 @@ func assertGolden(t *testing.T, name string, got []byte) {
 	}
 	want, err := os.ReadFile(path)
 	require.NoError(t, err, "golden file missing; run go test -run Golden ./client/cmd/ -update")
-	assert.Equal(t, string(want), string(got), "output must match %s", path)
+	// Windows checkouts may convert the goldens to CRLF.
+	assert.Equal(t, strings.ReplaceAll(string(want), "\r\n", "\n"), string(got), "output must match %s", path)
 }
