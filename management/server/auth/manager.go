@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"hash/crc32"
 
@@ -19,6 +20,10 @@ import (
 )
 
 var _ Manager = (*manager)(nil)
+
+// ErrUserNotInAllowedJWTGroups reports a token whose groups claim shares no
+// group with the account's JWT allow list.
+var ErrUserNotInAllowedJWTGroups = errors.New("user does not belong to any of the allowed JWT groups")
 
 type Manager interface {
 	ValidateAndParseToken(ctx context.Context, value string) (auth.UserAuth, *jwt.Token, error)
@@ -93,7 +98,7 @@ func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth
 		userAuth.Groups = m.extractor.ToGroups(token, settings.JWTGroupsClaimName)
 		if allowedGroups := settings.JWTAllowGroups; len(allowedGroups) > 0 {
 			if !userHasAllowedGroup(allowedGroups, userAuth.Groups) {
-				return userAuth, fmt.Errorf("user does not belong to any of the allowed JWT groups")
+				return userAuth, ErrUserNotInAllowedJWTGroups
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,10 +24,13 @@ import (
 	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/server/account"
+	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
+	nbauth "github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -38,6 +42,7 @@ type fakeOIDCServer struct {
 	publicKey    ed25519.PublicKey
 	keyID        string
 	tokenSubject string
+	tokenGroups  []string
 	tokenExpiry  time.Duration
 	failExchange bool
 }
@@ -120,6 +125,9 @@ func (f *fakeOIDCServer) createIDToken() string {
 		"iat": now.Unix(),
 		"nbf": now.Unix(),
 	}
+	if f.tokenGroups != nil {
+		claims["groups"] = f.tokenGroups
+	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 	token.Header["kid"] = f.keyID
@@ -152,6 +160,7 @@ type testSetup struct {
 	store        store.Store
 	oidcServer   *fakeOIDCServer
 	proxyService *nbgrpc.ProxyServiceServer
+	accountMgr   *testAccountManager
 	handler      *AuthCallbackHandler
 	router       *mux.Router
 	cleanup      func()
@@ -228,7 +237,10 @@ func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Ma
 	proxyService.SetServiceManager(&testServiceManager{store: testStore})
 	proxyService.SetActivityManager(activitymanager.NewManager(testStore))
 
-	handler := NewAuthCallbackHandler(proxyService, nil)
+	authManager := serverauth.NewManager(testStore, "", "", "", "", []string{}, false, nil)
+	accountManager := &testAccountManager{store: testStore}
+
+	handler := NewAuthCallbackHandler(proxyService, authManager, accountManager, nil)
 
 	router := mux.NewRouter()
 	handler.RegisterEndpoints(router)
@@ -237,6 +249,7 @@ func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Ma
 		store:        testStore,
 		oidcServer:   oidcServer,
 		proxyService: proxyService,
+		accountMgr:   accountManager,
 		handler:      handler,
 		router:       router,
 		cleanup: func() {
@@ -244,6 +257,24 @@ func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Ma
 			oidcServer.Close()
 		},
 	}
+}
+
+// testAccountManager serves users from the store and records the JWT group
+// syncs the callback asks for.
+type testAccountManager struct {
+	account.Manager
+	store   store.Store
+	synced  []nbauth.UserAuth
+	syncErr error
+}
+
+func (m *testAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
+	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
+}
+
+func (m *testAccountManager) SyncUserJWTGroups(_ context.Context, userAuth nbauth.UserAuth) error {
+	m.synced = append(m.synced, userAuth)
+	return m.syncErr
 }
 
 type testSessionCodeManager struct {
@@ -767,4 +798,88 @@ func TestAuthCallback_MissingState(t *testing.T) {
 	setup.router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestAuthCallback_JWTGroups asserts that the callback applies the account's JWT
+// group settings to the ID token, like the HTTP API and the peer login do.
+func TestAuthCallback_JWTGroups(t *testing.T) {
+	tests := []struct {
+		name            string
+		allowGroups     []string
+		tokenGroups     []string
+		syncErr         error
+		allowed         bool
+		expectErrorDesc string
+	}{
+		{
+			name:        "group in the allow list",
+			allowGroups: []string{"netbird-users"},
+			tokenGroups: []string{"netbird-users", "finance"},
+			allowed:     true,
+		},
+		{
+			name:            "no group in the allow list",
+			allowGroups:     []string{"netbird-users"},
+			tokenGroups:     []string{"former-contractors"},
+			expectErrorDesc: "You are not authorized to access this service",
+		},
+		{
+			name:            "no groups claim with an allow list",
+			allowGroups:     []string{"netbird-users"},
+			expectErrorDesc: "You are not authorized to access this service",
+		},
+		{
+			name:        "no allow list",
+			tokenGroups: []string{"finance"},
+			allowed:     true,
+		},
+		{
+			name:            "group sync fails",
+			tokenGroups:     []string{"finance"},
+			syncErr:         errors.New("sync failed"),
+			expectErrorDesc: "Service configuration error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupAuthCallbackTest(t)
+			defer setup.cleanup()
+
+			require.NoError(t, setup.store.SaveAccountSettings(context.Background(), "testAccountId", &types.Settings{
+				JWTGroupsEnabled:   true,
+				JWTGroupsClaimName: "groups",
+				JWTAllowGroups:     tt.allowGroups,
+				Extra:              &types.ExtraSettings{},
+			}))
+
+			setup.accountMgr.syncErr = tt.syncErr
+			setup.oidcServer.tokenSubject = "allowedUserId"
+			setup.oidcServer.tokenGroups = tt.tokenGroups
+
+			state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+
+			req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+			rec := httptest.NewRecorder()
+
+			setup.router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusFound, rec.Code)
+
+			parsedLocation, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+
+			if !tt.allowed {
+				require.Empty(t, parsedLocation.Query().Get("session_token"), "Denied user must not receive a session token")
+				require.Equal(t, "access_denied", parsedLocation.Query().Get("error"))
+				require.Equal(t, tt.expectErrorDesc, parsedLocation.Query().Get("error_description"))
+				return
+			}
+
+			require.Empty(t, parsedLocation.Query().Get("error"))
+			require.NotEmpty(t, parsedLocation.Query().Get("session_token"))
+			require.Equal(t, []nbauth.UserAuth{{UserId: "allowedUserId", AccountId: "testAccountId", Groups: tt.tokenGroups}}, setup.accountMgr.synced,
+				"the groups of the ID token must be synced before the service's group gate runs")
+		})
+	}
 }
