@@ -55,6 +55,7 @@ var claudeCode = &Definition{
 			},
 		},
 	},
+	CAEnv: "NODE_EXTRA_CA_CERTS",
 	Notice: "While these settings are in place, Claude Code sends its requests to Agent Networks " +
 		"instead of your claude.ai account. Your claude.ai login stays saved; " +
 		"run `netbird agent-network setup undo claude-code` to switch back.",
