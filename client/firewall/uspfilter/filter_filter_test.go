@@ -5,17 +5,17 @@ import (
 	"net/netip"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
+	"go.uber.org/mock/gomock"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -791,10 +791,10 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 			}
 		},
 		GetDeviceFunc: func() *device.FilteredDevice {
-			return &device.FilteredDevice{Device: dev}
+			return &device.FilteredDevice{TUN: dev}
 		},
-		GetWGDeviceFunc: func() *wgdevice.Device {
-			return &wgdevice.Device{}
+		GetWGDeviceFunc: func() *wgbackend.Device {
+			return &wgbackend.Device{}
 		},
 	}
 
@@ -1444,6 +1444,52 @@ func TestRouteACLFiltering(t *testing.T) {
 			require.Equal(t, tc.shouldPass, isAllowed)
 		})
 	}
+}
+
+// TestUnspecifiedDestinationNotRouted verifies that a packet addressed to 0.0.0.0 is
+// decided by the peer ACLs, not the route ACLs, even when a route rule would accept it.
+// Dialing 0.0.0.0 resolves to loopback on the host, so it must be treated like any other
+// local address rather than handed to the forwarder.
+func TestUnspecifiedDestinationNotRouted(t *testing.T) {
+	manager := setupRoutedManager(t, "10.10.0.100/16")
+
+	// An accept-all route rule, matching a real exit node's default route: a bug
+	// that still matches 0.0.0.0 against the route ACLs would let it through here.
+	routeRule, err := manager.AddFilterRule(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.DeleteFilterRule(routeRule)) })
+
+	peerRule, err := manager.AddFilterRule(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+		fw.Network{},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.DeleteFilterRule(peerRule)) })
+
+	packet := createTestPacket(t, "100.10.0.1", "0.0.0.0", fw.ProtocolUDP, 12345, 53)
+
+	// If the packet were still matched against the route ACLs, the accept-all rule
+	// above would hand it to the forwarder, which has no peer registered to forward
+	// it to, so it would end up dropped regardless of the peer rule. With the fix,
+	// it is evaluated against the peer ACLs instead, which the rule above permits,
+	// and local forwarding is off by default, so it is delivered to the local stack
+	// and not dropped. The peer rule is what makes this assertion discriminating:
+	// without it, both the fixed and unfixed paths end up dropped.
+	require.False(t, manager.FilterInbound(packet, 0),
+		"a packet to 0.0.0.0 permitted by a peer rule must not be dropped")
 }
 
 func TestRouteACLOrder(t *testing.T) {

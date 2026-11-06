@@ -244,6 +244,11 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	if !ok {
 		return
 	}
+	// Conn.Close only removes the interface peer of a connection that is open, and
+	// an idle lazy peer is on the interface through its activity listener without
+	// ever having been opened. Removing it here covers every state, and is a no-op
+	// when Close already did it.
+	defer e.removeWgPeer(conn)
 	defer conn.Close(false)
 
 	if !e.isStartedWithLazyMgr() {
@@ -252,6 +257,14 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 
 	e.lazyConnMgr.RemovePeer(peerKey)
 	conn.Log.Infof("removed peer from lazy conn manager")
+}
+
+func (e *ConnMgr) removeWgPeer(conn *peer.Conn) {
+	if err := e.iface.RemovePeer(conn.GetKey()); err != nil {
+		conn.Log.Errorf("failed to remove peer from the interface: %v", err)
+		return
+	}
+	conn.Log.Debugf("removed peer from the interface")
 }
 
 // ActivatePeer wakes an idle lazy connection. Unlike the rest of ConnMgr it is

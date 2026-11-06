@@ -233,7 +233,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			SystemManufacturer: "Dell Inc.",
 		},
 		Status: &nbpeer.PeerStatus{
-			LastSeen:         now.Add(-5 * time.Minute),
+			LastSeen:         now.Add(-1 * time.Minute),
 			Connected:        true,
 			LoginExpired:     false,
 			RequiresApproval: false,
@@ -682,6 +682,13 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 	// Save the account to the database
 	err = store.SaveAccount(ctx, account)
 	require.NoError(t, err, "Failed to save comprehensive test account")
+
+	require.NoError(t, store.RegisterInstance(ctx, "instance-1", "host"))
+	for _, id := range []string{peerID1, peerID3} {
+		applied, connectErr := store.ConnectPeer(ctx, accountID, id, "instance-1", 1)
+		require.NoError(t, connectErr)
+		require.True(t, applied)
+	}
 
 	// Retrieve the account from the database
 	retrievedAccount, err := store.GetAccount(ctx, accountID)

@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os/user"
@@ -29,6 +31,103 @@ func TestServer_StartStop(t *testing.T) {
 
 	err = server.Stop()
 	assert.NoError(t, err)
+}
+
+func TestServer_StopClosesUnauthenticatedConnections(t *testing.T) {
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	server := New(&Config{HostKeyPEM: key})
+	serverAddr := StartTestServer(t, server)
+
+	conn, err := net.Dial("tcp", serverAddr)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// The server sends its version first, so reading it means the connection is being served.
+	_, err = bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+
+	require.NoError(t, server.Stop())
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = conn.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF, "connection still in the handshake must be closed by Stop")
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+	assert.Empty(t, server.openConns)
+}
+
+// TestServer_RejectsConnectionAfterStop verifies that a connection dialed after Stop has
+// returned is never served by the stopped server's stale state. Whether the listener was
+// already closed by Stop, or was still briefly open because Serve had not yet registered
+// it, is a scheduling detail outside the test's control: either outcome is acceptable, as
+// long as the connection is never served.
+func TestServer_RejectsConnectionAfterStop(t *testing.T) {
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	server := New(&Config{HostKeyPEM: key})
+	serverAddr := StartTestServer(t, server)
+	require.NoError(t, server.Stop())
+
+	conn, err := net.Dial("tcp", serverAddr)
+	if err != nil {
+		// The listener was already closed by Stop; the connection was correctly refused.
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	// The listener was still open because Serve had not yet registered it with the
+	// embedded SSH server when Stop ran. trackConn must still refuse the connection
+	// once Serve's accept loop picks it up, since s.sshServer was already cleared.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = conn.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF, "a connection accepted after Stop must be closed, not served")
+}
+
+// TestServer_RemoveRemoteForwardListenerIfCurrent verifies that a forward's accept-loop
+// goroutine removing its own map entry on exit does not clobber a newer listener that a later
+// tcpip-forward request has already stored for the same key (for example after the first
+// connection closed or was revoked and a different connection opened the same forward).
+func TestServer_RemoveRemoteForwardListenerIfCurrent(t *testing.T) {
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	server := New(&Config{HostKeyPEM: key})
+
+	lnOld, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = lnOld.Close() }()
+
+	lnNew, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = lnNew.Close() }()
+
+	const fk = forwardKey("example.com:2222")
+
+	t.Run("removes its own entry", func(t *testing.T) {
+		server.storeRemoteForwardListener(fk, lnOld)
+		server.removeRemoteForwardListenerIfCurrent(fk, lnOld)
+
+		server.mu.RLock()
+		_, exists := server.remoteForwardListeners[fk]
+		server.mu.RUnlock()
+		assert.False(t, exists, "the listener's own entry should be removed")
+	})
+
+	t.Run("leaves a newer entry for the same key alone", func(t *testing.T) {
+		server.storeRemoteForwardListener(fk, lnOld)
+		server.storeRemoteForwardListener(fk, lnNew) // a later forward reused the key
+
+		server.removeRemoteForwardListenerIfCurrent(fk, lnOld) // the old goroutine exits late
+
+		server.mu.RLock()
+		current, exists := server.remoteForwardListeners[fk]
+		server.mu.RUnlock()
+		assert.True(t, exists, "the newer listener must stay registered")
+		assert.Same(t, lnNew, current, "the newer listener must not be replaced or removed")
+	})
 }
 
 func TestSSHServerIntegration(t *testing.T) {

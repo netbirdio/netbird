@@ -51,7 +51,6 @@ type ConfigParams struct {
 
 type Config struct {
 	ManagementURL                 string `json:"managementUrl"`
-	AdminURL                      string `json:"adminUrl"`
 	ConfigFile                    string `json:"configFile"`
 	LogFile                       string `json:"logFile"`
 	PreSharedKeySet               bool   `json:"preSharedKeySet"`
@@ -84,7 +83,6 @@ type SetConfigParams struct {
 	ProfileName                   string  `json:"profileName"`
 	Username                      string  `json:"username"`
 	ManagementURL                 string  `json:"managementUrl"`
-	AdminURL                      string  `json:"adminUrl"`
 	InterfaceName                 *string `json:"interfaceName,omitempty"`
 	WireguardPort                 *int64  `json:"wireguardPort,omitempty"`
 	MTU                           *int64  `json:"mtu,omitempty"`
@@ -144,7 +142,6 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 	}
 	return Config{
 		ManagementURL:                 resp.GetManagementUrl(),
-		AdminURL:                      resp.GetAdminURL(),
 		ConfigFile:                    resp.GetConfigFile(),
 		LogFile:                       resp.GetLogFile(),
 		PreSharedKeySet:               resp.GetPreSharedKey() != "",
@@ -181,7 +178,6 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		ProfileName:                   p.ProfileName,
 		Username:                      p.Username,
 		ManagementUrl:                 p.ManagementURL,
-		AdminURL:                      p.AdminURL,
 		InterfaceName:                 p.InterfaceName,
 		WireguardPort:                 p.WireguardPort,
 		Mtu:                           p.MTU,

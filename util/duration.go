@@ -3,7 +3,10 @@ package util
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // Duration is used strictly for JSON requests/responses due to duration marshalling issues
@@ -34,4 +37,17 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	default:
 		return errors.New("invalid duration")
 	}
+}
+
+func DurationFromEnv(key string, fallback time.Duration) time.Duration {
+	val := os.Getenv(key)
+	if val == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(val)
+	if err != nil || parsed < 0 {
+		log.Warnf("ignoring invalid %s value %q, using %v", key, val, fallback)
+		return fallback
+	}
+	return parsed
 }

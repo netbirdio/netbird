@@ -3,6 +3,8 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/internals/shared/db/dbtest"
+	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func newTestRepository(t *testing.T) (accesslogs.Repository, *db.Conn) {
@@ -122,4 +125,105 @@ func TestSqlRepository_ListByAccount_StatusFilter(t *testing.T) {
 
 	assert.Equal(t, []string{"info", "notfound"}, listIDs("failed"))
 	assert.Equal(t, []string{"ok"}, listIDs("success"))
+}
+
+func TestSqlRepository_ListByAccount_Search(t *testing.T) {
+	repo, _ := newTestRepository(t)
+	ctx := context.Background()
+	api := newEntry("req-api", "acc", "GET", time.Hour)
+	api.Host = "api.example.com"
+	api.Path = "/v1/peers"
+	web := newEntry("req-web", "acc", "GET", 2*time.Hour)
+	web.Host = "web.example.com"
+	web.Path = "/login"
+	foreign := newEntry("foreign", "other", "GET", time.Hour)
+	foreign.Host = "api.example.com"
+	for _, entry := range []*accesslogs.AccessLogEntry{api, web, foreign} {
+		require.NoError(t, repo.Create(ctx, entry))
+	}
+
+	search := func(term string) []string {
+		logs, total, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Search: &term})
+		require.NoError(t, err)
+		require.EqualValues(t, len(logs), total)
+		ids := make([]string, 0, len(logs))
+		for _, entry := range logs {
+			ids = append(ids, entry.ID)
+		}
+		return ids
+	}
+
+	assert.Equal(t, []string{"req-api"}, search("api.example"), "search should match the host")
+	assert.Equal(t, []string{"req-web"}, search("/login"), "search should match the path")
+	assert.Equal(t, []string{"req-api"}, search("example.com/v1"), "search should match host and path joined")
+	assert.Equal(t, []string{"req-web"}, search("req-web"), "search should match the log ID")
+	assert.Equal(t, []string{"req-api", "req-web"}, search("example.com"), "search should list every match newest first")
+	assert.Empty(t, search("nothing-matches"))
+}
+
+func TestSqlRepository_DeleteOlderThan_DeletesInBatches(t *testing.T) {
+	cases := map[string]struct{ old, recent int }{
+		"partial last batch":      {old: 5, recent: 2},
+		"exact multiple of batch": {old: 4, recent: 1},
+		"nothing to delete":       {old: 0, recent: 3},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			repo, _ := newTestRepository(t)
+			assertBatchedDelete(t, repo, tc.old, tc.recent)
+		})
+	}
+}
+
+func TestSqlRepository_DeleteOlderThan_DeletesInBatchesOnPostgres(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") != string(db.PostgresStoreEngine) {
+		t.Skip("requires NETBIRD_STORE_ENGINE=postgres")
+	}
+	cleanup, dsn, err := testutil.CreatePostgresTestContainer()
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+	conn, err := db.OpenPostgres(context.Background(), dsn, db.DefaultPoolConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.AutoMigrate(&accesslogs.AccessLogEntry{}))
+	require.NoError(t, conn.DB(nil).Exec("DELETE FROM access_log_entries").Error)
+
+	assertBatchedDelete(t, NewRepository(conn), 5, 2)
+}
+
+func TestSqlRepository_DeleteOlderThan_StopsWhenContextDone(t *testing.T) {
+	repo, _ := newTestRepository(t)
+	require.NoError(t, repo.Create(context.Background(), newEntry("old", "acc", "GET", 48*time.Hour)))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deleted, err := repo.DeleteOlderThan(ctx, time.Now().Add(-24*time.Hour))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, deleted)
+	assert.EqualValues(t, 1, countEntries(t, repo), "nothing should be deleted once the context is done")
+}
+
+func assertBatchedDelete(t *testing.T, repo accesslogs.Repository, old, recent int) {
+	t.Helper()
+	repo.(*sqlRepository).deleteBatchSize = 2
+	ctx := context.Background()
+	for i := 0; i < old; i++ {
+		require.NoError(t, repo.Create(ctx, newEntry(fmt.Sprintf("old-%d", i), "acc", "GET", 48*time.Hour)))
+	}
+	for i := 0; i < recent; i++ {
+		require.NoError(t, repo.Create(ctx, newEntry(fmt.Sprintf("new-%d", i), "acc", "GET", time.Hour)))
+	}
+
+	deleted, err := repo.DeleteOlderThan(ctx, time.Now().Add(-24*time.Hour))
+	require.NoError(t, err)
+	assert.EqualValues(t, old, deleted, "every old entry should be deleted across batches")
+	assert.EqualValues(t, recent, countEntries(t, repo), "recent entries should be kept")
+}
+
+func countEntries(t *testing.T, repo accesslogs.Repository) int64 {
+	t.Helper()
+	_, total, err := repo.ListByAccount(context.Background(), db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
+	require.NoError(t, err)
+	return total
 }

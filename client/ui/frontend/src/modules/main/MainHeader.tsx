@@ -89,7 +89,7 @@ export const MainHeader = () => {
                     align={pinSettingsRight && dir === "rtl" ? "start" : "end"}
                     sideOffset={8}
                     className={
-                        "min-w-52 select-none data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
+                        "min-w-52 select-none data-[state=closed]:animate-none! data-[state=closed]:duration-0!"
                     }
                 >
                     {updateAvailable && (
@@ -141,7 +141,7 @@ export const MainHeader = () => {
                 <span
                     aria-hidden={"true"}
                     className={
-                        "pointer-events-none absolute end-1.5 top-1.5 flex h-2.5 w-2.5 items-center justify-center"
+                        "pointer-events-none absolute inset-e-1.5 top-1.5 flex h-2.5 w-2.5 items-center justify-center"
                     }
                 >
                     <span
@@ -177,7 +177,7 @@ export const MainHeader = () => {
             <div
                 className={cn(
                     "absolute top-1/2 -translate-y-1/2",
-                    pinSettingsRight ? "right-[1.3rem]" : "end-[1.3rem]",
+                    pinSettingsRight ? "right-[1.3rem]" : "inset-e-[1.3rem]",
                 )}
             >
                 {settingsSlot}
