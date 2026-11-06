@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { BotIcon, CircleAlertIcon, ShieldBanIcon, UserXIcon } from "lucide-react";
@@ -11,19 +12,32 @@ import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/empty-state/EmptyState";
 import { useDirection } from "@/hooks/useDirection";
 import { AGENT_NETWORK_POLL_MS, useAgentNetworkInfo } from "./useAgentNetworkInfo";
+import { HarnessSection } from "./HarnessSection";
 
 export const AgentNetworkUsage = () => {
     const { info, error } = useAgentNetworkInfo({ enabled: true, pollMs: AGENT_NETWORK_POLL_MS });
-    return <AgentNetworkUsageView info={info} error={error} />;
+    return (
+        <AgentNetworkUsageView
+            info={info}
+            error={error}
+            setup={
+                info && (
+                    <HarnessSection refreshKey={info.computedAt} loginExpired={info.loginExpired} />
+                )
+            }
+        />
+    );
 };
 
 type ViewProps = {
     info: AgentNetworkInfo | null;
     error: string | null;
+    // Rendered under the providers, only in the "ok" state with providers.
+    setup?: ReactNode;
 };
 
 // Pure view, kept apart from the fetching so every state can be rendered from a fixture.
-export const AgentNetworkUsageView = ({ info, error }: ViewProps) => {
+export const AgentNetworkUsageView = ({ info, error, setup }: ViewProps) => {
     const { t } = useTranslation();
     const dir = useDirection();
 
@@ -102,6 +116,7 @@ export const AgentNetworkUsageView = ({ info, error }: ViewProps) => {
                     {info.providers.map((p) => (
                         <ProviderCard key={p.id} provider={p} now={now} />
                     ))}
+                    {setup}
                 </div>
             </ScrollArea.Viewport>
             <ScrollArea.Scrollbar
