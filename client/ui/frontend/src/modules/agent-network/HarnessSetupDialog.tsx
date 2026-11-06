@@ -290,7 +290,9 @@ const Preview = ({
         );
     }
     if (plan.changes.length === 0) {
-        return <p className={"text-xs text-nb-gray-300"}>{t("agentNetwork.harness.upToDate")}</p>;
+        return (
+            <p className={"text-xs text-nb-gray-300"}>{t("agentNetwork.harness.alreadySetUp")}</p>
+        );
     }
 
     const files = [...new Set(plan.changes.map((c) => c.file))];

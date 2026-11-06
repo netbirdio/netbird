@@ -2031,7 +2031,7 @@
         "message": "Checking your settings…",
         "description": "Shown while the setup dialog computes the preview."
     },
-    "agentNetwork.harness.upToDate": {
+    "agentNetwork.harness.alreadySetUp": {
         "message": "Already set up with these choices.",
         "description": "Shown in the setup dialog when nothing would change."
     },
