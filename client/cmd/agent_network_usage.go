@@ -25,9 +25,10 @@ const (
 	agentNetworkNoProvidersText = "No Agent Networks policy gives you access. Ask your administrator."
 	agentNetworkBlockedText     = "Your NetBird user is blocked or waiting for approval, " +
 		"so Agent Networks is not available. Ask your administrator."
-	agentNetworkUnsupportedText = "Your NetBird management server does not report Agent Networks usage. " +
-		"Ask your administrator to upgrade it."
-	agentNetworkNotConnectedText = "NetBird is not connected. Run `netbird up` first."
+	// The two texts below are returned as errors, so they carry no final period.
+	agentNetworkUnsupportedText = "the NetBird management server does not report Agent Networks usage; " +
+		"ask your administrator to upgrade it"
+	agentNetworkNotConnectedText = "NetBird is not connected. Run `netbird up` first"
 	agentNetworkLoginExpiredText = "Your NetBird login expired. " +
 		"Run `netbird up` to sign in again before using Agent Networks."
 )
