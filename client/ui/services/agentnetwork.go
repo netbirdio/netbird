@@ -5,10 +5,12 @@ package services
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/internal/agentnetwork/harness"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -57,12 +59,15 @@ type AgentNetworkLimit struct {
 
 // AgentNetwork is the Wails-facing Agent Networks service.
 type AgentNetwork struct {
-	conn DaemonConn
+	conn       DaemonConn
+	harnessEnv func() (harness.Env, error)
+	// harnessMu serializes harness setups, which share one ownership record.
+	harnessMu sync.Mutex
 }
 
 // NewAgentNetwork returns the Agent Networks service.
 func NewAgentNetwork(conn DaemonConn) *AgentNetwork {
-	return &AgentNetwork{conn: conn}
+	return &AgentNetwork{conn: conn, harnessEnv: harness.UserEnv}
 }
 
 // Info asks the daemon what Agent Networks offers this peer.
