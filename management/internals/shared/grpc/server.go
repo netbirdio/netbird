@@ -90,6 +90,9 @@ type Server struct {
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
 
+	agentNetworkInfo   AgentNetworkInfoService
+	agentNetworkInfoMu sync.RWMutex
+
 	// draining makes ending sync streams of regular peers skip their disconnect write;
 	// the liveness controller's Release retires all of this instance's connections.
 	draining atomic.Bool

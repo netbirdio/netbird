@@ -24,6 +24,8 @@ type AgentConfig struct {
 
 // AgentConfigProvider is one authorized provider in an AgentConfig.
 type AgentConfigProvider struct {
+	// ID is the provider record id.
+	ID string
 	// Name is the operator-assigned label, e.g. "Bedrock prod".
 	Name string
 	// CatalogID names the catalog entry, e.g. "anthropic_api".
@@ -39,4 +41,33 @@ type AgentConfigProvider struct {
 	// Models is the effective model allowlist for the caller, or the
 	// declared/catalog models when AllModelsAllowed is true.
 	Models []string
+}
+
+// PeerAgentNetworkState is the availability of Agent Networks for a peer.
+type PeerAgentNetworkState string
+
+const (
+	// PeerAgentNetworkOK means the account has an Agent Network; the
+	// providers in Config may still be empty when no policy covers the peer.
+	PeerAgentNetworkOK PeerAgentNetworkState = "ok"
+	// PeerAgentNetworkNoUser means the peer has no owning user, e.g. it
+	// was registered with a setup key.
+	PeerAgentNetworkNoUser PeerAgentNetworkState = "no_user"
+	// PeerAgentNetworkNotEnabled means the account has no Agent Network.
+	PeerAgentNetworkNotEnabled PeerAgentNetworkState = "not_enabled"
+	// PeerAgentNetworkUserBlocked means the owning user is blocked or
+	// pending approval, so the proxy refuses the peer.
+	PeerAgentNetworkUserBlocked PeerAgentNetworkState = "user_blocked"
+)
+
+// PeerAgentNetworkInfo is what Agent Networks offers one peer, computed
+// from the peer's own groups and owning user.
+type PeerAgentNetworkInfo struct {
+	State PeerAgentNetworkState
+	// UserEmail is the owning user's stored email, empty for NoUser.
+	UserEmail string
+	// LoginExpired reports the peer's NetBird login as expired.
+	LoginExpired bool
+	// Config carries the endpoint and providers; set only when State is OK.
+	Config *AgentConfig
 }
