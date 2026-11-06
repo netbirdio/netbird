@@ -119,7 +119,7 @@ func TestSetFlagsFromEnvVarsOverridesCLI(t *testing.T) {
 	assert.Equal(t, "env-local", localValue, "env should override a local flag set on the CLI")
 	assert.Equal(t, []string{"env-a", "env-b"}, sliceValue, "env should replace a slice flag, not append to it")
 	assert.True(t, boolValue, "NB_ should win over WT_")
-	assert.True(t, child.Flags().Changed("local-value"), "a flag set from env should count as changed")
+	assert.True(t, child.Flags().Changed("bool-value"), "a flag set only from env should count as changed")
 }
 
 func TestSetFlagsFromEnvVarsIsIdempotent(t *testing.T) {
