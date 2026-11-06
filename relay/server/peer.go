@@ -137,6 +137,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, n in
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		if p.hcSender != nil {
+			p.log.Debugf("received healthcheck response from %s", p.conn.RemoteAddr())
 			p.hcSender.OnHCResponse()
 		}
 	case messages.MsgTypeKeepaliveRequest:
