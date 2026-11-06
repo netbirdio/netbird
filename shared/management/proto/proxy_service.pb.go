@@ -1879,6 +1879,10 @@ type SendStatusUpdateRequest struct {
 	Status            ProxyStatus `protobuf:"varint,3,opt,name=status,proto3,enum=management.ProxyStatus" json:"status,omitempty"`
 	CertificateIssued bool        `protobuf:"varint,4,opt,name=certificate_issued,json=certificateIssued,proto3" json:"certificate_issued,omitempty"`
 	ErrorMessage      *string     `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
+	// NotBefore of the certificate serving the service, set with
+	// certificate_issued. It changes only when a certificate is issued or
+	// renewed, so management can ignore repeated reports.
+	CertificateIssuedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=certificate_issued_at,json=certificateIssuedAt,proto3" json:"certificate_issued_at,omitempty"`
 	// Per-account inbound listener state for the account that owns
 	// service_id. Populated only when --private is enabled and the
 	// embedded client for the account is up. Field numbers >=50 reserved
@@ -1951,6 +1955,13 @@ func (x *SendStatusUpdateRequest) GetErrorMessage() string {
 		return *x.ErrorMessage
 	}
 	return ""
+}
+
+func (x *SendStatusUpdateRequest) GetCertificateIssuedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CertificateIssuedAt
+	}
+	return nil
 }
 
 func (x *SendStatusUpdateRequest) GetInboundListener() *ProxyInboundListener {
@@ -3542,7 +3553,7 @@ var file_proxy_service_proto_rawDesc = []byte{
 	0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65,
 	0x73, 0x73, 0x12, 0x23, 0x0a, 0x0d, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f,
 	0x6b, 0x65, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x73, 0x65, 0x73, 0x73, 0x69,
-	0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0xda, 0x02, 0x0a, 0x17, 0x53, 0x65, 0x6e, 0x64,
+	0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0xaa, 0x03, 0x0a, 0x17, 0x53, 0x65, 0x6e, 0x64,
 	0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75,
 	0x65, 0x73, 0x74, 0x12, 0x1d, 0x0a, 0x0a, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x69,
 	0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65,
@@ -3556,7 +3567,12 @@ var file_proxy_service_proto_rawDesc = []byte{
 	0x63, 0x65, 0x72, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x65, 0x49, 0x73, 0x73, 0x75, 0x65,
 	0x64, 0x12, 0x28, 0x0a, 0x0d, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x5f, 0x6d, 0x65, 0x73, 0x73, 0x61,
 	0x67, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x0c, 0x65, 0x72, 0x72, 0x6f,
-	0x72, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x12, 0x50, 0x0a, 0x10, 0x69,
+	0x72, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x12, 0x4e, 0x0a, 0x15, 0x63,
+	0x65, 0x72, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x65, 0x5f, 0x69, 0x73, 0x73, 0x75, 0x65,
+	0x64, 0x5f, 0x61, 0x74, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f,
+	0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d,
+	0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x13, 0x63, 0x65, 0x72, 0x74, 0x69, 0x66, 0x69, 0x63,
+	0x61, 0x74, 0x65, 0x49, 0x73, 0x73, 0x75, 0x65, 0x64, 0x41, 0x74, 0x12, 0x50, 0x0a, 0x10, 0x69,
 	0x6e, 0x62, 0x6f, 0x75, 0x6e, 0x64, 0x5f, 0x6c, 0x69, 0x73, 0x74, 0x65, 0x6e, 0x65, 0x72, 0x18,
 	0x32, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65,
 	0x6e, 0x74, 0x2e, 0x50, 0x72, 0x6f, 0x78, 0x79, 0x49, 0x6e, 0x62, 0x6f, 0x75, 0x6e, 0x64, 0x4c,
@@ -3921,39 +3937,40 @@ var file_proxy_service_proto_depIdxs = []int32{
 	22, // 22: management.AuthenticateRequest.pin:type_name -> management.PinRequest
 	20, // 23: management.AuthenticateRequest.header_auth:type_name -> management.HeaderAuthRequest
 	4,  // 24: management.SendStatusUpdateRequest.status:type_name -> management.ProxyStatus
-	25, // 25: management.SendStatusUpdateRequest.inbound_listener:type_name -> management.ProxyInboundListener
-	36, // 26: management.SyncMappingsRequest.init:type_name -> management.SyncMappingsInit
-	37, // 27: management.SyncMappingsRequest.ack:type_name -> management.SyncMappingsAck
-	45, // 28: management.SyncMappingsInit.started_at:type_name -> google.protobuf.Timestamp
-	6,  // 29: management.SyncMappingsInit.capabilities:type_name -> management.ProxyCapabilities
-	15, // 30: management.SyncMappingsResponse.mapping:type_name -> management.ProxyMapping
-	7,  // 31: management.ProxyService.GetMappingUpdate:input_type -> management.GetMappingUpdateRequest
-	35, // 32: management.ProxyService.SyncMappings:input_type -> management.SyncMappingsRequest
-	16, // 33: management.ProxyService.SendAccessLog:input_type -> management.SendAccessLogRequest
-	19, // 34: management.ProxyService.Authenticate:input_type -> management.AuthenticateRequest
-	24, // 35: management.ProxyService.SendStatusUpdate:input_type -> management.SendStatusUpdateRequest
-	27, // 36: management.ProxyService.CreateProxyPeer:input_type -> management.CreateProxyPeerRequest
-	29, // 37: management.ProxyService.GetOIDCURL:input_type -> management.GetOIDCURLRequest
-	31, // 38: management.ProxyService.ValidateSession:input_type -> management.ValidateSessionRequest
-	33, // 39: management.ProxyService.ValidateTunnelPeer:input_type -> management.ValidateTunnelPeerRequest
-	39, // 40: management.ProxyService.CheckLLMPolicyLimits:input_type -> management.CheckLLMPolicyLimitsRequest
-	41, // 41: management.ProxyService.RecordLLMUsage:input_type -> management.RecordLLMUsageRequest
-	8,  // 42: management.ProxyService.GetMappingUpdate:output_type -> management.GetMappingUpdateResponse
-	38, // 43: management.ProxyService.SyncMappings:output_type -> management.SyncMappingsResponse
-	17, // 44: management.ProxyService.SendAccessLog:output_type -> management.SendAccessLogResponse
-	23, // 45: management.ProxyService.Authenticate:output_type -> management.AuthenticateResponse
-	26, // 46: management.ProxyService.SendStatusUpdate:output_type -> management.SendStatusUpdateResponse
-	28, // 47: management.ProxyService.CreateProxyPeer:output_type -> management.CreateProxyPeerResponse
-	30, // 48: management.ProxyService.GetOIDCURL:output_type -> management.GetOIDCURLResponse
-	32, // 49: management.ProxyService.ValidateSession:output_type -> management.ValidateSessionResponse
-	34, // 50: management.ProxyService.ValidateTunnelPeer:output_type -> management.ValidateTunnelPeerResponse
-	40, // 51: management.ProxyService.CheckLLMPolicyLimits:output_type -> management.CheckLLMPolicyLimitsResponse
-	42, // 52: management.ProxyService.RecordLLMUsage:output_type -> management.RecordLLMUsageResponse
-	42, // [42:53] is the sub-list for method output_type
-	31, // [31:42] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	45, // 25: management.SendStatusUpdateRequest.certificate_issued_at:type_name -> google.protobuf.Timestamp
+	25, // 26: management.SendStatusUpdateRequest.inbound_listener:type_name -> management.ProxyInboundListener
+	36, // 27: management.SyncMappingsRequest.init:type_name -> management.SyncMappingsInit
+	37, // 28: management.SyncMappingsRequest.ack:type_name -> management.SyncMappingsAck
+	45, // 29: management.SyncMappingsInit.started_at:type_name -> google.protobuf.Timestamp
+	6,  // 30: management.SyncMappingsInit.capabilities:type_name -> management.ProxyCapabilities
+	15, // 31: management.SyncMappingsResponse.mapping:type_name -> management.ProxyMapping
+	7,  // 32: management.ProxyService.GetMappingUpdate:input_type -> management.GetMappingUpdateRequest
+	35, // 33: management.ProxyService.SyncMappings:input_type -> management.SyncMappingsRequest
+	16, // 34: management.ProxyService.SendAccessLog:input_type -> management.SendAccessLogRequest
+	19, // 35: management.ProxyService.Authenticate:input_type -> management.AuthenticateRequest
+	24, // 36: management.ProxyService.SendStatusUpdate:input_type -> management.SendStatusUpdateRequest
+	27, // 37: management.ProxyService.CreateProxyPeer:input_type -> management.CreateProxyPeerRequest
+	29, // 38: management.ProxyService.GetOIDCURL:input_type -> management.GetOIDCURLRequest
+	31, // 39: management.ProxyService.ValidateSession:input_type -> management.ValidateSessionRequest
+	33, // 40: management.ProxyService.ValidateTunnelPeer:input_type -> management.ValidateTunnelPeerRequest
+	39, // 41: management.ProxyService.CheckLLMPolicyLimits:input_type -> management.CheckLLMPolicyLimitsRequest
+	41, // 42: management.ProxyService.RecordLLMUsage:input_type -> management.RecordLLMUsageRequest
+	8,  // 43: management.ProxyService.GetMappingUpdate:output_type -> management.GetMappingUpdateResponse
+	38, // 44: management.ProxyService.SyncMappings:output_type -> management.SyncMappingsResponse
+	17, // 45: management.ProxyService.SendAccessLog:output_type -> management.SendAccessLogResponse
+	23, // 46: management.ProxyService.Authenticate:output_type -> management.AuthenticateResponse
+	26, // 47: management.ProxyService.SendStatusUpdate:output_type -> management.SendStatusUpdateResponse
+	28, // 48: management.ProxyService.CreateProxyPeer:output_type -> management.CreateProxyPeerResponse
+	30, // 49: management.ProxyService.GetOIDCURL:output_type -> management.GetOIDCURLResponse
+	32, // 50: management.ProxyService.ValidateSession:output_type -> management.ValidateSessionResponse
+	34, // 51: management.ProxyService.ValidateTunnelPeer:output_type -> management.ValidateTunnelPeerResponse
+	40, // 52: management.ProxyService.CheckLLMPolicyLimits:output_type -> management.CheckLLMPolicyLimitsResponse
+	42, // 53: management.ProxyService.RecordLLMUsage:output_type -> management.RecordLLMUsageResponse
+	43, // [43:54] is the sub-list for method output_type
+	32, // [32:43] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_proxy_service_proto_init() }

@@ -31,7 +31,7 @@ import (
 var oidSCTList = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}
 
 type certificateNotifier interface {
-	NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string) error
+	NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string, issuedAt time.Time) error
 }
 
 type domainState int
@@ -260,6 +260,15 @@ func (mgr *Manager) findWildcardEntry(host string) *wildcardEntry {
 	return nil
 }
 
+// WildcardLeaf returns the leaf of the loaded wildcard certificate that covers d, or nil when none does.
+func (mgr *Manager) WildcardLeaf(d domain.Domain) *x509.Certificate {
+	e := mgr.findWildcardEntry(d.PunycodeString())
+	if e == nil {
+		return nil
+	}
+	return e.watcher.Leaf()
+}
+
 // WildcardPatterns returns the wildcard patterns that are currently loaded.
 func (mgr *Manager) WildcardPatterns() []string {
 	patterns := make([]string, len(mgr.wildcards))
@@ -471,7 +480,11 @@ func (mgr *Manager) recordAndNotify(ctx context.Context, d domain.Domain, name s
 	info := mgr.domains[d]
 	mgr.mu.RUnlock()
 	if info != nil && mgr.certNotifier != nil {
-		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.serviceID, name); err != nil {
+		var issuedAt time.Time
+		if cert != nil && cert.Leaf != nil {
+			issuedAt = cert.Leaf.NotBefore
+		}
+		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.serviceID, name, issuedAt); err != nil {
 			mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
 		}
 	}

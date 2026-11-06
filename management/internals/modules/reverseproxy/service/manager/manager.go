@@ -1109,40 +1109,59 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 	return nil
 }
 
-// SetCertificateIssuedAt sets the certificate issued timestamp to the current time.
-// Call this when receiving a gRPC notification that the certificate was issued.
-func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
-	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		service, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
-		if err != nil {
-			return fmt.Errorf("failed to get service: %w", err)
+// SetCertificateIssuedAt records issuedAt, the NotBefore of the certificate serving the service, and writes
+// only when it differs from the stored value. Proxies that do not report issuedAt pass the zero time, which
+// sets the timestamp to now only when none is stored yet.
+func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string, issuedAt time.Time) error {
+	return m.updateServiceMeta(ctx, accountID, serviceID, func(meta *service.Meta) bool {
+		at := issuedAt
+		if at.IsZero() {
+			if meta.CertificateIssuedAt != nil {
+				return false
+			}
+			at = time.Now().UTC()
 		}
-
-		now := time.Now()
-		service.Meta.CertificateIssuedAt = &now
-
-		if err = transaction.UpdateService(ctx, service); err != nil {
-			return fmt.Errorf("failed to update service certificate timestamp: %w", err)
+		if meta.CertificateIssuedAt != nil && meta.CertificateIssuedAt.Equal(at) {
+			return false
 		}
-
-		return nil
+		meta.CertificateIssuedAt = &at
+		return true
 	})
 }
 
-// SetStatus updates the status of the service (e.g., "active", "tunnel_not_created", etc.)
+// SetStatus updates the status of the service (e.g., "active", "tunnel_not_created", etc.) and writes only when it changed.
 func (m *Manager) SetStatus(ctx context.Context, accountID, serviceID string, status service.Status) error {
+	return m.updateServiceMeta(ctx, accountID, serviceID, func(meta *service.Meta) bool {
+		if meta.Status == string(status) {
+			return false
+		}
+		meta.Status = string(status)
+		return true
+	})
+}
+
+// updateServiceMeta saves the service after update changed its metadata. update runs first on an unlocked
+// read, so reports that change nothing never take the row lock, and again on the locked row before saving.
+func (m *Manager) updateServiceMeta(ctx context.Context, accountID, serviceID string, update func(*service.Meta) bool) error {
+	current, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
+	if err != nil {
+		return fmt.Errorf("get service: %w", err)
+	}
+	if !update(&current.Meta) {
+		return nil
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		service, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
+		locked, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
 		if err != nil {
-			return fmt.Errorf("failed to get service: %w", err)
+			return fmt.Errorf("get service: %w", err)
 		}
-
-		service.Meta.Status = string(status)
-
-		if err = transaction.UpdateService(ctx, service); err != nil {
-			return fmt.Errorf("failed to update service status: %w", err)
+		if !update(&locked.Meta) {
+			return nil
 		}
-
+		if err := transaction.UpdateService(ctx, locked); err != nil {
+			return fmt.Errorf("update service metadata: %w", err)
+		}
 		return nil
 	})
 }

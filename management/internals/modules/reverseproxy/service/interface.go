@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 )
@@ -17,7 +18,7 @@ type Manager interface {
 	UpdateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)
 	DeleteService(ctx context.Context, accountID, userID, serviceID string) error
 	DeleteAllServices(ctx context.Context, accountID, userID string) error
-	SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error
+	SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string, issuedAt time.Time) error
 	SetStatus(ctx context.Context, accountID, serviceID string, status Status) error
 	ReloadAllServicesForAccount(ctx context.Context, accountID string) error
 	ReloadService(ctx context.Context, accountID, serviceID string) error

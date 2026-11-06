@@ -1574,6 +1574,64 @@ func TestServiceWrites_IncrementNetworkSerial(t *testing.T) {
 	serial++
 
 	require.NoError(t, mgr.SetStatus(ctx, testAccountID, created.ID, rpservice.StatusActive))
-	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID))
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, time.Now().UTC().Truncate(time.Second)))
 	assert.Equal(t, serial, networkSerial(t, testStore, testAccountID), "meta-only writes must not increment the network serial")
+}
+
+func TestServiceMetaReports_SkipUnchanged(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	issuedAt := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	mockStore.EXPECT().
+		GetServiceByID(gomock.Any(), store.LockingStrengthNone, testAccountID, "svc").
+		DoAndReturn(func(context.Context, store.LockingStrength, string, string) (*rpservice.Service, error) {
+			stored := issuedAt
+			return &rpservice.Service{ID: "svc", AccountID: testAccountID, Meta: rpservice.Meta{Status: string(rpservice.StatusActive), CertificateIssuedAt: &stored}}, nil
+		}).
+		Times(3)
+
+	mgr := &Manager{store: mockStore}
+
+	require.NoError(t, mgr.SetStatus(ctx, testAccountID, "svc", rpservice.StatusActive))
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, "svc", issuedAt))
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, "svc", time.Time{}))
+}
+
+func TestServiceMetaReports_WriteChanges(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore, _ := setupL4Test(t, nil)
+
+	created, err := mgr.CreateService(ctx, testAccountID, testUserID, &rpservice.Service{
+		Name: "meta", Domain: "meta.test.netbird.io", Mode: rpservice.ModeHTTP, Enabled: true,
+		Targets: []*rpservice.Target{{
+			AccountID: testAccountID, TargetId: testPeerID,
+			TargetType: rpservice.TargetTypePeer, Protocol: "http", Port: 8080, Enabled: true,
+		}},
+	})
+	require.NoError(t, err)
+
+	stored := func() rpservice.Meta {
+		t.Helper()
+		svc, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, created.ID)
+		require.NoError(t, err)
+		return svc.Meta
+	}
+
+	require.NoError(t, mgr.SetStatus(ctx, testAccountID, created.ID, rpservice.StatusTunnelNotCreated))
+	assert.Equal(t, string(rpservice.StatusTunnelNotCreated), stored().Status)
+
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, time.Time{}))
+	legacyStamp := stored().CertificateIssuedAt
+	require.NotNil(t, legacyStamp, "a report without issue time must set a missing timestamp")
+
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, time.Time{}))
+	assert.True(t, legacyStamp.Equal(*stored().CertificateIssuedAt), "a report without issue time must keep an existing timestamp")
+
+	renewedAt := time.Date(2026, 11, 1, 8, 30, 0, 0, time.UTC)
+	require.NoError(t, mgr.SetCertificateIssuedAt(ctx, testAccountID, created.ID, renewedAt))
+	assert.True(t, renewedAt.Equal(*stored().CertificateIssuedAt), "a renewed certificate must move the timestamp")
+	svc, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, created.ID)
+	require.NoError(t, err)
+	assert.Len(t, svc.Targets, 1, "a metadata write must keep the targets")
 }

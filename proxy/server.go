@@ -300,15 +300,20 @@ func (s *Server) NotifyStatus(ctx context.Context, accountID types.AccountID, se
 	return err
 }
 
-// NotifyCertificateIssued sends a notification to management that a certificate was issued
-func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string) error {
-	_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
+// NotifyCertificateIssued sends a notification to management that a certificate was issued.
+// issuedAt is the certificate's NotBefore, or the zero time when unknown.
+func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string, issuedAt time.Time) error {
+	req := &proto.SendStatusUpdateRequest{
 		ServiceId:         string(serviceID),
 		AccountId:         string(accountID),
 		Status:            proto.ProxyStatus_PROXY_STATUS_ACTIVE,
 		CertificateIssued: true,
 		InboundListener:   s.inboundListenerProto(accountID),
-	})
+	}
+	if !issuedAt.IsZero() {
+		req.CertificateIssuedAt = timestamppb.New(issuedAt)
+	}
+	_, err := s.mgmtClient.SendStatusUpdate(ctx, req)
 	return err
 }
 
@@ -1733,12 +1738,27 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	}
 
 	if wildcardHit {
-		if err := s.NotifyCertificateIssued(ctx, accountID, svcID, string(d)); err != nil {
+		if err := s.NotifyCertificateIssued(ctx, accountID, svcID, string(d), s.coveringCertificateIssuedAt(d)); err != nil {
 			s.Logger.Warnf("notify certificate ready for domain %q: %v", d, err)
 		}
 	}
 
 	return nil
+}
+
+// coveringCertificateIssuedAt returns the NotBefore of the wildcard or static certificate serving d,
+// or the zero time when it is not loaded.
+func (s *Server) coveringCertificateIssuedAt(d domain.Domain) time.Time {
+	var leaf *x509.Certificate
+	if s.acme != nil {
+		leaf = s.acme.WildcardLeaf(d)
+	} else if s.staticCertWatcher != nil {
+		leaf = s.staticCertWatcher.Leaf()
+	}
+	if leaf == nil {
+		return time.Time{}
+	}
+	return leaf.NotBefore
 }
 
 // staticCertCovers reports whether the static certificate loaded when ACME is
