@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/netbirdio/netbird/management/server/util"
+)
+
 const (
 	// PolicyRuleFlowDirect allows traffic from source to destination
 	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
@@ -82,7 +86,7 @@ func (p *Policy) Equal(other *Policy) bool {
 		return false
 	}
 
-	if !stringSlicesEqualUnordered(p.SourcePostureChecks, other.SourcePostureChecks) {
+	if !util.ElementsMatch(p.SourcePostureChecks, other.SourcePostureChecks) {
 		return false
 	}
 
@@ -92,16 +96,23 @@ func (p *Policy) Equal(other *Policy) bool {
 
 	otherRules := make(map[string]*PolicyRule, len(other.Rules))
 	for _, r := range other.Rules {
+		if r == nil {
+			return false
+		}
+		if _, dup := otherRules[r.ID]; dup {
+			return false
+		}
 		otherRules[r.ID] = r
 	}
 	for _, r := range p.Rules {
+		if r == nil {
+			return false
+		}
 		otherRule, ok := otherRules[r.ID]
-		if !ok {
+		if !ok || !r.Equal(otherRule) {
 			return false
 		}
-		if !r.Equal(otherRule) {
-			return false
-		}
+		delete(otherRules, r.ID)
 	}
 
 	return true

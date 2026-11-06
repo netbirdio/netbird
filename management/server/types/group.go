@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/integration_reference"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
@@ -40,7 +41,7 @@ type Group struct {
 type GroupPeer struct {
 	AccountID string `gorm:"index"`
 	GroupID   string `gorm:"primaryKey"`
-	PeerID    string `gorm:"primaryKey"`
+	PeerID    string `gorm:"primaryKey;index:idx_group_peers_peer_id,option:CONCURRENTLY"`
 }
 
 func (g *Group) LoadGroupPeers() {
@@ -88,6 +89,20 @@ func (g *Group) Copy() *Group {
 	copy(group.GroupPeers, g.GroupPeers)
 	copy(group.Resources, g.Resources)
 	return group
+}
+
+func (g *Group) Equal(other *Group) bool {
+	if g == nil || other == nil {
+		return g == other
+	}
+
+	return g.ID == other.ID &&
+		g.AccountID == other.AccountID &&
+		g.Name == other.Name &&
+		g.Issued == other.Issued &&
+		g.IntegrationReference == other.IntegrationReference &&
+		util.ElementsMatch(g.Peers, other.Peers) &&
+		util.ElementsMatch(g.Resources, other.Resources)
 }
 
 // HasPeers checks if the group has any peers.

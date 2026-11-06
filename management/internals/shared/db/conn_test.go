@@ -146,3 +146,22 @@ func TestNewConn_MaxOpenConnsFromEnv(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, sqliteDB.Stats().MaxOpenConnections)
 }
+
+func TestNewConn_MaxOpenConnsOptionOverridesEnv(t *testing.T) {
+	t.Setenv("NB_SQL_MAX_OPEN_CONNS", "7")
+
+	open := func(engine Engine, opts ...Option) int {
+		gormDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "store.db")), GormConfig())
+		require.NoError(t, err)
+		conn, err := NewConn(context.Background(), gormDB, engine, nil, opts...)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+		sqlDB, err := conn.DB(nil).DB()
+		require.NoError(t, err)
+		return sqlDB.Stats().MaxOpenConnections
+	}
+
+	assert.Equal(t, 3, open(PostgresStoreEngine, WithMaxOpenConns(3)), "option should take precedence over the environment")
+	assert.Equal(t, 7, open(PostgresStoreEngine, WithMaxOpenConns(0)), "a non-positive option should fall back to the environment")
+	assert.Equal(t, 1, open(SqliteStoreEngine, WithMaxOpenConns(3)), "sqlite should stay on a single connection")
+}

@@ -185,9 +185,10 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return fmt.Errorf("token expired")
 	}
 
-	err = m.authManager.MarkPATUsed(ctx, pat.ID)
-	if err != nil {
-		return err
+	if pat.LastUsed == nil || time.Since(*pat.LastUsed) >= types.PATLastUsedUpdateInterval {
+		if err := m.authManager.MarkPATUsed(ctx, pat.ID); err != nil {
+			return err
+		}
 	}
 
 	userAuth := auth.UserAuth{

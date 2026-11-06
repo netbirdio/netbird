@@ -94,6 +94,11 @@ func New(gormDB *gorm.DB, engine db.Engine, set Set) (*Runner, error) {
 	}, nil
 }
 
+// Engine returns the engine of the database the runner migrates.
+func (r *Runner) Engine() db.Engine {
+	return r.engine
+}
+
 // Run brings the database to the state mode asks for.
 func (r *Runner) Run(ctx context.Context, mode Mode) error {
 	switch mode {

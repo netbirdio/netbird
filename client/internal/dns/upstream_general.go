@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type upstreamResolver struct {
 	*upstreamResolverBase
-	nsNet *netstack.Net
+	nsNet *wgbackend.NetstackNet
 }
 
 func newUpstreamResolver(

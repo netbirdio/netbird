@@ -197,7 +197,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             className={cn(
                                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                 "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
-                                "cursor-default outline-none transition-colors",
+                                "cursor-default outline-hidden transition-colors",
                                 "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "wails-no-draggable",
                             )}
@@ -241,7 +241,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                 className={cn(
                                     "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                     "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
-                                    "cursor-default outline-none transition-colors",
+                                    "cursor-default outline-hidden transition-colors",
                                     "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                     "wails-no-draggable",
                                     "disabled:opacity-50 disabled:hover:bg-transparent",
@@ -266,7 +266,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                         <ScrollArea.Scrollbar
                             orientation={"vertical"}
                             className={cn(
-                                "flex touch-none select-none transition-colors",
+                                "flex touch-none transition-colors select-none",
                                 "w-1.5 bg-transparent py-1",
                             )}
                         >
@@ -317,7 +317,7 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                     <CopyToClipboard
                         message={peer.ipv6}
                         alwaysShowIcon
-                        className={"min-w-0 max-w-full"}
+                        className={"max-w-full min-w-0"}
                         iconClassName={"top-0"}
                     >
                         <TruncatedRowValue value={peer.ipv6} mono />
@@ -335,7 +335,7 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                         <CopyToClipboard
                             message={peer.relayAddress}
                             alwaysShowIcon
-                            className={"min-w-0 max-w-full"}
+                            className={"max-w-full min-w-0"}
                             iconClassName={"top-0"}
                         >
                             <TruncatedRowValue value={peer.relayAddress} mono />
@@ -408,7 +408,7 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                     <CopyToClipboard
                         message={peer.pubKey}
                         alwaysShowIcon
-                        className={"min-w-0 max-w-full"}
+                        className={"max-w-full min-w-0"}
                         iconClassName={"top-0"}
                     >
                         <TruncatedRowValue value={peer.pubKey} mono />
@@ -446,7 +446,7 @@ const IceRow = ({ icon, baseLabel, type, endpoint }: IceRowProps) => {
                 <CopyToClipboard
                     message={endpoint}
                     alwaysShowIcon
-                    className={"min-w-0 max-w-full"}
+                    className={"max-w-full min-w-0"}
                     iconClassName={"top-0"}
                 >
                     <TruncatedRowValue value={endpoint} mono />
@@ -474,11 +474,11 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                     aria-haspopup={"dialog"}
                     aria-expanded={open}
                     className={cn(
-                        "inline-flex shrink-0 items-center gap-1 rounded",
+                        "inline-flex shrink-0 items-center gap-1 rounded-sm",
                         "bg-nb-gray-930 hover:bg-nb-gray-910/80 data-[state=open]:bg-nb-gray-910",
                         "border border-nb-gray-900",
-                        "py-1 pe-2 ps-2.5 text-xs font-medium text-nb-gray-300",
-                        "wails-no-draggable cursor-default outline-none transition-all",
+                        "py-1 ps-2.5 pe-2 text-xs font-medium text-nb-gray-300",
+                        "wails-no-draggable cursor-default outline-hidden transition-all",
                         "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     )}
                 >
@@ -497,9 +497,9 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                     sideOffset={6}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     className={cn(
-                        "z-50 max-h-72 min-w-64 max-w-[280px] overflow-auto",
+                        "z-50 max-h-72 max-w-[280px] min-w-64 overflow-auto",
                         "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
-                        "p-1 text-nb-gray-200 shadow-lg outline-none",
+                        "p-1 text-nb-gray-200 shadow-lg outline-hidden",
                         "flex flex-col",
                     )}
                 >
@@ -539,9 +539,9 @@ const ResourceRow = ({ value }: { value: string }) => {
                 "group/resourcerow relative flex items-center justify-between gap-3",
                 "rounded-md px-2 py-1.5 text-start",
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
-                "cursor-default outline-none transition-colors",
+                "cursor-default outline-hidden transition-colors",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-inset",
             )}
         >
             <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>
@@ -560,7 +560,7 @@ const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) =
         text={value}
         dir={mono ? "ltr" : "auto"}
         className={cn(
-            "inline-block min-w-0 max-w-[260px] truncate align-middle",
+            "inline-block max-w-[260px] min-w-0 truncate align-middle",
             mono && "font-mono",
         )}
     />

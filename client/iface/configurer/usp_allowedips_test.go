@@ -8,11 +8,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wgconn "golang.zx2c4.com/wireguard/conn"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 // newTestUSPConfigurer builds a configurer over a real wireguard-go device backed by an
@@ -20,7 +19,7 @@ import (
 func newTestUSPConfigurer(t *testing.T) *WGUSPConfigurer {
 	t.Helper()
 
-	dev := wgdevice.NewDevice(newIdleTUN(), wgconn.NewDefaultBind(), wgdevice.NewLogger(wgdevice.LogLevelSilent, ""))
+	dev := wgbackend.NewDevice(newIdleTUN(), wgbackend.NewDefaultBind(), wgbackend.NewLogger(wgbackend.LogLevelSilent, ""))
 	t.Cleanup(dev.Close)
 
 	c := NewUSPConfigurerNoUAPI(dev, "wgtest0", bind.NewActivityRecorder())

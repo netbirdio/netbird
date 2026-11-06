@@ -4,7 +4,7 @@ go 1.26.0
 
 // Pin the toolchain to a patch release >= go1.26.2
 // See https://go.dev/issue/77875.
-toolchain go1.26.7
+toolchain go1.26.10
 
 require (
 	cunicu.li/go-rosenpass v0.5.42
@@ -13,7 +13,7 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
-	github.com/kardianos/service v1.2.3-0.20240613133416-becf2eb62b83
+	github.com/kardianos/service v1.3.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.34.1
 	github.com/rs/cors v1.8.0
@@ -23,7 +23,6 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sys v0.47.0
-	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	golang.zx2c4.com/wireguard/windows v0.5.3
 	google.golang.org/grpc v1.80.0
@@ -48,14 +47,12 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/crowdsecurity/crowdsec v1.7.7
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
-	github.com/dexidp/dex v2.13.0+incompatible
-	github.com/dexidp/dex/api/v2 v2.4.0
 	github.com/ebitengine/purego v0.10.0
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
 	github.com/eko/gocache/store/redis/v4 v4.2.2
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/gliderlabs/ssh v0.3.8
+	github.com/gliderlabs/ssh v0.3.9-0.20250127223818-909fa952d4e4
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-ole/go-ole v1.3.0
 	github.com/gobwas/ws v1.4.0
@@ -65,6 +62,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tpm v0.9.8
 	github.com/google/gopacket v1.1.19
+	github.com/google/jsonschema-go v0.4.3
 	github.com/google/nftables v0.3.0
 	github.com/gopacket/gopacket v1.4.0
 	github.com/grafana/pyroscope-go v1.4.2
@@ -83,16 +81,20 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.55.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/netbirdio/dex v0.244.1-0.20261021152327-0319b501f1a6
+	github.com/netbirdio/dex/api/v2 v2.0.0-20261021115841-9f3e6d4c2ce3
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20261016151938-091867fe80b5
+	github.com/netbirdio/ice/v4 v4.0.0-20261021152109-d0e5dfacb548
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20261106114022-0679f7bfaf3f
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
+	github.com/netbirdio/wireguard-go v0.0.0-20261021152105-0de46b309cdb
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203
-	github.com/pion/ice/v4 v4.0.0-00010101000000-000000000000
 	github.com/pion/logging v0.2.4
 	github.com/pion/randutil v0.1.0
 	github.com/pion/stun/v2 v2.0.0
@@ -145,6 +147,14 @@ require (
 	gorm.io/gorm v1.25.12
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
+)
+
+require (
+	github.com/docker/go-connections v0.7.0 // indirect
+	github.com/segmentio/asm v1.2.1 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
 )
 
 require (
@@ -201,7 +211,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
@@ -278,7 +287,7 @@ require (
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.21 // indirect
-	github.com/mattn/go-sqlite3 v1.14.42 // indirect
+	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
@@ -364,23 +373,11 @@ require (
 	rsc.io/qr v0.2.0 // indirect
 )
 
-replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502
-
-replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
-
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261016113635-bd0cb75a3df0
-
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
-
-replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
-
-replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260716205454-a163de3129e5
-
-replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260512110716-8d70ad8647c1
 
 replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0
 
-replace github.com/wailsapp/wails/v3 => github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20261009120932-4e087a8bfd6d
+replace github.com/wailsapp/wails/v3 => github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20261028091752-cfa103160796
 
 tool (
 	github.com/goreleaser/chglog/cmd/chglog

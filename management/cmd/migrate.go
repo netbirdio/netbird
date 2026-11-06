@@ -71,7 +71,12 @@ func openStoreTarget(ctx context.Context, config *nbconfig.Config, datadir strin
 	if err != nil {
 		return nil, err
 	}
-	return []migratecmd.Target{target}, nil
+	accessLogs, err := migratecmd.AccessLogTarget(ctx, datadir, target.Runner.Engine())
+	if err != nil {
+		_ = target.Close()
+		return nil, err
+	}
+	return []migratecmd.Target{target, accessLogs}, nil
 }
 
 func openActivityTarget(ctx context.Context, config *nbconfig.Config, datadir string) ([]migratecmd.Target, error) {

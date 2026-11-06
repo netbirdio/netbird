@@ -12,7 +12,6 @@ import (
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -21,6 +20,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
+
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 )
 
 const (
@@ -38,7 +39,7 @@ type tcpDNSServer struct {
 	s      *stack.Stack
 	ep     *dnsEndpoint
 	mux    *dns.ServeMux
-	tunDev tun.Device
+	tunDev wgbackend.TUN
 	ip     netip.Addr
 	port   uint16
 	mtu    uint16
@@ -49,7 +50,7 @@ type tcpDNSServer struct {
 	timer   *time.Timer
 }
 
-func newTCPDNSServer(mux *dns.ServeMux, tunDev tun.Device, ip netip.Addr, port uint16, mtu uint16) *tcpDNSServer {
+func newTCPDNSServer(mux *dns.ServeMux, tunDev wgbackend.TUN, ip netip.Addr, port uint16, mtu uint16) *tcpDNSServer {
 	return &tcpDNSServer{
 		mux:    mux,
 		tunDev: tunDev,
@@ -270,7 +271,7 @@ func (t *tcpDNSServer) handleTCPDNS(r *tcp.ForwarderRequest) {
 // dnsEndpoint implements stack.LinkEndpoint for writing packets back via the tun device.
 type dnsEndpoint struct {
 	dispatcher stack.NetworkDispatcher
-	tunDev     tun.Device
+	tunDev     wgbackend.TUN
 	mtu        atomic.Uint32
 }
 

@@ -30,6 +30,5 @@ func TestNewConn_HoldsTheStoreSchema(t *testing.T) {
 
 	migrator := conn.DB(nil).Migrator()
 	assert.True(t, migrator.HasTable("accounts"))
-	assert.True(t, migrator.HasTable("access_log_entries"))
 	assert.True(t, migrator.HasTable(store.MigrationTable))
 }

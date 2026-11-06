@@ -12,6 +12,8 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -88,6 +90,16 @@ func ActivityTarget(ctx context.Context, datadir, encryptionKey string) (Target,
 		return Target{}, fmt.Errorf("open activity store: %w", err)
 	}
 	return Target{Name: "activity", Runner: runner, Close: closeConn}, nil
+}
+
+// AccessLogTarget opens the reverse proxy access log store, which follows the
+// main store's engine unless configured otherwise, as a migrate target.
+func AccessLogTarget(ctx context.Context, datadir string, mainEngine db.Engine) (Target, error) {
+	runner, closeConn, err := accesslogsmanager.NewMigrationRunner(ctx, datadir, mainEngine)
+	if err != nil {
+		return Target{}, fmt.Errorf("open access log store: %w", err)
+	}
+	return Target{Name: "accesslogs", Runner: runner, Close: closeConn}, nil
 }
 
 // CloseAll releases every target, keeping the first close error.

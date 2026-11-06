@@ -16,8 +16,8 @@ func newMigrateCommand() *cobra.Command {
 	return migratecmd.NewCommand(withMigrationTargets)
 }
 
-// withMigrationTargets loads the combined YAML config, opens the management
-// and activity stores plus every registered target for migration and calls fn.
+// withMigrationTargets loads the combined YAML config, opens the management,
+// access log and activity stores plus every registered target for migration and calls fn.
 func withMigrationTargets(cmd *cobra.Command, fn func(ctx context.Context, targets []migratecmd.Target) error) error {
 	if err := util.InitLog("info", "console"); err != nil {
 		return fmt.Errorf("init log: %w", err)
@@ -47,6 +47,12 @@ func withMigrationTargets(cmd *cobra.Command, fn func(ctx context.Context, targe
 		return err
 	}
 	targets = append(targets, storeTarget)
+
+	accessLogTarget, err := migratecmd.AccessLogTarget(ctx, cfg.Management.DataDir, storeTarget.Runner.Engine())
+	if err != nil {
+		return err
+	}
+	targets = append(targets, accessLogTarget)
 
 	activityTarget, err := migratecmd.ActivityTarget(ctx, mgmtConfig.Datadir, mgmtConfig.DataStoreEncryptionKey)
 	if err != nil {

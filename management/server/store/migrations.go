@@ -9,7 +9,6 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -67,12 +66,13 @@ func NewMigrationRunner(ctx context.Context, kind types.Engine, dataDir string) 
 func storeModels() []any {
 	return []any{
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.ProxyAccessToken{},
+		&nbpeer.Connection{}, &nbpeer.ManagementInstance{},
 		&types.Group{}, &types.GroupPeer{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
-		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
+		&proxy.Proxy{},
 		&agentNetworkTypes.Provider{}, &agentNetworkTypes.Policy{}, &agentNetworkTypes.Guardrail{}, &agentNetworkTypes.Settings{},
 		&agentNetworkTypes.Consumption{}, &agentNetworkTypes.AccountBudgetRule{},
 		&agentNetworkTypes.AgentNetworkAccessLog{}, &agentNetworkTypes.AgentNetworkAccessLogGroup{},

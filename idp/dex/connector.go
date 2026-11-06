@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dexidp/dex/storage"
+	"github.com/netbirdio/dex/storage"
 )
 
 // ConnectorConfig represents the configuration for an identity provider connector

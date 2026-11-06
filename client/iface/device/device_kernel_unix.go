@@ -9,12 +9,11 @@ import (
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/wgbackend"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/sharedsock"
 )
@@ -170,7 +169,7 @@ func (t *TunKernelDevice) DeviceName() string {
 }
 
 // Device returns the wireguard device, not applicable for kernel devices
-func (t *TunKernelDevice) Device() *device.Device {
+func (t *TunKernelDevice) Device() *wgbackend.Device {
 	return nil
 }
 
@@ -183,7 +182,7 @@ func (t *TunKernelDevice) assignAddr() error {
 	return t.link.assignAddr(&t.address)
 }
 
-func (t *TunKernelDevice) GetNet() *netstack.Net {
+func (t *TunKernelDevice) GetNet() *wgbackend.NetstackNet {
 	return nil
 }
 
