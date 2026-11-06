@@ -111,27 +111,17 @@ func (AnthropicParser) ExtractPrompt(body []byte) string {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return ""
 	}
-	var b strings.Builder
-	if len(req.System) > 0 {
-		if s := decodeStringOrJoin(req.System); s != "" {
-			b.WriteString("system: ")
-			b.WriteString(s)
-		}
+	turns := make([]promptTurn, 0, len(req.Messages)+1)
+	if s := decodeStringOrJoin(req.System); s != "" {
+		turns = append(turns, promptTurn{role: "system", text: s})
 	}
 	for _, m := range req.Messages {
-		if b.Len() > 0 {
-			b.WriteByte('\n')
-		}
-		if m.Role != "" {
-			b.WriteString(m.Role)
-			b.WriteString(": ")
-		}
-		b.WriteString(decodeStringOrJoin(m.Content))
+		turns = append(turns, promptTurn{role: m.Role, text: decodeStringOrJoin(m.Content)})
 	}
-	if b.Len() == 0 && req.Prompt != "" {
-		b.WriteString(req.Prompt)
+	if len(turns) == 0 {
+		return req.Prompt
 	}
-	return b.String()
+	return joinPromptTurns(turns)
 }
 
 // ExtractSessionID is the body-side fallback for Anthropic. Claude Code's

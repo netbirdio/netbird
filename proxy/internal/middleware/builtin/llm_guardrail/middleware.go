@@ -21,7 +21,7 @@ const ID = "llm_guardrail"
 
 const (
 	version          = "1.0.0"
-	maxPromptBytes   = 3500
+	maxPromptBytes   = middleware.MaxPromptBytes
 	denyCodeModel    = "llm_policy.model_blocked"
 	denyReasonModel  = "model_blocked"
 	denyMessageModel = "model is not in the policy allowlist"

@@ -26,7 +26,7 @@ const Version = "1.0.0"
 
 // maxPromptBytes caps llm.request_prompt_raw at a size that fits within
 // MaxMetadataValueBytes with headroom. Truncation is rune-safe.
-const maxPromptBytes = 3500
+const maxPromptBytes = middleware.MaxPromptBytes
 
 // middlewareImpl is the concrete implementation. providerID, when set,
 // names the parser to use directly (bypasses URL sniffing). It is empty

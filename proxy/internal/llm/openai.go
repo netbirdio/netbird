@@ -202,7 +202,7 @@ func extractResponsesInput(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return extractContentParts(raw)
 	}
-	var b strings.Builder
+	turns := make([]promptTurn, 0, len(items))
 	for _, it := range items {
 		var text string
 		switch {
@@ -216,16 +216,9 @@ func extractResponsesInput(raw json.RawMessage) string {
 		if text == "" {
 			continue
 		}
-		if b.Len() > 0 {
-			b.WriteByte('\n')
-		}
-		if it.Role != "" {
-			b.WriteString(it.Role)
-			b.WriteString(": ")
-		}
-		b.WriteString(text)
+		turns = append(turns, promptTurn{role: it.Role, text: text})
 	}
-	return b.String()
+	return joinPromptTurns(turns)
 }
 
 // ExtractSessionID reads the OpenAI session marker. Codex (the Responses
@@ -304,18 +297,11 @@ func (OpenAIParser) ExtractCompletion(status int, contentType string, body []byt
 // "role: content" string per message, separated by newlines. Roles surface
 // system/user/assistant context which is useful for log review.
 func joinMessages(msgs []openAIMessage) string {
-	var b strings.Builder
-	for i, m := range msgs {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		if m.Role != "" {
-			b.WriteString(m.Role)
-			b.WriteString(": ")
-		}
-		b.WriteString(decodeStringOrJoin(m.Content))
+	turns := make([]promptTurn, 0, len(msgs))
+	for _, m := range msgs {
+		turns = append(turns, promptTurn{role: m.Role, text: decodeStringOrJoin(m.Content)})
 	}
-	return b.String()
+	return joinPromptTurns(turns)
 }
 
 // extractContentParts handles the Responses-API content shape, which is

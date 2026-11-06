@@ -114,22 +114,14 @@ func (BedrockParser) ExtractPrompt(body []byte) string {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return ""
 	}
-	var b strings.Builder
+	turns := make([]promptTurn, 0, len(req.Messages)+1)
 	if s := decodeStringOrJoin(req.System); s != "" {
-		b.WriteString("system: ")
-		b.WriteString(s)
+		turns = append(turns, promptTurn{role: "system", text: s})
 	}
 	for _, m := range req.Messages {
-		if b.Len() > 0 {
-			b.WriteByte('\n')
-		}
-		if m.Role != "" {
-			b.WriteString(m.Role)
-			b.WriteString(": ")
-		}
-		b.WriteString(decodeStringOrJoin(m.Content))
+		turns = append(turns, promptTurn{role: m.Role, text: decodeStringOrJoin(m.Content)})
 	}
-	return b.String()
+	return joinPromptTurns(turns)
 }
 
 // ExtractCompletion returns the assistant text from a non-streaming Bedrock

@@ -91,16 +91,23 @@ const (
 	DefaultTimeout = 500 * time.Millisecond
 
 	// MaxMiddlewareMetadataBytes is the per-middleware metadata total
-	// cap.
-	MaxMiddlewareMetadataBytes = 16 << 10
+	// cap: one full-size value (a captured prompt) plus the small ones.
+	MaxMiddlewareMetadataBytes = MaxMetadataValueBytes + 16<<10
 	// MaxRequestMetadataBytes is the per-request metadata total cap
 	// across all middlewares in the chain. Earlier middlewares win
 	// when the budget is exhausted.
-	MaxRequestMetadataBytes = 32 << 10
+	// Sized for the raw and the redacted prompt, both full size, plus the
+	// small values.
+	MaxRequestMetadataBytes = 2*MaxMetadataValueBytes + 32<<10
 	// MaxMetadataKeyBytes is the maximum length of a metadata key.
 	MaxMetadataKeyBytes = 96
 	// MaxMetadataValueBytes is the maximum length of a metadata value.
-	MaxMetadataValueBytes = 4 << 10
+	// It holds a 1 MiB captured prompt (MaxPromptBytes) with headroom.
+	MaxMetadataValueBytes = MaxPromptBytes + 4<<10
+	// MaxPromptBytes caps a captured prompt (llm.request_prompt_raw and
+	// its redacted llm.request_prompt). Coding agents send system prompts
+	// of tens of kilobytes, so a smaller cap loses the human's turns.
+	MaxPromptBytes = 1 << 20
 	// MaxMiddlewaresPerChain caps the number of middleware entries
 	// accepted per chain at the proxy translator and the management
 	// REST API. Mirrors the chain invocation cap so a misconfigured
