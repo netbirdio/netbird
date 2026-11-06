@@ -869,6 +869,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	}
 
 	go s.acme.WatchWildcards(ctx)
+	go s.acme.WatchExpiry(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
