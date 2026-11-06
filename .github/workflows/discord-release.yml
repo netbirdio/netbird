@@ -14,11 +14,13 @@ jobs:
   notify-discord:
     name: Send to Discord
     # Releases published with GITHUB_TOKEN do not trigger release workflows.
+    # Only the initial Release attempt may notify; reruns would ping the role again.
     if: >-
       (github.event_name == 'release' && github.event.release.prerelease == false) ||
       (github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.run_attempt == 1 &&
       startsWith(github.event.workflow_run.head_branch, 'v') &&
       !contains(github.event.workflow_run.head_branch, '-'))
     runs-on: ubuntu-latest
