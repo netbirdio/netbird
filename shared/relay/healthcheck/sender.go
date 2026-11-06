@@ -72,6 +72,16 @@ func NewSender(log *log.Entry) *Sender {
 	return NewSenderWithOpts(log, opts)
 }
 
+// NewSenderForTransport creates a healthcheck sender with the interval of the given relay transport.
+func NewSenderForTransport(log *log.Entry, transport string) *Sender {
+	opts := SenderOptions{
+		HealthCheckInterval: IntervalFor(transport),
+		HealthCheckTimeout:  defaultHealthCheckTimeout,
+		AttemptThreshold:    getAttemptThresholdFromEnv(),
+	}
+	return NewSenderWithOpts(log, opts)
+}
+
 // OnHCResponse sends an acknowledgment signal to the sender
 func (hc *Sender) OnHCResponse() {
 	select {

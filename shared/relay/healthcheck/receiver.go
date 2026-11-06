@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	defaultHeartbeatTimeout = defaultHealthCheckInterval + 10*time.Second
+	defaultHeartbeatTimeout = defaultHealthCheckInterval + heartbeatGrace
 )
 
 type ReceiverOptions struct {
@@ -34,6 +34,15 @@ type Receiver struct {
 func NewReceiver(log *log.Entry) *Receiver {
 	opts := ReceiverOptions{
 		HeartbeatTimeout: defaultHeartbeatTimeout,
+		AttemptThreshold: getAttemptThresholdFromEnv(),
+	}
+	return NewReceiverWithOpts(log, opts)
+}
+
+// NewReceiverForTransport creates a healthcheck receiver with the heartbeat timeout of the given relay transport.
+func NewReceiverForTransport(log *log.Entry, transport string) *Receiver {
+	opts := ReceiverOptions{
+		HeartbeatTimeout: HeartbeatTimeoutFor(transport),
 		AttemptThreshold: getAttemptThresholdFromEnv(),
 	}
 	return NewReceiverWithOpts(log, opts)

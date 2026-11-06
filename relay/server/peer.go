@@ -82,12 +82,12 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	if p.version >= messages.ProtocolV2 {
+	if p.version == messages.ProtocolV2 {
 		p.kaReceiver = keepalive.NewReceiver(p.log)
 		defer p.kaReceiver.Stop()
 		go p.handleKeepaliveTimeout(ctx, p.kaReceiver)
 	} else {
-		p.hcSender = healthcheck.NewSender(p.log)
+		p.hcSender = p.newHealthcheckSender()
 		go p.hcSender.StartHealthCheck(ctx)
 		go p.handleHealthcheckEvents(ctx, p.hcSender)
 	}
@@ -203,6 +203,16 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
 
 	_, err := p.conn.Write(ctx, buf)
 	return err
+}
+
+func (p *Peer) newHealthcheckSender() *healthcheck.Sender {
+	if p.version < messages.ProtocolV3 {
+		return healthcheck.NewSender(p.log)
+	}
+
+	transport := p.conn.Protocol()
+	p.log.Infof("healthcheck interval %s on %s", healthcheck.IntervalFor(transport), transport)
+	return healthcheck.NewSenderForTransport(p.log, transport)
 }
 
 func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Sender) {

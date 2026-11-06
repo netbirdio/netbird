@@ -18,8 +18,9 @@ const (
 
 	ProtocolV1 ProtocolVersion = 1
 	ProtocolV2 ProtocolVersion = 2
+	ProtocolV3 ProtocolVersion = 3
 	// CurrentProtocolVersion is the highest protocol version this build supports.
-	CurrentProtocolVersion = ProtocolV2
+	CurrentProtocolVersion = ProtocolV3
 
 	// authEnvelopeMinVersion is the first advertised version whose Auth message carries a
 	// length-prefixed token followed by an extension area.
