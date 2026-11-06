@@ -391,24 +391,11 @@ func encodeTOMLDoc(orig []byte, doc map[string]any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	e := newTOMLEdit(f)
 	oldLeaves, newLeaves := tomlLeaves(f.doc, nil), tomlLeaves(doc, nil)
-
-	// out[i] replaces line i; before[i] goes ahead of it, len(lines) is EOF.
-	out := make([][]string, len(f.lines))
-	for i, l := range f.lines {
-		out[i] = []string{l}
-	}
-	before := map[int][]string{}
-	newTables := map[string][]string{}
-	var newTableOrder [][]string
-
 	for _, k := range sortedLeafKeys(oldLeaves) {
-		if _, keep := newLeaves[k]; keep {
-			continue
-		}
-		sp := f.spans[k]
-		for i := sp.line; i <= sp.endLine; i++ {
-			out[i] = nil
+		if _, keep := newLeaves[k]; !keep {
+			e.remove(f.spans[k])
 		}
 	}
 	for _, k := range sortedLeafKeys(newLeaves) {
@@ -417,70 +404,112 @@ func encodeTOMLDoc(orig []byte, doc map[string]any) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", PathString(leaf.path), err)
 		}
-		if old, ok := oldLeaves[k]; ok {
-			if sameJSON(old.value, leaf.value) {
-				continue
-			}
-			sp := f.spans[k]
-			out[sp.line] = []string{f.lines[sp.line][:sp.col] + enc + f.lines[sp.endLine][sp.endCol:]}
-			for i := sp.line + 1; i <= sp.endLine; i++ {
-				out[i] = nil
-			}
-			continue
+		old, ok := oldLeaves[k]
+		switch {
+		case !ok:
+			err = e.add(leaf.path, enc)
+		case !sameJSON(old.value, leaf.value):
+			e.replace(f.spans[k], enc)
 		}
-		parent, name := leaf.path[:len(leaf.path)-1], leaf.path[len(leaf.path)-1]
-		line := encodeTOMLKey([]string{name}) + " = " + enc
-		if len(parent) == 0 {
-			before[f.topEnd+1] = append(before[f.topEnd+1], line)
-			continue
+		if err != nil {
+			return nil, err
 		}
-		if s := f.section(parent); s != nil {
-			before[s.lastKey+1] = append(before[s.lastKey+1], line)
-			continue
-		}
-		if dottedTable(f.doc, parent) {
-			return nil, fmt.Errorf("cannot add to %s: it is defined with dotted keys", PathString(parent))
-		}
-		pk := pathKey(parent)
-		if _, ok := newTables[pk]; !ok {
-			newTableOrder = append(newTableOrder, parent)
-		}
-		newTables[pk] = append(newTables[pk], line)
 	}
-	for _, s := range f.sections {
+	e.dropRemovedSections(doc)
+	return e.render(), nil
+}
+
+// tomlEdit collects line edits against a parsed file. out[i] replaces line
+// i and before[i] goes ahead of it; before[len(lines)] is the end of file.
+type tomlEdit struct {
+	f          *tomlFile
+	out        [][]string
+	before     map[int][]string
+	newTables  map[string][]string
+	tableOrder [][]string
+}
+
+func newTOMLEdit(f *tomlFile) *tomlEdit {
+	e := &tomlEdit{f: f, out: make([][]string, len(f.lines)), before: map[int][]string{}, newTables: map[string][]string{}}
+	for i, l := range f.lines {
+		e.out[i] = []string{l}
+	}
+	return e
+}
+
+func (e *tomlEdit) remove(sp tomlSpan) {
+	for i := sp.line; i <= sp.endLine; i++ {
+		e.out[i] = nil
+	}
+}
+
+func (e *tomlEdit) replace(sp tomlSpan, enc string) {
+	lines := e.f.lines
+	e.remove(sp)
+	e.out[sp.line] = []string{lines[sp.line][:sp.col] + enc + lines[sp.endLine][sp.endCol:]}
+}
+
+func (e *tomlEdit) add(path []string, enc string) error {
+	parent := path[:len(path)-1]
+	line := encodeTOMLKey(path[len(path)-1:]) + " = " + enc
+	if len(parent) == 0 {
+		e.before[e.f.topEnd+1] = append(e.before[e.f.topEnd+1], line)
+		return nil
+	}
+	if s := e.f.section(parent); s != nil {
+		e.before[s.lastKey+1] = append(e.before[s.lastKey+1], line)
+		return nil
+	}
+	if dottedTable(e.f.doc, parent) {
+		return fmt.Errorf("cannot add to %s: it is defined with dotted keys", PathString(parent))
+	}
+	pk := pathKey(parent)
+	if _, ok := e.newTables[pk]; !ok {
+		e.tableOrder = append(e.tableOrder, parent)
+	}
+	e.newTables[pk] = append(e.newTables[pk], line)
+	return nil
+}
+
+// dropRemovedSections deletes the header of a table doc no longer has, with
+// the blank line that separated it.
+func (e *tomlEdit) dropRemovedSections(doc map[string]any) {
+	for _, s := range e.f.sections {
 		if s.array {
 			continue
 		}
 		if _, present, _ := getPath(doc, s.path); present {
 			continue
 		}
-		out[s.header] = nil
-		if s.header > 0 && strings.TrimSpace(f.lines[s.header-1]) == "" {
-			out[s.header-1] = nil
+		e.out[s.header] = nil
+		if s.header > 0 && strings.TrimSpace(e.f.lines[s.header-1]) == "" {
+			e.out[s.header-1] = nil
 		}
 	}
+}
 
+func (e *tomlEdit) render() []byte {
 	var lines []string
-	for i := range f.lines {
-		lines = append(lines, before[i]...)
-		lines = append(lines, out[i]...)
+	for i := range e.f.lines {
+		lines = append(lines, e.before[i]...)
+		lines = append(lines, e.out[i]...)
 	}
-	lines = append(lines, before[len(f.lines)]...)
-	for _, path := range newTableOrder {
+	lines = append(lines, e.before[len(e.f.lines)]...)
+	for _, path := range e.tableOrder {
 		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
 			lines = append(lines, "")
 		}
 		lines = append(lines, "["+encodeTOMLKey(path)+"]")
-		lines = append(lines, newTables[pathKey(path)]...)
+		lines = append(lines, e.newTables[pathKey(path)]...)
 	}
 	if len(lines) == 0 {
-		return []byte{}, nil
+		return []byte{}
 	}
 	eol := "\n"
-	if f.crlf {
+	if e.f.crlf {
 		eol = "\r\n"
 	}
-	return []byte(strings.Join(lines, eol) + eol), nil
+	return []byte(strings.Join(lines, eol) + eol)
 }
 
 // dottedTable reports whether path is a table holding values but no [header],

@@ -58,19 +58,25 @@ func (r *Record) compact() error {
 	for _, e := range r.Harnesses {
 		for _, fr := range e.Files {
 			for i := range fr.Keys {
-				k := &fr.Keys[i]
-				for _, raw := range []*json.RawMessage{&k.Written, &k.Prior} {
-					if len(*raw) == 0 {
-						continue
-					}
-					var buf bytes.Buffer
-					if err := json.Compact(&buf, *raw); err != nil {
-						return err
-					}
-					*raw = buf.Bytes()
+				if err := compactKey(&fr.Keys[i]); err != nil {
+					return err
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func compactKey(k *OwnedKey) error {
+	for _, raw := range []*json.RawMessage{&k.Written, &k.Prior} {
+		if len(*raw) == 0 {
+			continue
+		}
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, *raw); err != nil {
+			return err
+		}
+		*raw = buf.Bytes()
 	}
 	return nil
 }
