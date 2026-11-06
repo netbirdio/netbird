@@ -219,6 +219,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 	for {
 		select {
 		case <-hc.HealthCheck:
+			p.log.Debugf("sending healthcheck to %s", p.conn.RemoteAddr())
 			_, err := p.Write(ctx, p.enc.Healthcheck())
 			if err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)
