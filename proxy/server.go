@@ -396,7 +396,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
-	tlsConfig, err := s.configureTLS(ctx)
+	tlsConfig, err := s.configureTLS(runCtx)
 	if err != nil {
 		return err
 	}
