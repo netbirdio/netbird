@@ -5865,7 +5865,7 @@ components:
           description: Who produced a failed (status >= 400) response. provider is the upstream LLM API, proxy is the NetBird reverse proxy failing to reach it, policy is a NetBird policy or guardrail denial, auth is a proxy authentication rejection. Empty for successful requests.
         error_detail:
           type: string
-          description: Admin-facing explanation of the failure, such as the proxy's transport error or which cap was exhausted and by how much.
+          description: Admin-facing explanation of the failure, such as the proxy's transport error or which cap was exhausted and by how much. Returned only to callers with the account-wide agent network logs permission; callers limited to their own requests never receive it.
         input_tokens:
           type: integer
           format: int64

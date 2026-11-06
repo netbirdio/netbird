@@ -1771,7 +1771,7 @@ type AgentNetworkAccessLog struct {
 	// DurationMs Duration of the request in milliseconds.
 	DurationMs int `json:"duration_ms"`
 
-	// ErrorDetail Admin-facing explanation of the failure, such as the proxy's transport error or which cap was exhausted and by how much.
+	// ErrorDetail Admin-facing explanation of the failure, such as the proxy's transport error or which cap was exhausted and by how much. Returned only to callers with the account-wide agent network logs permission; callers limited to their own requests never receive it.
 	ErrorDetail *string `json:"error_detail,omitempty"`
 
 	// ErrorSource Who produced a failed (status >= 400) response. provider is the upstream LLM API, proxy is the NetBird reverse proxy failing to reach it, policy is a NetBird policy or guardrail denial, auth is a proxy authentication rejection. Empty for successful requests.
