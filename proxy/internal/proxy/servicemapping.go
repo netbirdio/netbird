@@ -64,19 +64,6 @@ type PathTarget struct {
 }
 
 // Mapping describes how a domain is routed by the HTTP reverse proxy.
-// AgentNetworkFlags reports whether any of the mapping's targets is an
-// agent-network target and whether those targets suppress access logs. Auth
-// decisions made before a request is matched to a target use it, so their
-// rejections are logged the way the target's would be.
-func (m Mapping) AgentNetworkFlags() (agentNetwork, suppressAccessLog bool) {
-	for _, pt := range m.Paths {
-		if pt != nil && pt.AgentNetwork {
-			return true, pt.DisableAccessLog
-		}
-	}
-	return false, false
-}
-
 type Mapping struct {
 	ID               types.ServiceID
 	AccountID        types.AccountID
@@ -94,6 +81,19 @@ type Mapping struct {
 	// requirePinnedResolution prevents a mapping with target access actions
 	// from being forwarded outside the auth-owned resolver snapshot.
 	requirePinnedResolution bool
+}
+
+// AgentNetworkFlags reports whether any of the mapping's targets is an
+// agent-network target and whether those targets suppress access logs. Auth
+// decisions made before a request is matched to a target use it, so their
+// rejections are logged the way the target's would be.
+func (m Mapping) AgentNetworkFlags() (agentNetwork, suppressAccessLog bool) {
+	for _, pt := range m.Paths {
+		if pt != nil && pt.AgentNetwork {
+			return true, pt.DisableAccessLog
+		}
+	}
+	return false, false
 }
 
 type targetResult struct {
