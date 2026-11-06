@@ -44,6 +44,7 @@ func TestAccessLogErrorAttribution(t *testing.T) {
 	require.NoError(t, err, "mint setup key")
 
 	const (
+		okModel       = "ok-model"
 		budgetModel   = "budget-model"
 		rejectedModel = "rejected-model"
 		unverifModel  = "unverified-tls-model"
@@ -68,6 +69,7 @@ func TestAccessLogErrorAttribution(t *testing.T) {
 		t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), p.Id) })
 		return p
 	}
+	okProv := newProvider("e2e-attr-ok", okModel, "sk-dummy-e2e", true)
 	budgetProv := newProvider("e2e-attr-budget", budgetModel, "sk-dummy-e2e", true)
 	rejectedProv := newProvider("e2e-attr-rejected", rejectedModel, harness.FakeUpstreamRejectedKey, true)
 	// Verifying the self-signed certificate fails the handshake: a proxy error.
@@ -90,7 +92,7 @@ func TestAccessLogErrorAttribution(t *testing.T) {
 		Name:                   "e2e-attr-uncapped",
 		Enabled:                &enabled,
 		SourceGroups:           []string{grp.Id},
-		DestinationProviderIds: []string{rejectedProv.Id, unverifProv.Id},
+		DestinationProviderIds: []string{okProv.Id, rejectedProv.Id, unverifProv.Id},
 	})
 	require.NoError(t, err, "create uncapped policy")
 	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), openPol.Id) })
@@ -122,26 +124,29 @@ func TestAccessLogErrorAttribution(t *testing.T) {
 	}
 	row := func(sessionID string) api.AgentNetworkAccessLog {
 		r, ok := lookupAccessLogBySession(ctx, sessionID, accessLogIngestWindow)
-		require.True(t, ok, "access-log row for %s must be ingested\n=== proxy logs ===\n%s", sessionID, px.Logs(context.Background()))
+		require.True(t, ok, "access-log row for %s must be ingested\n=== proxy logs ===\n%s\n=== management logs ===\n%s",
+			sessionID, px.Logs(context.Background()), srv.Logs(context.Background()))
 		return r
 	}
 
-	// The first budget request succeeds, retried to absorb tunnel jitter, and
-	// spends the cap. A successful row carries no error attribution.
+	// A successful request carries no error attribution. It goes to an
+	// uncapped provider, so retrying it to absorb tunnel jitter spends nothing.
 	var okSession string
 	require.True(t, eventually(ctx, 90*time.Second, func() bool {
 		okSession = fmt.Sprintf("e2e-attr-ok-%d", time.Now().UnixNano())
-		code, _, cerr := cl.Chat(ctx, settings.Endpoint, proxyIP, harness.WireChat, budgetModel, "Reply with exactly: pong", okSession)
+		code, _, cerr := cl.Chat(ctx, settings.Endpoint, proxyIP, harness.WireChat, okModel, "Reply with exactly: pong", okSession)
 		return cerr == nil && code == 200
-	}), "the first budget request must reach the upstream\n=== proxy logs ===\n%s", px.Logs(context.Background()))
+	}), "a request to the uncapped provider must reach the upstream\n=== proxy logs ===\n%s", px.Logs(context.Background()))
 	okRow := row(okSession)
 	assert.Nil(t, okRow.ErrorSource, "a successful request has no error source")
 	assert.Nil(t, okRow.BlockedBy, "a successful request has no blocking policy")
 
-	// Usage is recorded after the response, so the deny lands on a later
-	// request rather than necessarily the next one.
+	// Send to the capped provider until one is denied. The first request that
+	// reaches the upstream spends the cap; a request curl reports as failed may
+	// have been charged too, and usage is recorded after the response, so the
+	// test waits for the 403 rather than counting requests.
 	var deniedSession string
-	require.True(t, eventually(ctx, 60*time.Second, func() bool {
+	require.True(t, eventually(ctx, 120*time.Second, func() bool {
 		deniedSession = fmt.Sprintf("e2e-attr-denied-%d", time.Now().UnixNano())
 		code, _, cerr := cl.Chat(ctx, settings.Endpoint, proxyIP, harness.WireChat, budgetModel, "Reply with exactly: pong", deniedSession)
 		return cerr == nil && code == 403
