@@ -88,7 +88,20 @@ jobs:
         shell: bash
         run: |
           : "${WEBHOOK_URL:?DISCORD_WEBHOOK secret is not set}"
+
+          # Discord can report success without saving the message unless wait is true.
+          webhook_url=$(node -e '
+            try {
+              const url = new URL(process.env.WEBHOOK_URL);
+              url.searchParams.set("wait", "true");
+              process.stdout.write(url.href);
+            } catch {
+              console.error("DISCORD_WEBHOOK is not a valid URL");
+              process.exit(1);
+            }
+          ')
+
           curl --fail --silent --show-error --max-time 30 \
             --header "Content-Type: application/json" \
             --data-binary @discord-payload.json \
-            "$WEBHOOK_URL"
+            "$webhook_url"
