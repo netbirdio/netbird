@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -48,14 +49,40 @@ func LoadRecord(path string) (*Record, error) {
 	if rec.Harnesses == nil {
 		rec.Harnesses = map[string]*Entry{}
 	}
-	return rec, nil
+	return rec, rec.compact()
+}
+
+// compact undoes the indentation Save gives recorded values, so they compare
+// byte for byte with their canonical form.
+func (r *Record) compact() error {
+	for _, e := range r.Harnesses {
+		for _, fr := range e.Files {
+			for i := range fr.Keys {
+				k := &fr.Keys[i]
+				for _, raw := range []*json.RawMessage{&k.Written, &k.Prior} {
+					if len(*raw) == 0 {
+						continue
+					}
+					var buf bytes.Buffer
+					if err := json.Compact(&buf, *raw); err != nil {
+						return err
+					}
+					*raw = buf.Bytes()
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Save writes the record to path as 0600.
 func (r *Record) Save(path string) error {
-	data, err := json.MarshalIndent(r, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(r); err != nil {
 		return err
 	}
-	return writeAtomic(path, data, 0o600)
+	return writeAtomic(path, buf.Bytes(), 0o600)
 }
