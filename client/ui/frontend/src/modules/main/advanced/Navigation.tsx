@@ -1,11 +1,15 @@
 import { type ComponentType, type KeyboardEvent, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
+import { BotIcon, Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
 import { useDirection } from "@/hooks/useDirection";
+import {
+    isAgentNetworkAvailable,
+    useAgentNetworkInfo,
+} from "@/modules/agent-network/useAgentNetworkInfo";
 
 type TabEntry = {
     value: NavSection;
@@ -27,6 +31,15 @@ export const Navigation = () => {
         }
     }, [features.disableNetworks, section, setSection]);
 
+    // One fetch decides whether the tab exists; the tab itself polls while open.
+    const { info: agentNetworkInfo } = useAgentNetworkInfo({ enabled: isConnected });
+    const showAgentNetwork = isAgentNetworkAvailable(agentNetworkInfo);
+    useEffect(() => {
+        if (agentNetworkInfo && !showAgentNetwork && section === "agentNetwork") {
+            setSection("peers");
+        }
+    }, [agentNetworkInfo, showAgentNetwork, section, setSection]);
+
     const tabs: TabEntry[] = [
         {
             value: "peers",
@@ -39,6 +52,13 @@ export const Navigation = () => {
             value: "networks",
             label: t("nav.resources.title"),
             icon: Layers3Icon,
+        });
+    }
+    if (showAgentNetwork) {
+        tabs.push({
+            value: "agentNetwork",
+            label: t("nav.agentNetwork.title"),
+            icon: BotIcon,
         });
     }
 

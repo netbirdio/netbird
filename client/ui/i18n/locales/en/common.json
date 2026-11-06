@@ -371,6 +371,10 @@
         "message": "{active} of {total} active",
         "description": "Sub-label under Resources showing how many are active. {active} and {total} are numbers; keep both."
     },
+    "nav.agentNetwork.title": {
+        "message": "Agent Networks",
+        "description": "Navigation label for the Agent Networks section, which shows how much of their AI model allowance the user has left. Product name — do not translate."
+    },
     "nav.exitNode.title": {
         "message": "Exit Nodes",
         "description": "Navigation label for the Exit Nodes section."
@@ -1862,5 +1866,89 @@
     "settings.ssh.privilege.authorizePending": {
         "message": "Waiting for authorization…",
         "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+    },
+    "agentNetwork.error.title": {
+        "message": "Couldn't load Agent Networks usage",
+        "description": "Empty-state title in the Agent Networks tab when the usage could not be fetched. The error text is shown below it."
+    },
+    "agentNetwork.error.stale": {
+        "message": "Couldn't refresh: {error}",
+        "description": "Shown above the last known Agent Networks usage when a refresh failed. {error} is the error message; keep it."
+    },
+    "agentNetwork.noUser.title": {
+        "message": "Not available for this peer",
+        "description": "Agent Networks tab, empty-state title: this device was added with a setup key and has no user, so there is no personal allowance."
+    },
+    "agentNetwork.noUser.description": {
+        "message": "This peer was added with a setup key and has no user, so it has no Agent Networks allowance.",
+        "description": "Agent Networks tab, empty-state text under the 'not available' title."
+    },
+    "agentNetwork.blocked.title": {
+        "message": "Agent Networks is not available",
+        "description": "Agent Networks tab, empty-state title when the user's NetBird account is blocked or waiting for approval."
+    },
+    "agentNetwork.blocked.description": {
+        "message": "Your NetBird user is blocked or waiting for approval. Ask your administrator.",
+        "description": "Agent Networks tab, empty-state text when the user is blocked or pending approval."
+    },
+    "agentNetwork.noProviders.title": {
+        "message": "No access yet",
+        "description": "Agent Networks tab, empty-state title: no policy gives the user any AI provider."
+    },
+    "agentNetwork.noProviders.description": {
+        "message": "No Agent Networks policy gives you access. Ask your administrator.",
+        "description": "Agent Networks tab, empty-state text when no policy gives the user access."
+    },
+    "agentNetwork.loginExpired": {
+        "message": "Your NetBird login expired. Run `netbird up` to sign in again before using Agent Networks.",
+        "description": "Warning above the Agent Networks usage when the device's NetBird login expired. Keep `netbird up` verbatim with its backticks: it is a command."
+    },
+    "agentNetwork.signedInAs": {
+        "message": "Usage for {email}",
+        "description": "Line at the top of the Agent Networks usage. {email} is the user's email address; keep it."
+    },
+    "agentNetwork.badge.exhausted": {
+        "message": "Exhausted",
+        "description": "Badge on an AI provider card when a limit is used up and requests are refused."
+    },
+    "agentNetwork.badge.unlimited": {
+        "message": "Unlimited",
+        "description": "Badge on an AI provider card when no limit applies to the user."
+    },
+    "agentNetwork.exhaustedDescription": {
+        "message": "Requests to this provider are refused until a limit resets.",
+        "description": "Text under an exhausted AI provider's name."
+    },
+    "agentNetwork.noLimits": {
+        "message": "No limits apply.",
+        "description": "Shown on an AI provider card with no limits listed."
+    },
+    "agentNetwork.limit.policy": {
+        "message": "Policy \"{name}\"",
+        "description": "Name of a limit that comes from an Agent Networks policy. {name} is the policy name; keep it and the quotes."
+    },
+    "agentNetwork.limit.accountRule": {
+        "message": "Account rule \"{name}\"",
+        "description": "Name of a limit that comes from an account-wide budget rule. {name} is the rule name; keep it and the quotes."
+    },
+    "agentNetwork.limit.you": {
+        "message": "you",
+        "description": "Who a limit applies to: the user alone. Shown after the limit name, as in 'Policy \"Engineers\" · you'."
+    },
+    "agentNetwork.limit.group": {
+        "message": "group {name}",
+        "description": "Who a limit applies to: a shared group pool. {name} is the group name; keep it."
+    },
+    "agentNetwork.limit.usedOfCapTokens": {
+        "message": "{used} / {cap} tokens",
+        "description": "How many tokens of a limit are used. {used} and {cap} are formatted numbers; keep both."
+    },
+    "agentNetwork.limit.usedOfCapUsd": {
+        "message": "{used} / {cap}",
+        "description": "How much money of a limit is spent. {used} and {cap} are formatted US dollar amounts; keep both."
+    },
+    "agentNetwork.limit.resets": {
+        "message": "Resets {relative} ({at})",
+        "description": "When a limit's window starts over. {relative} is a localized phrase like 'in 42 minutes', {at} a localized date and time; keep both."
     }
 }

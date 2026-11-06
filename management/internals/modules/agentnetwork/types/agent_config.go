@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // AgentConfig is the caller-scoped answer to "what may this caller
 // use on the Agent Network?" — the account's proxy endpoint plus the
 // providers and models the caller's groups authorize. It intentionally
@@ -41,6 +43,61 @@ type AgentConfigProvider struct {
 	// Models is the effective model allowlist for the caller, or the
 	// declared/catalog models when AllModelsAllowed is true.
 	Models []string
+	// Allowance is the caller's remaining allowance on this provider. Set
+	// only on the peer answer, which knows the calling principal.
+	Allowance *ProviderAllowance
+}
+
+// AllowanceSource names what a limit comes from.
+type AllowanceSource string
+
+// AllowanceUnit is what a limit counts.
+type AllowanceUnit string
+
+// AllowanceScope is whose consumption a limit counts.
+type AllowanceScope string
+
+const (
+	AllowanceSourcePolicy      AllowanceSource = "policy"
+	AllowanceSourceAccountRule AllowanceSource = "account_rule"
+
+	AllowanceUnitTokens AllowanceUnit = "tokens"
+	AllowanceUnitUSD    AllowanceUnit = "usd"
+
+	AllowanceScopeUser  AllowanceScope = "user"
+	AllowanceScopeGroup AllowanceScope = "group"
+)
+
+// AllowanceLimit is one cap that binds the caller on a provider, with the
+// caller's consumption in the cap's current epoch-aligned window.
+type AllowanceLimit struct {
+	Source     AllowanceSource
+	SourceID   string
+	SourceName string
+	Unit       AllowanceUnit
+	Scope      AllowanceScope
+	// GroupID and GroupName are set for group-scoped limits.
+	GroupID       string
+	GroupName     string
+	Cap           float64
+	Used          float64
+	WindowSeconds int64
+	WindowStart   time.Time
+	ResetsAt      time.Time
+}
+
+// ProviderAllowance is what the caller may still spend on one provider.
+// Tokens and USD are never folded together: each binding cap is its own
+// limit.
+type ProviderAllowance struct {
+	// Unlimited means a policy without caps pays for the caller and no
+	// account rule binds them.
+	Unlimited bool
+	// Exhausted mirrors the proxy: true exactly when the policy selector
+	// would deny the caller's next request on this provider.
+	Exhausted       bool
+	ExhaustedReason string
+	Limits          []AllowanceLimit
 }
 
 // PeerAgentNetworkState is the availability of Agent Networks for a peer.

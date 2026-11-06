@@ -494,6 +494,71 @@ func scoreOne(
 	return c, false, "", ""
 }
 
+// capUsage is one user or group cap of an enabled token or budget limit,
+// with the caller's consumption in the limit's current window. Token
+// counts are carried as float64 so token and USD caps share one shape.
+type capUsage struct {
+	unit          types.AllowanceUnit
+	scope         types.AllowanceScope
+	groupID       string
+	cap           float64
+	used          float64
+	windowSeconds int64
+	windowStart   time.Time
+}
+
+func (u capUsage) exhausted() bool { return u.used >= u.cap }
+
+// tokenCapUsages returns the token caps that bind the caller: the user cap
+// when a user is known, the group cap when attrGroup is set. attrGroup may be
+// empty (no group dimension applies).
+func tokenCapUsages(cache consumptionCache, accountID, userID, attrGroup string, tl types.PolicyTokenLimit, now time.Time) []capUsage {
+	if !tl.Enabled || tl.WindowSeconds <= 0 {
+		return nil
+	}
+	windowStart := types.WindowStart(now, tl.WindowSeconds)
+	var out []capUsage
+	add := func(scope types.AllowanceScope, kind types.ConsumptionDimension, dimID, groupID string, limit int64) {
+		row := cache.get(accountID, kind, dimID, tl.WindowSeconds, windowStart)
+		out = append(out, capUsage{
+			unit: types.AllowanceUnitTokens, scope: scope, groupID: groupID,
+			cap: float64(limit), used: float64(row.TokensInput + row.TokensOutput),
+			windowSeconds: tl.WindowSeconds, windowStart: windowStart,
+		})
+	}
+	if tl.UserCap > 0 && userID != "" {
+		add(types.AllowanceScopeUser, types.DimensionUser, userID, "", tl.UserCap)
+	}
+	if tl.GroupCap > 0 && attrGroup != "" {
+		add(types.AllowanceScopeGroup, types.DimensionGroup, attrGroup, attrGroup, tl.GroupCap)
+	}
+	return out
+}
+
+// budgetCapUsages is the budget (USD) counterpart of tokenCapUsages.
+func budgetCapUsages(cache consumptionCache, accountID, userID, attrGroup string, bl types.PolicyBudgetLimit, now time.Time) []capUsage {
+	if !bl.Enabled || bl.WindowSeconds <= 0 {
+		return nil
+	}
+	windowStart := types.WindowStart(now, bl.WindowSeconds)
+	var out []capUsage
+	add := func(scope types.AllowanceScope, kind types.ConsumptionDimension, dimID, groupID string, limit float64) {
+		row := cache.get(accountID, kind, dimID, bl.WindowSeconds, windowStart)
+		out = append(out, capUsage{
+			unit: types.AllowanceUnitUSD, scope: scope, groupID: groupID,
+			cap: limit, used: row.CostUSD,
+			windowSeconds: bl.WindowSeconds, windowStart: windowStart,
+		})
+	}
+	if bl.UserCapUsd > 0 && userID != "" {
+		add(types.AllowanceScopeUser, types.DimensionUser, userID, "", bl.UserCapUsd)
+	}
+	if bl.GroupCapUsd > 0 && attrGroup != "" {
+		add(types.AllowanceScopeGroup, types.DimensionGroup, attrGroup, attrGroup, bl.GroupCapUsd)
+	}
+	return out
+}
+
 // evalTokenCap reports whether the token limit is already exhausted for the
 // caller in its own window. attrGroup may be empty (no group dimension applies).
 // label identifies the cap source ("policy <id>" or "account rule <id>") for the
@@ -506,24 +571,11 @@ func evalTokenCap(
 	now time.Time,
 	label string,
 ) (bool, string) {
-	windowStart := types.WindowStart(now, tl.WindowSeconds)
-
-	if tl.UserCap > 0 && userID != "" {
-		row := cache.get(accountID, types.DimensionUser, userID, tl.WindowSeconds, windowStart)
-		used := row.TokensInput + row.TokensOutput
-		if used >= tl.UserCap {
-			return true, fmt.Sprintf("user token cap exhausted on %s (used %d of %d)", label, used, tl.UserCap)
+	for _, u := range tokenCapUsages(cache, accountID, userID, attrGroup, tl, now) {
+		if u.exhausted() {
+			return true, fmt.Sprintf("%s token cap exhausted on %s (used %d of %d)", u.scope, label, int64(u.used), int64(u.cap))
 		}
 	}
-
-	if tl.GroupCap > 0 && attrGroup != "" {
-		row := cache.get(accountID, types.DimensionGroup, attrGroup, tl.WindowSeconds, windowStart)
-		used := row.TokensInput + row.TokensOutput
-		if used >= tl.GroupCap {
-			return true, fmt.Sprintf("group token cap exhausted on %s (used %d of %d)", label, used, tl.GroupCap)
-		}
-	}
-
 	return false, ""
 }
 
@@ -535,22 +587,11 @@ func evalBudgetCap(
 	now time.Time,
 	label string,
 ) (bool, string) {
-	windowStart := types.WindowStart(now, bl.WindowSeconds)
-
-	if bl.UserCapUsd > 0 && userID != "" {
-		row := cache.get(accountID, types.DimensionUser, userID, bl.WindowSeconds, windowStart)
-		if row.CostUSD >= bl.UserCapUsd {
-			return true, fmt.Sprintf("user budget cap exhausted on %s (used $%.4f of $%.4f)", label, row.CostUSD, bl.UserCapUsd)
+	for _, u := range budgetCapUsages(cache, accountID, userID, attrGroup, bl, now) {
+		if u.exhausted() {
+			return true, fmt.Sprintf("%s budget cap exhausted on %s (used $%.4f of $%.4f)", u.scope, label, u.used, u.cap)
 		}
 	}
-
-	if bl.GroupCapUsd > 0 && attrGroup != "" {
-		row := cache.get(accountID, types.DimensionGroup, attrGroup, bl.WindowSeconds, windowStart)
-		if row.CostUSD >= bl.GroupCapUsd {
-			return true, fmt.Sprintf("group budget cap exhausted on %s (used $%.4f of $%.4f)", label, row.CostUSD, bl.GroupCapUsd)
-		}
-	}
-
 	return false, ""
 }
 
