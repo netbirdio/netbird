@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	nbstatus "github.com/netbirdio/netbird/shared/management/status"
 )
@@ -88,6 +89,8 @@ func TestGetAgentNetworkInfo_EncryptedRoundTrip(t *testing.T) {
 
 	clientKey, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
+	// Postgres enforces the peers -> accounts foreign key.
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: "acct-1"}))
 	require.NoError(t, s.AddPeerToAccount(ctx, &nbpeer.Peer{
 		ID:        "peer-1",
 		AccountID: "acct-1",
