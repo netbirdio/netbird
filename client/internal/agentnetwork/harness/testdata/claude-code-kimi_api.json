@@ -1,0 +1,12 @@
+{
+  "apiKeyHelper": "echo '-'",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://an.example.netbird.test/anthropic",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k3",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "kimi-k3",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-k3",
+    "ANTHROPIC_MODEL": "kimi-k3",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "kimi-k3",
+    "ENABLE_TOOL_SEARCH": "false"
+  }
+}
