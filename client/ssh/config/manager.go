@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -26,6 +27,8 @@ const (
 
 	fileWriteTimeout = 2 * time.Second
 )
+
+var spacePathWarnOnce sync.Once
 
 func isSSHConfigDisabled() bool {
 	value := os.Getenv(EnvDisableSSHConfig)
@@ -190,13 +193,24 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 		return "", fmt.Errorf("get NetBird executable path: %w", err)
 	}
 
-	hostList := strings.Join(deduplicatedPatterns, ",")
-	config := fmt.Sprintf("Match host \"%s\" exec \"%s ssh detect %%h %%p\"\n", hostList, execPath)
+	return renderPeerConfig(strings.Join(deduplicatedPatterns, ","), execPath), nil
+}
+
+func renderPeerConfig(hostList, execPath string) string {
+	proxyExec := execPath
+	var config string
+	if strings.Contains(execPath, " ") {
+		proxyExec = `"` + execPath + `"`
+		config = "# WARNING: the NetBird executable path contains a space, so OpenSSH skips this block\n" +
+			"# and native ssh bypasses the NetBird proxy for these peers.\n"
+	}
+
+	config += fmt.Sprintf("Match host \"%s\" exec \"%s ssh detect %%h %%p\"\n", hostList, execPath)
 	config += "    PreferredAuthentications password,publickey,keyboard-interactive\n"
 	config += "    PasswordAuthentication yes\n"
 	config += "    PubkeyAuthentication yes\n"
 	config += "    BatchMode no\n"
-	config += fmt.Sprintf("    ProxyCommand %s ssh proxy %%h %%p\n", execPath)
+	config += fmt.Sprintf("    ProxyCommand %s ssh proxy %%h %%p\n", proxyExec)
 	config += "    StrictHostKeyChecking no\n"
 
 	if runtime.GOOS == "windows" {
@@ -208,7 +222,7 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 	config += "    CheckHostIP no\n"
 	config += "    LogLevel ERROR\n\n"
 
-	return config, nil
+	return config
 }
 
 func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
@@ -293,13 +307,29 @@ func (m *Manager) getNetBirdExecutablePath() (string, error) {
 		return "", fmt.Errorf("retrieve executable path: %w", err)
 	}
 
-	realPath, err := filepath.EvalSymlinks(execPath)
-	if err != nil {
+	if realPath, err := filepath.EvalSymlinks(execPath); err != nil {
 		log.Debugf("symlink resolution failed: %v", err)
+	} else {
+		execPath = realPath
+	}
+
+	if !strings.Contains(execPath, " ") {
 		return execPath, nil
 	}
 
-	return realPath, nil
+	if shortPath, err := shortExecPath(execPath); err != nil {
+		log.Debugf("short path resolution for %s failed: %v", execPath, err)
+	} else {
+		execPath = shortPath
+	}
+
+	if strings.Contains(execPath, " ") {
+		spacePathWarnOnce.Do(func() {
+			log.Errorf("NetBird executable path %s contains a space and has no usable 8.3 short name; native OpenSSH will bypass the NetBird proxy for peers", execPath)
+		})
+	}
+
+	return execPath, nil
 }
 
 // GetSSHConfigDir returns the SSH config directory path
