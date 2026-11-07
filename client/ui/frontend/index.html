@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NetBird</title>
     <style>
-      html, body { background: #181A1D; }
-      html:not(.dark), html:not(.dark) body { background: #F3F3F3; }
+      html, body { background: #F3F3F3; }
+      @media (prefers-color-scheme: dark) { html, body { background: #181A1D; } }
+      html.dark, html.dark body { background: #181A1D; }
+      html.light, html.light body { background: #F3F3F3; }
     </style>
     <script>
-      // Pre-paint theme guard: apply the last-known theme before first render
-      // to avoid a flash of the wrong theme. ThemeContext keeps the mirror
-      // fresh from the persisted preference and the Go-reported OS appearance.
+      // Pre-paint theme guard: apply the persisted preference before first
+      // render to avoid a flash of the wrong theme.
       (function () {
         try {
           var pref = localStorage.getItem("nb-theme-pref") || "system";
@@ -20,8 +21,9 @@
           else if (pref === "light") dark = false;
           else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.classList.toggle("light", !dark);
         } catch (e) {
-          /* keep the default dark class */
+          /* leave class unset - media query follows the system */
         }
       })();
     </script>

@@ -369,9 +369,8 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		Hidden:              true,
 		BackgroundColour:    services.WindowBackgroundColour(appearance),
 		URL:                 startURL,
-		DisableResize:       true,
-		MinimiseButtonState: application.ButtonHidden,
-		MaximiseButtonState: application.ButtonHidden,
+		MinWidth:            320,
+		MinHeight:           400,
 		Mac:                 services.AppleMacOSAppearanceOptions(appearance),
 		Windows:             services.MicrosoftWindowsAppearanceOptions(appearance),
 		Linux: application.LinuxWindow{

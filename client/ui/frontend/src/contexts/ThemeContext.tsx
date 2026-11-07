@@ -15,20 +15,11 @@ import { type Theme as ThemePref, type UIPreferences } from "@bindings/preferenc
 export type ThemePreference = "system" | "light" | "dark";
 
 const PREF_KEY = "nb-theme-pref";
-const SYSTEM_KEY = "nb-system-dark";
-
 const isPreference = (v: unknown): v is ThemePreference =>
     v === "system" || v === "light" || v === "dark";
 
-const initialSystemDark = (): boolean => {
-    try {
-        const mirrored = localStorage.getItem(SYSTEM_KEY);
-        if (mirrored !== null) return mirrored === "true";
-    } catch {
-        /* fall through */
-    }
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-};
+const initialSystemDark = (): boolean =>
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
 
 type ThemeContextValue = {
     theme: ThemePreference;
@@ -90,16 +81,15 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
 
     const resolvedDark = theme === "dark" || (theme === "system" && systemDark);
 
-    // Apply the class and refresh the pre-paint mirror (index.html reads it).
     useEffect(() => {
         document.documentElement.classList.toggle("dark", resolvedDark);
+        document.documentElement.classList.toggle("light", !resolvedDark);
         try {
             localStorage.setItem(PREF_KEY, theme);
-            localStorage.setItem(SYSTEM_KEY, String(systemDark));
         } catch {
-            /* mirror is best-effort */
+            /* preference mirror is best-effort */
         }
-    }, [theme, systemDark, resolvedDark]);
+    }, [theme, resolvedDark]);
 
     // Optimistic; reverts on persist failure so UI matches the stored pref.
     const setTheme = useCallback(async (next: ThemePreference) => {

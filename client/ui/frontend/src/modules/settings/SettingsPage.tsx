@@ -4,6 +4,7 @@ import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
 import { isMacOS } from "@/lib/platform";
+import { useLinuxHiDpiWindow } from "@/hooks/useLinuxHiDpiWindow";
 import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigation } from "@/modules/settings/SettingsNavigation.tsx";
@@ -20,6 +21,8 @@ import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 import { useDirection } from "@/hooks/useDirection";
 
 const EVENT_SETTINGS_OPEN = "netbird:settings:open";
+
+const SETTINGS_WINDOW_WIDTHS = [900] as const;
 
 const enum Tab {
     General = "general",
@@ -81,6 +84,15 @@ export const SettingsPage = () => {
     useEffect(() => {
         if (!visibleTabs.includes(active as Tab)) setActive(defaultTab);
     }, [visibleTabs, active, defaultTab]);
+
+    // The 900 default width and the 600x400 minimum mirror newSettingsWindow
+    // in windowmanager.go; keep them in sync.
+    useLinuxHiDpiWindow({
+        tag: "SettingsPage",
+        defaultWidths: SETTINGS_WINDOW_WIDTHS,
+        minWidth: 600,
+        minHeight: 400,
+    });
 
     return (
         <>
