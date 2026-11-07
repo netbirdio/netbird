@@ -20,7 +20,11 @@ import (
 
 // HostedGrantType grant type for device flow on Hosted
 const (
-	HostedGrantType = "urn:ietf:params:oauth:grant-type:device_code"
+	HostedGrantType                     = "urn:ietf:params:oauth:grant-type:device_code"
+	defaultDeviceFlowPollingInterval    = 5 * time.Second
+	deviceFlowSlowDownIncrement         = 5 * time.Second
+	maxDeviceFlowPollingInterval        = time.Duration(1<<63 - 1)
+	maxDeviceFlowPollingIntervalSeconds = int64(maxDeviceFlowPollingInterval / time.Second)
 )
 
 var _ OAuthFlow = &DeviceAuthorizationFlow{}
@@ -246,6 +250,34 @@ func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestR
 	return tokenResponse, nil
 }
 
+func initialDeviceFlowPollingInterval(seconds int) time.Duration {
+	return deviceFlowPollingIntervalFromSeconds(int64(seconds))
+}
+
+// deviceFlowPollingIntervalFromSeconds uses int64 so exact overflow boundaries
+// remain testable without breaking 32-bit builds.
+func deviceFlowPollingIntervalFromSeconds(seconds int64) time.Duration {
+	if seconds <= 0 {
+		return defaultDeviceFlowPollingInterval
+	}
+	if seconds > maxDeviceFlowPollingIntervalSeconds {
+		return maxDeviceFlowPollingInterval
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
+func slowDownDeviceFlowPollingInterval(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		return defaultDeviceFlowPollingInterval
+	}
+	if interval > maxDeviceFlowPollingInterval-deviceFlowSlowDownIncrement {
+		return maxDeviceFlowPollingInterval
+	}
+
+	return interval + deviceFlowSlowDownIncrement
+}
+
 // WaitToken waits user's login and authorize the app. Once the user's authorize
 // it retrieves the access token from Hosted's endpoint and validates it before returning.
 // The method creates a timeout context internally based on info.ExpiresIn.
@@ -255,7 +287,7 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	interval := time.Duration(info.Interval) * time.Second
+	interval := initialDeviceFlowPollingInterval(info.Interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -281,7 +313,7 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 					log.Tracef("device flow: authorization still pending after poll %d", polls)
 					continue
 				} else if tokenResponse.Error == "slow_down" {
-					interval += (3 * time.Second)
+					interval = slowDownDeviceFlowPollingInterval(interval)
 					ticker.Reset(interval)
 					log.Infof("device flow: IdP requested slow_down, polling interval increased to %s", interval)
 					continue
