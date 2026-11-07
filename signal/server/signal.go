@@ -158,7 +158,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 // Sends go through Peer.Send, so they never race forwarded messages.
 func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer) {
 	key := testhb.PhaseKey(p.Id)
-	tick := testhb.Ticker(ctx, key)
+	tick := testhb.Ticker(ctx, key, testhb.ServiceSignal)
 	if tick == nil {
 		return
 	}

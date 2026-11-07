@@ -79,7 +79,7 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()
 	hbKey := testhb.PhaseKey(pu.peerKey.String())
-	hb := testhb.Ticker(hbCtx, hbKey)
+	hb := testhb.Ticker(hbCtx, hbKey, testhb.ServiceManagement)
 
 	for {
 		select {

@@ -110,7 +110,7 @@ func (hc *Sender) OnHCResponse() {
 func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	var tick <-chan time.Time
 	if hc.phaseKey != "" {
-		tick = testhb.Ticker(ctx, hc.phaseKey)
+		tick = testhb.Ticker(ctx, hc.phaseKey, testhb.ServiceRelay)
 	}
 	if tick == nil {
 		ticker := time.NewTicker(hc.healthCheckInterval)

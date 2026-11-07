@@ -19,6 +19,17 @@ const (
 	ModeOff Mode = iota
 	ModeConnect
 	ModeAligned
+	ModeSpread
+)
+
+// Service picks the spread-mode offset: service i fires i*P/3 seconds after
+// the aligned phase.
+type Service int
+
+const (
+	ServiceManagement Service = iota
+	ServiceSignal
+	ServiceRelay
 )
 
 const defaultPeriod = 30 * time.Second
@@ -29,6 +40,8 @@ func (m Mode) String() string {
 		return "connect"
 	case ModeAligned:
 		return "aligned"
+	case ModeSpread:
+		return "spread"
 	default:
 		return "off"
 	}
@@ -53,6 +66,8 @@ func parseMode(s string) Mode {
 		return ModeConnect
 	case "aligned":
 		return ModeAligned
+	case "spread":
+		return ModeSpread
 	default:
 		return ModeOff
 	}
@@ -89,9 +104,10 @@ func PhaseKey(wgPubKeyBase64 string) string {
 
 // FirstDelay is pure and testable. Connect: period. Aligned: time until the
 // next whole second where unix % periodSec == fnv32a(phaseKey) % periodSec
-// (strictly after now).
-func FirstDelay(mode Mode, period time.Duration, phaseKey string, now time.Time) time.Duration {
-	if mode != ModeAligned {
+// (strictly after now). Spread: the same with target
+// (fnv32a(phaseKey) + svc*periodSec/3) % periodSec. Only spread uses svc.
+func FirstDelay(mode Mode, period time.Duration, phaseKey string, svc Service, now time.Time) time.Duration {
+	if mode != ModeAligned && mode != ModeSpread {
 		return period
 	}
 	p := int64(period / time.Second)
@@ -101,6 +117,9 @@ func FirstDelay(mode Mode, period time.Duration, phaseKey string, now time.Time)
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(phaseKey))
 	offset := int64(h.Sum32()) % p
+	if mode == ModeSpread {
+		offset = (offset + int64(svc)*p/3) % p
+	}
 
 	s := now.Unix() + 1 // first whole second strictly after now
 	s += ((offset-s%p)%p + p) % p
@@ -109,16 +128,16 @@ func FirstDelay(mode Mode, period time.Duration, phaseKey string, now time.Time)
 
 // Ticker returns a channel that fires on schedule until ctx is done.
 // Off: returns nil (a nil channel never fires in select).
-// Aligned: recomputes each fire from wall clock, no drift.
-func Ticker(ctx context.Context, phaseKey string) <-chan time.Time {
+// Aligned and spread: recompute each fire from wall clock, no drift.
+func Ticker(ctx context.Context, phaseKey string, svc Service) <-chan time.Time {
 	mode := ModeFromEnv()
 	if mode == ModeOff {
 		return nil
 	}
-	return startTicker(ctx, mode, PeriodFromEnv(), phaseKey)
+	return startTicker(ctx, mode, PeriodFromEnv(), phaseKey, svc)
 }
 
-func startTicker(ctx context.Context, mode Mode, period time.Duration, phaseKey string) <-chan time.Time {
+func startTicker(ctx context.Context, mode Mode, period time.Duration, phaseKey string, svc Service) <-chan time.Time {
 	ch := make(chan time.Time, 1)
 	send := func(t time.Time) {
 		select {
@@ -141,7 +160,7 @@ func startTicker(ctx context.Context, mode Mode, period time.Duration, phaseKey 
 			}
 		}
 
-		t := time.NewTimer(FirstDelay(mode, period, phaseKey, time.Now()))
+		t := time.NewTimer(FirstDelay(mode, period, phaseKey, svc, time.Now()))
 		defer t.Stop()
 		for {
 			select {
@@ -149,7 +168,7 @@ func startTicker(ctx context.Context, mode Mode, period time.Duration, phaseKey 
 				return
 			case now := <-t.C:
 				send(now)
-				t.Reset(FirstDelay(mode, period, phaseKey, time.Now()))
+				t.Reset(FirstDelay(mode, period, phaseKey, svc, time.Now()))
 			}
 		}
 	}()
