@@ -1,6 +1,8 @@
 package types
 
 import (
+	"slices"
+
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
@@ -36,6 +38,9 @@ type RouteFirewallRule struct {
 
 	// isDynamic indicates whether the rule is for DNS routing
 	IsDynamic bool
+
+	// Countries list of countries whose prefixes the routed traffic goes to
+	Countries []string
 }
 
 func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
@@ -60,5 +65,5 @@ func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
 	if r.IsDynamic != other.IsDynamic {
 		return false
 	}
-	return true
+	return slices.Equal(r.Countries, other.Countries)
 }

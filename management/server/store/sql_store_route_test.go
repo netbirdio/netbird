@@ -148,6 +148,47 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 
 }
 
+func TestSqlStore_SaveCountryRoute(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	route := &nbroute.Route{
+		ID:                  "country-route-id",
+		AccountID:           accountID,
+		Network:             netip.MustParsePrefix("192.0.2.0/32"),
+		Countries:           []string{"US", "CA"},
+		NetID:               "us-exit",
+		PeerGroups:          []string{"routeA"},
+		NetworkType:         nbroute.CountryNetwork,
+		Masquerade:          true,
+		Metric:              9999,
+		Enabled:             true,
+		Groups:              []string{"groupA"},
+		AccessControlGroups: []string{},
+	}
+	require.NoError(t, store.SaveRoute(context.Background(), route))
+
+	savedRoute, err := store.GetRouteByID(context.Background(), LockingStrengthNone, accountID, string(route.ID))
+	require.NoError(t, err)
+	require.Equal(t, route, savedRoute)
+
+	// The account loader reads routes with its own query, so check it keeps the countries too.
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	var loaded *nbroute.Route
+	for _, r := range account.Routes {
+		if r.ID == route.ID {
+			loaded = r
+		}
+	}
+	require.NotNil(t, loaded, "the account should contain the country route")
+	require.Equal(t, []string{"US", "CA"}, loaded.Countries)
+	require.Equal(t, nbroute.CountryNetwork, loaded.NetworkType)
+}
+
 func TestSqlStore_DeleteRoute(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)

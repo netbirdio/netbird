@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
 
@@ -93,6 +94,9 @@ type Server struct {
 	// draining makes ending sync streams of regular peers skip their disconnect write;
 	// the liveness controller's Release retires all of this instance's connections.
 	draining atomic.Bool
+
+	geo                    geolocation.Geolocation
+	countryPrefixesLimiter countryPrefixesLimiter
 }
 
 // NewServer creates a new Management server
