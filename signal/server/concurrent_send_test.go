@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -22,6 +23,7 @@ type concurrencyCheckStream struct {
 	ctx      context.Context
 	inflight atomic.Int32
 	maxSeen  atomic.Int32
+	total    atomic.Int32
 }
 
 func (s *concurrencyCheckStream) Send(*proto.EncryptedMessage) error {
@@ -35,10 +37,18 @@ func (s *concurrencyCheckStream) Send(*proto.EncryptedMessage) error {
 	// Widen the window so overlapping callers are reliably observed.
 	time.Sleep(time.Millisecond)
 	s.inflight.Add(-1)
+	s.total.Add(1)
 	return nil
 }
 
 func (s *concurrencyCheckStream) Context() context.Context { return s.ctx }
+
+func (s *concurrencyCheckStream) SendHeader(metadata.MD) error { return nil }
+
+func (s *concurrencyCheckStream) Recv() (*proto.EncryptedMessage, error) {
+	<-s.ctx.Done()
+	return nil, s.ctx.Err()
+}
 
 // TestForwardMessageToPeerSerializesSend verifies that concurrent forwards to the
 // same peer never call Stream.Send concurrently, which would violate the gRPC
