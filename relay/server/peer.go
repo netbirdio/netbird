@@ -78,7 +78,7 @@ func (p *Peer) Work() {
 
 	ctx := p.ctx
 
-	hc := healthcheck.NewSender(p.log)
+	hc := healthcheck.NewSenderWithPhaseKey(p.log, p.ID().String())
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 
