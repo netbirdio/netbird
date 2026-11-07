@@ -58,6 +58,7 @@ func withMDMPolicy(t *testing.T, s *Server, policy *mdm.Policy) {
 // plus context + profile name + username + cfgPath for the seeded profile.
 func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profName, username, cfgPath string) {
 	t.Helper()
+	t.Setenv(envDisableSleepDetector, "true")
 	tempDir := t.TempDir()
 
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
