@@ -67,3 +67,56 @@ func TestEntryExists(t *testing.T) {
 		})
 	}
 }
+
+func TestRegisterRoutingTableName(t *testing.T) {
+	entry := fmt.Sprintf("%d\t%s\n", NetbirdVPNTableID, NetbirdVPNTableName)
+
+	t.Run("CreatesDropInAndDirectory", func(t *testing.T) {
+		dir := t.TempDir()
+		legacy := dir + "/rt_tables"
+		dropIn := dir + "/rt_tables.d/netbird.conf"
+
+		require.NoError(t, registerRoutingTableName(legacy, dropIn))
+
+		data, err := os.ReadFile(dropIn)
+		require.NoError(t, err)
+		assert.Equal(t, entry, string(data), "drop-in should hold only the netbird entry")
+		assert.NoFileExists(t, legacy, "the legacy rt_tables file must not be created")
+	})
+
+	t.Run("SkipsWhenLegacyHasEntry", func(t *testing.T) {
+		dir := t.TempDir()
+		legacy := dir + "/rt_tables"
+		dropIn := dir + "/rt_tables.d/netbird.conf"
+		require.NoError(t, os.WriteFile(legacy, []byte("255\tlocal\n"+entry), 0o644))
+
+		require.NoError(t, registerRoutingTableName(legacy, dropIn))
+
+		assert.NoFileExists(t, dropIn, "an entry written by an older release is enough")
+	})
+
+	t.Run("KeepsExistingDropIn", func(t *testing.T) {
+		dir := t.TempDir()
+		dropIn := dir + "/rt_tables.d/netbird.conf"
+		require.NoError(t, os.MkdirAll(dir+"/rt_tables.d", 0o755))
+		require.NoError(t, os.WriteFile(dropIn, []byte(entry), 0o644))
+
+		require.NoError(t, registerRoutingTableName(dir+"/rt_tables", dropIn))
+
+		data, err := os.ReadFile(dropIn)
+		require.NoError(t, err)
+		assert.Equal(t, entry, string(data))
+	})
+
+	t.Run("RejectsIDTakenByAnotherName", func(t *testing.T) {
+		dir := t.TempDir()
+		legacy := dir + "/rt_tables"
+		dropIn := dir + "/rt_tables.d/netbird.conf"
+		require.NoError(t, os.WriteFile(legacy, []byte(fmt.Sprintf("%d\tother\n", NetbirdVPNTableID)), 0o644))
+
+		err := registerRoutingTableName(legacy, dropIn)
+
+		assert.ErrorIs(t, err, ErrTableIDExists)
+		assert.NoFileExists(t, dropIn)
+	})
+}
