@@ -152,6 +152,28 @@ func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
 }
 
 func newRotatedOutput(logPath string) io.Writer {
+	// Ensure the parent directory exists. lumberjack.Logger creates the
+	// log file lazily on first write, but does NOT create the parent
+	// directory; if the directory is missing, the first write fails with
+	// "no such file or directory" and the daemon never produces logs.
+	// On installs that go through `netbird service install`, the directory
+	// is created at install time (see client/cmd/service_installer.go),
+	// but on installs where the directory is removed or never existed
+	// (e.g. fresh OpenWrt setups using the packaged init.d wrapper, or
+	// after a manual `rm -rf /var/log/netbird`), `service start` and
+	// direct daemon runs produce no log output. Fixes #4392.
+	if dir := filepath.Dir(logPath); dir != "" && dir != "." && dir != string(filepath.Separator) {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			// Don't fail startup just because we couldn't pre-create the
+			// log directory: let lumberjack attempt the open and surface a
+			// concrete error path. Common reasons MkdirAll fails here are
+			// permission denied (daemon running as a less-privileged user
+			// against a system-owned /var/log path) — in those setups the
+			// directory should already exist via packaging.
+			log.Warnf("could not create log directory %q (continuing, lumberjack will retry on first write): %v", dir, err)
+		}
+	}
+
 	maxLogSize := getLogMaxSize()
 	timberjackLogger := &timberjack.Logger{
 		// Log file absolute path, os agnostic
