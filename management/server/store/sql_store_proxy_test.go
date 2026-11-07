@@ -104,3 +104,80 @@ func TestSaveProxy_EnforcesAccountIDMatch(t *testing.T) {
 		}
 	})
 }
+
+func TestSaveProxy_NormalizesProxyCluster(t *testing.T) {
+	runTestForAllEnginesNoSqliteSeed(t, "", func(t *testing.T, engine string, store Store) {
+		ctx := context.Background()
+
+		p := rpproxy.Proxy{ID: "proxy-account-id-1", ClusterAddress: "PROXY.EXAMPLE"}
+
+		var pFromDb rpproxy.Proxy
+		{
+			err := store.SaveProxy(ctx, &p)
+			assert.NoError(t, err)
+			err = store.(*SqlStore).db.Where("id = ?", "proxy-account-id-1").First(&pFromDb).Error
+			assert.NoError(t, err)
+			assert.Equal(t, "proxy.example", pFromDb.ClusterAddress)
+		}
+		{
+			// update cluster address
+			p.ClusterAddress = "PROXY-1.EXAMPLE"
+			err := store.SaveProxy(ctx, &p)
+			assert.NoError(t, err)
+
+			err = store.(*SqlStore).db.Where("id = ?", "proxy-account-id-1").First(&pFromDb).Error
+			assert.NoError(t, err)
+			assert.Equal(t, "proxy-1.example", pFromDb.ClusterAddress)
+		}
+	})
+}
+
+func TestSaveProxy_IsClusterAddressConflicting(t *testing.T) {
+	runTestForAllEnginesNoSqliteSeed(t, "", func(t *testing.T, engine string, store Store) {
+		ctx := context.Background()
+
+		p := rpproxy.Proxy{ID: "proxy-id-1", ClusterAddress: "proxy.example", AccountID: new("proxy-account-id-1")}
+		err := store.SaveProxy(ctx, &p)
+		assert.NoError(t, err)
+
+		tests := []struct {
+			description string
+			address     string
+			accountId   string
+			conflicts   bool
+		}{
+			{
+				description: "no conflict",
+				address:     "noconflict.example",
+				accountId:   "proxy-account-id-1",
+				conflicts:   false,
+			},
+			{
+				description: "no conflict (same domain and account)",
+				address:     "proxy.example",
+				accountId:   "proxy-account-id-1",
+				conflicts:   false,
+			},
+			{
+				description: "conflict (same name, different account id)",
+				address:     "proxy.example",
+				accountId:   "proxy-account-id-2",
+				conflicts:   true,
+			},
+			{
+				description: "conflict (upper-case domain name)",
+				address:     "PROXY.example",
+				accountId:   "proxy-account-id-2",
+				conflicts:   true,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.description, func(t *testing.T) {
+				conflicts, err := store.IsClusterAddressConflicting(ctx, tt.address, tt.accountId)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.conflicts, conflicts)
+			})
+		}
+	})
+}
