@@ -30,6 +30,16 @@ const (
 	NFTABLES
 )
 
+func commitQueuedIpSet(t *testing.T, r *family) {
+	t.Helper()
+	require.NoError(t, r.conn.Flush(), "flush queued ipset")
+	names := make([]string, 0, len(r.pendingSetElements))
+	for name := range r.pendingSetElements {
+		names = append(names, name)
+	}
+	require.NoError(t, r.commitPendingSets(names), "commit overflow ipset elements")
+}
+
 func TestNftablesManager_AddNatRule(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this OS")
@@ -450,6 +460,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 				require.NoError(t, err, "Failed to create IP set")
 			}
 			require.NotNil(t, set, "Created set is nil")
+			commitQueuedIpSet(t, r)
 
 			// Verify set properties
 			assert.Equal(t, setName, set.Name, "Set name mismatch")
@@ -533,6 +544,7 @@ func TestNftablesUpdateSetMergesOverlapping(t *testing.T) {
 	created, err := r.createIpSet(set.HashedName(), setInput{prefixes: initial})
 	require.NoError(t, err, "create ip set")
 	require.NotNil(t, created)
+	commitQueuedIpSet(t, r)
 
 	overlapping := []netip.Prefix{
 		netip.MustParsePrefix("192.168.1.0/24"),
@@ -618,6 +630,7 @@ func TestNftablesCreateIpSet_IPv6(t *testing.T) {
 			set, err := r.createIpSet(setName, setInput{prefixes: tt.sources})
 			require.NoError(t, err, "Failed to create IPv6 set")
 			require.NotNil(t, set)
+			commitQueuedIpSet(t, r)
 
 			assert.Equal(t, setName, set.Name)
 			assert.True(t, set.Interval)
@@ -1091,6 +1104,50 @@ func TestRouter_AddNatRule_WithStaleEntry(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, found, "NAT rule should exist in kernel")
+}
+
+// TestNftablesManager_NatRuleWithSetDestinationRemovesSet verifies that
+// removing a masqueraded NAT rule with a named-set destination deletes the
+// set together with the rule. The set must be released only after the
+// referencing DELRULEs have committed; deleting it while they are still
+// queued is rejected by the kernel with EBUSY and strands the set.
+func TestNftablesManager_NatRuleWithSetDestinationRemovesSet(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	require.NoError(t, manager.Init(nil), "init manager")
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "reset manager state")
+	})
+
+	rtr := manager.family4
+	destSet := firewall.NewPrefixSet([]netip.Prefix{netip.MustParsePrefix("100.100.200.0/24")})
+	pair := firewall.RouterPair{
+		ID:          "natsetremoval",
+		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
+		Destination: firewall.Network{Set: destSet},
+		Masquerade:  true,
+	}
+
+	require.NoError(t, rtr.AddNatRule(pair), "add masqueraded NAT rule with set destination")
+
+	setNames := func() []string {
+		l, err := rtr.conn.GetSets(rtr.workTable)
+		require.NoError(t, err, "list sets")
+		names := make([]string, 0, len(l))
+		for _, s := range l {
+			names = append(names, s.Name)
+		}
+		return names
+	}
+
+	require.Contains(t, setNames(), destSet.HashedName(), "named destination set must exist after add")
+
+	require.NoError(t, rtr.RemoveNatRule(pair), "remove NAT rule must succeed")
+	assert.NotContains(t, setNames(), destSet.HashedName(), "destination set must be removed with the rule")
 }
 
 func TestCalculateLastIP(t *testing.T) {
