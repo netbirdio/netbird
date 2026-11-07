@@ -228,6 +228,8 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		"insecureSkipEmailVerified": true,
 	}
 	switch cfg.Type {
+	case "oidc":
+		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "zitadel":
 		oidcConfig["getUserInfo"] = true
 	case "entra":
