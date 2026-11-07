@@ -173,7 +173,7 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 		managementURL = params.ManagementURL
 	}
 
-	if !rootCmd.PersistentFlags().Changed("config") {
+	if !cmd.Flags().Changed(configFlag) {
 		configPath = params.ConfigPath
 	}
 

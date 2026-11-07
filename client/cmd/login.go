@@ -32,7 +32,6 @@ func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
 	loginCmd.PersistentFlags().BoolVar(&extendSessionFlag, "extend", false,
 		"refresh the SSO session expiry without tearing down the tunnel (requires an active connection)")
 }

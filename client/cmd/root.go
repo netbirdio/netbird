@@ -37,6 +37,7 @@ const (
 	enableLocalMetricsFlag   = "enable-local-metrics"
 	localMetricsAddressFlag  = "local-metrics-address"
 	preSharedKeyFlag         = "preshared-key"
+	configFlag               = "config"
 	managementURLFlag        = "management-url"
 	interfaceNameFlag        = "interface-name"
 	wireguardPortFlag        = "wireguard-port"
@@ -158,7 +159,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
 	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets NetBird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
 
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
@@ -359,6 +359,11 @@ func effectiveAnonymize() (bool, anonymize.Level, error) {
 		return false, anonymize.LevelDefault, fmt.Errorf("invalid anonymize level %q: use %q or %q", anonymizeLevelFlag, anonymize.LevelDefault.String(), anonymize.LevelStrict.String())
 	}
 	return true, level, nil
+}
+
+// addConfigFlag registers the daemon default profile path flag on cmd.
+func addConfigFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVarP(&configPath, configFlag, "c", "", fmt.Sprintf("Overrides the default profile file location (default \"%s\")", profilemanager.DefaultConfigPath))
 }
 
 // addManagementURLFlag registers the management URL flag on cmd.
