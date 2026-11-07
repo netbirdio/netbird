@@ -40,6 +40,10 @@ const (
 	receiveProbeTimeout = 10 * time.Second
 	// receiveWatchdogInterval is how often the watchdog evaluates the stream.
 	receiveWatchdogInterval = 10 * time.Second
+
+	// TestHeartbeatKey marks a bodiless keepalive frame the test Signal server
+	// sends on its own schedule. It only proves liveness and is never decrypted.
+	TestHeartbeatKey = "netbird-test-heartbeat"
 )
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
@@ -592,6 +596,11 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 		c.markReceived()
 
 		if msg == nil {
+			continue
+		}
+
+		if msg.GetKey() == TestHeartbeatKey {
+			log.Tracef("received signal test heartbeat")
 			continue
 		}
 
