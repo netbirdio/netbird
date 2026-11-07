@@ -286,7 +286,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
 			grpc.KeepaliveEnforcementPolicy(kaep),
-			grpc.KeepaliveParams(kasp),
+			grpc.KeepaliveParams(testKA().serverParams()),
 			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 			// Stop waits for the sync handlers, but only up to grpcStopTimeout; a
