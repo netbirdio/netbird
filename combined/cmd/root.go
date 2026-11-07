@@ -70,6 +70,7 @@ func init() {
 
 	rootCmd.AddCommand(newAdminCommands())
 	rootCmd.AddCommand(newLegacyTokenCommand())
+	rootCmd.AddCommand(newMigrateCommand())
 }
 
 func RootCmd() *cobra.Command {

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -17,7 +18,7 @@ func TestSave_CancellationWhileWaitingForConnection(t *testing.T) {
 	t.Setenv(storeEngineEnv, "sqlite")
 	key, err := crypt.GenerateKey()
 	require.NoError(t, err)
-	store, err := NewSqlStore(context.Background(), t.TempDir(), key)
+	store, err := NewSqlStore(context.Background(), t.TempDir(), key, migrate.ModeAuto)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, store.Close(context.Background())) })
 	db, err := store.db.DB()
@@ -53,7 +54,7 @@ func TestSave_CancellationWhileWaitingForConnection(t *testing.T) {
 func TestNewSqlStore(t *testing.T) {
 	dataDir := t.TempDir()
 	key, _ := crypt.GenerateKey()
-	store, err := NewSqlStore(context.Background(), dataDir, key)
+	store, err := NewSqlStore(context.Background(), dataDir, key, migrate.ModeAuto)
 	if err != nil {
 		t.Fatal(err)
 		return

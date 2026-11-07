@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	gormstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"gorm.io/driver/postgres"
@@ -52,7 +53,7 @@ func createPGTestStore(baseData string) (*networkmap_pgsql.PgStore, func()) {
 		log.Fatalf("error creating postres db %v", err)
 	}
 
-	_, err = gormstore.NewPostgresqlStoreForTests(context.TODO(), dsn, nil, false)
+	_, err = gormstore.NewPostgresqlStoreForTests(context.TODO(), dsn, nil, migrate.ModeAuto)
 	if err != nil {
 		log.Fatalf("error running migrations %v", err)
 	}

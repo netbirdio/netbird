@@ -20,6 +20,7 @@ import (
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
@@ -231,7 +232,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 
 func newAccessLogsRepository(t testing_tools.TB) accesslogs.Repository {
 	t.Helper()
-	conn, err := accesslogsmanager.OpenConn(context.Background(), t.TempDir(), db.SqliteStoreEngine)
+	conn, err := accesslogsmanager.OpenConn(context.Background(), t.TempDir(), db.SqliteStoreEngine, migrate.ModeAuto)
 	if err != nil {
 		t.Fatalf("Failed to open access log store: %v", err)
 	}

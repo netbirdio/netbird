@@ -2,11 +2,13 @@ package manager
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/testutil"
 )
@@ -28,7 +31,7 @@ func unsetStoreEnv(t *testing.T) {
 
 func openTestConn(t *testing.T, dataDir string, mainEngine db.Engine) *db.Conn {
 	t.Helper()
-	conn, err := OpenConn(context.Background(), dataDir, mainEngine)
+	conn, err := OpenConn(context.Background(), dataDir, mainEngine, migrate.ModeAuto)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
@@ -83,7 +86,7 @@ func TestOpenConn_EngineFromEnvOverridesMainEngine(t *testing.T) {
 func TestOpenConn_PostgresWithoutDSNFails(t *testing.T) {
 	unsetStoreEnv(t)
 
-	_, err := OpenConn(context.Background(), t.TempDir(), db.PostgresStoreEngine)
+	_, err := OpenConn(context.Background(), t.TempDir(), db.PostgresStoreEngine, migrate.ModeAuto)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), PostgresDSNEnv)
@@ -93,7 +96,7 @@ func TestOpenConn_UnsupportedEngineFails(t *testing.T) {
 	unsetStoreEnv(t)
 	t.Setenv(StoreEngineEnv, "mysql")
 
-	_, err := OpenConn(context.Background(), t.TempDir(), db.SqliteStoreEngine)
+	_, err := OpenConn(context.Background(), t.TempDir(), db.SqliteStoreEngine, migrate.ModeAuto)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mysql")
@@ -139,4 +142,52 @@ func TestConnOptions_SizesPoolFromEnv(t *testing.T) {
 			assert.Equal(t, want, sqlDB.Stats().MaxOpenConnections, "max open connections for %s=%q", MaxOpenConnsEnv, value)
 		})
 	}
+}
+
+// TestMigrationsMatchAutoMigrate fails when the access log model changes
+// without a migration: the schema the versioned migrations build on an empty
+// database must equal the one gorm derives from the model.
+func TestMigrationsMatchAutoMigrate(t *testing.T) {
+	open := func(t *testing.T, dir string) *db.Conn {
+		conn, err := db.OpenSqliteFile(context.Background(), dir, sqliteFileName)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+		return conn
+	}
+	if os.Getenv("NETBIRD_STORE_ENGINE") == string(db.PostgresStoreEngine) {
+		open = func(t *testing.T, _ string) *db.Conn {
+			cleanup, dsn, err := testutil.CreatePostgresTestContainer()
+			require.NoError(t, err)
+			t.Cleanup(cleanup)
+			admin, err := db.OpenPostgres(context.Background(), dsn, db.DefaultPoolConfig)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = admin.Close() })
+
+			name := "accesslogs_" + xid.New().String()
+			require.NoError(t, admin.DB(nil).Exec("CREATE DATABASE "+name).Error)
+			t.Cleanup(func() { _ = admin.DB(nil).Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)").Error })
+			u, err := url.Parse(dsn)
+			require.NoError(t, err)
+			u.Path = "/" + name
+
+			conn, err := db.OpenPostgres(context.Background(), u.String(), db.DefaultPoolConfig)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+			return conn
+		}
+	}
+
+	migrated := open(t, t.TempDir())
+	runner, err := migrate.New(migrated.DB(nil), migrated.Engine(), MigrationSet())
+	require.NoError(t, err)
+	require.NoError(t, runner.Run(context.Background(), migrate.ModeAuto))
+
+	legacy := open(t, t.TempDir())
+	require.NoError(t, legacy.DB(nil).AutoMigrate(&accesslogs.AccessLogEntry{}))
+
+	want, err := migrate.SchemaSnapshot(legacy.DB(nil))
+	require.NoError(t, err)
+	got, err := migrate.SchemaSnapshot(migrated.DB(nil), MigrationTable)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }

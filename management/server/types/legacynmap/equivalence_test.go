@@ -54,6 +54,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -86,7 +87,7 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 	ctx := context.Background()
 	// skipMigration=true: this reads a restored production copy and must not
 	// alter its schema. Flip to false only if reads fail on an older dump.
-	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, true)
+	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, migrate.ModeSkip)
 	require.NoError(t, err, "connect to postgres")
 	t.Cleanup(func() { testStore.Close(ctx) })
 

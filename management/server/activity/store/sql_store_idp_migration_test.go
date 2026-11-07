@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -17,7 +18,7 @@ func TestUpdateUserID(t *testing.T) {
 	newStore := func(t *testing.T) *Store {
 		t.Helper()
 		key, _ := crypt.GenerateKey()
-		s, err := NewSqlStore(ctx, t.TempDir(), key)
+		s, err := NewSqlStore(ctx, t.TempDir(), key, migrate.ModeAuto)
 		if err != nil {
 			t.Fatal(err)
 		}

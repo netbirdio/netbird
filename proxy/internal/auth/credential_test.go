@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	servicemanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	mgmttypes "github.com/netbirdio/netbird/management/server/types"
@@ -43,7 +44,7 @@ func (c localCredentialClient) Authenticate(ctx context.Context, req *proto.Auth
 func credentialHandler(t *testing.T, field string) (*Middleware, http.Handler) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.NewStore(ctx, mgmttypes.SqliteStoreEngine, t.TempDir(), nil, false)
+	s, err := store.NewStore(ctx, mgmttypes.SqliteStoreEngine, t.TempDir(), nil, migrate.ModeAuto)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close(ctx)) })
 	require.NoError(t, s.SaveAccount(ctx, &mgmttypes.Account{Id: "account"}))

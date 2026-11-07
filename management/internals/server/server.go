@@ -168,6 +168,10 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 		s.ResolveDomains(srvCtx)
 	}
 
+	// Building the stores first runs the schema migrations before anything else touches the database.
+	s.Store()
+	s.EventStore()
+
 	s.PeersManager()
 	s.GeoLocationManager()
 

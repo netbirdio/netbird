@@ -14,6 +14,7 @@ import (
 	admincmd "github.com/netbirdio/netbird/management/cmd/admin"
 	tokencmd "github.com/netbirdio/netbird/management/cmd/token"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -155,7 +156,7 @@ func isDefaultIDPStorageFile(file, datadir string) bool {
 }
 
 func openAdminStore(ctx context.Context, config *nbconfig.Config, datadir string) (store.Store, error) {
-	managementStore, err := store.NewStore(ctx, config.StoreConfig.Engine, datadir, nil, true)
+	managementStore, err := store.NewStore(ctx, config.StoreConfig.Engine, datadir, nil, migrate.ModeSkip)
 	if err != nil {
 		return nil, fmt.Errorf("create store: %w", err)
 	}
@@ -166,7 +167,7 @@ func openAdminEventStore(ctx context.Context, config *nbconfig.Config, datadir s
 	if config.DataStoreEncryptionKey == "" {
 		return nil, fmt.Errorf("data store encryption key is not configured")
 	}
-	eventStore, err := activitystore.NewSqlStore(ctx, datadir, config.DataStoreEncryptionKey)
+	eventStore, err := activitystore.NewSqlStore(ctx, datadir, config.DataStoreEncryptionKey, migrate.ModeSkip)
 	if err != nil {
 		return nil, fmt.Errorf("open activity event store: %w", err)
 	}

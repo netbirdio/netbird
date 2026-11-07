@@ -9,8 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
@@ -27,24 +27,30 @@ const (
 	sqliteFileName = "access_logs.db"
 )
 
-// OpenConn opens and migrates the access log database. Unless configured
-// otherwise, it follows mainEngine: SQLite uses its own file in dataDir and
-// Postgres reuses the main DSN.
-func OpenConn(ctx context.Context, dataDir string, mainEngine db.Engine) (*db.Conn, error) {
-	engine := mainEngine
-	if v := os.Getenv(StoreEngineEnv); v != "" {
-		engine = db.Engine(strings.ToLower(v))
-	}
-
-	conn, err := openConn(ctx, dataDir, engine)
+// OpenConn opens the access log database and brings its schema to the state
+// mode asks for. Unless configured otherwise, it follows mainEngine: SQLite uses
+// its own file in dataDir and Postgres reuses the main DSN.
+func OpenConn(ctx context.Context, dataDir string, mainEngine db.Engine, mode migrate.Mode) (*db.Conn, error) {
+	conn, err := openConn(ctx, dataDir, engineFor(mainEngine))
 	if err != nil {
 		return nil, err
 	}
-	if err := conn.AutoMigrate(&accesslogs.AccessLogEntry{}); err != nil {
+	runner, err := migrate.New(conn.DB(nil), conn.Engine(), MigrationSet())
+	if err == nil {
+		err = runner.Run(ctx, mode)
+	}
+	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("migrate access log store: %w", err)
 	}
 	return conn, nil
+}
+
+func engineFor(mainEngine db.Engine) db.Engine {
+	if v := os.Getenv(StoreEngineEnv); v != "" {
+		return db.Engine(strings.ToLower(v))
+	}
+	return mainEngine
 }
 
 func openConn(ctx context.Context, dataDir string, engine db.Engine) (*db.Conn, error) {

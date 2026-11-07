@@ -17,8 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -102,7 +101,7 @@ func StartHTTPUpstream(ctx context.Context, c *Combined) (*HTTPUpstream, error) 
 		cleanupHTTPUpstreamStart(ctr, workDir)
 		return nil, fmt.Errorf("HTTP upstream container host: %w", err)
 	}
-	mapped, err := ctr.MappedPort(ctx, nat.Port(httpUpstreamPort))
+	mapped, err := ctr.MappedPort(ctx, httpUpstreamPort)
 	if err != nil {
 		cleanupHTTPUpstreamStart(ctr, workDir)
 		return nil, fmt.Errorf("HTTP upstream mapped port: %w", err)

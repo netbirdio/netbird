@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -1575,7 +1576,7 @@ func TestPostgresTestStoreCopiesLivenessTables(t *testing.T) {
 	conn, err := db.OpenSqliteFile(ctx, t.TempDir(), db.SqliteFileName)
 	require.NoError(t, err)
 	require.NoError(t, LoadSQL(conn.DB(nil), "../testdata/extended-store.sql"))
-	sqliteStore, err := NewSqlStore(ctx, conn, nil, false)
+	sqliteStore, err := NewSqlStore(ctx, conn, nil, migrate.ModeAuto)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqliteStore.Close(ctx) })
 

@@ -17,8 +17,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -145,7 +144,7 @@ func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverride
 		_ = os.RemoveAll(workDir)
 		return nil, fmt.Errorf("proxy container host: %w", err)
 	}
-	mapped, err := ctr.MappedPort(ctx, nat.Port(proxyHTTPSPort))
+	mapped, err := ctr.MappedPort(ctx, proxyHTTPSPort)
 	if err != nil {
 		_ = ctr.Terminate(ctx)
 		_ = os.RemoveAll(workDir)

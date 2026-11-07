@@ -13,7 +13,7 @@ import (
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
-func migrate(ctx context.Context, crypt *crypt.FieldEncrypt, db *gorm.DB) error {
+func runLegacyMigrations(ctx context.Context, crypt *crypt.FieldEncrypt, db *gorm.DB) error {
 	migrations := getMigrations(ctx, crypt)
 
 	for _, m := range migrations {

@@ -14,11 +14,12 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/internals/shared/db/dbtest"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func newTestRepository(t *testing.T) (accesslogs.Repository, *db.Conn) {
-	conn := dbtest.NewConn(t, &accesslogs.AccessLogEntry{})
+	conn := dbtest.NewConn(t, MigrationSet())
 	return NewRepository(conn), conn
 }
 
@@ -185,7 +186,9 @@ func TestSqlRepository_DeleteOlderThan_DeletesInBatchesOnPostgres(t *testing.T) 
 	conn, err := db.OpenPostgres(context.Background(), dsn, db.DefaultPoolConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	require.NoError(t, conn.AutoMigrate(&accesslogs.AccessLogEntry{}))
+	runner, err := migrate.New(conn.DB(nil), conn.Engine(), MigrationSet())
+	require.NoError(t, err)
+	require.NoError(t, runner.Run(context.Background(), migrate.ModeAuto))
 	require.NoError(t, conn.DB(nil).Exec("DELETE FROM access_log_entries").Error)
 
 	assertBatchedDelete(t, NewRepository(conn), 5, 2)

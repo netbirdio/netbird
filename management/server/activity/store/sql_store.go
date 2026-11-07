@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util/crypt"
@@ -49,26 +50,26 @@ type Store struct {
 	fieldEncrypt *crypt.FieldEncrypt
 }
 
-// NewSqlStore creates a new Store with an event table if not exists.
-func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
+// NewSqlStore creates a new Store, bringing the events schema to the state
+// mode asks for first.
+func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string, mode migrate.Mode) (*Store, error) {
 	fieldEncrypt, err := crypt.NewFieldEncrypt(encryptionKey)
 	if err != nil {
 
 		return nil, err
 	}
 
-	db, err := initDatabase(ctx, dataDir)
+	db, engine, err := initDatabase(ctx, dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 
-	if err = migrate(ctx, fieldEncrypt, db); err != nil {
-		return nil, fmt.Errorf("events database migration: %w", err)
-	}
-
-	err = db.AutoMigrate(&activity.Event{}, &activity.DeletedUser{})
+	runner, err := migrate.New(db, engine, MigrationSet(fieldEncrypt))
 	if err != nil {
-		return nil, fmt.Errorf("events auto migrate: %w", err)
+		return nil, err
+	}
+	if err := runner.Run(ctx, mode); err != nil {
+		return nil, err
 	}
 
 	return &Store{
@@ -239,7 +240,7 @@ func (store *Store) Close(_ context.Context) error {
 	return nil
 }
 
-func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
+func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, types.Engine, error) {
 	var dialector gorm.Dialector
 	var storeEngine = types.SqliteStoreEngine
 
@@ -261,20 +262,24 @@ func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
 	case types.PostgresStoreEngine:
 		dsn, ok := os.LookupEnv(postgresDsnEnv)
 		if !ok {
-			return nil, fmt.Errorf("%s environment variable not set", postgresDsnEnv)
+			return nil, "", fmt.Errorf("%s environment variable not set", postgresDsnEnv)
 		}
 		dialector = postgres.Open(dsn)
 	default:
-		return nil, fmt.Errorf("unsupported store engine: %s", storeEngine)
+		return nil, "", fmt.Errorf("unsupported store engine: %s", storeEngine)
 	}
 	log.WithContext(ctx).Infof("using %s as activity event store engine", storeEngine)
 
 	db, err := gorm.Open(dialector, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
-		return nil, fmt.Errorf("open db connection: %w", err)
+		return nil, "", fmt.Errorf("open db connection: %w", err)
 	}
 
-	return configureConnectionPool(db, storeEngine)
+	db, err = configureConnectionPool(db, storeEngine)
+	if err != nil {
+		return nil, "", err
+	}
+	return db, storeEngine, nil
 }
 
 func configureConnectionPool(db *gorm.DB, storeEngine types.Engine) (*gorm.DB, error) {

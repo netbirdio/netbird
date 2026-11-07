@@ -12,8 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -195,7 +194,7 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 		_ = net.Remove(ctx)
 		return nil, fmt.Errorf("container host: %w", err)
 	}
-	mapped, err := c.MappedPort(ctx, nat.Port(combinedHTTPPort))
+	mapped, err := c.MappedPort(ctx, combinedHTTPPort)
 	if err != nil {
 		_ = c.Terminate(ctx)
 		_ = net.Remove(ctx)
@@ -321,7 +320,7 @@ func (c *Combined) Restart(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("container host: %w", err)
 	}
-	mapped, err := c.container.MappedPort(ctx, nat.Port(combinedHTTPPort))
+	mapped, err := c.container.MappedPort(ctx, combinedHTTPPort)
 	if err != nil {
 		return fmt.Errorf("mapped port: %w", err)
 	}

@@ -196,8 +196,9 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
-	DSN           string `yaml:"dsn"`  // Connection string for the postgres engine
-	File          string `yaml:"file"` // SQLite database file path (optional, defaults to dataDir)
+	DSN           string `yaml:"dsn"`           // Connection string for the postgres engine
+	File          string `yaml:"file"`          // SQLite database file path (optional, defaults to dataDir)
+	MigrationMode string `yaml:"migrationMode"` // Schema migration mode at startup: auto (default), check or skip
 }
 
 // ReverseProxyConfig contains reverse proxy settings
@@ -700,7 +701,8 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 
 	// Build store config
 	storeConfig := nbconfig.StoreConfig{
-		Engine: types.Engine(mgmt.Store.Engine),
+		Engine:        types.Engine(mgmt.Store.Engine),
+		MigrationMode: mgmt.Store.MigrationMode,
 	}
 
 	// Build reverse proxy config
