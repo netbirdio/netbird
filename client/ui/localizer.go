@@ -63,6 +63,20 @@ func (l *Localizer) T(key string, args ...string) string {
 	return l.bundle.Translate(lang, key, args...)
 }
 
+// Lookup resolves a key supplied at runtime by the daemon, substituting args as
+// {placeholder}/value pairs. It reports false when the key is in no bundle, so
+// the caller can fall back to the daemon's own English text instead of showing a
+// bare key. An empty key never resolves.
+func (l *Localizer) Lookup(key string, args map[string]string) (string, bool) {
+	if l == nil || l.bundle == nil || key == "" {
+		return "", false
+	}
+	l.mu.RLock()
+	lang := l.lang
+	l.mu.RUnlock()
+	return l.bundle.Lookup(lang, key, flattenArgs(args)...)
+}
+
 // Watch invokes cb on each language change, after the cached language is
 // updated so cb may call l.T with the new locale. Replaces any prior subscription.
 func (l *Localizer) Watch(cb func(lang i18n.LanguageCode)) {
@@ -127,4 +141,18 @@ func (l *Localizer) StatusLabel(status string) string {
 		return l.T("tray.status.sessionExpired")
 	}
 	return status
+}
+
+// flattenArgs turns a placeholder map into the flat name/value slice the bundle
+// takes. Iteration order is irrelevant: each pair substitutes an independent
+// {name}.
+func flattenArgs(args map[string]string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args)*2)
+	for name, value := range args {
+		out = append(out, name, value)
+	}
+	return out
 }

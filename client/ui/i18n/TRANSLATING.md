@@ -60,6 +60,8 @@ These are the usual ways a translation *breaks the app*, not just reads oddly.
 
 **Agreement:** a `{placeholder}` drops a value into a fixed frame, so the words around it must fit *every* value the app can supply. In inflected languages, write the frame in the case the surrounding preposition demands — German's duration fragments are **dative** because they land inside "…in {remaining}" (`in {count} Tagen`, `weniger als einer Minute`), not nominative `Tage`. Check the key that *consumes* the fragment (here `tray.session.expiresIn`) before choosing the form.
 
+**The `event.*` keys** are a special group: the background service names them when it publishes a notification, and the app looks them up here. Their names are part of a Go↔JSON contract (`client/proto/usermsg.go`), so they are even less renameable than the rest, and a missing one shows the user English. Tests fail the build if any locale drops one.
+
 ---
 
 ## Glossary

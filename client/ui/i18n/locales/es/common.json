@@ -179,6 +179,69 @@
     "notify.mdm.policyApplied.body": {
         "message": "Su configuración de NetBird fue actualizada por su política de TI."
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "Información"
+    },
+    "event.severity.warning": {
+        "message": "Advertencia"
+    },
+    "event.severity.error": {
+        "message": "Error"
+    },
+    "event.severity.critical": {
+        "message": "Crítico"
+    },
+    "event.category.network": {
+        "message": "Red"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "Autenticación"
+    },
+    "event.category.connectivity": {
+        "message": "Conectividad"
+    },
+    "event.category.system": {
+        "message": "Sistema"
+    },
+    "event.panic": {
+        "message": "El servicio de NetBird falló de forma inesperada. Reinicie el servicio y envíe un informe de error con los registros del cliente."
+    },
+    "event.dns.recovered": {
+        "message": "Los servidores DNS vuelven a estar accesibles."
+    },
+    "event.dns.unreachable": {
+        "message": "No se puede acceder a uno o más servidores DNS. Esto puede afectar la conexión a algunos servicios."
+    },
+    "event.exitNode.connected": {
+        "message": "Nodo de salida conectado."
+    },
+    "event.exitNode.disconnected": {
+        "message": "Nodo de salida desconectado."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "Se perdió la conexión con el nodo de salida. Su acceso a Internet puede verse afectado."
+    },
+    "event.exitNode.haChange": {
+        "message": "Nodo de salida desconectado por un cambio de alta disponibilidad."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "Nodo de salida desconectado por motivos desconocidos."
+    },
+    "event.update.installing": {
+        "message": "Instalando la actualización ahora."
+    },
+    "event.update.completed": {
+        "message": "Su cliente de NetBird se actualizó automáticamente a la versión {version}."
+    },
+    "event.update.failed": {
+        "message": "La actualización automática falló: {reason}"
+    },
     "common.cancel": {
         "message": "Cancelar"
     },
