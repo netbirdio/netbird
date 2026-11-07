@@ -124,7 +124,7 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 				log.WithContext(ctx).Debugf("error while sending a test heartbeat to peer %s: %v", pu.peerKey.String(), err)
 				return err
 			}
-			log.WithContext(ctx).Infof("testhb: sent management heartbeat key=%s mode=%s t=%d", hbKey, testhb.ModeFromEnv(), time.Now().UnixMilli())
+			log.WithContext(ctx).Infof("testhb: sent management heartbeat key=%s mode=%s t=%d", hbKey, testhb.CurrentMode(), time.Now().UnixMilli())
 
 		// condition when client <-> server connection has been terminated
 		case <-pu.srv.Context().Done():

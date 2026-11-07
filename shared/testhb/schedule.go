@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,7 +33,14 @@ const (
 	ServiceRelay
 )
 
-const defaultPeriod = 30 * time.Second
+const (
+	defaultPeriod = 30 * time.Second
+	// envModeFile names a file that overrides NB_TEST_HB_MODE while the server
+	// runs, so a test can switch modes without restarting the streams.
+	envModeFile = "NB_TEST_HB_MODE_FILE"
+	// offPoll is how often a paused ticker checks the mode file again.
+	offPoll = time.Second
+)
 
 func (m Mode) String() string {
 	switch m {
@@ -91,6 +99,21 @@ func PeriodFromEnv() time.Duration {
 	return envPeriod
 }
 
+// CurrentMode returns the mode from the NB_TEST_HB_MODE_FILE file when it is
+// set and readable, else ModeFromEnv(). It only matters when ModeFromEnv() is
+// not off: an off server never starts tickers, so it stays stock.
+func CurrentMode() Mode {
+	path := os.Getenv(envModeFile)
+	if path == "" {
+		return ModeFromEnv()
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ModeFromEnv()
+	}
+	return parseMode(strings.TrimSpace(string(b)))
+}
+
 // Enabled reports ModeFromEnv() != ModeOff.
 func Enabled() bool {
 	return ModeFromEnv() != ModeOff
@@ -127,17 +150,29 @@ func FirstDelay(mode Mode, period time.Duration, phaseKey string, svc Service, n
 }
 
 // Ticker returns a channel that fires on schedule until ctx is done.
-// Off: returns nil (a nil channel never fires in select).
+// Off in the env: returns nil (a nil channel never fires in select).
+// Otherwise the schedule follows CurrentMode() at each fire, so a mode file
+// change takes effect within one period. Mode file off pauses the ticker.
 // Aligned and spread: recompute each fire from wall clock, no drift.
 func Ticker(ctx context.Context, phaseKey string, svc Service) <-chan time.Time {
-	mode := ModeFromEnv()
-	if mode == ModeOff {
+	if ModeFromEnv() == ModeOff {
 		return nil
 	}
-	return startTicker(ctx, mode, PeriodFromEnv(), phaseKey, svc)
+	return startTicker(ctx, CurrentMode, PeriodFromEnv(), phaseKey, svc)
 }
 
-func startTicker(ctx context.Context, mode Mode, period time.Duration, phaseKey string, svc Service) <-chan time.Time {
+func nextDelay(mode Mode, period time.Duration, phaseKey string, svc Service, now time.Time) time.Duration {
+	switch mode {
+	case ModeOff:
+		return offPoll
+	case ModeConnect:
+		return period
+	default:
+		return FirstDelay(mode, period, phaseKey, svc, now)
+	}
+}
+
+func startTicker(ctx context.Context, mode func() Mode, period time.Duration, phaseKey string, svc Service) <-chan time.Time {
 	ch := make(chan time.Time, 1)
 	send := func(t time.Time) {
 		select {
@@ -147,28 +182,19 @@ func startTicker(ctx context.Context, mode Mode, period time.Duration, phaseKey 
 	}
 
 	go func() {
-		if mode == ModeConnect {
-			t := time.NewTicker(period)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case now := <-t.C:
-					send(now)
-				}
-			}
-		}
-
-		t := time.NewTimer(FirstDelay(mode, period, phaseKey, svc, time.Now()))
+		t := time.NewTimer(time.Hour)
 		defer t.Stop()
 		for {
+			m := mode()
+			t.Reset(nextDelay(m, period, phaseKey, svc, time.Now()))
 			select {
 			case <-ctx.Done():
 				return
 			case now := <-t.C:
-				send(now)
-				t.Reset(FirstDelay(mode, period, phaseKey, svc, time.Now()))
+				// A tick scheduled under the old mode is dropped after a switch.
+				if m != ModeOff && mode() == m {
+					send(now)
+				}
 			}
 		}
 	}()

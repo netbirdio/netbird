@@ -162,7 +162,6 @@ func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer) {
 	if tick == nil {
 		return
 	}
-	mode := testhb.ModeFromEnv()
 	go func() {
 		for {
 			select {
@@ -174,7 +173,7 @@ func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer) {
 					log.Debugf("testhb: signal heartbeat to [%s] failed: %v", p.Id, err)
 					continue
 				}
-				log.Infof("testhb: sent signal heartbeat key=%s mode=%s t=%d", key, mode, now.UnixMilli())
+				log.Infof("testhb: sent signal heartbeat key=%s mode=%s t=%d", key, testhb.CurrentMode(), now.UnixMilli())
 			}
 		}
 	}()

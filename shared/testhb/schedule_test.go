@@ -3,7 +3,10 @@ package testhb
 import (
 	"context"
 	"hash/fnv"
+	"os"
+	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,7 +109,7 @@ func TestTickerOff(t *testing.T) {
 func TestTickerAlignedFires(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch := startTicker(ctx, ModeAligned, time.Second, "x", ServiceManagement)
+	ch := startTicker(ctx, fixed(ModeAligned), time.Second, "x", ServiceManagement)
 	select {
 	case <-ch:
 	case <-time.After(3 * time.Second):
@@ -190,7 +193,7 @@ func TestSpreadIPhoneKey(t *testing.T) {
 func TestTickerSpreadFires(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch := startTicker(ctx, ModeSpread, 3*time.Second, "x", ServiceRelay)
+	ch := startTicker(ctx, fixed(ModeSpread), 3*time.Second, "x", ServiceRelay)
 	select {
 	case now := <-ch:
 		// The timer can fire a few microseconds before the wall-clock second.
@@ -207,5 +210,65 @@ func TestModeString(t *testing.T) {
 		if m.String() != want {
 			t.Fatalf("%d.String()=%q want %q", m, m.String(), want)
 		}
+	}
+}
+
+func fixed(m Mode) func() Mode { return func() Mode { return m } }
+
+func TestCurrentModeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mode")
+	t.Setenv(envModeFile, path)
+	if got := CurrentMode(); got != ModeFromEnv() {
+		t.Fatalf("missing file: CurrentMode()=%v want env %v", got, ModeFromEnv())
+	}
+	for in, want := range map[string]Mode{"aligned\n": ModeAligned, "spread": ModeSpread, "off\n": ModeOff, "junk": ModeOff} {
+		if err := os.WriteFile(path, []byte(in), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := CurrentMode(); got != want {
+			t.Fatalf("file %q: CurrentMode()=%v want %v", in, got, want)
+		}
+	}
+}
+
+// A live switch from spread to aligned must move the relay tick from the
+// spread phase (offset + 2P/3) to the aligned phase (offset) without a restart.
+func TestTickerFollowsModeSwitch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var cur atomic.Int32
+	cur.Store(int32(ModeSpread))
+	ch := startTicker(ctx, func() Mode { return Mode(cur.Load()) }, 3*time.Second, "x", ServiceRelay)
+	phase := func(now time.Time) int64 { return now.Round(time.Second).Unix() % 3 }
+
+	select {
+	case now := <-ch:
+		if got, want := phase(now), (offsetOf("x", 3)+2)%3; got != want {
+			t.Fatalf("spread tick unix%%3=%d want %d", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("spread ticker did not fire")
+	}
+
+	cur.Store(int32(ModeAligned))
+	select {
+	case now := <-ch:
+		if got, want := phase(now), offsetOf("x", 3); got != want {
+			t.Fatalf("aligned tick after switch unix%%3=%d want %d", got, want)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("ticker did not fire after the switch")
+	}
+
+	cur.Store(int32(ModeOff))
+	time.Sleep(4 * time.Second)
+	select {
+	case <-ch: // at most one tick scheduled before the pause
+	default:
+	}
+	select {
+	case <-ch:
+		t.Fatal("paused ticker fired")
+	case <-time.After(4 * time.Second):
 	}
 }

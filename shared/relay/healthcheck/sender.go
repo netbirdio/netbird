@@ -130,7 +130,7 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 		case <-tick:
 			hc.HealthCheck <- struct{}{}
 			if hc.phaseKey != "" {
-				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d", hc.phaseKey, testhb.ModeFromEnv(), time.Now().UnixMilli())
+				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d", hc.phaseKey, testhb.CurrentMode(), time.Now().UnixMilli())
 			}
 		case <-timeoutTicker.C:
 			if hc.alive {
