@@ -25,6 +25,7 @@ type MockClient struct {
 	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExposeFunc                func(ctx context.Context, domain string) error
 	StopExposeFunc                 func(ctx context.Context, domain string) error
+	GetAgentNetworkInfoFunc        func(ctx context.Context) (*proto.GetAgentNetworkInfoResponse, error)
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -136,4 +137,11 @@ func (m *MockClient) StopExpose(ctx context.Context, domain string) error {
 		return nil
 	}
 	return m.StopExposeFunc(ctx, domain)
+}
+
+func (m *MockClient) GetAgentNetworkInfo(ctx context.Context) (*proto.GetAgentNetworkInfoResponse, error) {
+	if m.GetAgentNetworkInfoFunc == nil {
+		return nil, nil
+	}
+	return m.GetAgentNetworkInfoFunc(ctx)
 }

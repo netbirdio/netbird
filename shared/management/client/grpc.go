@@ -963,6 +963,36 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 	return err
 }
 
+// GetAgentNetworkInfo returns what Agent Networks offers this peer.
+func (c *GrpcClient) GetAgentNetworkInfo(ctx context.Context) (*proto.GetAgentNetworkInfoResponse, error) {
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.GetAgentNetworkInfoRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("encrypt agent network info request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.GetAgentNetworkInfo(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	info := &proto.GetAgentNetworkInfoResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, info); err != nil {
+		return nil, fmt.Errorf("decrypt agent network info response: %w", err)
+	}
+	return info, nil
+}
+
 func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
 	return &ExposeResponse{
 		ServiceName:      resp.ServiceName,

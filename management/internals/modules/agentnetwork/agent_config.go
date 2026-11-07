@@ -7,23 +7,72 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // GetAgentConfigForUser returns the Agent Network setup the calling user's
 // groups authorize. It deliberately performs no role permission check:
 // the result is scoped to the caller's own groups, which is strictly
 // tighter than any role gate, so every authenticated user (any role) may
-// read it. The group source matches enforcement: the proxy authorizes
-// each Agent Network request against the calling user's groups as well —
-// session validation resolves them from the same user record's
-// auto-groups — so this answer and the proxy's verdict are computed from
-// the same memberships.
+// read it. The groups are the user's auto-groups, which can differ from
+// the peer groups the proxy authorizes tunnel requests against; see
+// GetAgentNetworkInfoForPeer for the answer that matches enforcement.
 func (m *managerImpl) GetAgentConfigForUser(ctx context.Context, accountID, userID string) (*types.AgentConfig, error) {
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 	return m.agentConfigForGroups(ctx, accountID, user.AutoGroups)
+}
+
+// GetAgentNetworkInfoForPeer returns what Agent Networks offers a peer.
+// Providers come from the peer's own groups, the same groups the proxy
+// authorizes tunnel requests against, and the owner gate mirrors the
+// proxy's: a blocked or pending owner gets nothing. A peer without a user
+// gets NoUser.
+func (m *managerImpl) GetAgentNetworkInfoForPeer(ctx context.Context, accountID, peerID string) (*types.PeerAgentNetworkInfo, error) {
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return nil, fmt.Errorf("get peer: %w", err)
+	}
+	if peer.UserID == "" {
+		return &types.PeerAgentNetworkInfo{State: types.PeerAgentNetworkNoUser}, nil
+	}
+
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get peer owner: %w", err)
+	}
+	// The lookup is by user id alone; never answer with a user from
+	// another account.
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "peer owner belongs to another account")
+	}
+
+	info := &types.PeerAgentNetworkInfo{
+		UserEmail:    user.Email,
+		LoginExpired: peer.Status != nil && peer.Status.LoginExpired,
+	}
+	if user.IsBlocked() || user.PendingApproval {
+		info.State = types.PeerAgentNetworkUserBlocked
+		return info, nil
+	}
+
+	groupIDs, err := m.store.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return nil, fmt.Errorf("get peer groups: %w", err)
+	}
+	cfg, err := m.agentConfigForGroups(ctx, accountID, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Configured {
+		info.State = types.PeerAgentNetworkNotEnabled
+		return info, nil
+	}
+	info.State = types.PeerAgentNetworkOK
+	info.Config = cfg
+	return info, nil
 }
 
 // agentConfigForGroups computes the effective Agent Network setup for
@@ -86,6 +135,7 @@ func (m *managerImpl) agentConfigForGroups(ctx context.Context, accountID string
 			flavor = entry.ParserID
 		}
 		out.Providers = append(out.Providers, types.AgentConfigProvider{
+			ID:               p.ID,
 			Name:             p.Name,
 			CatalogID:        p.ProviderID,
 			APIFlavor:        flavor,
@@ -297,4 +347,9 @@ func declaredModelIDs(provider *types.Provider) []string {
 // that don't care about setup still compile.
 func (*mockManager) GetAgentConfigForUser(_ context.Context, _, _ string) (*types.AgentConfig, error) {
 	return &types.AgentConfig{Providers: []types.AgentConfigProvider{}}, nil
+}
+
+// GetAgentNetworkInfoForPeer on the mock manager reports "not enabled".
+func (*mockManager) GetAgentNetworkInfoForPeer(_ context.Context, _, _ string) (*types.PeerAgentNetworkInfo, error) {
+	return &types.PeerAgentNetworkInfo{State: types.PeerAgentNetworkNotEnabled}, nil
 }
