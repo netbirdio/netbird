@@ -514,7 +514,7 @@ func (m *testValidateSessionServiceManager) DeleteAllServices(_ context.Context,
 	return nil
 }
 
-func (m *testValidateSessionServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
+func (m *testValidateSessionServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
