@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
@@ -42,6 +44,11 @@ func (s *ShutdownState) Name() string {
 	return "iptables_state"
 }
 
+// hasIPv6State reports whether the previous run set up anything for IPv6.
+func (s *ShutdownState) hasIPv6State() bool {
+	return s.InterfaceState.WGAddress.HasIPv6() || len(s.RouteRules6) > 0 || len(s.ACLEntries6) > 0
+}
+
 func (s *ShutdownState) Cleanup() error {
 	mtu := s.InterfaceState.MTU
 	if mtu == 0 {
@@ -65,12 +72,16 @@ func (s *ShutdownState) Cleanup() error {
 
 	// Clean up v6 state even if the current run has no IPv6.
 	// The previous run may have left ip6tables rules behind.
-	if !ipt.hasIPv6() {
-		if err := ipt.createIPv6Components(s.InterfaceState, mtu); err != nil {
-			log.Warnf("failed to create v6 components for cleanup: %v", err)
+	// A failure here must not skip the IPv4 teardown below.
+	var merr *multierror.Error
+	if !ipt.hasV6Family() {
+		if err := ipt.createIPv6Components(s.InterfaceState, mtu, false); err != nil {
+			if err := s.v6CreateFailure(err); err != nil {
+				merr = multierror.Append(merr, err)
+			}
 		}
 	}
-	if ipt.hasIPv6() {
+	if ipt.hasV6Family() {
 		if s.RouteRules6 != nil {
 			ipt.family6.rules = s.RouteRules6
 		}
@@ -83,8 +94,19 @@ func (s *ShutdownState) Cleanup() error {
 	}
 
 	if err := ipt.Close(nil); err != nil {
-		return fmt.Errorf("reset iptables manager: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("reset iptables manager: %w", err))
 	}
 
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+// v6CreateFailure decides what a failure to set up the IPv6 family for cleanup means. When the
+// previous run set up IPv6 it is returned, so the state is kept and the cleanup of what is left
+// is retried on the next start. Otherwise there is nothing left to remove and it is only logged.
+func (s *ShutdownState) v6CreateFailure(err error) error {
+	if s.hasIPv6State() {
+		return fmt.Errorf("create v6 components for cleanup: %w", err)
+	}
+	log.Warnf("failed to create v6 components for cleanup: %v", err)
 	return nil
 }

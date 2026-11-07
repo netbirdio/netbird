@@ -91,6 +91,10 @@ type family struct {
 
 	ipsetCounter *refcounter.Counter[string, setInput, *nftables.Set]
 
+	// denyOnly marks a family that only carries the default deny. It has no redirected
+	// traffic to let through, so it has no redirect mark accept.
+	denyOnly bool
+
 	af               addrFamily
 	wgIface          iFaceMapper
 	ipFwdState       *ipfwdstate.IPForwardingState
