@@ -20,6 +20,7 @@ type selectRoute struct {
 	NetID         route.NetID
 	Network       netip.Prefix
 	Domains       domain.List
+	Countries     []string
 	Selected      bool
 	extraNetworks []netip.Prefix
 }
@@ -63,10 +64,11 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 		}
 
 		r := &selectRoute{
-			NetID:    id,
-			Network:  rt[0].Network,
-			Domains:  rt[0].Domains,
-			Selected: routeSelector.IsSelected(id),
+			NetID:     id,
+			Network:   rt[0].Network,
+			Domains:   rt[0].Domains,
+			Countries: rt[0].Countries,
+			Selected:  routeSelector.IsSelected(id),
 		}
 
 		// Merge paired v6 exit node prefix into this entry.
@@ -97,6 +99,9 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	var pbRoutes []*proto.Network
 	for _, route := range routes {
 		rangeStr := route.Network.String()
+		if len(route.Countries) > 0 {
+			rangeStr = strings.Join(route.Countries, ", ")
+		}
 		for _, extra := range route.extraNetworks {
 			rangeStr += ", " + extra.String()
 		}
