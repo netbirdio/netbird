@@ -54,6 +54,10 @@ type systemConfigurator struct {
 
 	mu              sync.RWMutex
 	origNameservers []netip.Addr
+
+	// wgInterface is the overlay interface, nil when only cleaning up. It is
+	// used to make macOS request AAAA records for NetBird zones.
+	wgInterface WGIface
 }
 
 func newHostManager() (*systemConfigurator, error) {
@@ -66,6 +70,9 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
+// applyDNSConfig publishes NetBird's match and search domains to the macOS
+// system resolver via scutil, persisting state after each batch so an
+// unclean shutdown leaves the least possible cleanup work.
 func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	var (
 		searchDomains []string
@@ -100,6 +107,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	}
 	if len(matchDomains) != 0 {
 		if err := s.addBatchedDomains(matchSuffix, matchDomains, config.ServerIP, config.ServerPort, false); err != nil {
+			s.updateState(stateManager)
 			return fmt.Errorf("add match domains: %w", err)
 		}
 	}
@@ -110,6 +118,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	}
 	if len(searchDomains) != 0 {
 		if err := s.addBatchedDomains(searchSuffix, searchDomains, config.ServerIP, config.ServerPort, true); err != nil {
+			s.updateState(stateManager)
 			return fmt.Errorf("add search domains: %w", err)
 		}
 	}
@@ -122,6 +131,8 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	return nil
 }
 
+// updateState persists createdKeys to the state manager so the shutdown
+// handler can restore DNS on unclean exits.
 func (s *systemConfigurator) updateState(stateManager *statemanager.Manager) {
 	if err := stateManager.UpdateState(&ShutdownState{CreatedKeys: maps.Keys(s.createdKeys)}); err != nil {
 		log.Errorf("failed to update shutdown state: %s", err)
@@ -206,8 +217,14 @@ func getSystemDNSKeys() (string, error) {
 	return string(out), nil
 }
 
+// removeKeyFromSystemConfig removes key from scutil, including any AAAA overlay
+// entities that were published alongside it.
 func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	line := buildRemoveKeyOperation(key)
+	if serviceID, ok := serviceIDFromDNSKey(key); ok {
+		// Drop the overlay entities published for AAAA resolution first.
+		line = buildAAAARemoveCommands(serviceID) + line
+	}
 	_, err := runSystemConfigCommand(wrapCommand(line))
 	if err != nil {
 		return fmt.Errorf("remove key: %w", err)
@@ -218,6 +235,8 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	return nil
 }
 
+// addLocalDNS publishes the physical upstream resolver under a NetBird-Local
+// scutil key so that its domains continue to resolve when NetBird is active.
 func (s *systemConfigurator) addLocalDNS() error {
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
 		if err := s.recordSystemDNSSettings(true); err != nil {
@@ -231,7 +250,8 @@ func (s *systemConfigurator) addLocalDNS() error {
 	}
 
 	domainsStr := strings.Join(s.systemDNSSettings.Domains, " ")
-	if err := s.addDNSState(localKey, domainsStr, s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort, true); err != nil {
+	// The local resolver is the physical one, so it is not bound to the overlay.
+	if err := s.addDNSState(localKey, domainsStr, s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort, true, nil); err != nil {
 		return fmt.Errorf("add local dns state: %w", err)
 	}
 	s.createdKeys[localKey] = struct{}{}
@@ -413,24 +433,59 @@ func (s *systemConfigurator) removeKeysContaining(suffix string) error {
 // addBatchedDomains splits domains into batches and creates indexed scutil keys for each batch.
 func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, ip netip.Addr, port int, enableSearch bool) error {
 	batches := splitDomainsIntoBatches(domains)
+	overlay := s.aaaaOverlayFor(ip)
 
 	for i, batch := range batches {
 		key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
 		domainsStr := strings.Join(batch, " ")
 
-		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch); err != nil {
-			return fmt.Errorf("add dns state for batch %d: %w", i, err)
+		_, preExisting := s.createdKeys[key]
+
+		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch, overlay); err != nil {
+			var merr *multierror.Error
+			merr = multierror.Append(merr, fmt.Errorf("add dns state for batch %d: %w", i, err))
+			// Only clean up AAAA entities we created in this call; a pre-existing
+			// key owns its own entities and must not be disturbed on our failure.
+			if overlay != nil && !preExisting {
+				if cleanupErr := s.removeKeyFromSystemConfig(key); cleanupErr != nil {
+					// Cleanup failed: track the key so restore and
+					// removeKeysContaining can retry on the next cycle.
+					s.createdKeys[key] = struct{}{}
+					merr = multierror.Append(merr, fmt.Errorf("remove partial service state for batch %d: %w", i, cleanupErr))
+				}
+			}
+			return nberrors.FormatErrorOrNil(merr)
 		}
 
 		s.createdKeys[key] = struct{}{}
 	}
 
 	log.Infof("added %d %s domains across %d resolver entries", len(domains), suffix, len(batches))
+	if overlay != nil {
+		log.Infof("published %s resolvers on %s so macOS requests AAAA records", suffix, overlay.ifName)
+	}
 
 	return nil
 }
 
-func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.Addr, port int, enableSearch bool) error {
+// addDNSState publishes a resolver entity. With an overlay, the service also
+// gets IPv4/IPv6 entities on the overlay interface and the resolver is confirmed
+// for its service, so that macOS requests AAAA records through it.
+func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.Addr, port int, enableSearch bool, overlay *aaaaOverlay) error {
+	stdinCommands := wrapCommand(buildAddDNSStateCommands(state, domains, dnsServer, port, enableSearch, overlay))
+
+	_, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return fmt.Errorf("applying state for domains %s, error: %w", domains, err)
+	}
+	return nil
+}
+
+// buildAddDNSStateCommands returns the scutil command lines that create or update
+// the DNS resolver state for state. When overlay is non-nil and state is a
+// NetBird service DNS key, the AAAA overlay entities are prepended so configd
+// processes the rank before the DNS entry.
+func buildAddDNSStateCommands(state, domains string, dnsServer netip.Addr, port int, enableSearch bool, overlay *aaaaOverlay) string {
 	noSearch := "1"
 	if enableSearch {
 		noSearch = "0"
@@ -440,14 +495,13 @@ func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.
 	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer.String())
 	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
 
-	addDomainCommand := buildCreateStateWithOperation(state, lines)
-	stdinCommands := wrapCommand(addDomainCommand)
-
-	_, err := runSystemConfigCommand(stdinCommands)
-	if err != nil {
-		return fmt.Errorf("applying state for domains %s, error: %w", domains, err)
+	serviceID, ok := serviceIDFromDNSKey(state)
+	if overlay == nil || !ok {
+		return buildCreateStateWithOperation(state, lines)
 	}
-	return nil
+
+	lines += buildAddCommandLine(keyConfirmedServiceID, serviceID)
+	return buildAAAAServiceCommands(serviceID, *overlay) + buildCreateStateWithOperation(state, lines)
 }
 
 func (s *systemConfigurator) getPrimaryService() (string, string, error) {
