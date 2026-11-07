@@ -110,10 +110,11 @@ type family struct {
 	// AddFilterRule writes here; DeleteFilterRule looks up by id.
 	filters      map[nbid.RuleID]*Rule
 	ipsetCounter *ipsetCounter
-	// ipsetSupported records whether the kernel can create the hash:net
-	// sets the source matches rely on; probed once at init. When false,
-	// multi-source rules expand to one rule per source prefix.
-	ipsetSupported bool
+	// ipsetSupport is shared by the families of both address families,
+	// so a kernel without usable ipset support degrades them together.
+	// When latched off, multi-source rules expand to one rule per
+	// source prefix.
+	ipsetSupport *ipsetSupport
 
 	// rules holds NAT, jump, and MSS-clamping rules (auxiliary
 	// plumbing that isn't a filter rule).
@@ -127,7 +128,7 @@ type family struct {
 	stateManager *statemanager.Manager
 }
 
-func newFamily(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint16) (*family, error) {
+func newFamily(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint16, ipsetSupport *ipsetSupport) (*family, error) {
 	r := &family{
 		iptablesClient:  iptablesClient,
 		wgIface:         wgIface,
@@ -138,6 +139,7 @@ func newFamily(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint1
 		rules:           make(routeRules),
 		mtu:             mtu,
 		ipFwdState:      ipfwdstate.NewIPForwardingState(wgIface.Name()),
+		ipsetSupport:    ipsetSupport,
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -156,8 +158,6 @@ func newFamily(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint1
 // route ACL containers and the peer ACL chain skeleton.
 func (r *family) init(stateManager *statemanager.Manager) error {
 	r.stateManager = stateManager
-
-	r.ipsetSupported = r.probeIPSetSupport()
 
 	if err := r.cleanUpDefaultForwardRules(); err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
