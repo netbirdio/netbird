@@ -5,6 +5,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 const (
@@ -12,12 +14,19 @@ const (
 
 	defaultHealthCheckInterval = 25 * time.Second
 	defaultHealthCheckTimeout  = 20 * time.Second
+
+	// testHBMinAckMargin is the minimum time after a test heartbeat period
+	// that the sender waits for an ack before it counts a failure.
+	testHBMinAckMargin = 10 * time.Second
 )
 
 type SenderOptions struct {
 	HealthCheckInterval time.Duration
 	HealthCheckTimeout  time.Duration
 	AttemptThreshold    int
+	// PhaseKey is the testhb phase key of the peer. When set and testhb is
+	// enabled, the send tick comes from testhb.Ticker instead of the interval.
+	PhaseKey string
 }
 
 // Sender is a healthcheck sender
@@ -37,6 +46,7 @@ type Sender struct {
 	ack              chan struct{}
 	alive            bool
 	attemptThreshold int
+	phaseKey         string
 }
 
 func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
@@ -59,6 +69,11 @@ func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
 		attemptThreshold:    opts.AttemptThreshold,
 	}
 
+	if opts.PhaseKey != "" && testhb.Enabled() {
+		hc.phaseKey = opts.PhaseKey
+		hc.timeout = max(hc.timeout, testhb.PeriodFromEnv()+max(opts.HealthCheckTimeout, testHBMinAckMargin))
+	}
+
 	return hc
 }
 
@@ -72,6 +87,18 @@ func NewSender(log *log.Entry) *Sender {
 	return NewSenderWithOpts(log, opts)
 }
 
+// NewSenderWithPhaseKey creates a sender like NewSender that follows the
+// testhb schedule for phaseKey when testhb is enabled.
+func NewSenderWithPhaseKey(log *log.Entry, phaseKey string) *Sender {
+	opts := SenderOptions{
+		HealthCheckInterval: defaultHealthCheckInterval,
+		HealthCheckTimeout:  defaultHealthCheckTimeout,
+		AttemptThreshold:    getAttemptThresholdFromEnv(),
+		PhaseKey:            phaseKey,
+	}
+	return NewSenderWithOpts(log, opts)
+}
+
 // OnHCResponse sends an acknowledgment signal to the sender
 func (hc *Sender) OnHCResponse() {
 	select {
@@ -81,8 +108,15 @@ func (hc *Sender) OnHCResponse() {
 }
 
 func (hc *Sender) StartHealthCheck(ctx context.Context) {
-	ticker := time.NewTicker(hc.healthCheckInterval)
-	defer ticker.Stop()
+	var tick <-chan time.Time
+	if hc.phaseKey != "" {
+		tick = testhb.Ticker(ctx, hc.phaseKey)
+	}
+	if tick == nil {
+		ticker := time.NewTicker(hc.healthCheckInterval)
+		defer ticker.Stop()
+		tick = ticker.C
+	}
 
 	timeoutTicker := time.NewTicker(hc.timeout)
 	defer timeoutTicker.Stop()
@@ -93,8 +127,11 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	failureCounter := 0
 	for {
 		select {
-		case <-ticker.C:
+		case <-tick:
 			hc.HealthCheck <- struct{}{}
+			if hc.phaseKey != "" {
+				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d", hc.phaseKey, testhb.ModeFromEnv(), time.Now().UnixMilli())
+			}
 		case <-timeoutTicker.C:
 			if hc.alive {
 				hc.alive = false
