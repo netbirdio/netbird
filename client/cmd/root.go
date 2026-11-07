@@ -95,7 +95,7 @@ var (
 		Long:         "",
 		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			SetFlagsFromEnvVars(cmd.Root())
+			SetFlagsFromEnvVars(cmd)
 
 			// Don't resolve for service commands — they create the socket, not connect to it.
 			if !isServiceCmd(cmd) {
@@ -237,31 +237,52 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	}()
 }
 
-// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
+// SetFlagsFromEnvVars sets every flag that applies to cmd from its NB_ or WT_
+// environment variable. The environment overrides values given on the command line.
 func SetFlagsFromEnvVars(cmd *cobra.Command) {
-	setFlagSetFromEnvVars(cmd.PersistentFlags())
-}
+	flags := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
+	flags.AddFlagSet(cmd.LocalFlags())
+	flags.AddFlagSet(cmd.InheritedFlags())
 
-func setFlagSetFromEnvVars(flags *pflag.FlagSet) {
 	flags.VisitAll(func(f *pflag.Flag) {
-		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
+		if f.Name == "help" {
+			return
+		}
 
-		if value, present := os.LookupEnv(oldEnvVar); present {
-			err := flags.Set(f.Name, value)
-			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, oldEnvVar, err)
+		envVar, value, ok := lookupFlagEnv(f.Name)
+		if !ok {
+			return
+		}
+
+		// Setting a slice flag that was already set appends, the environment must replace it.
+		sv, isSlice := f.Value.(pflag.SliceValue)
+		var previous []string
+		if isSlice {
+			previous = sv.GetSlice()
+			if err := sv.Replace(nil); err != nil {
+				log.Infof("unable to reset flag %s for variable %s, err: %v", f.Name, envVar, err)
+				return
 			}
 		}
 
-		newEnvVar := FlagNameToEnvVar(f.Name, "NB_")
-
-		if value, present := os.LookupEnv(newEnvVar); present {
-			err := flags.Set(f.Name, value)
-			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
+		if err := flags.Set(f.Name, value); err != nil {
+			log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, envVar, err)
+			if isSlice {
+				_ = sv.Replace(previous)
 			}
 		}
 	})
+}
+
+// lookupFlagEnv returns the environment variable set for a flag, preferring NB_ over WT_.
+func lookupFlagEnv(flagName string) (string, string, bool) {
+	for _, prefix := range []string{"NB_", "WT_"} {
+		envVar := FlagNameToEnvVar(flagName, prefix)
+		if value, ok := os.LookupEnv(envVar); ok {
+			return envVar, value, true
+		}
+	}
+	return "", "", false
 }
 
 // FlagNameToEnvVar converts flag name to environment var name adding a prefix,

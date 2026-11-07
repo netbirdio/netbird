@@ -158,7 +158,6 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 // request. Returns an error if the RPC fails or if the daemon reports
 // an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
-	setFlagSetFromEnvVars(anonymizeFlags)
 	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
 	if err != nil {
 		return err
@@ -237,8 +236,6 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid duration format: %v", err)
 	}
-
-	setFlagSetFromEnvVars(anonymizeFlags)
 
 	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
 	if err != nil {
