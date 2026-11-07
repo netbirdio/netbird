@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 func PeerUpdateHandlerFactory(
@@ -73,6 +74,13 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 
 	defer pu.debouncer.Stop()
 
+	// Test-only heartbeat, nil (never fires) unless NB_TEST_HB_MODE is set.
+	// It shares this loop so the stream is only written from one goroutine.
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	defer hbCancel()
+	hbKey := testhb.PhaseKey(pu.peerKey.String())
+	hb := testhb.Ticker(hbCtx, hbKey)
+
 	for {
 		select {
 		// condition when there are some updates
@@ -110,6 +118,13 @@ func (pu *PeerUpdateHandler) HandleUpdates(ctx context.Context) error {
 					return err
 				}
 			}
+
+		case <-hb:
+			if err := pu.SendUpdate(ctx, &network_map.UpdateMessage{Update: &proto.SyncResponse{}}); err != nil {
+				log.WithContext(ctx).Debugf("error while sending a test heartbeat to peer %s: %v", pu.peerKey.String(), err)
+				return err
+			}
+			log.WithContext(ctx).Infof("testhb: sent management heartbeat key=%s mode=%s t=%d", hbKey, testhb.ModeFromEnv(), time.Now().UnixMilli())
 
 		// condition when client <-> server connection has been terminated
 		case <-pu.srv.Context().Done():
