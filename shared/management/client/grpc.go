@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -533,7 +535,12 @@ func (c *GrpcClient) HealthCheck() error {
 
 // getServerPublicKey fetches the server's WireGuard public key.
 func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	return c.getServerPublicKeyWithContext(c.ctx)
+}
+
+// getServerPublicKeyWithContext fetches the server key, bounded by ctx as well as the lookup timeout.
+func (c *GrpcClient) getServerPublicKeyWithContext(ctx context.Context) (*wgtypes.Key, error) {
+	mgmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
@@ -1088,7 +1095,21 @@ func peerCapabilities(info system.Info) []proto.PeerCapability {
 	if !info.DisableIPv6 {
 		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
 	}
+	if countryRoutesSupported() {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityCountryRoutes)
+	}
 	return caps
+}
+
+// countryRoutesSupported reports whether this platform installs country routes. A large
+// country is hundreds of thousands of prefixes, more than the mobile VPN APIs accept.
+func countryRoutesSupported() bool {
+	switch runtime.GOOS {
+	case "linux", "darwin", "windows", "freebsd":
+		return true
+	default:
+		return false
+	}
 }
 
 func syncMessageVersion(info system.Info) int32 {
@@ -1096,4 +1117,47 @@ func syncMessageVersion(info system.Info) int32 {
 		return int32(*info.SyncMessageVersion)
 	}
 	return int32(nbmgmtgrpc.HighestSyncMessageVersion)
+}
+
+// GetCountryPrefixes fetches the IP prefixes the management geolocation database assigns to a country.
+func (c *GrpcClient) GetCountryPrefixes(ctx context.Context, country string) ([]netip.Prefix, error) {
+	if !c.ready() {
+		return nil, errors.New(errMsgNoMgmtConnection)
+	}
+
+	serverPubKey, err := c.getServerPublicKeyWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.CountryPrefixesRequest{Country: country})
+	if err != nil {
+		return nil, fmt.Errorf("encrypt country prefixes request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.GetCountryPrefixes(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	prefixesResp := &proto.CountryPrefixesResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, prefixesResp); err != nil {
+		return nil, fmt.Errorf("decrypt country prefixes response: %w", err)
+	}
+
+	prefixes := make([]netip.Prefix, 0, len(prefixesResp.GetPrefixes()))
+	for _, p := range prefixesResp.GetPrefixes() {
+		prefix, err := netip.ParsePrefix(p)
+		if err != nil {
+			return nil, fmt.Errorf("parse prefix %q of country %s: %w", p, country, err)
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -52,6 +53,25 @@ func NewPrefixSet(prefixes []netip.Prefix) Set {
 		hash.Write(bytes)
 	}
 	var set Set
+	copy(set.hash[:], hash.Sum(nil)[:4])
+
+	return set
+}
+
+// NewCountrySet generates a unique name for an ipset holding the prefixes of the given countries.
+func NewCountrySet(countries []string) Set {
+	countries = slices.Clone(countries)
+	slices.Sort(countries)
+
+	hash := sha256.New()
+	// Keeps country set names apart from domain set names hashed from similar strings.
+	hash.Write([]byte("country:"))
+	for _, country := range countries {
+		hash.Write([]byte(country))
+	}
+	set := Set{
+		comment: "countries: " + strings.Join(countries, ", "),
+	}
 	copy(set.hash[:], hash.Sum(nil)[:4])
 
 	return set

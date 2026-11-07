@@ -155,13 +155,14 @@ func (r *Router) RoutesCount() int {
 func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterPair {
 	source := getDefaultPrefix(route.Network)
 	destination := firewall.Network{}
-	if route.IsDynamic() {
-		if useNewDNSRoute {
-			destination.Set = firewall.NewDomainSet(route.Domains)
-		} else {
-			destination = getDefaultPrefix(route.Network)
-		}
-	} else {
+	switch {
+	case route.IsCountry():
+		destination.Set = firewall.NewCountrySet(route.Countries)
+	case route.IsDynamic() && useNewDNSRoute:
+		destination.Set = firewall.NewDomainSet(route.Domains)
+	case route.IsDynamic():
+		destination = getDefaultPrefix(route.Network)
+	default:
 		destination.Prefix = route.Network.Masked()
 	}
 
@@ -170,7 +171,7 @@ func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterP
 		Source:      source,
 		Destination: destination,
 		Masquerade:  route.Masquerade,
-		Dynamic:     route.IsDynamic(),
+		Dynamic:     route.IsDynamic() || route.IsCountry(),
 	}
 }
 

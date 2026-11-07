@@ -58,6 +58,7 @@ func TestDetermineDestinationAlwaysRoute(t *testing.T) {
 		{"dynamic no domains + resolver (v6)", &mgmProto.RouteFirewallRule{IsDynamic: true}, true, v6},
 		{"dynamic + no local resolver (v4)", &mgmProto.RouteFirewallRule{IsDynamic: true}, false, v4},
 		{"dynamic + no local resolver (v6)", &mgmProto.RouteFirewallRule{IsDynamic: true}, false, v6},
+		{"country", &mgmProto.RouteFirewallRule{Destination: "192.0.2.0/32", Countries: []string{"US"}}, false, v4},
 	}
 
 	for _, tc := range cases {
@@ -75,10 +76,27 @@ func TestDetermineDestinationAlwaysRoute(t *testing.T) {
 // manager actually creates and tears down.
 type countingFirewall struct {
 	fwmgr.Manager
-	mu       sync.Mutex
-	addCalls int
-	dels     int
-	ruleIDs  map[fwmgr.RuleID]struct{}
+	mu         sync.Mutex
+	addCalls   int
+	dels       int
+	ruleIDs    map[fwmgr.RuleID]struct{}
+	setUpdates []setUpdate
+}
+
+// setUpdate is one UpdateSet call that the backend accepted.
+type setUpdate struct {
+	set      fwmgr.Set
+	prefixes []netip.Prefix
+}
+
+func (f *countingFirewall) UpdateSet(set fwmgr.Set, prefixes []netip.Prefix) error {
+	err := f.Manager.UpdateSet(set, prefixes)
+	if err == nil {
+		f.mu.Lock()
+		f.setUpdates = append(f.setUpdates, setUpdate{set: set, prefixes: prefixes})
+		f.mu.Unlock()
+	}
+	return err
 }
 
 // distinctRules returns the number of distinct backing rules the

@@ -152,10 +152,16 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
 
 	includeIPv6 := false
+	includeCountryRoutes := false
 	if p := c.GetPeerInfo(targetPeerID); p != nil {
 		includeIPv6 = p.SupportsIPv6() && p.IPv6.IsValid()
+		includeCountryRoutes = p.SupportsCountryRoutes()
 	}
-	routesUpdate := filterAndExpandRoutes(c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups), includeIPv6)
+	routesToSync := c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups)
+	if !includeCountryRoutes {
+		routesToSync = slices.DeleteFunc(routesToSync, (*nmdata.Route).IsCountry)
+	}
+	routesUpdate := filterAndExpandRoutes(routesToSync, includeIPv6)
 
 	var routesFirewallRules []*RouteFirewallRule
 	if !c.SkipRouteFirewallRules {
@@ -567,6 +573,10 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 		if _, ok := seenRoute[r.ID]; ok {
 			return
 		}
+		// A routing peer that cannot serve a country route must not attract its traffic.
+		if r.IsCountry() && !peerInfo.SupportsCountryRoutes() {
+			return
+		}
 		seenRoute[r.ID] = struct{}{}
 
 		r.Peer = peerInfo.Key
@@ -680,13 +690,14 @@ func (c *NetworkMapComponents) getDefaultPermit(r *nmdata.Route, includeIPv6 boo
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      r.Domains,
 		IsDynamic:    r.IsDynamic(),
+		Countries:    r.Countries,
 		RouteID:      route.ID(r.ID),
 	}
 
 	rules := []*RouteFirewallRule{&rule}
 
 	isDefaultV4 := r.Network.Addr().Is4() && r.Network.Bits() == 0
-	if includeIPv6 && (r.IsDynamic() || isDefaultV4) {
+	if includeIPv6 && (hasResolvedDestination(r) || isDefaultV4) {
 		ruleV6 := rule
 		ruleV6.SourceRanges = []string{"::/0"}
 		if isDefaultV4 {
