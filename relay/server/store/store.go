@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/netbirdio/netbird/shared/relay/messages"
@@ -9,7 +10,13 @@ import (
 type IPeer interface {
 	Close()
 	ID() messages.PeerID
+	// Authenticated reports whether the peer proved it holds the keys its token is bound to.
+	Authenticated() bool
 }
+
+// ErrAuthenticatedPeerExists refuses a peer that would replace an authenticated one with the same
+// ID without being authenticated itself, which would let anyone knowing the ID take it over.
+var ErrAuthenticatedPeerExists = errors.New("an authenticated peer with this ID is connected")
 
 // Store is a thread-safe store of peers
 // It is used to store the peers that are connected to the relay server
@@ -26,18 +33,24 @@ func NewStore() *Store {
 }
 
 // AddPeer adds a peer to the store
-// If the peer already exists, it will be replaced and the old peer will be closed
-// Returns true if the peer was replaced, false if it was added for the first time.
-func (s *Store) AddPeer(peer IPeer) bool {
+// If the peer already exists, it will be replaced and the old peer will be closed, unless the
+// old peer is authenticated and the new one is not.
+// Returns true if the peer was replaced, false if it was added for the first time. When an
+// unauthenticated peer claims the ID of an authenticated one it returns ErrAuthenticatedPeerExists:
+// the new peer is not stored and the old one stays open.
+func (s *Store) AddPeer(peer IPeer) (bool, error) {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
-	odlPeer, ok := s.peers[peer.ID()]
+	oldPeer, ok := s.peers[peer.ID()]
 	if ok {
-		odlPeer.Close()
+		if oldPeer.Authenticated() && !peer.Authenticated() {
+			return false, ErrAuthenticatedPeerExists
+		}
+		oldPeer.Close()
 	}
 
 	s.peers[peer.ID()] = peer
-	return ok
+	return ok, nil
 }
 
 // DeletePeer deletes a peer from the store

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -86,6 +89,23 @@ type ServerConfig struct {
 	PerAccountSupportedSyncMessageVersions map[string]int `yaml:"perAccountSupportedSyncMessageVersions,omitempty"`
 
 	AgentNetwork AgentNetworkConfig `yaml:"agentNetwork"`
+
+	PeerAuth PeerAuthConfig `yaml:"peerAuth"`
+}
+
+// PeerAuthConfig controls the Signal and Relay tokens bound to the peer keys.
+type PeerAuthConfig struct {
+	// SigningKeyFile is Management's PEM PKCS#8 Ed25519 signing key. Set, peers that send an auth
+	// key get the bound token, and the local Relay and Signal verify it with the derived public key.
+	SigningKeyFile string `yaml:"signingKeyFile"`
+	// Hostnames, if set, are the only hostnames the local Relay and Signal accept in proofs. They
+	// share the exposed address host, so one list serves both.
+	Hostnames []string `yaml:"hostnames"`
+	// Required makes the local Relay and Signal refuse peers that present no bound token.
+	Required bool `yaml:"required"`
+	// CheckTime makes the local Relay and Signal refuse proofs signed more than
+	// peerauth.DefaultSkew away from their clock. Enable only when every peer clock is in sync.
+	CheckTime bool `yaml:"checkTime"`
 }
 
 // AgentNetworkConfig contains agent-network (LLM gateway) configuration.
@@ -508,10 +528,17 @@ func (c *CombinedConfig) Validate() error {
 		seen[port] = true
 	}
 
-	// authSecret is required only if running local relay (no external relay configured)
+	// The local relay verifies legacy tokens with authSecret until the flag day, when
+	// peerAuth.required replaces it.
 	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
-	if !hasExternalRelay && c.Server.AuthSecret == "" {
-		return fmt.Errorf("server.authSecret is required when running local relay")
+	if !hasExternalRelay && c.Server.AuthSecret == "" && !c.Server.PeerAuth.Required {
+		return fmt.Errorf("server.authSecret is required when running local relay, unless server.peerAuth.required is set")
+	}
+	if !hasExternalRelay && c.Server.AuthSecret != "" && c.Server.PeerAuth.Required {
+		return fmt.Errorf("server.authSecret and server.peerAuth.required are mutually exclusive for the local relay: drop the secret on the flag day")
+	}
+	if c.Server.PeerAuth.Required && c.Server.PeerAuth.SigningKeyFile == "" {
+		return fmt.Errorf("server.peerAuth.required needs server.peerAuth.signingKeyFile")
 	}
 
 	return nil
@@ -757,6 +784,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		AgentNetwork: nbconfig.AgentNetwork{
 			PricingDefaultsFile: c.Server.AgentNetwork.PricingDefaultsFile,
 		},
+		PeerAuth: nbconfig.PeerAuth{
+			SigningKeyFile: c.Server.PeerAuth.SigningKeyFile,
+		},
 	}, nil
 }
 
@@ -818,6 +848,34 @@ func EnsureEncryptionKey(ctx context.Context, cfg *nbconfig.Config) error {
 	keyPreview := key[:8] + "..."
 	log.WithContext(ctx).Warnf("DataStoreEncryptionKey generated (%s); add it to your config file under 'server.store.encryptionKey' to persist across restarts", keyPreview)
 
+	return nil
+}
+
+// EnsurePeerAuthSigningKey creates the configured peer auth signing key when the file does not
+// exist yet. Unlike a standalone Management, which may run several instances that must share
+// one key, a combined server is the only signer and its local Relay and Signal derive the public
+// key from the same file. No configured file leaves peer auth off.
+func EnsurePeerAuthSigningKey(ctx context.Context, cfg *CombinedConfig) error {
+	path := cfg.Server.PeerAuth.SigningKeyFile
+	if path == "" {
+		return nil
+	}
+	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		return err
+	}
+
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generate peer auth signing key: %w", err)
+	}
+	data, err := peerauth.MarshalSigningKeyPEM(key)
+	if err != nil {
+		return err
+	}
+	if err := util.WriteBytesWithRestrictedPermission(ctx, path, data); err != nil {
+		return fmt.Errorf("write peer auth signing key: %w", err)
+	}
+	log.Infof("generated peer auth signing key %s", path)
 	return nil
 }
 

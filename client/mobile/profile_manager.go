@@ -177,7 +177,7 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 }
 
 // LogoutProfile clears authentication data for a profile by removing its
-// private key and SSH key from the config, forcing a re-login. The management
+// private key, peer auth key and SSH key from the config, forcing a re-login. The management
 // URL and other settings are preserved.
 func (pm *ProfileManager) LogoutProfile(id string) error {
 	if err := pm.checkProfileLogoutAllowed(id); err != nil {
@@ -201,6 +201,7 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 	}
 
 	config.PrivateKey = ""
+	config.AuthKey = ""
 	config.SSHKey = ""
 
 	if err := profilemanager.WriteOutConfig(configPath, config); err != nil {

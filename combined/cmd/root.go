@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
 	"errors"
@@ -36,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -221,6 +223,10 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
 		return nil, fmt.Errorf("failed to setup TLS config: %w", err)
 	}
 
+	if err := EnsurePeerAuthSigningKey(ctx, cfg); err != nil {
+		return nil, err
+	}
+
 	if err := servers.createRelayServer(cfg, tlsSupport); err != nil {
 		return nil, err
 	}
@@ -251,14 +257,23 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 		return err
 	}
 
-	hashedSecret := sha256.Sum256([]byte(cfg.Relay.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:])
+	peerAuthKeys, err := localPeerAuthKeys(cfg)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return err
+	}
 
 	relayCfg := relayServer.Config{
 		Meter:          s.metricsServer.Meter,
 		ExposedAddress: cfg.Relay.ExposedAddress,
-		AuthValidator:  authenticator,
+		AuthValidator:  localLegacyValidator(cfg.Relay.AuthSecret),
 		TLSSupport:     tlsSupport,
+		PeerAuth: relayServer.PeerAuthConfig{
+			Keys:      peerAuthKeys,
+			Hostnames: cfg.Server.PeerAuth.Hostnames,
+			Required:  cfg.Server.PeerAuth.Required,
+			CheckTime: cfg.Server.PeerAuth.CheckTime,
+		},
 	}
 
 	s.relaySrv, err = createRelayServer(relayCfg, s.stunListeners)
@@ -331,8 +346,18 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 		return nil
 	}
 
-	var err error
-	s.signalSrv, err = signalServer.NewServer(ctx, s.metricsServer.Meter, "signal_")
+	peerAuthKeys, err := localPeerAuthKeys(cfg)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return err
+	}
+	pa := signalServer.PeerAuthConfig{
+		Keys:      peerAuthKeys,
+		Hostnames: cfg.Server.PeerAuth.Hostnames,
+		Required:  cfg.Server.PeerAuth.Required,
+		CheckTime: cfg.Server.PeerAuth.CheckTime,
+	}
+	s.signalSrv, err = signalServer.NewServerWithPeerAuth(ctx, s.metricsServer.Meter, pa, "signal_")
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to create signal server: %w", err)
@@ -340,6 +365,29 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 
 	log.Infof("Signal server created")
 	return nil
+}
+
+// localLegacyValidator returns the local Relay's validator of legacy relay tokens, or nil after the
+// flag day, when there is no secret and peers without a bound token are refused.
+func localLegacyValidator(secret string) relayServer.Validator {
+	if secret == "" {
+		return nil
+	}
+	hashedSecret := sha256.Sum256([]byte(secret))
+	return auth.NewTimedHMACValidator(hashedSecret[:])
+}
+
+// localPeerAuthKeys returns the public key of the local Management's signing key, which the local
+// Relay and Signal verify bound tokens with. Without a signing key no bound token is issued.
+func localPeerAuthKeys(cfg *CombinedConfig) (peerauth.TokenKeys, error) {
+	if cfg.Server.PeerAuth.SigningKeyFile == "" {
+		return peerauth.TokenKeys{}, nil
+	}
+	key, err := peerauth.LoadSigningKeyFile(cfg.Server.PeerAuth.SigningKeyFile)
+	if err != nil {
+		return peerauth.TokenKeys{}, err
+	}
+	return peerauth.NewEd25519Keys([]ed25519.PublicKey{key.Public().(ed25519.PublicKey)})
 }
 
 func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {

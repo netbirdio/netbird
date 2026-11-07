@@ -2,9 +2,14 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -43,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/peerauth"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -54,7 +60,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
+func startManagement(t *testing.T, configure ...func(*config.Config)) (*grpc.Server, net.Listener) {
 	t.Helper()
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
@@ -63,6 +69,9 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	_, err := util.ReadJson("../../../management/server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, c := range configure {
+		c(config)
 	}
 
 	lis, err := net.Listen("tcp", ":0")
@@ -137,7 +146,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	groupsManager := groups.NewManagerMock()
 
-	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager, nbgrpc.WithPeerAuth(config.PeerAuth))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,6 +568,127 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	assert.Equal(t, ValidKey, actualValidKey)
 	if !isEqual(expectedMeta, actualMeta) {
 		t.Errorf("expected and actual meta are not equal")
+	}
+}
+
+// Management can only issue Signal and Relay tokens bound to the peer when the peer sends its
+// auth key; a client built without the key must keep sending the request it always sent.
+func TestClient_LoginSendsAuthKey(t *testing.T) {
+	authPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		opts []Option
+		want []byte
+	}{
+		{"with auth key", []Option{WithAuthKey(authPub)}, authPub},
+		{"without auth key", nil, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+			t.Cleanup(s.GracefulStop)
+
+			testKey, err := wgtypes.GenerateKey()
+			require.NoError(t, err)
+			client, err := NewClient(context.Background(), lis.Addr().String(), testKey, false, tc.opts...)
+			require.NoError(t, err)
+
+			got := make(chan *mgmtProto.PeerKeys, 2)
+			mgmtMockServer.LoginFunc = func(ctx context.Context, msg *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
+				peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+				if err != nil {
+					return nil, status.Error(codes.InvalidArgument, err.Error())
+				}
+				req := &mgmtProto.LoginRequest{}
+				if err := encryption.DecryptMessage(peerKey, serverKey, msg.Body, req); err != nil {
+					return nil, status.Error(codes.InvalidArgument, err.Error())
+				}
+				got <- req.GetPeerKeys()
+				body, err := encryption.EncryptMessage(peerKey, serverKey, &mgmtProto.LoginResponse{})
+				if err != nil {
+					return nil, err
+				}
+				return &mgmtProto.EncryptedMessage{WgPubKey: serverKey.PublicKey().String(), Body: body}, nil
+			}
+
+			info := system.GetInfo(context.TODO())
+			_, err = client.Login(info, nil, nil)
+			require.NoError(t, err)
+			_, err = client.Register(ValidKey, "", info, nil, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, (<-got).GetAuthPubKey(), "login must carry the auth key it was configured with")
+			assert.Equal(t, tc.want, (<-got).GetAuthPubKey(), "register must carry the auth key it was configured with")
+		})
+	}
+}
+
+// With a signing key, a peer that sends its auth key gets only the bound token, on Login and on
+// Sync; a peer without one keeps getting only the legacy relay token.
+func TestClient_PeerAuthTokenIssuance(t *testing.T) {
+	mgmtPub, mgmtPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(mgmtPriv)
+	require.NoError(t, err)
+	keyFile := filepath.Join(t.TempDir(), "peer_auth.pem")
+	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
+	verifierKeys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
+
+	s, listener := startManagement(t, func(c *config.Config) {
+		c.PeerAuth = config.PeerAuth{SigningKeyFile: keyFile}
+	})
+	t.Cleanup(func() { closeManagementSilently(s, listener) })
+
+	authPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	for name, opts := range map[string][]Option{"new peer": {WithAuthKey(authPub)}, "legacy peer": nil} {
+		t.Run(name, func(t *testing.T) {
+			wgKey, err := wgtypes.GenerateKey()
+			require.NoError(t, err)
+			client, err := NewClient(context.Background(), listener.Addr().String(), wgKey, false, opts...)
+			require.NoError(t, err)
+
+			info := system.GetInfo(context.TODO())
+			loginResp, err := client.Register(ValidKey, "", info, nil, nil)
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			ch := make(chan *mgmtProto.SyncResponse, 1)
+			go func() {
+				_ = client.Sync(ctx, func(context.Context) *system.Info { return info }, func(msg *mgmtProto.SyncResponse) error {
+					select {
+					case ch <- msg:
+					default:
+					}
+					return nil
+				})
+			}()
+			var syncResp *mgmtProto.SyncResponse
+			select {
+			case syncResp = <-ch:
+			case <-time.After(10 * time.Second):
+				t.Fatal("no sync received")
+			}
+
+			for kind, cfg := range map[string]*mgmtProto.NetbirdConfig{"login": loginResp.GetNetbirdConfig(), "sync": syncResp.GetNetbirdConfig()} {
+				require.NotNil(t, cfg.GetRelay(), "%s must carry the relay config", kind)
+				if opts == nil {
+					assert.Nil(t, cfg.GetAuthToken(), "%s must not give a legacy peer the bound token", kind)
+					assert.NotEmpty(t, cfg.GetRelay().GetTokenPayload(), "%s must give a legacy peer the legacy relay token", kind)
+					continue
+				}
+				token, err := peerauth.VerifyToken(cfg.GetAuthToken(), verifierKeys, time.Now())
+				require.NoError(t, err, "%s must carry a bound token the verifiers accept", kind)
+				assert.Equal(t, wgKey.PublicKey(), token.WGPub, "%s token must be bound to the peer WireGuard key", kind)
+				assert.Equal(t, authPub, token.AuthPub, "%s token must be bound to the peer auth key", kind)
+				assert.Empty(t, cfg.GetRelay().GetTokenPayload(), "%s must not carry the legacy relay token too", kind)
+			}
+		})
 	}
 }
 

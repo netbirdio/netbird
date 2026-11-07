@@ -95,7 +95,8 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	peers.meta_system_manufacturer, peers.meta_environment, peers.meta_flags, peers.meta_files, peers.meta_certificates,
 	peers.meta_capabilities, pc.last_seen, pc.session_started_at, mi.last_seen, peers.peer_status_login_expired,
 	peers.peer_status_requires_approval, peers.location_connection_ip, peers.location_country_code, peers.location_city_name,
-	peers.location_geo_name_id, peers.proxy_meta_embedded, peers.proxy_meta_cluster, peers.ipv6, peers.meta_sync_message_version
+	peers.location_geo_name_id, peers.proxy_meta_embedded, peers.proxy_meta_cluster, peers.ipv6, peers.meta_sync_message_version,
+	peers.auth_pub_key
 	FROM peers
 	LEFT JOIN peer_connections pc ON pc.peer_id = peers.id
 	LEFT JOIN management_instances mi ON mi.id = pc.instance_id
@@ -119,7 +120,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
-			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
+			locationCountryCode, locationCityName, proxyCluster, authPubKey                                 sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
 			metaSyncMessageVersion                                                                          sql.NullInt32
 		)
@@ -131,7 +132,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &certificates, &capabilities,
 			&peerLastSeen, &sessionStartedAt, &instanceLastSeen, &peerStatusLoginExpired,
 			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
-			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion)
+			&proxyEmbedded, &proxyCluster, &ipv6, &metaSyncMessageVersion, &authPubKey)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -215,6 +216,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if proxyCluster.Valid {
 				p.ProxyMeta.Cluster = proxyCluster.String
+			}
+			if authPubKey.Valid {
+				p.AuthPubKey = authPubKey.String
 			}
 			if ip != nil {
 				_ = json.Unmarshal(ip, &p.IP)

@@ -947,6 +947,11 @@ func (g *BundleGenerator) maskSecrets() {
 		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
 	}
 
+	// The auth token is a credential and names the peer's keys, so it is masked even without anonymizing.
+	if len(g.syncResponse.NetbirdConfig.AuthToken) > 0 {
+		g.syncResponse.NetbirdConfig.AuthToken = []byte(maskedValue)
+	}
+
 	for i := range g.syncResponse.NetbirdConfig.Turns {
 		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
 			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
