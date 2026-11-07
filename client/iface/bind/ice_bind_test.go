@@ -147,9 +147,8 @@ func TestICEBind_SendsToIPv4AndIPv6PeersSimultaneously(t *testing.T) {
 	assert.Equal(t, ipv6Local.LocalAddr().(*net.UDPAddr).Port, addr.(*net.UDPAddr).Port)
 }
 
-// TestICEBind_HandlesConcurrentMixedTraffic sends packets concurrently to both IPv4
-// and IPv6 peers. Verifies no packets get misrouted (IPv4 peer only gets v4- packets,
-// IPv6 peer only gets v6- packets). Some packet loss is acceptable for UDP.
+// TestICEBind_HandlesConcurrentMixedTraffic checks concurrent IPv4 and IPv6 writes
+// through the same connection without overflowing either peer's receive buffer.
 func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 	ipv4Peer := listenUDP(t, "udp4", "127.0.0.1:0")
 	defer ipv4Peer.Close()
@@ -167,88 +166,46 @@ func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 	defer ipv6Local.Close()
 
 	dualStack := NewDualStackPacketConn(ipv4Local, ipv6Local)
+	deadline := time.Now().Add(5 * time.Second)
+	require.NoError(t, ipv4Peer.SetReadDeadline(deadline))
+	require.NoError(t, ipv6Peer.SetReadDeadline(deadline))
 
 	const packetsPerFamily = 500
-
-	ipv4Received := make(chan string, packetsPerFamily)
-	ipv6Received := make(chan string, packetsPerFamily)
-
 	startGate := make(chan struct{})
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	exchange := func(prefix string, peer *net.UDPConn) error {
+		<-startGate
 		buf := make([]byte, 100)
 		for i := 0; i < packetsPerFamily; i++ {
-			n, _, err := ipv4Peer.ReadFrom(buf)
+			packet := fmt.Sprintf("%s-%04d", prefix, i)
+			n, err := dualStack.WriteTo([]byte(packet), peer.LocalAddr())
 			if err != nil {
-				return
+				return fmt.Errorf("%s send packet %d: %w", prefix, i, err)
 			}
-			ipv4Received <- string(buf[:n])
-		}
-	}()
+			if n != len(packet) {
+				return fmt.Errorf("%s send packet %d: wrote %d of %d bytes", prefix, i, n, len(packet))
+			}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 100)
-		for i := 0; i < packetsPerFamily; i++ {
-			n, _, err := ipv6Peer.ReadFrom(buf)
+			// Receive each packet before sending another on this family. Both
+			// families still write concurrently, without an unbounded UDP burst.
+			n, _, err = peer.ReadFrom(buf)
 			if err != nil {
-				return
+				return fmt.Errorf("%s receive packet %d: %w", prefix, i, err)
 			}
-			ipv6Received <- string(buf[:n])
+			if got := string(buf[:n]); got != packet {
+				return fmt.Errorf("%s receive packet %d: got %q, want %q", prefix, i, got, packet)
+			}
 		}
-	}()
+		return nil
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		<-startGate
-		for i := 0; i < packetsPerFamily; i++ {
-			_, _ = dualStack.WriteTo([]byte(fmt.Sprintf("v4-%04d", i)), ipv4Peer.LocalAddr())
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		<-startGate
-		for i := 0; i < packetsPerFamily; i++ {
-			_, _ = dualStack.WriteTo([]byte(fmt.Sprintf("v6-%04d", i)), ipv6Peer.LocalAddr())
-		}
-	}()
-
+	results := make(chan error, 2)
+	go func() { results <- exchange("v4", ipv4Peer) }()
+	go func() { results <- exchange("v6", ipv6Peer) }()
 	close(startGate)
 
-	time.AfterFunc(5*time.Second, func() {
-		_ = ipv4Peer.SetReadDeadline(time.Now())
-		_ = ipv6Peer.SetReadDeadline(time.Now())
-	})
-
-	wg.Wait()
-	close(ipv4Received)
-	close(ipv6Received)
-
-	ipv4Count := 0
-	for pkt := range ipv4Received {
-		require.True(t, len(pkt) >= 3 && pkt[:3] == "v4-", "IPv4 peer got misrouted packet: %s", pkt)
-		ipv4Count++
+	for range 2 {
+		assert.NoError(t, <-results)
 	}
-
-	ipv6Count := 0
-	for pkt := range ipv6Received {
-		require.True(t, len(pkt) >= 3 && pkt[:3] == "v6-", "IPv6 peer got misrouted packet: %s", pkt)
-		ipv6Count++
-	}
-
-	// Allow some UDP packet loss under load (e.g. FreeBSD/QEMU runners). The
-	// routing-correctness checks above are the real assertions; the counts
-	// are a sanity bound to catch a totally silent path.
-	minDelivered := packetsPerFamily * 80 / 100
-	assert.GreaterOrEqual(t, ipv4Count, minDelivered, "IPv4 delivery below threshold")
-	assert.GreaterOrEqual(t, ipv6Count, minDelivered, "IPv6 delivery below threshold")
 }
 
 func TestICEBind_DetectsAddressFamilyFromConnection(t *testing.T) {
