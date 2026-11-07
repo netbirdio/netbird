@@ -52,7 +52,6 @@ PROXY_TYPE=""          # caddy_embedded | traefik | external
 IDP_TYPE=""            # embedded | external
 MGMT_VOLUME=""         # detected management volume name
 DOMAIN=""
-LETSENCRYPT_EMAIL=""
 STORE_ENGINE="sqlite"
 STORE_DSN=""
 ENCRYPTION_KEY=""
@@ -443,15 +442,7 @@ detect_domain() {
     exit 1
   fi
 
-  # Detect Let's Encrypt email from setup.env or dashboard.env LETSENCRYPT_DOMAIN
-  if [[ -f "$INSTALL_DIR/setup.env" ]]; then
-    LETSENCRYPT_EMAIL=$(grep '^NETBIRD_LETSENCRYPT_EMAIL=' "$INSTALL_DIR/setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
-  fi
-
   log_success "Domain: $DOMAIN"
-  if [[ -n "$LETSENCRYPT_EMAIL" ]]; then
-    log_success "Let's Encrypt email: $LETSENCRYPT_EMAIL"
-  fi
   return 0
 }
 
@@ -810,8 +801,6 @@ EOF
 generate_docker_compose_traefik() {
   log_info "Generating docker-compose.yml (Traefik)..."
 
-  local acme_email="${LETSENCRYPT_EMAIL:-admin@${DOMAIN}}"
-
   # Volume config: use old volume if detected
   local volume_config=""
   if [[ -n "$MGMT_VOLUME" ]]; then
@@ -854,7 +843,6 @@ services:
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
       # Let's Encrypt ACME
-      - "--certificatesresolvers.letsencrypt.acme.email=${acme_email}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
       # gRPC transport settings

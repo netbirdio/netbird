@@ -164,7 +164,6 @@ check_domain_resolves() {
 #
 # Supported env vars:
 #   NETBIRD_DOMAIN                    domain/FQDN (required)
-#   NETBIRD_LETSENCRYPT_EMAIL         ACME email (required for built-in Traefik)
 #   NETBIRD_AGENT_NETWORK             true enables the agent-network preset
 #   NETBIRD_REVERSE_PROXY_TYPE        0-5 (default 0 = built-in Traefik)
 #   NETBIRD_ENABLE_PROXY              true/false (default false)
@@ -396,20 +395,6 @@ ensure_crowdsec_appsec_allowed() {
   return 0
 }
 
-read_traefik_acme_email() {
-  echo "" > /dev/stderr
-  echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
-  echo -n "Email address: " > /dev/stderr
-  read -r EMAIL < /dev/tty
-  if [[ -z "$EMAIL" ]]; then
-    echo "Email is required for Let's Encrypt." > /dev/stderr
-    read_traefik_acme_email
-    return
-  fi
-  echo "$EMAIL"
-  return 0
-}
-
 get_bind_address() {
   if [[ "$BIND_LOCALHOST_ONLY" == "true" ]]; then
     echo "127.0.0.1"
@@ -520,7 +505,6 @@ initialize_default_values() {
   TRAEFIK_EXTERNAL_NETWORK=""
   TRAEFIK_ENTRYPOINT="websecure"
   TRAEFIK_CERTRESOLVER=""
-  TRAEFIK_ACME_EMAIL=""
   DASHBOARD_HOST_PORT="8080"
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
@@ -581,16 +565,13 @@ apply_agent_network_preset() {
   # Agent-network turnkey install: built-in Traefik + NetBird Proxy with
   # NB_PROXY_PRIVATE=true, dashboard locked to agent-network-only mode.
   # Bypasses every reverse-proxy / proxy / CrowdSec prompt. The only
-  # inputs we still need from the operator are the domain (handled by
-  # configure_domain via NETBIRD_DOMAIN env var or interactive prompt)
-  # and the ACME email — both honor env vars first and fall back to a
-  # prompt only when unset. CrowdSec is intentionally off.
+  # input we still need from the operator is the domain (handled by
+  # configure_domain via NETBIRD_DOMAIN env var or interactive prompt).
+  # CrowdSec is intentionally off.
   REVERSE_PROXY_TYPE="0"
   ENABLE_PROXY="true"
   ENABLE_CROWDSEC="false"
   TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
-
-  TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
 
   echo "" > /dev/stderr
   echo "Agent-network preset enabled (NETBIRD_AGENT_NETWORK=true):" > /dev/stderr
@@ -600,7 +581,6 @@ apply_agent_network_preset() {
   echo "  - proxy image: ${NETBIRD_PROXY_IMAGE}" > /dev/stderr
   echo "  - dashboard: NETBIRD_AGENT_NETWORK_ONLY=true" > /dev/stderr
   echo "  - CrowdSec: disabled" > /dev/stderr
-  echo "  - Let's Encrypt email: ${TRAEFIK_ACME_EMAIL}" > /dev/stderr
   echo "" > /dev/stderr
 }
 
@@ -620,7 +600,6 @@ configure_reverse_proxy() {
 
   # Handle built-in Traefik prompts (option 0)
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
-    TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
     ENABLE_PROXY=$(resolve NETBIRD_ENABLE_PROXY false read_enable_proxy)
     if [[ "$ENABLE_PROXY" == "true" ]]; then
       ENABLE_CROWDSEC=$(resolve NETBIRD_ENABLE_CROWDSEC false read_enable_crowdsec)
@@ -1133,7 +1112,6 @@ ${traefik_plugin}      # Disable timeouts for long-lived gRPC streams
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
       # Let's Encrypt ACME
-      - "--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
       # gRPC transport settings

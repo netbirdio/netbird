@@ -164,24 +164,6 @@ read_nb_domain() {
   return
 }
 
-read_letsencrypt_email() {
-  if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL:-}" ]]; then
-    echo "$NETBIRD_LETSENCRYPT_EMAIL"
-    return
-  fi
-  local value=""
-  echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
-  echo -n "Email address: " > /dev/stderr
-  read -r value < /dev/tty
-  if [[ -z "$value" ]]; then
-    echo "Email is required for Let's Encrypt." > /dev/stderr
-    read_letsencrypt_email
-    return
-  fi
-  echo "$value"
-  return
-}
-
 read_required() {
   local prompt="$1"
   local value=""
@@ -579,9 +561,6 @@ init_environment() {
   NETBIRD_DOMAIN=$(read_nb_domain)
 
   echo ""
-  NETBIRD_LETSENCRYPT_EMAIL=$(read_letsencrypt_email)
-
-  echo ""
 
   NETBIRD_LICENSE_KEY=$(read_secret "Enter license key (input hidden)")
 
@@ -602,7 +581,6 @@ init_environment() {
   echo "  CrowdSec:     ${NETBIRD_CROWDSEC}"
   echo "  AppSec:       ${NETBIRD_CROWDSEC_APPSEC}"
   echo "  Domain:       ${NETBIRD_DOMAIN}"
-  echo "  ACME email:   ${NETBIRD_LETSENCRYPT_EMAIL}"
   echo ""
   echo "Rendering files into $(pwd) ..."
   ensure_crowdsec_dashboard_key
@@ -847,7 +825,6 @@ NETBIRD_CROWDSEC_APPSEC_ENABLED=${NETBIRD_CROWDSEC_APPSEC:-no}
 NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
 
 # Reverse proxy (Traefik)
-NETBIRD_LETSENCRYPT_EMAIL=${NETBIRD_LETSENCRYPT_EMAIL}
 NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.7.14}
 NETBIRD_TRAEFIK_IP=${TRAEFIK_IP}
 
@@ -1001,7 +978,6 @@ EOF
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
       # Let's Encrypt ACME
-      - "--certificatesresolvers.letsencrypt.acme.email=${NETBIRD_LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
       # Dynamic config in ./traefik: the proxy transport and an optional custom certificate
