@@ -3,6 +3,7 @@
 package iptables
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 
@@ -14,6 +15,10 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
+
+// errIPSetFull is the kernel's IPSET_ERR_HASH_FULL, the first type-specific ipset error. ipset-go
+// numbers its hash error constants one higher, so its IPSET_ERR_HASH_FULL does not match.
+var errIPSetFull = ipset.IPSetError(ipset.IPSET_ERR_TYPE_SPECIFIC)
 
 // probeIPSetSupport checks whether the kernel can create the ipset type
 // used for source and destination matches. On kernels lacking the
@@ -77,6 +82,10 @@ func (r *family) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	for _, prefix := range prefixes {
 		if err := r.addPrefixToIPSet(name, prefix); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add prefix to ipset: %w", err))
+			// A full set rejects every remaining prefix as well.
+			if errors.Is(err, errIPSetFull) {
+				break
+			}
 		}
 	}
 	if merr == nil {

@@ -875,7 +875,8 @@ func haMapRouteCount(hm route.HAMap) int {
 func haMapContains(hm route.HAMap, ip netip.Addr) (matched, haveDynamic bool) {
 	for _, routes := range hm {
 		for _, r := range routes {
-			if r.IsDynamic() {
+			// A country route's prefixes live in its handler, so treat it like a domain route.
+			if r.IsDynamic() || r.IsCountry() {
 				haveDynamic = true
 				continue
 			}

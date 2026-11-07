@@ -644,6 +644,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		PeerStore:           e.peerStore,
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
+		CountryPrefixes:     e.mgmClient.GetCountryPrefixes,
 	})
 	if err := e.routeManager.Init(); err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -698,7 +699,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
-		e.acl = acl.NewDefaultManager(e.firewall)
+		aclManager := acl.NewDefaultManager(e.firewall)
+		aclManager.SetCountryPrefixes(e.mgmClient.GetCountryPrefixes)
+		e.acl = aclManager
 	}
 
 	if err := e.dnsServer.Initialize(); err != nil {
@@ -1790,6 +1793,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 			ID:            route.ID(protoRoute.ID),
 			Network:       prefix.Masked(),
 			Domains:       domain.FromPunycodeList(protoRoute.Domains),
+			Countries:     protoRoute.Countries,
 			NetID:         route.NetID(protoRoute.NetID),
 			NetworkType:   route.NetworkType(protoRoute.NetworkType),
 			Peer:          protoRoute.Peer,

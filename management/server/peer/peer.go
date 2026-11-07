@@ -22,6 +22,7 @@ const (
 	PeerCapabilitySourcePrefixes      = nmdata.PeerCapabilitySourcePrefixes
 	PeerCapabilityIPv6Overlay         = nmdata.PeerCapabilityIPv6Overlay
 	PeerCapabilityComponentNetworkMap = nmdata.PeerCapabilityComponentNetworkMap
+	PeerCapabilityCountryRoutes       = nmdata.PeerCapabilityCountryRoutes
 )
 
 // Peer represents a machine connected to the network.

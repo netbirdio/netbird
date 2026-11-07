@@ -522,10 +522,7 @@ func (c *Client) Networks() *NetworkArray {
 
 func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}, activeRoutePeers map[route.HAUniqueID]string) *Network {
 	r := routes[0]
-	netStr := r.Network.String()
-	if r.IsDynamic() {
-		netStr = r.Domains.SafeString()
-	}
+	netStr := r.NetString()
 
 	routePeer, err := c.findBestRoutePeer(routes, activeRoutePeers)
 	if err != nil {

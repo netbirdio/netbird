@@ -78,35 +78,20 @@ func initRoutesTestData() *handler {
 					return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 				}
 			},
-			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
-				if peerID == notFoundPeerID {
-					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+			CreateRouteFunc: func(_ context.Context, _, _ string, r *route.Route) (*route.Route, error) {
+				if r.Peer == notFoundPeerID {
+					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", r.Peer)
 				}
-				if len(peerGroups) > 0 && peerGroups[0] == notFoundGroupID {
-					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
+				if len(r.PeerGroups) > 0 && r.PeerGroups[0] == notFoundGroupID {
+					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", r.PeerGroups[0])
 				}
-				if peerID != "" {
-					if peerID == nonLinuxExistingPeerID {
-						return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-					}
+				if r.Peer == nonLinuxExistingPeerID {
+					return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
 				}
 
-				return &route.Route{
-					ID:                  existingRouteID,
-					NetID:               netID,
-					Peer:                peerID,
-					PeerGroups:          peerGroups,
-					Network:             prefix,
-					Domains:             domains,
-					NetworkType:         networkType,
-					Description:         description,
-					Masquerade:          masquerade,
-					Enabled:             enabled,
-					Groups:              groups,
-					KeepRoute:           keepRoute,
-					AccessControlGroups: accessControlGroups,
-					SkipAutoApply:       skipAutoApply,
-				}, nil
+				created := r.Copy()
+				created.ID = existingRouteID
+				return created, nil
 			},
 			SaveRouteFunc: func(_ context.Context, _, _ string, r *route.Route) error {
 				if r.Peer == notFoundPeerID {
@@ -312,6 +297,55 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:        "Countries POST OK",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf(`{"description":"Post","countries":["US","CA"],"network_id":"usExit","peer":"%s","groups":["%s"],"masquerade":true,"skip_auto_apply":false}`, existingPeerID, existingGroupID))),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute: &api.Route{
+				Id:            existingRouteID,
+				Description:   "Post",
+				NetworkId:     "usExit",
+				Network:       util.ToPtr("invalid Prefix"),
+				Countries:     &[]string{"US", "CA"},
+				Peer:          &existingPeerID,
+				NetworkType:   route.CountryNetworkString,
+				Masquerade:    true,
+				Enabled:       false,
+				Groups:        []string{existingGroupID},
+				SkipAutoApply: util.ToPtr(false),
+			},
+		},
+		{
+			name:        "POST UnprocessableEntity when both network and countries are provided",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf(`{"Description":"Post","Network":"192.168.0.0/16","countries":["US"],"network_id":"awesomeNet","peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "POST UnprocessableEntity when both domains and countries are provided",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf(`{"Description":"Post","domains":["example.com"],"countries":["US"],"network_id":"awesomeNet","peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "POST UnprocessableEntity when countries is empty",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf(`{"Description":"Post","countries":[],"network_id":"awesomeNet","peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:        "POST UnprocessableEntity when no network and domains are provided",
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
@@ -377,6 +411,27 @@ func TestRoutesHandlers(t *testing.T) {
 				Enabled:       false,
 				Groups:        []string{existingGroupID},
 				KeepRoute:     true,
+				SkipAutoApply: util.ToPtr(false),
+			},
+		},
+		{
+			name:           "Countries PUT OK",
+			requestType:    http.MethodPut,
+			requestPath:    "/api/routes/" + existingRouteID,
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"Description":"Post","countries":["US","CA"],"network_id":"usExit","Peer":"%s","groups":["%s"],"masquerade":true,"skip_auto_apply":false}`, existingPeerID, existingGroupID)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute: &api.Route{
+				Id:            existingRouteID,
+				Description:   "Post",
+				NetworkId:     "usExit",
+				Network:       util.ToPtr("invalid Prefix"),
+				Countries:     &[]string{"US", "CA"},
+				Peer:          &existingPeerID,
+				NetworkType:   route.CountryNetworkString,
+				Masquerade:    true,
+				Enabled:       false,
+				Groups:        []string{existingGroupID},
 				SkipAutoApply: util.ToPtr(false),
 			},
 		},
@@ -456,6 +511,15 @@ func TestRoutesHandlers(t *testing.T) {
 			requestPath: "/api/routes/" + existingRouteID,
 			requestBody: bytes.NewBuffer(
 				[]byte(fmt.Sprintf(`{"Description":"Post","Network":"192.168.0.0/16","domains":["example.com"],"network_id":"awesomeNet","peer":"%s","peer_groups":["%s"],"groups":["%s"]}`, existingPeerID, existingGroupID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "PUT UnprocessableEntity when both network and countries are provided",
+			requestType: http.MethodPut,
+			requestPath: "/api/routes/" + existingRouteID,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf(`{"Description":"Post","Network":"192.168.0.0/16","countries":["US"],"network_id":"awesomeNet","peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID))),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
