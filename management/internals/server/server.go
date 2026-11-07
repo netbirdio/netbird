@@ -15,7 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
-	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 	"google.golang.org/grpc"
 
@@ -238,9 +237,12 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 		if s.mgmtPort == 443 {
 			// CertManager, HTTP and gRPC API all on the same port
 			rootHandler = s.certManager.HTTPHandler(rootHandler)
-			s.listener = s.certManager.Listener()
+			s.listener, err = testKA().autocertListener(s.certManager)
+			if err != nil {
+				return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
+			}
 		} else {
-			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.certManager.TLSConfig())
+			s.listener, err = testKA().listenTLS(fmt.Sprintf(":%d", s.mgmtPort), s.certManager.TLSConfig())
 			if err != nil {
 				return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 			}
@@ -249,12 +251,12 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 			}
 		}
 	case s.tlsConfig != nil:
-		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.tlsConfig)
+		s.listener, err = testKA().listenTLS(fmt.Sprintf(":%d", s.mgmtPort), s.tlsConfig)
 		if err != nil {
 			return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 		}
 	default:
-		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
+		s.listener, err = testKA().listen(fmt.Sprintf(":%d", s.mgmtPort))
 		if err != nil {
 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
 		}
@@ -460,7 +462,7 @@ func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, ht
 }
 
 func (s *BaseServer) serveGRPC(ctx context.Context, grpcServer *grpc.Server, port int) (net.Listener, error) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	listener, err := testKA().listen(fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
 	}
@@ -525,13 +527,13 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 		defer s.wg.Done()
 		var err error
 		if tlsEnabled {
-			err = http.Serve(listener, handler)
+			err = testKA().serveTLS(listener, handler)
 		} else {
 			// the following magic is needed to support HTTP2 without TLS
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
 				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
-				Handler: h2c.NewHandler(handler, &http2.Server{}),
+				Handler: h2c.NewHandler(handler, testKA().h2cServer()),
 			}
 			err = h1s.Serve(listener)
 		}
