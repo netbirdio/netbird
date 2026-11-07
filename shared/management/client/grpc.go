@@ -19,6 +19,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	gproto "google.golang.org/protobuf/proto"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/client/netevents"
@@ -506,7 +507,6 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 			return err
 		}
 
-		log.Debugf("got an update message from Management Service")
 		decryptedResp := &proto.SyncResponse{}
 		err = encryption.DecryptMessage(serverPubKey, c.key, update.Body, decryptedResp)
 		if err != nil {
@@ -514,6 +514,14 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 			return err
 		}
 
+		// A SyncResponse with every field unset is a test heartbeat. It only keeps
+		// the stream active, so skip the handler and its sync lock.
+		if gproto.Size(decryptedResp) == 0 {
+			log.Tracef("got an empty update message from Management Service")
+			continue
+		}
+
+		log.Debugf("got an update message from Management Service")
 		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
 		}
