@@ -1435,6 +1435,13 @@ func (d *Status) SubscribeToEvents() *EventSubscription {
 	}
 }
 
+// HasEventSubscribers reports whether any UI client is listening for events.
+func (d *Status) HasEventSubscribers() bool {
+	d.eventMux.RLock()
+	defer d.eventMux.RUnlock()
+	return len(d.eventStreams) > 0
+}
+
 // UnsubscribeFromEvents removes an event subscription
 func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
 	if sub == nil {
