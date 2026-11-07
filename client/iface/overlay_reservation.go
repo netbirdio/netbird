@@ -1,0 +1,140 @@
+package iface
+
+import (
+	"errors"
+	"fmt"
+	"net/netip"
+	"slices"
+
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
+)
+
+// ErrOverlayRangeReserved is returned when a peer is asked to carry the overlay range itself.
+var ErrOverlayRangeReserved = errors.New("prefix is the reserved overlay range")
+
+// reserveOverlay binds the whole overlay range to a placeholder peer that never has an endpoint
+// and never completes a handshake.
+//
+// WireGuard picks the peer for an address by the longest allowed IPs match, in both directions.
+// A peer that has not been added yet has no entry, so a routed prefix covering its address, an
+// exit node's 0.0.0.0/0, would be the longest match: the exit node could send as that peer and
+// would be sent what is addressed to it. With the placeholder in place such an address is
+// dropped locally, and a peer's own addresses still win as soon as they are added, being more
+// specific than the overlay range.
+//
+// replace moves a reservation made earlier to the current range. The new range is added before the
+// old one is released, since adding a peer only adds allowed IPs: if the device refuses the change the
+// old range stays reserved, and a failure to release the old range only leaves it reserved. replace
+// must be false right after the device was configured, which removes all peers. The caller holds w.mu.
+func (w *WGIface) reserveOverlay(replace bool) error {
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	var previous []netip.Prefix
+	if replace {
+		previous = w.overlayRange
+	} else {
+		w.overlayRange = nil
+		w.staleOverlay = nil
+	}
+
+	prefixes := overlayPrefixes(w.tun.WgAddress())
+	if err := w.addOverlayRange(prefixes); err != nil {
+		return err
+	}
+	w.overlayRange = prefixes
+	w.releaseOverlayRanges(previous, prefixes)
+
+	log.Debugf("reserved overlay range %v on interface %s for a placeholder peer", prefixes, w.tun.DeviceName())
+	return nil
+}
+
+// addOverlayRange adds prefixes to the placeholder peer. The caller holds w.mu.
+func (w *WGIface) addOverlayRange(prefixes []netip.Prefix) error {
+	if w.overlayPeerKey == "" {
+		priv, err := wgtypes.GeneratePrivateKey()
+		if err != nil {
+			return fmt.Errorf("generate overlay placeholder key: %w", err)
+		}
+		w.overlayPeerKey = priv.PublicKey().String()
+	}
+
+	if err := w.configurer.UpdatePeer(w.overlayPeerKey, prefixes, 0, nil, nil); err != nil {
+		return fmt.Errorf("reserve overlay range: %w", err)
+	}
+	return nil
+}
+
+// releaseOverlayRanges removes the prefixes of old that are not in keep from the placeholder peer.
+// A prefix that could not be removed stays reserved, which only makes the placeholder claim a range
+// that is no longer the overlay. It is remembered and removed by the next release. The caller holds w.mu.
+func (w *WGIface) releaseOverlayRanges(old, keep []netip.Prefix) {
+	candidates := slices.Clone(old)
+	for _, p := range w.staleOverlay {
+		if !slices.Contains(candidates, p) {
+			candidates = append(candidates, p)
+		}
+	}
+
+	w.staleOverlay = nil
+	for _, p := range candidates {
+		if slices.Contains(keep, p) {
+			continue
+		}
+		if err := w.configurer.RemoveAllowedIP(w.overlayPeerKey, p); err != nil {
+			log.Warnf("failed to release overlay range %s, it stays reserved and is retried on the next address change: %v", p, err)
+			w.staleOverlay = append(w.staleOverlay, p)
+		}
+	}
+}
+
+func overlayPrefixes(addr wgaddr.Address) []netip.Prefix {
+	prefixes := []netip.Prefix{normalizePrefix(addr.Network)}
+	if addr.HasIPv6() && addr.IPv6Net.IsValid() {
+		prefixes = append(prefixes, normalizePrefix(addr.IPv6Net))
+	}
+	return prefixes
+}
+
+// normalizePrefix returns the form WireGuard stores: masked, and with a v4-mapped v6 prefix such as
+// ::ffff:100.64.0.0/112 turned into the plain v4 prefix.
+func normalizePrefix(p netip.Prefix) netip.Prefix {
+	addr, bits := p.Addr(), p.Bits()
+	if addr.Is4In6() && bits >= 96 {
+		addr, bits = addr.Unmap(), bits-96
+	}
+	return netip.PrefixFrom(addr, bits).Masked()
+}
+
+// checkNotOverlayRange refuses prefixes that would take the overlay range away from the placeholder.
+// WireGuard gives a prefix to one peer only, so a peer given the exact range replaces the placeholder
+// and the addresses in it are no longer reserved. Prefixes that contain the range, such as an exit
+// node's 0.0.0.0/0, or sit inside it, such as a peer's own address, do not conflict. The caller holds
+// w.mu.
+func (w *WGIface) checkNotOverlayRange(prefixes ...netip.Prefix) error {
+	for _, p := range prefixes {
+		if slices.Contains(w.overlayRange, normalizePrefix(p)) {
+			return fmt.Errorf("%w: %s", ErrOverlayRangeReserved, p)
+		}
+	}
+	return nil
+}
+
+// withoutOverlayRange returns prefixes without the ones checkNotOverlayRange refuses, so a peer
+// whose list also carries the range still gets its own addresses and routes. The caller holds
+// w.mu.
+func (w *WGIface) withoutOverlayRange(peerKey string, prefixes []netip.Prefix) []netip.Prefix {
+	kept := make([]netip.Prefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		if err := w.checkNotOverlayRange(p); err != nil {
+			log.Debugf("skipping allowed IP for peer %s: %v", peerKey, err)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return kept
+}
