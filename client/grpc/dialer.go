@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -51,7 +53,7 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 		WithCustomDialer(tlsEnabled, component),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
+			Time:    localTestEnvSeconds("NB_TEST_GRPC_KEEPALIVE_SEC", 30*time.Second),
 			Timeout: 10 * time.Second,
 		}),
 	}
@@ -63,4 +65,14 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 	}
 
 	return conn, nil
+}
+
+// LOCAL TEST (battery measurement, never push): duration override in seconds from env.
+// Empty or unparsable keeps def; a negative value is passed through (disables net.Dialer keepalive).
+func localTestEnvSeconds(key string, def time.Duration) time.Duration {
+	v, err := strconv.Atoi(os.Getenv(key))
+	if err != nil {
+		return def
+	}
+	return time.Duration(v) * time.Second
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -509,7 +511,7 @@ func (c *GrpcClient) idleSinceReceive() time.Duration {
 // stopped calling Recv, so the stream looks silent while being healthy, and
 // reconnecting would not help, so the watchdog must treat it as alive.
 func (c *GrpcClient) receiveAlive() bool {
-	return c.idleSinceReceive() < receiveInactivityThreshold ||
+	return c.idleSinceReceive() < localTestEnvSeconds("NB_TEST_SIGNAL_WATCHDOG_SEC", receiveInactivityThreshold) ||
 		c.receiveHandoffBlocked.Load()
 }
 
@@ -642,4 +644,14 @@ func (c *GrpcClient) notifyConnected() {
 		return
 	}
 	c.connStateCallback.MarkSignalConnected()
+}
+
+// LOCAL TEST (battery measurement, never push): duration override in seconds from env.
+// Empty or unparsable keeps def; a negative value is passed through (disables net.Dialer keepalive).
+func localTestEnvSeconds(key string, def time.Duration) time.Duration {
+	v, err := strconv.Atoi(os.Getenv(key))
+	if err != nil {
+		return def
+	}
+	return time.Duration(v) * time.Second
 }

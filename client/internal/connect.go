@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -407,6 +408,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		if override, ok := peer.OverrideRelayURLs(); ok {
 			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
 			relayURLs = override
+		}
+		// LOCAL TEST (battery): no relay connection, to measure the relay senders' share of the radio cost.
+		if v := os.Getenv("NB_TEST_ABLATE"); v == "relay" || v == "dnsonly" {
+			log.Infof("LOCAL TEST: ablate %s: no relay connection", v)
+			relayURLs = nil
 		}
 		peerConfig := loginResp.GetPeerConfig()
 

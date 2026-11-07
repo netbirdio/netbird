@@ -299,6 +299,9 @@ type Engine struct {
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
 
+	// LOCAL TEST (battery): set once NB_TEST_ABLATE=control has closed Management and Signal.
+	localTestControlClosed atomic.Bool
+
 	// shutdownWg tracks all long-running goroutines to ensure clean shutdown
 	shutdownWg sync.WaitGroup
 
@@ -715,6 +718,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.receiveManagementEvents()
 	e.receiveJobEvents()
+	e.localTestAblateControl()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -1186,7 +1190,29 @@ func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
 	log.Debugf("sync response persisted with serial %d", update.GetNetworkMap().GetSerial())
 }
 
+// localTestAblateControl closes Management and Signal after startup, so only the relay
+// senders stay. LOCAL TEST (battery): measures the control plane's share of the radio cost.
+func (e *Engine) localTestAblateControl() {
+	if v := os.Getenv("NB_TEST_ABLATE"); v != "control" && v != "dnsonly" {
+		return
+	}
+	go func() {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+		e.localTestControlClosed.Store(true)
+		sigErr := e.signal.Close()
+		mgmErr := e.mgmClient.Close()
+		log.Infof("LOCAL TEST: ablate control: Signal closed (%v), Management closed (%v)", sigErr, mgmErr)
+	}()
+}
+
 func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
+	if v := os.Getenv("NB_TEST_ABLATE"); v == "relay" || v == "dnsonly" { // LOCAL TEST
+		return nil
+	}
 	if update != nil {
 		// when we receive token we expect valid address list too
 		c := &auth.Token{
@@ -1422,6 +1448,9 @@ func (e *Engine) receiveJobEvents() {
 			}
 		})
 		if err != nil {
+			if e.localTestControlClosed.Load() { // LOCAL TEST
+				return
+			}
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
@@ -1515,6 +1544,9 @@ func (e *Engine) receiveManagementEvents() {
 		}
 		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), e.handleSync)
 		if err != nil {
+			if e.localTestControlClosed.Load() { // LOCAL TEST
+				return
+			}
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
@@ -2080,6 +2112,9 @@ func (e *Engine) receiveSignalEvents() error {
 			return nil
 		})
 		if err != nil {
+			if e.localTestControlClosed.Load() { // LOCAL TEST
+				return
+			}
 			// happens if signal is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
