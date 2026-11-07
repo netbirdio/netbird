@@ -4,6 +4,7 @@ package dns
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/introspect"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -29,6 +31,8 @@ const (
 	systemdDbusLinkInterface               = "org.freedesktop.resolve1.Link"
 	systemdDbusRevertMethodSuffix          = systemdDbusLinkInterface + ".Revert"
 	systemdDbusSetDNSMethodSuffix          = systemdDbusLinkInterface + ".SetDNS"
+	setDNSExMethodName                     = "SetDNSEx"
+	systemdDbusSetDNSExMethodSuffix        = systemdDbusLinkInterface + "." + setDNSExMethodName
 	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
 	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
 	systemdDbusSetDNSSECMethodSuffix       = systemdDbusLinkInterface + ".SetDNSSEC"
@@ -36,14 +40,23 @@ const (
 	systemdDbusResolvConfModeForeign       = "foreign"
 
 	dbusErrorUnknownObject = "org.freedesktop.DBus.Error.UnknownObject"
+	dbusIntrospectMethod   = "org.freedesktop.DBus.Introspectable.Introspect"
+
+	// dbusCallTimeout bounds a single method call, so an unresponsive resolved
+	// cannot stall the caller.
+	dbusCallTimeout = 5 * time.Second
 
 	dnsSecDisabled = "no"
 )
 
 type systemdDbusConfigurator struct {
-	dbusLinkObject  dbus.ObjectPath
-	ifaceName       string
-	wgIndex         int
+	dbusLinkObject dbus.ObjectPath
+	ifaceName      string
+	wgIndex        int
+	// supportsDNSEx reports whether resolved exposes SetDNSEx on the link, which
+	// is the only way to hand it a resolver port. SetDNS carries the address
+	// alone, so on older resolved a resolver off port 53 cannot be advertised.
+	supportsDNSEx   bool
 	origNameservers []netip.Addr
 }
 
@@ -59,6 +72,17 @@ const (
 type systemdDbusDNSInput struct {
 	Family  int32
 	Address []byte
+}
+
+// systemdDbusDNSInputEx maps to a (iayqs) dbus input for the SetDNSEx method,
+// which takes a port and a server name on top of the address SetDNS accepts. A
+// zero port means the default, and an empty name means no name is pinned for
+// DNS-over-TLS validation.
+type systemdDbusDNSInputEx struct {
+	Family  int32
+	Address []byte
+	Port    uint16
+	Name    string
 }
 
 // systemdDbusLinkDomainsInput maps to a (sb) dbus input for SetDomains method
@@ -91,6 +115,12 @@ func newSystemdDbusConfigurator(wgInterface string) (*systemdDbusConfigurator, e
 		dbusLinkObject: dbus.ObjectPath(s),
 		ifaceName:      wgInterface,
 		wgIndex:        iface.Index,
+	}
+
+	c.supportsDNSEx = c.hasDNSExMethod()
+	if !c.supportsDNSEx {
+		log.Infof("systemd-resolved does not expose %s; a DNS resolver on a port other than %d cannot be advertised to it",
+			setDNSExMethodName, DefaultPort)
 	}
 
 	origNameservers, err := c.captureOriginalNameservers()
@@ -229,19 +259,74 @@ func (s *systemdDbusConfigurator) getOriginalNameservers() []netip.Addr {
 }
 
 func (s *systemdDbusConfigurator) supportCustomPort() bool {
-	return true
+	return s.supportsDNSEx
 }
 
-func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+// hasDNSExMethod reports whether resolved exposes SetDNSEx on the link
+// interface. Older versions carry only SetDNS, which has no way to accept a
+// resolver port.
+func (s *systemdDbusConfigurator) hasDNSExMethod() bool {
+	obj, closeConn, err := getDbusObject(systemdResolvedDest, s.dbusLinkObject)
+	if err != nil {
+		log.Debugf("failed to get dbus link object for introspection: %v", err)
+		return false
+	}
+	defer closeConn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), dbusCallTimeout)
+	defer cancel()
+
+	var data string
+	if err := obj.CallWithContext(ctx, dbusIntrospectMethod, dbusDefaultFlag).Store(&data); err != nil {
+		log.Debugf("failed to introspect systemd-resolved link: %v", err)
+		return false
+	}
+
+	var node introspect.Node
+	if err := xml.Unmarshal([]byte(data), &node); err != nil {
+		log.Debugf("failed to parse systemd-resolved link introspection: %v", err)
+		return false
+	}
+
+	for _, iface := range node.Interfaces {
+		if iface.Name != systemdDbusLinkInterface {
+			continue
+		}
+		return slices.ContainsFunc(iface.Methods, func(m introspect.Method) bool {
+			return m.Name == setDNSExMethodName
+		})
+	}
+
+	return false
+}
+
+// dnsServerMethod picks the resolved method that can carry the resolver's
+// address and port, and builds its input. SetDNS takes the address alone, so a
+// resolver on a port other than 53 needs SetDNSEx; the caller is expected to
+// have checked supportCustomPort before asking for one.
+func (s *systemdDbusConfigurator) dnsServerMethod(config HostDNSConfig) (string, any) {
 	family := int32(unix.AF_INET)
 	if config.ServerIP.Is6() {
 		family = unix.AF_INET6
 	}
-	defaultLinkInput := systemdDbusDNSInput{
+
+	if config.ServerPort == DefaultPort || !s.supportsDNSEx {
+		return systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{{
+			Family:  family,
+			Address: config.ServerIP.AsSlice(),
+		}}
+	}
+
+	return systemdDbusSetDNSExMethodSuffix, []systemdDbusDNSInputEx{{
 		Family:  family,
 		Address: config.ServerIP.AsSlice(),
-	}
-	if err := s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput}); err != nil {
+		Port:    uint16(config.ServerPort),
+	}}
+}
+
+func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+	method, input := s.dnsServerMethod(config)
+	if err := s.callLinkMethod(method, input); err != nil {
 		return fmt.Errorf("set interface DNS server %s:%d: %w", config.ServerIP, config.ServerPort, err)
 	}
 
@@ -372,7 +457,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	}
 	defer closeConn()
 
-	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), dbusCallTimeout)
 	defer cancel()
 
 	if value != nil {
