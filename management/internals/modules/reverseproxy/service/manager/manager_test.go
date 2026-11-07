@@ -914,6 +914,158 @@ func TestCreateServiceFromPeer(t *testing.T) {
 	})
 }
 
+func TestCreateServiceFromPeer_TargetHost(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty host keeps existing peer target", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port: 8080,
+			Mode: "http",
+		})
+		require.NoError(t, err)
+		assert.Empty(t, resp.TargetHost, "default expose must not echo a target host")
+
+		svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+		require.NoError(t, err)
+		require.Len(t, svc.Targets, 1)
+		assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType, "default target type is the exposing peer")
+		assert.Equal(t, testPeerID, svc.Targets[0].TargetId, "default target id is the exposing peer")
+		assert.Empty(t, svc.Targets[0].Host, "default host stays empty for lookup")
+		assert.False(t, svc.Targets[0].HostPinned, "default expose does not pin the host")
+		assert.Equal(t, uint16(8080), svc.Targets[0].Port)
+		require.NoError(t, svc.Validate(), "default expose target must pass service validation")
+
+		require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, svc))
+		assert.Equal(t, "100.64.0.1", svc.Targets[0].Host, "empty expose host is filled with the peer overlay IP")
+	})
+
+	t.Run("set host produces remote peer target", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "other-service",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "other-service", resp.TargetHost, "applied target host must be echoed")
+
+		svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+		require.NoError(t, err)
+		require.Len(t, svc.Targets, 1)
+		assert.Equal(t, "other-service", svc.Targets[0].Host)
+		assert.True(t, svc.Targets[0].HostPinned, "supplied target host is pinned against lookup")
+		assert.Equal(t, rpservice.TargetTypePeer, svc.Targets[0].TargetType)
+		assert.Equal(t, testPeerID, svc.Targets[0].TargetId)
+		assert.Equal(t, uint16(8080), svc.Targets[0].Port)
+		require.NoError(t, svc.Validate(), "remote host target must pass service validation")
+
+		require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, svc))
+		assert.Equal(t, "other-service", svc.Targets[0].Host, "ephemeral target host must survive lookup")
+	})
+
+	t.Run("invalid host rejected", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "http://other-service",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "scheme")
+	})
+
+	t.Run("loopback host rejected", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+			Port:       8080,
+			Mode:       "http",
+			TargetHost: "127.0.0.1",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "loopback")
+	})
+}
+
+func TestReplaceHostByLookup_PreservesEphemeralTargetHost(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr := &Manager{store: store.NewMockStore(ctrl)}
+	svc := &rpservice.Service{
+		Source: rpservice.SourceEphemeral,
+		Targets: []*rpservice.Target{
+			{
+				TargetId:   testPeerID,
+				TargetType: rpservice.TargetTypePeer,
+				Host:       "other-service",
+				HostPinned: true,
+				Port:       8080,
+			},
+		},
+	}
+
+	require.NoError(t, mgr.replaceHostByLookup(context.Background(), testAccountID, svc))
+	assert.Equal(t, "other-service", svc.Targets[0].Host, "ephemeral remote host must not be replaced with the peer IP")
+}
+
+func TestReplaceHostByLookup_OverwritesUnpinnedDerivedHost(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	mgr := &Manager{store: mockStore}
+	svc := &rpservice.Service{
+		Source: rpservice.SourceEphemeral,
+		Targets: []*rpservice.Target{
+			{
+				TargetId:   testPeerID,
+				TargetType: rpservice.TargetTypePeer,
+				Host:       "100.64.0.1",
+				Port:       8080,
+			},
+		},
+	}
+
+	mockStore.EXPECT().
+		GetPeerByID(gomock.Any(), store.LockingStrengthNone, testAccountID, testPeerID).
+		Return(&nbpeer.Peer{ID: testPeerID, IP: netip.MustParseAddr("100.64.0.9")}, nil)
+
+	require.NoError(t, mgr.replaceHostByLookup(context.Background(), testAccountID, svc))
+	assert.Equal(t, "100.64.0.9", svc.Targets[0].Host, "a derived overlay IP must follow later peer IP changes")
+}
+
+func TestReplaceHostByLookup_ReadModifyWriteKeepsFollowingPeer(t *testing.T) {
+	ctx := context.Background()
+	mgr, testStore := setupIntegrationTest(t)
+
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
+		Port: 8080,
+		Mode: "http",
+	})
+	require.NoError(t, err)
+
+	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.NoError(t, err)
+	require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, svc))
+	assert.Equal(t, "100.64.0.1", svc.Targets[0].Host)
+
+	require.NoError(t, testStore.UpdateService(ctx, svc), "persist the lookup-filled host as a read-modify-write would")
+
+	peer, err := testStore.GetPeerByID(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
+	require.NoError(t, err)
+	peer.IP = netip.MustParseAddr("100.64.0.9")
+	require.NoError(t, testStore.SavePeer(ctx, testAccountID, peer))
+
+	reloaded, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.NoError(t, err)
+	assert.Equal(t, "100.64.0.1", reloaded.Targets[0].Host, "the derived IP was persisted by the read-modify-write")
+	assert.False(t, reloaded.Targets[0].HostPinned, "read-modify-write must not mark a derived host as pinned")
+
+	require.NoError(t, mgr.replaceHostByLookup(ctx, testAccountID, reloaded))
+	assert.Equal(t, "100.64.0.9", reloaded.Targets[0].Host, "unpinned host must follow the peer after a later IP change")
+}
+
 func TestExposeServiceRequestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -969,6 +1121,41 @@ func TestExposeServiceRequestValidate(t *testing.T) {
 			name:    "valid name prefix",
 			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", NamePrefix: "my-service"},
 			wantErr: "",
+		},
+		{
+			name:    "valid target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "other-service"},
+			wantErr: "",
+		},
+		{
+			name:    "target host with scheme",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "http://other-service"},
+			wantErr: "scheme",
+		},
+		{
+			name:    "target host with port",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "other-service:8080"},
+			wantErr: "port",
+		},
+		{
+			name:    "loopback target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "127.0.0.1"},
+			wantErr: "loopback",
+		},
+		{
+			name:    "localhost trailing-dot target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "localhost."},
+			wantErr: "loopback",
+		},
+		{
+			name:    "malformed target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "foo:bar:baz"},
+			wantErr: "not a valid hostname",
+		},
+		{
+			name:    "empty after trim target host",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", TargetHost: "   "},
+			wantErr: "empty",
 		},
 	}
 
