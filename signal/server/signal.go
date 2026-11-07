@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/shared/lifecycle"
 	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/shared/signal/proto"
+	"github.com/netbirdio/netbird/shared/testhb"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
 )
@@ -47,6 +48,10 @@ const (
 	sendTimeout = 10 * time.Second
 
 	applicationName = "signal"
+
+	// TestHeartbeatKey marks a test-only heartbeat sent to a peer on its own
+	// stream when NB_TEST_HB_MODE is set. The body is empty.
+	TestHeartbeatKey = "netbird-test-heartbeat"
 )
 
 var (
@@ -135,6 +140,10 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	log.Debugf("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
 
+	hbCtx, hbCancel := context.WithCancel(stream.Context())
+	defer hbCancel()
+	s.startTestHeartbeat(hbCtx, p)
+
 	select {
 	case <-stream.Context().Done():
 		log.Debugf("peer stream closing [%s] [streamID %d] ", p.Id, p.StreamID)
@@ -142,6 +151,33 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	case <-ctx.Done():
 		return ErrPeerRegisteredAgain
 	}
+}
+
+// startTestHeartbeat sends TestHeartbeatKey messages to the peer on the
+// testhb schedule until ctx is done. It does nothing when testhb is off.
+// Sends go through Peer.Send, so they never race forwarded messages.
+func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer) {
+	key := testhb.PhaseKey(p.Id)
+	tick := testhb.Ticker(ctx, key)
+	if tick == nil {
+		return
+	}
+	mode := testhb.ModeFromEnv()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick:
+				now := time.Now()
+				if err := p.Send(&proto.EncryptedMessage{Key: TestHeartbeatKey, RemoteKey: p.Id}); err != nil {
+					log.Debugf("testhb: signal heartbeat to [%s] failed: %v", p.Id, err)
+					continue
+				}
+				log.Infof("testhb: sent signal heartbeat key=%s mode=%s t=%d", key, mode, now.UnixMilli())
+			}
+		}
+	}()
 }
 
 func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, cancel context.CancelFunc) (*peer.Peer, error) {
