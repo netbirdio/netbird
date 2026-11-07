@@ -49,6 +49,22 @@ func (h *AuthCallbackHandler) RegisterEndpoints(router *mux.Router) {
 	router.HandleFunc(types.ProxyCallbackEndpoint, h.handleCallback).Methods(http.MethodGet)
 }
 
+// newNoDowngradeHTTPClient returns an HTTP client that refuses to follow redirects
+// from HTTPS to HTTP, so credentials in a token request are never replayed over cleartext.
+func newNoDowngradeHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+				return http.ErrUseLastResponse
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+}
+
 func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	clientIP := h.resolveClientIP(r)
 	if !h.rateLimiter.Allow(clientIP) {
@@ -82,11 +98,20 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	token, err := (&oauth2.Config{
-		ClientID:    oidcConfig.ClientID,
-		Endpoint:    provider.Endpoint(),
-		RedirectURL: oidcConfig.CallbackURL,
-	}).Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(codeVerifier))
+	endpoint := provider.Endpoint()
+	exchangeCtx := r.Context()
+	if oidcConfig.ClientSecret != "" {
+		// The client secret is sent to the token endpoint, so never let it travel over cleartext.
+		tokenURL, err := url.Parse(endpoint.TokenURL)
+		if err != nil || tokenURL.Scheme != "https" {
+			log.Error("OIDC token endpoint must use HTTPS when a client secret is configured")
+			http.Error(w, "Invalid OIDC token endpoint", http.StatusInternalServerError)
+			return
+		}
+		exchangeCtx = context.WithValue(exchangeCtx, oauth2.HTTPClient, newNoDowngradeHTTPClient())
+	}
+
+	token, err := oidcConfig.OAuth2Config(endpoint, nil).Exchange(exchangeCtx, r.URL.Query().Get("code"), oauth2.VerifierOption(codeVerifier))
 	if err != nil {
 		log.WithError(err).Error("Failed to exchange code for token")
 		http.Error(w, "Failed to exchange code for token", http.StatusInternalServerError)
