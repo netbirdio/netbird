@@ -102,7 +102,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\n"+daemonStartHint(), err)
 	}
 	defer conn.Close()
 
@@ -177,7 +177,7 @@ func doExtendSession(ctx context.Context, cmd *cobra.Command, activeProf *profil
 		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\n"+daemonStartHint(), err)
 	}
 	defer conn.Close()
 
@@ -289,7 +289,7 @@ func switchProfile(ctx context.Context, handle string, username string) (profile
 		//nolint
 		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\n"+daemonStartHint(), err)
 	}
 	defer conn.Close()
 

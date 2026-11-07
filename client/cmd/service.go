@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/server"
 )
 
@@ -23,8 +24,6 @@ var serviceCmd = &cobra.Command{
 	Use:   "service",
 	Short: "Manage the NetBird daemon service",
 }
-
-const defaultJSONSocket = "unix:///var/run/netbird-http.sock"
 
 // forbiddenServiceEnvVars are the environment variables the service is never
 // registered with, keyed in upper case since these are Windows names. Each one
@@ -73,10 +72,7 @@ type program struct {
 }
 
 func init() {
-	defaultServiceName := "netbird"
-	if runtime.GOOS == "windows" {
-		defaultServiceName = "Netbird"
-	}
+	inst := instance.Current()
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, svcStatusCmd, installCmd, uninstallCmd, reconfigureCmd, resetParamsCmd)
 	serviceCmd.PersistentFlags().BoolVar(&profilesDisabled, "disable-profiles", false, "Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles")
@@ -84,9 +80,9 @@ func init() {
 	serviceCmd.PersistentFlags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
 	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
 	serviceCmd.PersistentFlags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")
-	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address [unix|tcp]://[path|host:port]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
+	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", inst.JSONSocket(), "HTTP/JSON API socket address [unix|tcp]://[path|host:port]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
 
-	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
+	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", inst.ServiceName(), "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
 		`You can specify a comma-separated list of KEY=VALUE pairs. ` +
 		`New keys are merged with previously saved env vars; existing keys are overwritten. ` +
@@ -107,8 +103,8 @@ func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 func newSVCConfig() (*service.Config, error) {
 	config := &service.Config{
 		Name:        serviceName,
-		DisplayName: "Netbird",
-		Description: "NetBird mesh network client",
+		DisplayName: instance.Current().ServiceDisplayName(),
+		Description: instance.Current().ServiceDescription(),
 		Option:      make(service.KeyValue),
 		EnvVars:     make(map[string]string),
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
@@ -64,8 +65,8 @@ var (
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
-	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
-	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
+	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, instance.Current().InterfaceName(), "WireGuard interface name")
+	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, instance.Current().WireGuardPort(), "WireGuard interface listening port")
 	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
 		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
@@ -98,6 +99,12 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
+	}
+
+	logInstanceWarnings()
+
+	if err := checkInterfaceNameFlag(cmd, interfaceExists); err != nil {
+		return err
 	}
 
 	err = externalipmap.Validate(natExternalIPs)
@@ -187,7 +194,7 @@ func createProfile(ctx context.Context, profileName, username string) (profilema
 		//nolint
 		return "", fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\n"+daemonStartHint(), err)
 	}
 	defer conn.Close()
 
@@ -288,7 +295,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+			"\n"+daemonStartHint(), err)
 	}
 	defer func() {
 		err := conn.Close()

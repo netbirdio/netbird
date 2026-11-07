@@ -10,6 +10,7 @@ import (
 	v "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
@@ -78,6 +79,17 @@ type Manager struct {
 	autoUpdateSupported func() bool
 }
 
+// autoUpdateSupportedFor disables installing for a named installation: the
+// upstream installer knows only the default installation and would upgrade or
+// replace it. The manager then runs download-only, so a newer version is still
+// reported.
+func autoUpdateSupportedFor(inst instance.Instance) func() bool {
+	if !inst.IsDefault() {
+		return func() bool { return false }
+	}
+	return isAutoUpdateSupported
+}
+
 // NewManager creates a new update manager. The manager is single-use: once Stop() is called, it cannot be restarted.
 func NewManager(ctx context.Context, statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
 	manager := &Manager{
@@ -88,7 +100,7 @@ func NewManager(ctx context.Context, statusRecorder *peer.Status, stateManager *
 		updateChannel:       make(chan struct{}, 1),
 		currentVersion:      version.NetbirdVersion(),
 		update:              version.NewUpdate("nb/client"),
-		autoUpdateSupported: isAutoUpdateSupported,
+		autoUpdateSupported: autoUpdateSupportedFor(instance.Current()),
 	}
 
 	stateManager.RegisterState(&UpdateState{})

@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -26,12 +27,7 @@ import (
 	"github.com/netbirdio/netbird/util/netrelay"
 )
 
-const (
-	// DefaultDaemonAddr is the default address for the NetBird daemon
-	DefaultDaemonAddr = "unix:///var/run/netbird.sock"
-	// DefaultDaemonAddrWindows is the default address for the NetBird daemon on Windows
-	DefaultDaemonAddrWindows = daemonaddr.WindowsPipeAddr
-)
+const ()
 
 // Client wraps crypto/ssh Client for simplified SSH operations
 type Client struct {
@@ -267,10 +263,11 @@ func getDefaultDaemonAddr() string {
 	if addr := os.Getenv("NB_DAEMON_ADDR"); addr != "" {
 		return addr
 	}
+	addr := instance.Current().DaemonAddr()
 	if runtime.GOOS == "windows" {
-		return daemonaddr.ResolveDaemonAddr(DefaultDaemonAddrWindows)
+		return daemonaddr.ResolveDaemonAddr(addr)
 	}
-	return daemonaddr.ResolveUnixDaemonAddr(DefaultDaemonAddr)
+	return daemonaddr.ResolveUnixDaemonAddr(addr)
 }
 
 // DialOptions contains options for SSH connections

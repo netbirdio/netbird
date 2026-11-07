@@ -8,6 +8,8 @@ import (
 	"strconv"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 const (
@@ -52,22 +54,28 @@ func listenHost() string {
 	return addr
 }
 
+// DefaultSocks5Port returns the port the SOCKS5 proxy binds to when
+// EnvSocks5ListenerPort is unset or invalid.
+func DefaultSocks5Port() int {
+	return int(instance.Current().Socks5Port())
+}
+
 // listenPort returns the port the SOCKS5 proxy binds to, defaulting to
 // DefaultSocks5Port when EnvSocks5ListenerPort is unset or invalid.
 func listenPort() int {
 	sPort := os.Getenv(EnvSocks5ListenerPort)
 	if sPort == "" {
-		return DefaultSocks5Port
+		return DefaultSocks5Port()
 	}
 
 	port, err := strconv.Atoi(sPort)
 	if err != nil {
-		log.Warnf("invalid socks5 listener port, unable to convert it to int, falling back to default: %d", DefaultSocks5Port)
-		return DefaultSocks5Port
+		log.Warnf("invalid socks5 listener port, unable to convert it to int, falling back to default: %d", DefaultSocks5Port())
+		return DefaultSocks5Port()
 	}
 	if port < 1 || port > 65535 {
-		log.Warnf("invalid socks5 listener port, it should be in the range 1-65535, falling back to default: %d", DefaultSocks5Port)
-		return DefaultSocks5Port
+		log.Warnf("invalid socks5 listener port, it should be in the range 1-65535, falling back to default: %d", DefaultSocks5Port())
+		return DefaultSocks5Port()
 	}
 
 	return port

@@ -3,24 +3,15 @@ package daemonaddr
 import (
 	"context"
 	"net"
-	"runtime"
 	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 const (
-	// WindowsPipeAddr is the default daemon address on Windows. A named pipe
-	// carries the connecting process's token, which loopback TCP does not, so
-	// it is the only Windows transport on which the daemon can tell who is
-	// calling it.
-	WindowsPipeAddr = "npipe://netbird"
-
-	// legacyWindowsAddr is the loopback-TCP address the Windows daemon used
-	// before named-pipe support.
-	legacyWindowsAddr = "tcp://127.0.0.1:41731"
-
 	pipeScheme = "npipe://"
 
 	// protectedPrefix is the NPFS namespace in which only LocalSystem and
@@ -95,12 +86,9 @@ func IsProtectedPipePath(path string) bool {
 // have to be refused for everyone. Only the exact legacy default is rewritten:
 // a deliberately chosen custom address is left alone.
 func MigrateLegacy(addr string) (string, bool) {
-	return migrateLegacyForOS(runtime.GOOS, addr)
-}
-
-func migrateLegacyForOS(goos, addr string) (string, bool) {
-	if goos == "windows" && addr == legacyWindowsAddr {
-		return WindowsPipeAddr, true
+	inst := instance.Current()
+	if legacy := inst.LegacyTCPDaemonAddr(); legacy != "" && addr == legacy {
+		return inst.DaemonAddr(), true
 	}
 	return addr, false
 }

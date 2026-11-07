@@ -779,6 +779,7 @@ func (s *DefaultServer) applyHostConfig() {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
 		return
 	}
+	s.reportSkippedNamespaces()
 
 	// Only update hash if it was computed successfully and config was applied
 	if err == nil {
@@ -791,6 +792,21 @@ func (s *DefaultServer) applyHostConfig() {
 // registerFallback registers original nameservers as low-priority fallback handlers.
 // Replaces and Stop()s the previously-registered fallback handler so its
 // context is released rather than leaked until GC.
+// reportSkippedNamespaces shows in the status the match domains a secondary
+// installation left to another installation.
+func (s *DefaultServer) reportSkippedNamespaces() {
+	r, ok := s.hostManager.(namespaceSkipReporter)
+	if !ok || s.statusRecorder == nil {
+		return
+	}
+	skipped := r.skippedNamespaces()
+	if len(skipped) == 0 {
+		return
+	}
+	msg := fmt.Sprintf("DNS names under %s resolve through another NetBird installation, which already routes them", strings.Join(skipped, ", "))
+	s.statusRecorder.PublishEvent(proto.SystemEvent_WARNING, proto.SystemEvent_DNS, msg, msg, map[string]string{"namespaces": strings.Join(skipped, ",")})
+}
+
 func (s *DefaultServer) registerFallback() {
 	originalNameservers := s.hostManager.getOriginalNameservers()
 

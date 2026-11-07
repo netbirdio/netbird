@@ -14,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
@@ -180,13 +181,13 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// matches the panel's light/dark scheme (Linux only).
 	t.startTrayTheme()
 	t.applyIcon()
-	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
+	t.tray.SetTooltip(trayTooltip(t.loc))
 	// On Linux the SNI hover tooltip rides on the systray label, not
 	// SetTooltip (a no-op there); without a label Wails shows the literal
 	// "Wails". macOS/Windows are skipped (label paints visible text on
 	// macOS; Windows uses SetTooltip above).
 	if runtime.GOOS == "linux" {
-		t.tray.SetLabel(t.loc.T("tray.tooltip"))
+		t.tray.SetLabel(trayTooltip(t.loc))
 	}
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
@@ -298,11 +299,11 @@ func (t *Tray) showMainAndEmit(event string) {
 // calling them from the Localizer's background goroutine is safe; profileLoadMu
 // prevents loadProfiles from racing the rebuild.
 func (t *Tray) applyLanguage() {
-	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
+	t.tray.SetTooltip(trayTooltip(t.loc))
 	// Mirror the Linux label fix from NewTray (the SNI tooltip rides on the
 	// label).
 	if runtime.GOOS == "linux" {
-		t.tray.SetLabel(t.loc.T("tray.tooltip"))
+		t.tray.SetLabel(trayTooltip(t.loc))
 	}
 	t.relayoutMenu()
 }
@@ -400,6 +401,13 @@ func (t *Tray) relayoutMenu() {
 
 func (t *Tray) buildMenu() *application.Menu {
 	menu := application.NewMenu()
+
+	// A named installation's menu starts with its name, so two menus can be
+	// told apart without relying on the icon colour.
+	if inst := instance.Current(); !inst.IsDefault() {
+		menu.Add(inst.DisplayName()).SetEnabled(false)
+		menu.AddSeparator()
+	}
 
 	// Enabled state is platform-dependent (see statusRowEnabled): Windows keeps
 	// it enabled because the disabled mask would desaturate the coloured status

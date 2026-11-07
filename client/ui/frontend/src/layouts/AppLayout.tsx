@@ -6,10 +6,12 @@ import { ProfileProvider } from "@/contexts/ProfileContext.tsx";
 import { DialogProvider } from "@/contexts/DialogContext.tsx";
 import { RestrictionsProvider } from "@/contexts/RestrictionsContext.tsx";
 import { ReadySignal } from "@/components/ReadySignal.tsx";
+import { InstallationStripe } from "@/components/InstallationStripe.tsx";
 
 export const AppLayout = () => {
     return (
         <div className={"relative flex h-full flex-col"}>
+            <InstallationStripe />
             <DialogProvider>
                 <StatusProvider>
                     <ProfileProvider>

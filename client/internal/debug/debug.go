@@ -26,6 +26,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
@@ -380,9 +381,13 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 
 // bundleFilePattern names the bundle zips Generate creates in tempDir; the
 // asterisk is filled in by os.CreateTemp.
-const bundleFilePattern = "netbird.debug.*.zip"
+func bundleFilePattern() string {
+	return instance.Current().DebugBundlePattern()
+}
 
-const exportedBundlePrefix = "netbird.debug-file."
+func exportedBundlePrefix() string {
+	return instance.Current().ExportedDebugBundlePrefix()
+}
 
 const exportedBundleMaxAge = 24 * time.Hour
 
@@ -391,16 +396,16 @@ const exportedBundleMaxAge = 24 * time.Hour
 // another caller is still writing or uploading in the same directory survives.
 // Exported bundles are kept for exportedBundleMaxAge instead.
 func RemoveStaleBundles(dir string, maxAge time.Duration) {
-	removeStaleFiles(dir, bundleFilePattern, maxAge)
-	removeStaleFiles(dir, exportedBundlePrefix+"*.zip", exportedBundleMaxAge)
+	removeStaleFiles(dir, bundleFilePattern(), maxAge)
+	removeStaleFiles(dir, exportedBundlePrefix()+"*.zip", exportedBundleMaxAge)
 }
 
 // ExportBundle renames a generated bundle out of the RemoveStaleBundles pattern
 // and returns the new path. The caller owns the file from then on; an export
 // abandoned for longer than exportedBundleMaxAge is removed by RemoveStaleBundles.
 func ExportBundle(path string) (string, error) {
-	base := strings.TrimPrefix(filepath.Base(path), strings.SplitN(bundleFilePattern, "*", 2)[0])
-	exported := filepath.Join(filepath.Dir(path), exportedBundlePrefix+base)
+	base := strings.TrimPrefix(filepath.Base(path), strings.SplitN(bundleFilePattern(), "*", 2)[0])
+	exported := filepath.Join(filepath.Dir(path), exportedBundlePrefix()+base)
 	if err := os.Rename(path, exported); err != nil {
 		return "", fmt.Errorf("export debug bundle: %w", err)
 	}
@@ -409,7 +414,7 @@ func ExportBundle(path string) (string, error) {
 
 // Generate creates a debug bundle and returns the location.
 func (g *BundleGenerator) Generate() (resp string, err error) {
-	bundlePath, err := os.CreateTemp(g.tempDir, bundleFilePattern)
+	bundlePath, err := os.CreateTemp(g.tempDir, bundleFilePattern())
 	if err != nil {
 		return "", fmt.Errorf("create zip file: %w", err)
 	}

@@ -24,11 +24,12 @@ import (
 )
 
 const (
-	DefaultMTU         = 1280
-	MinMTU             = 576
-	MaxMTU             = 8192
-	DefaultWgPort      = 51820
-	WgInterfaceDefault = configurer.WgInterfaceDefault
+	DefaultMTU = 1280
+	MinMTU     = 576
+	MaxMTU     = 8192
+	// DefaultWgPort is the well-known WireGuard port, assumed for remote peers.
+	// The local default comes from the identity package.
+	DefaultWgPort = 51820
 )
 
 var (

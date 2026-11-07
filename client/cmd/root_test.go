@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 func TestInitCommands(t *testing.T) {
@@ -51,7 +52,7 @@ func TestSetFlagsFromEnvVars(t *testing.T) {
 
 	cmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`comma separated list of external IPs to map to the WireGuard interface`)
-	cmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
+	cmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, instance.Current().InterfaceName(), "WireGuard interface name")
 	cmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "Enable Rosenpass feature Rosenpass.")
 	cmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
 	cmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")

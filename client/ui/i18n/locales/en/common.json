@@ -1199,6 +1199,38 @@
         "message": "GUI",
         "description": "About tab: the UI component name shown without a version. 'GUI' = the graphical app."
     },
+    "settings.about.installation.title": {
+        "message": "Installation",
+        "description": "About tab: heading of the read-only details of a named NetBird installation, one of several NetBird clients installed side by side on this computer."
+    },
+    "settings.about.installation.name": {
+        "message": "Name",
+        "description": "About tab, installation details: label of the installation's technical name, used in service and adapter names."
+    },
+    "settings.about.installation.label": {
+        "message": "Label",
+        "description": "About tab, installation details: label of the display name the user gave the installation."
+    },
+    "settings.about.installation.color": {
+        "message": "Color",
+        "description": "About tab, installation details: label of the colour that marks this installation's tray icon and windows."
+    },
+    "settings.about.installation.noColor": {
+        "message": "None",
+        "description": "About tab, installation details: shown as the colour when the installation has none."
+    },
+    "settings.about.installation.role": {
+        "message": "Role",
+        "description": "About tab, installation details: label of the installation's role when several installations run at once."
+    },
+    "settings.about.installation.rolePrimary": {
+        "message": "Primary",
+        "description": "About tab, installation details: role value. A primary installation may use exit nodes and system-wide DNS."
+    },
+    "settings.about.installation.roleSecondary": {
+        "message": "Secondary",
+        "description": "About tab, installation details: role value. A secondary installation leaves exit nodes and system-wide DNS to the primary one."
+    },
     "settings.about.copyright": {
         "message": "© {year} NetBird. All Rights Reserved.",
         "description": "Copyright line. {year} is the current year; keep it. 'NetBird' — brand."

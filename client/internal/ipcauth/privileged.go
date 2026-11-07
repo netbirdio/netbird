@@ -3,6 +3,8 @@ package ipcauth
 import (
 	"os"
 	"runtime"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 // Fields of the ErrorInfo detail the daemon attaches to a PermissionDenied it
@@ -145,5 +147,12 @@ func ElevatedCommand(command string) string {
 // might have: PowerShell 5.1, still the default on Windows Server, rejects "&&"
 // as a syntax error.
 func UpCommand(flags string) string {
-	return ElevatedCommand("netbird down") + "; " + ElevatedCommand("netbird up "+flags)
+	return ElevatedCommand(CLICommand("down")) + "; " + ElevatedCommand(CLICommand("up "+flags))
+}
+
+// CLICommand renders a netbird command line for the installation this process
+// runs as, so a hint copied from a named installation's error acts on that
+// installation and not on the default one.
+func CLICommand(args string) string {
+	return instance.Current().CLICommand(args)
 }

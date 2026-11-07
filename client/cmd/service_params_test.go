@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 func TestServiceParamsPath(t *testing.T) {
@@ -179,7 +180,7 @@ func TestApplyServiceParams_OnlyUnchangedFlags(t *testing.T) {
 	// Reset all flags to defaults.
 	logLevel = "info"
 	daemonAddr = "unix:///var/run/netbird.sock"
-	jsonSocket = defaultJSONSocket
+	jsonSocket = instance.Current().JSONSocket()
 	enableJSONSocket = false
 	managementURL = ""
 	configPath = "/etc/netbird/config.json"

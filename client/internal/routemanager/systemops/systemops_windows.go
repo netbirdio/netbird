@@ -19,6 +19,7 @@ import (
 	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
 
+	"github.com/netbirdio/netbird/client/internal/coexist"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
@@ -91,6 +92,7 @@ type candidateRoute struct {
 	prefixLength    uint8
 	routeMetric     uint32
 	interfaceMetric int
+	nextHop         netip.Addr
 }
 
 // IP_ADDRESS_PREFIX is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-ip_address_prefix
@@ -860,6 +862,7 @@ func parseCandidateRoute(entry *MIB_IPFORWARD_ROW2, dest netip.Addr, skipInterfa
 		prefixLength:    entry.DestinationPrefix.PrefixLength,
 		routeMetric:     entry.Metric,
 		interfaceMetric: interfaceMetric,
+		nextHop:         parseIPNexthop(entry.NextHop, int(entry.InterfaceIndex)),
 	}
 }
 
@@ -940,9 +943,47 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 	}
 
 	sortRouteCandidates(candidates)
+	iface, _, err := pickUplink(candidates, dest, net.InterfaceByIndex)
+	return iface, err
+}
 
+// GetUplinkNextHop is GetNextHop for the installation's own traffic. When the
+// best route leads into a NetBird adapter, as another installation's exit node
+// does, it returns the best route that does not.
+func GetUplinkNextHop(dest netip.Addr) (Nexthop, error) {
+	nexthop, err := GetNextHop(dest)
+	if err != nil || nexthop.Intf == nil || !coexist.IsOverlayInterface(nexthop.Intf.Name) {
+		return nexthop, err
+	}
+
+	table, err := getWindowsRoutingTable()
+	if err != nil {
+		return Nexthop{}, fmt.Errorf("get routing table: %w", err)
+	}
+	defer freeWindowsRoutingTable(table)
+
+	candidates := parseCandidatesFromTable(table, dest, 0)
+	sortRouteCandidates(candidates)
+	iface, candidate, err := pickUplink(candidates, dest, net.InterfaceByIndex)
+	if err != nil {
+		return Nexthop{}, err
+	}
+	uplink := Nexthop{Intf: iface}
+	if candidate.nextHop.IsValid() && !candidate.nextHop.IsUnspecified() {
+		uplink.IP = candidate.nextHop
+	}
+	log.Debugf("default route for %s leads into the NetBird adapter %s, using %s", dest, nexthop.Intf.Name, uplink)
+	return uplink, nil
+}
+
+// pickUplink returns the interface of the best candidate route that can carry
+// the installation's own traffic. No NetBird adapter qualifies, not only the
+// installation's own: another installation's exit node would otherwise pin
+// this installation's control and peer traffic into its tunnel, and nothing
+// re-pins those sockets when that tunnel goes away.
+func pickUplink(candidates []candidateRoute, dest netip.Addr, byIndex func(int) (*net.Interface, error)) (*net.Interface, candidateRoute, error) {
 	for _, candidate := range candidates {
-		iface, err := net.InterfaceByIndex(int(candidate.interfaceIndex))
+		iface, err := byIndex(int(candidate.interfaceIndex))
 		if err != nil {
 			log.Warnf("failed to get interface by index %d: %v", candidate.interfaceIndex, err)
 			continue
@@ -957,12 +998,17 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 			continue
 		}
 
+		if coexist.IsOverlayInterface(iface.Name) {
+			log.Debugf("interface %s is a NetBird adapter, trying next route", iface.Name)
+			continue
+		}
+
 		log.Debugf("route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
 			dest, iface.Name, iface.Index, candidate.routeMetric, candidate.interfaceMetric)
-		return iface, nil
+		return iface, candidate, nil
 	}
 
-	return nil, fmt.Errorf("no usable interface found for %s", dest)
+	return nil, candidateRoute{}, fmt.Errorf("no usable interface found for %s", dest)
 }
 
 // formatRouteAge formats the route age in seconds to a human-readable string

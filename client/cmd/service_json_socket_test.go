@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 func preserveJSONSocketTestState(t *testing.T) {
@@ -105,7 +107,7 @@ func TestJSONSocketServiceParamsPersistEnableAndAddress(t *testing.T) {
 	require.Equal(t, "tcp://127.0.0.1:8080", params.JSONSocket)
 
 	enableJSONSocket = false
-	jsonSocket = defaultJSONSocket
+	jsonSocket = instance.Current().JSONSocket()
 	applyServiceParams(testServiceEnvCommand(), params)
 
 	assert.True(t, enableJSONSocket)

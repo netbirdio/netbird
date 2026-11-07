@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/ui/instancecolor"
 	"github.com/netbirdio/netbird/client/ui/services"
 )
 
@@ -36,9 +37,11 @@ func (t *Tray) applyIcon() {
 		t.tray.SetIcon(icon)
 		return
 	}
-	t.tray.SetIcon(icon)
+	// The colour dot of a named installation is drawn on the colored Windows
+	// icons only; the default installation's icons stay untouched.
+	t.tray.SetIcon(colourIcon(icon, instancecolor.RingOnLight))
 	if dark != nil {
-		t.tray.SetDarkModeIcon(dark)
+		t.tray.SetDarkModeIcon(colourIcon(dark, instancecolor.RingOnDark))
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/updater"
 	"github.com/netbirdio/netbird/version"
@@ -35,8 +36,13 @@ func (s *Update) GetState() updater.State {
 }
 
 // DownloadURL returns the platform-appropriate installer download link for
-// manual (non-enforced) updates.
+// manual (non-enforced) updates. A named installation gets none: the upstream
+// installer knows only the default installation and would upgrade or replace
+// it. The UI then offers no download.
 func (s *Update) DownloadURL() string {
+	if !instance.Current().IsDefault() {
+		return ""
+	}
 	return version.DownloadUrl()
 }
 

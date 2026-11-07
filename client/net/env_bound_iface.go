@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 var (
@@ -34,6 +35,13 @@ func checkAdvancedRoutingSupport() bool {
 		}
 	}
 
+	if legacyRouting && !instance.Current().IsDefault() {
+		// Legacy routing adds host routes to shared relay and STUN addresses
+		// and refcounts them per process, so the first installation to stop
+		// would delete a route the other still uses.
+		log.Warnf("ignoring %s: a named installation always uses advanced routing", envUseLegacyRouting)
+		legacyRouting = false
+	}
 	if legacyRouting {
 		log.Infof("advanced routing disabled: legacy routing requested via %s", envUseLegacyRouting)
 		return false

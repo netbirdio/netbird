@@ -16,11 +16,15 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/instance"
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-// DefaultListenAddress is used when local metrics are enabled without an explicit address.
-const DefaultListenAddress = "127.0.0.1:9191"
+// DefaultListenAddress is used when local metrics are enabled without an
+// explicit address.
+func DefaultListenAddress() string {
+	return instance.Current().LocalMetricsAddr()
+}
 
 const (
 	shutdownTimeout   = 3 * time.Second
@@ -67,7 +71,7 @@ func NewManager(ctx context.Context, status statusSource, clientMetrics Gatherer
 // desired state. An empty addr falls back to DefaultListenAddress.
 func (m *Manager) Reconcile(enabled bool, addr string) {
 	if addr == "" {
-		addr = DefaultListenAddress
+		addr = DefaultListenAddress()
 	}
 	warnIfNotLoopback(addr)
 
@@ -245,7 +249,7 @@ func boolToFloat(b bool) float64 {
 // that cannot be confirmed loopback, including an unparseable one, is not.
 func IsLoopback(addr string) bool {
 	if addr == "" {
-		addr = DefaultListenAddress
+		addr = DefaultListenAddress()
 	}
 
 	host, _, err := net.SplitHostPort(addr)

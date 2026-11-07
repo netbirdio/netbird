@@ -9,6 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/client/internal/instance"
 )
 
 // policyRegistryPath is the well-known MDM policy registry key for NetBird.
@@ -28,10 +30,10 @@ const policyRegistryPath = `Software\Policies\NetBird`
 // warn level and skipped — one malformed value must not block the
 // surrounding loop. Extracted from loadPlatformPolicy to keep that
 // function's cognitive complexity in check.
-func readRegistryValue(k registry.Key, name, canonical string, out map[string]any) {
+func readRegistryValue(k registry.Key, path, name, canonical string, out map[string]any) {
 	_, valType, err := k.GetValue(name, nil)
 	if err != nil {
-		log.Warnf("MDM stat %s\\%s: %v", policyRegistryPath, name, err)
+		log.Warnf("MDM stat %s\\%s: %v", path, name, err)
 		return
 	}
 	switch valType {
@@ -39,7 +41,7 @@ func readRegistryValue(k registry.Key, name, canonical string, out map[string]an
 		if v, _, err := k.GetStringValue(name); err == nil {
 			out[canonical] = v
 		} else {
-			log.Warnf("MDM read string %s\\%s: %v", policyRegistryPath, name, err)
+			log.Warnf("MDM read string %s\\%s: %v", path, name, err)
 		}
 	case registry.DWORD, registry.QWORD:
 		if v, _, err := k.GetIntegerValue(name); err == nil {
@@ -47,17 +49,17 @@ func readRegistryValue(k registry.Key, name, canonical string, out map[string]an
 			// helpers consume int64, so narrow safely.
 			out[canonical] = int64(v)
 		} else {
-			log.Warnf("MDM read int %s\\%s: %v", policyRegistryPath, name, err)
+			log.Warnf("MDM read int %s\\%s: %v", path, name, err)
 		}
 	case registry.MULTI_SZ:
 		if v, _, err := k.GetStringsValue(name); err == nil {
 			out[canonical] = v
 		} else {
-			log.Warnf("MDM read multi-string %s\\%s: %v", policyRegistryPath, name, err)
+			log.Warnf("MDM read multi-string %s\\%s: %v", path, name, err)
 		}
 	default:
 		log.Warnf("MDM ignoring unsupported registry value type %d at %s\\%s",
-			valType, policyRegistryPath, name)
+			valType, path, name)
 	}
 }
 
@@ -78,24 +80,35 @@ func (l *Loader) loadPlatform() (map[string]any, error) {
 	if l != nil && l.fetcher != nil {
 		return l.fetcher.Fetch(), nil
 	}
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, policyRegistryPath, registry.QUERY_VALUE)
+	return readPolicyKey(policyRegistryPath)
+}
+
+// loadInstallationPlatform reads a named installation's own policy key, a
+// subkey of the machine-wide one. Loaders that read only values never see it.
+func loadInstallationPlatform(name instance.Name) (map[string]any, error) {
+	return readPolicyKey(policyRegistryPath + `\Installations\` + string(name))
+}
+
+// readPolicyKey reads the known policy values of one registry key.
+func readPolicyKey(path string) (map[string]any, error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotExist) {
 			// Not enrolled. Caller treats nil as "no MDM source present".
 			//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see Loader.Load.
 			return nil, nil
 		}
-		return nil, fmt.Errorf("open %s: %w", policyRegistryPath, err)
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer func() {
 		if closeErr := k.Close(); closeErr != nil {
-			log.Warnf("MDM close registry key %s: %v", policyRegistryPath, closeErr)
+			log.Warnf("MDM close registry key %s: %v", path, closeErr)
 		}
 	}()
 
 	names, err := k.ReadValueNames(-1)
 	if err != nil {
-		return nil, fmt.Errorf("enumerate values of %s: %w", policyRegistryPath, err)
+		return nil, fmt.Errorf("enumerate values of %s: %w", path, err)
 	}
 
 	out := make(map[string]any, len(names))
@@ -106,10 +119,10 @@ func (l *Loader) loadPlatform() (map[string]any, error) {
 		// `reg add` command.
 		canonical, known := canonicalKey[strings.ToLower(name)]
 		if !known {
-			log.Warnf("MDM ignoring unknown registry value %s\\%s", policyRegistryPath, name)
+			log.Warnf("MDM ignoring unknown registry value %s\\%s", path, name)
 			continue
 		}
-		readRegistryValue(k, name, canonical, out)
+		readRegistryValue(k, path, name, canonical, out)
 	}
 	return out, nil
 }
