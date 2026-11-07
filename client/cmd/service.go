@@ -86,12 +86,18 @@ func init() {
 	serviceCmd.PersistentFlags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")
 	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address [unix|tcp]://[path|host:port]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
 
-	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
+	serviceCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
 		`You can specify a comma-separated list of KEY=VALUE pairs. ` +
 		`New keys are merged with previously saved env vars; existing keys are overwritten. ` +
 		`Use --service-env "" to clear all saved env vars. ` +
 		`E.g. --service-env NB_LOG_LEVEL=debug,CUSTOM_VAR=value`
+
+	addManagementURLFlag(installCmd)
+	addManagementURLFlag(reconfigureCmd)
+	// Installed services pass the management URL to run, so keep accepting it.
+	addManagementURLFlag(runCmd)
+	_ = runCmd.PersistentFlags().MarkHidden(managementURLFlag)
 
 	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)

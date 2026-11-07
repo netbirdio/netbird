@@ -24,6 +24,7 @@ var ErrGetServiceStatus = fmt.Errorf("failed to get service status")
 func setupServiceCommand(cmd *cobra.Command) error {
 	SetFlagsFromEnvVars(rootCmd)
 	SetFlagsFromEnvVars(serviceCmd)
+	SetFlagsFromEnvVars(cmd)
 	cmd.SetOut(cmd.OutOrStdout())
 	return handleRebrand(cmd)
 }

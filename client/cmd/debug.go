@@ -158,6 +158,7 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 // request. Returns an error if the RPC fails or if the daemon reports
 // an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
+	setFlagSetFromEnvVars(anonymizeFlags)
 	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
 	if err != nil {
 		return err
@@ -236,6 +237,8 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid duration format: %v", err)
 	}
+
+	setFlagSetFromEnvVars(anonymizeFlags)
 
 	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
 	if err != nil {
@@ -571,11 +574,13 @@ func init() {
 	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 	debugBundleCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 
+	debugBundleCmd.Flags().AddFlagSet(anonymizeFlags)
 	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 	forCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
+	forCmd.Flags().AddFlagSet(anonymizeFlags)
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 	forCmd.Flags().Bool(noUpDownFlag, false, "Keep the daemon running instead of bringing it down and up before collecting. The bundle only includes the network map if a sync arrives during the run")
 }
