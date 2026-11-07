@@ -7,3 +7,8 @@ package systemops
 func IgnoreAddedDefaultRoute(flags int) bool {
 	return filterRoutesByFlags(flags)
 }
+
+// IgnoreDeletedDefaultRoute reports whether a default deletion should be ignored.
+func IgnoreDeletedDefaultRoute(_ int) bool {
+	return false
+}
