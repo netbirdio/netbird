@@ -59,6 +59,9 @@
     "tray.menu.disconnect": {
         "message": "切断"
     },
+    "tray.menu.reconnect": {
+        "message": "再接続"
+    },
     "tray.menu.exitNode": {
         "message": "出口ノード"
     },
@@ -130,6 +133,9 @@
     },
     "notify.error.disconnect": {
         "message": "切断に失敗しました"
+    },
+    "notify.error.reconnect": {
+        "message": "再接続に失敗しました"
     },
     "notify.error.switchProfile": {
         "message": "{profile} への切り替えに失敗しました"

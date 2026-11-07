@@ -59,6 +59,9 @@
     "tray.menu.disconnect": {
         "message": "Отключиться"
     },
+    "tray.menu.reconnect": {
+        "message": "Переподключиться"
+    },
     "tray.menu.exitNode": {
         "message": "Выходной узел"
     },
@@ -130,6 +133,9 @@
     },
     "notify.error.disconnect": {
         "message": "Не удалось отключиться"
+    },
+    "notify.error.reconnect": {
+        "message": "Не удалось переподключиться"
     },
     "notify.error.switchProfile": {
         "message": "Не удалось переключиться на {profile}"
