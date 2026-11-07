@@ -23,6 +23,7 @@ type MockManager struct {
 	GetSelectedClientRoutesFunc  func() route.HAMap
 	GetActiveClientRoutesFunc    func() route.HAMap
 	GetClientRoutesWithNetIDFunc func() map[route.NetID][]*route.Route
+	RefreshUnderlayFunc          func() error
 	StopFunc                     func(manager *statemanager.Manager)
 }
 
@@ -140,6 +141,14 @@ func (m *MockManager) SetDNSForwarderPort(port uint16) {
 
 // ReconcilePeerAllowedIPs mock implementation of ReconcilePeerAllowedIPs from Manager interface
 func (m *MockManager) ReconcilePeerAllowedIPs(peerKey string) error {
+	return nil
+}
+
+// RefreshUnderlay mock implementation of RefreshUnderlay from Manager interface
+func (m *MockManager) RefreshUnderlay() error {
+	if m.RefreshUnderlayFunc != nil {
+		return m.RefreshUnderlayFunc()
+	}
 	return nil
 }
 

@@ -1,0 +1,161 @@
+package internal
+
+import (
+	"context"
+	"net"
+	"net/netip"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/networkmonitor"
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/netevents"
+)
+
+// loopRun records what the loop did with a scripted series of changes.
+type loopRun struct {
+	baselines []networkmonitor.NextHops
+	armed     int
+	stopped   int
+	restarted int
+	redialed  int
+}
+
+func runLoop(t *testing.T, mgr *netevents.Manager, script []networkmonitor.Change, actions map[networkmonitor.ChangeKind]underlayAction) *loopRun {
+	t.Helper()
+	r := &loopRun{}
+	next := 0
+	loop := underlayLoop{
+		listen: func(_ context.Context, baseline networkmonitor.NextHops) (networkmonitor.Change, error) {
+			r.baselines = append(r.baselines, baseline)
+			if next == len(script) {
+				return networkmonitor.Change{}, context.Canceled
+			}
+			next++
+			return script[next-1], nil
+		},
+		decide:       func(c networkmonitor.Change) underlayAction { return actions[c.Kind] },
+		redial:       func(networkmonitor.Change) bool { r.redialed++; return true },
+		restart:      func() { r.restarted++ },
+		armWatch:     func() { r.armed++ },
+		stopWatch:    func() { r.stopped++ },
+		availability: networkAvailability{mgr: mgr},
+	}
+	loop.run(context.Background())
+	return r
+}
+
+func snapshot(gw string) networkmonitor.NextHops {
+	return networkmonitor.NextHops{V4: systemops.Nexthop{IP: netip.MustParseAddr(gw), Intf: &net.Interface{Index: 2, Name: "eth0"}}}
+}
+
+var testActions = map[networkmonitor.ChangeKind]underlayAction{
+	networkmonitor.ChangeNone:      actionNone,
+	networkmonitor.ChangeGateway:   actionRedial,
+	networkmonitor.ChangeOffline:   actionWait,
+	networkmonitor.ChangeInterface: actionRedial,
+	networkmonitor.ChangeWake:      actionRestart,
+}
+
+// Offline then back on the same network: going offline swept the control
+// connections and P2P paths may have died meanwhile, so the return is handled
+// as a redial even though the snapshot did not move.
+func TestUnderlayLoopWatchesTheReturnFromOffline(t *testing.T) {
+	home := snapshot("192.168.1.1")
+	mgr := netevents.NewManager(peer.NewRecorder(""))
+	r := runLoop(t, mgr, []networkmonitor.Change{
+		{Kind: networkmonitor.ChangeOffline, Before: home},
+		{Kind: networkmonitor.ChangeNone, Before: home, After: home},
+	}, testActions)
+
+	require.Len(t, r.baselines, 3, "listen rounds")
+	assert.Equal(t, home, r.baselines[1], "offline keeps the pre-loss snapshot as the baseline")
+	assert.Equal(t, 1, r.redialed, "peers on paths that died while offline are moved, as on any redial")
+	assert.Equal(t, 1, r.armed, "the safety net watches the return from offline")
+	assert.Equal(t, 0, r.restarted, "no restart")
+	assert.True(t, mgr.IsOnline(), "the manager is back online")
+}
+
+// The engine stops while offline: the daemon-wide manager must not be left
+// offline, or every later connection attempt would wait for a network that
+// never gets reported.
+func TestUnderlayLoopLeavesTheManagerOnlineWhenStoppedOffline(t *testing.T) {
+	mgr := netevents.NewManager(peer.NewRecorder(""))
+	runLoop(t, mgr, []networkmonitor.Change{{Kind: networkmonitor.ChangeOffline, Before: snapshot("192.168.1.1")}}, testActions)
+	assert.True(t, mgr.IsOnline(), "the manager is back online once the loop ends")
+}
+
+// Offline, a failed lookup must not read as the network coming back: no
+// redial, the manager stays offline and the pre-loss baseline is kept.
+func TestUnderlayLoopKeepsOfflineOnAFailedLookup(t *testing.T) {
+	home := snapshot("192.168.1.1")
+	mgr := netevents.NewManager(peer.NewRecorder(""))
+	var onlineDuringRun []bool
+	r := &loopRun{}
+	script := []networkmonitor.Change{
+		{Kind: networkmonitor.ChangeOffline, Before: home},
+		{Kind: networkmonitor.ChangeUnknown, Before: home, After: home},
+	}
+	next := 0
+	loop := underlayLoop{
+		listen: func(_ context.Context, baseline networkmonitor.NextHops) (networkmonitor.Change, error) {
+			r.baselines = append(r.baselines, baseline)
+			onlineDuringRun = append(onlineDuringRun, mgr.IsOnline())
+			if next == len(script) {
+				return networkmonitor.Change{}, context.Canceled
+			}
+			next++
+			return script[next-1], nil
+		},
+		decide:       func(c networkmonitor.Change) underlayAction { return testActions[c.Kind] },
+		redial:       func(networkmonitor.Change) bool { r.redialed++; return true },
+		restart:      func() { r.restarted++ },
+		armWatch:     func() { r.armed++ },
+		stopWatch:    func() {},
+		availability: networkAvailability{mgr: mgr},
+	}
+	loop.run(context.Background())
+
+	assert.Equal(t, 0, r.redialed, "no redial on a failed lookup")
+	assert.Equal(t, 0, r.armed, "no safety net on a failed lookup")
+	require.Len(t, r.baselines, 3, "listen rounds")
+	assert.Equal(t, home, r.baselines[2], "the pre-loss baseline is kept")
+	assert.False(t, onlineDuringRun[2], "the manager stays offline after a failed lookup")
+}
+
+func TestUnderlayLoopSequences(t *testing.T) {
+	home, cafe := snapshot("192.168.1.1"), snapshot("10.0.0.1")
+
+	t.Run("nothing moved: no safety net", func(t *testing.T) {
+		r := runLoop(t, nil, []networkmonitor.Change{{Kind: networkmonitor.ChangeNone, Before: home, After: home}}, testActions)
+		assert.Equal(t, 0, r.armed, "no redial, nothing to watch")
+	})
+
+	t.Run("redial arms the safety net and moves the baseline", func(t *testing.T) {
+		r := runLoop(t, nil, []networkmonitor.Change{{Kind: networkmonitor.ChangeGateway, Before: home, After: cafe}}, testActions)
+		assert.Equal(t, 1, r.redialed, "redial")
+		assert.Equal(t, 1, r.armed, "safety net armed")
+		assert.Equal(t, cafe, r.baselines[1], "the new network becomes the baseline")
+	})
+
+	t.Run("offline stops a running safety net", func(t *testing.T) {
+		r := runLoop(t, nil, []networkmonitor.Change{
+			{Kind: networkmonitor.ChangeGateway, Before: home, After: cafe},
+			{Kind: networkmonitor.ChangeOffline, Before: cafe},
+		}, testActions)
+		assert.GreaterOrEqual(t, r.stopped, 1, "offline stops the safety net")
+		assert.Equal(t, 0, r.restarted, "no restart")
+	})
+
+	t.Run("restart ends the loop", func(t *testing.T) {
+		r := runLoop(t, nil, []networkmonitor.Change{
+			{Kind: networkmonitor.ChangeWake, Before: home, After: home},
+			{Kind: networkmonitor.ChangeGateway, Before: home, After: cafe},
+		}, testActions)
+		assert.Equal(t, 1, r.restarted, "restart")
+		assert.Equal(t, 0, r.redialed, "nothing after the restart")
+	})
+}

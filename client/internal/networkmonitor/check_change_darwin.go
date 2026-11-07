@@ -58,7 +58,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 			return ctx.Err()
 		}
 		log.Infof("wakeup detected")
-		return nil
+		return errWokeUp
 	}
 }
 

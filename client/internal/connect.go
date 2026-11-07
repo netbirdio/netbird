@@ -79,6 +79,9 @@ type ConnectClient struct {
 	// netMgr gates every reconnection loop on OS-reported network
 	// availability and sweeps connections on network change.
 	netMgr *netevents.Manager
+	// netMgrWhenUsed defers the decision to hand netMgr over until Run, once
+	// the routing mode is known; see NetEventsFor.
+	netMgrWhenUsed bool
 
 	profileOwner        string
 	profileOwnerUnknown bool
@@ -96,6 +99,15 @@ func WithInMemoryState() ConnectClientOption {
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) ConnectClientOption {
 	return func(c *ConnectClient) { c.netMgr = events }
+}
+
+// WithNetEventsWhenUsed injects events only if the desktop network change
+// handling will use them, decided when the client runs; see NetEventsFor.
+func WithNetEventsWhenUsed(events *netevents.Manager) ConnectClientOption {
+	return func(c *ConnectClient) {
+		c.netMgr = events
+		c.netMgrWhenUsed = true
+	}
 }
 
 // WithProfileOwner names the OS account the active profile belongs to, whose own
@@ -228,6 +240,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	nbnet.Init()
+	if c.netMgrWhenUsed {
+		c.netMgr = NetEventsFor(c.config, c.netMgr)
+	}
 
 	// Initialize metrics once at startup (always active for debug bundles)
 	if c.clientMetrics == nil {
