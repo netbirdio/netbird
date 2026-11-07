@@ -317,6 +317,7 @@ type Watcher struct {
 	// and may begin after Stop, or never, so Stop only waits for done when the
 	// loop has actually started
 	lifecycleMu  sync.Mutex
+	stopOnce     sync.Once
 	started      bool
 	stopped      bool
 	handler      RouteHandler
@@ -1127,32 +1128,34 @@ func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
 
 // Stop stops the watcher and cleans up resources.
 func (w *Watcher) Stop() {
-	log.Debugf("Stopping watcher for network [%v]", w.handler)
+	w.stopOnce.Do(func() {
+		log.Debugf("Stopping watcher for network [%v]", w.handler)
 
-	w.lifecycleMu.Lock()
-	if w.stopped {
+		w.lifecycleMu.Lock()
+		if w.stopped {
+			w.lifecycleMu.Unlock()
+			return
+		}
+		w.stopped = true
+		started := w.started
 		w.lifecycleMu.Unlock()
-		return
-	}
-	w.stopped = true
-	started := w.started
-	w.lifecycleMu.Unlock()
 
-	w.cancel()
-	// wait for the Start loop to exit: it may be inside a recalculation, and
-	// cleaning up concurrently would race on currentChosen and could leave the
-	// allowed IPs of a route chosen after this point behind
-	if started {
-		<-w.done
-	}
+		w.cancel()
+		// wait for the Start loop to exit: it may be inside a recalculation, and
+		// cleaning up concurrently would race on currentChosen and could leave the
+		// allowed IPs of a route chosen after this point behind
+		if started {
+			<-w.done
+		}
 
-	if w.currentChosen == nil {
-		return
-	}
-	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
-		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
-	}
-	w.currentChosenStatus = nil
+		if w.currentChosen != nil {
+			if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
+				log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
+			}
+		}
+		w.currentChosen = nil
+		w.currentChosenStatus = nil
+	})
 }
 
 func HandlerFromRoute(params common.HandlerParams) RouteHandler {
