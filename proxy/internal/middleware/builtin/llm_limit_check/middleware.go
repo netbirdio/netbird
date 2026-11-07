@@ -61,6 +61,8 @@ func (m *Middleware) MetadataKeys() []string {
 		middleware.KeyLLMAttributionWindowS,
 		middleware.KeyLLMPolicyDecision,
 		middleware.KeyLLMPolicyReason,
+		middleware.KeyLLMPolicyBlockedBy,
+		middleware.KeyLLMPolicyDetail,
 	}
 }
 
@@ -178,8 +180,8 @@ func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse, surface string
 	// The canonical code is safe to surface; the management-supplied
 	// reason can name internal quota details (used amounts, caps, rule
 	// ids), so keep the public message generic and leave the detail to
-	// server-side logs.
-	return &middleware.Output{
+	// the admin's access log via metadata.
+	out := &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
@@ -192,6 +194,13 @@ func denyFromManagement(resp *proto.CheckLLMPolicyLimitsResponse, surface string
 			{Key: middleware.KeyLLMPolicyReason, Value: code},
 		},
 	}
+	if id := resp.GetSelectedPolicyId(); id != "" {
+		out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMPolicyBlockedBy, Value: id})
+	}
+	if detail := resp.GetDenyReason(); detail != "" {
+		out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMPolicyDetail, Value: detail})
+	}
+	return out
 }
 
 // denyMessageForCode maps a management deny code to a public message.
