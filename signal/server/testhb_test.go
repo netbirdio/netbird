@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,12 @@ type hbStream struct {
 
 func (s *hbStream) Context() context.Context     { return s.ctx }
 func (s *hbStream) SendHeader(metadata.MD) error { return nil }
+
+// Recv blocks until the stream ends, like a client that never writes.
+func (s *hbStream) Recv() (*proto.EncryptedMessage, error) {
+	<-s.ctx.Done()
+	return nil, io.EOF
+}
 
 func (s *hbStream) Send(m *proto.EncryptedMessage) error {
 	n := s.inflight.Add(1)

@@ -413,6 +413,12 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, signalSrv *signalServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
+	// Before anything else: the relay shutdown can take a while, and Signal
+	// clients should start reconnecting now.
+	if signalSrv != nil {
+		signalSrv.GoingAway()
+	}
+
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
 		errs = multierror.Append(errs, fmt.Errorf("failed to close healthcheck server: %w", err))
 	}
