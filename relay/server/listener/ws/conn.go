@@ -10,6 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 const (
@@ -22,6 +24,9 @@ type Conn struct {
 
 	closed   bool
 	closedMu sync.Mutex
+
+	// hbSchedule is the test heartbeat schedule the client sent in the URL.
+	hbSchedule testhb.ClientSchedule
 }
 
 func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr) *Conn {
@@ -29,6 +34,11 @@ func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr) *Conn {
 		Conn:  wsConn,
 		rAddr: rAddr,
 	}
+}
+
+// TestHBSchedule returns the test heartbeat schedule the client sent in the URL.
+func (c *Conn) TestHBSchedule() testhb.ClientSchedule {
+	return c.hbSchedule
 }
 
 func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {

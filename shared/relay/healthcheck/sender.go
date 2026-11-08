@@ -27,6 +27,8 @@ type SenderOptions struct {
 	// PhaseKey is the testhb phase key of the peer. When set and testhb is
 	// enabled, the send tick comes from testhb.Ticker instead of the interval.
 	PhaseKey string
+	// ClientSchedule is the testhb schedule the client sent, used in dynamic mode.
+	ClientSchedule testhb.ClientSchedule
 }
 
 // Sender is a healthcheck sender
@@ -47,6 +49,7 @@ type Sender struct {
 	alive            bool
 	attemptThreshold int
 	phaseKey         string
+	clientSchedule   testhb.ClientSchedule
 }
 
 func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
@@ -71,7 +74,9 @@ func NewSenderWithOpts(log *log.Entry, opts SenderOptions) *Sender {
 
 	if opts.PhaseKey != "" && testhb.Enabled() {
 		hc.phaseKey = opts.PhaseKey
-		hc.timeout = max(hc.timeout, testhb.PeriodFromEnv()+max(opts.HealthCheckTimeout, testHBMinAckMargin))
+		hc.clientSchedule = opts.ClientSchedule
+		period := max(testhb.PeriodFromEnv(), opts.ClientSchedule.Period)
+		hc.timeout = max(hc.timeout, period+max(opts.HealthCheckTimeout, testHBMinAckMargin))
 	}
 
 	return hc
@@ -90,11 +95,18 @@ func NewSender(log *log.Entry) *Sender {
 // NewSenderWithPhaseKey creates a sender like NewSender that follows the
 // testhb schedule for phaseKey when testhb is enabled.
 func NewSenderWithPhaseKey(log *log.Entry, phaseKey string) *Sender {
+	return NewSenderWithClientSchedule(log, phaseKey, testhb.ClientSchedule{})
+}
+
+// NewSenderWithClientSchedule creates a sender like NewSenderWithPhaseKey that
+// also follows the schedule the client sent, in testhb dynamic mode.
+func NewSenderWithClientSchedule(log *log.Entry, phaseKey string, cs testhb.ClientSchedule) *Sender {
 	opts := SenderOptions{
 		HealthCheckInterval: defaultHealthCheckInterval,
 		HealthCheckTimeout:  defaultHealthCheckTimeout,
 		AttemptThreshold:    getAttemptThresholdFromEnv(),
 		PhaseKey:            phaseKey,
+		ClientSchedule:      cs,
 	}
 	return NewSenderWithOpts(log, opts)
 }
@@ -110,7 +122,11 @@ func (hc *Sender) OnHCResponse() {
 func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	var tick <-chan time.Time
 	if hc.phaseKey != "" {
-		tick = testhb.Ticker(ctx, hc.phaseKey, testhb.ServiceRelay)
+		tick = testhb.TickerWithClient(ctx, hc.phaseKey, testhb.ServiceRelay, hc.clientSchedule)
+		if tick != nil && hc.clientSchedule.OK {
+			hc.log.Infof("testhb: client schedule svc=relay key=%s p=%d period=%d skew=%d", hc.phaseKey,
+				hc.clientSchedule.PhaseMs, int64(hc.clientSchedule.Period/time.Second), hc.clientSchedule.SkewMs)
+		}
 	}
 	if tick == nil {
 		ticker := time.NewTicker(hc.healthCheckInterval)
@@ -128,11 +144,23 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	for {
 		select {
 		case <-tick:
+			if hc.testHBMuted() {
+				hc.log.Infof("testhb: muted relay heartbeat key=%s", hc.phaseKey)
+				continue
+			}
 			hc.HealthCheck <- struct{}{}
 			if hc.phaseKey != "" {
-				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d", hc.phaseKey, testhb.CurrentMode(), time.Now().UnixMilli())
+				mode := testhb.CurrentMode()
+				hc.log.Infof("testhb: sent relay heartbeat key=%s mode=%s t=%d%s",
+					hc.phaseKey, mode, time.Now().UnixMilli(), testhb.LogSuffix(mode, hc.clientSchedule))
 			}
 		case <-timeoutTicker.C:
+			// No acks come back while the sends are muted, so do not count them.
+			if hc.testHBMuted() {
+				failureCounter = 0
+				hc.alive = true
+				continue
+			}
 			if hc.alive {
 				hc.alive = false
 				continue
@@ -152,4 +180,8 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (hc *Sender) testHBMuted() bool {
+	return hc.phaseKey != "" && testhb.Muted(testhb.ServiceRelay)
 }

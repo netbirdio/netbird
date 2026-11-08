@@ -180,6 +180,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	if s.draining.Load() {
 		return errGoingAway
 	}
+	hbArrival := time.Now()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	p, err := s.RegisterPeer(stream, cancel)
@@ -207,7 +208,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	hbCtx, hbCancel := context.WithCancel(stream.Context())
 	defer hbCancel()
-	s.startTestHeartbeat(hbCtx, p)
+	s.startTestHeartbeat(hbCtx, p, testHBClientSchedule(stream.Context(), hbArrival))
 
 	select {
 	case <-stream.Context().Done():
@@ -222,20 +223,41 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 // on it only to probe the path, and unread data would fill the stream window.
 func drainStream(stream proto.SignalExchange_ConnectStreamServer) {
 	for {
-		if _, err := stream.Recv(); err != nil {
+		msg, err := stream.Recv()
+		if err != nil {
 			return
 		}
+		if testhb.Enabled() && testhb.SignalBlackhole() {
+			log.Infof("testhb: blackhole dropped stream message from [%s]", msg.GetKey())
+		}
 	}
+}
+
+// testHBClientSchedule reads the test heartbeat schedule from the stream metadata.
+// arrival is the wall time when ConnectStream started.
+func testHBClientSchedule(ctx context.Context, arrival time.Time) testhb.ClientSchedule {
+	if !testhb.Enabled() {
+		return testhb.ClientSchedule{}
+	}
+	v := metadata.ValueFromIncomingContext(ctx, testhb.MetadataKey)
+	if len(v) == 0 {
+		return testhb.ClientSchedule{}
+	}
+	return testhb.ClientScheduleFor(testhb.ServiceSignal, v[0], arrival)
 }
 
 // startTestHeartbeat sends TestHeartbeatKey messages to the peer on the
 // testhb schedule until ctx is done. It does nothing when testhb is off.
 // Sends go through Peer.Send, so they never race forwarded messages.
-func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer) {
+func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer, cs testhb.ClientSchedule) {
 	key := testhb.PhaseKey(p.Id)
-	tick := testhb.Ticker(ctx, key, testhb.ServiceSignal)
+	tick := testhb.TickerWithClient(ctx, key, testhb.ServiceSignal, cs)
 	if tick == nil {
 		return
+	}
+	if cs.OK {
+		log.Infof("testhb: client schedule svc=signal key=%s p=%d period=%d skew=%d",
+			key, cs.PhaseMs, int64(cs.Period/time.Second), cs.SkewMs)
 	}
 	go func() {
 		for {
@@ -243,12 +265,17 @@ func (s *Server) startTestHeartbeat(ctx context.Context, p *peer.Peer) {
 			case <-ctx.Done():
 				return
 			case <-tick:
+				if testhb.Muted(testhb.ServiceSignal) {
+					log.Infof("testhb: muted signal heartbeat key=%s", key)
+					continue
+				}
 				now := time.Now()
 				if err := p.Send(&proto.EncryptedMessage{Key: TestHeartbeatKey, RemoteKey: p.Id}); err != nil {
 					log.Debugf("testhb: signal heartbeat to [%s] failed: %v", p.Id, err)
 					continue
 				}
-				log.Infof("testhb: sent signal heartbeat key=%s mode=%s t=%d", key, testhb.CurrentMode(), now.UnixMilli())
+				mode := testhb.CurrentMode()
+				log.Infof("testhb: sent signal heartbeat key=%s mode=%s t=%d%s", key, mode, now.UnixMilli(), testhb.LogSuffix(mode, cs))
 			}
 		}
 	}()
@@ -283,6 +310,10 @@ func (s *Server) DeregisterPeer(p *peer.Peer) {
 
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {
 	log.Tracef("forwarding a new message from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	if testhb.Enabled() && testhb.SignalBlackhole() {
+		log.Infof("testhb: blackhole dropped message from [%s] to [%s]", msg.Key, msg.RemoteKey)
+		return
+	}
 	getRegistrationStart := time.Now()
 
 	// lookup the target peer where the message is going to

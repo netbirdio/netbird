@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/relay/protocol"
 	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/shared/testhb"
 	"github.com/netbirdio/netbird/trustedproxy"
 )
 
@@ -107,6 +108,7 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 }
 
 func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
+	hbSchedule := testHBClientSchedule(r, time.Now())
 	connRemoteAddr := remoteAddr(r, l.TrustedProxies)
 
 	acceptOptions := &websocket.AcceptOptions{
@@ -131,7 +133,21 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 	log.Infof("WS client connected from: %s", rAddr)
 
 	conn := NewConn(wsConn, rAddr)
+	conn.hbSchedule = hbSchedule
 	l.acceptFn(conn)
+}
+
+// testHBClientSchedule reads the test heartbeat schedule from the upgrade URL.
+// arrival is the wall time when the upgrade request arrived.
+func testHBClientSchedule(r *http.Request, arrival time.Time) testhb.ClientSchedule {
+	if !testhb.Enabled() {
+		return testhb.ClientSchedule{}
+	}
+	v := r.URL.Query().Get(testhb.RelayQueryParam)
+	if v == "" {
+		return testhb.ClientSchedule{}
+	}
+	return testhb.ClientScheduleFor(testhb.ServiceRelay, v, arrival)
 }
 
 func remoteAddr(r *http.Request, trustedProxies *trustedproxy.List) string {

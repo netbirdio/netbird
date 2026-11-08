@@ -109,7 +109,7 @@ func TestTickerOff(t *testing.T) {
 func TestTickerAlignedFires(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch := startTicker(ctx, fixed(ModeAligned), time.Second, "x", ServiceManagement)
+	ch := startTicker(ctx, fixed(ModeAligned), time.Second, "x", ServiceManagement, ClientSchedule{})
 	select {
 	case <-ch:
 	case <-time.After(3 * time.Second):
@@ -193,7 +193,7 @@ func TestSpreadIPhoneKey(t *testing.T) {
 func TestTickerSpreadFires(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch := startTicker(ctx, fixed(ModeSpread), 3*time.Second, "x", ServiceRelay)
+	ch := startTicker(ctx, fixed(ModeSpread), 3*time.Second, "x", ServiceRelay, ClientSchedule{})
 	select {
 	case now := <-ch:
 		// The timer can fire a few microseconds before the wall-clock second.
@@ -238,7 +238,7 @@ func TestTickerFollowsModeSwitch(t *testing.T) {
 	defer cancel()
 	var cur atomic.Int32
 	cur.Store(int32(ModeSpread))
-	ch := startTicker(ctx, func() Mode { return Mode(cur.Load()) }, 3*time.Second, "x", ServiceRelay)
+	ch := startTicker(ctx, func() Mode { return Mode(cur.Load()) }, 3*time.Second, "x", ServiceRelay, ClientSchedule{})
 	phase := func(now time.Time) int64 { return now.Round(time.Second).Unix() % 3 }
 
 	select {

@@ -21,6 +21,9 @@ const (
 	ModeConnect
 	ModeAligned
 	ModeSpread
+	// ModeDynamic fires on the phase the client sends when its stream opens,
+	// shifted by the measured clock skew. See ClientSchedule.
+	ModeDynamic
 )
 
 // Service picks the spread-mode offset: service i fires i*P/3 seconds after
@@ -50,6 +53,8 @@ func (m Mode) String() string {
 		return "aligned"
 	case ModeSpread:
 		return "spread"
+	case ModeDynamic:
+		return "dynamic"
 	default:
 		return "off"
 	}
@@ -76,6 +81,8 @@ func parseMode(s string) Mode {
 		return ModeAligned
 	case "spread":
 		return ModeSpread
+	case "dynamic":
+		return ModeDynamic
 	default:
 		return ModeOff
 	}
@@ -154,25 +161,39 @@ func FirstDelay(mode Mode, period time.Duration, phaseKey string, svc Service, n
 // Otherwise the schedule follows CurrentMode() at each fire, so a mode file
 // change takes effect within one period. Mode file off pauses the ticker.
 // Aligned and spread: recompute each fire from wall clock, no drift.
+// Dynamic without a client schedule pauses the ticker like off.
 func Ticker(ctx context.Context, phaseKey string, svc Service) <-chan time.Time {
+	return TickerWithClient(ctx, phaseKey, svc, ClientSchedule{})
+}
+
+// TickerWithClient is Ticker with the schedule the client sent when its
+// stream opened. Only dynamic mode uses cs.
+func TickerWithClient(ctx context.Context, phaseKey string, svc Service, cs ClientSchedule) <-chan time.Time {
 	if ModeFromEnv() == ModeOff {
 		return nil
 	}
-	return startTicker(ctx, CurrentMode, PeriodFromEnv(), phaseKey, svc)
+	return startTicker(ctx, CurrentMode, PeriodFromEnv(), phaseKey, svc, cs)
 }
 
-func nextDelay(mode Mode, period time.Duration, phaseKey string, svc Service, now time.Time) time.Duration {
+// nextDelay returns the delay to the next fire and whether that fire sends.
+// now is the service wall clock, skew knob included.
+func nextDelay(mode Mode, period time.Duration, phaseKey string, svc Service, cs ClientSchedule, now time.Time) (time.Duration, bool) {
 	switch mode {
 	case ModeOff:
-		return offPoll
+		return offPoll, false
 	case ModeConnect:
-		return period
+		return period, true
+	case ModeDynamic:
+		if !cs.OK {
+			return offPoll, false
+		}
+		return DynamicDelay(cs, now), true
 	default:
-		return FirstDelay(mode, period, phaseKey, svc, now)
+		return FirstDelay(mode, period, phaseKey, svc, now), true
 	}
 }
 
-func startTicker(ctx context.Context, mode func() Mode, period time.Duration, phaseKey string, svc Service) <-chan time.Time {
+func startTicker(ctx context.Context, mode func() Mode, period time.Duration, phaseKey string, svc Service, cs ClientSchedule) <-chan time.Time {
 	ch := make(chan time.Time, 1)
 	send := func(t time.Time) {
 		select {
@@ -186,13 +207,14 @@ func startTicker(ctx context.Context, mode func() Mode, period time.Duration, ph
 		defer t.Stop()
 		for {
 			m := mode()
-			t.Reset(nextDelay(m, period, phaseKey, svc, time.Now()))
+			d, active := nextDelay(m, period, phaseKey, svc, cs, Now(svc))
+			t.Reset(d)
 			select {
 			case <-ctx.Done():
 				return
 			case now := <-t.C:
 				// A tick scheduled under the old mode is dropped after a switch.
-				if m != ModeOff && mode() == m {
+				if active && mode() == m {
 					send(now)
 				}
 			}
