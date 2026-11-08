@@ -230,21 +230,32 @@ func LogProbe(svc Service, ok bool, after time.Duration) {
 }
 
 var (
-	defaultOnce    sync.Once
+	defaultMu      sync.Mutex
+	defaultSet     atomic.Bool
 	defaultWatcher atomic.Pointer[Watcher]
 )
 
 // def returns the default Watcher, or nil when NB_TEST_HB_STALE is not 1.
+// A disabled result is not kept: the extension can call in (wake, path
+// update) before the engine exports the env, and a later call must still
+// see the knob.
 func def() *Watcher {
-	defaultOnce.Do(func() {
-		if !enabledFromEnv() {
-			return
-		}
-		period := PeriodFromEnv()
-		log.Infof("hbwatch: enabled period=%s grace=%s tolerance=%s", period, Grace, Tolerance)
-		defaultWatcher.Store(New(realClock{}, period))
-	})
-	return defaultWatcher.Load()
+	if w := defaultWatcher.Load(); w != nil || defaultSet.Load() {
+		return w
+	}
+	if !enabledFromEnv() {
+		return nil
+	}
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	if w := defaultWatcher.Load(); w != nil || defaultSet.Load() {
+		return w
+	}
+	period := PeriodFromEnv()
+	log.Infof("hbwatch: enabled period=%s grace=%s tolerance=%s", period, Grace, Tolerance)
+	w := New(realClock{}, period)
+	defaultWatcher.Store(w)
+	return w
 }
 
 func enabledFromEnv() bool {
@@ -263,9 +274,16 @@ func enabledFromEnv() bool {
 // SetDefault replaces the default Watcher, for tests in packages that call the
 // package functions. The returned func restores the previous one.
 func SetDefault(w *Watcher) (restore func()) {
-	defaultOnce.Do(func() {})
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	prevSet := defaultSet.Swap(true)
 	prev := defaultWatcher.Swap(w)
-	return func() { defaultWatcher.Store(prev) }
+	return func() {
+		defaultMu.Lock()
+		defer defaultMu.Unlock()
+		defaultWatcher.Store(prev)
+		defaultSet.Store(prevSet)
+	}
 }
 
 // Enabled reports whether NB_TEST_HB_STALE=1.

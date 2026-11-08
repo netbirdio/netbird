@@ -225,3 +225,31 @@ func TestPeriodFromEnv(t *testing.T) {
 	t.Setenv(envPeriod, "x")
 	assert.Equal(t, 30*time.Second, PeriodFromEnv(), "unparsable keeps default")
 }
+
+// The extension can call CheckNow before the engine exports the env. That
+// early call must not keep the watcher disabled.
+func TestDefaultEnabledAfterEarlyDisabledCall(t *testing.T) {
+	defaultMu.Lock()
+	prev, prevSet := defaultWatcher.Swap(nil), defaultSet.Swap(false)
+	defaultMu.Unlock()
+	t.Cleanup(func() {
+		defaultMu.Lock()
+		defaultWatcher.Store(prev)
+		defaultSet.Store(prevSet)
+		defaultMu.Unlock()
+	})
+
+	t.Setenv(envEnabled, "")
+	CheckNow()
+	require.Nil(t, def())
+
+	t.Setenv(envEnabled, "1")
+	w := def()
+	require.NotNil(t, w)
+	require.Same(t, w, def())
+
+	restore := SetDefault(nil)
+	require.Nil(t, def(), "SetDefault(nil) keeps the default off")
+	restore()
+	require.Same(t, w, def())
+}
