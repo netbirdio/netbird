@@ -22,6 +22,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
@@ -426,10 +427,10 @@ func (c *GrpcClient) sendJobResponse(
 }
 
 func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
-	ctx, cancelStream := context.WithCancel(ctx)
+	streamCtx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
+	stream, err := c.connectToSyncStream(streamCtx, serverPubKey, getInfo(streamCtx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
@@ -457,11 +458,21 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	//     instead of a silent reconnection.
 	backOff.Reset()
 
+	// Sync is server-stream only and cannot be probed, so a stale stream is
+	// cancelled and the retry loop reconnects.
+	unregisterStale := hbwatch.Register(hbwatch.Management, hbwatch.ActionReconnect, func() {
+		log.Warnf("management sync stream is stale, reconnecting")
+		cancelStream()
+	})
+	defer unregisterStale()
+
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
 		c.setSyncStreamDisconnected(err)
+		// Check the parent context, not streamCtx: a stale-check cancelStream
+		// must reconnect, only a parent cancel is shutdown.
 		if ctx.Err() != nil {
 			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
@@ -517,10 +528,12 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 		// A SyncResponse with every field unset is a test heartbeat. It only keeps
 		// the stream active, so skip the handler and its sync lock.
 		if gproto.Size(decryptedResp) == 0 {
+			hbwatch.Seen(hbwatch.Management)
 			log.Tracef("got an empty update message from Management Service")
 			continue
 		}
 
+		hbwatch.Touch(hbwatch.Management)
 		log.Debugf("got an update message from Management Service")
 		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
