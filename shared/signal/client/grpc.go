@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
@@ -48,6 +49,13 @@ const (
 	// TestGoingAwayKey marks a bodiless frame the test Signal server sends
 	// before it shuts down. The client reconnects at once when it gets one.
 	TestGoingAwayKey = "netbird-test-going-away"
+)
+
+// staleProbeTimeout is the wall-time budget for an answer to a probe sent by
+// the hbwatch stale check. staleProbePoll is how often the answer is checked.
+var (
+	staleProbeTimeout = 5 * time.Second
+	staleProbePoll    = 250 * time.Millisecond
 )
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
@@ -108,7 +116,14 @@ type GrpcClient struct {
 	// receive backpressure as a dead stream: reconnecting cannot help, since the
 	// new stream feeds the same worker, and only triggers a reconnect storm.
 	receiveHandoffBlocked atomic.Bool
-	watchdogWg            sync.WaitGroup
+	// streamProbeInflight keeps stream probe sends from the watchdog and the
+	// stale check from overlapping on one stream.
+	streamProbeInflight atomic.Bool
+	// lastFrameAt is the Unix-nano wall time of the last Recv that returned a
+	// frame. Unlike lastReceived it is not refreshed after a worker handoff, so
+	// the stale probe reads it as the answer.
+	lastFrameAt atomic.Int64
+	watchdogWg  sync.WaitGroup
 }
 
 // Option configures optional GrpcClient behavior.
@@ -268,10 +283,14 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 			defer c.watchdogWg.Done()
 			c.watchReceiveStream(streamCtx, cancelStream, stream)
 		}()
+		unregisterStale := hbwatch.Register(hbwatch.Signal, hbwatch.ActionProbe, func() {
+			go c.staleProbe(streamCtx, cancelStream, stream)
+		})
 
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
 
+		unregisterStale()
 		cancelStream()
 		c.watchdogWg.Wait()
 
@@ -546,7 +565,6 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 	defer ticker.Stop()
 
 	var probeSentAt time.Time
-	var streamProbeInflight atomic.Bool
 	for {
 		select {
 		case <-ctx.Done():
@@ -566,12 +584,49 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
-				c.sendStreamProbe(stream, &streamProbeInflight)
+				c.sendStreamProbe(stream, &c.streamProbeInflight)
 				if err := c.sendReceiveProbe(ctx); err != nil {
 					log.Debugf("failed to send signal receive probe: %v", err)
 				}
 				probeSentAt = time.Now()
 			}
+		}
+	}
+}
+
+// staleProbe runs the watchdog probe at once for the hbwatch stale check. Any
+// frame received after the probe went out is the answer. Without an answer
+// within staleProbeTimeout of wall time the stream is cancelled to reconnect.
+// The wait polls the wall clock, so time asleep counts toward the timeout.
+func (c *GrpcClient) staleProbe(ctx context.Context, cancelStream context.CancelFunc, stream streamProbeSender) {
+	sent := time.Now().Round(0)
+	c.sendStreamProbe(stream, &c.streamProbeInflight)
+	go func() {
+		if err := c.sendReceiveProbe(ctx); err != nil {
+			log.Debugf("failed to send signal stale probe: %v", err)
+		}
+	}()
+
+	ticker := time.NewTicker(staleProbePoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		elapsed := time.Now().Round(0).Sub(sent)
+		if c.lastFrameAt.Load() >= sent.UnixNano() {
+			hbwatch.LogProbe(hbwatch.Signal, true, elapsed)
+			return
+		}
+		if elapsed >= staleProbeTimeout {
+			hbwatch.LogProbe(hbwatch.Signal, false, elapsed)
+			log.Warnf("signal stale probe got no answer in %s, reconnecting", elapsed.Round(time.Millisecond))
+			c.receiveStalled.Store(true)
+			c.notifyDisconnected(errReceiveStreamStalled)
+			cancelStream()
+			return
 		}
 	}
 }
@@ -630,6 +685,12 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 
 		// Any frame from the server proves the receive direction is alive.
 		c.markReceived()
+		c.lastFrameAt.Store(time.Now().UnixNano())
+		if msg.GetKey() == TestHeartbeatKey {
+			hbwatch.Seen(hbwatch.Signal)
+		} else {
+			hbwatch.Touch(hbwatch.Signal)
+		}
 
 		if msg == nil {
 			continue

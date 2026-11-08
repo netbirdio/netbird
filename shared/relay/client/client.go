@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/hbwatch"
 	"github.com/netbirdio/netbird/client/netevents/sweep"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
@@ -290,8 +291,17 @@ func (c *Client) Connect(ctx context.Context) error {
 	hc := healthcheck.NewReceiver(c.log)
 	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
 
+	relayConn, connLog := c.relayConn, c.log
+	unregisterStale := hbwatch.Register(hbwatch.Relay, hbwatch.ActionReconnect, func() {
+		connLog.Warnf("relay connection is stale, closing it like a health check timeout")
+		c.healthCheckTimedOut(relayConn, internallyStoppedFlag)
+	})
+
 	c.wgReadLoop.Add(1)
-	go c.readLoop(hc, c.relayConn, internallyStoppedFlag)
+	go func() {
+		c.readLoop(hc, relayConn, internallyStoppedFlag)
+		unregisterStale()
+	}()
 
 	return nil
 }
@@ -595,6 +605,9 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 }
 
 func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+	if msgType != messages.MsgTypeHealthCheck {
+		hbwatch.Touch(hbwatch.Relay)
+	}
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		c.handleHealthCheck(hc, internallyStoppedFlag)
@@ -627,6 +640,7 @@ func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFl
 		}
 	}
 	hc.Heartbeat()
+	hbwatch.Seen(hbwatch.Relay)
 }
 
 func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
@@ -747,11 +761,7 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 				return
 			}
 			c.log.Errorf("health check timeout")
-			internalStopFlag.set()
-			if err := conn.Close(); err != nil {
-				// ignore the err handling because the readLoop will handle it
-				c.log.Warnf("failed to close connection: %s", err)
-			}
+			c.healthCheckTimedOut(conn, internalStopFlag)
 			return
 		case <-ctx.Done():
 			err := c.close(true)
@@ -760,6 +770,17 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 			}
 			return
 		}
+	}
+}
+
+// healthCheckTimedOut closes the relay connection as a dead link. The read loop
+// then exits, closes the peer conns and notifies the disconnect listener, which
+// starts the reconnect.
+func (c *Client) healthCheckTimedOut(conn net.Conn, internalStopFlag *internalStopFlag) {
+	internalStopFlag.set()
+	if err := conn.Close(); err != nil {
+		// ignore the err handling because the readLoop will handle it
+		c.log.Warnf("failed to close connection: %s", err)
 	}
 }
 
