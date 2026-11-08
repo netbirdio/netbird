@@ -346,9 +346,13 @@ func (c *GrpcClient) notifyStreamConnected() {
 func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
+	if testHBDynamicOn() {
+		waitConnReady(ctx, c.signalConn)
+	}
+
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
-	if v, ok := testhb.Value("signal", key); ok {
+	if v, ok := testHBValue("signal", key); ok {
 		md.Set(testhb.MetadataKey, v)
 	}
 	metaCtx := metadata.NewOutgoingContext(ctx, md)
@@ -765,4 +769,32 @@ func localTestEnvSeconds(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return time.Duration(v) * time.Second
+}
+
+// testHBValue builds the test heartbeat value. A var so tests can check the
+// connection state at the moment t is taken.
+var testHBValue = testhb.Value
+
+func testHBDynamicOn() bool {
+	on, _ := strconv.ParseBool(os.Getenv(testhb.EnvDynamic))
+	return on
+}
+
+// waitConnReady blocks until conn is Ready, so the test heartbeat t is taken on
+// a ready connection and does not hold TCP, TLS or a backoff wait. It returns
+// early on Shutdown or when ctx ends; the stream open that follows then fails
+// the same way as without the wait.
+func waitConnReady(ctx context.Context, conn *grpc.ClientConn) {
+	for {
+		state := conn.GetState()
+		switch state {
+		case connectivity.Ready, connectivity.Shutdown:
+			return
+		case connectivity.Idle:
+			conn.Connect()
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			return
+		}
+	}
 }

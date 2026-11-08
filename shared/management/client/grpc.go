@@ -502,7 +502,10 @@ func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtyp
 		return nil, err
 	}
 	syncReq := &proto.EncryptedMessage{WgPubKey: myPublicKey.String(), Body: encryptedReq}
-	if v, ok := testhb.Value("management", myPublicKey.String()); ok {
+	if testHBDynamicOn() {
+		waitConnReady(ctx, c.conn)
+	}
+	if v, ok := testHBValue("management", myPublicKey.String()); ok {
 		ctx = metadata.AppendToOutgoingContext(ctx, testhb.MetadataKey, v)
 	}
 	sync, err := c.realClient.Sync(ctx, syncReq)
@@ -1099,4 +1102,32 @@ func syncMessageVersion(info system.Info) int32 {
 		return int32(*info.SyncMessageVersion)
 	}
 	return int32(nbmgmtgrpc.HighestSyncMessageVersion)
+}
+
+// testHBValue builds the test heartbeat value. A var so tests can check the
+// connection state at the moment t is taken.
+var testHBValue = testhb.Value
+
+func testHBDynamicOn() bool {
+	on, _ := strconv.ParseBool(os.Getenv(testhb.EnvDynamic))
+	return on
+}
+
+// waitConnReady blocks until conn is Ready, so the test heartbeat t is taken on
+// a ready connection and does not hold TCP, TLS or a backoff wait. It returns
+// early on Shutdown or when ctx ends; the Sync call that follows then fails the
+// same way as without the wait.
+func waitConnReady(ctx context.Context, conn *grpc.ClientConn) {
+	for {
+		state := conn.GetState()
+		switch state {
+		case connectivity.Ready, connectivity.Shutdown:
+			return
+		case connectivity.Idle:
+			conn.Connect()
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			return
+		}
+	}
 }
