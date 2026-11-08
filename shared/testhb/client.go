@@ -70,6 +70,16 @@ func Value(svc, pubKey string) (string, bool) {
 	return s.value(time.Now()), true
 }
 
+// ClientPhase returns the client heartbeat phase and period for the key set by
+// SetOwnKey. ok is false when the switch is off or no phase can be found.
+func ClientPhase() (phase, period time.Duration, ok bool) {
+	s, ok := scheduleFromEnv(os.Getenv, OwnKey())
+	if !ok {
+		return 0, 0, false
+	}
+	return time.Duration(s.phaseMs) * time.Millisecond, time.Duration(s.periodSec) * time.Second, true
+}
+
 func (s schedule) value(now time.Time) string {
 	return fmt.Sprintf("p=%d;period=%d;t=%d", s.phaseMs, s.periodSec, now.UnixMilli())
 }

@@ -2,8 +2,9 @@
 // It keeps the wall time of the last inbound frame per service and, on each
 // trigger (a received frame or an explicit CheckNow), waits a short grace and
 // runs the dead path of every connected service whose wall-clock gap exceeds
-// the heartbeat period plus a tolerance. When a heartbeat triggered the check
-// (a tick), a service with no frame since the previous tick is stale already.
+// the heartbeat period plus a tolerance. When a heartbeat near the client
+// phase triggered the check (a tick), a service with no frame since the
+// previous tick is stale already.
 // The gap is measured on the wall clock so time the phone spent asleep counts.
 // Enabled by NB_TEST_HB_STALE=1.
 package hbwatch
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/testhb"
 )
 
 // Service names a watched stream.
@@ -42,15 +45,23 @@ const (
 	Grace = 2 * time.Second
 	// Tolerance covers server spread and arrival order.
 	Tolerance = 3 * time.Second
+	// tickWindow is how far from the client phase a heartbeat may arrive and
+	// still mark a tick. A heartbeat further off comes from a stream with a
+	// wrong server skew and says nothing about the other streams.
+	tickWindow = 3 * time.Second
 )
 
 const (
 	triggerFrame     = "frame"
+	triggerOffPhase  = "offphase"
 	triggerHeartbeat = "heartbeat"
 	triggerWake      = "wake"
 )
 
-var triggerRank = map[string]int{triggerFrame: 0, triggerHeartbeat: 1, triggerWake: 2}
+var triggerRank = map[string]int{triggerFrame: 0, triggerOffPhase: 1, triggerHeartbeat: 2, triggerWake: 3}
+
+// phaseFunc returns the client heartbeat phase and period, ok false if unknown.
+type phaseFunc func() (phase, period time.Duration, ok bool)
 
 var services = []Service{Management, Signal, Relay}
 
@@ -78,6 +89,8 @@ type service struct {
 type Watcher struct {
 	clk    Clock
 	period time.Duration
+	// phaseFn is asked until it knows the phase. Nil means no ticks.
+	phaseFn phaseFunc
 
 	mu      sync.Mutex
 	svcs    map[Service]*service
@@ -89,6 +102,11 @@ type Watcher struct {
 	// triggerAt is when the pending check was triggered. Gaps are measured
 	// there, so the grace does not eat into the tolerance.
 	triggerAt time.Time
+
+	phaseMu     sync.Mutex
+	phaseKnown  bool
+	phase       time.Duration
+	phasePeriod time.Duration
 }
 
 // New returns a Watcher with the given clock and heartbeat period.
@@ -126,12 +144,40 @@ func (w *Watcher) seen(svc Service, logIt bool) {
 	now := w.now()
 	s.last = now
 	w.mu.Unlock()
-	if logIt {
-		log.Infof("hbwatch: seen svc=%s t=%d", svc, now.UnixMilli())
+	if !logIt {
+		w.schedule(triggerFrame)
+		return
+	}
+	off, known := w.phaseOffset(now)
+	log.Infof("hbwatch: seen svc=%s t=%d off=%d", svc, now.UnixMilli(), off.Milliseconds())
+	if known && off >= -tickWindow && off <= tickWindow {
 		w.schedule(triggerHeartbeat)
 		return
 	}
-	w.schedule(triggerFrame)
+	w.schedule(triggerOffPhase)
+}
+
+// phaseOffset returns how far t is from the nearest client phase, in
+// (-period/2, period/2]. known is false while the phase is unknown.
+func (w *Watcher) phaseOffset(t time.Time) (off time.Duration, known bool) {
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if !w.phaseKnown {
+		if w.phaseFn == nil {
+			return 0, false
+		}
+		phase, period, ok := w.phaseFn()
+		if !ok || period <= 0 {
+			return 0, false
+		}
+		w.phase, w.phasePeriod, w.phaseKnown = phase, period, true
+	}
+	p := w.phasePeriod.Milliseconds()
+	o := ((t.UnixMilli()-w.phase.Milliseconds())%p + p) % p
+	if o > p/2 {
+		o -= p
+	}
+	return time.Duration(o) * time.Millisecond, true
 }
 
 // CheckNow triggers a check after the grace, for a device wake.
@@ -279,6 +325,7 @@ func def() *Watcher {
 	period := PeriodFromEnv()
 	log.Infof("hbwatch: enabled period=%s grace=%s tolerance=%s", period, Grace, Tolerance)
 	w := New(realClock{}, period)
+	w.phaseFn = testhb.ClientPhase
 	defaultWatcher.Store(w)
 	return w
 }

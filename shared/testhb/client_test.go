@@ -99,3 +99,20 @@ func TestOwnKey(t *testing.T) {
 	SetOwnKey(testKey)
 	assert.Equal(t, testKey, OwnKey(), "own key")
 }
+
+func TestClientPhase(t *testing.T) {
+	prev := OwnKey()
+	t.Cleanup(func() { SetOwnKey(prev) })
+	SetOwnKey(testKey)
+
+	t.Setenv(EnvDynamic, "")
+	_, _, ok := ClientPhase()
+	assert.False(t, ok, "no phase with the switch off")
+
+	t.Setenv(EnvDynamic, "1")
+	t.Setenv(EnvPeriod, "30")
+	phase, period, ok := ClientPhase()
+	require.True(t, ok)
+	assert.Equal(t, time.Duration(hashPhase(testKey, 30000))*time.Millisecond, phase, "phase from the own key")
+	assert.Equal(t, 30*time.Second, period, "period from env")
+}

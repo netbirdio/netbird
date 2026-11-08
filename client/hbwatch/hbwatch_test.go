@@ -95,6 +95,14 @@ func (c *counter) get(svc Service) int {
 	return c.n[svc]
 }
 
+// newTickWatcher returns a Watcher whose client phase is 0, so the fake clock
+// start and every whole 30 s after it are ticks.
+func newTickWatcher(clk *fakeClock) *Watcher {
+	w := New(clk, 30*time.Second)
+	w.phaseFn = func() (time.Duration, time.Duration, bool) { return 0, 30 * time.Second, true }
+	return w
+}
+
 func registerAll(w *Watcher, c *counter) {
 	w.Register(Management, ActionReconnect, c.action(Management))
 	w.Register(Signal, ActionProbe, c.action(Signal))
@@ -206,7 +214,7 @@ func untilNextTick(clk *fakeClock, n int) {
 // random wake later. A muted service is flagged at every tick it misses.
 func TestTickFlagsFirstMissedHeartbeat(t *testing.T) {
 	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
+	w := newTickWatcher(clk)
 	var c counter
 	registerAll(w, &c)
 
@@ -233,7 +241,7 @@ func TestTickFlagsFirstMissedHeartbeat(t *testing.T) {
 // tick.
 func TestTickFrameInsideGraceNotStale(t *testing.T) {
 	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
+	w := newTickWatcher(clk)
 	var c counter
 	registerAll(w, &c)
 
@@ -255,7 +263,7 @@ func TestTickFrameInsideGraceNotStale(t *testing.T) {
 // a steady service is not stale half a period after its heartbeat.
 func TestWakeBetweenTicksNotStale(t *testing.T) {
 	clk := newFakeClock()
-	w := New(clk, 30*time.Second)
+	w := newTickWatcher(clk)
 	var c counter
 	registerAll(w, &c)
 
@@ -270,6 +278,70 @@ func TestWakeBetweenTicksNotStale(t *testing.T) {
 	clk.advance(Grace)
 	for _, svc := range services {
 		assert.Equal(t, 0, c.get(svc), "wake or frame between ticks must not flag %s", svc)
+	}
+}
+
+// After a stalled connect one stream keeps a wrong server skew and its
+// heartbeat arrives about 11 s before the phase. That heartbeat is not a
+// tick: it must not flag the streams that are on phase, and at their tick the
+// early stream is not stale either.
+func TestOffPhaseHeartbeatIsNotATick(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(19 * time.Second)
+	for i := 0; i < 4; i++ {
+		// Signal at phase - 11 s.
+		w.Seen(Signal)
+		clk.advance(11 * time.Second)
+		// Management and relay at the phase.
+		tick(clk, w, Management, Relay)
+		clk.advance(19*time.Second - Grace - 600*time.Millisecond)
+	}
+	for _, svc := range services {
+		assert.Equal(t, 0, c.get(svc), "steady streams must not be flagged: %s", svc)
+	}
+}
+
+// Without a known phase no heartbeat is a tick, so the period plus
+// tolerance rule applies.
+func TestUnknownPhaseKeepsPeriodRule(t *testing.T) {
+	clk := newFakeClock()
+	w := New(clk, 30*time.Second)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+	untilNextTick(clk, 3)
+	tick(clk, w, Relay, Management)
+	assert.Equal(t, 0, c.get(Signal), "one missed heartbeat is under period plus tolerance")
+	untilNextTick(clk, 2)
+	tick(clk, w, Relay, Management)
+	assert.Equal(t, 1, c.get(Signal), "two missed heartbeats are over period plus tolerance")
+}
+
+func TestPhaseOffset(t *testing.T) {
+	w := New(newFakeClock(), 30*time.Second)
+	w.phaseFn = func() (time.Duration, time.Duration, bool) {
+		return 21723 * time.Millisecond, 30 * time.Second, true
+	}
+	base := time.Unix(1_800_000_000, 0)
+	for _, tc := range []struct {
+		at   time.Duration
+		want time.Duration
+	}{
+		{21723 * time.Millisecond, 0},
+		{22223 * time.Millisecond, 500 * time.Millisecond},
+		{10723 * time.Millisecond, -11 * time.Second},
+		{6723 * time.Millisecond, 15 * time.Second},
+		{51223 * time.Millisecond, -500 * time.Millisecond},
+	} {
+		off, ok := w.phaseOffset(base.Add(tc.at))
+		require.True(t, ok)
+		assert.Equal(t, tc.want, off, "offset at %s", tc.at)
 	}
 }
 
