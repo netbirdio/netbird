@@ -623,6 +623,7 @@ func createCombinedHandler(grpcServer *grpc.Server, httpHandler, idpHandler http
 
 // handleRelayWebSocket handles incoming WebSocket connections for the relay service
 func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(conn listener.Conn), cfg *CombinedConfig) {
+	arrival := time.Now()
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	}
@@ -647,6 +648,7 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 	log.Debugf("Relay WS client connected from: %s", rAddr)
 
 	conn := ws.NewConn(wsConn, rAddr)
+	conn.SetTestHBScheduleFromRequest(r, arrival)
 	acceptFn(conn)
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -39,6 +40,13 @@ func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr) *Conn {
 // TestHBSchedule returns the test heartbeat schedule the client sent in the URL.
 func (c *Conn) TestHBSchedule() testhb.ClientSchedule {
 	return c.hbSchedule
+}
+
+// SetTestHBScheduleFromRequest reads the test heartbeat schedule from the
+// upgrade request. For handlers outside Listener, such as the combined server.
+// arrival is the wall time when the upgrade request arrived.
+func (c *Conn) SetTestHBScheduleFromRequest(r *http.Request, arrival time.Time) {
+	c.hbSchedule = testHBClientSchedule(r, arrival)
 }
 
 func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
