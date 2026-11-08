@@ -15,6 +15,7 @@ import (
 
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/shared/testhb"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
 
@@ -34,6 +35,9 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	var underlying net.Conn
 	opts := createDialOptions(serverName, &underlying)
 
+	if v, ok := testhb.Value("relay", testhb.OwnKey()); ok {
+		wsURL = withTestHB(wsURL, v)
+	}
 	wsConn, resp, err := websocket.Dial(ctx, wsURL, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -76,6 +80,19 @@ func prepareURL(address string) (string, error) {
 	}
 	parsed.Path = relay.WebSocketURLPath
 	return parsed.String(), nil
+}
+
+// withTestHB adds the test heartbeat schedule to the ws URL query, keeping its
+// path and any other query parameters.
+func withTestHB(wsURL, value string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		return wsURL
+	}
+	q := u.Query()
+	q.Set(testhb.RelayQueryParam, value)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // httpClientNbDialer builds the http client used by the websocket library.
