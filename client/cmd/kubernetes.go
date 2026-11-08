@@ -132,38 +132,45 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 		// https://github.com/golang/go/issues/17093
 		PreferGo: true,
 	}
+	return findKubernetesClusters(ctx, httpClient, resolver.LookupAddr, peers, nameFilter)
+}
 
+func findKubernetesClusters(
+	ctx context.Context,
+	httpClient *http.Client,
+	lookupAddr func(context.Context, string) ([]string, error),
+	peers []*proto.PeerState,
+	nameFilter string,
+) ([]kubernetesCluster, error) {
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
+	var lookupErr error
+	resolvedAny := false
 	for _, peer := range peers {
-		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// Peers without a DNS record have no PTR, which must not hide the remaining peers.
+		fqdns, err := lookupAddr(ctx, peer.IP)
+		if err != nil {
+			log.Debugf("reverse lookup of peer %s: %v", peer.IP, err)
+			// Before any success, a timeout or SERVFAIL means the resolver is down; waiting
+			// on each remaining peer would only repeat the timeout.
+			if !resolvedAny && !isNotFoundErr(err) {
+				return nil, fmt.Errorf("reverse lookup of peers: %w", err)
+			}
+			lookupErr = err
+			continue
+		}
+		resolvedAny = true
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
 				continue
 			}
 			attempted[fqdn] = struct{}{}
-			comps := strings.Split(fqdn, ".")
-			if len(comps) < 2 {
+			kc, ok := probeCluster(ctx, httpClient, fqdn, nameFilter)
+			if !ok {
 				continue
-			}
-			if comps[1] != KubernetesDNSSuffix {
-				continue
-			}
-			if nameFilter != "" && nameFilter != comps[0] {
-				continue
-			}
-			clusterURL, clusterVersion, err := fingerprintClusters(ctx, httpClient, fqdn)
-			if err != nil {
-				log.Debugf("could not fingerprint Kubernetes cluster %s %q", fqdn, err)
-				continue
-			}
-			kc := kubernetesCluster{
-				name:    comps[0],
-				url:     clusterURL,
-				version: clusterVersion,
 			}
 			if nameFilter != "" {
 				return []kubernetesCluster{kc}, nil
@@ -171,7 +178,41 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 			kcs = append(kcs, kc)
 		}
 	}
+	// A skipped failure on the last peer would otherwise hide a cancellation.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Every lookup failing points at the resolver rather than at individual peers.
+	if !resolvedAny && lookupErr != nil {
+		return nil, fmt.Errorf("reverse lookup of peers: %w", lookupErr)
+	}
 	return kcs, nil
+}
+
+// probeCluster fingerprints fqdn when it names a netbird-kubeapi-proxy peer matching nameFilter.
+func probeCluster(ctx context.Context, httpClient *http.Client, fqdn, nameFilter string) (kubernetesCluster, bool) {
+	comps := strings.Split(fqdn, ".")
+	if len(comps) < 2 || comps[1] != KubernetesDNSSuffix {
+		return kubernetesCluster{}, false
+	}
+	if nameFilter != "" && nameFilter != comps[0] {
+		return kubernetesCluster{}, false
+	}
+	clusterURL, clusterVersion, err := fingerprintClusters(ctx, httpClient, fqdn)
+	if err != nil {
+		log.Debugf("could not fingerprint Kubernetes cluster %s %q", fqdn, err)
+		return kubernetesCluster{}, false
+	}
+	return kubernetesCluster{
+		name:    comps[0],
+		url:     clusterURL,
+		version: clusterVersion,
+	}, true
+}
+
+func isNotFoundErr(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
 }
 
 func fingerprintClusters(ctx context.Context, httpClient *http.Client, fqdn string) (*url.URL, string, error) {

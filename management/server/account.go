@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/peerliveness"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -85,6 +86,7 @@ type DefaultAccountManager struct {
 
 	settingsManager settings.Manager
 	serviceManager  service.Manager
+	peerLiveness    peerliveness.Controller
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -228,6 +230,7 @@ func BuildManager(
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
 	sharedCacheStore cacheStore.StoreInterface,
+	peerLiveness peerliveness.Controller,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -254,6 +257,7 @@ func BuildManager(
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
+		peerLiveness:             peerLiveness,
 	}
 
 	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
@@ -1012,6 +1016,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		log.WithContext(ctx).Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
+	am.peerLiveness.ForgetAccount(account.Id)
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
 	am.peerInactivityExpiry.Cancel(ctx, []string{account.Id})
 	am.certChallenges.Forget(account.Id)
@@ -1825,10 +1830,10 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 			}
 			change.ChangedPeerIDs = append(change.ChangedPeerIDs, ipv6Changed...)
+		}
 
-			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
-				return fmt.Errorf("error incrementing network serial: %w", err)
-			}
+		if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
+			return fmt.Errorf("error incrementing network serial: %w", err)
 		}
 
 		if snap, err = affectedpeers.Load(ctx, transaction, userAuth.AccountId, change); err != nil {
@@ -2033,25 +2038,24 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 // derived from syncTime (the moment the gRPC stream opened). Any
 // concurrent stream that started earlier loses the optimistic-lock race
 // in MarkPeerConnected and bails without writing.
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
-	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP}, accountID)
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time, settings *types.Settings) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
+	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP, Settings: settings}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	if err := am.MarkPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), netMap); err != nil {
+	if err := am.markPeerConnected(ctx, peerPubKey, accountID, syncTime.UnixNano(), netMap, settings); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
-// OnPeerDisconnected is invoked when a sync stream ends. It marks the
-// peer disconnected only when the stored SessionStartedAt matches the
-// nanosecond token derived from streamStartTime — i.e. only when this
-// is the stream that currently owns the peer's session. A mismatch
-// means a newer stream has already replaced us, so the disconnect is
-// dropped.
+// OnPeerDisconnected is invoked when a sync stream ends. It releases the
+// peer's connection only when the stored session matches the nanosecond
+// token derived from streamStartTime — i.e. only when this is the stream
+// that currently owns the peer's session. A mismatch means a newer stream
+// has already replaced us, so the disconnect is dropped.
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
 	if err := am.MarkPeerDisconnected(ctx, peerPubKey, accountID, streamStartTime.UnixNano()); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
@@ -2844,6 +2848,10 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 		return fmt.Errorf("save peer: %w", err)
 	}
 
+	if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return fmt.Errorf("increment network serial: %w", err)
+	}
+
 	eventMeta["old_ip"] = oldIP
 	eventMeta["ip"] = newIP.String()
 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
@@ -2884,7 +2892,8 @@ func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, 
 
 // updatePeerIPv6InTransaction validates and applies an IPv6 address change within a store transaction.
 func (am *DefaultAccountManager) updatePeerIPv6InTransaction(ctx context.Context, transaction store.Store, accountID, peerID string, newIPv6 netip.Addr) (bool, error) {
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	// Locked for update because the serial increment below writes the same row.
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthUpdate, accountID)
 	if err != nil {
 		return false, fmt.Errorf("get network: %w", err)
 	}
@@ -2926,6 +2935,10 @@ func (am *DefaultAccountManager) updatePeerIPv6InTransaction(ctx context.Context
 	peer.IPv6 = newIPv6
 	if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
 		return false, fmt.Errorf("save peer: %w", err)
+	}
+
+	if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return false, fmt.Errorf("increment network serial: %w", err)
 	}
 
 	return true, nil

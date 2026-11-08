@@ -4,15 +4,16 @@ import (
 	"context"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func PeerUpdateHandlerFactory(

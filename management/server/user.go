@@ -670,6 +670,12 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
 
+	if len(usersToSave) > 0 {
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, fmt.Errorf("increment network serial: %w", err)
+		}
+	}
+
 	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
 	if err != nil {
 		return nil, err
@@ -693,9 +699,6 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			return nil, err
 		}
 	} else if len(usersToSave) > 0 {
-		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return nil, fmt.Errorf("failed to increment network serial: %w", err)
-		}
 		go am.dispatchAffectedPeerIDs(ctx, accountID, affected.ids())
 	}
 
@@ -1216,10 +1219,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
-	if len(peerIDs) != 0 {
-		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+		return err
 	}
 
 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
@@ -1232,7 +1237,9 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 // expirePeerIfStillDue flags the peer as login-expired and returns its fresh copy, or nil
 // when it no longer qualifies. The candidate list is read without a lock, so a login that
-// landed in between would otherwise be overwritten with a stale expired status.
+// landed in between would otherwise be overwritten with a stale expired status. The
+// connection released afterwards is the session read under the lock, so a session
+// established after the commit survives.
 func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accountID, peerID string, settings *types.Settings, reason peerExpirationReason) (*nbpeer.Peer, error) {
 	var expired *nbpeer.Peer
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1253,8 +1260,11 @@ func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accou
 		expired = peer
 		return nil
 	})
-	if err != nil {
+	if err != nil || expired == nil {
 		return nil, err
+	}
+	if err := am.peerLiveness.ReleaseConnection(ctx, accountID, expired.ID, expired.Status.SessionStartedAt); err != nil {
+		log.WithContext(ctx).Warnf("release connection of expired peer %s: %v", expired.ID, err)
 	}
 	return expired, nil
 }
@@ -1423,6 +1433,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 		if err = transaction.DeleteUser(ctx, accountID, targetUserInfo.ID); err != nil {
 			return fmt.Errorf("failed to delete user: %s %w", targetUserInfo.ID, err)
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("increment network serial: %w", err)
 		}
 
 		return nil

@@ -266,6 +266,55 @@ func TestUpdateConfigServerSSHAllowedNotSet(t *testing.T) {
 	}
 }
 
+// A config that predates ServerSSHAllowed keeps the SSH server on, but only when it is
+// the config of an enrolled peer. A file with no identity, such as another component's
+// JSON file that was loaded as a profile, never ran a server and resolves to off,
+// including on the write paths that mint the identity.
+func TestServerSSHAllowedLegacyDefault(t *testing.T) {
+	enrolled := `{"PrivateKey":"` + generateKey() + `"}`
+
+	tests := []struct {
+		name  string
+		body  string
+		input ConfigInput
+		want  bool
+	}{
+		{"enrolled legacy config keeps SSH on", enrolled, ConfigInput{}, runtime.GOOS != "android"},
+		{"empty file", `{}`, ConfigInput{}, false},
+		{"foreign json", `{"Success":false,"Error":"x","ExecutedAt":"2026-01-01T00:00:00Z"}`, ConfigInput{}, false},
+		{"foreign json with management url", `{"name":"default","username":""}`, ConfigInput{ManagementURL: "https://example.com:443"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			write := func() string {
+				path := filepath.Join(t.TempDir(), "config.json")
+				require.NoError(t, os.WriteFile(path, []byte(tt.body), 0600))
+				return path
+			}
+
+			path := write()
+			read, err := GetExistingConfig(path)
+			require.NoError(t, err)
+			require.NotNil(t, read.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *read.ServerSSHAllowed, "read path")
+
+			input := tt.input
+			input.ConfigPath = write()
+			updated, err := UpdateConfig(input)
+			require.NoError(t, err)
+			require.NotNil(t, updated.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *updated.ServerSSHAllowed, "UpdateConfig")
+
+			input.ConfigPath = write()
+			direct, err := DirectUpdateOrCreateConfig(input)
+			require.NoError(t, err)
+			require.NotNil(t, direct.ServerSSHAllowed)
+			assert.Equal(t, tt.want, *direct.ServerSSHAllowed, "DirectUpdateOrCreateConfig")
+		})
+	}
+}
+
 func TestUpdateConfigRemoteJobsAllowed(t *testing.T) {
 	// Unlike SSH (which defaults on for legacy configs), remote jobs are an
 	// explicit opt-in: a pre-existing config with no value materializes to off.

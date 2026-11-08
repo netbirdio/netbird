@@ -67,6 +67,7 @@ type WGIFaceOpts struct {
 type WGIface struct {
 	tun           WGTunDevice
 	userspaceBind bool
+	tunOwnedByOS  bool // the OS keeps the interface after the tun is closed
 	mu            sync.Mutex
 
 	configurer     device.WGConfigurer
@@ -221,7 +222,9 @@ func (w *WGIface) Close() error {
 		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
 	}
 
-	if nbnetstack.IsEnabled() {
+	// The OS owns this interface (iOS utun) and the next start reuses it, so do not wait
+	// for its removal or destroy it.
+	if nbnetstack.IsEnabled() || w.tunOwnedByOS {
 		return errors.FormatErrorOrNil(result)
 	}
 

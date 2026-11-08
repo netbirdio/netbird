@@ -31,6 +31,10 @@ const (
 	defaultScopes                 = "openid profile email groups"
 	defaultUserIDClaim            = "sub"
 	sessionCookieEncryptionKeyEnv = "NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY"
+
+	// MCPCallbackPath is where the MCP OAuth broker receives logins from the identity
+	// provider, relative to the management base URL.
+	MCPCallbackPath = "/api/mcp/auth/callback"
 )
 
 // EmbeddedIdPConfig contains configuration for the embedded Dex OIDC identity provider
@@ -159,6 +163,9 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	baseURL := strings.TrimSuffix(c.Issuer, "/oauth2")
 	// todo: resolve import cycle
 	dashboardRedirectURIs = append(dashboardRedirectURIs, baseURL+"/api/reverse-proxy/callback")
+	// The MCP OAuth broker logs users in on its own callback. Both clients share this list,
+	// and the broker uses the CLI client.
+	dashboardRedirectURIs = append(dashboardRedirectURIs, baseURL+MCPCallbackPath)
 
 	dashboardPostLogoutRedirectURIs := c.DashboardPostLogoutRedirectURIs
 	// It is safe to assume that most installations will share the location of the
