@@ -72,3 +72,18 @@ func TestReceiveRealMessageAfterHeartbeat(t *testing.T) {
 	got := <-c.decryptionWorker.encryptedMsgPool
 	assert.Equal(t, real, got, "worker must get the real message, not the heartbeat")
 }
+
+// A going-away frame must end the receive loop with errServerGoingAway, so the
+// retry loop reconnects, and must not reach decryption.
+func TestReceiveGoingAwayEndsLoop(t *testing.T) {
+	c := newHeartbeatTestClient(t)
+	goingAway := &proto.EncryptedMessage{Key: TestGoingAwayKey, RemoteKey: "peer"}
+	real := &proto.EncryptedMessage{Key: "remote-peer", RemoteKey: "peer", Body: []byte{1}}
+	stream := &fakeConnectStream{msgs: []*proto.EncryptedMessage{goingAway, real}}
+
+	err := c.receive(stream)
+	require.ErrorIs(t, err, errServerGoingAway)
+
+	assert.Empty(t, c.decryptionWorker.encryptedMsgPool, "going-away must not reach the decryption worker")
+	assert.Len(t, stream.msgs, 1, "receive must stop reading after going-away")
+}

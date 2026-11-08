@@ -44,11 +44,22 @@ const (
 	// TestHeartbeatKey marks a bodiless keepalive frame the test Signal server
 	// sends on its own schedule. It only proves liveness and is never decrypted.
 	TestHeartbeatKey = "netbird-test-heartbeat"
+	// TestGoingAwayKey marks a bodiless frame the test Signal server sends
+	// before it shuts down. The client reconnects at once when it gets one.
+	TestGoingAwayKey = "netbird-test-going-away"
 )
 
 // errReceiveStreamStalled is reported when the receive stream is transport-alive
 // but no longer delivering messages, so the stream is torn down to reconnect.
 var errReceiveStreamStalled = errors.New("signal receive stream stalled")
+
+// errServerGoingAway is returned by receive when the server announced shutdown.
+var errServerGoingAway = errors.New("signal server going away")
+
+// streamProbeSender is the send side of the ConnectStream.
+type streamProbeSender interface {
+	Send(*proto.EncryptedMessage) error
+}
 
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
@@ -253,7 +264,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		c.watchdogWg.Add(1)
 		go func() {
 			defer c.watchdogWg.Done()
-			c.watchReceiveStream(streamCtx, cancelStream)
+			c.watchReceiveStream(streamCtx, cancelStream, stream)
 		}()
 
 		// start receiving messages from the Signal stream (from other peers through signal)
@@ -525,11 +536,12 @@ func (c *GrpcClient) receiveAlive() bool {
 // server routes back to this client. If the probe does not round-trip within
 // receiveProbeTimeout the receive direction is considered dead and cancelStream
 // is called so the retry loop reconnects.
-func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc) {
+func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream context.CancelFunc, stream streamProbeSender) {
 	ticker := time.NewTicker(receiveWatchdogInterval)
 	defer ticker.Stop()
 
 	var probeSentAt time.Time
+	var streamProbeInflight atomic.Bool
 	for {
 		select {
 		case <-ctx.Done():
@@ -549,6 +561,7 @@ func (c *GrpcClient) watchReceiveStream(ctx context.Context, cancelStream contex
 			}
 
 			if probeSentAt.IsZero() {
+				c.sendStreamProbe(stream, &streamProbeInflight)
 				if err := c.sendReceiveProbe(ctx); err != nil {
 					log.Debugf("failed to send signal receive probe: %v", err)
 				}
@@ -569,6 +582,24 @@ func (c *GrpcClient) sendReceiveProbe(ctx context.Context) error {
 		RemoteKey: self,
 		Body:      &proto.Body{Type: proto.Body_HEARTBEAT},
 	})
+}
+
+// sendStreamProbe writes one frame on the ConnectStream itself. A Go reverse
+// proxy whose backend stream already ended holds the client stream open until
+// the client writes on it, so this write lets the proxy end it. The send runs in
+// its own goroutine because it can block on flow control until cancelStream.
+// inflight keeps sends on one stream from overlapping, which gRPC forbids.
+func (c *GrpcClient) sendStreamProbe(stream streamProbeSender, inflight *atomic.Bool) {
+	if !inflight.CompareAndSwap(false, true) {
+		return
+	}
+	self := c.key.PublicKey().String()
+	go func() {
+		defer inflight.Store(false)
+		if err := stream.Send(&proto.EncryptedMessage{Key: TestHeartbeatKey, RemoteKey: self}); err != nil {
+			log.Debugf("failed to send signal stream probe: %v", err)
+		}
+	}()
 }
 
 // receive receives messages from other peers coming through the Signal Exchange
@@ -602,6 +633,11 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 		if msg.GetKey() == TestHeartbeatKey {
 			log.Tracef("received signal test heartbeat")
 			continue
+		}
+
+		if msg.GetKey() == TestGoingAwayKey {
+			log.Infof("signal server going away, reconnecting")
+			return errServerGoingAway
 		}
 
 		// The handoff blocks while the worker is busy, which parks this loop and
