@@ -385,10 +385,15 @@ func TestOffPhaseReconnectOncePerConnectionAndPeriod(t *testing.T) {
 	w := newTickWatcher(clk)
 	var c counter
 	register(w, &c, Relay, ActionReconnect)
+	// Management is not registered; its heartbeats only mark a test mode.
+	relay := func() {
+		w.Seen(Management)
+		w.Seen(Relay)
+	}
 
 	// Relay heartbeat 10 s before the phase.
 	clk.advance(20 * time.Second)
-	w.Seen(Relay)
+	relay()
 	require.Equal(t, 1, c.reconnects(Relay), "first off-phase heartbeat reconnects")
 
 	// New connection 1 s later, its server skew is wrong again: heartbeats
@@ -396,15 +401,15 @@ func TestOffPhaseReconnectOncePerConnectionAndPeriod(t *testing.T) {
 	clk.advance(time.Second)
 	register(w, &c, Relay, ActionReconnect)
 	clk.advance(19 * time.Second)
-	w.Seen(Relay)
+	relay()
 	assert.Equal(t, 1, c.reconnects(Relay), "20 s after the last action: at most one action per period")
 	clk.advance(30 * time.Second)
-	w.Seen(Relay)
+	relay()
 	assert.Equal(t, 2, c.reconnects(Relay), "still off phase one period later: reconnect")
 
 	// The reconnect did not open a new connection.
 	clk.advance(30 * time.Second)
-	w.Seen(Relay)
+	relay()
 	assert.Equal(t, 2, c.reconnects(Relay), "same connection must not be reconnected again")
 
 	// The next connection is on phase.
@@ -417,6 +422,36 @@ func TestOffPhaseReconnectOncePerConnectionAndPeriod(t *testing.T) {
 	}
 	assert.Equal(t, 2, c.reconnects(Relay), "connection on phase must not be reconnected")
 	assert.Equal(t, 0, c.get(Relay), "no stale action")
+}
+
+// In mode off only the stock relay health check arrives, at any phase. It
+// must not reconnect relay. Once Management or Signal heartbeats come (a test
+// mode), an off-phase relay heartbeat reconnects; 2 periods after the last
+// one it does not any more.
+func TestOffPhaseRelayNeedsTestHeartbeats(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	register(w, &c, Relay, ActionReconnect)
+
+	clk.advance(10 * time.Second)
+	for i := 0; i < 4; i++ {
+		w.Seen(Relay)
+		clk.advance(25 * time.Second)
+	}
+	require.Equal(t, 0, c.reconnects(Relay), "mode off: relay health checks must not reconnect")
+
+	// A test mode starts: a Management heartbeat (here off phase too, so no
+	// tick flags relay), then relay 10 s before the phase.
+	w.Seen(Management)
+	w.Seen(Relay)
+	require.Equal(t, 1, c.reconnects(Relay), "test mode: off-phase relay heartbeat reconnects")
+
+	// New relay connection, no test heartbeat for more than 2 periods.
+	register(w, &c, Relay, ActionReconnect)
+	clk.advance(61 * time.Second)
+	w.Seen(Relay)
+	assert.Equal(t, 1, c.reconnects(Relay), "2 periods without a test heartbeat: no reconnect")
 }
 
 // Without a known phase nothing is off phase.

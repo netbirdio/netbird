@@ -101,11 +101,14 @@ type Watcher struct {
 	// phaseFn is asked until it knows the phase. Nil means no ticks.
 	phaseFn phaseFunc
 
-	mu      sync.Mutex
-	svcs    map[Service]*service
-	nextID  uint64
-	pending bool
-	trigger string
+	mu   sync.Mutex
+	svcs map[Service]*service
+	// lastTestHB is the last Management or Signal heartbeat. Servers send
+	// those only in a test mode; the relay health check comes in mode off too.
+	lastTestHB time.Time
+	nextID     uint64
+	pending    bool
+	trigger    string
 	// tick is set when a heartbeat is among the collapsed triggers.
 	tick bool
 	// triggerAt is when the pending check was triggered. Gaps are measured
@@ -152,6 +155,9 @@ func (w *Watcher) seen(svc Service, logIt bool) {
 	}
 	now := w.now()
 	s.last = now
+	if logIt && svc != Relay {
+		w.lastTestHB = now
+	}
 	w.mu.Unlock()
 	if !logIt {
 		w.schedule(triggerFrame)
@@ -170,12 +176,13 @@ func (w *Watcher) seen(svc Service, logIt bool) {
 }
 
 // reconnectOffPhase runs the reconnect of svc once per connection, at most
-// one reconnect per period.
+// one reconnect per period, and only while the server sends test heartbeats.
 func (w *Watcher) reconnectOffPhase(svc Service, off time.Duration) {
 	w.mu.Lock()
 	s := w.svcs[svc]
 	now := w.now()
 	if s.reconnect == nil || s.offPhaseReg == s.regID ||
+		w.lastTestHB.IsZero() || now.Sub(w.lastTestHB) > 2*w.period ||
 		!s.lastReconnect.IsZero() && now.Sub(s.lastReconnect) < w.period-Tolerance {
 		w.mu.Unlock()
 		return
