@@ -69,12 +69,14 @@ type Watcher struct {
 	clk    Clock
 	period time.Duration
 
-	mu       sync.Mutex
-	svcs     map[Service]*service
-	nextID   uint64
-	pending  bool
-	trigger  string
-	disabled bool
+	mu      sync.Mutex
+	svcs    map[Service]*service
+	nextID  uint64
+	pending bool
+	trigger string
+	// triggerAt is when the pending check was triggered. Gaps are measured
+	// there, so the grace does not eat into the tolerance.
+	triggerAt time.Time
 }
 
 // New returns a Watcher with the given clock and heartbeat period.
@@ -136,6 +138,7 @@ func (w *Watcher) schedule(trigger string) {
 	}
 	w.pending = true
 	w.trigger = trigger
+	w.triggerAt = w.now()
 	w.mu.Unlock()
 	w.clk.AfterFunc(Grace, w.check)
 }
@@ -178,6 +181,7 @@ func (w *Watcher) check() {
 	w.mu.Lock()
 	w.pending = false
 	trigger := w.trigger
+	at := w.triggerAt
 	now := w.now()
 	limit := w.period + Tolerance
 
@@ -195,7 +199,8 @@ func (w *Watcher) check() {
 			gaps = append(gaps, string(name)+":-1")
 			continue
 		}
-		gap := now.Sub(s.last)
+		// A frame that landed during the grace counts as no gap.
+		gap := max(at.Sub(s.last), 0)
 		gaps = append(gaps, fmt.Sprintf("%s:%d", name, gap.Milliseconds()))
 		if gap <= limit {
 			continue

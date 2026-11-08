@@ -154,8 +154,9 @@ func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 		clk.advance(Grace)
 	}
 
-	// Exactly period + tolerance is still fine.
-	clk.advance(30*time.Second + Tolerance - Grace)
+	// Exactly period + tolerance at the trigger is still fine: the grace
+	// before the check does not count toward the gap.
+	clk.advance(30*time.Second + Tolerance)
 	beat()
 	assert.Equal(t, 0, c.get(Signal), "gap of period + tolerance is not stale")
 
