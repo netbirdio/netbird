@@ -463,10 +463,11 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	// Sync is server-stream only and cannot be probed, so a stale stream is
 	// cancelled and the retry loop reconnects.
-	unregisterStale := hbwatch.Register(hbwatch.Management, hbwatch.ActionReconnect, func() {
+	reconnect := func() {
 		log.Warnf("management sync stream is stale, reconnecting")
 		cancelStream()
-	})
+	}
+	unregisterStale := hbwatch.Register(hbwatch.Management, hbwatch.ActionReconnect, reconnect, reconnect)
 	defer unregisterStale()
 
 	// blocking until error

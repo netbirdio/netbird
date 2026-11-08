@@ -292,10 +292,11 @@ func (c *Client) Connect(ctx context.Context) error {
 	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
 
 	relayConn, connLog := c.relayConn, c.log
-	unregisterStale := hbwatch.Register(hbwatch.Relay, hbwatch.ActionReconnect, func() {
+	reconnect := func() {
 		connLog.Warnf("relay connection is stale, closing it like a health check timeout")
 		c.healthCheckTimedOut(relayConn, internallyStoppedFlag)
-	})
+	}
+	unregisterStale := hbwatch.Register(hbwatch.Relay, hbwatch.ActionReconnect, reconnect, reconnect)
 
 	c.wgReadLoop.Add(1)
 	go func() {

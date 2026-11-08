@@ -285,6 +285,9 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		}()
 		unregisterStale := hbwatch.Register(hbwatch.Signal, hbwatch.ActionProbe, func() {
 			go c.staleProbe(streamCtx, cancelStream, stream)
+		}, func() {
+			log.Warnf("signal heartbeat is off phase, reconnecting")
+			cancelStream()
 		})
 
 		// start receiving messages from the Signal stream (from other peers through signal)

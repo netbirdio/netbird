@@ -76,6 +76,30 @@ func (c *fakeClock) scheduledCount() int {
 type counter struct {
 	mu sync.Mutex
 	n  map[Service]int
+	r  map[Service]int
+}
+
+// reconnect counts the off-phase reconnects of svc apart from its stale action.
+func (c *counter) reconnect(svc Service) func() {
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.r == nil {
+			c.r = map[Service]int{}
+		}
+		c.r[svc]++
+	}
+}
+
+func (c *counter) reconnects(svc Service) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.r[svc]
+}
+
+// register registers svc with the counter's stale action and reconnect.
+func register(w *Watcher, c *counter, svc Service, kind string) (unregister func()) {
+	return w.Register(svc, kind, c.action(svc), c.reconnect(svc))
 }
 
 func (c *counter) action(svc Service) func() {
@@ -104,9 +128,9 @@ func newTickWatcher(clk *fakeClock) *Watcher {
 }
 
 func registerAll(w *Watcher, c *counter) {
-	w.Register(Management, ActionReconnect, c.action(Management))
-	w.Register(Signal, ActionProbe, c.action(Signal))
-	w.Register(Relay, ActionReconnect, c.action(Relay))
+	register(w, c, Management, ActionReconnect)
+	register(w, c, Signal, ActionProbe)
+	register(w, c, Relay, ActionReconnect)
 }
 
 // After a sleep the monotonic timers have not run, but the first trigger must
@@ -181,7 +205,7 @@ func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 	assert.Equal(t, 1, c.get(Signal), "no second action within one period")
 
 	// The stream reconnects: the fresh stream is not stale.
-	w.Register(Signal, ActionProbe, c.action(Signal))
+	register(w, &c, Signal, ActionProbe)
 	clk.advance(25 * time.Second)
 	beat()
 	assert.Equal(t, 1, c.get(Signal), "a fresh stream must not be stale")
@@ -284,7 +308,8 @@ func TestWakeBetweenTicksNotStale(t *testing.T) {
 // After a stalled connect one stream keeps a wrong server skew and its
 // heartbeat arrives about 11 s before the phase. That heartbeat is not a
 // tick: it must not flag the streams that are on phase, and at their tick the
-// early stream is not stale either.
+// early stream is not stale either. The early stream gets one off-phase
+// reconnect; here the reconnect does nothing, so the same connection stays.
 func TestOffPhaseHeartbeatIsNotATick(t *testing.T) {
 	clk := newFakeClock()
 	w := newTickWatcher(clk)
@@ -303,6 +328,107 @@ func TestOffPhaseHeartbeatIsNotATick(t *testing.T) {
 	for _, svc := range services {
 		assert.Equal(t, 0, c.get(svc), "steady streams must not be flagged: %s", svc)
 	}
+	assert.Equal(t, 1, c.reconnects(Signal), "one off-phase reconnect per connection")
+	assert.Equal(t, 0, c.reconnects(Management), "management is on phase")
+	assert.Equal(t, 0, c.reconnects(Relay), "relay is on phase")
+}
+
+// An off-phase heartbeat reconnects only its own service, at once, not after
+// the grace. Here signal turns 4 s late: the tick flags it first and probes
+// it, and the probe does not hold back the reconnect, which fixes the skew.
+func TestOffPhaseHeartbeatReconnectsOwnService(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+	untilNextTick(clk, 3)
+	tick(clk, w, Relay, Management)
+	require.Equal(t, 1, c.get(Signal), "the tick probes the late signal")
+
+	clk.advance(4*time.Second - Grace - 600*time.Millisecond)
+	w.Seen(Signal)
+	assert.Equal(t, 1, c.reconnects(Signal), "off-phase signal heartbeat must reconnect signal at once")
+	assert.Equal(t, 0, c.reconnects(Management), "management not touched")
+	assert.Equal(t, 0, c.reconnects(Relay), "relay not touched")
+	assert.Equal(t, 0, c.get(Management), "no stale action on management")
+	assert.Equal(t, 0, c.get(Relay), "no stale action on relay")
+}
+
+// Heartbeats at the window edges are on phase and reconnect nothing.
+func TestHeartbeatInsideWindowNoReconnect(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	register(w, &c, Relay, ActionReconnect)
+
+	clk.advance(30*time.Second - tickWindow)
+	w.Seen(Relay)
+	clk.advance(30 * time.Second)
+	w.Seen(Relay)
+	clk.advance(30*time.Second + 2*tickWindow)
+	w.Seen(Relay)
+	clk.advance(Grace)
+	assert.Equal(t, 0, c.reconnects(Relay), "heartbeat within the window must not reconnect")
+	assert.Equal(t, 0, c.get(Relay), "no stale action")
+}
+
+// At most one action per period: a new connection that is still off phase
+// and sends its first heartbeat under one period after the reconnect is left
+// until its next one. A reconnect that does not open a new connection leaves
+// the old stream, and its off-phase heartbeats are not reconnected again. A
+// new connection on phase is left alone.
+func TestOffPhaseReconnectOncePerConnectionAndPeriod(t *testing.T) {
+	clk := newFakeClock()
+	w := newTickWatcher(clk)
+	var c counter
+	register(w, &c, Relay, ActionReconnect)
+
+	// Relay heartbeat 10 s before the phase.
+	clk.advance(20 * time.Second)
+	w.Seen(Relay)
+	require.Equal(t, 1, c.reconnects(Relay), "first off-phase heartbeat reconnects")
+
+	// New connection 1 s later, its server skew is wrong again: heartbeats
+	// at phase + 10 s.
+	clk.advance(time.Second)
+	register(w, &c, Relay, ActionReconnect)
+	clk.advance(19 * time.Second)
+	w.Seen(Relay)
+	assert.Equal(t, 1, c.reconnects(Relay), "20 s after the last action: at most one action per period")
+	clk.advance(30 * time.Second)
+	w.Seen(Relay)
+	assert.Equal(t, 2, c.reconnects(Relay), "still off phase one period later: reconnect")
+
+	// The reconnect did not open a new connection.
+	clk.advance(30 * time.Second)
+	w.Seen(Relay)
+	assert.Equal(t, 2, c.reconnects(Relay), "same connection must not be reconnected again")
+
+	// The next connection is on phase.
+	clk.advance(time.Second)
+	register(w, &c, Relay, ActionReconnect)
+	clk.advance(19 * time.Second)
+	for i := 0; i < 4; i++ {
+		tick(clk, w, Relay)
+		untilNextTick(clk, 1)
+	}
+	assert.Equal(t, 2, c.reconnects(Relay), "connection on phase must not be reconnected")
+	assert.Equal(t, 0, c.get(Relay), "no stale action")
+}
+
+// Without a known phase nothing is off phase.
+func TestUnknownPhaseNoOffPhaseReconnect(t *testing.T) {
+	clk := newFakeClock()
+	w := New(clk, 30*time.Second)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(11 * time.Second)
+	w.Seen(Signal)
+	assert.Equal(t, 0, c.reconnects(Signal), "unknown phase must not reconnect")
 }
 
 // Without a known phase no heartbeat is a tick, so the period plus
@@ -352,8 +478,8 @@ func TestUnregisterOnlyRemovesOwnRegistration(t *testing.T) {
 	w := New(clk, 30*time.Second)
 	var c counter
 
-	oldUnregister := w.Register(Relay, ActionReconnect, c.action(Relay))
-	newUnregister := w.Register(Relay, ActionReconnect, c.action(Relay))
+	oldUnregister := register(w, &c, Relay, ActionReconnect)
+	newUnregister := register(w, &c, Relay, ActionReconnect)
 	oldUnregister()
 
 	clk.jump(60 * time.Second)

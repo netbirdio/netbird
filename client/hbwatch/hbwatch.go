@@ -4,7 +4,9 @@
 // runs the dead path of every connected service whose wall-clock gap exceeds
 // the heartbeat period plus a tolerance. When a heartbeat near the client
 // phase triggered the check (a tick), a service with no frame since the
-// previous tick is stale already.
+// previous tick is stale already. A heartbeat far from the client phase comes
+// from a stream with a wrong server skew; that stream is reconnected so the
+// server takes a new skew.
 // The gap is measured on the wall clock so time the phone spent asleep counts.
 // Enabled by NB_TEST_HB_STALE=1.
 package hbwatch
@@ -79,9 +81,16 @@ func (realClock) AfterFunc(d time.Duration, f func()) { time.AfterFunc(d, f) }
 type service struct {
 	last       time.Time
 	lastAction time.Time
-	action     func()
-	kind       string
-	regID      uint64
+	// lastReconnect limits off-phase reconnects. A probe does not count: it
+	// cannot fix the skew of a late stream that a tick flagged.
+	lastReconnect time.Time
+	action        func()
+	reconnect     func()
+	kind          string
+	regID         uint64
+	// offPhaseReg is the registration that got an off-phase reconnect. The
+	// same connection is not reconnected again for being off phase.
+	offPhaseReg uint64
 }
 
 // Watcher tracks per-service heartbeat wall times. Use New for tests; the
@@ -154,7 +163,31 @@ func (w *Watcher) seen(svc Service, logIt bool) {
 		w.schedule(triggerHeartbeat)
 		return
 	}
+	if known {
+		w.reconnectOffPhase(svc, off)
+	}
 	w.schedule(triggerOffPhase)
+}
+
+// reconnectOffPhase runs the reconnect of svc once per connection, at most
+// one reconnect per period.
+func (w *Watcher) reconnectOffPhase(svc Service, off time.Duration) {
+	w.mu.Lock()
+	s := w.svcs[svc]
+	now := w.now()
+	if s.reconnect == nil || s.offPhaseReg == s.regID ||
+		!s.lastReconnect.IsZero() && now.Sub(s.lastReconnect) < w.period-Tolerance {
+		w.mu.Unlock()
+		return
+	}
+	s.lastAction = now
+	s.lastReconnect = now
+	s.offPhaseReg = s.regID
+	reconnect := s.reconnect
+	w.mu.Unlock()
+
+	log.Infof("hbwatch: offphase svc=%s off=%d action=%s", svc, off.Milliseconds(), ActionReconnect)
+	reconnect()
 }
 
 // phaseOffset returns how far t is from the nearest client phase, in
@@ -206,10 +239,11 @@ func (w *Watcher) schedule(trigger string) {
 	w.clk.AfterFunc(Grace, w.check)
 }
 
-// Register marks svc connected with its dead-path action and resets its
-// timestamp, so a fresh stream is not stale. The returned func unregisters it,
-// and is a no-op once a newer Register for svc happened.
-func (w *Watcher) Register(svc Service, kind string, action func()) (unregister func()) {
+// Register marks svc connected with its dead-path action and its reconnect
+// for an off-phase heartbeat, and resets its timestamp, so a fresh stream is
+// not stale. The returned func unregisters it, and is a no-op once a newer
+// Register for svc happened.
+func (w *Watcher) Register(svc Service, kind string, action, reconnect func()) (unregister func()) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	s, ok := w.svcs[svc]
@@ -220,6 +254,7 @@ func (w *Watcher) Register(svc Service, kind string, action func()) (unregister 
 	id := w.nextID
 	s.regID = id
 	s.action = action
+	s.reconnect = reconnect
 	s.kind = kind
 	s.last = w.now()
 	return func() {
@@ -227,6 +262,7 @@ func (w *Watcher) Register(svc Service, kind string, action func()) (unregister 
 		defer w.mu.Unlock()
 		if s.regID == id {
 			s.action = nil
+			s.reconnect = nil
 		}
 	}
 }
@@ -280,6 +316,9 @@ func (w *Watcher) check() {
 			continue
 		}
 		s.lastAction = now
+		if s.kind == ActionReconnect {
+			s.lastReconnect = now
+		}
 		fires = append(fires, fire{svc: name, kind: s.kind, gap: gap, action: s.action})
 	}
 	w.mu.Unlock()
@@ -393,9 +432,9 @@ func CheckNow() {
 }
 
 // Register registers svc on the default Watcher. No-op when disabled.
-func Register(svc Service, kind string, action func()) (unregister func()) {
+func Register(svc Service, kind string, action, reconnect func()) (unregister func()) {
 	if w := def(); w != nil {
-		return w.Register(svc, kind, action)
+		return w.Register(svc, kind, action, reconnect)
 	}
 	return func() {}
 }
