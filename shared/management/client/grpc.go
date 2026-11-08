@@ -19,6 +19,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/metadata"
 	gproto "google.golang.org/protobuf/proto"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
@@ -28,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 	nbmgmtgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/testhb"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
@@ -137,6 +139,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 	for _, opt := range opts {
 		opt(c)
 	}
+	testhb.SetOwnKey(ourPrivateKey.PublicKey().String())
 
 	var extraOpts []grpc.DialOption
 	if maxSize := MaxRecvMsgSize(); maxSize > 0 {
@@ -488,6 +491,9 @@ func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtyp
 		return nil, err
 	}
 	syncReq := &proto.EncryptedMessage{WgPubKey: myPublicKey.String(), Body: encryptedReq}
+	if v, ok := testhb.Value("management", myPublicKey.String()); ok {
+		ctx = metadata.AppendToOutgoingContext(ctx, testhb.MetadataKey, v)
+	}
 	sync, err := c.realClient.Sync(ctx, syncReq)
 	if err != nil {
 		return nil, err

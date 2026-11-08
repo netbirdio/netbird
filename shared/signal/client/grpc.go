@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
+	"github.com/netbirdio/netbird/shared/testhb"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
@@ -131,6 +132,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	for _, opt := range opts {
 		opt(c)
 	}
+	testhb.SetOwnKey(key.PublicKey().String())
 
 	var extraOpts []grpc.DialOption
 	if c.netMgr != nil {
@@ -327,6 +329,9 @@ func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExcha
 
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
+	if v, ok := testhb.Value("signal", key); ok {
+		md.Set(testhb.MetadataKey, v)
+	}
 	metaCtx := metadata.NewOutgoingContext(ctx, md)
 	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
