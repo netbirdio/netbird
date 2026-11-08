@@ -2,8 +2,10 @@
 // It keeps the wall time of the last inbound frame per service and, on each
 // trigger (a received frame or an explicit CheckNow), waits a short grace and
 // runs the dead path of every connected service whose wall-clock gap exceeds
-// the heartbeat period plus a tolerance. The gap is measured on the wall clock
-// so time the phone spent asleep counts. Enabled by NB_TEST_HB_STALE=1.
+// the heartbeat period plus a tolerance. When a heartbeat triggered the check
+// (a tick), a service with no frame since the previous tick is stale already.
+// The gap is measured on the wall clock so time the phone spent asleep counts.
+// Enabled by NB_TEST_HB_STALE=1.
 package hbwatch
 
 import (
@@ -42,6 +44,14 @@ const (
 	Tolerance = 3 * time.Second
 )
 
+const (
+	triggerFrame     = "frame"
+	triggerHeartbeat = "heartbeat"
+	triggerWake      = "wake"
+)
+
+var triggerRank = map[string]int{triggerFrame: 0, triggerHeartbeat: 1, triggerWake: 2}
+
 var services = []Service{Management, Signal, Relay}
 
 // Clock is the time source. Now must return wall time; AfterFunc schedules f.
@@ -74,6 +84,8 @@ type Watcher struct {
 	nextID  uint64
 	pending bool
 	trigger string
+	// tick is set when a heartbeat is among the collapsed triggers.
+	tick bool
 	// triggerAt is when the pending check was triggered. Gaps are measured
 	// there, so the grace does not eat into the tolerance.
 	triggerAt time.Time
@@ -116,28 +128,33 @@ func (w *Watcher) seen(svc Service, logIt bool) {
 	w.mu.Unlock()
 	if logIt {
 		log.Infof("hbwatch: seen svc=%s t=%d", svc, now.UnixMilli())
+		w.schedule(triggerHeartbeat)
+		return
 	}
-	w.schedule("heartbeat")
+	w.schedule(triggerFrame)
 }
 
 // CheckNow triggers a check after the grace, for a device wake.
 func (w *Watcher) CheckNow() {
-	w.schedule("wake")
+	w.schedule(triggerWake)
 }
 
 // schedule starts one grace timer; triggers that land while it is pending
-// collapse into that check. A wake wins over a heartbeat for the log label.
+// collapse into that check. The log label keeps the highest of wake,
+// heartbeat, frame.
 func (w *Watcher) schedule(trigger string) {
 	w.mu.Lock()
 	if w.pending {
-		if trigger == "wake" {
+		if triggerRank[trigger] > triggerRank[w.trigger] {
 			w.trigger = trigger
 		}
+		w.tick = w.tick || trigger == triggerHeartbeat
 		w.mu.Unlock()
 		return
 	}
 	w.pending = true
 	w.trigger = trigger
+	w.tick = trigger == triggerHeartbeat
 	w.triggerAt = w.now()
 	w.mu.Unlock()
 	w.clk.AfterFunc(Grace, w.check)
@@ -181,9 +198,15 @@ func (w *Watcher) check() {
 	w.mu.Lock()
 	w.pending = false
 	trigger := w.trigger
+	tick := w.tick
 	at := w.triggerAt
 	now := w.now()
 	limit := w.period + Tolerance
+	if tick {
+		// The heartbeat of another service marks the tick. A service with no
+		// frame since the previous tick missed this one.
+		limit = w.period / 2
+	}
 
 	gaps := make([]string, 0, len(services))
 	type fire struct {
@@ -205,7 +228,9 @@ func (w *Watcher) check() {
 		if gap <= limit {
 			continue
 		}
-		if !s.lastAction.IsZero() && now.Sub(s.lastAction) < w.period {
+		// One action per period. Tick arrival jitters, so the next tick may
+		// come a little under one period after the last action.
+		if !s.lastAction.IsZero() && now.Sub(s.lastAction) < w.period-Tolerance {
 			continue
 		}
 		s.lastAction = now
@@ -213,7 +238,7 @@ func (w *Watcher) check() {
 	}
 	w.mu.Unlock()
 
-	log.Infof("hbwatch: check trigger=%s gaps=%s", trigger, strings.Join(gaps, ","))
+	log.Infof("hbwatch: check trigger=%s gaps=%s tick=%t", trigger, strings.Join(gaps, ","), tick)
 	for _, f := range fires {
 		log.Infof("hbwatch: stale svc=%s gap=%d action=%s", f.svc, f.gap.Milliseconds(), f.kind)
 		f.action()

@@ -141,7 +141,8 @@ func TestGraceCollapsesOneTick(t *testing.T) {
 }
 
 // One silent service fires once, not again within the same period, and a
-// reconnect (Register) resets its timestamp.
+// reconnect (Register) resets its timestamp. Other frames (not heartbeats)
+// trigger the checks, so the period plus tolerance rule applies.
 func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 	clk := newFakeClock()
 	w := New(clk, 30*time.Second)
@@ -149,8 +150,8 @@ func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 	registerAll(w, &c)
 
 	beat := func() {
-		w.Seen(Management)
-		w.Seen(Relay)
+		w.Touch(Management)
+		w.Touch(Relay)
 		clk.advance(Grace)
 	}
 
@@ -183,6 +184,93 @@ func TestStaleFiresOncePerPeriodAndResetsOnReconnect(t *testing.T) {
 	assert.Equal(t, 2, c.get(Signal), "silent again past period + tolerance must fire again")
 	assert.Equal(t, 0, c.get(Management), "management kept sending")
 	assert.Equal(t, 0, c.get(Relay), "relay kept sending")
+}
+
+// tick delivers the heartbeats of the given services as one server tick: a
+// few hundred ms apart, then the grace runs out.
+func tick(clk *fakeClock, w *Watcher, svcs ...Service) {
+	for _, svc := range svcs {
+		w.Seen(svc)
+		clk.advance(300 * time.Millisecond)
+	}
+	clk.advance(Grace)
+}
+
+// untilNextTick moves the clock to the next tick after tick() ran for n
+// services.
+func untilNextTick(clk *fakeClock, n int) {
+	clk.advance(30*time.Second - Grace - time.Duration(n)*300*time.Millisecond)
+}
+
+// A service that misses one tick is flagged at that tick, not one tick or a
+// random wake later. A muted service is flagged at every tick it misses.
+func TestTickFlagsFirstMissedHeartbeat(t *testing.T) {
+	clk := newFakeClock()
+	w := New(clk, 30*time.Second)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+	require.Equal(t, 0, c.get(Signal), "all three sent their heartbeat")
+
+	untilNextTick(clk, 3)
+	tick(clk, w, Relay, Management)
+	assert.Equal(t, 1, c.get(Signal), "signal missed this tick and must fire at it")
+
+	untilNextTick(clk, 2)
+	tick(clk, w, Relay, Management)
+	assert.Equal(t, 2, c.get(Signal), "signal missed the next tick too and must fire again")
+
+	untilNextTick(clk, 2)
+	tick(clk, w, Relay, Management, Signal)
+	assert.Equal(t, 2, c.get(Signal), "signal is back and must not fire")
+	assert.Equal(t, 0, c.get(Management), "management sent every heartbeat")
+	assert.Equal(t, 0, c.get(Relay), "relay sent every heartbeat")
+}
+
+// A frame that lands inside the grace after the tick still counts for that
+// tick.
+func TestTickFrameInsideGraceNotStale(t *testing.T) {
+	clk := newFakeClock()
+	w := New(clk, 30*time.Second)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	untilNextTick(clk, 3)
+	w.Seen(Relay)
+	clk.advance(300 * time.Millisecond)
+	w.Seen(Management)
+	clk.advance(Grace - 500*time.Millisecond)
+	w.Touch(Signal)
+	clk.advance(200 * time.Millisecond)
+	require.Equal(t, 2, clk.scheduledCount(), "one check per tick")
+	assert.Equal(t, 0, c.get(Signal), "signal frame inside the grace counts")
+}
+
+// Wakes and other frames between ticks keep the period plus tolerance rule:
+// a steady service is not stale half a period after its heartbeat.
+func TestWakeBetweenTicksNotStale(t *testing.T) {
+	clk := newFakeClock()
+	w := New(clk, 30*time.Second)
+	var c counter
+	registerAll(w, &c)
+
+	clk.advance(30 * time.Second)
+	tick(clk, w, Relay, Management, Signal)
+
+	clk.advance(18 * time.Second)
+	w.CheckNow()
+	clk.advance(Grace)
+	clk.advance(3 * time.Second)
+	w.Touch(Relay)
+	clk.advance(Grace)
+	for _, svc := range services {
+		assert.Equal(t, 0, c.get(svc), "wake or frame between ticks must not flag %s", svc)
+	}
 }
 
 // Only connected services are checked. A stale unregister from an old stream
