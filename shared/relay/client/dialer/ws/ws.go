@@ -90,7 +90,11 @@ func httpClientNbDialer(serverName string, underlyingOut *net.Conn) *http.Client
 		certPool = embeddedroots.Get()
 	}
 
+	// The transport is built per dial and dropped after it, so a pooled idle
+	// connection could never be reused or closed. That happens when a proxy
+	// answers the upgrade with a short keep-alive error during a relay restart.
 	customTransport := &http.Transport{
+		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			c, err := customDialer.DialContext(ctx, network, addr)
 			if err == nil && underlyingOut != nil {
