@@ -88,6 +88,7 @@ export function SettingsGeneral() {
                             <div className={"mt-2 flex items-start gap-3"}>
                                 <Input
                                     id={managementUrlId}
+                                    dir={"ltr"}
                                     ref={inputRef}
                                     value={displayUrl}
                                     onChange={(e) => setUrl(e.target.value)}

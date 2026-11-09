@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/loopback"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/udp"
 )
 
@@ -198,20 +198,20 @@ func testRedirectAs(t *testing.T, proxy Proxy, wgPort int, nbAddr, p2pEndpoint *
 	}
 }
 
-// TestRedirectAs_eBPF_IPv4 tests RedirectAs with eBPF proxy using IPv4 addresses
-func TestRedirectAs_eBPF_IPv4(t *testing.T) {
+// TestRedirectAs_Loopback_IPv4 tests RedirectAs with the loopback proxy using IPv4 addresses
+func TestRedirectAs_Loopback_IPv4(t *testing.T) {
 	wgPort := 51850
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %v", err)
+	loopbackProxy := loopback.NewProxy(wgPort, 1280)
+	if err := loopbackProxy.Listen(); err != nil {
+		t.Fatalf("failed to initialize loopback proxy: %v", err)
 	}
 	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %v", err)
+		if err := loopbackProxy.Free(); err != nil {
+			t.Errorf("failed to free loopback proxy: %v", err)
 		}
 	}()
 
-	proxy := ebpf.NewProxyWrapper(ebpfProxy)
+	proxy := loopback.NewProxyWrapper(loopbackProxy)
 
 	// NetBird UDP address of the remote peer
 	nbAddr := &net.UDPAddr{
@@ -227,20 +227,20 @@ func TestRedirectAs_eBPF_IPv4(t *testing.T) {
 	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
 }
 
-// TestRedirectAs_eBPF_IPv6 tests RedirectAs with eBPF proxy using IPv6 addresses
-func TestRedirectAs_eBPF_IPv6(t *testing.T) {
+// TestRedirectAs_Loopback_IPv6 tests RedirectAs with the loopback proxy using IPv6 addresses
+func TestRedirectAs_Loopback_IPv6(t *testing.T) {
 	wgPort := 51851
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %v", err)
+	loopbackProxy := loopback.NewProxy(wgPort, 1280)
+	if err := loopbackProxy.Listen(); err != nil {
+		t.Fatalf("failed to initialize loopback proxy: %v", err)
 	}
 	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %v", err)
+		if err := loopbackProxy.Free(); err != nil {
+			t.Errorf("failed to free loopback proxy: %v", err)
 		}
 	}()
 
-	proxy := ebpf.NewProxyWrapper(ebpfProxy)
+	proxy := loopback.NewProxyWrapper(loopbackProxy)
 
 	// NetBird UDP address of the remote peer
 	nbAddr := &net.UDPAddr{
@@ -259,17 +259,17 @@ func TestRedirectAs_eBPF_IPv6(t *testing.T) {
 // TestRedirectAs_Multiple_Switches tests switching between multiple endpoints
 func TestRedirectAs_Multiple_Switches(t *testing.T) {
 	wgPort := 51856
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %v", err)
+	loopbackProxy := loopback.NewProxy(wgPort, 1280)
+	if err := loopbackProxy.Listen(); err != nil {
+		t.Fatalf("failed to initialize loopback proxy: %v", err)
 	}
 	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %v", err)
+		if err := loopbackProxy.Free(); err != nil {
+			t.Errorf("failed to free loopback proxy: %v", err)
 		}
 	}()
 
-	proxy := ebpf.NewProxyWrapper(ebpfProxy)
+	proxy := loopback.NewProxyWrapper(loopbackProxy)
 
 	ctx := context.Background()
 

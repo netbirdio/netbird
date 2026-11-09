@@ -62,11 +62,11 @@ func TestAgentNetworkAdminRole(t *testing.T) {
 	}
 }
 
-// TestUsageViewerRole pins the least-privilege cost role: read on the
-// aggregated usage overview plus read-only on the resources its filters
-// and display columns resolve against (users, groups, peers, the provider
-// list) — no policies, no request-level logs (which can contain captured
-// prompts), nothing else in the account.
+// TestUsageViewerRole pins the read-only usage role: read on the aggregated
+// usage overview and the account-wide request-level logs, plus read-only on
+// the resources their filters and display columns resolve against (users,
+// groups, peers, the provider list) — no policies, guardrails, budgets, or
+// settings, nothing else in the account.
 func TestUsageViewerRole(t *testing.T) {
 	manager := NewManager(nil)
 	ctx := context.Background()
@@ -76,6 +76,7 @@ func TestUsageViewerRole(t *testing.T) {
 
 	readOnly := []modules.Module{
 		modules.AgentNetworkUsage,
+		modules.AgentNetworkLogs,
 		modules.AgentNetworkProviders,
 		modules.Users,
 		modules.Groups,
@@ -83,7 +84,7 @@ func TestUsageViewerRole(t *testing.T) {
 	}
 	for _, m := range readOnly {
 		assert.True(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, operations.Read),
-			"usage_viewer must read %s for the usage view and its filters", m)
+			"usage_viewer must read %s for the usage and log views and their filters", m)
 		for _, op := range []operations.Operation{operations.Create, operations.Update, operations.Delete} {
 			assert.False(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, op),
 				"usage_viewer must not have %s on %s", op, m)
@@ -95,7 +96,6 @@ func TestUsageViewerRole(t *testing.T) {
 		modules.AgentNetworkPolicies,
 		modules.AgentNetworkGuardrails,
 		modules.AgentNetworkBudgets,
-		modules.AgentNetworkLogs,
 		modules.AgentNetworkSettings,
 		modules.Networks,
 		modules.SetupKeys,

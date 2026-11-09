@@ -203,7 +203,7 @@ func TestAddDomain_ResolvesRedactionSetsFromSchemes(t *testing.T) {
 	assert.Equal(t, []string{"X-Api-Key"}, config.redactHeaders)
 	// r.FormValue merges the query into the form, so a credential passed there
 	// authenticates and must be redacted alongside the OIDC session token.
-	assert.Equal(t, []string{"session_token", "password"}, config.redactQueryParams)
+	assert.Equal(t, []string{"session_token", "nb_session_code", "password"}, config.redactQueryParams)
 }
 
 // countingBudget records reservations so a test can observe when the

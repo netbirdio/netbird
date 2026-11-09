@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	dexapi "github.com/dexidp/dex/api/v2"
-	"github.com/dexidp/dex/server"
-	"github.com/dexidp/dex/server/signer"
-	"github.com/dexidp/dex/storage"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
+	dexapi "github.com/netbirdio/dex/api/v2"
+	"github.com/netbirdio/dex/server"
+	"github.com/netbirdio/dex/server/signer"
+	"github.com/netbirdio/dex/storage"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
@@ -735,6 +735,10 @@ func (p *Provider) UpdateUserPassword(ctx context.Context, userID string, oldPas
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	if err := p.storage.DeleteAuthSession(ctx, user.UserID, server.LocalConnector); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		p.logger.Error("failed to revoke local session after password change", "error", err)
 	}
 
 	return nil

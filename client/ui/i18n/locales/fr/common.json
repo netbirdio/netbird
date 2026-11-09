@@ -552,12 +552,10 @@
         "message": "Échec de la modification du démarrage automatique"
     },
     "settings.general.keepConnectedOnQuit.label": {
-        "message": "Rester connecté après la fermeture",
-        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+        "message": "Rester connecté après la fermeture"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "La connexion reste active en arrière-plan après la fermeture de NetBird. Elle ne s'arrête que si vous la coupez vous-même.",
-        "description": "Helper text for the stay-connected-after-quitting toggle."
+        "message": "La connexion reste active en arrière-plan après la fermeture de NetBird. Elle ne s'arrête que si vous la coupez vous-même."
     },
     "settings.general.language.label": {
         "message": "Langue d’affichage"
@@ -1363,6 +1361,12 @@
     "error.daemon_unreachable": {
         "message": "Le daemon NetBird ne répond pas. Veuillez vérifier que le service est en cours d’exécution."
     },
+    "error.settings_locked": {
+        "message": "Les paramètres ne peuvent pas être modifiés sur cet appareil : un administrateur les a verrouillés."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Ce paramètre est géré par votre organisation et ne peut pas être modifié."
+    },
     "error.unknown": {
         "message": "L’opération a échoué."
     },
@@ -1389,5 +1393,35 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "En attente de l’autorisation…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Autre utilisateur"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Le profil actif appartient à un autre utilisateur. Seul son propriétaire peut le modifier ou le déconnecter."
+    },
+    "error.privilege_required": {
+        "message": "Cette action nécessite des privilèges élevés."
+    },
+    "error.session_held": {
+        "message": "Un autre utilisateur a connecté cette machine."
+    },
+    "error.not_profile_owner": {
+        "message": "Ce profil appartient à un autre utilisateur."
+    },
+    "error.profile_unowned": {
+        "message": "Ce profil n'a pas encore de propriétaire."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Aucun accès"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Aucun accès au service NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Votre administrateur a limité le service NetBird sur cet appareil à certains utilisateurs ou groupes, et votre compte n’en fait pas partie. Contactez votre administrateur pour obtenir l’accès."
+    },
+    "error.daemon_access_denied": {
+        "message": "Votre compte n’est pas autorisé à utiliser le service NetBird sur cet appareil. Contactez votre administrateur pour obtenir l’accès."
     }
 }

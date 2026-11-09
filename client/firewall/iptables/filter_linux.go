@@ -81,15 +81,6 @@ func (r *family) hasRule(id nbid.RuleID) bool {
 	return ok
 }
 
-// hasDNATRule reports whether this family owns the DNAT rule set for
-// the given user id. DNAT rules live in r.rules under the well-known
-// "<id>_dnat" key; the lookup here is used by Manager.DeleteDNATRule
-// to pick the right family.
-func (r *family) hasDNATRule(id firewall.RuleID) bool {
-	_, ok := r.rules[id+dnatSuffix]
-	return ok
-}
-
 // DeleteFilterRule removes a previously installed filter rule. The
 // rule's stored chain/table identify where to delete from; source set
 // references are recovered from the spec via findSets and dropped

@@ -35,6 +35,7 @@ func seedProxies(t *testing.T, ctx context.Context, s store.Store) {
 			SessionID:      "session-1",
 			ClusterAddress: "cluster-a.example.com",
 			IPAddress:      "10.0.0.1",
+			Version:        "0.60.0",
 			LastSeen:       time.Now(),
 			Status:         rpproxy.StatusConnected,
 		},
@@ -89,6 +90,7 @@ func TestRunDisconnectAllWithConfirmation(t *testing.T) {
 	require.Contains(t, output, "proxy-2")
 	require.Contains(t, output, "proxy-3")
 	require.Contains(t, output, "cluster-a.example.com")
+	require.Contains(t, output, "0.60.0")
 	require.Contains(t, output, "account-1")
 	require.Contains(t, output, "Type \"disconnect all proxies\" to continue")
 	require.Contains(t, output, "Force-marked 2 of 3 reverse proxy instance(s) as disconnected.")
@@ -177,4 +179,41 @@ func TestRunDisconnectAllEmpty(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, runDisconnectAll(ctx, s, &out, strings.NewReader(""), false, false))
 	require.Contains(t, out.String(), "No reverse proxy instances found.")
+}
+
+func TestRunDisconnectAllEscapesProxyReportedFields(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// A proxy reports its own id and version on connect, so both reach this
+	// listing unvalidated. Carriage returns, tabs and ANSI escapes would let
+	// a malicious proxy redraw the table or forge a row on the operator's
+	// terminal; U+202E would reverse the rendering of the rest of the line.
+	require.NoError(t, s.SaveProxy(ctx, &rpproxy.Proxy{
+		ID:             "proxy-\r\x1b[2Kevil",
+		SessionID:      "session-1",
+		ClusterAddress: "cluster-a.example.com",
+		IPAddress:      "10.0.0.1",
+		Version:        "0.60.0\tfake\rcolumn\u202e",
+		LastSeen:       time.Now(),
+		Status:         rpproxy.StatusConnected,
+	}))
+
+	var out bytes.Buffer
+	require.NoError(t, runDisconnectAll(ctx, s, &out, strings.NewReader(disconnectAllConfirmation+"\n"), true, false))
+
+	output := out.String()
+	for _, forbidden := range []string{"\r", "\x1b", "\u202e"} {
+		require.NotContains(t, output, forbidden, "listing must not carry proxy-reported control characters")
+	}
+	// The table has one data row; a smuggled tab would add a phantom column.
+	var dataRow string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "evil") {
+			dataRow = line
+		}
+	}
+	require.NotEmpty(t, dataRow, "listing should still show the proxy row")
+	require.NotContains(t, dataRow, "\t", "tabwriter output should not carry a smuggled column separator")
+	require.Contains(t, dataRow, "0.60.0", "the printable part of the version should survive")
 }

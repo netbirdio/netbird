@@ -107,12 +107,7 @@ func TestNftablesManager(t *testing.T) {
 	}
 	// Since DROP rules are inserted at position 0, the DROP rule comes first
 	expectedDropExprs := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
-			Len:          uint32(1),
-		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 		&expr.Cmp{
 			Register: 1,
 			Op:       expr.CmpOpEq,
@@ -240,6 +235,63 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	require.Less(t, denyRuleIndex, acceptRuleIndex,
 		"deny rule should come before accept rule in nftables chain (deny at index %d, accept at index %d)",
 		denyRuleIndex, acceptRuleIndex)
+}
+
+// TestNftablesManagerHairpinDropBeforeRouteACLs checks the hairpin drop sits
+// in the route ACL chain after the established accept, so established traffic
+// skips it, and ahead of the route accept rules, so they can't let a hairpin
+// flow through.
+func TestNftablesManagerHairpinDropBeforeRouteACLs(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	// An exit-node style route rule: accept any source to any destination.
+	any4 := netip.MustParsePrefix("0.0.0.0/0")
+	_, err = manager.AddFilterRule(nil, []netip.Prefix{any4}, fw.Network{Prefix: any4}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "failed to add route accept rule")
+	require.NoError(t, manager.Flush(), "failed to flush")
+
+	testClient := &nftables.Conn{}
+	rules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chains[chainNameRoutingFw])
+	require.NoError(t, err, "failed to get rules")
+
+	var establishedIndex, hairpinIndex = -1, -1
+	for i, rule := range rules {
+		var iif, oif, ctState bool
+		var lastKey expr.MetaKey
+		for _, e := range rule.Exprs {
+			switch e := e.(type) {
+			case *expr.Meta:
+				lastKey = e.Key
+			case *expr.Cmp:
+				// Only count an interface match against the wg interface itself.
+				if e.Op == expr.CmpOpEq && bytes.Equal(e.Data, ifname(ifaceMock.Name())) {
+					iif = iif || lastKey == expr.MetaKeyIIFNAME
+					oif = oif || lastKey == expr.MetaKeyOIFNAME
+				}
+			case *expr.Ct:
+				ctState = ctState || e.Key == expr.CtKeySTATE
+			case *expr.Verdict:
+				if e.Kind == expr.VerdictDrop && iif && oif {
+					hairpinIndex = i
+				}
+				if e.Kind == expr.VerdictAccept && ctState {
+					establishedIndex = i
+				}
+			}
+		}
+	}
+
+	require.NotEqual(t, -1, establishedIndex, "established accept should exist in the route chain")
+	require.NotEqual(t, -1, hairpinIndex, "hairpin drop rule should exist in the route chain")
+	require.Less(t, establishedIndex, hairpinIndex, "hairpin drop should come after the established accept")
+	require.Less(t, hairpinIndex, len(rules)-1, "hairpin drop should come before the route accept rule")
 }
 
 func TestNFtablesCreatePerformance(t *testing.T) {
@@ -378,18 +430,6 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	err = manager.AddNatRule(pair)
 	require.NoError(t, err, "failed to add NAT rule")
 
-	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
-		Protocol:          fw.ProtocolTCP,
-		DestinationPort:   fw.Port{Values: []uint16{8080}},
-		TranslatedAddress: netip.MustParseAddr("100.96.0.2"),
-		TranslatedPort:    fw.Port{Values: []uint16{80}},
-	})
-	require.NoError(t, err, "failed to add DNAT rule")
-
-	t.Cleanup(func() {
-		require.NoError(t, manager.DeleteDNATRule(dnatRule), "failed to delete DNAT rule")
-	})
-
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
 }
@@ -452,18 +492,6 @@ func TestNftablesManagerIPv6CompatibilityWithIp6tables(t *testing.T) {
 		Masquerade:  true,
 	})
 	require.NoError(t, err, "add v6 NAT rule")
-
-	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
-		Protocol:          fw.ProtocolTCP,
-		DestinationPort:   fw.Port{Values: []uint16{8080}},
-		TranslatedAddress: netip.MustParseAddr("fd00::2"),
-		TranslatedPort:    fw.Port{Values: []uint16{80}},
-	})
-	require.NoError(t, err, "add v6 DNAT rule")
-
-	t.Cleanup(func() {
-		require.NoError(t, manager.DeleteDNATRule(dnatRule), "delete v6 DNAT rule")
-	})
 
 	stdout, stderr := runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)

@@ -135,6 +135,11 @@ func (c *Combined) DeleteGuardrail(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/guardrails/"+id)
 }
 
+// CreateBudgetRule creates an account-level agent-network budget rule.
+func (c *Combined) CreateBudgetRule(ctx context.Context, req api.AgentNetworkBudgetRuleRequest) (api.AgentNetworkBudgetRule, error) {
+	return anRequest[api.AgentNetworkBudgetRule](ctx, c, http.MethodPost, "/api/agent-network/budget-rules", req)
+}
+
 // CreateSettings bootstraps the account's agent-network settings row,
 // assigning the immutable endpoint. Exactly one of req.ProxyAddress (labeled
 // endpoint beneath that cluster) and req.Endpoint (self-addressed dedicated

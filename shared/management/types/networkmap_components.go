@@ -58,6 +58,13 @@ type NetworkMapComponents struct {
 	// domain targets.
 	ForceRoutingPeerDNSResolution bool
 
+	// SkipRouteFirewallRules drops the route firewall rule computation from
+	// Calculate. A receiver without a firewall manager never reads
+	// RoutesFirewallRules, and on a routing peer with many network resources
+	// building them dominates the cost of a sync. Defaults to false so the
+	// management server keeps producing them.
+	SkipRouteFirewallRules bool
+
 	routesByPeerOnce sync.Once
 	routesByPeerIdx  map[string][]routeIndexEntry
 
@@ -149,11 +156,15 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		includeIPv6 = p.SupportsIPv6() && p.IPv6.IsValid()
 	}
 	routesUpdate := filterAndExpandRoutes(c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups), includeIPv6)
-	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
+
+	var routesFirewallRules []*RouteFirewallRule
+	if !c.SkipRouteFirewallRules {
+		routesFirewallRules = c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
+	}
 
 	isRouter, networkResourcesRoutes, sourcePeers := c.getNetworkResourcesRoutesToSync(targetPeerID)
 	var networkResourcesFirewallRules []*RouteFirewallRule
-	if isRouter {
+	if isRouter && !c.SkipRouteFirewallRules {
 		networkResourcesFirewallRules = c.getPeerNetworkResourceFirewallRules(ctx, targetPeerID, networkResourcesRoutes, includeIPv6)
 	}
 

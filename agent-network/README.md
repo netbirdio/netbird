@@ -110,12 +110,12 @@ Two roles delegate Agent Network access without account-admin rights:
   read-only users, groups, peers, and account info (needed to build policies).
   Nothing else in the account.
 - **`usage_viewer`** — the regular User baseline plus read on
-  `agent_network.usage` (the aggregated usage and cost overview) and read-only
-  access to the resources the usage filters resolve against: users, groups,
-  peers, and the provider list (connection config redacted — no upstream URLs
-  or operator-supplied header values). No policies, and no account-wide
-  request-level access logs; like any caller, it still reads its own requests
-  through the self-scoped endpoints below.
+  `agent_network.usage` (the aggregated usage and cost overview) and
+  `agent_network.logs` (the account-wide request-level access logs, which can
+  contain captured prompts), and read-only access to the resources those
+  filters resolve against: users, groups, peers, and the provider list
+  (connection config redacted — no upstream URLs or operator-supplied header
+  values). No policies, guardrails, budgets, or settings.
 
 Every authenticated user, regardless of role, can read the caller-scoped
 self-service endpoint `GET /api/agent-network/agent-config` (the endpoint, providers,

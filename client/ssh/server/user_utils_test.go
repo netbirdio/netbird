@@ -130,6 +130,35 @@ func TestCheckPrivileges_ComprehensiveMatrix(t *testing.T) {
 			expectedAllowed:           true,  // Should fallback to current user (alice)
 			expectedRequiresSwitch:    false, // Fallback means no actual switching
 		},
+		// A second uid-0 account is root under another name
+		{
+			name:                      "linux_root_request_uid_0_alias_allowRoot_false",
+			os:                        "linux",
+			euid:                      0,
+			currentUser:               createTestUser("root", "0", "0", "/root"),
+			requestedUsername:         "toor",
+			featureSupportsUserSwitch: true,
+			allowRoot:                 false,
+			lookupUsers: map[string]*user.User{
+				"toor": createTestUser("toor", "0", "0", "/root"),
+			},
+			expectedAllowed:        false,
+			expectedRequiresSwitch: false,
+		},
+		{
+			name:                      "linux_root_request_uid_0_alias_allowRoot_true",
+			os:                        "linux",
+			euid:                      0,
+			currentUser:               createTestUser("root", "0", "0", "/root"),
+			requestedUsername:         "toor",
+			featureSupportsUserSwitch: true,
+			allowRoot:                 true,
+			lookupUsers: map[string]*user.User{
+				"toor": createTestUser("toor", "0", "0", "/root"),
+			},
+			expectedAllowed:        true,
+			expectedRequiresSwitch: false,
+		},
 		{
 			name:                      "windows_admin_can_switch_to_alice",
 			os:                        "windows",
@@ -441,17 +470,22 @@ func TestPrivilegedUsernameDetection(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
+		uid        string
 		platform   string
 		privileged bool
 	}{
 		// Unix/Linux tests
-		{"unix_root", "root", "linux", true},
-		{"unix_regular_user", "alice", "linux", false},
-		{"unix_root_capital", "Root", "linux", false}, // Case-sensitive
+		{"unix_root", "root", "0", "linux", true},
+		{"unix_regular_user", "alice", "1000", "linux", false},
+		{"unix_root_capital", "Root", "1000", "linux", false}, // Case-sensitive
+		{"unix_uid_0_under_another_name", "toor", "0", "freebsd", true},
+		{"unix_uid_0_with_leading_zero", "toor", "00", "linux", true},
+		{"unix_uid_not_a_number", "alice", "+0", "linux", true},
+		{"unix_named_root_without_uid_0", "root", "1000", "linux", true},
 
 		// Windows dispatch to the (mocked) account classifier
-		{"windows_administrator", "Administrator", "windows", true},
-		{"windows_regular_user", "alice", "windows", false},
+		{"windows_administrator", "Administrator", "S-1-5-21-1-500", "windows", true},
+		{"windows_regular_user", "alice", "S-1-5-21-1-1001", "windows", false},
 	}
 
 	for _, tt := range tests {
@@ -460,7 +494,7 @@ func TestPrivilegedUsernameDetection(t *testing.T) {
 			cleanup := setupTestDependencies(nil, nil, tt.platform, 1000, nil, nil)
 			defer cleanup()
 
-			result := isPrivilegedOrUnknown(tt.username)
+			result := isPrivilegedOrUnknown(&user.User{Username: tt.username, Uid: tt.uid})
 			assert.Equal(t, tt.privileged, result, "privilege classification for %s on %s", tt.username, tt.platform)
 		})
 	}

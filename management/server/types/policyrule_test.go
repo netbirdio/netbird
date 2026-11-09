@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func TestPolicyRuleEqual_SamePortsDifferentOrder(t *testing.T) {
@@ -192,3 +194,6 @@ func TestPolicyRuleEqual_EmptySlices(t *testing.T) {
 	assert.True(t, a.Equal(b))
 }
 
+func TestPolicyRule_EqualComparesAllFields(t *testing.T) {
+	testutil.EqualComparesAllFields(t, (*PolicyRule).Equal)
+}

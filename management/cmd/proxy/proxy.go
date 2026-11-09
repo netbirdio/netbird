@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -68,8 +69,8 @@ func runDisconnectAll(ctx context.Context, s store.Store, out io.Writer, in io.R
 
 	toDisconnect := 0
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tCLUSTER\tIP\tACCOUNT\tSTATUS\tLAST SEEN")
-	_, _ = fmt.Fprintln(w, "--\t-------\t--\t-------\t------\t---------")
+	_, _ = fmt.Fprintln(w, "ID\tCLUSTER\tIP\tVERSION\tACCOUNT\tSTATUS\tLAST SEEN")
+	_, _ = fmt.Fprintln(w, "--\t-------\t--\t-------\t-------\t------\t---------")
 
 	for _, p := range proxies {
 		if p.Status != rpproxy.StatusDisconnected {
@@ -80,11 +81,16 @@ func runDisconnectAll(ctx context.Context, s store.Store, out io.Writer, in io.R
 		if p.AccountID != nil {
 			account = *p.AccountID
 		}
+		version := "-"
+		if p.Version != "" {
+			version = sanitizeReportedValue(p.Version)
+		}
 
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			p.ID,
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			sanitizeReportedValue(p.ID),
 			p.ClusterAddress,
 			p.IPAddress,
+			version,
 			account,
 			p.Status,
 			p.LastSeen.Format("2006-01-02 15:04:05"),
@@ -138,4 +144,17 @@ func confirmDisconnectAll(out io.Writer, in io.Reader) (bool, error) {
 	}
 
 	return strings.EqualFold(strings.TrimSpace(scanner.Text()), disconnectAllConfirmation), nil
+}
+
+// sanitizeReportedValue replaces non-printable characters in a value the proxy
+// reports about itself. Both the id and the version arrive unvalidated over
+// gRPC, so a tab would forge a column, a carriage return or ANSI escape would
+// redraw the operator's terminal, and U+202E would reverse the rest of the line.
+func sanitizeReportedValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return '\uFFFD'
+	}, s)
 }

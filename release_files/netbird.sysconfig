@@ -12,3 +12,8 @@
 #
 # Peer name shown in the dashboard (defaults to the system hostname):
 #NB_HOSTNAME=
+#
+# Certificate posture checks:
+#NB_CERT_STORE_DIR=/etc/netbird/certs
+#NB_CERT_PKCS11_URI=pkcs11:token=netbird?module-path=/usr/lib64/pkcs11/libtpm2_pkcs11.so
+#NB_TPM_PIN=

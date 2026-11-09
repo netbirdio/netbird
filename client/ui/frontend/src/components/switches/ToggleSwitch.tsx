@@ -36,9 +36,9 @@ const switchVariants = cva("", {
         },
         "thumb-size": {
             default:
-                "h-5 w-5 data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0",
-            small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px] data-[state=unchecked]:translate-x-0",
-            large: "h-[30px] w-[30px] data-[state=checked]:translate-x-[31px] data-[state=unchecked]:translate-x-[1px]",
+                "h-5 w-5 data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0 data-[state=checked]:rtl:-translate-x-5",
+            small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px] data-[state=unchecked]:translate-x-0 data-[state=checked]:rtl:translate-x-[-17px]",
+            large: "h-[30px] w-[30px] data-[state=checked]:translate-x-[31px] data-[state=unchecked]:translate-x-px data-[state=checked]:rtl:translate-x-[-31px] data-[state=unchecked]:rtl:-translate-x-px",
         },
     },
 });
@@ -52,7 +52,7 @@ const ToggleSwitch = React.forwardRef<
         disabled={disabled}
         tabIndex={disabled ? -1 : 0}
         className={cn(
-            "wails-no-draggable peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940 disabled:cursor-not-allowed disabled:opacity-50",
+            "wails-no-draggable peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
             className,
             switchVariants({ size, variant }),
         )}
