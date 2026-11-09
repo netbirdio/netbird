@@ -233,7 +233,10 @@ The tray also reads a tray-only synthetic `"Error"` for icon purposes; the front
   severity: string;       // "info"|"warning"|"error"|"critical" (lowercased proto enum, "SystemEvent_" prefix stripped)
   category: string;       // "network"|"dns"|"authentication"|"connectivity"|"system" (same casing rules)
   message: string;        // technical / log line
-  userMessage: string;    // human-friendly — render this
+  userMessage: string;    // English fallback text, used when messageKey is empty or unknown to the UI bundle
+  messageKey: string;     // stable key into the UI translation bundle, empty on events without text; resolve this first
+  messageArgs: Record<string, string>;  // placeholder values for messageKey, empty object when none
+  titleKey: string;       // key for a localized notification title, empty when the UI should compose one from severity and category
   timestamp: number;      // unix seconds
   metadata: Record<string, string>; }   // keys: "new_version_available", "enforced", "id", "network", "version", "progress_window", …
 ```

@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cProto "github.com/netbirdio/netbird/client/proto"
 )
 
@@ -249,27 +252,21 @@ func TestWarningFiresOnceWithinLeadWindow(t *testing.T) {
 // English text, so a warning that ships no key would silently regress to English.
 func TestWarningCarriesLocalizableMessage(t *testing.T) {
 	r := &fakeRecorder{}
-	w := newWatcher(50*time.Millisecond, r)
+	// A wide lead window with a deadline well inside it fires the warning
+	// immediately, so timer slack cannot push the deadline past before publish.
+	w := newWatcher(time.Hour, r)
 	defer w.Close()
 
-	_ = w.Update(time.Now().Add(80 * time.Millisecond))
+	require.NoError(t, w.Update(time.Now().Add(5*time.Minute)))
 
 	events := waitForEvents(t, r, 2)
 	warning := events[1]
-	if !warning.isWarning() {
-		t.Fatalf("event[1] should be a warning publish, got %+v", warning)
-	}
-	if warning.msgKey != cProto.UserMsgSessionExpiresIn {
-		t.Errorf("warning message key = %q, want %q", warning.msgKey, cProto.UserMsgSessionExpiresIn)
-	}
-	if warning.titleKey != cProto.TitleSessionWarning {
-		t.Errorf("warning title key = %q, want %q", warning.titleKey, cProto.TitleSessionWarning)
-	}
+	require.True(t, warning.isWarning(), "event[1] should be a warning publish, got %+v", warning)
+	assert.Equal(t, cProto.UserMsgSessionExpiresIn, warning.msgKey, "warning message key")
+	assert.Equal(t, cProto.TitleSessionWarning, warning.titleKey, "warning title key")
 	// The remaining time is rendered at publish time so every consumer of the
-	// event agrees on it; the exact value depends on timer slack.
-	if remaining := warning.msgArgs[cProto.ArgRemaining]; remaining == "" {
-		t.Errorf("warning is missing the %q argument, args=%v", cProto.ArgRemaining, warning.msgArgs)
-	}
+	// event agrees on it.
+	assert.NotEmpty(t, warning.msgArgs[cProto.ArgRemaining], "warning remaining-time argument")
 }
 
 func TestWarningFiresImmediatelyWhenAlreadyInsideWindow(t *testing.T) {

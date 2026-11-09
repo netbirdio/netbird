@@ -28,7 +28,8 @@ func shippedBundle(t *testing.T) *Bundle {
 func TestUserMessageKeysExistInEnglishBundle(t *testing.T) {
 	b := shippedBundle(t)
 
-	for key, text := range proto.UserMessageTexts {
+	for _, key := range proto.UserMessageBodyKeys {
+		text := proto.UserMessageTexts[key]
 		got, ok := b.Lookup(DefaultLanguage, string(key))
 		if !assert.True(t, ok, "message key %q has no en translation", key) {
 			continue
@@ -53,10 +54,7 @@ func TestUserMessageTitleKeysExistInEnglishBundle(t *testing.T) {
 func TestUserMessageKeysTranslatedInEveryLanguage(t *testing.T) {
 	b := shippedBundle(t)
 
-	keys := make([]proto.UserMessageKey, 0, len(proto.UserMessageTexts))
-	for key := range proto.UserMessageTexts {
-		keys = append(keys, key)
-	}
+	keys := append([]proto.UserMessageKey{}, proto.UserMessageBodyKeys...)
 	keys = append(keys, proto.UserMessageTitleKeys...)
 
 	for _, lang := range b.Languages() {

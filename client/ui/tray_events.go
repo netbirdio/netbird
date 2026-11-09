@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -28,6 +29,7 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		go t.loadConfig()
 		return
 	}
+	se = t.withSessionKeys(se)
 	if se.MessageKey == "" && se.UserMessage == "" {
 		return
 	}
@@ -62,7 +64,41 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	if id := se.Metadata["id"]; id != "" {
 		body += fmt.Sprintf(" ID: %s", id)
 	}
-	t.notify(t.eventTitle(se), body, notifyIDEvent+se.ID)
+	id := notifyIDEvent + se.ID
+	if se.Metadata[proto.MetadataTypeKey] == proto.MetadataTypePolicyApplied {
+		id = notifyIDMDMPolicy
+	}
+	t.notify(t.eventTitle(se), body, id)
+}
+
+// withSessionKeys completes the message of a session warning or deadline
+// rejection. A daemon that predates messageKey sent only metadata and left the
+// text to the UI, so such an event is given its keys here instead of being
+// dropped by the message gate. For a warning that carries a deadline, the
+// countdown is always formatted here in the active locale rather than taken
+// from the daemon, which has no locale.
+func (t *Tray) withSessionKeys(se services.SystemEvent) services.SystemEvent {
+	if se.MessageKey == "" && se.Metadata[authsession.MetaDeadlineRejected] != "" {
+		se.MessageKey = string(proto.UserMsgSessionDeadlineReject)
+		se.TitleKey = string(proto.TitleSessionDeadlineReject)
+		return se
+	}
+	if se.Metadata[authsession.MetaWarning] != "true" {
+		return se
+	}
+	if se.MessageKey == "" {
+		se.MessageKey = string(proto.UserMsgSessionExpiresSoon)
+		se.TitleKey = string(proto.TitleSessionWarning)
+	}
+	deadline, err := authsession.ParseExpiresAt(se.Metadata[authsession.MetaExpiresAt])
+	if err != nil || time.Until(deadline) <= 0 {
+		return se
+	}
+	se.MessageKey = string(proto.UserMsgSessionExpiresIn)
+	se.MessageArgs = map[string]string{
+		proto.ArgRemaining: t.formatSessionRemaining(time.Until(deadline)),
+	}
+	return se
 }
 
 // localizedEventMessage resolves the daemon's message key against the active

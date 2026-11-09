@@ -69,6 +69,29 @@ const (
 	TitleSessionDeadlineReject UserMessageKey = "notify.sessionDeadlineRejected.title"
 )
 
+// UserMessageBodyKeys lists every body key a daemon can publish, so the tests
+// can tell a constant that was never given an English template or a translation.
+var UserMessageBodyKeys = []UserMessageKey{
+	UserMsgPanic,
+	UserMsgDNSRecovered,
+	UserMsgDNSUnreachable,
+	UserMsgExitNodeConnected,
+	UserMsgExitNodeDisconnected,
+	UserMsgExitNodeConnectionLost,
+	UserMsgExitNodeHAChange,
+	UserMsgExitNodeDisconnectedUnknown,
+	UserMsgUpdateInstalling,
+	UserMsgUpdateCompleted,
+	UserMsgUpdateFailed,
+	UserMsgMDMPolicyApplied,
+	UserMsgSessionExpiresIn,
+	UserMsgSessionExpiresSoon,
+	UserMsgSessionDeadlineReject,
+	UserMsgCertPostureProven,
+	UserMsgCertPostureLost,
+	UserMsgCertPostureStoreStuck,
+}
+
 // UserMessageTitleKeys lists every title key a daemon can publish. It sits next
 // to the constants above because the two must grow together: a title key missing
 // from this slice ships untranslated, and the i18n test that would have caught it
@@ -185,8 +208,14 @@ func (m *UserMessage) Text() string {
 		log.Warnf("no English template for user message key %q", m.key)
 		return ""
 	}
-	for name, value := range m.args {
-		tmpl = strings.ReplaceAll(tmpl, "{"+name+"}", value)
+	if len(m.args) == 0 {
+		return tmpl
 	}
-	return tmpl
+	pairs := make([]string, 0, len(m.args)*2)
+	for name, value := range m.args {
+		pairs = append(pairs, "{"+name+"}", value)
+	}
+	// A single pass keeps a value that itself contains "{other}" from being
+	// substituted again.
+	return strings.NewReplacer(pairs...).Replace(tmpl)
 }

@@ -161,10 +161,13 @@ func applyPlaceholders(s string, args []string) string {
 		log.Debugf("i18n placeholder args not paired: %d items, last dropped", len(args))
 		args = args[:len(args)-1]
 	}
+	pairs := make([]string, 0, len(args))
 	for j := 0; j < len(args); j += 2 {
-		s = strings.ReplaceAll(s, "{"+args[j]+"}", args[j+1])
+		pairs = append(pairs, "{"+args[j]+"}", args[j+1])
 	}
-	return s
+	// A single pass keeps a value that itself contains "{other}" from being
+	// substituted again.
+	return strings.NewReplacer(pairs...).Replace(s)
 }
 
 func loadLocaleIndex(localesFS fs.FS) (*localeIndex, error) {

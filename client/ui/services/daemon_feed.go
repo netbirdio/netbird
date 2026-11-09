@@ -577,12 +577,15 @@ func systemEventFromProto(e *proto.SystemEvent) SystemEvent {
 		Message:     e.GetMessage(),
 		UserMessage: e.GetUserMessage(),
 		MessageKey:  e.GetMessageKey(),
-		MessageArgs: e.GetMessageArgs(),
+		MessageArgs: map[string]string{},
 		TitleKey:    e.GetTitleKey(),
 		Metadata:    map[string]string{},
 	}
 	if ts := e.GetTimestamp(); ts != nil {
 		out.Timestamp = ts.GetSeconds()
+	}
+	for k, v := range e.GetMessageArgs() {
+		out.MessageArgs[k] = v
 	}
 	for k, v := range e.GetMetadata() {
 		out.Metadata[k] = v

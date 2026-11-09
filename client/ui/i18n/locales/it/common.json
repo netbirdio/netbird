@@ -249,7 +249,7 @@
         "message": "NetBird non è riuscito a usare un certificato richiesto dai criteri per i dispositivi dell'organizzazione. L'accesso ad alcune risorse potrebbe essere bloccato finché non ne sarà disponibile uno."
     },
     "event.certPosture.storeStuck": {
-        "message": "NetBird non riesce a leggere i certificati richiesti dai criteri per i dispositivi dell'organizzazione perché l'archivio dei certificati ha smesso di rispondere. Se il problema persiste, riavviare il servizio NetBird."
+        "message": "NetBird non riesce a leggere i certificati richiesti dai criteri per i dispositivi dell'organizzazione perché l'archivio dei certificati ha smesso di rispondere. Se il problema persiste, riavvii il servizio NetBird."
     },
     "common.cancel": {
         "message": "Annulla"

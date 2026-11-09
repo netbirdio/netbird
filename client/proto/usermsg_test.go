@@ -42,7 +42,7 @@ func TestUserMessageText(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.msg.Text())
+			assert.Equal(t, tc.want, tc.msg.Text(), "Text() for case %q", tc.name)
 		})
 	}
 }
@@ -78,6 +78,27 @@ func TestUserMessageTextsAreNonEmpty(t *testing.T) {
 		assert.NotEmpty(t, text, "message key %q has an empty template", key)
 		assert.NotEmpty(t, key, "the catalog must not contain an empty key")
 	}
+}
+
+// The body keys are listed separately from the template map, so a constant added
+// to one and not the other would otherwise compile and pass.
+func TestUserMessageBodyKeysMatchTemplates(t *testing.T) {
+	seen := make(map[UserMessageKey]struct{})
+	for _, key := range UserMessageBodyKeys {
+		_, dup := seen[key]
+		assert.False(t, dup, "body key %q listed twice", key)
+		seen[key] = struct{}{}
+		_, ok := UserMessageTexts[key]
+		assert.True(t, ok, "body key %q has no English template", key)
+	}
+	assert.Len(t, UserMessageBodyKeys, len(UserMessageTexts),
+		"every template must be listed in UserMessageBodyKeys")
+}
+
+func TestUserMessageArgValueIsNotResubstituted(t *testing.T) {
+	msg := NewUserMessage(UserMsgUpdateFailed, ArgReason, "bad {version}", ArgVersion, "1.0")
+	assert.Equal(t, "Auto-update failed: bad {version}", msg.Text(),
+		"a placeholder inside an argument value must stay literal")
 }
 
 func TestUserMessageTitleKeysAreUnique(t *testing.T) {

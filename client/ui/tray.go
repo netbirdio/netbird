@@ -27,6 +27,7 @@ const (
 	notifyIDUpdatePrefix = "netbird-update-"
 	notifyIDEvent        = "netbird-event-"
 	notifyIDTrayError    = "netbird-tray-error"
+	notifyIDMDMPolicy    = "netbird-mdm-policy"
 
 	statusError = "Error"
 

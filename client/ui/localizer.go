@@ -146,8 +146,8 @@ func (l *Localizer) StatusLabel(status string) string {
 }
 
 // flattenArgs turns a placeholder map into the flat name/value slice the bundle
-// takes. Iteration order is irrelevant: each pair substitutes an independent
-// {name}.
+// takes. Iteration order is irrelevant because the bundle substitutes every
+// pair in a single pass.
 func flattenArgs(args map[string]string) []string {
 	if len(args) == 0 {
 		return nil

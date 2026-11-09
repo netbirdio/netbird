@@ -180,7 +180,7 @@
         "message": "Votre configuration NetBird a été mise à jour par votre politique informatique."
     },
     "event.title": {
-        "message": "{severity} : {category}"
+        "message": "{severity}\u00a0: {category}"
     },
     "event.severity.info": {
         "message": "Info"
