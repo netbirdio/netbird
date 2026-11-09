@@ -40,6 +40,8 @@ type TimeBasedAuthSecretsManager struct {
 	mux             sync.Mutex
 	turnCfg         *nbconfig.TURNConfig
 	relayCfg        *nbconfig.Relay
+	turnTTL         time.Duration
+	relayTTL        time.Duration
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
 	updateManager   network_map.PeersUpdateManager
@@ -70,29 +72,37 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 	}
 
 	if turnCfg != nil {
-		duration := turnCfg.CredentialsTTL.Duration
-		if turnCfg.CredentialsTTL.Duration <= 0 {
-			log.Warnf("TURN credentials TTL is not set or invalid, using default value %s", defaultDuration)
-			duration = defaultDuration
-		}
-		mgr.turnHmacToken = auth.NewTimedHMAC(turnCfg.Secret, duration)
+		mgr.turnTTL = effectiveTTL("TURN", turnCfg.CredentialsTTL.Duration)
+		mgr.turnHmacToken = auth.NewTimedHMAC(turnCfg.Secret, mgr.turnTTL)
 	}
 
 	if relayCfg != nil {
-		duration := relayCfg.CredentialsTTL.Duration
-		if relayCfg.CredentialsTTL.Duration <= 0 {
-			log.Warnf("Relay credentials TTL is not set or invalid, using default value %s", defaultDuration)
-			duration = defaultDuration
-		}
+		mgr.relayTTL = effectiveTTL("Relay", relayCfg.CredentialsTTL.Duration)
 
 		hashedSecret := sha256.Sum256([]byte(relayCfg.Secret))
 		var err error
-		if mgr.relayHmacToken, err = authv2.NewGenerator(authv2.AuthAlgoHMACSHA256, hashedSecret[:], duration); err != nil {
+		if mgr.relayHmacToken, err = authv2.NewGenerator(authv2.AuthAlgoHMACSHA256, hashedSecret[:], mgr.relayTTL); err != nil {
 			log.Errorf("failed to create relay token generator: %s", err)
 		}
 	}
 
 	return mgr, nil
+}
+
+// effectiveTTL returns the configured credentials TTL, or defaultDuration when it is unset
+// or non-positive. Both the token generator and the refresh ticker use the result.
+func effectiveTTL(kind string, configured time.Duration) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	log.Warnf("%s credentials TTL is not set or invalid, using default value %s", kind, defaultDuration)
+	return defaultDuration
+}
+
+// refreshInterval returns how often credentials are pushed: at three quarters of their TTL,
+// so peers receive new ones before the current ones expire.
+func refreshInterval(ttl time.Duration) time.Duration {
+	return ttl / 4 * 3
 }
 
 // GetWGKey returns WireGuard private key used to generate peer keys
@@ -178,7 +188,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, accountI
 }
 
 func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, accountID, peerID string, cancel chan struct{}) {
-	ticker := time.NewTicker(m.turnCfg.CredentialsTTL.Duration / 4 * 3)
+	ticker := time.NewTicker(refreshInterval(m.turnTTL))
 	defer ticker.Stop()
 
 	for {
@@ -193,7 +203,7 @@ func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, acc
 }
 
 func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, accountID, peerID string, cancel chan struct{}) {
-	ticker := time.NewTicker(m.relayCfg.CredentialsTTL.Duration / 4 * 3)
+	ticker := time.NewTicker(refreshInterval(m.relayTTL))
 	defer ticker.Stop()
 
 	for {

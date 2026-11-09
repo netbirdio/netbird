@@ -263,6 +263,8 @@ func TestTimeBasedAuthSecretsManager_SetupRefreshWithoutTTL(t *testing.T) {
 
 			tested, err := NewTimeBasedAuthSecretsManager(peersManager, tc, rc, settingsMockManager, groupsManager)
 			require.NoError(t, err)
+			assert.Equal(t, defaultDuration, tested.turnTTL, "TURN TTL should fall back to the default")
+			assert.Equal(t, defaultDuration, tested.relayTTL, "relay TTL should fall back to the default")
 
 			tested.SetupRefresh(context.Background(), "someAccountID", peer)
 			t.Cleanup(func() { tested.CancelRefresh(peer) })
