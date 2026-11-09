@@ -283,8 +283,11 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 			defer c.watchdogWg.Done()
 			c.watchReceiveStream(streamCtx, cancelStream, stream)
 		}()
-		unregisterStale := hbwatch.Register(hbwatch.Signal, hbwatch.ActionProbe, func() {
-			go c.staleProbe(streamCtx, cancelStream, stream)
+		// A missed tick reconnects at once. A probe first costs a full period
+		// when the phone sleeps before the answer is checked.
+		unregisterStale := hbwatch.Register(hbwatch.Signal, hbwatch.ActionReconnect, func() {
+			log.Warnf("signal stream is stale, reconnecting")
+			cancelStream()
 		}, func() {
 			log.Warnf("signal heartbeat is off phase, reconnecting")
 			cancelStream()
